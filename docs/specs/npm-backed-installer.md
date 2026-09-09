@@ -38,9 +38,9 @@ Documentation downloads the script completely to a `mktemp` file before executio
 ## Files
 
 - `install.sh` — canonical wrapper.
-- `scripts/checkInstallScript.mjs` — one flow smoke with fake Node/npm, stale PATH binary, whitespace prefix, old Node, injection, and npm permission failure.
-- `scripts/update.mjs` — lifecycle-script and active-prefix parity.
-- `scripts/pack.mjs`, `scripts/deployWebExport.sh` — copy the canonical script into the browser/web artifact.
+- `scripts/diagnostics/application/checkInstallScript.mjs` — one flow smoke with fake Node/npm, stale PATH binary, whitespace prefix, old Node, injection, and npm permission failure.
+- `scripts/release/application/updateCli.mjs` — lifecycle-script and active-prefix parity.
+- `scripts/release/application/pack.mjs`, `scripts/deployWebExport.sh` — copy the canonical script into the browser/web artifact.
 - README, self-hosting, release, clean-room, and npm docs — one consistent install policy.
 
 ## Verification
@@ -59,5 +59,5 @@ Remove the documented convenience URL and `install.sh`; npm installation and `mu
 
 ## Revisions
 
-- 2026-08-20 — Replaced the initially proposed `trymuxr.com/install.sh` endpoint after review proved that URL is not deployed by this repository. GitHub raw `main/install.sh` is published by the same reviewed source merge; release verification byte-compares it to the repository file.
-- 2026-08-21 — Fable review: moved PATH repair guidance before handoff, named the stale binary, required prefix-first ordering, and isolated the README cleanup trap in a subshell.
+- 2026-08-20 — Replaced the initially proposed `trymuxr.com/install.sh` endpoint because that URL is not deployed by this repository. GitHub raw `main/install.sh` is published by the same source merge; release verification byte-compares it to the repository file.
+- 2026-08-21 — Moved PATH repair guidance before handoff, named the stale binary, required prefix-first ordering, and isolated the README cleanup trap in a subshell.

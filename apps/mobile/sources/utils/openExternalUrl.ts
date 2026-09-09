@@ -1,6 +1,6 @@
 import { Linking, Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
-import { isTauri } from './isTauri';
+import { isTauri } from '@/utils/isTauri';
 
 /**
  * Opens a URL in the system browser, not inside muxr. Chrome Custom Tabs

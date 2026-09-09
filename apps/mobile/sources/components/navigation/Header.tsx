@@ -3,18 +3,18 @@ import { Animated, View, Text, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackHeaderProps } from '@react-navigation/native-stack';
 import { BlurView } from 'expo-blur';
-import { layout } from '../layout';
+import { layout } from '@/components/layout';
 import { isRunningOnMac } from '@/utils/platform';
 import { useHeaderHeight, useIsTablet, useSplitViewLayout } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { MobileGlassSurface } from '../MobileGlass';
-import { HeaderBackButton } from './HeaderBackButton';
+import { MobileGlassSurface } from '@/components/MobileGlass';
+import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import {
     MOBILE_GLASS_CONTROL_RADIUS,
     MOBILE_GLASS_CONTROL_SIZE,
     MOBILE_GLASS_HEADER_HEIGHT,
-} from './headerMetrics';
+} from '@/components/navigation/headerMetrics';
 
 interface HeaderProps {
     title?: React.ReactNode;

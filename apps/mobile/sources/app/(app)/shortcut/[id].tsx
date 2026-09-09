@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { runShortcut } from '@/plugins/runShortcut';
+import { runShortcut } from '@/plugins';
 
 /**
  * Launcher deep-link target. Home is restored first so the shortcut's action

@@ -1,0 +1,131 @@
+import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
+import type { AgentLifecycle, LifecycleCatalog, LifecycleEvent, LifecycleReasonCode } from '@muxr/contract';
+import { createPersistQueue, loadPersistedJson } from '../../platform/persistedJson.js';
+
+interface LifecycleFile {
+    revision: number;
+    events: LifecycleEvent[];
+    current?: Record<string, LifecycleEvent>;
+}
+
+export interface LifecycleStore {
+    catalog(): LifecycleCatalog;
+    current(sessionId: string): LifecycleEvent | undefined;
+    latestFor(sessionId: string): LifecycleEvent | undefined;
+    remove(sessionId: string): void;
+    transition(sessionId: string, agentName: string, state: AgentLifecycle, reason: LifecycleReasonCode, taskTitle?: string, agentKind?: string): LifecycleEvent | undefined;
+}
+
+const MAX_EVENTS = 50;
+const MAX_CURRENT = 500;
+const MAX_AGE_MS = 7 * 24 * 60 * 60_000;
+const STATES = new Set<AgentLifecycle>(['starting', 'idle', 'working', 'blocked', 'done', 'failed', 'unknown']);
+
+function safeTaskTitle(value: string | undefined): string | undefined {
+    if (value === undefined || value === '' || value.length > 120 || /[\0-\x1F\x7F]/.test(value)) return undefined;
+    const privacyProbe = value.normalize('NFKC').trimStart();
+    if (/^(?:\/|[A-Za-z]:\\)|\b(?:token|password|secret|credential)\s*=/i.test(privacyProbe)) return undefined;
+    return value;
+}
+
+function safeAgentKind(value: string | undefined): string | undefined {
+    return value !== undefined && /^[a-z][a-z0-9_-]{0,31}$/.test(value) ? value : undefined;
+}
+
+function valid(value: unknown): value is LifecycleFile {
+    return typeof value === 'object' && value !== null
+        && typeof (value as LifecycleFile).revision === 'number'
+        && Array.isArray((value as LifecycleFile).events);
+}
+
+export function createLifecycleStore(dataDir: string, now: () => Date = () => new Date()): LifecycleStore {
+    const filePath = join(dataDir, 'lifecycle-activity.json');
+    const loaded = loadPersistedJson(filePath, valid, { revision: 0, events: [] });
+    let revision = loaded.revision;
+    let events = loaded.events.filter((event) =>
+        typeof event.eventId === 'string' && typeof event.sessionId === 'string'
+        && typeof event.agentName === 'string' && STATES.has(event.state)
+        && (event.taskTitle === undefined || safeTaskTitle(event.taskTitle) === event.taskTitle)
+        && (event.agentKind === undefined || safeAgentKind(event.agentKind) === event.agentKind)
+        && Number.isFinite(Date.parse(event.at)) && now().getTime() - Date.parse(event.at) <= MAX_AGE_MS,
+    ).slice(-MAX_EVENTS);
+    const restoredCurrent = loaded.current === undefined ? events : Object.values(loaded.current);
+    const current = new Map(restoredCurrent
+        .filter((event) => typeof event.sessionId === 'string' && typeof event.eventId === 'string'
+            && typeof event.agentName === 'string' && STATES.has(event.state)
+            && (event.taskTitle === undefined || safeTaskTitle(event.taskTitle) === event.taskTitle)
+            && (event.agentKind === undefined || safeAgentKind(event.agentKind) === event.agentKind))
+        .sort((left, right) => left.at.localeCompare(right.at))
+        .slice(-MAX_CURRENT)
+        .map((event) => [event.sessionId, event]));
+    const persist = createPersistQueue(filePath);
+
+    function save(): void {
+        revision += 1;
+        persist.schedule({ revision, events, current: Object.fromEntries(current) });
+    }
+
+    return {
+        catalog() {
+            const current = events.filter((event) => now().getTime() - Date.parse(event.at) <= MAX_AGE_MS);
+            if (current.length !== events.length) {
+                events = current;
+                save();
+            }
+            return { revision, events: [...events].reverse() };
+        },
+        current(sessionId) {
+            return current.get(sessionId);
+        },
+        latestFor(sessionId) {
+            return current.get(sessionId);
+        },
+        remove(sessionId) {
+            if (current.delete(sessionId)) save();
+        },
+        transition(sessionId, agentName, state, reason, taskTitle, agentKind) {
+            taskTitle = safeTaskTitle(taskTitle);
+            agentKind = safeAgentKind(agentKind);
+            const previous = this.current(sessionId);
+            if (previous?.state === state && previous.reasonCode === reason && previous.agentName === agentName) {
+                if (previous.taskTitle !== taskTitle || previous.agentKind !== agentKind) {
+                    const updated = { ...previous };
+                    if (taskTitle === undefined) delete updated.taskTitle;
+                    else updated.taskTitle = taskTitle;
+                    if (agentKind === undefined) delete updated.agentKind;
+                    else updated.agentKind = agentKind;
+                    current.set(sessionId, updated);
+                    events = events.map((event) => event.eventId === updated.eventId ? updated : event);
+                    save();
+                }
+                // The lifecycle did not move. Returning the record here made a
+                // working agent republish the same eventId at the rate its task
+                // title animates, which tells a client nothing it can show.
+                return undefined;
+            }
+            const event: LifecycleEvent = {
+                eventId: randomUUID(),
+                sessionId,
+                agentName,
+                ...(taskTitle === undefined ? {} : { taskTitle }),
+                ...(agentKind === undefined ? {} : { agentKind }),
+                state,
+                reasonCode: reason,
+                reason,
+                at: now().toISOString(),
+            };
+            events = [...events, event]
+                .filter((item) => now().getTime() - Date.parse(item.at) <= MAX_AGE_MS)
+                .slice(-MAX_EVENTS);
+            current.delete(sessionId);
+            current.set(sessionId, event);
+            if (current.size > MAX_CURRENT) {
+                const removable = [...current].find(([, item]) => item.state === 'done' || item.state === 'failed' || item.state === 'unknown') ?? current.entries().next().value;
+                if (removable !== undefined) current.delete(removable[0]);
+            }
+            save();
+            return event;
+        },
+    };
+}

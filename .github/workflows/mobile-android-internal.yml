@@ -1,0 +1,381 @@
+name: mobile Android internal
+
+on:
+  workflow_call:
+    inputs:
+      release_version:
+        type: string
+        required: false
+        default: ''
+      version:
+        required: true
+        type: string
+      version_code:
+        required: true
+        type: string
+      development:
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful release-candidate run, or a build-only run of this workflow, to upload unchanged (empty builds manually)
+        required: false
+        type: string
+      version:
+        description: Marketing version, for example 0.1.13
+        required: true
+        type: string
+      version_code:
+        description: Positive Android versionCode
+        required: true
+        type: string
+      submit_to_play:
+        description: Upload the AAB to Play Internal
+        required: true
+        default: false
+        type: boolean
+      confirmation:
+        description: Type release-VERSION-VERSION_CODE
+        required: true
+        type: string
+
+concurrency:
+  group: mobile-android-internal-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  APP_ENV: production
+  MUXR_PUBLIC_BASE_URL: https://trymuxr.com
+  MUXR_DISTRIBUTION: store
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      APP_VERSION: ${{ inputs.version }}
+      MUXR_RELEASE_VERSION: ${{ inputs.release_version || inputs.version }}
+      ANDROID_VERSION_CODE: ${{ inputs.version_code }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+      SUBMIT_TO_PLAY: ${{ inputs.submit_to_play }}
+    steps:
+      - name: Validate release request
+        run: |
+          if [ -n "$CANDIDATE_RUN_ID" ]; then test "$SUBMIT_TO_PLAY" = true; fi
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$ANDROID_VERSION_CODE" =~ ^[1-9][0-9]*$ ]]
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ -n "$CONFIRMATION" ]; then test "$CONFIRMATION" = "release-$APP_VERSION-$ANDROID_VERSION_CODE"; fi
+
+  build:
+    if: github.ref == 'refs/heads/main' && !inputs.candidate_run_id
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: stores
+    env:
+      APP_VERSION: ${{ inputs.version }}
+      MUXR_RELEASE_VERSION: ${{ inputs.release_version || inputs.version }}
+      ANDROID_VERSION_CODE: ${{ inputs.version_code }}
+      APP_ENV: ${{ inputs.development && 'development' || 'production' }}
+      MUXR_PUBLIC_BASE_URL: ${{ inputs.development && 'https://dev.invalid' || 'https://trymuxr.com' }}
+      ORG_GRADLE_PROJECT_muxrDevelopmentApp: ${{ inputs.development && 'true' || 'false' }}
+      SUBMIT_TO_PLAY: ${{ inputs.submit_to_play && 'true' || 'false' }}
+      ORG_GRADLE_PROJECT_appVersion: ${{ inputs.version }}
+      ORG_GRADLE_PROJECT_androidVersionCode: ${{ inputs.version_code }}
+      ORG_GRADLE_PROJECT_reactNativeArchitectures: arm64-v8a
+    steps:
+      - name: Validate credentials
+        env:
+          HAS_KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 != '' }}
+          HAS_STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD != '' }}
+          HAS_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS != '' }}
+          HAS_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD != '' }}
+          HAS_PLAY_CREDENTIAL: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
+        run: |
+          test "$HAS_KEYSTORE" = true
+          test "$HAS_STORE_PASSWORD" = true
+          test "$HAS_KEY_ALIAS" = true
+          test "$HAS_KEY_PASSWORD" = true
+          if [ "$SUBMIT_TO_PLAY" = true ]; then test "$HAS_PLAY_CREDENTIAL" = true; fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.2
+          cache: yarn
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - name: Render this build's release report from its own source
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-report"
+          node scripts/release/presentation/changelog.mjs generate --version "$MUXR_RELEASE_VERSION" --commit "$GITHUB_SHA" --build "$ANDROID_VERSION_CODE" --directory "$RUNNER_TEMP/release-report"
+          node scripts/release/presentation/changelog.mjs check --version "$MUXR_RELEASE_VERSION" --commit "$GITHUB_SHA" --build "$ANDROID_VERSION_CODE" --directory "$RUNNER_TEMP/release-report"
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+      - name: Materialize signing store
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+        run: |
+          keystore="$RUNNER_TEMP/android-upload.keystore"
+          printf '%s' "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          echo "ORG_GRADLE_PROJECT_releaseStoreFile=$keystore" >> "$GITHUB_ENV"
+      - name: Carry the declared store profile into the build
+        if: ${{ !inputs.development }}
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          // The identity a store build ships is declared once, in the profile the
+          // build is named after. Without these the app config omits extra.eas and
+          // the client falls back to a loopback relay, which a signed store build
+          // must never do. Development builds keep their own identity untouched.
+          const profile = JSON.parse(readFileSync('apps/mobile/eas.json', 'utf8')).build.production.env;
+          for (const key of ['APP_ENV', 'MUXR_PUBLIC_BASE_URL', 'ORG_GRADLE_PROJECT_reactNativeArchitectures']) {
+              if (process.env[key] !== profile[key]) {
+                  throw new Error(`This workflow builds with ${key}=${process.env[key]}, but the production profile declares ${profile[key]}`);
+              }
+          }
+          for (const key of ['MUXR_EAS_PROJECT_ID', 'MUXR_DISTRIBUTION', 'EXPO_PUBLIC_MUXR_MODE', 'EXPO_PUBLIC_MUXR_RELAY_URL']) {
+              const value = profile[key];
+              if (typeof value !== 'string' || value === '') throw new Error(`The production profile declares no ${key}`);
+              appendFileSync(process.env.GITHUB_ENV, `${key}=${value}\n`);
+          }
+          JS
+      - run: yarn install --frozen-lockfile --non-interactive
+      - name: Mobile release gate
+        run: |
+          yarn build
+          yarn workspace @muxr/mobile typecheck
+          yarn workspace @muxr/mobile vitest run sources/account/application/accountSession.integration.spec.ts sources/catalog/application/sessionSync.integration.spec.ts
+          node scripts/diagnostics/application/checkMobileCommerceBuilds.mjs
+          node scripts/diagnostics/application/checkNoSecrets.mjs
+          node scripts/diagnostics/application/verifyNativePatches.mjs
+      - name: Freeze actual patched dependencies
+        run: |
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          import { sourceIdentity, patchedDependencies } from './perf/lib/provenance.mjs';
+          const source = sourceIdentity();
+          if (source.dirty) throw new Error('Android build requires clean source');
+          writeFileSync(`${process.env.RUNNER_TEMP}/native-provenance.json`, JSON.stringify({ ...source, nativeDependencies: patchedDependencies() }, null, 2));
+          JS
+      - name: Build signed APK and AAB
+        working-directory: apps/mobile/android
+        env:
+          ORG_GRADLE_PROJECT_releaseStorePassword: ${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_releaseKeyAlias: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_releaseKeyPassword: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease :app:bundleRelease --max-workers=2
+      - name: Verify signed artifacts and versions
+        run: |
+          apk="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
+          aab="apps/mobile/android/app/build/outputs/bundle/release/app-release.aab"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          apkanalyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          test -x "$apksigner"
+          test -x "$apkanalyzer"
+          "$apksigner" verify --verbose --print-certs "$apk"
+          if aab_verify_output="$(jarsigner -verify -strict "$aab" 2>&1)"; then
+            aab_verify_status=0
+          else
+            aab_verify_status=$?
+          fi
+          printf '%s\n' "$aab_verify_output"
+          grep -q 'jar verified' <<<"$aab_verify_output"
+          # A self-signed upload certificate is expected; jarsigner reports it as bit 4.
+          if [ "$aab_verify_status" -ne 0 ]; then
+            test "$aab_verify_status" -eq 4
+            grep -qi 'self-signed' <<<"$aab_verify_output"
+            ! grep -Eqi 'expired|not yet valid|algorithm.*disabled' <<<"$aab_verify_output"
+          fi
+          expected_id=com.trymuxr.app
+          if [ "$ORG_GRADLE_PROJECT_muxrDevelopmentApp" = true ]; then expected_id=app.muxr.local.dev; fi
+          test "$("$apkanalyzer" manifest application-id "$apk")" = "$expected_id"
+          "$apkanalyzer" manifest print "$apk" > "$RUNNER_TEMP/compiled-manifest.xml"
+          if [ "$expected_id" = app.muxr.local.dev ]; then
+            ! grep -q 'android:scheme="muxr"' "$RUNNER_TEMP/compiled-manifest.xml"
+            ! grep -q 'android:host="trymuxr.com"' "$RUNNER_TEMP/compiled-manifest.xml"
+          fi
+          "$apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/signer.txt"
+          test "$("$apkanalyzer" manifest version-name "$apk")" = "$APP_VERSION"
+          test "$("$apkanalyzer" manifest version-code "$apk")" = "$ANDROID_VERSION_CODE"
+          curl -fsSL https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar -o "$RUNNER_TEMP/bundletool.jar"
+          echo 'a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  '"$RUNNER_TEMP/bundletool.jar" | sha256sum --check
+          test "$(java -jar "$RUNNER_TEMP/bundletool.jar" dump manifest --bundle "$aab" --xpath '/manifest/@android:versionName')" = "$APP_VERSION"
+          test "$(java -jar "$RUNNER_TEMP/bundletool.jar" dump manifest --bundle "$aab" --xpath '/manifest/@android:versionCode')" = "$ANDROID_VERSION_CODE"
+          # What the app actually shipped with, read back out of the artifact.
+          # Push registration reads the project id from this file at runtime, so a
+          # store build that omits it reports no native push however well it signs.
+          if [ "$ORG_GRADLE_PROJECT_muxrDevelopmentApp" != true ]; then
+            unzip -p "$apk" assets/app.config > "$RUNNER_TEMP/apk-app.config"
+            unzip -p "$aab" base/assets/app.config > "$RUNNER_TEMP/aab-app.config"
+            node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          // Both artifacts ship, and only the AAB reaches Play, so neither is
+          // taken on the other's word. The paths differ: an APK carries
+          // assets/app.config, an app bundle carries base/assets/app.config.
+          for (const [artifact, file] of [['APK', 'apk-app.config'], ['AAB', 'aab-app.config']]) {
+              const config = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, file), 'utf8'));
+              const expected = {
+                  'extra.eas.projectId': [config.extra?.eas?.projectId, process.env.MUXR_EAS_PROJECT_ID],
+                  'extra.app.publicBaseUrl': [config.extra?.app?.publicBaseUrl, process.env.MUXR_PUBLIC_BASE_URL],
+                  'extra.app.releaseVersion': [config.extra?.app?.releaseVersion, process.env.MUXR_RELEASE_VERSION],
+                  'extra.app.buildCommitSha': [config.extra?.app?.buildCommitSha, process.env.GITHUB_SHA],
+                  'extra.app.directDistribution': [config.extra?.app?.directDistribution, false],
+              };
+              for (const [field, [embedded, wanted]] of Object.entries(expected)) {
+                  if (embedded !== wanted) throw new Error(`The ${artifact} embeds ${field}=${JSON.stringify(embedded)}, expected ${JSON.stringify(wanted)}`);
+              }
+          }
+          JS
+          fi
+      - name: Upload AAB to Play Internal
+        if: inputs.submit_to_play
+        env:
+          AAB_PATH: ${{ github.workspace }}/apps/mobile/android/app/build/outputs/bundle/release/app-release.aab
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          bundle exec fastlane android upload_internal
+          bundle exec fastlane android verify_internal
+      - name: Package provenance
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          import { sourceIdentity, patchedDependencies } from './perf/lib/provenance.mjs';
+          const before = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/native-provenance.json`));
+          if (sourceIdentity().sourceSha256 !== before.sourceSha256 || JSON.stringify(patchedDependencies()) !== JSON.stringify(before.nativeDependencies)) throw new Error('Android source/native dependencies changed during build');
+          JS
+          output="$RUNNER_TEMP/android-internal"
+          mkdir -p "$output"
+          install -m 644 "$RUNNER_TEMP/native-provenance.json" "$output/native-provenance.json"
+          if [ "$ORG_GRADLE_PROJECT_muxrDevelopmentApp" != true ]; then
+            node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          // The store identity this build was actually given. Every value is
+          // already committed in the profile, so none of it is a secret. The
+          // split is not decoration: the app config attests the first group in
+          // the artifact, while EXPO_PUBLIC_* are Metro inputs inlined at bundle
+          // time that no shipped file can be checked against afterwards.
+          const attested = ['APP_ENV', 'MUXR_PUBLIC_BASE_URL', 'MUXR_DISTRIBUTION', 'MUXR_EAS_PROJECT_ID'];
+          const metroInputs = ['EXPO_PUBLIC_MUXR_MODE', 'EXPO_PUBLIC_MUXR_RELAY_URL'];
+          const gradle = ['ORG_GRADLE_PROJECT_reactNativeArchitectures'];
+          const record = (keys) => Object.fromEntries(keys.map((key) => [key, process.env[key] ?? null]));
+          const path = join(process.env.RUNNER_TEMP, 'android-internal', 'native-provenance.json');
+          const provenance = JSON.parse(readFileSync(path, 'utf8'));
+          provenance.storeEnv = {
+              attestedInAppConfig: record(attested),
+              metroInputsNotAttested: record(metroInputs),
+              gradle: record(gradle),
+          };
+          writeFileSync(path, `${JSON.stringify(provenance, null, 2)}\n`);
+          JS
+          fi
+          install -m 600 apps/mobile/android/app/build/outputs/apk/release/app-release.apk "$output/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.apk"
+          install -m 600 apps/mobile/android/app/build/outputs/bundle/release/app-release.aab "$output/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.aab"
+          apk_sha="$(sha256sum "$output/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.apk" | cut -d ' ' -f 1)"
+          aab_sha="$(sha256sum "$output/muxr-$APP_VERSION-$ANDROID_VERSION_CODE.aab" | cut -d ' ' -f 1)"
+          install -m 644 "$RUNNER_TEMP/compiled-manifest.xml" "$output/compiled-manifest.xml"
+          install -m 644 "$RUNNER_TEMP/signer.txt" "$output/signer.txt"
+          # The report was rendered from the same frozen source this build used,
+          # and is re-checked here so the retained bytes are the rendered ones.
+          node scripts/release/presentation/changelog.mjs check --version "$MUXR_RELEASE_VERSION" --commit "$GITHUB_SHA" --build "$ANDROID_VERSION_CODE" --directory "$RUNNER_TEMP/release-report"
+          install -m 644 "$RUNNER_TEMP/release-report/what-changed.html" "$output/what-changed.html"
+          install -m 644 "$RUNNER_TEMP/release-report/release-notes.md" "$output/release-notes.md"
+          application_id=com.trymuxr.app
+          if [ "$ORG_GRADLE_PROJECT_muxrDevelopmentApp" = true ]; then application_id=app.muxr.local.dev; fi
+          jq -n \
+            --arg bundleIdentifier "$application_id" \
+            --arg gitCommitHash "$GITHUB_SHA" \
+            --arg appVersion "$APP_VERSION" \
+            --arg appBuildVersion "$ANDROID_VERSION_CODE" \
+            --argjson submittedToInternal "$SUBMIT_TO_PLAY" \
+            --arg apkArtifactSha256 "$apk_sha" \
+            --arg artifactSha256 "$aab_sha" \
+            '{platform:"ANDROID", $gitCommitHash, $appVersion, $appBuildVersion, $bundleIdentifier, $submittedToInternal, $apkArtifactSha256, $artifactSha256}' \
+            > "$output/result.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-internal
+          path: ${{ runner.temp }}/android-internal
+          retention-days: 90
+          if-no-files-found: error
+
+  import-candidate:
+    if: github.ref == 'refs/heads/main' && inputs.candidate_run_id && inputs.submit_to_play
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: stores
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+      APP_VERSION: ${{ inputs.version }}
+      MUXR_RELEASE_VERSION: ${{ inputs.release_version || inputs.version }}
+      ANDROID_VERSION_CODE: ${{ inputs.version_code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+      - name: Verify the successful candidate and unchanged production AAB
+        run: |
+          [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID" > "$RUNNER_TEMP/candidate.json"
+          # A candidate, or a build-only run of this workflow: both produce the
+          # same signed artifact, and a build-only run is the only way to get one
+          # without publishing it. A run of this workflow called by the candidate
+          # reports the caller's path, so the two sources stay distinct.
+          jq -e '
+            .head_branch == "main" and .status == "completed" and .conclusion == "success" and (
+              .path == ".github/workflows/release-candidate.yml"
+              or (.path == ".github/workflows/mobile-android-internal.yml" and .event == "workflow_dispatch")
+            )' "$RUNNER_TEMP/candidate.json"
+          gh run download "$CANDIDATE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name android-internal --dir "$RUNNER_TEMP/android-internal"
+          sha=$(jq -r .head_sha "$RUNNER_TEMP/candidate.json")
+          # An artifact that already went to Internal is not a candidate for
+          # being sent again: this rejects a re-import of an earlier import's
+          # own output as well as any run that published what it built. The
+          # sealed result always carries the flag as a boolean, so an absent one
+          # is missing provenance rather than evidence of an unsubmitted build.
+          jq -e --arg sha "$sha" --arg version "$APP_VERSION" --arg code "$ANDROID_VERSION_CODE" '.gitCommitHash == $sha and .appVersion == $version and .appBuildVersion == $code and .bundleIdentifier == "com.trymuxr.app" and .submittedToInternal == false' "$RUNNER_TEMP/android-internal/result.json"
+          mapfile -t bundles < <(find "$RUNNER_TEMP/android-internal" -type f -name '*.aab')
+          test "${#bundles[@]}" -eq 1
+          test "$(sha256sum "${bundles[0]}" | cut -d ' ' -f 1)" = "$(jq -r .artifactSha256 "$RUNNER_TEMP/android-internal/result.json")"
+          # The candidate's release report travels with the artifact it describes.
+          # This import never re-renders it: it carries the retained bytes through.
+          cd "$RUNNER_TEMP/android-internal"
+          sha256sum what-changed.html release-notes.md > "$RUNNER_TEMP/report-digests.txt"
+          cd - > /dev/null
+          echo "AAB_PATH=${bundles[0]}" >> "$GITHUB_ENV"
+      - name: Upload this exact AAB to Internal
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          bundle exec fastlane android upload_internal
+          bundle exec fastlane android verify_internal
+          jq '.submittedToInternal = true' "$RUNNER_TEMP/android-internal/result.json" > "$RUNNER_TEMP/result.json"
+          mv "$RUNNER_TEMP/result.json" "$RUNNER_TEMP/android-internal/result.json"
+          cd "$RUNNER_TEMP/android-internal"
+          sha256sum --check "$RUNNER_TEMP/report-digests.txt"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-internal
+          path: ${{ runner.temp }}/android-internal
+          retention-days: 90
+          if-no-files-found: error

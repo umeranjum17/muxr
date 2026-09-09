@@ -1,0 +1,186 @@
+# muxr
+
+muxr lets a person direct coding agents running on their computers. User-facing identity, lifecycle reporting, proactive voice, and realtime conversation remain separate from internal routing and provider mechanics.
+
+## Machines
+
+**Machine**:
+A computer whose Agents a person directs. Distinct from the phone, browser, or peer that holds a Device Grant to it.
+_Avoid_: host box, node, computer
+
+**Device Grant**:
+Keyed admission a phone, browser, or peer holds to a Machine.
+_Avoid_: client token, paired device
+
+**Peer Identity**:
+Who a socket is after admission: ticket-backed or loopback. Agent Route still authorizes Agents; Peer Identity authorizes the wire.
+_Avoid_: client token, legacy identity, account token
+
+**Ticket**:
+Short-lived proof that mints a WebSocket. Presence of transport means ticket admission.
+_Avoid_: session cookie, API key, machine token
+
+## Agents
+
+**Agent**:
+A coding-agent session muxr tracks. It is the person-shaped row in the herd, not a pane, process, or provider binary.
+_Avoid_: pane, tab, process, session row
+
+**Herd**:
+The collection of Agents a person directs from the phone or desk.
+_Avoid_: session list, inbox, catalog
+
+**Machine**:
+A paired computer running herdr. Used to spawn Agents and open terminals.
+_Avoid_: host, device, computer (except spoken copy)
+
+**Worktree**:
+An isolated checkout herdr creates so Agents can work in parallel on one repo.
+_Avoid_: branch folder, clone
+
+**Agent Name**:
+The current Herdr `agent.name`. Every surface renders it directly; muxr never aliases or persists it.
+_Avoid_: label, display label, pane title, cached name
+
+**Task Title**:
+The current Herdr Agent title for the live generation. Every surface renders it directly; muxr never derives it from navigation labels or restores a prior generation's title.
+_Avoid_: cached title, terminal title, name
+
+**Agent Kind**:
+The current Herdr Agent provider (`pi`, `claude`, `codex`). Separate from Agent Name and Task Title.
+_Avoid_: agent name, kind label, model
+
+**Agent Route**:
+An opaque authorization route bound to exactly one Herdr `agent_session` generation. It survives that generation's pane moves and host restarts; a new generation receives a new route.
+_Avoid_: pane id, spoken name, label, Herdr agent name
+
+**Close Scope**:
+The smallest live Herdr container that can be closed safely: pane, tab, workspace, or worktree group. Moving to a broader Close Scope always requires a separate person confirmation.
+_Avoid_: inferred target, automatic escalation, Stop Agent scope
+
+**Lifecycle Event**:
+A host-emitted change in an Agent's working, blocked, done, or failed state, keyed by Agent Route.
+_Avoid_: status tick, attention row, watch receipt
+
+**Agent Watch**:
+The machine-scoped record of Lifecycle Events and the user-visible reports that follow from them.
+_Avoid_: inbox, notification store, voice queue, catalog cache
+
+**Voice Report**:
+A spoken update about a trusted Agent and Task Title, admitted only after current-schema validation.
+_Avoid_: TTS job, announcement, completion chime
+
+## Realtime voice
+
+**Realtime Playback**:
+The native PCM sink for one voice call, including admission, backpressure, turn-finish drain, and ownership of drain acknowledgements.
+_Avoid_: player, output buffer, audio service
+
+**Stream Generation**:
+The owner of audio currently draining. A replacement stream is a new generation and must not receive acknowledgements for previous audio.
+_Avoid_: epoch, reconnect id, session id
+
+**Output Drain**:
+The ordered wait until native playback of admitted PCM has finished, before queued speech or a connected status for that turn may proceed.
+_Avoid_: flush, complete, EOS
+
+## Mobile application
+
+**Spawn**:
+Starting one Agent or a squad on a Machine, in a directory, optionally on a Worktree.
+_Avoid_: new session, create chat
+
+**Dock**:
+Home chrome that picks Machine, project path, Worktree, and Agent Kind for the next Spawn.
+_Avoid_: composer, launcher, FAB sheet
+
+**Terminal Link**:
+A URL an Agent printed. Loopback HTML can open as Preview; the rest opens outside the app.
+_Avoid_: chip URL, detected hyperlink
+
+**Collaboration**:
+The intended mesh of paired Machines that can reach each other. Machine ids authorize; computer names never do.
+_Avoid_: peer graph, computer sharing
+
+## Pairing
+
+**Pairing String**:
+The URL a person pastes or scans to bind this device to a Machine.
+_Avoid_: claim, ticket, QR payload
+
+**Device Authority**:
+Control or observe permission stored on the Device Grant. Comes from the Pairing String, never from a machine display name.
+_Avoid_: role, browser flag
+
+**Connection**:
+Grant-backed or local (dev fixture) reachability for one machine id.
+_Avoid_: settings blob, relay config
+
+**Account Credential**:
+Optional login proof, independent of any Device Grant.
+_Avoid_: token, pairing, device grant
+
+**Mic Ownership**:
+The exclusive claim among the realtime call, dictation, and VAD standby.
+_Avoid_: audio focus, recorder lock
+
+## Setup and plugins
+
+**Bundled Plugin**:
+A Herdr plugin folder shipped with muxr and linked during setup. Optional provider adapters stay disabled until chosen.
+_Avoid_: extension, package, add-on
+
+**Coordinator Policy**:
+The spoken-name, coding-tool, and redaction rules every realtime voice adapter must follow.
+_Avoid_: prompt, system prompt, provider policy
+
+**Ingress**:
+The published path phones use to reach a Self-host relay: Tailscale Serve, a Cloudflare tunnel, or an external reverse proxy.
+_Avoid_: tunnel, proxy, advertise URL
+
+**Self-host**:
+A machine-owned relay and pairing authority.
+_Avoid_: local mode, selfhost.json, standalone
+
+**Machine**:
+The computer running muxr, identified by a stable Machine Id derived from its key material. Display names never identify it.
+_Avoid_: host, node, box, computer name
+
+**Machine Id**:
+The durable identifier of a Machine. The only key used to enroll, revoke, or publish grants for that computer.
+_Avoid_: hostname, machine name, slug label
+
+**Device Id**:
+The durable identifier of a paired phone or browser. The only key that authorizes a grant, revocation, or rotation.
+_Avoid_: device name, phone name, display name
+
+**Device Authority**:
+Whether a paired Device may control agents (`control`) or only watch (`observe`). Native pairings are always control.
+_Avoid_: role, permission, access level
+
+**Client Kind**:
+Whether the paired client is the native app or a browser. Browser grants last eight hours; native grants are durable.
+_Avoid_: platform, client type, device type
+
+**Pairing Intent**:
+The decision to mint a grant for a Client Kind and Device Authority, including lifetime and the locator the client opens.
+_Avoid_: pairing flags, --browser, QR options
+
+**Enrollment**:
+A one-time claim a Machine presents to join a shared Self-host relay. It is not a Device grant.
+_Avoid_: invite, join code, pairing string
+
+**Connection**:
+How phones reach this Machine's relay: mode, location, role, advertised URL, and whether browser hosting is allowed.
+_Avoid_: network settings, advertise bag, selfhost state
+
+**Plugin Id**:
+The stable identity of a bundled or installed plugin. Folder names are filesystem paths only.
+_Avoid_: plugin folder, plugin name, package name
+
+**Provider Secret**:
+An owner-only API key for a realtime voice provider, stored under ~/.muxr. Display labels never authorize it.
+_Avoid_: API key file, settings key, voice credential
+
+Named application operations for mobile UI and runtime live in
+[apps/mobile/sources/USE_CASES.md](apps/mobile/sources/USE_CASES.md).

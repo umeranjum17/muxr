@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "muxr.control",
+  "minMuxrVersion": 6,
+  "contributions": [
+    {
+      "slot": "session.toolbar",
+      "id": "split-right",
+      "type": "button",
+      "label": {
+        "default": "Split right",
+        "translations": {
+          "ru": "Разделить вправо",
+          "pl": "Podziel w prawo",
+          "es": "Dividir a la derecha",
+          "it": "Dividi a destra",
+          "pt": "Dividir à direita",
+          "ca": "Divideix a la dreta",
+          "zh-Hans": "向右拆分",
+          "zh-Hant": "向右分割",
+          "ja": "右に分割"
+        }
+      },
+      "action": {
+        "type": "plugin.invoke",
+        "actionId": "split-right"
+      }
+    },
+    {
+      "slot": "session.toolbar",
+      "id": "split-down",
+      "type": "button",
+      "label": {
+        "default": "Split down",
+        "translations": {
+          "ru": "Разделить вниз",
+          "pl": "Podziel w dół",
+          "es": "Dividir abajo",
+          "it": "Dividi in basso",
+          "pt": "Dividir abaixo",
+          "ca": "Divideix a baix",
+          "zh-Hans": "向下拆分",
+          "zh-Hant": "向下分割",
+          "ja": "下に分割"
+        }
+      },
+      "action": {
+        "type": "plugin.invoke",
+        "actionId": "split-down"
+      }
+    }
+  ]
+}

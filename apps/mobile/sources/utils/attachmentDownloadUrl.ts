@@ -1,6 +1,6 @@
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
+import { getCachedConnectionSettings } from '@/connection';
 import { relayControlUrl } from '@muxr/contract';
-import type { StoredSessionAttachment } from '@/sync/persistence';
+import type { StoredSessionAttachment } from '@/catalog/application/persistence';
 
 /**
  * Plain HTTPS GET for an attachment's original bytes. Anything over 32MiB is

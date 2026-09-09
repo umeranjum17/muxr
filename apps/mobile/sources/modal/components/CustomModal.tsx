@@ -1,6 +1,6 @@
 import React from 'react';
-import { BaseModal } from './BaseModal';
-import { CustomModalConfig } from '../types';
+import { BaseModal } from '@/modal/components/BaseModal';
+import { CustomModalConfig } from '@/modal/types';
 import { CommandPaletteModal } from '@/components/CommandPalette/CommandPaletteModal';
 import { CommandPalette } from '@/components/CommandPalette';
 

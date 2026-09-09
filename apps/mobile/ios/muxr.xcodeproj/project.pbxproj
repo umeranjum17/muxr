@@ -11,6 +11,10 @@
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
+		DAEC7A7C39D7423D96D5FCC4 /* HerdLiveActivity.appex in Copy Files */ = {isa = PBXBuildFile; fileRef = E8D342FC42E94896B004B981 /* HerdLiveActivity.appex */; };
+		888D62E3BC394EFA907CB9E9 /* HerdActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D4E2E0C152E471097520138 /* HerdActivityAttributes.swift */; };
+		C1728846AED44059B5E6FE24 /* HerdLiveActivityIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EF99DACDCF94695BA1B4EA5 /* HerdLiveActivityIntents.swift */; };
+		7B3CC6833AD548C790504C1E /* HerdLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923908E363FB4064BE019A8D /* HerdLiveActivityWidget.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,10 +26,21 @@
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = muxr/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* muxr-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "muxr-Bridging-Header.h"; path = "muxr/muxr-Bridging-Header.h"; sourceTree = "<group>"; };
+		E8D342FC42E94896B004B981 /* HerdLiveActivity.appex */ = {isa = PBXFileReference; name = "HerdLiveActivity.appex"; path = "HerdLiveActivity.appex"; sourceTree = BUILT_PRODUCTS_DIR; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; };
+		0D4E2E0C152E471097520138 /* HerdActivityAttributes.swift */ = {isa = PBXFileReference; name = "HerdActivityAttributes.swift"; path = "../modules/voice-overlay/ios/HerdActivityAttributes.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; includeInIndex = 0; };
+		1EF99DACDCF94695BA1B4EA5 /* HerdLiveActivityIntents.swift */ = {isa = PBXFileReference; name = "HerdLiveActivityIntents.swift"; path = "../modules/voice-overlay/ios/HerdLiveActivityIntents.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; includeInIndex = 0; };
+		923908E363FB4064BE019A8D /* HerdLiveActivityWidget.swift */ = {isa = PBXFileReference; name = "HerdLiveActivityWidget.swift"; path = "../widgets/HerdLiveActivity/HerdLiveActivityWidget.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		13B07F8C1A680F5B00A75B9A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1B608263800240A395CE880D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -70,6 +85,7 @@
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
+				76B16598C8044CBDB9154C02 /* HerdLiveActivity */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -80,6 +96,7 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* muxr.app */,
+				E8D342FC42E94896B004B981 /* HerdLiveActivity.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -91,6 +108,16 @@
 			);
 			name = Supporting;
 			path = muxr/Supporting;
+			sourceTree = "<group>";
+		};
+		76B16598C8044CBDB9154C02 /* HerdLiveActivity */ = {
+			isa = PBXGroup;
+			children = (
+				0D4E2E0C152E471097520138 /* HerdActivityAttributes.swift */,
+				1EF99DACDCF94695BA1B4EA5 /* HerdLiveActivityIntents.swift */,
+				923908E363FB4064BE019A8D /* HerdLiveActivityWidget.swift */,
+			);
+			name = HerdLiveActivity;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -107,6 +134,7 @@
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
 				4FBF77BF96DE4CB7870CCBB7 /* [Expo Dev Launcher] Strip Local Network Keys for Release */,
+				0E02B709D27B474FB60664E6 /* Copy Files */,
 			);
 			buildRules = (
 			);
@@ -116,6 +144,23 @@
 			productName = muxr;
 			productReference = 13B07F961A680F5B00A75B9A /* muxr.app */;
 			productType = "com.apple.product-type.application";
+		};
+		F7697CD97CE940EB85A88294 /* "HerdLiveActivity" */ = {
+			isa = PBXNativeTarget;
+			name = "HerdLiveActivity";
+			productName = "HerdLiveActivity";
+			productReference = E8D342FC42E94896B004B981;
+			productType = "com.apple.product-type.app-extension";
+			buildConfigurationList = 3A82280EA38B4CAB842BA86C;
+			buildPhases = (
+				69678AC3BE574D578170120F /* Sources */,
+				1B608263800240A395CE880D /* Frameworks */,
+				93081A8CBEB34CBCB1B5C43C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
 		};
 /* End PBXNativeTarget section */
 
@@ -144,6 +189,7 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* muxr */,
+				F7697CD97CE940EB85A88294 /* "HerdLiveActivity" */,
 			);
 		};
 /* End PBXProject section */
@@ -156,6 +202,13 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		93081A8CBEB34CBCB1B5C43C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -279,6 +332,16 @@ fi
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		69678AC3BE574D578170120F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				888D62E3BC394EFA907CB9E9 /* HerdActivityAttributes.swift in Sources */,
+				C1728846AED44059B5E6FE24 /* HerdLiveActivityIntents.swift in Sources */,
+				7B3CC6833AD548C790504C1E /* HerdLiveActivityWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -461,6 +524,52 @@ fi
 			};
 			name = Release;
 		};
+		A26F0AA0972D4FCDBDC75F18 /* Debug */ = {
+			name = Debug;
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				INFOPLIST_FILE = "../widgets/HerdLiveActivity/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				PRODUCT_NAME = "HerdLiveActivity";
+				SKIP_INSTALL = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.trymuxr.app.activity";
+				SWIFT_VERSION = 5.9;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) HERD_WIDGET_EXTENSION";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				CODE_SIGN_STYLE = Automatic;
+				MARKETING_VERSION = 0.1.12;
+				CURRENT_PROJECT_VERSION = 12;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+		};
+		2E434130FA9646FFBAD9D073 /* Release */ = {
+			name = Release;
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				INFOPLIST_FILE = "../widgets/HerdLiveActivity/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				PRODUCT_NAME = "HerdLiveActivity";
+				SKIP_INSTALL = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.trymuxr.app.activity";
+				SWIFT_VERSION = 5.9;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) HERD_WIDGET_EXTENSION";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				CODE_SIGN_STYLE = Automatic;
+				MARKETING_VERSION = 0.1.12;
+				CURRENT_PROJECT_VERSION = 12;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -482,7 +591,30 @@ fi
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		3A82280EA38B4CAB842BA86C /* Build configuration list for PBXNativeTarget "HerdLiveActivity" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A26F0AA0972D4FCDBDC75F18 /* Debug */,
+				2E434130FA9646FFBAD9D073 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		0E02B709D27B474FB60664E6 /* Copy Files */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DAEC7A7C39D7423D96D5FCC4 /* HerdLiveActivity.appex in Copy Files */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			name = "Copy Files";
+			dstPath = "";
+			dstSubfolderSpec = 13;
+		};
+/* End PBXCopyFilesBuildPhase section */
 	};
 	rootObject = 83CBB9F71A601CBA00E9B192 /* Project object */;
 }

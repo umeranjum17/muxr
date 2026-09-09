@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
-import { storage } from '@/sync/storage';
+import { storage } from '@/catalog/store';
 import { useIsFocused } from '@react-navigation/native';
 
 interface UseDraftOptions {

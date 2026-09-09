@@ -1,75 +1,54 @@
 #!/usr/bin/env node
-import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { reportAgentOutcome } from './coordinatorPolicy.mjs';
+import { providerSecret } from './providerSecret.mjs';
+import { PROVIDERS, selectProvider, selectedProvider } from './provider.mjs';
 
-const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
-const keyFile = join(root, 'xai.key');
+/** Secrets are per provider, so the store is resolved from the current selection. */
+function secretFor(provider) {
+    if (provider.secret === undefined) return undefined;
+    return providerSecret(provider.secret, {
+        notDirectory: `${provider.keyLabel} key store must be a real directory`,
+        missing: `No ${provider.keyLabel} key. Configure the provider from muxr Settings.`,
+        ownerOnly: `${provider.keyLabel} key store must be owner-only`,
+        empty: `${provider.keyLabel} key must not be empty`,
+        notRegular: 'Refusing to remove non-regular key file',
+    });
+}
+
 const method = process.argv[2];
 const input = JSON.parse(readFileSync(0, 'utf8') || 'null');
-
-function assertKeyRoot(info) {
-    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('xAI key store must be a real directory');
-}
-
-async function readKey() {
-    let directory;
-    let info;
-    try { directory = await lstat(root); info = await lstat(keyFile); }
-    catch (cause) {
-        if (cause?.code === 'ENOENT') throw new Error('No xAI key. Configure the provider from muxr Settings.');
-        throw cause;
-    }
-    assertKeyRoot(directory);
-    if ((directory.mode & 0o077) !== 0 || !info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
-        throw new Error('xAI key store must be owner-only');
-    }
-    const value = (await readFile(keyFile, 'utf8')).trim();
-    if (!value) throw new Error('No xAI key. Configure the provider from muxr Settings.');
-    return value;
-}
-
-async function writeKey(value) {
-    const key = String(value ?? '').trim();
-    if (!key) throw new Error('xAI key must not be empty');
-    await mkdir(root, { recursive: true, mode: 0o700 });
-    assertKeyRoot(await lstat(root));
-    await chmod(root, 0o700);
-    const temporary = `${keyFile}.tmp-${process.pid}-${randomUUID()}`;
-    try {
-        await writeFile(temporary, `${key}\n`, { mode: 0o600, flag: 'wx' });
-        await rename(temporary, keyFile);
-    } finally { await rm(temporary, { force: true }); }
-}
+const provider = selectedProvider();
+const secret = secretFor(provider);
 
 let output;
 if (method === 'status') {
-    output = await readKey().then(() => ({ configured: true, statusLabel: 'Key set' }), () => ({ configured: false, statusLabel: 'No key set' }));
+    // An adapter without a key store authenticates some other way and owns its
+    // own check; loading it is only worth the import cost in that case.
+    const status = secret === undefined
+        ? (await import(`./providers/${provider.id}.mjs`)).status()
+        : await secret.statusPayload();
+    output = { ...status, providerId: provider.id, providerName: provider.name, keyLabel: provider.keyLabel };
 } else if (method === 'key.set') {
-    await writeKey(input?.key); output = null;
-} else if (method === 'key.clear') {
-    try {
-        assertKeyRoot(await lstat(root));
-        const info = await lstat(keyFile);
-        if (!info.isFile() || info.isSymbolicLink()) throw new Error('Refusing to remove non-regular key file');
-        await rm(keyFile);
-    } catch (cause) { if (cause?.code !== 'ENOENT') throw cause; }
+    if (secret === undefined) throw new Error(`${provider.name} does not use an API key`);
+    await secret.writeKey(input?.key);
     output = null;
-} else if (method === 'report') {
-    // What the agent should say when a pane stops working. Wording lives here,
-    // not in the app, so it changes without a rebuild.
-    const blocked = input?.status === 'blocked';
+} else if (method === 'key.clear') {
+    if (secret !== undefined) await secret.clearKey();
+    output = null;
+} else if (method === 'provider.list') {
     output = {
-        say: [
-            blocked
-                ? 'The agent has finished working. It is waiting on a question. Put that question to the user in your own words.'
-                : 'The agent has finished working. Summarise what it did in one sentence, in plain language. Do not read this out.',
-            '',
-            String(input?.pane ?? '').slice(-4000),
-        ].join('\n'),
+        selected: provider.id,
+        providers: PROVIDERS.map(({ id, name, configurationContributionId }) => ({ id, name, configurationContributionId, selected: id === provider.id })),
     };
+} else if (method === 'provider.set') {
+    const next = selectProvider(input?.providerId);
+    output = {
+        selected: next.id,
+        providers: PROVIDERS.map(({ id, name, configurationContributionId }) => ({ id, name, configurationContributionId, selected: id === next.id })),
+    };
+} else if (method === 'report') {
+    output = { say: reportAgentOutcome(input) };
 } else {
     throw new Error(`unknown muxr Voice method: ${method ?? ''}`);
 }

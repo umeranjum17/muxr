@@ -1,7 +1,0 @@
-id = "muxr.servers"
-name = "Servers"
-version = "0.1.0"
-min_herdr_version = "0.8.0"
-min_muxr_version = 5
-platforms = ["linux", "macos"]
-description = "See listening processes and open detected project frontends in Preview"

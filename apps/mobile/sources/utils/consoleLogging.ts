@@ -19,8 +19,8 @@
 
 import { log } from '@/log';
 import { MAX_APP_LOG_ENTRIES } from '@/log';
-import { loadLocalSettings } from '@/sync/persistence';
-import { loadAppConfig } from '@/sync/appConfig';
+import { loadLocalSettings } from '@/catalog/application/persistence';
+import { loadAppConfig } from '@/catalog/infrastructure/appConfig';
 import { serializeForLogs } from '@/utils/truncateForLogs';
 
 type ConsoleLevel = 'log' | 'info' | 'warn' | 'error' | 'debug';

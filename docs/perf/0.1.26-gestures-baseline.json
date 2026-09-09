@@ -1,0 +1,754 @@
+{
+  "startedAt": "2026-09-04T09:01:04.551Z",
+  "phases": [
+    {
+      "name": "idle on the herd",
+      "seconds": 120.1,
+      "sampledSeconds": 115.5,
+      "jsBusyPercent": 34.1,
+      "fps": 30.3,
+      "frameStallSeconds": 10,
+      "pssFirstKb": 392175,
+      "pssLastKb": 383305,
+      "pssMaxKb": 419769,
+      "pssDriftKb": -8870,
+      "restarts": 0,
+      "gaps": 0
+    },
+    {
+      "name": "herd strip and tree soak",
+      "seconds": 120.1,
+      "flow": "herdSoak.yaml",
+      "sampledSeconds": 115.5,
+      "jsBusyPercent": 39.2,
+      "fps": 39,
+      "frameStallSeconds": 5,
+      "pssFirstKb": 402492,
+      "pssLastKb": 365548,
+      "pssMaxKb": 402492,
+      "pssDriftKb": -36944,
+      "restarts": 0,
+      "gaps": 0,
+      "flowExit": 0
+    },
+    {
+      "name": "agent terminal and plugin navigation",
+      "seconds": 120.1,
+      "flow": "herdNavigate.yaml",
+      "sampledSeconds": 105.4,
+      "jsBusyPercent": 26.6,
+      "frameStallSeconds": 10,
+      "pssFirstKb": 380895,
+      "pssLastKb": 327010,
+      "pssMaxKb": 435907,
+      "pssDriftKb": -53885,
+      "restarts": 2,
+      "gaps": 0,
+      "flowExit": 0
+    },
+    {
+      "name": "herd tree fling",
+      "seconds": 30.2,
+      "drive": "treeFling",
+      "sampledSeconds": 25.1,
+      "jsBusyPercent": 34.9,
+      "fps": 21.8,
+      "frameStallSeconds": 5,
+      "pssFirstKb": 451925,
+      "pssLastKb": 314673,
+      "pssMaxKb": 451925,
+      "pssDriftKb": -137252,
+      "restarts": 0,
+      "gaps": 0,
+      "gesture": {
+        "gestures": 37,
+        "flings": 19,
+        "profiles": [
+          "fling",
+          "linear"
+        ],
+        "medianVelocityPxPerSecond": 4965,
+        "intendedMedianVelocityPxPerSecond": 6646,
+        "jank": {
+          "frames": 1752,
+          "jankyPercent": 1.2,
+          "p50Ms": 8,
+          "p90Ms": 17,
+          "p95Ms": 22,
+          "p99Ms": 32,
+          "missedVsync": 0,
+          "highInputLatency": 1862,
+          "deadlineMissed": 21,
+          "overOneFramePercent": 7.9,
+          "overFourFramesPercent": 0.1,
+          "histogram": "5ms=13 6ms=513 7ms=261 8ms=205 9ms=254 10ms=73 11ms=11 12ms=7 13ms=5 14ms=7 15ms=6 16ms=176 17ms=84 18ms=12 19ms=6 20ms=8 21ms=6 22ms=20 23ms=9 24ms=15 25ms=8 26ms=5 27ms=12 28ms=2 29ms=5 30ms=4 31ms=7 32ms=5 34ms=6 36ms=2 38ms=2 40ms=0 42ms=1 44ms=1 46ms=0 48ms=0 53ms=0 57ms=0 61ms=1 65ms=0 69ms=1 73ms=0 77ms=0 81ms=0 85ms=0 89ms=0 93ms=0 97ms=0 101ms=0 105ms=0 109ms=0 113ms=0 117ms=0 121ms=0 125ms=0 129ms=0 133ms=0 150ms=0 200ms=0 250ms=0 300ms=0 350ms=0 400ms=0 450ms=0 500ms=0 550ms=0 600ms=0 650ms=0 700ms=0 750ms=0 800ms=0 850ms=0 900ms=0 950ms=0 1000ms=0 1050ms=0 1100ms=0 1150ms=0 1200ms=0 1250ms=0 1300ms=0 1350ms=0 1400ms=0 1450ms=0 1500ms=0 1550ms=0 1600ms=0 1650ms=0 1700ms=0 1750ms=0 1800ms=0 1850ms=0 1900ms=0 1950ms=0 2000ms=0 2050ms=0 2100ms=0 2150ms=0 2200ms=0 2250ms=0 2300ms=0 2350ms=0 2400ms=0 2450ms=0 2500ms=0 2550ms=0 2600ms=0 2650ms=0 2700ms=0 2750ms=0 2800ms=0 2850ms=0 2900ms=0 2950ms=0 3000ms=0 3050ms=0 3100ms=0 3150ms=0 3200ms=0 3250ms=0 3300ms=0 3350ms=0 3400ms=0 3450ms=0 3500ms=0 3550ms=0 3600ms=0 3650ms=0 3700ms=0 3750ms=0 3800ms=0 3850ms=0 3900ms=0 3950ms=0 4000ms=0 4050ms=0 4100ms=0 4150ms=0 4200ms=0 4250ms=0 4300ms=0 4350ms=0 4400ms=0 4450ms=0 4500ms=0 4550ms=0 4600ms=0 4650ms=0 4700ms=0 4750ms=0 4800ms=0 4850ms=0 4900ms=0 4950ms=0"
+        },
+        "frameStats": {
+          "frames": 2101,
+          "dropped": 64,
+          "droppedPercent": 3,
+          "worstMs": 49,
+          "inputToFrameMs": {
+            "p50": 39,
+            "p95": 56
+          }
+        },
+        "movement": {
+          "proven": true,
+          "meanAbs": 0.07371088926631922,
+          "threshold": 0.03137254901960784,
+          "reasons": []
+        },
+        "injectFailed": false,
+        "jsBusyIdlePercent": 34.1,
+        "jsBusyDeltaPoints": 0.8,
+        "accidentalOwners": 0
+      }
+    },
+    {
+      "name": "herd strip paging",
+      "seconds": 20,
+      "drive": "stripPaging",
+      "sampledSeconds": 15.1,
+      "jsBusyPercent": 27.3,
+      "fps": 44.1,
+      "frameStallSeconds": 0,
+      "pssFirstKb": 315064,
+      "pssLastKb": 320480,
+      "pssMaxKb": 361202,
+      "pssDriftKb": 5416,
+      "restarts": 0,
+      "gaps": 0,
+      "gesture": {
+        "gestures": 41,
+        "flings": 41,
+        "profiles": [
+          "fling"
+        ],
+        "medianVelocityPxPerSecond": 5400,
+        "intendedMedianVelocityPxPerSecond": 6680,
+        "jank": {
+          "frames": 0,
+          "missedVsync": 0,
+          "highInputLatency": 0,
+          "deadlineMissed": 0,
+          "overOneFramePercent": 0,
+          "overFourFramesPercent": 0,
+          "histogram": "5ms=0 6ms=0 7ms=0 8ms=0 9ms=0 10ms=0 11ms=0 12ms=0 13ms=0 14ms=0 15ms=0 16ms=0 17ms=0 18ms=0 19ms=0 20ms=0 21ms=0 22ms=0 23ms=0 24ms=0 25ms=0 26ms=0 27ms=0 28ms=0 29ms=0 30ms=0 31ms=0 32ms=0 34ms=0 36ms=0 38ms=0 40ms=0 42ms=0 44ms=0 46ms=0 48ms=0 53ms=0 57ms=0 61ms=0 65ms=0 69ms=0 73ms=0 77ms=0 81ms=0 85ms=0 89ms=0 93ms=0 97ms=0 101ms=0 105ms=0 109ms=0 113ms=0 117ms=0 121ms=0 125ms=0 129ms=0 133ms=0 150ms=0 200ms=0 250ms=0 300ms=0 350ms=0 400ms=0 450ms=0 500ms=0 550ms=0 600ms=0 650ms=0 700ms=0 750ms=0 800ms=0 850ms=0 900ms=0 950ms=0 1000ms=0 1050ms=0 1100ms=0 1150ms=0 1200ms=0 1250ms=0 1300ms=0 1350ms=0 1400ms=0 1450ms=0 1500ms=0 1550ms=0 1600ms=0 1650ms=0 1700ms=0 1750ms=0 1800ms=0 1850ms=0 1900ms=0 1950ms=0 2000ms=0 2050ms=0 2100ms=0 2150ms=0 2200ms=0 2250ms=0 2300ms=0 2350ms=0 2400ms=0 2450ms=0 2500ms=0 2550ms=0 2600ms=0 2650ms=0 2700ms=0 2750ms=0 2800ms=0 2850ms=0 2900ms=0 2950ms=0 3000ms=0 3050ms=0 3100ms=0 3150ms=0 3200ms=0 3250ms=0 3300ms=0 3350ms=0 3400ms=0 3450ms=0 3500ms=0 3550ms=0 3600ms=0 3650ms=0 3700ms=0 3750ms=0 3800ms=0 3850ms=0 3900ms=0 3950ms=0 4000ms=0 4050ms=0 4100ms=0 4150ms=0 4200ms=0 4250ms=0 4300ms=0 4350ms=0 4400ms=0 4450ms=0 4500ms=0 4550ms=0 4600ms=0 4650ms=0 4700ms=0 4750ms=0 4800ms=0 4850ms=0 4900ms=0 4950ms=0"
+        },
+        "frameStats": {
+          "frames": 0,
+          "dropped": 0,
+          "droppedPercent": 0,
+          "worstMs": 0,
+          "inputToFrameMs": {
+            "p50": 0,
+            "p95": 0
+          }
+        },
+        "movement": {
+          "proven": false,
+          "meanAbs": 0,
+          "threshold": 0.03137254901960784,
+          "reasons": [
+            "pixels"
+          ]
+        },
+        "injectFailed": false,
+        "jsBusyIdlePercent": 34.1,
+        "jsBusyDeltaPoints": -6.8,
+        "accidentalOwners": 0
+      }
+    },
+    {
+      "name": "document scroll and swipe",
+      "seconds": 30,
+      "flow": "openDocument.yaml",
+      "drive": "documentScrollSwipe",
+      "sampledSeconds": 25.1,
+      "jsBusyPercent": 1.6,
+      "fps": 0,
+      "frameStallSeconds": 30,
+      "pssFirstKb": 299068,
+      "pssLastKb": 231795,
+      "pssMaxKb": 299068,
+      "pssDriftKb": -67273,
+      "restarts": 0,
+      "gaps": 0,
+      "flowExit": 1,
+      "gesture": {
+        "gestures": 25,
+        "flings": 13,
+        "profiles": [
+          "fling",
+          "linear"
+        ],
+        "medianVelocityPxPerSecond": 5275,
+        "intendedMedianVelocityPxPerSecond": 6646,
+        "jank": {
+          "frames": 0,
+          "missedVsync": 0,
+          "highInputLatency": 0,
+          "deadlineMissed": 0,
+          "overOneFramePercent": 0,
+          "overFourFramesPercent": 0,
+          "histogram": "5ms=0 6ms=0 7ms=0 8ms=0 9ms=0 10ms=0 11ms=0 12ms=0 13ms=0 14ms=0 15ms=0 16ms=0 17ms=0 18ms=0 19ms=0 20ms=0 21ms=0 22ms=0 23ms=0 24ms=0 25ms=0 26ms=0 27ms=0 28ms=0 29ms=0 30ms=0 31ms=0 32ms=0 34ms=0 36ms=0 38ms=0 40ms=0 42ms=0 44ms=0 46ms=0 48ms=0 53ms=0 57ms=0 61ms=0 65ms=0 69ms=0 73ms=0 77ms=0 81ms=0 85ms=0 89ms=0 93ms=0 97ms=0 101ms=0 105ms=0 109ms=0 113ms=0 117ms=0 121ms=0 125ms=0 129ms=0 133ms=0 150ms=0 200ms=0 250ms=0 300ms=0 350ms=0 400ms=0 450ms=0 500ms=0 550ms=0 600ms=0 650ms=0 700ms=0 750ms=0 800ms=0 850ms=0 900ms=0 950ms=0 1000ms=0 1050ms=0 1100ms=0 1150ms=0 1200ms=0 1250ms=0 1300ms=0 1350ms=0 1400ms=0 1450ms=0 1500ms=0 1550ms=0 1600ms=0 1650ms=0 1700ms=0 1750ms=0 1800ms=0 1850ms=0 1900ms=0 1950ms=0 2000ms=0 2050ms=0 2100ms=0 2150ms=0 2200ms=0 2250ms=0 2300ms=0 2350ms=0 2400ms=0 2450ms=0 2500ms=0 2550ms=0 2600ms=0 2650ms=0 2700ms=0 2750ms=0 2800ms=0 2850ms=0 2900ms=0 2950ms=0 3000ms=0 3050ms=0 3100ms=0 3150ms=0 3200ms=0 3250ms=0 3300ms=0 3350ms=0 3400ms=0 3450ms=0 3500ms=0 3550ms=0 3600ms=0 3650ms=0 3700ms=0 3750ms=0 3800ms=0 3850ms=0 3900ms=0 3950ms=0 4000ms=0 4050ms=0 4100ms=0 4150ms=0 4200ms=0 4250ms=0 4300ms=0 4350ms=0 4400ms=0 4450ms=0 4500ms=0 4550ms=0 4600ms=0 4650ms=0 4700ms=0 4750ms=0 4800ms=0 4850ms=0 4900ms=0 4950ms=0"
+        },
+        "frameStats": {
+          "frames": 0,
+          "dropped": 0,
+          "droppedPercent": 0,
+          "worstMs": 0,
+          "inputToFrameMs": {
+            "p50": 0,
+            "p95": 0
+          }
+        },
+        "movement": {
+          "proven": false,
+          "meanAbs": 0.6441426947581078,
+          "threshold": 0.03137254901960784,
+          "reasons": [],
+          "gutterLine": {}
+        },
+        "injectFailed": false,
+        "jsBusyIdlePercent": 34.1,
+        "jsBusyDeltaPoints": -32.5,
+        "accidentalOwners": 0
+      },
+      "documentNavigate": 0
+    },
+    {
+      "name": "terminal text fling",
+      "seconds": 30,
+      "drive": "terminalTextFling",
+      "sampledSeconds": 25.1,
+      "jsBusyPercent": 10.4,
+      "fps": 0,
+      "frameStallSeconds": 30,
+      "pssFirstKb": 369444,
+      "pssLastKb": 298899,
+      "pssMaxKb": 369444,
+      "pssDriftKb": -70545,
+      "restarts": 0,
+      "gaps": 0,
+      "gesture": {
+        "gestures": 37,
+        "flings": 19,
+        "profiles": [
+          "fling",
+          "linear"
+        ],
+        "medianVelocityPxPerSecond": 5275,
+        "intendedMedianVelocityPxPerSecond": 6646,
+        "jank": {
+          "frames": 0,
+          "missedVsync": 0,
+          "highInputLatency": 0,
+          "deadlineMissed": 0,
+          "overOneFramePercent": 0,
+          "overFourFramesPercent": 0,
+          "histogram": "5ms=0 6ms=0 7ms=0 8ms=0 9ms=0 10ms=0 11ms=0 12ms=0 13ms=0 14ms=0 15ms=0 16ms=0 17ms=0 18ms=0 19ms=0 20ms=0 21ms=0 22ms=0 23ms=0 24ms=0 25ms=0 26ms=0 27ms=0 28ms=0 29ms=0 30ms=0 31ms=0 32ms=0 34ms=0 36ms=0 38ms=0 40ms=0 42ms=0 44ms=0 46ms=0 48ms=0 53ms=0 57ms=0 61ms=0 65ms=0 69ms=0 73ms=0 77ms=0 81ms=0 85ms=0 89ms=0 93ms=0 97ms=0 101ms=0 105ms=0 109ms=0 113ms=0 117ms=0 121ms=0 125ms=0 129ms=0 133ms=0 150ms=0 200ms=0 250ms=0 300ms=0 350ms=0 400ms=0 450ms=0 500ms=0 550ms=0 600ms=0 650ms=0 700ms=0 750ms=0 800ms=0 850ms=0 900ms=0 950ms=0 1000ms=0 1050ms=0 1100ms=0 1150ms=0 1200ms=0 1250ms=0 1300ms=0 1350ms=0 1400ms=0 1450ms=0 1500ms=0 1550ms=0 1600ms=0 1650ms=0 1700ms=0 1750ms=0 1800ms=0 1850ms=0 1900ms=0 1950ms=0 2000ms=0 2050ms=0 2100ms=0 2150ms=0 2200ms=0 2250ms=0 2300ms=0 2350ms=0 2400ms=0 2450ms=0 2500ms=0 2550ms=0 2600ms=0 2650ms=0 2700ms=0 2750ms=0 2800ms=0 2850ms=0 2900ms=0 2950ms=0 3000ms=0 3050ms=0 3100ms=0 3150ms=0 3200ms=0 3250ms=0 3300ms=0 3350ms=0 3400ms=0 3450ms=0 3500ms=0 3550ms=0 3600ms=0 3650ms=0 3700ms=0 3750ms=0 3800ms=0 3850ms=0 3900ms=0 3950ms=0 4000ms=0 4050ms=0 4100ms=0 4150ms=0 4200ms=0 4250ms=0 4300ms=0 4350ms=0 4400ms=0 4450ms=0 4500ms=0 4550ms=0 4600ms=0 4650ms=0 4700ms=0 4750ms=0 4800ms=0 4850ms=0 4900ms=0 4950ms=0"
+        },
+        "frameStats": {
+          "frames": 0,
+          "dropped": 0,
+          "droppedPercent": 0,
+          "worstMs": 0,
+          "inputToFrameMs": {
+            "p50": 0,
+            "p95": 0
+          }
+        },
+        "movement": {
+          "proven": false,
+          "meanAbs": 0.6576113378736268,
+          "threshold": 0.03137254901960784,
+          "reasons": [
+            "terminalTrail"
+          ],
+          "scrollRows": 0,
+          "scrollLatencyEvents": 0,
+          "clamped": 0
+        },
+        "injectFailed": false,
+        "jsBusyIdlePercent": 34.1,
+        "jsBusyDeltaPoints": -23.7,
+        "accidentalOwners": 0
+      },
+      "terminal": {
+        "scrollRequests": 0,
+        "scrollLatencyP50Ms": 0,
+        "scrollLatencyP95Ms": 0,
+        "rowsRequested": 0,
+        "rowsSent": 0,
+        "rowsPerSecond": 0,
+        "clamped": 0,
+        "agentPages": 0
+      }
+    },
+    {
+      "name": "graphics pane scroll",
+      "seconds": 90.1,
+      "flow": "graphicsScroll.yaml",
+      "drive": "graphicsScroll",
+      "sampledSeconds": 85.3,
+      "jsBusyPercent": 0.9,
+      "frameStallSeconds": 90,
+      "pssFirstKb": 350753,
+      "pssLastKb": 309531,
+      "pssMaxKb": 350753,
+      "pssDriftKb": -41222,
+      "restarts": 0,
+      "gaps": 0,
+      "flowExit": 1,
+      "gesture": {
+        "gestures": 111,
+        "flings": 56,
+        "profiles": [
+          "fling",
+          "linear"
+        ],
+        "medianVelocityPxPerSecond": 5275,
+        "intendedMedianVelocityPxPerSecond": 6646,
+        "jank": {
+          "frames": 0,
+          "missedVsync": 0,
+          "highInputLatency": 0,
+          "deadlineMissed": 0,
+          "overOneFramePercent": 0,
+          "overFourFramesPercent": 0,
+          "histogram": "5ms=0 6ms=0 7ms=0 8ms=0 9ms=0 10ms=0 11ms=0 12ms=0 13ms=0 14ms=0 15ms=0 16ms=0 17ms=0 18ms=0 19ms=0 20ms=0 21ms=0 22ms=0 23ms=0 24ms=0 25ms=0 26ms=0 27ms=0 28ms=0 29ms=0 30ms=0 31ms=0 32ms=0 34ms=0 36ms=0 38ms=0 40ms=0 42ms=0 44ms=0 46ms=0 48ms=0 53ms=0 57ms=0 61ms=0 65ms=0 69ms=0 73ms=0 77ms=0 81ms=0 85ms=0 89ms=0 93ms=0 97ms=0 101ms=0 105ms=0 109ms=0 113ms=0 117ms=0 121ms=0 125ms=0 129ms=0 133ms=0 150ms=0 200ms=0 250ms=0 300ms=0 350ms=0 400ms=0 450ms=0 500ms=0 550ms=0 600ms=0 650ms=0 700ms=0 750ms=0 800ms=0 850ms=0 900ms=0 950ms=0 1000ms=0 1050ms=0 1100ms=0 1150ms=0 1200ms=0 1250ms=0 1300ms=0 1350ms=0 1400ms=0 1450ms=0 1500ms=0 1550ms=0 1600ms=0 1650ms=0 1700ms=0 1750ms=0 1800ms=0 1850ms=0 1900ms=0 1950ms=0 2000ms=0 2050ms=0 2100ms=0 2150ms=0 2200ms=0 2250ms=0 2300ms=0 2350ms=0 2400ms=0 2450ms=0 2500ms=0 2550ms=0 2600ms=0 2650ms=0 2700ms=0 2750ms=0 2800ms=0 2850ms=0 2900ms=0 2950ms=0 3000ms=0 3050ms=0 3100ms=0 3150ms=0 3200ms=0 3250ms=0 3300ms=0 3350ms=0 3400ms=0 3450ms=0 3500ms=0 3550ms=0 3600ms=0 3650ms=0 3700ms=0 3750ms=0 3800ms=0 3850ms=0 3900ms=0 3950ms=0 4000ms=0 4050ms=0 4100ms=0 4150ms=0 4200ms=0 4250ms=0 4300ms=0 4350ms=0 4400ms=0 4450ms=0 4500ms=0 4550ms=0 4600ms=0 4650ms=0 4700ms=0 4750ms=0 4800ms=0 4850ms=0 4900ms=0 4950ms=0"
+        },
+        "frameStats": {
+          "frames": 0,
+          "dropped": 0,
+          "droppedPercent": 0,
+          "worstMs": 0,
+          "inputToFrameMs": {
+            "p50": 0,
+            "p95": 0
+          }
+        },
+        "movement": {
+          "proven": true,
+          "meanAbs": 0.0976886793812175,
+          "threshold": 0.03137254901960784,
+          "reasons": []
+        },
+        "injectFailed": false,
+        "notchesSent": 0,
+        "notchesDropped": 0,
+        "jsBusyIdlePercent": 34.1,
+        "jsBusyDeltaPoints": -33.2,
+        "accidentalOwners": 0
+      },
+      "terminal": {
+        "notchesSent": 0,
+        "notchesDropped": 0,
+        "rowsPerSecond": 0
+      }
+    },
+    {
+      "name": "zoom tap navigate",
+      "seconds": 60.1,
+      "drive": "zoomTapNavigate",
+      "sampledSeconds": 55.2,
+      "jsBusyPercent": 2.7,
+      "fps": 6,
+      "frameStallSeconds": 35,
+      "pssFirstKb": 308880,
+      "pssLastKb": 324974,
+      "pssMaxKb": 360699,
+      "pssDriftKb": 16094,
+      "restarts": 0,
+      "gaps": 0,
+      "gesture": {
+        "gestures": 1,
+        "flings": 1,
+        "profiles": [],
+        "medianVelocityPxPerSecond": 0,
+        "intendedMedianVelocityPxPerSecond": 0,
+        "jank": {
+          "frames": 0,
+          "missedVsync": 0,
+          "highInputLatency": 0,
+          "deadlineMissed": 0,
+          "overOneFramePercent": 0,
+          "overFourFramesPercent": 0,
+          "histogram": "5ms=0 6ms=0 7ms=0 8ms=0 9ms=0 10ms=0 11ms=0 12ms=0 13ms=0 14ms=0 15ms=0 16ms=0 17ms=0 18ms=0 19ms=0 20ms=0 21ms=0 22ms=0 23ms=0 24ms=0 25ms=0 26ms=0 27ms=0 28ms=0 29ms=0 30ms=0 31ms=0 32ms=0 34ms=0 36ms=0 38ms=0 40ms=0 42ms=0 44ms=0 46ms=0 48ms=0 53ms=0 57ms=0 61ms=0 65ms=0 69ms=0 73ms=0 77ms=0 81ms=0 85ms=0 89ms=0 93ms=0 97ms=0 101ms=0 105ms=0 109ms=0 113ms=0 117ms=0 121ms=0 125ms=0 129ms=0 133ms=0 150ms=0 200ms=0 250ms=0 300ms=0 350ms=0 400ms=0 450ms=0 500ms=0 550ms=0 600ms=0 650ms=0 700ms=0 750ms=0 800ms=0 850ms=0 900ms=0 950ms=0 1000ms=0 1050ms=0 1100ms=0 1150ms=0 1200ms=0 1250ms=0 1300ms=0 1350ms=0 1400ms=0 1450ms=0 1500ms=0 1550ms=0 1600ms=0 1650ms=0 1700ms=0 1750ms=0 1800ms=0 1850ms=0 1900ms=0 1950ms=0 2000ms=0 2050ms=0 2100ms=0 2150ms=0 2200ms=0 2250ms=0 2300ms=0 2350ms=0 2400ms=0 2450ms=0 2500ms=0 2550ms=0 2600ms=0 2650ms=0 2700ms=0 2750ms=0 2800ms=0 2850ms=0 2900ms=0 2950ms=0 3000ms=0 3050ms=0 3100ms=0 3150ms=0 3200ms=0 3250ms=0 3300ms=0 3350ms=0 3400ms=0 3450ms=0 3500ms=0 3550ms=0 3600ms=0 3650ms=0 3700ms=0 3750ms=0 3800ms=0 3850ms=0 3900ms=0 3950ms=0 4000ms=0 4050ms=0 4100ms=0 4150ms=0 4200ms=0 4250ms=0 4300ms=0 4350ms=0 4400ms=0 4450ms=0 4500ms=0 4550ms=0 4600ms=0 4650ms=0 4700ms=0 4750ms=0 4800ms=0 4850ms=0 4900ms=0 4950ms=0"
+        },
+        "frameStats": {
+          "frames": 0,
+          "dropped": 0,
+          "droppedPercent": 0,
+          "worstMs": 0,
+          "inputToFrameMs": {
+            "p50": 0,
+            "p95": 0
+          }
+        },
+        "injectFailed": false,
+        "zoomResizeCount": 0,
+        "zoomTapped": false,
+        "zoom": {
+          "cellOnly": 0,
+          "gridChanged": 0,
+          "zoomResizeCount": 0,
+          "zoomIn": {
+            "cellOnly": 0,
+            "gridChanged": 0,
+            "zoomResizeCount": 0
+          },
+          "attachBefore": {
+            "pane_id": "w1:p3",
+            "cols": 80,
+            "rows": 24,
+            "cellWidthPx": 0,
+            "cellHeightPx": 0,
+            "at": "2026-09-04T09:15:45.324Z"
+          },
+          "attachAfterIn": {
+            "pane_id": "w1:p3",
+            "cols": 80,
+            "rows": 24,
+            "cellWidthPx": 0,
+            "cellHeightPx": 0,
+            "at": "2026-09-04T09:15:45.324Z"
+          }
+        },
+        "jsBusyIdlePercent": 34.1,
+        "jsBusyDeltaPoints": -31.4,
+        "accidentalOwners": 0
+      },
+      "terminal": {
+        "scrollRequests": 0,
+        "scrollLatencyP50Ms": 0,
+        "scrollLatencyP95Ms": 0,
+        "rowsRequested": 0,
+        "rowsSent": 0,
+        "rowsPerSecond": 0,
+        "clamped": 0
+      }
+    }
+  ],
+  "limits": {
+    "pssDriftKb": 102400,
+    "frameStallSeconds": 30,
+    "updateDepthErrors": 0,
+    "tourGrowthKb": 153600,
+    "herdVisibleMs": 90000,
+    "hostRequestMs": 5000,
+    "graphicsPipelineP95Ms": 250,
+    "graphicsBytesP95": 819200,
+    "scrollToFrameP95Ms": 400,
+    "accidentalOwners": 0,
+    "terminalScrollClamped": 0,
+    "graphicsRowsPerSecond": 9,
+    "zoomResizeCount": 1,
+    "jsBusyPercent": 60,
+    "gestureJankPercent": 20,
+    "gestureP95Ms": 100,
+    "gestureP99Ms": 250,
+    "gestureOverFourFramesPercent": 3,
+    "gestureDroppedPercent": 12,
+    "missedVsyncPerFling": 3,
+    "inputToFrameP95Ms": 120,
+    "jsBusyDeltaNative": 15,
+    "jsBusyDeltaTerminal": 25,
+    "terminalScrollP95Ms": 250,
+    "terminalRowsPerSecond": 40
+  },
+  "load": {
+    "panes": 100,
+    "agents": 30,
+    "titleChurnHz": 2,
+    "terminalBytesPerSecond": 4096,
+    "graphicsFrameHz": 4
+  },
+  "profile": "emulator",
+  "avd": "muxr_sandbox",
+  "maestro": "2.7.0",
+  "device": {
+    "model": "sdk_gphone64_x86_64",
+    "sdk": 36,
+    "refreshHz": 60,
+    "density": 420,
+    "renderer": "emulation",
+    "versionCode": 79,
+    "versionName": "0.1.26",
+    "signerDigest": "f1d45ed68e16ff6c93c8c5de8b20682e62724afc46a96df879a7b19bbc4afe57"
+  },
+  "apk": "/tmp/muxr-0.1.26-vc79-x86_64.apk",
+  "herdVisibleMs": 36537,
+  "tour": {
+    "panes": 40,
+    "opened": 37,
+    "missed": 3,
+    "visits": [
+      {
+        "paneId": "w1:p31",
+        "opened": false,
+        "pssKb": 357715
+      },
+      {
+        "paneId": "w1:p32",
+        "opened": false,
+        "pssKb": 390802
+      },
+      {
+        "paneId": "w1:p33",
+        "opened": false,
+        "pssKb": 375642
+      },
+      {
+        "paneId": "w1:p34",
+        "opened": true,
+        "pssKb": 392355
+      },
+      {
+        "paneId": "w1:p35",
+        "opened": true,
+        "pssKb": 406124
+      },
+      {
+        "paneId": "w1:p36",
+        "opened": true,
+        "pssKb": 429480
+      },
+      {
+        "paneId": "w1:p37",
+        "opened": true,
+        "pssKb": 439147
+      },
+      {
+        "paneId": "w1:p38",
+        "opened": true,
+        "pssKb": 454053
+      },
+      {
+        "paneId": "w1:p39",
+        "opened": true,
+        "pssKb": 468126
+      },
+      {
+        "paneId": "w1:p40",
+        "opened": true,
+        "pssKb": 487383
+      },
+      {
+        "paneId": "w1:p41",
+        "opened": true,
+        "pssKb": 497118
+      },
+      {
+        "paneId": "w1:p42",
+        "opened": true,
+        "pssKb": 515068
+      },
+      {
+        "paneId": "w1:p43",
+        "opened": true,
+        "pssKb": 528866
+      },
+      {
+        "paneId": "w1:p44",
+        "opened": true,
+        "pssKb": 549175
+      },
+      {
+        "paneId": "w1:p45",
+        "opened": true,
+        "pssKb": 554522
+      },
+      {
+        "paneId": "w1:p46",
+        "opened": true,
+        "pssKb": 573420
+      },
+      {
+        "paneId": "w1:p47",
+        "opened": true,
+        "pssKb": 588948
+      },
+      {
+        "paneId": "w1:p48",
+        "opened": true,
+        "pssKb": 436606
+      },
+      {
+        "paneId": "w1:p49",
+        "opened": true,
+        "pssKb": 426935
+      },
+      {
+        "paneId": "w1:p50",
+        "opened": true,
+        "pssKb": 440720
+      },
+      {
+        "paneId": "w1:p51",
+        "opened": true,
+        "pssKb": 456447
+      },
+      {
+        "paneId": "w1:p52",
+        "opened": true,
+        "pssKb": 469997
+      },
+      {
+        "paneId": "w1:p53",
+        "opened": true,
+        "pssKb": 476127
+      },
+      {
+        "paneId": "w1:p54",
+        "opened": true,
+        "pssKb": 490728
+      },
+      {
+        "paneId": "w1:p55",
+        "opened": true,
+        "pssKb": 506996
+      },
+      {
+        "paneId": "w1:p56",
+        "opened": true,
+        "pssKb": 523688
+      },
+      {
+        "paneId": "w1:p57",
+        "opened": true,
+        "pssKb": 523993
+      },
+      {
+        "paneId": "w1:p58",
+        "opened": true,
+        "pssKb": 542355
+      },
+      {
+        "paneId": "w1:p59",
+        "opened": true,
+        "pssKb": 556549
+      },
+      {
+        "paneId": "w1:p60",
+        "opened": true,
+        "pssKb": 568100
+      },
+      {
+        "paneId": "w1:p61",
+        "opened": true,
+        "pssKb": 404820
+      },
+      {
+        "paneId": "w1:p62",
+        "opened": true,
+        "pssKb": 408416
+      },
+      {
+        "paneId": "w1:p63",
+        "opened": true,
+        "pssKb": 421231
+      },
+      {
+        "paneId": "w1:p64",
+        "opened": true,
+        "pssKb": 432984
+      },
+      {
+        "paneId": "w1:p65",
+        "opened": true,
+        "pssKb": 443302
+      },
+      {
+        "paneId": "w1:p66",
+        "opened": true,
+        "pssKb": 457673
+      },
+      {
+        "paneId": "w1:p67",
+        "opened": true,
+        "pssKb": 466466
+      },
+      {
+        "paneId": "w1:p68",
+        "opened": true,
+        "pssKb": 481909
+      },
+      {
+        "paneId": "w1:p69",
+        "opened": true,
+        "pssKb": 393572
+      },
+      {
+        "paneId": "w1:p70",
+        "opened": true,
+        "pssKb": 399806
+      }
+    ],
+    "pssFirstKb": 357715,
+    "pssLastKb": 399806,
+    "pssMaxKb": 588948,
+    "pssGrowthKb": 42091,
+    "framesRendered": 13979
+  },
+  "updateDepthErrors": 0,
+  "hostJournal": {
+    "path": "/tmp/muxr-perf-CPUPHh/muxr/host/diagnostics.json",
+    "reads": 28,
+    "events": 1461,
+    "eventCounts": {
+      "host.started": 1,
+      "agent.readiness": 1353,
+      "relay.state": 2,
+      "client.reject": 1,
+      "client.request": 92,
+      "graphics.pipeline": 8,
+      "client.hello": 4
+    },
+    "attachJsonl": 953
+  },
+  "hostRequests": {
+    "total": 92,
+    "attaches": 49,
+    "rejected": [],
+    "slowestMs": 48
+  },
+  "graphics": {
+    "frames": 35,
+    "superseded": 0,
+    "p50Ms": 36,
+    "p95Ms": 38,
+    "bytesP95": 2471,
+    "pixelsP95": 309925,
+    "notchesSent": 283,
+    "notchesDropped": 0
+  },
+  "runtimeAlive": true,
+  "framesRendered": 13979,
+  "screenshot": "docs/perf/0.1.26-gestures-baseline.png",
+  "commit": "8b5da941c4e853099cc457686f17cfceb7e5983e",
+  "finishedAt": "2026-09-04T09:29:20.502Z",
+  "failures": [
+    "herd strip paging: no frames in window",
+    "herd strip paging: content did not move",
+    "document scroll and swipe: no frames drawn for 30s",
+    "document scroll and swipe: openDocument.yaml did not complete",
+    "document scroll and swipe: no frames in window",
+    "document scroll and swipe: document.navigate",
+    "document scroll and swipe: content did not move",
+    "terminal text fling: no frames drawn for 30s",
+    "terminal text fling: no frames in window",
+    "terminal text fling: terminalRowsPerSecond",
+    "terminal text fling: content did not move",
+    "graphics pane scroll: no frames drawn for 90s",
+    "graphics pane scroll: graphicsScroll.yaml did not complete",
+    "graphics pane scroll: no frames in window",
+    "graphics pane scroll: graphicsRowsPerSecond",
+    "zoom tap navigate: no frames drawn for 35s",
+    "zoom tap navigate: no frames in window",
+    "zoom tap navigate: zoomResizeCount"
+  ],
+  "passed": false
+}

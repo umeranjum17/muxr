@@ -28,6 +28,8 @@ class PluginShortcutsModule : Module() {
         val icon = IconCompat.createWithResource(context, context.applicationInfo.icon)
         val activity = context.packageManager.getLaunchIntentForPackage(context.packageName)?.component
           ?: error("Main activity unavailable")
+        val schemeResource = context.resources.getIdentifier("muxr_link_scheme", "string", context.packageName)
+        val scheme = if (schemeResource != 0) context.getString(schemeResource) else "muxr"
         val dynamic = shortcuts.asSequence()
           .mapNotNull { shortcut ->
             val id = shortcut["id"] as? String ?: return@mapNotNull null
@@ -38,7 +40,7 @@ class PluginShortcutsModule : Module() {
               .setShortLabel(label)
               .setLongLabel(longLabel)
               .setIcon(icon)
-              .setIntent(Intent(Intent.ACTION_VIEW, Uri.parse("muxr://shortcut/$id")).setComponent(activity))
+              .setIntent(Intent(Intent.ACTION_VIEW, Uri.parse("$scheme://shortcut/$id")).setComponent(activity))
               .build()
           }
           .take(capacity)

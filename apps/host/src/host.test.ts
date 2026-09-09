@@ -6,7 +6,7 @@ const relay = vi.hoisted(() => ({
     options: undefined as { onClientFrame: (...args: never[]) => void; onStateChange: (state: 'connecting' | 'open' | 'closed' | 'replaced') => void } | undefined,
 }));
 
-vi.mock('./relayLink.js', () => ({
+vi.mock('./machine/index.js', () => ({
     connectToRelay: vi.fn((options: typeof relay.options) => {
         relay.options = options;
         return { send: relay.send, close: relay.close };
@@ -14,7 +14,7 @@ vi.mock('./relayLink.js', () => ({
 }));
 
 import { startHost } from './host.js';
-import type { SessionSource } from './sessionSource.js';
+import type { SessionSource } from './agent/index.js';
 
 describe('host machine plugin invalidation flow', () => {
     beforeEach(() => {
@@ -47,6 +47,8 @@ describe('host machine plugin invalidation flow', () => {
         expect(relay.send).toHaveBeenCalledWith(frame);
         relay.options?.onStateChange('open');
         expect(relay.send).toHaveBeenCalledWith(reconnectFrame);
+        expect(() => relay.options?.onClientFrame(null as never)).not.toThrow();
+        await new Promise((resolve) => setTimeout(resolve, 0));
         await host.close();
         expect(unsubscribe).toHaveBeenCalledOnce();
         expect(relay.close).toHaveBeenCalledOnce();

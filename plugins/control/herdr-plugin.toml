@@ -2,8 +2,25 @@ id = "muxr.control"
 name = "muxr"
 version = "0.1.0"
 min_herdr_version = "0.8.0"
-description = "Set up, pair, and operate muxr from Herdr"
+description = "Set up and pair muxr from Herdr, and drive Herdr layout from your phone"
 platforms = ["linux", "macos"]
+
+# Herdr already owns pane layout, so these need no backend script of their own:
+# an action process inherits HERDR_PANE_ID from the invocation context, which is
+# the session the phone is looking at, and `--current` reads it.
+[[actions]]
+id = "split-right"
+title = "Split right"
+description = "Open a new pane beside this one"
+contexts = ["pane"]
+command = ["herdr", "pane", "split", "--current", "--direction", "right"]
+
+[[actions]]
+id = "split-down"
+title = "Split down"
+description = "Open a new pane below this one"
+contexts = ["pane"]
+command = ["herdr", "pane", "split", "--current", "--direction", "down"]
 
 [[panes]]
 id = "setup"

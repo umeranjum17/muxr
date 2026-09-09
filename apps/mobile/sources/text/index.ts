@@ -1,16 +1,16 @@
-import { en, type Translations, type TranslationStructure } from './_default';
-import { ru } from './translations/ru';
-import { pl } from './translations/pl';
-import { es } from './translations/es';
-import { it } from './translations/it';
-import { pt } from './translations/pt';
-import { ca } from './translations/ca';
-import { zhHans } from './translations/zh-Hans';
-import { zhHant } from './translations/zh-Hant';
-import { ja } from './translations/ja';
+import { en, type Translations, type TranslationStructure } from '@/text/_default';
+import { ru } from '@/text/translations/ru';
+import { pl } from '@/text/translations/pl';
+import { es } from '@/text/translations/es';
+import { it } from '@/text/translations/it';
+import { pt } from '@/text/translations/pt';
+import { ca } from '@/text/translations/ca';
+import { zhHans } from '@/text/translations/zh-Hans';
+import { zhHant } from '@/text/translations/zh-Hant';
+import { ja } from '@/text/translations/ja';
 import * as Localization from 'expo-localization';
-import { loadSettings } from '@/sync/persistence';
-import { type SupportedLanguage, SUPPORTED_LANGUAGES, SUPPORTED_LANGUAGE_CODES, DEFAULT_LANGUAGE } from './_all';
+import { loadSettings } from '@/catalog/application/persistence';
+import { type SupportedLanguage, SUPPORTED_LANGUAGES, SUPPORTED_LANGUAGE_CODES, DEFAULT_LANGUAGE } from '@/text/_all';
 
 /**
  * Extract all possible dot-notation keys from the nested translation object
@@ -64,8 +64,8 @@ export type TranslationParams<K extends TranslationKey> = GetParams<GetValue<Tra
 /**
  * Re-export language types and configuration
  */
-export type { SupportedLanguage } from './_all';
-export { SUPPORTED_LANGUAGES, SUPPORTED_LANGUAGE_CODES, DEFAULT_LANGUAGE, getLanguageNativeName, getLanguageEnglishName } from './_all';
+export type { SupportedLanguage } from '@/text/_all';
+export { SUPPORTED_LANGUAGES, SUPPORTED_LANGUAGE_CODES, DEFAULT_LANGUAGE, getLanguageNativeName, getLanguageEnglishName } from '@/text/_all';
 
 /**
  * Translation objects for all supported languages

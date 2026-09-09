@@ -1,3 +1,3 @@
-export { CommandPalette } from './CommandPalette';
-export { CommandPaletteProvider } from './CommandPaletteProvider';
-export type { Command, CommandCategory } from './types';
+export { CommandPalette } from '@/components/CommandPalette/CommandPalette';
+export { CommandPaletteProvider } from '@/components/CommandPalette/CommandPaletteProvider';
+export type { Command, CommandCategory } from '@/components/CommandPalette/types';

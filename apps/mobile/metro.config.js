@@ -1,19 +1,25 @@
 const { getDefaultConfig } = require("expo/metro-config");
 const path = require("path");
 
+const workspaceRoot = path.resolve(__dirname, "../..");
 const config = getDefaultConfig(__dirname, {
   // Enable CSS support for web
   isCSSEnabled: true,
 });
 
+config.watchFolders = [...(config.watchFolders ?? []), workspaceRoot];
+
 // Add support for .wasm files (required by Skia for all platforms)
 // Source: https://shopify.github.io/react-native-skia/docs/getting-started/installation/
 config.resolver.assetExts.push('wasm', 'bin');
-// Exclude Tauri Rust build artifacts from Metro's file watcher.
-// Cargo writes/deletes transient files in src-tauri/target/debug/deps during
-// `tauri dev`, which crashes Metro's fallback watcher on Windows with ENOENT.
+// Native builds create/delete transient directories while Metro is watching.
+// They are not JS inputs; exclude them so Fast Refresh survives a debug rebuild.
+// Also keep the isolated host's changing runtime state outside the watch graph.
 config.resolver.blockList = [
   /[/\\]src-tauri[/\\]target[/\\].*/,
+  /[/\\](?:\.cxx|\.gradle)[/\\].*/,
+  /[/\\](?:android|ReactAndroid)[/\\](?:.*[/\\])?build(?:[/\\].*)?$/,
+  /[/\\]\.cache[/\\]muxr-dev[/\\].*/,
 ];
 
 // Force every preact / preact/hooks import (ESM or CJS, from any package) to
@@ -25,6 +31,8 @@ config.resolver.blockList = [
 // `r.__H` crashes. Pin to the CJS bundles so everyone shares state.
 const preactCjsPath = require.resolve('preact');
 const preactHooksCjsPath = require.resolve('preact/hooks');
+const contractEntry = path.resolve(workspaceRoot, "packages/contract/dist/index.js");
+const cryptoEntry = path.resolve(workspaceRoot, "packages/crypto/dist/index.js");
 
 const baseResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
@@ -33,6 +41,12 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   }
   if (moduleName === 'preact/hooks') {
     return { filePath: preactHooksCjsPath, type: 'sourceFile' };
+  }
+  if (moduleName === '@muxr/contract') {
+    return { filePath: contractEntry, type: 'sourceFile' };
+  }
+  if (moduleName === '@muxr/crypto') {
+    return { filePath: cryptoEntry, type: 'sourceFile' };
   }
   if (baseResolveRequest) {
     return baseResolveRequest(context, moduleName, platform);

@@ -3,11 +3,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
-import { useSettingMutable, useLocalSettingMutable } from '@/sync/storage';
+import { useSettingMutable, useLocalSettingMutable } from '@/catalog/store';
 import { Switch } from '@/components/Switch';
 import { t } from '@/text';
 
 export default function PreferencesSettingsScreen() {
+    const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
     const [commandPaletteEnabled, setCommandPaletteEnabled] = useLocalSettingMutable('commandPaletteEnabled');
     const [hideInactiveSessions, setHideInactiveSessions] = useSettingMutable('hideInactiveSessions');
     const [sortSessionsByActivity, setSortSessionsByActivity] = useSettingMutable('sortSessionsByActivity');
@@ -30,6 +31,17 @@ export default function PreferencesSettingsScreen() {
                     showChevron={false}
                 />
             </ItemGroup>
+            {Platform.OS !== 'web' && (
+                <ItemGroup title="Terminal keyboard" footer="The keyboard button in each terminal always lets you type. This preference stays on this device.">
+                    <Item
+                        title="Open keyboard on tap"
+                        subtitle="Show the keyboard when tapping shells, Terminal Browser or Terminal Code"
+                        icon={<Ionicons name="keypad-outline" size={29} color="#007AFF" />}
+                        rightElement={<Switch value={!terminalKeyboardDisabled} onValueChange={(enabled) => setTerminalKeyboardDisabled(!enabled)} />}
+                        showChevron={false}
+                    />
+                </ItemGroup>
+            )}
             {Platform.OS === 'web' && (
                 <ItemGroup title="Advanced" footer="Web-only keyboard controls.">
                     <Item

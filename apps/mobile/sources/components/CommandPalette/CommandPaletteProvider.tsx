@@ -2,23 +2,23 @@ import React, { useCallback, useMemo } from 'react';
 import { Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Modal } from '@/modal';
-import { CommandPalette } from './CommandPalette';
-import { Command } from './types';
+import { CommandPalette } from '@/components/CommandPalette/CommandPalette';
+import { Command } from '@/components/CommandPalette/types';
 import { useGlobalKeyboard } from '@/hooks/useGlobalKeyboard';
-import { useAuth } from '@/auth/AuthContext';
-import { storage, useAllMachines } from '@/sync/storage';
+import { useAuth } from '@/account/ui';
+import { storage, useAllMachines } from '@/catalog/store';
 import { useShallow } from 'zustand/react/shallow';
-import { useNavigateToSession } from '@/hooks/useNavigateToSession';
+import { useNavigateToSession } from '@/herd';
 import { ShortcutHintsProvider } from '@/components/ShortcutHints';
 import {
     formatShortcut,
     getPreferredShortcutModifier,
 } from '@/keyboard/shortcuts';
 import { isTauri } from '@/utils/isTauri';
-import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
-import { getSessionShortcutIdsInDisplayOrder } from '@/utils/sessionDisplayOrder';
+import { useVisibleSessionListViewData } from '@/herd';
+import { getSessionShortcutIdsInDisplayOrder } from '@/herd';
 import { t } from '@/text';
-import { useDeviceAuthority } from '@/hooks/useDeviceAuthority';
+import { useDeviceAuthority } from '@/pairing';
 
 const EMPTY_SESSION_IDS: readonly string[] = [];
 

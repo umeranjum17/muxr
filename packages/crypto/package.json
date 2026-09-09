@@ -10,9 +10,14 @@
         ".": {
             "types": "./dist/index.d.ts",
             "default": "./dist/index.js"
+        },
+        "./e2ee": {
+            "types": "./dist/e2ee/index.d.ts",
+            "default": "./dist/e2ee/index.js"
         }
     },
     "dependencies": {
+        "@muxr/contract": "0.0.0",
         "tweetnacl": "^1.0.3"
     }
 }

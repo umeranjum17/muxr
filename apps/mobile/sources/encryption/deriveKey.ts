@@ -36,10 +36,7 @@ export async function deriveSecretKeyTreeChild(chainCode: Uint8Array, index: str
 
 export async function deriveKey(master: Uint8Array, usage: string, path: string[]): Promise<Uint8Array> {
     let state = await deriveSecretKeyTreeRoot(master, usage);
-    let remaining = [...path];
-    while (remaining.length > 0) {
-        let index = remaining[0];
-        remaining = remaining.slice(1);
+    for (const index of path) {
         state = await deriveSecretKeyTreeChild(state.chainCode, index);
     }
     return state.key;

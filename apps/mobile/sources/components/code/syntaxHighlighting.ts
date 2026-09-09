@@ -29,7 +29,8 @@ import 'prismjs/components/prism-markup-templating';
 import 'prismjs/components/prism-php';
 import 'prismjs/components/prism-hcl';
 
-export interface SyntaxSpan { text: string; type?: string }
+/** `mark` is a word-level change highlight, set by the diff, not by Prism. */
+export interface SyntaxSpan { text: string; type?: string; mark?: true }
 
 const LANGUAGE_ALIASES: Record<string, string> = {
     js: 'javascript', javascript: 'javascript',

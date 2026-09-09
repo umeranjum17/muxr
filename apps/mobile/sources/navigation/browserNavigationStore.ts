@@ -4,7 +4,7 @@ import {
     createRouteHistory,
     PendingRouteDirection,
     RouteHistoryState,
-} from './browserNavigation';
+} from '@/navigation/browserNavigation';
 
 interface BrowserNavigationState {
     routeHistory: RouteHistoryState | null;

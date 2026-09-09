@@ -118,8 +118,15 @@ class VoiceOverlayModule : Module() {
 
     Function("startRealtimePcm") { sampleRate: Int -> realtimePcm.start(sampleRate) }
     Function("playRealtimePcm") { base64: String -> realtimePcm.write(base64) }
+    Function("finishRealtimePcm") { realtimePcm.finish() }
     Function("clearRealtimePcm") { realtimePcm.clear() }
+    Function("isRealtimePcmDrained") { realtimePcm.isDrained() }
     Function("stopRealtimePcm") { realtimePcm.stop() }
+    Function("isServiceReady") { VoiceOverlayService.isVoiceForegroundReady() }
+    Function("setNetworkActive") { active: Boolean ->
+      VoiceOverlayService.setNetworkActive(active)
+      true
+    }
 
     // The whole Android audio session, so nothing else gets to argue about it.
     // Communication mode is what engages the hardware echo canceller; WebRTC

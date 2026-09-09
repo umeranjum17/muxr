@@ -18,9 +18,9 @@
 
 <p align="center">
   <a href="https://play.google.com/apps/testing/com.trymuxr.app">Google Play testing</a> ·
-  <a href="https://github.com/umeranjum17/muxr/issues/new?template=mobile-access.yml">Request TestFlight</a> ·
-  <a href="https://github.com/umeranjum17/muxr/releases/download/v0.1.7/muxr-0.1.7.apk">Latest direct APK: 0.1.7</a> ·
-  <a href="https://github.com/umeranjum17/muxr/releases">All releases</a>
+  <a href="https://testflight.apple.com/join/aJSbs8pN">iOS TestFlight</a> ·
+  <a href="https://trymuxr.com/downloads/stable/android">Download the Android APK</a> ·
+  <a href="https://trymuxr.com/downloads">Stable and nightly</a>
 </p>
 
 <p align="center">
@@ -103,8 +103,8 @@ Use native realtime speech-to-speech when typing is the slow part. Ask what chan
 **Also on your phone:**
 
 - **New agents and worktrees** — choose the machine, repository, worktree, and one of 20+ agent CLIs from the home composer.
-- **Files, attachments, ports, and previews** — inspect outputs or open the dev server an agent just started.
-- **Usage, runbooks, and [extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
+- **Files, attachments, and changes** — inspect repository files, diffs, and agent outputs from your phone.
+- **Usage and [extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
 
 The [release history](https://github.com/umeranjum17/muxr/releases) is the real feature list.
 
@@ -114,13 +114,11 @@ Parallel agents work like a party: each has a job, a state, and moments when it 
 
 ![muxr as an RPG party command center with the Herd, terminal, changes, Inbox, and voice](docs/art/rpg-cover.png)
 
-## Cloud without a cloud computer
+## Your machines, your relay
 
-Your phone and computer need a secure way to stay connected across networks. They do not need us to run your agents.
+Your phone and computer stay connected over Wi-Fi, Tailscale, or a VPS you run. Nobody else runs your agents.
 
-**muxr Cloud** helps paired devices reach each other and wakes your phone when an agent needs attention. Terminal text, prompts, responses, keystrokes, files, pairing secrets, and credentials remain end-to-end encrypted. Agents, repositories, model subscriptions, and encryption keys stay on your computer.
-
-muxr Cloud is rolling out to testers now. Self-hosting is available to everyone today over Wi-Fi, Tailscale, or a VPS. The app and features are the same either way.
+Terminal text, prompts, responses, keystrokes, files, pairing secrets, and credentials remain end-to-end encrypted. Agents, repositories, model subscriptions, and encryption keys stay on your computer.
 
 [Privacy and trust →](https://trymuxr.com/docs/privacy) · [Self-hosting →](docs/SELF-HOSTING.md)
 
@@ -129,47 +127,31 @@ muxr Cloud is rolling out to testers now. Self-hosting is available to everyone 
 You need [Node.js 22 or newer](https://nodejs.org/) on Linux, macOS, or WSL. muxr installs [Herdr](https://herdr.dev) during setup if it is missing.
 
 ```bash
-npm install -g --ignore-scripts @trymuxr/cli
+npm install -g --ignore-scripts @trymuxr/cli@latest
 muxr
 ```
 
+Want the newest build? Install it with `npm install -g --ignore-scripts @trymuxr/cli@nightly` and take its APK from the [nightly channel](https://trymuxr.com/downloads/nightly). The **Android app** installs alongside a stable one rather than replacing it, so you can keep both on the phone. On your computer both channels are the same CLI, so switching npm tags replaces the host you already run rather than adding a second one. Beta and dev are retired: moving across is that one install, and an older binary will not upgrade itself to a `-nightly` version.
+
 Then install the mobile companion:
 
-- **Android:** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the latest direct APK (0.1.7)](https://github.com/umeranjum17/muxr/releases/download/v0.1.7/muxr-0.1.7.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/download/v0.1.7/SHA256SUMS)
-- **iOS:** [request TestFlight access](https://github.com/umeranjum17/muxr/issues/new?template=mobile-access.yml)
+- **Android (stable):** [download the stable APK](https://trymuxr.com/downloads/stable/android) · [stable checksum](https://trymuxr.com/downloads/stable/checksums)
+- **Google Play testing:** [join the testing track](https://play.google.com/apps/testing/com.trymuxr.app) — availability depends on Google review and testing access
+- **iOS TestFlight:** [open the public link](https://testflight.apple.com/join/aJSbs8pN) — build availability depends on Apple review and tester capacity. Store tracks review and roll out on their own schedule, so they do not move with the nightly APK
 - **Web:** pair an eight-hour read-only browser during self-hosted setup
-- **All builds:** [GitHub Releases](https://github.com/umeranjum17/muxr/releases)
+- **All builds:** [every download channel](https://trymuxr.com/downloads)
 
-Verify a downloaded APK with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`, choose **Apply setup**, and scan the one-use QR from the phone. Start with LAN when both devices are on the same Wi-Fi.
+Save the channel's checksum next to the downloaded APK as `SHA256SUMS`, verify it with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`. Each channel publishes its own checksum, so verify against the channel you downloaded from. Setup explains one recommended route—the healthy current route, Tailscale, an existing private network, an installed temporary tunnel, or same Wi-Fi—and changes nothing until **Apply setup**. Scan the one-use QR from the phone when it is ready.
 
 [Read the step-by-step quickstart →](https://trymuxr.com/docs/quickstart)
 
 ## Use the agents you already have
 
-muxr connects to sessions [Herdr](https://github.com/herdrdev/herdr) already runs. Your CLIs, subscriptions, configuration, skills, and MCP servers stay as they are.
+muxr connects to sessions [Herdr](https://github.com/herdrdev/herdr) already runs. Your CLIs, subscriptions, configuration, skills, and MCP servers stay as they are. muxr never edits agent instruction files; load the compact `muxr --skill`, then request one focused topic with `muxr skill <topic>` only when needed.
 
-<p>
-  <img src="docs/agents/icons/pi.svg" width="28" alt="Pi" title="Pi" />
-  <img src="docs/agents/icons/claude.svg" width="28" alt="Claude Code" title="Claude Code" />
-  <img src="docs/agents/icons/codex.svg" width="28" alt="Codex" title="Codex" />
-  <img src="docs/agents/icons/gemini.svg" width="28" alt="Gemini CLI" title="Gemini CLI" />
-  <img src="docs/agents/icons/cursor.svg" width="28" alt="Cursor" title="Cursor" />
-  <img src="docs/agents/icons/opencode.svg" width="28" alt="OpenCode" title="OpenCode" />
-  <img src="docs/agents/icons/copilot.svg" width="28" alt="GitHub Copilot CLI" title="GitHub Copilot CLI" />
-  <img src="docs/agents/icons/kimi.svg" width="28" alt="Kimi Code" title="Kimi Code" />
-  <img src="docs/agents/icons/grok.svg" width="28" alt="Grok" title="Grok" />
-  <img src="docs/agents/icons/hermes.svg" width="28" alt="Hermes Agent" title="Hermes Agent" />
-  <img src="docs/agents/icons/amp.svg" width="28" alt="Amp" title="Amp" />
-  <img src="docs/agents/icons/droid.svg" width="28" alt="Factory Droid" title="Factory Droid" />
-  <img src="docs/agents/icons/devin.svg" width="28" alt="Devin" title="Devin" />
-  <img src="docs/agents/icons/cline.svg" width="28" alt="Cline" title="Cline" />
-  <img src="docs/agents/icons/kiro.svg" width="28" alt="Kiro" title="Kiro" />
-  <img src="docs/agents/icons/kilocode.svg" width="28" alt="Kilo Code" title="Kilo Code" />
-  <img src="docs/agents/icons/qoder.svg" width="28" alt="Qoder CLI" title="Qoder CLI" />
-  <img src="docs/agents/icons/omp.svg" width="28" alt="OMP (Oh My Pi)" title="OMP (Oh My Pi)" />
-  <img src="docs/agents/icons/antigravity.svg" width="28" alt="Antigravity" title="Antigravity" />
-  <img src="docs/agents/icons/mastracode.svg" width="28" alt="MastraCode" title="MastraCode" />
-  <img src="docs/agents/icons/maki.svg" width="28" alt="Maki" title="Maki" />
+<p align="center">
+  <img src="docs/agents/icons/agent-grid-light.svg#gh-light-mode-only" width="760" alt="Pi, OMP, Claude Code, Codex, Gemini CLI, Cursor, OpenCode, GitHub Copilot CLI, Kimi Code, Grok, Hermes Agent, Amp, Factory Droid, Devin, Cline, Kiro, Kilo Code, Qoder CLI, Antigravity, MastraCode, Maki, and Shell" />
+  <img src="docs/agents/icons/agent-grid-dark.svg#gh-dark-mode-only" width="760" alt="Pi, OMP, Claude Code, Codex, Gemini CLI, Cursor, OpenCode, GitHub Copilot CLI, Kimi Code, Grok, Hermes Agent, Amp, Factory Droid, Devin, Cline, Kiro, Kilo Code, Qoder CLI, Antigravity, MastraCode, Maki, and Shell" />
 </p>
 
 ## Extensions
@@ -185,7 +167,7 @@ git clone https://github.com/umeranjum17/muxr
 cd muxr
 yarn install --frozen-lockfile
 yarn typecheck
-node scripts/runSuite.mjs
+yarn run check
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and pull requests.
@@ -193,3 +175,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and pull requests.
 ## License
 
 muxr is licensed under [Apache License 2.0](LICENSE). Third-party notices are recorded in [NOTICE](NOTICE) and the [license inventory](docs/license-inventory.md). The muxr name and marks are covered by [TRADEMARK.md](TRADEMARK.md).
+
+## Development and nightly builds
+
+Merging into `main` advances development, not production. Use the [release channel workflow](docs/RELEASING.md) for signed nightly APKs, verified npm artifacts and explicit stable promotion. Emulator acceptance stays local.

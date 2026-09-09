@@ -10,12 +10,19 @@ body:
     validations:
       required: true
   - type: textarea
+    id: report
+    attributes:
+      label: muxr report
+      description: Run `muxr report`, paste the generated Markdown here, or say why the command is unavailable. It contains environment versions, doctor check names, and bounded redacted diagnostics; raw daemon logs are not required.
+    validations:
+      required: true
+  - type: textarea
     id: host
     attributes:
-      label: Host vs herdr
-      description: Paste `herdr agent list` if this is live behavior, and say whether it agrees with the app. Host log slice from `journalctl --user -u muxr.service` if you have it.
+      label: App vs Herdr
+      description: For live agent behavior, paste `herdr agent list` and say whether it agrees with the app. Omit this for setup/install issues.
   - type: input
     id: version
     attributes:
-      label: Version
-      description: git sha, APK build, or `node scripts/cli.mjs version`
+      label: App version
+      description: Android/iOS app version and build if the report does not already identify it.

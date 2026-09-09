@@ -29,8 +29,8 @@ Run `muxr self-host --tailscale-direct` to use the previous direct-tailnet addre
 ## Verification
 
 ```bash
-node scripts/checkTailscaleIngress.mjs
-node scripts/checkSelfhostRevocation.mjs
+node scripts/diagnostics/application/checkTailscaleIngress.mjs
+node scripts/diagnostics/application/checkSelfhostRevocation.mjs
 ```
 
 The first check uses a fake Tailscale CLI and verifies MagicDNS selection, loopback relay bind, Serve invocation, occupied-handler refusal, and direct fallback. The pairing check proves application-layer authority remains intact.

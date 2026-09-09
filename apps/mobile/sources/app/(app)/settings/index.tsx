@@ -1,3 +1,3 @@
-import { SettingsView } from "@/components/SettingsView";
+import { SettingsView } from "@/settings";
 
 export default SettingsView;

@@ -7,24 +7,48 @@
  */
 
 import type { ClientFrame, ClientRequest, SessionEvent, SessionEventBody } from '@muxr/contract';
-import { connectToRelay, type RelayLink } from './relayLink.js';
-import { createRequestDispatcher } from './requests/createRequestDispatcher.js';
-import type { DomainStores } from './domain/index.js';
-import type { TerminalManager } from './herdr/terminalManager.js';
-import type { SessionSource } from './sessionSource.js';
-import type { HostedMachineKeys } from './hostedE2ee.js';
+import { connectToRelay, deviceTableCanMutate, type RelayLink, type RelayStateCode, type HostedMachineKeys } from './machine/index.js';
+import { createRequestDispatcher } from './requests/index.js';
+import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
+import type { PeerRuntime } from './peer/index.js';
+import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/index.js';
+
+function sessionIdFrom(frame: { type?: string; params?: unknown } | null | undefined): string | undefined {
+    if (frame === null || typeof frame !== 'object') return undefined;
+    if (typeof frame.params !== 'object' || frame.params === null) return undefined;
+    if (!('sessionId' in frame.params) || typeof frame.params.sessionId !== 'string') return undefined;
+    return frame.params.sessionId;
+}
+
+function peerRecipientFor(senderId: string | undefined, hostedE2ee: HostedMachineKeys | undefined): string | undefined {
+    if (senderId === undefined) return undefined;
+    if (hostedE2ee?.deviceKinds?.[senderId] !== 'peer') return undefined;
+    return senderId;
+}
+
+function responseChannel(frameType: string): 'attachment' | 'session' {
+    return frameType === 'attachment.read' ? 'attachment' : 'session';
+}
+
+function diagnosticClientKind(senderId: string | undefined, hostedE2ee: HostedMachineKeys | undefined): DiagnosticClientKind {
+    if (senderId === undefined) return 'local';
+    return hostedE2ee?.deviceKinds?.[senderId] ?? 'unknown';
+}
 
 export interface HostOptions {
     relayUrl: string;
     machineId: string;
+    machineName?: string;
     source: SessionSource;
-    domain: DomainStores;
+    domain: AgentWatchStores;
     terminals?: TerminalManager;
     hostVersion?: string;
-    onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced') => void;
+    onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced', code?: RelayStateCode) => void;
     /** Mandatory strict v2 endpoint keys for hosted mode. */
     hostedE2ee?: HostedMachineKeys;
     token?: string;
+    peerRuntime?: PeerRuntime;
+    diagnostics?: HostDiagnosticsJournal;
 }
 
 export interface Host {
@@ -37,18 +61,36 @@ export function startHost(options: HostOptions): Host {
     const seqBySession = new Map<string, number>();
     let link: RelayLink | undefined;
 
+    let hostedDispatcherOptions = {};
+    if (options.hostedE2ee !== undefined) {
+        const hosted = options.hostedE2ee;
+        hostedDispatcherOptions = {
+            requirePreviewEncryption: true,
+            canMutateDevice: (deviceId: string) => deviceTableCanMutate(hosted.deviceAuthorities, deviceId),
+            getDeviceContext: (deviceId: string) => {
+                const kind = hosted.deviceKinds?.[deviceId];
+                if (kind === undefined) return undefined;
+                const capabilities = hosted.deviceCapabilities?.[deviceId];
+                const allowedCwds = hosted.deviceAllowedCwds?.[deviceId];
+                return {
+                    kind,
+                    ...(capabilities === undefined ? {} : { capabilities }),
+                    ...(allowedCwds === undefined ? {} : { allowedCwds }),
+                };
+            },
+        };
+    }
     const dispatcher = createRequestDispatcher({
         source,
         domain,
         machineId: options.machineId,
+        ...(options.machineName === undefined ? {} : { machineName: options.machineName }),
         hostVersion,
         relayUrl: options.relayUrl,
         ...(options.terminals === undefined ? {} : { terminals: options.terminals }),
         ...(options.token === undefined ? {} : { token: options.token }),
-        ...(options.hostedE2ee === undefined ? {} : {
-            requirePreviewEncryption: true,
-            canMutateDevice: (deviceId: string) => options.hostedE2ee!.deviceAuthorities?.[deviceId] !== 'observe',
-        }),
+        ...(options.peerRuntime === undefined ? {} : { peerRuntime: options.peerRuntime }),
+        ...hostedDispatcherOptions,
     });
 
     function nextSeq(sessionId: string): number {
@@ -58,22 +100,44 @@ export function startHost(options: HostOptions): Host {
     }
 
     async function handleClientFrame(frame: ClientFrame, authenticatedSenderId?: string): Promise<void> {
+        const clientKind = diagnosticClientKind(authenticatedSenderId, options.hostedE2ee);
+        options.diagnostics?.client(authenticatedSenderId ?? 'local', clientKind, frame.type === 'client.hello');
+        const startedAt = Date.now();
+        const peerRecipient = peerRecipientFor(authenticatedSenderId, options.hostedE2ee);
         if (options.hostedE2ee !== undefined && frame.type === 'terminal.attach'
             && frame.params.deviceId !== authenticatedSenderId) {
-            throw new Error('terminal: device grant does not match the authenticated client');
+            const error = new Error('terminal: device grant does not match the authenticated client') as Error & { code: string };
+            error.code = 'e2ee-required';
+            options.diagnostics?.request(frame.type, clientKind, 'rejected', Date.now() - startedAt, error.code);
+            throw error;
         }
         if (frame.type === 'client.hello') {
-            link?.send({ type: 'session.list', sessions: await source.list({}) });
-            source.resendCumulativeState?.();
+            const peerMayList = peerRecipient === undefined
+                || options.hostedE2ee?.deviceCapabilities?.[peerRecipient]?.includes('list') === true;
+            if (peerMayList) {
+                const listed = await listAgents(source, {});
+                if (listed.ok) {
+                    link?.send({ type: 'session.list', sessions: listed.data }, undefined, 'session', peerRecipient);
+                }
+            }
+            if (peerRecipient === undefined) source.resendCumulativeState?.();
             return;
         }
-        const response = await dispatcher.dispatch(frame as ClientRequest, authenticatedSenderId);
-        const sessionId = 'params' in frame && typeof frame.params === 'object' && frame.params !== null
-            && 'sessionId' in frame.params && typeof frame.params.sessionId === 'string' ? frame.params.sessionId : undefined;
-        if (frame.type === 'attachment.prepare') {
-            console.log(`[attachment-download] host answering req=${frame.requestId} ok=${response.ok}`);
+
+        let response;
+        try {
+            response = await dispatcher.dispatch(frame as ClientRequest, authenticatedSenderId);
+        } catch (error) {
+            const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
+            options.diagnostics?.request(frame.type, clientKind, 'unavailable', Date.now() - startedAt, code);
+            throw error;
         }
-        link?.send(response, sessionId, frame.type === 'attachment.read' ? 'attachment' : 'session');
+        const outcome = response.ok ? 'ok' : 'rejected';
+        options.diagnostics?.request(frame.type, clientKind, outcome, Date.now() - startedAt, response.ok ? undefined : response.code);
+        if (frame.type.startsWith('peer.') && options.peerRuntime !== undefined) {
+            options.diagnostics?.relationships(options.peerRuntime.store.list().peers);
+        }
+        link?.send(response, sessionIdFrom(frame), responseChannel(frame.type), peerRecipient);
     }
 
     link = connectToRelay({
@@ -81,8 +145,11 @@ export function startHost(options: HostOptions): Host {
         machineId: options.machineId,
         ...(options.hostedE2ee === undefined ? {} : { hostedE2ee: options.hostedE2ee }),
         ...(options.token === undefined ? {} : { token: options.token }),
-        onStateChange: (state) => {
-            options.onStateChange?.(state);
+        onPeerIngress: (outcome) => options.diagnostics?.peerIngress(outcome),
+        onClientReject: (clientKey, kind, outcome) => options.diagnostics?.clientReject(clientKey, kind, outcome),
+        onStateChange: (state, code) => {
+            options.diagnostics?.relay(state, code);
+            options.onStateChange?.(state, code);
             if (state === 'open') {
                 link?.send({
                     type: 'machine.hello',
@@ -102,24 +169,17 @@ export function startHost(options: HostOptions): Host {
         onClientFrame: (frame, authenticatedSenderId) => {
             void handleClientFrame(frame, authenticatedSenderId).catch((error: unknown) => {
                 const message = error instanceof Error ? error.message : String(error);
-                if ('requestId' in frame && typeof frame.requestId === 'string') {
-                    const errorSessionId = 'params' in frame && typeof frame.params === 'object' && frame.params !== null
-                        && 'sessionId' in frame.params && typeof frame.params.sessionId === 'string' ? frame.params.sessionId : undefined;
+                const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
+                const sessionId = sessionIdFrom(frame);
+                if (typeof frame === 'object' && frame !== null && 'requestId' in frame && typeof frame.requestId === 'string') {
                     link?.send(
-                        { type: 'result', requestId: frame.requestId, ok: false, error: message },
-                        errorSessionId,
-                        frame.type === 'attachment.read' ? 'attachment' : 'session',
+                        { type: 'result', requestId: frame.requestId, ok: false, error: message, ...(code === undefined ? {} : { code }) },
+                        sessionId,
+                        responseChannel(frame.type),
+                        peerRecipientFor(authenticatedSenderId, options.hostedE2ee),
                     );
                     return;
                 }
-                const sessionId =
-                    'params' in frame &&
-                    typeof frame.params === 'object' &&
-                    frame.params !== null &&
-                    'sessionId' in frame.params &&
-                    typeof frame.params.sessionId === 'string'
-                        ? frame.params.sessionId
-                        : undefined;
                 if (sessionId !== undefined) forward(sessionId, { type: 'session.error', message });
             });
         },

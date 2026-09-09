@@ -80,8 +80,8 @@ native slots, declarative terminal keys/navigation/settings/data cards, shortcut
 and a central primitive registry. The phone is a dumb translator of `muxr-ui.json`:
 it mounts slots and draws widgets. Inbox, Voice, Changes, Attachments, terminal
 keys, usage, and the workspace sheet are ordinary plugins that compose those
-widgets and call host backends. Preview transport/viewing is kernel substrate;
-plugins reach it only through the validated current-session preview action.
+widgets and call host backends. Preview transport is kernel substrate for
+browser takeover; plugins do not expose a preview action.
 Navigation destinations open `/plugin`.
 
 Bundled extensions compose the same primitives as any other plugin. The app
@@ -125,7 +125,11 @@ phone.
 | session.start | workspace-per-cwd → tab → `agent.start` | `workspace.create` / `tab.create` / `agent.start --kind` |
 | session.prompt | submit text to the agent | `agent.prompt` |
 | session.abort | interrupt | `agent.send_keys esc` |
-| session.stop | close the pane | `pane.close` |
+| session.stop | close the selected live Agent Route through an explicit pane → tab → workspace → worktree-group ladder | packaged `muxr.workspace-hierarchy` capability `agent.close`; guarded write, live revalidation, and confirmation for every broader scope |
+| pane.close | close only the selected pane | `pane.close`; refuse if its tab could not remain |
+| tab.close | close only the selected tab | `tab.close`; refuse if its workspace could not remain |
+| workspace.close | close only the selected workspace | `workspace.close`; refuse if its worktree group would also close |
+| Close worktree group | final explicit scope of `session.stop`, after its own confirmation | revalidate the parent workspace, then call Herdr `workspace.close`; Herdr has no separate group-close method |
 | status | `idle · working · blocked · done · unknown` | `pane.agent_status_changed` |
 | inbox / attention | blocked → needs you, done → finished | derived host-side |
 | live view | terminal frames over the `/terminal` channel | CLI `herdr terminal session control` (interactive, `--takeover`) / `observe` (read-only previews) |
@@ -153,8 +157,7 @@ detects becomes a session row. That is the point of a multiplexer backend.
 - **herdr repaints the whole screen in its first frames.** The relay buffers those
   until the client connects, or the terminal opens blank.
 - **Pane ids change on cross-workspace moves** and agent names are user-renameable, so
-  the host mints its own `pp_<hex>` session ids and keeps a map
-  (`apps/host/src/herdr/identity.ts`), updated on `pane.moved`.
+  the host mints its own session ids and keeps a map, updated on `pane.moved`.
 - **`done` means "idle and you haven't looked yet."** herdr clears it when the tab is
   focused — which would yank the desk user's focus — so opening the session in the app
   is the "seen" signal instead.
@@ -187,22 +190,18 @@ can serve a file the plugin listed.
 
 ## Push notifications
 
-The local fixture retains Web Push quick actions. Hosted notifications never
-synthesize a plaintext answer: they open the native app, which sends the normal
-strict-v2 encrypted request after ticket/grant checks.
+Notifications open the native app, which sends the normal strict-v2 encrypted
+request after ticket/grant checks. They never synthesize a plaintext answer.
 
 ## What the relay does
 
-The same private Node process serves `/activate`, the control API, readiness,
-and WebSockets. Production identity state uses a dedicated MongoDB database.
-Long-lived scoped credentials are sent only in HTTP Authorization headers to
-mint 60-second, one-use, machine/role/transport/channel-scoped tickets; hosted
-WebSockets consume only those tickets.
+The same Node process on your machine serves pairing, readiness, and WebSockets.
+Long-lived scoped credentials mint 60-second, one-use tickets; WebSockets consume
+only those tickets.
 
 The relay reads bounded `envelope.header` routing context and treats `payload` as
 opaque `e2ee:v2` ciphertext. Terminal frames stay off replay on the separate
-`/terminal` pipe, but use the same strict context/ciphertext contract. Hosted
-`/preview` is rejected by client, host, ticket API, and relay.
+`/terminal` pipe, but use the same strict context/ciphertext contract.
 
 ## Not built
 

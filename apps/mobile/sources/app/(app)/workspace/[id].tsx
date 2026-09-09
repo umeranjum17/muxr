@@ -12,9 +12,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import type { HerdrTreeWorkspace } from '@muxr/contract';
-import { sync } from '@/sync/sync';
-import { TerminalPreview } from '@/terminal/TerminalPreview';
-import { agentStatusColor } from '@/utils/sessionUtils';
+import { sync } from '@/catalog/sync';
+import { TerminalPreview } from '@/terminal/ui';
+import { AgentGlyph } from '@/components/AgentGlyph';
+import { agentLabels, agentNameLine, agentStatusColor, isShellLabels } from '@/herd';
 
 export default React.memo(function WorkspaceScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -69,7 +70,7 @@ export default React.memo(function WorkspaceScreen() {
             <ScrollView contentContainerStyle={{ padding: 12, gap: 14 }}>
                 {(workspace?.tabs ?? []).map((tab) => {
                     const dot = agentStatusColor(tab.agentStatus, theme);
-                    const title = tab.label !== undefined && tab.label !== '' ? tab.label : `tab ${tab.tabId.split(':t')[1] ?? ''}`;
+                    const title = tab.label !== undefined && tab.label !== '' ? tab.label : 'Tab';
                     return (
                         <View key={tab.tabId}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 6 }}>
@@ -79,6 +80,8 @@ export default React.memo(function WorkspaceScreen() {
                             </View>
                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                                 {tab.panes.map((pane) => {
+                                    const labels = agentLabels(pane);
+                                    const shell = isShellLabels(labels);
                                     if (pane.sessionId === undefined) {
                                         return (
                                             <View
@@ -94,11 +97,11 @@ export default React.memo(function WorkspaceScreen() {
                                                 }}
                                             >
                                                 <Ionicons name="terminal-outline" size={18} color={theme.colors.textSecondary} />
-                                                <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 4 }}>shell</Text>
+                                                <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 4 }}>{shell ? 'Shell' : labels.agentName}</Text>
                                             </View>
                                         );
                                     }
-                                    const paneLabel = pane.terminalTitle ?? pane.agentName ?? 'agent';
+                                    const paneIdentity = shell ? 'Terminal' : agentNameLine(labels);
                                     return (
                                         <Pressable
                                             key={pane.paneId}
@@ -114,9 +117,17 @@ export default React.memo(function WorkspaceScreen() {
                                             <View style={{ height: 110 }} pointerEvents="none">
                                                 <TerminalPreview sessionId={pane.sessionId} />
                                             </View>
-                                            <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11, paddingHorizontal: 8, paddingVertical: 5 }}>
-                                                {paneLabel}
-                                            </Text>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 5 }}>
+                                                <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />
+                                                <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+                                                    <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 11, fontWeight: '600' }}>
+                                                        {shell ? 'Shell' : labels.taskTitle}
+                                                    </Text>
+                                                    <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10 }}>
+                                                        {paneIdentity}
+                                                    </Text>
+                                                </View>
+                                            </View>
                                         </Pressable>
                                     );
                                 })}

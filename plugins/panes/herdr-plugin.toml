@@ -1,0 +1,7 @@
+id = "muxr.panes"
+name = "Panes"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+min_muxr_version = 8
+platforms = ["linux", "macos"]
+description = "Open the terminals that have no agent: plugin panes, TUIs and plain shells"

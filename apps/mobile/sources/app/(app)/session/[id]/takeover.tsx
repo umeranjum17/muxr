@@ -6,10 +6,10 @@ import { useLocalSearchParams } from 'expo-router';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
-import { machineBash } from '@/sync/ops';
-import { useSession, useSocketStatus } from '@/sync/storage';
-import { mapDisplayToInput, type Size, type StreamFrameMetadata } from '@/takeover/coordinates';
-import { codeForKey, keyMessage, openTakeover, parseStreamFrame, touchMessage } from '@/takeover/openTakeover';
+import { machineBash } from '@/catalog/ops';
+import { useSession, useSocketStatus } from '@/catalog/store';
+import { mapDisplayToInput, type Size, type StreamFrameMetadata } from '@/takeover';
+import { codeForKey, keyMessage, openTakeover, parseStreamFrame, touchMessage } from '@/takeover';
 
 function selectedPort(value: string | undefined): number | undefined {
     if (value === undefined || !/^\d{1,5}$/.test(value)) return undefined;
@@ -77,7 +77,7 @@ export default function TakeoverScreen() {
         try {
             await machineBash('', `${agentBrowser} stream enable --port ${streamPort}`, cwd);
             streamRef.current = { command: agentBrowser, cwd };
-            const opened = await openTakeover(streamPort);
+            const opened = await openTakeover({ port: streamPort });
             closeTunnelRef.current = opened.close;
             const socket = new WebSocket(opened.wsUrl);
             socketRef.current = socket;

@@ -7,11 +7,11 @@ Decider: Umer
 
 ## Decision
 
-A hosted muxr browser is a distinct, short-lived device. It does not reuse a phone credential, persist a native device grant in `localStorage`, or terminate end-to-end encryption at the relay.
+A muxr browser is a distinct, short-lived device. It does not reuse a phone credential, persist a native device grant in `localStorage`, or terminate end-to-end encryption at the relay.
 
 The browser generates its own device key. Pairing requires confirmation from the machine or an already-paired phone, and the machine seals the grant to that browser key. Browser grants expire after eight hours and are read-only observation grants. Terminal mutation remains native-only until a separately reviewed short-lived escalation is implemented. Closing or idling the browser drops unwrapped key material; revocation closes its sockets and rotates the machine data key.
 
-The web client is served from a dedicated origin with an explicit origin allowlist, strict CSP, no analytics or third-party scripts, and no account/device secrets embedded in static assets. The same web client and pairing protocol are available to every self-hoster. muxr currently has no paid or managed tier.
+The web client is served from a dedicated origin with an explicit origin allowlist, strict CSP, no analytics or third-party scripts, and no account/device secrets embedded in static assets. The same web client and pairing protocol are available to every self-hoster.
 
 ## Required key handling
 
@@ -32,7 +32,6 @@ A non-extractable AES-GCM WebCrypto key stored in IndexedDB wraps the browser de
 - Baking `EXPO_PUBLIC_MUXR_TOKEN` into an Expo export.
 - Relay-side decryption for browsers.
 - Durable browser grants matching native phone lifetime.
-- A managed-only client capability unavailable to self-hosters.
 
 ## Rollback
 
@@ -44,7 +43,7 @@ One end-to-end flow must prove: browser key generation → machine-confirmed cla
 
 ## Evidence and standards
 
-Claude and Codex independently reviewed the existing Expo web target. Both rejected the current `localStorage` credential path and native-guard bypass, and converged on a distinct short-lived browser device, machine-issued grants, dedicated origin, strict CSP, read-only default, explicit authority escalation, and self-host parity.
+The existing Expo web target stored credentials in `localStorage` and bypassed native guards. This record rejects that path and requires a distinct short-lived browser device, machine-issued grants, a dedicated origin, strict CSP, a read-only default, explicit authority escalation, and self-host parity.
 
 ## Reopen trigger
 

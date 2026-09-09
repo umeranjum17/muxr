@@ -1,6 +1,6 @@
 import { Platform, Alert } from 'react-native';
 import { t } from '@/text';
-import { AlertButton, ModalConfig, CustomModalConfig, IModal } from './types';
+import { AlertButton, ModalConfig, CustomModalConfig, IModal } from '@/modal/types';
 
 class ModalManagerClass implements IModal {
     private showModalFn: ((config: Omit<ModalConfig, 'id'>) => string) | null = null;

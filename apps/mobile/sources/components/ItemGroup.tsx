@@ -8,7 +8,7 @@ import {
     Platform
 } from 'react-native';
 import { Typography } from '@/constants/Typography';
-import { layout } from './layout';
+import { layout } from '@/components/layout';
 import { StyleSheet } from 'react-native-unistyles';
 
 interface ItemChildProps {

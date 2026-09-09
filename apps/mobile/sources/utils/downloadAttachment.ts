@@ -9,9 +9,9 @@
  */
 import { isAvailableAsync, shareAsync } from 'expo-sharing';
 import { attachmentDownloadUrl } from '@/utils/attachmentDownloadUrl';
-import type { StoredSessionAttachment } from '@/sync/persistence';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
-import { sync } from '@/sync/sync';
+import type { StoredSessionAttachment } from '@/catalog/application/persistence';
+import { getCachedConnectionSettings } from '@/connection';
+import { sync } from '@/catalog/sync';
 import { decodeBase64 } from '@/encryption/base64';
 import { File, Paths } from 'expo-file-system';
 import { Modal } from '@/modal';

@@ -6,37 +6,39 @@ import * as Fonts from 'expo-font';
 import * as Notifications from 'expo-notifications';
 import * as Updates from 'expo-updates';
 import { FontAwesome } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { AuthCredentials, TokenStorage } from '@/auth/tokenStorage';
-import { AuthProvider } from '@/auth/AuthContext';
-import { restoreHostedConnection } from '@/state/hostedE2ee';
-import { resetWebSecureStore } from '@/state/webSecureStore';
-import { RelayDiscoveryReconnect } from '@/discovery/useRelayDiscovery';
+import { usePathname, useRouter } from 'expo-router';
+import { AuthCredentials, TokenStorage } from '@/account';
+import { AuthProvider } from '@/account/ui';
+import { flushReplay, restoreHostedConnection } from '@/pairing/e2ee';
+import { resetWebSecureStore } from '@/pairing/secrets';
+import { RelayDiscoveryReconnect } from '@/pairing';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { initialWindowMetrics, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { PluginSlot } from '@/plugins/PluginSlot';
-import { usePluginEvents } from '@/plugins/usePluginEvents';
-import { SidebarNavigator } from '@/components/SidebarNavigator';
+import { PluginSlot } from '@/plugins/ui';
+import { usePluginEvents } from '@/plugins';
+import { SidebarNavigator } from '@/herd/ui';
 import sodium from '@/encryption/libsodium.lib';
 import { View, Platform, AppState, Pressable, Text } from 'react-native';
 import { ModalProvider } from '@/modal';
-import { syncRestore } from '@/sync/sync';
+import { sync, syncRestore, syncResume } from '@/catalog/sync';
 import { FaviconPermissionIndicator } from '@/components/web/FaviconPermissionIndicator';
 import { CommandPaletteProvider } from '@/components/CommandPalette/CommandPaletteProvider';
 import { StatusBarProvider } from '@/components/StatusBarProvider';
 // import * as SystemUI from 'expo-system-ui';
 import { initConsoleLogging, setConsoleOutputEnabled } from '@/utils/consoleLogging';
-import { useLocalSetting } from '@/sync/storage';
+import { useLocalSetting } from '@/catalog/store';
 import { useUnistyles } from 'react-native-unistyles';
 import { AsyncLock } from '@/utils/lock';
-import { getSessionRouteFromNotificationResponse } from '@/utils/notificationRouting';
-import { navigateToSession } from '@/hooks/useNavigateToSession';
+import { watchAgentLifecycle } from '@/herd';
+import { navigateToSession } from '@/herd';
 import { useTauriZoom } from '@/hooks/useTauriZoom';
 import { useTauriDrag } from '@/hooks/useTauriDrag';
 import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcuts';
-import { KernelNotifications } from '@/components/KernelNotifications';
+import { KernelNotifications } from '@/herd/ui';
+import { acknowledgeLifecyclePush } from '@/utils/nativePushNotifications';
+import { realtimeAppController } from '@/conversation/application/realtimeAppControl';
 
 // Configure notification handler — suppress push display when app is in foreground
 Notifications.setNotificationHandler({
@@ -92,6 +94,15 @@ function PluginEventRunner() {
     usePluginEvents();
     return null;
 }
+function RealtimeAppControlBridge() {
+    const pathname = usePathname();
+    const router = useRouter();
+    React.useEffect(() => realtimeAppController.setNavigation((path) => router.push(path as never)), [router]);
+    React.useEffect(() => realtimeAppController.setScreen(pathname), [pathname]);
+    React.useEffect(() => realtimeAppController.setAgents(() => sync.request('session.list', {})), []);
+    return null;
+}
+
 
 function HorizontalSafeAreaWrapper({ children }: { children: React.ReactNode }) {
     const insets = useSafeAreaInsets();
@@ -109,15 +120,6 @@ function HorizontalSafeAreaWrapper({ children }: { children: React.ReactNode }) 
 let lock = new AsyncLock();
 let loaded = false;
 
-function stringifyNotificationPayload(value: unknown): string {
-    try {
-        const serialized = JSON.stringify(value, null, 2);
-        return serialized ?? String(value);
-    } catch (error) {
-        return `[unserializable notification payload: ${error instanceof Error ? error.message : 'Unknown error'}]`;
-    }
-}
-
 async function loadFonts() {
     await lock.inLock(async () => {
         if (loaded) {
@@ -132,9 +134,6 @@ async function loadFonts() {
         if (!isTauri) {
             // Normal font loading for non-Tauri environments (native and regular web)
             await Fonts.loadAsync({
-                // Keep existing font
-                SpaceMono: require('@/assets/fonts/SpaceMono-Regular.ttf'),
-
                 // IBM Plex Sans family
                 'IBMPlexSans-Regular': require('@/assets/fonts/IBMPlexSans-Regular.ttf'),
                 'IBMPlexSans-Italic': require('@/assets/fonts/IBMPlexSans-Italic.ttf'),
@@ -156,9 +155,6 @@ async function loadFonts() {
             (async () => {
                 try {
                     await Fonts.loadAsync({
-                        // Keep existing font
-                        SpaceMono: require('@/assets/fonts/SpaceMono-Regular.ttf'),
-
                         // IBM Plex Sans family
                         'IBMPlexSans-Regular': require('@/assets/fonts/IBMPlexSans-Regular.ttf'),
                         'IBMPlexSans-Italic': require('@/assets/fonts/IBMPlexSans-Italic.ttf'),
@@ -239,6 +235,13 @@ export default function RootLayout() {
     // Init sequence
     //
     const [initState, setInitState] = React.useState<{ credentials: AuthCredentials | null; error?: string } | null>(null);
+
+    React.useEffect(() => {
+        const subscription = Notifications.addNotificationReceivedListener((notification) => {
+            acknowledgeLifecyclePush(notification.request.content.data);
+        });
+        return () => subscription.remove();
+    }, []);
     React.useEffect(() => {
         (async () => {
             let credentials: AuthCredentials | null = null;
@@ -289,6 +292,12 @@ export default function RootLayout() {
 
                 if (credentials) {
                     try {
+                        if (Platform.OS !== 'web') {
+                            const presented = await Notifications.getPresentedNotificationsAsync().catch(() => []);
+                            for (const notification of presented) {
+                                acknowledgeLifecyclePush(notification.request.content.data);
+                            }
+                        }
                         await syncRestore(credentials);
                     } catch (error) {
                         // Machine/grant/network/bootstrap failures are not account rejection.
@@ -315,14 +324,27 @@ export default function RootLayout() {
         }
     }, [initState]);
 
+    React.useEffect(() => {
+        if (initState?.credentials === undefined || Platform.OS === 'web') return;
+        let previous = AppState.currentState;
+        const subscription = AppState.addEventListener('change', (next) => {
+            const resumed = next === 'active' && previous !== 'active';
+            const left = next !== 'active' && previous === 'active';
+            previous = next;
+            if (resumed) void syncResume().catch(() => undefined);
+            // Replay sequences are written on a trailing timer while the app
+            // runs; leaving the foreground is the last chance to land them.
+            if (left) void flushReplay().catch(() => undefined);
+        });
+        return () => subscription.remove();
+    }, [initState?.credentials]);
+
     const handledNotificationIds = React.useRef<Set<string>>(new Set());
     const handleNotificationResponse = React.useCallback(async (response: Notifications.NotificationResponse | null) => {
         if (!response) {
             console.log('[PUSH ROUTING] Notification response is null');
             return;
         }
-
-        console.log('[PUSH ROUTING] Full notification response:\n' + stringifyNotificationPayload(response));
 
         const responseId = response.notification.request.identifier;
         if (handledNotificationIds.current.has(responseId)) {
@@ -331,6 +353,7 @@ export default function RootLayout() {
         }
 
         handledNotificationIds.current.add(responseId);
+        acknowledgeLifecyclePush(response.notification.request.content.data);
 
         try {
             if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) {
@@ -338,27 +361,15 @@ export default function RootLayout() {
                 return;
             }
 
-            console.log(
-                '[PUSH ROUTING] notification.request.content.data:\n' +
-                stringifyNotificationPayload(response.notification.request.content.data)
-            );
-            const route = getSessionRouteFromNotificationResponse(response);
-            console.log(`[PUSH ROUTING] Computed route: ${route ?? 'null'}`);
-            if (!route) {
+            const watched = watchAgentLifecycle({ notification: response });
+            console.log(`[PUSH ROUTING] Computed route: ${watched.agentRoute ?? 'null'}`);
+            if (!watched.agentRoute) {
                 console.log('[PUSH ROUTING] No session route found in notification.request.content.data');
                 return;
             }
 
-            const encodedSessionId = route.replace(/^\/session\//, '');
-            const sessionId = (() => {
-                try {
-                    return decodeURIComponent(encodedSessionId);
-                } catch {
-                    return encodedSessionId;
-                }
-            })();
-            console.log(`[PUSH ROUTING] Navigating to session: ${sessionId}`);
-            navigateToSession(router, sessionId);
+            console.log(`[PUSH ROUTING] Navigating to session: ${watched.agentRoute}`);
+            navigateToSession(router, watched.agentRoute);
         } finally {
             try {
                 await Notifications.clearLastNotificationResponseAsync();
@@ -459,6 +470,7 @@ export default function RootLayout() {
                             <StatusBarProvider />
                             <ModalProvider>
                                 <BrowserNavigationShortcuts />
+                                <RealtimeAppControlBridge />
                                 <CommandPaletteProvider>
                                         <HorizontalSafeAreaWrapper>
                                             {/* Keep the root conversation mounted while routes change. */}

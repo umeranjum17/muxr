@@ -8,21 +8,25 @@
         "apps/*"
     ],
     "scripts": {
-        "postinstall": "patch-package && node scripts/verifyNativePatches.mjs",
-        "build": "tsc --build",
+        "postinstall": "patch-package && node scripts/diagnostics/application/syncIosFramework.mjs && node scripts/diagnostics/application/verifyNativePatches.mjs",
+        "build": "tsc --build && node apps/mobile/scripts/buildAttachmentPreview.mjs",
         "typecheck": "tsc --build --force",
-        "check": "node scripts/runSuite.mjs",
-        "up": "node scripts/up.mjs",
+    "perf": "node perf/releaseGate.mjs",
+    "check": "node scripts/diagnostics/application/runSuite.mjs",
+        "check:architecture": "npx vitest run apps/mobile/sources/architecture.spec.ts --config apps/mobile/vitest.config.ts && npx vitest run apps/host/src/architecture.test.ts apps/relay/src/architecture.test.ts && node packages/checkArchitecture.mjs && node scripts/diagnostics/application/checkArchitecture.mjs",
+        "up": "node scripts/setup/presentation/up.mjs",
+        "dev": "node scripts/development/presentation/dev.mjs",
+        "dev:android": "node scripts/development/presentation/android.mjs",
         "relay": "node apps/relay/dist/main.js",
         "host": "node apps/host/dist/main.js --fake",
         "probe": "node apps/probe/dist/main.js",
-        "skeleton": "node scripts/runSkeletonCheck.mjs",
-        "doctor": "node scripts/doctor.mjs",
-        "worktrees:clean": "node scripts/cleanWorktrees.mjs",
+        "skeleton": "node scripts/diagnostics/application/runSkeletonCheck.mjs",
+        "doctor": "node scripts/diagnostics/presentation/doctor.mjs",
+        "worktrees:clean": "node scripts/diagnostics/application/cleanWorktrees.mjs",
         "web:deploy": "bash scripts/deployWebExport.sh",
         "web:export": "cd apps/mobile && APP_ENV=production MUXR_PUBLIC_BASE_URL=https://trymuxr.com env -u EXPO_PUBLIC_MUXR_TOKEN -u EXPO_PUBLIC_MUXR_MACHINE_ID -u EXPO_PUBLIC_MUXR_MODE npx expo export --platform web",
-        "pack": "yarn build && yarn web:export && node scripts/pack.mjs",
-        "pack:smoke": "yarn build && yarn web:export && node scripts/checkPackageSmoke.mjs && node scripts/packageLifecycleSmoke.mjs"
+        "pack": "yarn build && yarn web:export && node scripts/release/application/pack.mjs",
+        "pack:smoke": "yarn build && yarn web:export && node scripts/diagnostics/application/checkPackageSmoke.mjs && node scripts/diagnostics/application/packageLifecycleSmoke.mjs"
     },
     "devDependencies": {
         "@types/node": "^22.10.0",
@@ -68,7 +72,7 @@
         "axios": "1.18.0",
         "color": "4.2.3",
         "diff": "8.0.3",
-        "dompurify": "3.4.13",
+        "dompurify": "3.4.14",
         "expo": "55.0.8",
         "expo-application": "55.0.10",
         "expo-asset": "55.0.10",
@@ -143,5 +147,5 @@
         "zod": "4.4.3",
         "zustand": "5.0.10"
     },
-    "version": "0.1.17"
+    "version": "0.1.28"
 }

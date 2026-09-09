@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import { relayControlUrl } from '@muxr/contract';
-import { getCachedConnectionSettings } from '@/state/connectionSettings';
+import { getCachedConnectionSettings } from '@/connection';
 
 export type PushState = 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed';
 

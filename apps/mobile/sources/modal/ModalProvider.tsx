@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { ModalState, ModalConfig, ModalContextValue } from './types';
-import { Modal } from './ModalManager';
-import { WebAlertModal } from './components/WebAlertModal';
-import { WebPromptModal } from './components/WebPromptModal';
-import { CustomModal } from './components/CustomModal';
+import { ModalState, ModalConfig, ModalContextValue } from '@/modal/types';
+import { Modal } from '@/modal/ModalManager';
+import { WebAlertModal } from '@/modal/components/WebAlertModal';
+import { WebPromptModal } from '@/modal/components/WebPromptModal';
+import { CustomModal } from '@/modal/components/CustomModal';
 
 const ModalContext = createContext<ModalContextValue | undefined>(undefined);
 

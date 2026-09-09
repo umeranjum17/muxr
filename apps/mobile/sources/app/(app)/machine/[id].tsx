@@ -1,25 +1,31 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { View, Text, ScrollView, RefreshControl, Platform, Pressable, TextInput } from 'react-native';
-import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { Typography } from '@/constants/Typography';
-import { useSessions, useAllMachines, useMachine, useLocalSetting } from '@/sync/storage';
+import { useSessions, useAllMachines, useMachine, useLocalSetting, useHerdrTree } from '@/catalog/store';
 import { Ionicons } from '@expo/vector-icons';
-import type { Session } from '@/sync/storageTypes';
+import type { Session } from '@/catalog';
 import { Modal } from '@/modal';
-import { formatPathRelativeToHome, getSessionName, getSessionSubtitle } from '@/utils/sessionUtils';
-import { isMachineOnline } from '@/utils/machineUtils';
-import { sync } from '@/sync/sync';
+import { formatPathRelativeToHome, getSessionName, getSessionSubtitle, herdrPaneForSession } from '@/herd';
+import { isMachineOnline } from '@/pairing';
+import { sync } from '@/catalog/sync';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 import { t } from '@/text';
-import { useNavigateToSession } from '@/hooks/useNavigateToSession';
-import { machineSpawnNewSession } from '@/sync/ops';
+import { useNavigateToSession } from '@/herd';
+import { machineSpawnNewSession } from '@/catalog/ops';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { MultiTextInput, type MultiTextInputHandle } from '@/components/MultiTextInput';
-import { getCachedHostedGrant } from '@/state/hostedE2ee';
-import { getCachedConnectionSettings, pairingTransport } from '@/state/connectionSettings';
+import { getCachedHostedGrant } from '@/pairing/e2ee';
+import { getCachedConnectionSettings, pairingTransport } from '@/connection';
+import { loadCollaborationIntent } from '@/collaboration';
+
+function formatNames(names: string[]): string {
+    if (names.length < 2) return names[0] ?? '';
+    return `${names.slice(0, -1).join(', ')}${names.length > 2 ? ',' : ''} and ${names[names.length - 1]}`;
+}
 
 const styles = StyleSheet.create((theme) => ({
     pathInputContainer: {
@@ -71,6 +77,7 @@ export default function MachineDetailScreen() {
     const { id: machineId } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
     const sessions = useSessions();
+    const { workspaces } = useHerdrTree();
     const machine = useMachine(machineId!);
     const devModeEnabled = useLocalSetting('devModeEnabled');
     const navigateToSession = useNavigateToSession();
@@ -79,6 +86,19 @@ export default function MachineDetailScreen() {
     const [isSpawning, setIsSpawning] = useState(false);
     const inputRef = useRef<MultiTextInputHandle>(null);
     const [showAllPaths, setShowAllPaths] = useState(false);
+    const [collaborators, setCollaborators] = useState<string[]>([]);
+    useFocusEffect(useCallback(() => {
+        let cancelled = false;
+        void loadCollaborationIntent().then((intent) => {
+            if (cancelled || !machineId || !intent.selectedMachineIds.includes(machineId)) {
+                if (!cancelled) setCollaborators([]);
+                return;
+            }
+            const selected = new Set(intent.selectedMachineIds.filter((id) => id !== machineId));
+            setCollaborators(intent.machines.filter((entry) => selected.has(entry.machineId)).map((entry) => entry.name));
+        });
+        return () => { cancelled = true; };
+    }, [machineId]));
     // Variant D only
 
     const machineSessions = useMemo(() => {
@@ -341,6 +361,17 @@ export default function MachineDetailScreen() {
                     </>
                 )}
 
+                {collaborators.length > 0 && (
+                    <ItemGroup title="Computer collaboration">
+                        <Item
+                            title={`Collaborates with ${formatNames(collaborators)}`}
+                            subtitle="Computers connect directly; the phone is not required afterward"
+                            icon={<Ionicons name="git-network-outline" size={28} color="#5856D6" />}
+                            onPress={() => router.push('/settings/collaboration' as any)}
+                        />
+                    </ItemGroup>
+                )}
+
                 {/* Daemon */}
                 <ItemGroup title={t('machine.daemon')}>
                         <Item
@@ -399,8 +430,8 @@ export default function MachineDetailScreen() {
                         {previousSessions.map(session => (
                             <Item
                                 key={session.id}
-                                title={getSessionName(session)}
-                                subtitle={getSessionSubtitle(session)}
+                                title={getSessionName(session, herdrPaneForSession(workspaces, session.id))}
+                                subtitle={getSessionSubtitle(session, herdrPaneForSession(workspaces, session.id))}
                                 onPress={() => navigateToSession(session.id)}
                                 rightElement={<Ionicons name="chevron-forward" size={20} color={theme.colors.groupped.chevron} />}
                             />

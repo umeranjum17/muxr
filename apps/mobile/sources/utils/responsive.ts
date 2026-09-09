@@ -1,8 +1,8 @@
 import { Dimensions, Platform } from 'react-native';
 import { useWindowDimensions } from 'react-native';
 import { useMemo } from 'react';
-import { calculateDeviceDimensions, determineDeviceType, calculateHeaderHeight } from './deviceCalculations';
-import { isRunningOnMac } from './platform';
+import { calculateDeviceDimensions, determineDeviceType, calculateHeaderHeight } from '@/utils/deviceCalculations';
+import { isRunningOnMac } from '@/utils/platform';
 
 // Re-export calculation functions for use in other components
 export { calculateDeviceDimensions, determineDeviceType, calculateHeaderHeight };

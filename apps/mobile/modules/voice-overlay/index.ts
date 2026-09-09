@@ -4,14 +4,27 @@ type VoiceState = 'disconnected' | 'connecting' | 'connected' | 'thinking' | 'sp
 type HerdMode = 'connecting' | 'offline' | 'idle' | 'working' | 'attention' | 'finished';
 type NotificationAction = 'start' | 'stop' | 'mute';
 
+export interface RealtimePcmStats {
+    acceptedAdmissions: number;
+    rejectedAdmissions: number;
+    peakQueuedMs: number;
+    underruns: number;
+    drainRestarts: number;
+    clears: number;
+}
+
 interface VoiceNative {
     routeVoiceAudio: () => boolean;
     releaseVoiceAudio: () => boolean;
-    startRealtimePcm?: (sampleRate: number) => boolean;
-    playRealtimePcm?: (base64: string) => boolean;
-    clearRealtimePcm?: () => boolean;
-    stopRealtimePcm?: () => void;
+    startRealtimePcm: (sampleRate: number) => boolean;
+    playRealtimePcm: (base64: string) => boolean;
+    clearRealtimePcm: () => boolean;
+    finishRealtimePcm: () => boolean;
+    isRealtimePcmDrained: () => boolean;
+    stopRealtimePcm: () => RealtimePcmStats;
     startService: () => boolean;
+    isServiceReady: () => boolean;
+    setNetworkActive: (active: boolean) => boolean;
     stopService: () => boolean;
     startHerdService: () => boolean;
     stopHerdService: () => boolean;
@@ -24,14 +37,15 @@ interface VoiceNative {
         voiceName: string,
         muted: boolean,
     ) => boolean;
-    supportsPromotedNotifications?: () => boolean;
-    canPostPromotedNotifications?: () => boolean;
-    openPromotedNotificationSettings?: () => boolean;
-    openBackgroundActivitySettings?: () => boolean;
+    supportsPromotedNotifications: () => boolean;
+    canPostPromotedNotifications: () => boolean;
+    openPromotedNotificationSettings: () => boolean;
+    openBackgroundActivitySettings: () => boolean;
     clearNotification: () => boolean;
+    setVoiceGeneration?: (token: string) => void;
     addListener: (
         event: 'onNotificationActionRequested',
-        listener: (payload: { action: NotificationAction }) => void,
+        listener: (payload: { action: NotificationAction; desiredMuted?: boolean; generation?: string }) => void,
     ) => { remove: () => void };
 }
 
@@ -48,6 +62,24 @@ export function startVoiceService(): boolean {
         return native.startService();
     } catch {
         return false;
+    }
+}
+
+export function isVoiceServiceReady(): boolean {
+    if (Platform.OS !== 'android') return true;
+    try {
+        return native?.isServiceReady() ?? false;
+    } catch {
+        return false;
+    }
+}
+
+/** Wi-Fi latency is needed only while realtime provider traffic is active. */
+export function setVoiceNetworkActive(active: boolean): void {
+    try {
+        native?.setNetworkActive(active);
+    } catch {
+        // The CPU/microphone foreground service remains the standby fallback.
     }
 }
 
@@ -92,19 +124,34 @@ export function releaseVoiceAudio(): void {
 }
 
 export function startRealtimePcm(sampleRate: number): boolean {
-    return native?.startRealtimePcm?.(sampleRate) ?? false;
+    return native?.startRealtimePcm(sampleRate) ?? false;
 }
 
 export function playRealtimePcm(base64: string): boolean {
-    return native?.playRealtimePcm?.(base64) ?? false;
+    return native?.playRealtimePcm(base64) ?? false;
 }
 
 export function clearRealtimePcm(): void {
-    native?.clearRealtimePcm?.();
+    native?.clearRealtimePcm();
 }
 
-export function stopRealtimePcm(): void {
-    native?.stopRealtimePcm?.();
+export function finishRealtimePcm(): boolean {
+    return native?.finishRealtimePcm() ?? false;
+}
+
+export function isRealtimePcmDrained(): boolean {
+    return native?.isRealtimePcmDrained() ?? true;
+}
+
+export function stopRealtimePcm(): RealtimePcmStats {
+    return native?.stopRealtimePcm() ?? {
+        acceptedAdmissions: 0,
+        rejectedAdmissions: 0,
+        peakQueuedMs: 0,
+        underruns: 0,
+        drainRestarts: 0,
+        clears: 0,
+    };
 }
 
 export function updateVoiceNotification(
@@ -126,7 +173,7 @@ export function updateVoiceNotification(
 
 export function supportsPromotedNotifications(): boolean {
     try {
-        return native?.supportsPromotedNotifications?.() ?? false;
+        return native?.supportsPromotedNotifications() ?? false;
     } catch {
         return false;
     }
@@ -134,7 +181,7 @@ export function supportsPromotedNotifications(): boolean {
 
 export function canPostPromotedNotifications(): boolean {
     try {
-        return native?.canPostPromotedNotifications?.() ?? true;
+        return native?.canPostPromotedNotifications() ?? true;
     } catch {
         return true;
     }
@@ -142,7 +189,7 @@ export function canPostPromotedNotifications(): boolean {
 
 export function openPromotedNotificationSettings(): boolean {
     try {
-        return native?.openPromotedNotificationSettings?.() ?? false;
+        return native?.openPromotedNotificationSettings() ?? false;
     } catch {
         return false;
     }
@@ -150,7 +197,7 @@ export function openPromotedNotificationSettings(): boolean {
 
 export function openBackgroundActivitySettings(): boolean {
     try {
-        return native?.openBackgroundActivitySettings?.() ?? false;
+        return native?.openBackgroundActivitySettings() ?? false;
     } catch {
         return false;
     }
@@ -160,8 +207,46 @@ export function clearVoiceNotification(): void {
     native?.clearNotification();
 }
 
+/**
+ * Names the call a live control belongs to. A fresh non-empty token per call and
+ * an empty string at teardown, so native can tell a real teardown from a
+ * replacement. A build whose native module has no such method has no widget to
+ * gate, and the call is a no-op there.
+ */
+export function setVoiceGeneration(token: string): void {
+    try {
+        native?.setVoiceGeneration?.(token);
+    } catch {
+        // Generation gating is native-side defence; never fail a call over it.
+    }
+}
+
+/** A supplied but malformed generation fails closed rather than reading as legacy. */
+function suppliedGeneration(value: unknown): string | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value === 'string') return value;
+    return '';
+}
+
+/**
+ * `desiredMuted` is the state the pressed control was showing, so a repeated
+ * request settles on that state instead of flipping an already-muted session
+ * back on. The legacy Android action omits it and stays a toggle; anything but
+ * a boolean is treated as absent so a malformed payload cannot mute silently.
+ *
+ * `generation` names the call the control was shown for. Legacy Android events
+ * omit it and keep their behaviour; when it is present the handler must match it
+ * against the running call before acting on anything.
+ */
 export function addVoiceNotificationActionListener(
-    listener: (action: NotificationAction) => void,
+    listener: (action: NotificationAction, desiredMuted?: boolean, generation?: string) => void,
 ): { remove: () => void } | null {
-    return native?.addListener('onNotificationActionRequested', ({ action }) => listener(action)) ?? null;
+    return native?.addListener(
+        'onNotificationActionRequested',
+        ({ action, desiredMuted, generation }) => listener(
+            action,
+            typeof desiredMuted === 'boolean' ? desiredMuted : undefined,
+            suppliedGeneration(generation),
+        ),
+    ) ?? null;
 }

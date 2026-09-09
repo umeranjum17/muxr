@@ -2,9 +2,9 @@ import * as StoreReview from 'expo-store-review';
 import { MMKV } from 'react-native-mmkv';
 import { Modal } from '@/modal';
 import { t } from '@/text';
-import { AsyncLock } from './lock';
-import { sync } from '@/sync/sync';
-import { storage as syncStorage } from '@/sync/storage';
+import { AsyncLock } from '@/utils/lock';
+import { sync } from '@/catalog/sync';
+import { storage as syncStorage } from '@/catalog/store';
 import { Platform } from 'react-native';
 
 const localStorage = new MMKV();

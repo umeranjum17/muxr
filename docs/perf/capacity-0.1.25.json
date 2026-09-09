@@ -1,0 +1,173 @@
+{
+  "startedAt": "2026-09-03T08:27:29.196Z",
+  "seconds": 60,
+  "steps": [
+    {
+      "panes": 10,
+      "agents": 2,
+      "sessions": 10,
+      "herdVisibleMs": 41586,
+      "phone": {
+        "jsBusyPercent": 13.3,
+        "fps": 29.8,
+        "pssFirstKb": 244820,
+        "pssLastKb": 250810,
+        "restarts": 0,
+        "frameStallSeconds": 5,
+        "updateDepthErrors": 0,
+        "alive": true
+      },
+      "service": {
+        "samples": 30,
+        "peakByName": {
+          "relay": 126104,
+          "host": 125408
+        },
+        "firstTotalKb": 242676,
+        "lastTotalKb": 250136,
+        "peakTotalKb": 251464
+      },
+      "herdStandInRssKb": 86204,
+      "requests": {
+        "total": 0,
+        "rejected": 0,
+        "slowest": 0
+      },
+      "ok": true,
+      "why": ""
+    },
+    {
+      "panes": 30,
+      "agents": 6,
+      "sessions": 30,
+      "herdVisibleMs": 37897,
+      "phone": {
+        "jsBusyPercent": 38.4,
+        "fps": 29.8,
+        "pssFirstKb": 255843,
+        "pssLastKb": 264044,
+        "restarts": 0,
+        "frameStallSeconds": 5,
+        "updateDepthErrors": 0,
+        "alive": true
+      },
+      "service": {
+        "samples": 30,
+        "peakByName": {
+          "relay": 157632,
+          "host": 143940
+        },
+        "firstTotalKb": 275324,
+        "lastTotalKb": 300136,
+        "peakTotalKb": 301156
+      },
+      "herdStandInRssKb": 86448,
+      "requests": {
+        "total": 0,
+        "rejected": 0,
+        "slowest": 0
+      },
+      "ok": true,
+      "why": ""
+    },
+    {
+      "panes": 45,
+      "agents": 9,
+      "sessions": 45,
+      "herdVisibleMs": 38443,
+      "phone": {
+        "jsBusyPercent": 56.2,
+        "fps": 29.6,
+        "pssFirstKb": 297965,
+        "pssLastKb": 309051,
+        "restarts": 0,
+        "frameStallSeconds": 5,
+        "updateDepthErrors": 0,
+        "alive": true
+      },
+      "service": {
+        "samples": 30,
+        "peakByName": {
+          "relay": 160816,
+          "host": 149024
+        },
+        "firstTotalKb": 279168,
+        "lastTotalKb": 302732,
+        "peakTotalKb": 309840
+      },
+      "herdStandInRssKb": 86248,
+      "requests": {
+        "total": 4,
+        "rejected": 0,
+        "slowest": 9
+      },
+      "ok": true,
+      "why": ""
+    },
+    {
+      "panes": 60,
+      "agents": 12,
+      "sessions": 60,
+      "herdVisibleMs": 47776,
+      "phone": {
+        "jsBusyPercent": 75.9,
+        "fps": 30.9,
+        "pssFirstKb": 328345,
+        "pssLastKb": 358258,
+        "restarts": 0,
+        "frameStallSeconds": 5,
+        "updateDepthErrors": 0,
+        "alive": true
+      },
+      "service": {
+        "samples": 30,
+        "peakByName": {
+          "relay": 161280,
+          "host": 171948
+        },
+        "firstTotalKb": 316872,
+        "lastTotalKb": 329372,
+        "peakTotalKb": 332896
+      },
+      "herdStandInRssKb": 86220,
+      "requests": {
+        "total": 4,
+        "rejected": 0,
+        "slowest": 7
+      },
+      "ok": false,
+      "why": "JS thread 75.9%"
+    },
+    {
+      "panes": 90,
+      "agents": 18,
+      "error": "the herd never reached the phone:  | /home/umer/.maestro/tests/2026-09-03_124058",
+      "ok": false,
+      "why": "the herd never reached the phone:  | /home/umer/.maestro/tests/2026-09-03_124058"
+    }
+  ],
+  "limits": {
+    "jsBusyPercent": 60,
+    "frameStallSeconds": 30,
+    "serviceRssKb": 4194304,
+    "herdVisibleMs": 90000
+  },
+  "apk": "/tmp/muxr-gfx-x86_64.apk",
+  "largestPassing": {
+    "panes": 45,
+    "agents": 9
+  },
+  "withinBudget": {
+    "2GB": {
+      "panes": 45,
+      "agents": 9,
+      "serviceMb": 303
+    },
+    "4GB": {
+      "panes": 45,
+      "agents": 9,
+      "serviceMb": 303
+    }
+  },
+  "finishedAt": "2026-09-03T08:44:27.630Z"
+}

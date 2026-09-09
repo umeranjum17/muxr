@@ -68,7 +68,7 @@ for (const { name, path, size, at } of files.slice(0, 50)) {
             at,
             action: {
                 type: 'attachment',
-                // Hosted small-file reads require the content id. Larger files
+                // Relay-backed small-file reads require the content id. Larger files
                 // never enter the app and local downloads resolve by name, so
                 // do not re-hash every APK/video whenever the sheet opens.
                 id: size <= MAX_HOSTED_READ_BYTES ? await hashFile(path) : name,

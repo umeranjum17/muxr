@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, KeyboardTypeOptions, Platform } from 'react-native';
-import { BaseModal } from './BaseModal';
-import { PromptModalConfig } from '../types';
+import { BaseModal } from '@/modal/components/BaseModal';
+import { PromptModalConfig } from '@/modal/types';
 import { Typography } from '@/constants/Typography';
 import { useUnistyles } from 'react-native-unistyles';
 import { MobileGlassSurface } from '@/components/MobileGlass';

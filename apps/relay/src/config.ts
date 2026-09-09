@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { isLoopbackAddress, isLoopbackHost } from './admission/index.js';
 
 export type RelayAuthMode = 'permissive' | 'strict';
 export type RelayE2eeMode = 'off' | 'on';
@@ -39,7 +40,6 @@ export interface RelayConfig {
     pushWebhookTimeoutMs: number;
 }
 
-const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 function readEnv(name: string): string | undefined {
     return process.env[name]?.trim() || undefined;
 }
@@ -61,7 +61,7 @@ function readBool(name: string, fallback: boolean): boolean {
 function readAuthMode(host: string, developmentApi: boolean): RelayAuthMode {
     const raw = readEnv('MUXR_RELAY_AUTH')?.toLowerCase();
     if (raw === 'permissive' || raw === 'strict') return raw;
-    return developmentApi && LOOPBACK.has(host) ? 'permissive' : 'strict';
+    return developmentApi && isLoopbackHost(host) ? 'permissive' : 'strict';
 }
 
 function readE2eeMode(developmentApi: boolean): RelayE2eeMode {
@@ -70,7 +70,9 @@ function readE2eeMode(developmentApi: boolean): RelayE2eeMode {
         process.stderr.write('warning: MUXR_RELAY_E2EE=off is ignored outside the explicit development API\n');
         return 'on';
     }
-    return raw === 'off' ? 'off' : raw === 'on' ? 'on' : developmentApi ? 'off' : 'on';
+    if (raw === 'off') return 'off';
+    if (raw === 'on') return 'on';
+    return developmentApi ? 'off' : 'on';
 }
 
 function readOrigins(value: string | undefined): ReadonlySet<string> {
@@ -87,7 +89,7 @@ export function loadRelayConfig(overrides: Partial<RelayConfig> = {}): RelayConf
     const publicEdge = overrides.publicEdge ?? readBool('MUXR_RELAY_PUBLIC_EDGE', false);
     const host = overrides.host ?? readEnv('MUXR_RELAY_HOST') ?? '127.0.0.1';
     const authMode = overrides.authMode ?? readAuthMode(host, developmentApi);
-    if (developmentApi && !LOOPBACK.has(host)) {
+    if (developmentApi && !isLoopbackHost(host)) {
         throw new Error('MUXR_RELAY_DEVELOPMENT_API refuses a non-loopback bind');
     }
     const pushWebhookUrl = overrides.pushWebhookUrl ?? readEnv('MUXR_RELAY_PUSH_WEBHOOK');
@@ -133,8 +135,4 @@ export function clientIp(req: import('node:http').IncomingMessage, trustProxy: b
     return req.socket.remoteAddress?.replace(/^::ffff:/, '') ?? 'unknown';
 }
 
-export function isLoopbackAddress(address: string | undefined): boolean {
-    if (!address) return false;
-    const normalized = address.replace(/^::ffff:/, '');
-    return LOOPBACK.has(normalized);
-}
+export { isLoopbackAddress };

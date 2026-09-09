@@ -1,7 +1,7 @@
 import React from 'react';
 import { Platform, View, Text, Pressable } from 'react-native';
-import { BaseModal } from './BaseModal';
-import { AlertModalConfig, ConfirmModalConfig } from '../types';
+import { BaseModal } from '@/modal/components/BaseModal';
+import { AlertModalConfig, ConfirmModalConfig } from '@/modal/types';
 import { Typography } from '@/constants/Typography';
 import { StyleSheet } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';

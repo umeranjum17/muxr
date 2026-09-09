@@ -101,11 +101,11 @@ export default function RootLayout() {
                     headerShown: false
                 }}
             />
-                                                                        <Stack.Screen
-                name="session/[id]/preview"
+            <Stack.Screen
+                name="session/[id]/file"
                 options={{
                     headerShown: true,
-                    headerTitle: t('navigation.browserPreview'),
+                    headerTitle: t('common.fileViewer'),
                     headerBackTitle: t('common.back'),
                 }}
             />
@@ -130,6 +130,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/notifications"
+                options={{
+                    headerTitle: 'Agent notifications',
+                }}
+            />
+            <Stack.Screen
                 name="settings/plugins"
                 options={{
                     headerTitle: t('plugins.settingsTitle'),
@@ -139,6 +145,12 @@ export default function RootLayout() {
                 name="settings/voice"
                 options={{
                     headerTitle: 'Realtime voice',
+                }}
+            />
+            <Stack.Screen
+                name="settings/collaboration"
+                options={{
+                    headerTitle: 'Computer collaboration',
                 }}
             />
             <Stack.Screen

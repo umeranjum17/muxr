@@ -13,7 +13,7 @@ Primary gate: clean Linux VM plus a fresh API 36 Android emulator. Follow-up doc
    - Verify the tag, source archive checksum, Apache-2.0 license, NOTICE, and Android artifact checksum.
 2. **Install from zero**
    - Install only the documented Node 22+, Yarn 1.x, Git, Herdr, JDK/Android prerequisites.
-   - Install the published CLI with `npm install -g --ignore-scripts @trymuxr/cli`, verify `muxr version`, then clone the matching public tag and run `yarn install --frozen-lockfile`, `yarn build`, and `node scripts/runSuite.mjs`.
+   - Install the published CLI with `npm install -g --ignore-scripts @trymuxr/cli`, verify `muxr version`, then clone the matching public tag and run `yarn install --frozen-lockfile`, `yarn build`, and `yarn run check`.
    - In a second empty npm prefix, download `https://raw.githubusercontent.com/umeranjum17/muxr/main/install.sh` completely, run it with the exact release version, and verify it installs the same CLI without sudo or lifecycle scripts.
    - Fail if undocumented secrets, private packages, maintainer paths, or unpublished npm commands are required.
 3. **Start the self-hosted product**
@@ -21,7 +21,7 @@ Primary gate: clean Linux VM plus a fresh API 36 Android emulator. Follow-up doc
    - Confirm relay health, host connection, owner-only state permissions, and a visible QR plus short two-minute pairing string.
 4. **Pair a fresh phone**
    - Install the exact release build on a factory-reset emulator.
-   - Complete QR/pair-string consent. Confirm the app discovers or reaches only the chosen relay and reaches the Herd without email, checkout, or managed-tier UI.
+   - Complete QR/pair-string consent. Confirm the app discovers or reaches only the chosen relay and reaches the Herd without email or checkout.
 5. **Control real work**
    - Create a disposable git repository and start one real Herdr agent.
    - From the app: see working/waiting/done state, open its real terminal, send input, answer a prompt, stop/restart, and confirm the phone reflects Herdr truth.
@@ -29,7 +29,6 @@ Primary gate: clean Linux VM plus a fresh API 36 Android emulator. Follow-up doc
    - Open Usage and Machine.
    - Browse Files as a hierarchy and open a file.
    - Review Changes with status and +/- metadata.
-   - Select a non-default Runbook folder and execute there.
    - Open/download an attachment and verify its bytes/SHA.
    - Disable and re-enable a bundled plugin; create/check/install one minimal third-party plugin through documented commands.
 7. **Resilience and authority**
