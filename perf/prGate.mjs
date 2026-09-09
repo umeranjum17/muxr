@@ -558,6 +558,66 @@ async function polishControls() {
     }
 }
 
+/**
+ * Mermaid mounts its <svg> whatever the sanitizer left inside it, so the status
+ * line and the diagram's own bounds both pass on an empty box. Only ink proves
+ * it: pixels inside the box that differ from the box's own dominant colour --
+ * the page background -- in whichever theme the device is currently in.
+ */
+async function mermaidInk() {
+    const xml = await requireScreen('rich-preview.md-mermaid', /svg-diagram-0/, 20_000);
+    const node = (xml.match(/<node\b[^>]*>/g) ?? []).find((node) => node.includes('svg-diagram-0'));
+    const box = /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(node);
+    check(box, 'Mermaid diagram never mounted in the markdown preview');
+    const frame = cropRaw(await screencapRaw(), { l: Number(box[1]), t: Number(box[2]), r: Number(box[3]), b: Number(box[4]) });
+    const counts = new Map();
+    for (let i = 0; i < frame.bytes.length; i += 4) {
+        const key = (frame.bytes[i] << 16) | (frame.bytes[i + 1] << 8) | frame.bytes[i + 2];
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    let background = 0;
+    for (const [key, seen] of counts) if (seen > (counts.get(background) ?? 0)) background = key;
+    let ink = 0;
+    for (let i = 0; i < frame.bytes.length; i += 4) {
+        const delta = Math.max(Math.abs(frame.bytes[i] - (background >> 16 & 255)), Math.abs(frame.bytes[i + 1] - (background >> 8 & 255)), Math.abs(frame.bytes[i + 2] - (background & 255)));
+        if (delta > 8) ink++;
+    }
+    await capture('rich-preview.md-mermaid.png');
+    check(ink > 2000, `Mermaid diagram mounted but painted no visible pixels (${ink} of ${frame.width * frame.height} differ from the background)`);
+    // Ink alone passed while every node label was missing: Mermaid emitted labels as
+    // <foreignObject> HTML that cleanDiagram drops, leaving painted but empty boxes.
+    // Only pixels can prove the labels -- a WebView never exposes SVG text to the
+    // native hierarchy -- so read them back, inverting a dark theme's light-on-dark
+    // ink, which tesseract cannot read as it stands, and then keeping only that ink.
+    const lightTheme = ((background >> 16 & 255) + (background >> 8 & 255) + (background & 255)) / 3 > 127;
+    const labelPng = new PNG({ width: frame.width, height: frame.height });
+    for (let i = 0; i < frame.bytes.length; i += 4) {
+        // Only the label ink is darker than the node fill it sits on, in either theme
+        // once a dark one is inverted, so everything above the cut -- fills, strokes,
+        // the arrow -- goes white. Tesseract reads four-glyph `Beta` off the resulting
+        // black-on-white far more reliably than off the boxes it is nested in, and a
+        // node that painted no label still reads as nothing at all.
+        const glyph = ([0, 1, 2].map((channel) => lightTheme ? frame.bytes[i + channel] : 255 - frame.bytes[i + channel])
+            .reduce((sum, value, channel) => sum + value * [299, 587, 114][channel], 0) / 1000) < 110 ? 0 : 255;
+        for (let channel = 0; channel < 3; channel++) labelPng.data[i + channel] = glyph;
+        labelPng.data[i + 3] = 255;
+    }
+    const labelPath = join(out, 'rich-preview.md-mermaid-labels.png');
+    writeFileSync(labelPath, PNG.sync.write(labelPng)); publish(labelPath);
+    const read = (await run('tesseract', [labelPath, 'stdout', '--psm', '3'], { timeout: 15_000 })).stdout;
+    save('rich-mermaid-ocr.txt', read);
+    const flattened = read.replace(/\s+/g, ' ');
+    // Every node label, not just the roomy one: `Beta` is the four-glyph label this
+    // fixture exists to protect, so the gate reads it back rather than inferring it
+    // from its neighbour. It is also the one near tesseract's floor at the density
+    // the diagram occupies on screen, so a failure naming only `Beta` on a preview
+    // that looks right is OCR reach, not a lost label -- the reported OCR text says
+    // which. Both labels come off one renderer pass, so a real regression drops both.
+    const missing = ['Beta', 'Phone testing'].filter((label) => !flattened.includes(label));
+    check(!missing.length, `Mermaid node labels did not paint in the ${lightTheme ? 'light' : 'dark'} preview (missing ${missing.join(', ')}; OCR read ${JSON.stringify(flattened.trim())})`);
+    return { ink, pixels: frame.width * frame.height, background: background.toString(16).padStart(6, '0'), labelsRead: flattened.trim(), labelEvidence: 'screenshot OCR' };
+}
+
 async function richPreviews() {
     const attachmentDir = join(stack.root, 'muxr/attachments/pane/w1:p1');
     mkdirSync(attachmentDir, { recursive: true });
@@ -592,7 +652,7 @@ async function richPreviews() {
             save('rich-csv-ocr.txt', pixels);
             check(pixels.includes(marker), 'CSV content did not paint in native WebView');
         }
-        report.richPreviews.push({ file, nativeContent: true, evidence: file.endsWith('.csv') ? 'screenshot OCR' : 'native hierarchy' });
+        report.richPreviews.push({ file, nativeContent: true, evidence: file.endsWith('.csv') ? 'screenshot OCR' : 'native hierarchy', ...(file.endsWith('.md') ? { mermaidInk: await mermaidInk() } : {}) });
         await tapText('Close document preview');
     }
     await tapText('preview.pdf');
