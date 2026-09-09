@@ -16,7 +16,7 @@ export type OpenTerminalResult =
 
 export interface TerminalPort {
     attach(command: OpenTerminalCommand): Promise<{ paneId: string }>;
-    detach(channel: string, deviceId?: string): void;
+    detach(channel: string, deviceId?: string): Promise<void>;
 }
 const ATTACH_FAILURE_CODES: Record<string, true> = {
     'e2ee-required': true,
@@ -61,6 +61,6 @@ export async function openTerminal(port: TerminalPort | undefined, command: Open
 export type CloseTerminalCommand = { channel: string; deviceId?: string };
 
 export async function closeTerminal(port: TerminalPort | undefined, command: CloseTerminalCommand): Promise<OpenTerminalResult | { ok: true; data: null }> {
-    port?.detach(command.channel, command.deviceId);
+    await port?.detach(command.channel, command.deviceId);
     return { ok: true, data: null };
 }

@@ -359,6 +359,12 @@ export interface PluginScreenCodeNode {
     language?: string;
     /** Optional data path used to infer the language and label the source. */
     fileNamePath?: string;
+    /**
+     * `fill` makes this node the screen's single vertical scroll owner, for a
+     * screen whose whole point is one file. The default stays an excerpt card
+     * inside the screen's own scroller.
+     */
+    viewport?: 'fill';
 }
 /** Closed action vocabulary. Downloaded manifests never supply executable code. */
 export type PluginAction =

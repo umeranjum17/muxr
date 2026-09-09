@@ -29,9 +29,13 @@ export const DEFAULT_WORLD = {
 
 let activeRequestFrames = () => {};
 
-/** `paneId` is the pane the phone is attached to, when the caller knows it. */
-export function requestFrames(count, paneId) {
-    activeRequestFrames(count, paneId);
+/**
+ * `paneId` is the pane the phone is attached to, when the caller knows it.
+ * `offset` is where that pane has been scrolled to, in pixels, so the board a
+ * repaint paints is the board a scrolled pane would show.
+ */
+export function requestFrames(count, paneId, offset) {
+    activeRequestFrames(count, paneId, offset);
 }
 
 export function frame(payload) {
@@ -146,7 +150,24 @@ export function imageSizeFromWorld(world, overrides = {}) {
     };
 }
 
-function kittyChunk({ row, col, imageId, width, height, rgba, cols, rows, proof = false }) {
+/**
+ * The proof board's block height. Deliberately not a divisor of the 96 px a
+ * wheel notch travels: at 32 px an even number of notches landed the board on
+ * exactly the phase it started from. 96 and 70 only realign after 35 notches.
+ * The horizontal 32 px period is untouched: magnification is measured on it.
+ */
+const PROOF_BLOCK_HEIGHT = 35;
+
+/**
+ * Any periodic board aliases eventually, and a checker phase is one bit: two
+ * different scroll positions can still paint the same rows. The marker is the
+ * position itself -- one bright row whose place advances 21 px per notch and
+ * only returns after hundreds of them -- so no two offsets a bout can reach
+ * paint the same picture, and a real burst can never read as a still pane.
+ */
+const MARKER_STRIDE = 7;
+
+function kittyChunk({ row, col, imageId, width, height, rgba, cols, rows, proof = false, offset = 0 }) {
     // Cheap unique fill: one byte for the field, then a 32-bit stamp so two
     // consecutive payloads cannot be byte-identical even if the fill wrapped.
     rgba.fill((imageId * 37) & 255);
@@ -154,8 +175,19 @@ function kittyChunk({ row, col, imageId, width, height, rgba, cols, rows, proof 
     // unlike terminal text/chrome or a pipeline event with zero deliveries.
     if (proof) for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
         const at = (y * width + x) * 4;
-        const color = ((x >> 5) + (y >> 5)) % 2 === 0 ? [235, 35, 170] : [20, 215, 185];
+        // The board travels with the scroll offset, so a wheel that reached the
+        // producer is visible in the phone's framebuffer and not only in a count.
+        const period = PROOF_BLOCK_HEIGHT * 2;
+        const band = (((y + offset) % period) + period) % period;
+        const color = ((x >> 5) + (band < PROOF_BLOCK_HEIGHT ? 0 : 1)) % 2 === 0 ? [235, 35, 170] : [20, 215, 185];
         rgba[at] = color[0]; rgba[at + 1] = color[1]; rgba[at + 2] = color[2]; rgba[at + 3] = 255;
+    }
+    if (proof && height > 0) {
+        const markerY = ((Math.trunc(offset / 32) * MARKER_STRIDE) % height + height) % height;
+        for (let x = 0; x < width; x += 1) {
+            const at = (markerY * width + x) * 4;
+            rgba[at] = 255; rgba[at + 1] = 248; rgba[at + 2] = 80; rgba[at + 3] = 255;
+        }
     }
     rgba[0] = imageId & 255;
     rgba[1] = (imageId >>> 8) & 255;
@@ -300,7 +332,7 @@ function decodeSgr(payload) {
 }
 
 function serveClient(socket, options) {
-    const { world, frameHz, imageWidth, imageHeight, bytesPerSecond, timers, isClosed, onReady, inputLogPath } = options;
+    const { world, frameHz, imageWidth, imageHeight, bytesPerSecond, timers, isClosed, onReady, inputLogPath, pinPaneId } = options;
     let buffered = Buffer.alloc(0);
     let welcomed = false;
     const rgba = Buffer.alloc(imageWidth * imageHeight * 4);
@@ -311,6 +343,8 @@ function serveClient(socket, options) {
     let periodicTimer;
     /** The pane a phone is watching, when a request named one. */
     let targetPaneId;
+    /** Where that pane has been scrolled to, in pixels. */
+    let scrollOffset = 0;
 
     const pacer = createPacer({
         socket,
@@ -319,12 +353,17 @@ function serveClient(socket, options) {
         isClosed,
         frameBytes: Math.ceil(imageWidth * imageHeight * 4 * 4 / 3) + 256,
         buildFrame: () => {
-            const wanted = targetPaneId === undefined
+            const watched = pinPaneId ?? targetPaneId;
+            const wanted = watched === undefined
                 ? undefined
-                : cursors.find((cursor) => cursor.paneId === targetPaneId);
-            // The PR flow opens the first live pane. Pin its proof producer;
-            // round-robin across offscreen panes makes framebuffer proof flaky.
-            const cursor = options.enableFile !== undefined ? cursors[0] : wanted ?? cursors[imageId % cursors.length] ?? cursors[0];
+                : cursors.find((cursor) => cursor.paneId === watched);
+            // Paint the pane the phone asked for. With no request to go on,
+            // proof runs pin the first live pane -- the one the PR flow opens --
+            // because round-robin across offscreen panes makes framebuffer
+            // proof flaky.
+            const cursor = wanted
+                ?? (options.enableFile !== undefined ? cursors[0] : cursors[imageId % cursors.length])
+                ?? cursors[0];
             const bytes = kittyChunk({
                 ...cursor,
                 imageId,
@@ -332,6 +371,7 @@ function serveClient(socket, options) {
                 height: imageHeight,
                 rgba,
                 proof: options.enableFile !== undefined,
+                offset: scrollOffset,
                 cols: Math.max(1, cursor?.rect?.width ?? 1),
                 rows: Math.max(1, cursor?.rect?.height ?? 1),
             });
@@ -377,10 +417,15 @@ function serveClient(socket, options) {
         if (requested <= 0) stopRequestTick();
     };
 
-    const requestFramesForClient = (count, paneId) => {
+    const requestFramesForClient = (count, paneId, offset) => {
         const n = positiveInt(count, 0);
         if (n <= 0 || isClosed() || !socket.writable) return;
+        // A pinned run serves exactly one pane. Another pane's wheel must not
+        // pull the board onto it: the phase that measures a text terminal would
+        // then be measuring a graphics surface it just created.
+        if (pinPaneId !== undefined && paneId !== pinPaneId) return;
         if (typeof paneId === 'string' && paneId !== '') targetPaneId = paneId;
+        if (Number.isFinite(offset)) scrollOffset = Math.trunc(offset);
         requested += n;
         // First paint of a burst is immediate; the rest arrive at 60 Hz and
         // then sit behind the socket pacer, the way a Kitty program queues
@@ -445,6 +490,7 @@ export async function startGraphics({
     bytesPerSecond = DEFAULT_BYTES_PER_SECOND,
     inputLogPath,
     enableFile,
+    pinPaneId,
 } = {}) {
     try { unlinkSync(socketPath); } catch { /* leftover from a killed run */ }
     const sockets = new Set();
@@ -460,15 +506,18 @@ export async function startGraphics({
     const bps = positiveInt(bytesPerSecond, DEFAULT_BYTES_PER_SECOND);
 
     let orphanPaneId;
-    const requestFramesBound = (count, paneId) => {
+    let orphanOffset;
+    const requestFramesBound = (count, paneId, offset) => {
         const n = positiveInt(count, 0);
         if (n <= 0 || closed) return;
+        if (pinPaneId !== undefined && paneId !== pinPaneId) return;
         if (emitters.size === 0) {
             orphanRequests += n;
             if (typeof paneId === 'string' && paneId !== '') orphanPaneId = paneId;
+            if (Number.isFinite(offset)) orphanOffset = offset;
             return;
         }
-        for (const emit of emitters) emit(n, paneId);
+        for (const emit of emitters) emit(n, paneId, offset);
     };
     activeRequestFrames = requestFramesBound;
 
@@ -485,11 +534,12 @@ export async function startGraphics({
             isClosed: () => closed,
             inputLogPath,
             enableFile,
+            pinPaneId,
             onReady: (emit) => {
                 emitters.add(emit);
                 socket.once('close', () => emitters.delete(emit));
                 if (orphanRequests > 0) {
-                    emit(orphanRequests, orphanPaneId);
+                    emit(orphanRequests, orphanPaneId, orphanOffset);
                     orphanRequests = 0;
                 }
             },

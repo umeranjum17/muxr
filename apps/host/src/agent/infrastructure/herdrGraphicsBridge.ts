@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { InlineImageStore, InlineKittyScanner, type InlineKittyBlock } from './inlineKitty.js';
+import { graphicsTrace } from './graphicsTrace.js';
 import { open } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -38,15 +39,17 @@ const MAX_NOTCH_BACKLOG = 8;
 const NOTCH_FALLBACK_MS = 100;
 /** Images a pane may keep on a phone at once: a plot, its legend, an icon. */
 const MAX_LIVE_PLACEMENTS = 16;
+/** Placement work is coalesced before it can grow into a native-write backlog. */
+const MAX_INLINE_QUEUE_FRAMES = 128;
+const MAX_INLINE_QUEUE_BYTES = MAX_MESSAGE_BYTES;
 /** Deflate harder once a frame is large: the phone decrypts every byte in JS. */
 const COMPRESS_HARDER_BYTES = 512 * 1024;
-/**
- * A halved frame no longer lands one-for-one on the pane it was rendered for,
- * so the phone scales it back up and text softens. Off costs four times the
- * bytes and buys that sharpness back; which one reads better is a judgement
- * about a particular screen, so it is a knob rather than a constant.
- */
-const HALVE_LARGE_FRAMES = process.env.MUXR_GRAPHICS_HALVE !== '0';
+/** Keep the old switch as a kill switch for the adaptive coarse path. */
+const ADAPTIVE_DENSITY = process.env.MUXR_GRAPHICS_HALVE !== '0';
+/** A frame is refined only after both input and producer activity are quiet. */
+const SETTLE_REFINE_MS = 200;
+/** Optional source pixels never get to consume the whole bridge. */
+export const MAX_REFINEMENT_BYTES = 32 * 1024 * 1024;
 const compress = promisify(deflate);
 const run = promisify(execFile);
 
@@ -115,9 +118,14 @@ type ServerMessage =
     | { type: 'closed' }
     | { type: 'other' };
 
-/** Frames a producer emitted for one pane, newest first in effect. The
- *  delete stamp pins the resident bytes a delete may forget. */
-type InlineWork = { block: InlineKittyBlock; at: number; deleteStamp?: number };
+/** A producer block waiting for the single inline drain. */
+type InlineBlockWork = { block: InlineKittyBlock; at: number; deleteStamp?: number; refinement?: Refinement };
+/** A queued full-density replay; it is drained in the same order as producer blocks. */
+type InlineRefineWork = { refinePane: string; at: number; reason: 'gesture' | 'source'; sourceRevision: number; sourceQueueVersion: number; fenceRetry: boolean };
+type InlineWork = InlineBlockWork | InlineRefineWork;
+type Refinement = { paneId: string; sourceRevision: number; sourceQueueVersion: number; fenceRetry: boolean };
+type DirectRawFrame = { rgba: Buffer; control: string; imageId: number; transferId: bigint; sourceImageId: number };
+type DirectRefineWork = InlineRefineWork;
 
 /** What a pane is currently showing, keyed by Herdr's own placement key. */
 // The pane rect the block was placed against. An inline placement is encoded in
@@ -204,12 +212,24 @@ export class HerdrGraphicsBridge {
     private readonly scrollInFlight = new Map<string, number>();
     private readonly scrollBacklog = new Map<string, ScrollIntent>();
     private readonly scrollTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    private readonly refineTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    private readonly lastSourceAt = new Map<string, number>();
+    /** When a notch was last actually released into the pane. */
+    private readonly lastInputAt = new Map<string, number>();
+    private readonly sourceRevision = new Map<string, number>();
+    /** Diagnostic only: which pane last moved the shared fence. */
+    private fenceBumpPane: string | undefined;
+    private readonly directRawByPane = new Map<string, DirectRawFrame>();
+    private directRefinementBytes = 0;
+    private readonly directRefineQueue: DirectRefineWork[] = [];
+    private sourceQueueVersion = 0;
     /**
      * Producer frames wait here in arrival order. Only one is prepared at a
      * time and any placement a newer one supersedes is dropped before it costs
      * a layout probe, a decode, or a compression.
      */
     private readonly inlineQueue: InlineWork[] = [];
+    private inlineQueueBytes = 0;
     private inlineDraining = false;
     private readonly latencies: number[] = [];
     private readonly frameBytes: number[] = [];
@@ -328,7 +348,7 @@ export class HerdrGraphicsBridge {
     ownsScroll(channel: string): boolean {
         const registration = this.registrations.get(channel);
         if (registration === undefined) return false;
-        return this.paneOwnsGraphics(registration.paneId);
+        return this.survivingSurface(registration.paneId) === 'full';
     }
 
     /** True while the pane still owns an image: a live placement, or a
@@ -353,9 +373,14 @@ export class HerdrGraphicsBridge {
         const paneId = registration.paneId;
         const image = this.latestByPane.get(paneId) ?? [...(this.livePlacements.get(paneId)?.values() ?? [])].pop()?.image;
         if (image === undefined) return [];
-        const point = at === undefined ? { x: Math.ceil(image.width / 2), y: Math.ceil(image.height / 2) }
+        const sourceWidth = image.sourceWidth ?? image.width;
+        const sourceHeight = image.sourceHeight ?? image.height;
+        const point = at === undefined ? { x: Math.ceil(sourceWidth / 2), y: Math.ceil(sourceHeight / 2) }
             : mapGraphicsPointer(image, registration, { ...at, phase: 'move' });
         if (point === undefined) return [];
+        // Any new scroll intent invalidates a sharp replay, including intent
+        // that is already at the backlog cap and releases no notch today.
+        this.cancelRefine(paneId);
         const wanted = Math.max(1, Math.round(rows / WHEEL_ROWS_PER_NOTCH));
         const inFlight = this.scrollInFlight.get(paneId) ?? 0;
         const now = Math.max(0, Math.min(wanted, MAX_NOTCHES_IN_FLIGHT - inFlight));
@@ -375,6 +400,7 @@ export class HerdrGraphicsBridge {
         this.armNotchFallback(paneId);
         const report = this.wheelReport(paneId, direction, point);
         if (report === undefined) return [];
+        this.lastInputAt.set(paneId, Date.now());
         this.notchesSent += now;
         return Array.from({ length: now }, () => report);
     }
@@ -383,6 +409,9 @@ export class HerdrGraphicsBridge {
     private drainNotch(paneId: string): void {
         const inFlight = this.scrollInFlight.get(paneId) ?? 0;
         const backlog = this.scrollBacklog.get(paneId);
+        graphicsTrace?.add('input.release', {
+            pane: paneId, inFlight, backlog: backlog?.notches ?? 0,
+        });
         if (backlog === undefined || backlog.notches <= 0) {
             if (inFlight <= 1) this.clearScrollState(paneId);
             else this.scrollInFlight.set(paneId, inFlight - 1);
@@ -395,6 +424,9 @@ export class HerdrGraphicsBridge {
         for (const registration of this.registrations.values()) {
             if (registration.paneId === paneId) registration.sendInput?.(report);
         }
+        // Only a notch that really reached the pane is input activity; an
+        // ordinary frame delivery calls this too and must not move the clock.
+        this.lastInputAt.set(paneId, Date.now());
         this.notchesSent += 1;
         this.armNotchFallback(paneId);
     }
@@ -413,11 +445,189 @@ export class HerdrGraphicsBridge {
     }
 
     private clearScrollState(paneId: string): void {
+        const wasActive = this.gestureActive(paneId);
         this.scrollInFlight.delete(paneId);
         this.scrollBacklog.delete(paneId);
         const timer = this.scrollTimers.get(paneId);
         if (timer !== undefined) clearTimeout(timer);
         this.scrollTimers.delete(paneId);
+        if (wasActive) this.armRefine(paneId, 'gesture');
+    }
+
+    /** True while a gesture this pane owes frames to is still in flight. */
+    private gestureActive(paneId: string): boolean {
+        return (this.scrollInFlight.get(paneId) ?? 0) > 0 || this.scrollBacklog.has(paneId);
+    }
+
+    /** Coarse while input or the producer is active; sharp once both settle. */
+    private halveFor(paneId: string): boolean {
+        if (!ADAPTIVE_DENSITY) return false;
+        if (this.gestureActive(paneId)) return true;
+        const last = this.lastSourceAt.get(paneId);
+        return last !== undefined && Date.now() - last < SETTLE_REFINE_MS;
+    }
+
+    /** Mark a routed producer frame as activity that keeps the pane coarse. */
+    private noteSourceActivity(paneId: string): void {
+        this.lastSourceAt.set(paneId, Date.now());
+        this.sourceRevision.set(paneId, (this.sourceRevision.get(paneId) ?? 0) + 1);
+        this.cancelRefine(paneId);
+        graphicsTrace?.add('source.route', {
+            pane: paneId,
+            revision: this.sourceRevision.get(paneId) ?? 0,
+            fence: this.sourceQueueVersion,
+            gesture: this.gestureActive(paneId),
+        });
+    }
+
+    /**
+     * Fence attribution for the trace. Inline and direct admission bumps happen
+     * before routing, so their pane is genuinely unknown; report nothing rather
+     * than labelling an unknown bump as another pane's.
+     */
+    private fenceProvenance(paneId: string): Record<string, string | boolean> {
+        if (this.fenceBumpPane === undefined) return {};
+        return { fenceBy: this.fenceBumpPane, fenceSamePane: this.fenceBumpPane === paneId };
+    }
+
+    /**
+     * A refinement discarded after its await by a fence the target pane did not
+     * move is still wanted: the pane is settled and would otherwise stay coarse
+     * until its producer happens to paint again. A later same-pane arrival
+     * cancels this arm through noteSourceActivity, so it cannot show stale
+     * pixels.
+     */
+    private rearmAfterFenceLoss(paneId: string, sourceRevision: number): boolean {
+        if (this.gestureActive(paneId)) return false;
+        if ((this.sourceRevision.get(paneId) ?? 0) !== sourceRevision) return false;
+        this.armRefine(paneId, 'source', SETTLE_REFINE_MS, true);
+        return true;
+    }
+
+    /** Which pane last moved the shared fence, so a reject can name the cause. */
+    private bumpSourceQueueVersion(paneId: string | undefined, path: 'inline' | 'direct' | 'clear'): void {
+        this.sourceQueueVersion += 1;
+        this.fenceBumpPane = paneId;
+        graphicsTrace?.add('fence.bump', { pane: paneId, path, fence: this.sourceQueueVersion });
+    }
+
+    /**
+     * The moment this pane becomes eligible: one settle window after the later
+     * of its final routed source and its final released input. Preparing the
+     * coarse frame consumes part of that window, so arming a fresh full window
+     * afterwards would charge a slow encode to the viewer twice.
+     */
+    private quietDeadline(paneId: string): number {
+        return Math.max(this.lastSourceAt.get(paneId) ?? 0, this.lastInputAt.get(paneId) ?? 0) + SETTLE_REFINE_MS;
+    }
+
+    private sourceQuiet(paneId: string): boolean {
+        return Date.now() >= this.quietDeadline(paneId);
+    }
+
+    /** Schedule one serialized refinement for a pane, never a timer per frame. */
+    private armRefine(paneId: string, reason: 'gesture' | 'source', delay?: number, fenceRetry = false): void {
+        this.cancelRefine(paneId);
+        const armedAt = Date.now();
+        delay ??= Math.max(0, this.quietDeadline(paneId) - armedAt);
+        graphicsTrace?.add('refine.arm', {
+            pane: paneId,
+            reason,
+            delayMs: Math.max(0, delay),
+            // Absolute deadline: the quiet rule this arm is promising to meet.
+            deadline: armedAt + Math.max(0, delay),
+            lastSourceAt: this.lastSourceAt.get(paneId),
+        });
+        const timer = setTimeout(() => {
+            this.refineTimers.delete(paneId);
+            const work = {
+                refinePane: paneId,
+                at: Date.now(),
+                reason,
+                sourceRevision: this.sourceRevision.get(paneId) ?? 0,
+                sourceQueueVersion: this.sourceQueueVersion,
+                fenceRetry,
+            } satisfies DirectRefineWork;
+            const direct = this.directRawByPane.get(paneId);
+            const latest = this.latestByPane.get(paneId);
+            const path = direct !== undefined && latest?.imageId === direct.imageId && latest.transferId === direct.transferId
+                ? 'direct' as const
+                : 'inline' as const;
+            graphicsTrace?.add('refine.fire', {
+                pane: paneId,
+                reason,
+                path,
+                lateMs: Date.now() - (armedAt + Math.max(0, delay)),
+                fence: this.sourceQueueVersion,
+            });
+            if (path === 'direct') {
+                this.directRefineQueue.push(work);
+                if (!this.draining) void this.drain();
+            } else {
+                this.inlineQueue.push(work);
+                if (!this.inlineDraining) void this.drainInline();
+            }
+        }, Math.max(0, delay));
+        timer.unref();
+        this.refineTimers.set(paneId, timer);
+    }
+
+    private cancelRefine(paneId: string): void {
+        const timer = this.refineTimers.get(paneId);
+        if (timer !== undefined) clearTimeout(timer);
+        this.refineTimers.delete(paneId);
+    }
+
+    private async refinePane(work: InlineRefineWork): Promise<void> {
+        const { refinePane: paneId } = work;
+        graphicsTrace?.add('refine.dequeue', { pane: paneId, path: 'inline', reason: work.reason });
+        if (this.closed || !ADAPTIVE_DENSITY || this.gestureActive(paneId)) {
+            graphicsTrace?.add('refine.reject', {
+                pane: paneId, path: 'inline', why: this.closed ? 'closed' : this.gestureActive(paneId) ? 'gesture' : 'disabled', rearmed: false,
+            });
+            return;
+        }
+        if (!work.fenceRetry && work.sourceQueueVersion !== this.sourceQueueVersion) {
+            // Another pane's traffic moved a shared counter. The rearm is fence
+            // exempt, or a streaming neighbour can starve this pane forever.
+            const rearmed = this.rearmAfterFenceLoss(paneId, work.sourceRevision);
+            graphicsTrace?.add('refine.reject', {
+                pane: paneId, path: 'inline', why: 'fence', rearmed,
+                expected: work.sourceQueueVersion, actual: this.sourceQueueVersion,
+                ...this.fenceProvenance(paneId),
+            });
+            return;
+        }
+        if (!this.sourceQuiet(paneId)) {
+            const last = this.lastSourceAt.get(paneId) ?? Date.now();
+            graphicsTrace?.add('refine.reject', { pane: paneId, path: 'inline', why: 'not-quiet', rearmed: true, quietForMs: Date.now() - last });
+            this.armRefine(paneId, work.reason);
+            return;
+        }
+        const live = this.livePlacements.get(paneId);
+        const settled = live === undefined ? undefined
+            : [...live.entries()].find(([, item]) => item.surface === 'full' && item.image.sourceWidth !== undefined);
+        if (settled === undefined) {
+            graphicsTrace?.add('refine.reject', { pane: paneId, path: 'inline', why: 'no-candidate', rearmed: false });
+            return;
+        }
+        const [, placement] = settled;
+        await this.forwardInlineBlock({
+            block: placement.block,
+            at: work.at,
+            refinement: {
+                paneId, sourceRevision: work.sourceRevision, sourceQueueVersion: work.sourceQueueVersion, fenceRetry: work.fenceRetry,
+            },
+        }, false);
+    }
+
+    // A rearmed retry ignores only the shared fence counter, which a busy
+    // sibling can move forever. Every same-pane guard still applies.
+    private refinementCurrent(refinement: Refinement, paneId: string): boolean {
+        return refinement.paneId === paneId
+            && !this.gestureActive(paneId)
+            && (this.sourceRevision.get(paneId) ?? 0) === refinement.sourceRevision
+            && (refinement.fenceRetry || this.sourceQueueVersion === refinement.sourceQueueVersion);
     }
 
     private wheelReport(paneId: string, direction: 'up' | 'down', point: ScrollPoint): Buffer | undefined {
@@ -425,8 +635,8 @@ export class HerdrGraphicsBridge {
             ?? [...(this.livePlacements.get(paneId)?.values() ?? [])].pop()?.image;
         if (image === undefined) return undefined;
         const button = direction === 'up' ? 64 : 65;
-        const x = Math.max(1, Math.min(image.width, point.x));
-        const y = Math.max(1, Math.min(image.height, point.y));
+        const x = Math.max(1, Math.min(image.sourceWidth ?? image.width, point.x));
+        const y = Math.max(1, Math.min(image.sourceHeight ?? image.height, point.y));
         // A phone drag has no preceding mouse move. Position the program's
         // pointer without pressing a button before delivering its wheel notch.
         return Buffer.from(`\u001b[<35;${x};${y}M\u001b[<${button};${x};${y}M`);
@@ -448,16 +658,20 @@ export class HerdrGraphicsBridge {
 
     private shutdown(reason?: TerminalGraphicsReason): void {
         if (this.closed) return;
+        graphicsTrace?.flush();
         try { if (this.socket.writable) this.socket.write(frame(clientDetach())); } catch { /* socket already closed */ }
         this.closed = true;
-        const clear = Buffer.from('\u001b7\u001b_Ga=d,d=A,q=2;\u001b\\\u001b8');
         for (const registration of this.registrations.values()) {
-            registration.write(terminalFrame(clear, registration, false, reason));
+            registration.write(graphicsStoppedFrame(registration.cols, registration.rows, reason));
         }
         this.registrations.clear();
         this.latestByPane.clear();
+        this.livePlacements.clear();
+        this.inlinePlaced.clear();
         this.deferredDeletes.clear();
         this.imageOwners.clear();
+        for (const timer of this.scrollTimers.values()) clearTimeout(timer);
+        this.scrollTimers.clear();
         this.pendingByOrigin.clear();
         this.pendingOrigins.length = 0;
         this.layoutCache.clear();
@@ -466,7 +680,16 @@ export class HerdrGraphicsBridge {
         this.processProbeFailures.clear();
         this.admitted.clear();
         this.paneRetiredGeneration.clear();
+        for (const timer of this.refineTimers.values()) clearTimeout(timer);
+        this.refineTimers.clear();
+        this.lastSourceAt.clear();
+        this.lastInputAt.clear();
+        this.sourceRevision.clear();
+        this.directRawByPane.clear();
+        this.directRefinementBytes = 0;
+        this.directRefineQueue.length = 0;
         this.inlineQueue.length = 0;
+        this.inlineQueueBytes = 0;
         this.nextGeneration += 1;
         this.workspaceCache = undefined;
         if (this.processTimer !== undefined) clearInterval(this.processTimer);
@@ -521,6 +744,40 @@ export class HerdrGraphicsBridge {
         }
     }
 
+    private queueInlineWork(work: InlineBlockWork): void {
+        const action = work.block.keys.a ?? 'p';
+        const key = placementKey(work.block);
+        if (key !== undefined && action !== 'd') {
+            for (let index = this.inlineQueue.length - 1; index >= 0; index -= 1) {
+                const queued = this.inlineQueue[index];
+                if (queued === undefined || !('block' in queued) || (queued.block.keys.a ?? 'p') === 'd' || placementKey(queued.block) !== key) continue;
+                this.inlineQueueBytes = Math.max(0, this.inlineQueueBytes - queued.block.bytes.length);
+                this.inlineQueue.splice(index, 1);
+                this.supersededFrames += 1;
+            }
+        }
+        const bytes = work.block.bytes.length;
+        if (bytes > MAX_INLINE_QUEUE_BYTES) {
+            if (action === 'd') this.close();
+            else this.supersededFrames += 1;
+            return;
+        }
+        while (this.inlineQueue.length >= MAX_INLINE_QUEUE_FRAMES
+            || this.inlineQueueBytes + bytes > MAX_INLINE_QUEUE_BYTES) {
+            const index = this.inlineQueue.findIndex((queued) => 'block' in queued && (queued.block.keys.a ?? 'p') !== 'd');
+            if (index < 0) {
+                if (action === 'd') this.close();
+                else this.supersededFrames += 1;
+                return;
+            }
+            const dropped = this.inlineQueue.splice(index, 1)[0]!;
+            if ('block' in dropped) this.inlineQueueBytes = Math.max(0, this.inlineQueueBytes - dropped.block.bytes.length);
+            this.supersededFrames += 1;
+        }
+        this.inlineQueue.push(work);
+        this.inlineQueueBytes += bytes;
+    }
+
     /**
      * Herdr writes a program's own Kitty images into the app output stream,
      * positioned by the cursor. Pixels are transmitted once per image and
@@ -535,6 +792,7 @@ export class HerdrGraphicsBridge {
         if (this.closed) return;
         const at = Date.now();
         for (const block of this.inlineScanner.scan(bytes)) {
+            if (this.closed) return;
             if (this.inlineImages.admit(block)) continue;
             if (this.registrations.size === 0) continue;
             const action = block.keys.a ?? 'p';
@@ -543,7 +801,8 @@ export class HerdrGraphicsBridge {
             // at the delete, never a transmission admitted later in the chunk.
             const rawId = rawImageId(block);
             const deleteStamp = action === 'd' ? this.residentDeleteStamp(rawId) : undefined;
-            this.inlineQueue.push({ block, at, ...(deleteStamp === undefined ? {} : { deleteStamp }) });
+            this.queueInlineWork({ block, at, ...(deleteStamp === undefined ? {} : { deleteStamp }) });
+            this.bumpSourceQueueVersion(undefined, 'inline');
         }
         if (!this.inlineDraining) void this.drainInline();
     }
@@ -563,7 +822,9 @@ export class HerdrGraphicsBridge {
             while (!this.closed) {
                 const work = this.inlineQueue.shift();
                 if (work === undefined) break;
-                await this.forwardInlineBlock(work);
+                if ('block' in work) this.inlineQueueBytes = Math.max(0, this.inlineQueueBytes - work.block.bytes.length);
+                if ('refinePane' in work) await this.refinePane(work);
+                else await this.forwardInlineBlock(work);
             }
             // The ordered drain has exhausted every queued block. A deferred
             // delete still waiting here had no successor land: it is a real
@@ -583,8 +844,9 @@ export class HerdrGraphicsBridge {
         }
     }
 
-    private async forwardInlineBlock(work: InlineWork, allowDeleteDeferral = true): Promise<void> {
+    private async forwardInlineBlock(work: InlineBlockWork, allowDeleteDeferral = true): Promise<void> {
         const { block, at } = work;
+        const refinement = work.refinement;
         const action = block.keys.a ?? 'p';
         // Inline images retain Herdr's ids. Direct images and their one
         // pane-filling placement are renumbered, so route their deletes only
@@ -659,7 +921,11 @@ export class HerdrGraphicsBridge {
         // drain is serial, so a delivered frame is never overtaken by an older
         // one, and the repaints queued behind this one still coalesce here.
         if (this.superseded(key)) return;
-        const paneId = await this.sourcePane(cursorAt(block));
+        // A refinement is already bound to the pane whose placement it sharpens.
+        // Routing it again would re-probe every registered pane's layout for an
+        // answer this work already carries, and that probe -- not the encode --
+        // is what delays a settled frame. Producer work still routes normally.
+        const paneId = refinement?.paneId ?? await this.sourcePane(cursorAt(block));
         if (paneId === undefined) {
             // The candidate successor cannot be routed: its deferred front
             // half is a real delete and executes now.
@@ -667,6 +933,7 @@ export class HerdrGraphicsBridge {
             return;
         }
         if (this.closed) return;
+        if (refinement !== undefined && !this.refinementCurrent(refinement, paneId)) return;
         // A placement-only replay of an image an uppercase delete deleted --
         // byte-identical or not -- must never forward the deleted pixels: the
         // deferred entry and the id's stamp decide before any prepare or
@@ -683,7 +950,7 @@ export class HerdrGraphicsBridge {
         // A repainting producer re-places the same image many times a
         // second; only a changed placement is worth a phone frame.
         const identity = `${paneId}:${key}:${block.bytes.toString('base64')}`;
-        if (this.inlinePlaced.get(`${paneId}:${key}`) === identity) {
+        if (this.inlinePlaced.get(`${paneId}:${key}`) === identity && refinement === undefined) {
             // A placement-only replay of an already-placed image. It settles a
             // deferred lowercase hide (the replay re-placed the surface), but
             // it is not a new transmission, so an uppercase image delete still
@@ -699,10 +966,17 @@ export class HerdrGraphicsBridge {
             }
             this.inlinePlaced.delete(`${paneId}:${key}`);
         }
+        if (refinement === undefined) this.noteSourceActivity(paneId);
         const imageId = Number(block.keys.i ?? block.keys.I);
+        const halve = refinement === undefined && this.halveFor(paneId);
+        const prepareStartedAt = Date.now();
         const image = await this.inlineImages.prepared(block, (rgba, control) => prepareKitty(
-            rgba, control, Number.isSafeInteger(imageId) && imageId > 0 ? imageId : this.allocateImageId(), 0n,
-        ));
+            rgba, control, Number.isSafeInteger(imageId) && imageId > 0 ? imageId : this.allocateImageId(), 0n, halve,
+        ), halve ? 'coarse' : 'full');
+        graphicsTrace?.add(refinement === undefined ? 'source.prepare' : 'refine.prepare', {
+            pane: paneId, path: 'inline', durationMs: Date.now() - prepareStartedAt,
+            halved: halve, width: image?.width, height: image?.height, prepared: image !== undefined,
+        });
         if (image === undefined) {
             // The candidate successor failed to prepare: its deferred front
             // half is a real delete and executes now.
@@ -710,8 +984,38 @@ export class HerdrGraphicsBridge {
             return;
         }
         if (this.closed) return;
-        const rect = await this.visibleRect(paneId);
+        if (refinement !== undefined && !this.refinementCurrent(refinement, paneId)) {
+            const rearmed = this.rearmAfterFenceLoss(paneId, refinement.sourceRevision);
+            graphicsTrace?.add('refine.reject', {
+                pane: paneId, path: 'inline', why: 'stale-after-prepare', rearmed,
+                ...this.fenceProvenance(paneId),
+            });
+            return;
+        }
+        // The retained placement carries the rect this surface was measured
+        // with. Reusing it keeps `surfaceOf` deciding exactly as it did for the
+        // coarse frame; a placement that is gone is a refinement with nothing
+        // left to sharpen, which fails closed rather than guessing a rect.
+        let rect: Rect | undefined;
+        if (refinement === undefined) {
+            rect = await this.visibleRect(paneId);
+        } else {
+            const retained = this.livePlacements.get(paneId)?.get(key);
+            if (retained === undefined) {
+                graphicsTrace?.add('refine.reject', { pane: paneId, path: 'inline', why: 'placement-gone', rearmed: false });
+                return;
+            }
+            rect = retained.rect;
+        }
         if (this.closed) return;
+        if (refinement !== undefined && !this.refinementCurrent(refinement, paneId)) {
+            const rearmed = this.rearmAfterFenceLoss(paneId, refinement.sourceRevision);
+            graphicsTrace?.add('refine.reject', {
+                pane: paneId, path: 'inline', why: 'stale-after-rect', rearmed,
+                ...this.fenceProvenance(paneId),
+            });
+            return;
+        }
         const surface = surfaceOf(block, rect);
         const live = this.placementsFor(paneId);
         const previous = live.get(key);
@@ -719,7 +1023,10 @@ export class HerdrGraphicsBridge {
         const displaced = this.displaceOldestPlacement(paneId, live, key);
         this.inlinePlaced.set(`${paneId}:${key}`, identity);
         const supersededFull = surface === 'full' ? this.supersedeFullImage(paneId, image) : undefined;
-        if (surface === 'full') this.latestByPane.set(paneId, image);
+        if (surface === 'full') {
+            this.latestByPane.set(paneId, image);
+            this.dropDirectRefinement(paneId);
+        }
         // The same split the delete path already makes: this block's own
         // surface decides how it is drawn, the pane's surviving surface is
         // what the phone is told. A placement key carries the covered extent,
@@ -750,10 +1057,15 @@ export class HerdrGraphicsBridge {
             }
             const bytes = encodeKitty(image, registration, clear, block, rect, surface);
             const frame = terminalFrame(bytes, registration, true, undefined, paneSurface);
+            graphicsTrace?.frame('frame.handoff', frame, {
+                pane: paneId, path: 'inline', sharp: image.sourceWidth === undefined,
+                width: image.width, height: image.height, sinceRoutedMs: Date.now() - at,
+            });
             registration.write(frame);
             this.recordFrame(at, frame.length, image.width * image.height);
         }
         this.settleDeferredAfterFrame(paneId, key, image);
+        if (image.sourceWidth !== undefined && !this.gestureActive(paneId)) this.armRefine(paneId, 'source');
         // A frame is the honest acknowledgement that this pane kept up, so the
         // next notch of the gesture goes out now and no faster.
         this.drainNotch(paneId);
@@ -901,7 +1213,8 @@ export class HerdrGraphicsBridge {
 
     /** True when a queued placement still targets the same surface key. */
     private queuedSuccessorFor(key: string): boolean {
-        return this.inlineQueue.some((queued) => (queued.block.keys.a ?? 'p') !== 'd'
+        return this.inlineQueue.some((queued) => 'block' in queued
+            && (queued.block.keys.a ?? 'p') !== 'd'
             && placementKey(queued.block) === key);
     }
 
@@ -1022,7 +1335,8 @@ export class HerdrGraphicsBridge {
      * in one pane -- a plot beside its legend -- never supersede each other.
      */
     private superseded(key: string): boolean {
-        const newer = this.inlineQueue.some((queued) => (queued.block.keys.a ?? 'p') !== 'd'
+        const newer = this.inlineQueue.some((queued) => 'block' in queued
+            && (queued.block.keys.a ?? 'p') !== 'd'
             && placementKey(queued.block) === key);
         if (newer) this.supersededFrames += 1;
         return newer;
@@ -1064,12 +1378,15 @@ export class HerdrGraphicsBridge {
             // A valid Herdr 0.8.2 server permits one direct transfer at a time.
             // If a future/pipelined sender violates that gate, consume the stale
             // full frame exactly once and retain only the latest for this origin.
+            const stale = this.admitted.get(replaced.transferId);
+            if (stale !== undefined) stale.retired = true;
             this.admitted.delete(replaced.transferId);
             this.write(clientGraphicsResult(replaced, true));
         } else {
             this.pendingOrigins.push(origin);
         }
         this.pendingByOrigin.set(origin, file);
+        this.bumpSourceQueueVersion(undefined, 'direct');
         this.admit(file);
         if (!this.draining) void this.drain();
     }
@@ -1079,15 +1396,24 @@ export class HerdrGraphicsBridge {
         try {
             while (!this.closed) {
                 const origin = this.pendingOrigins.shift();
-                if (origin === undefined) return;
-                const file = this.pendingByOrigin.get(origin);
-                if (file === undefined) continue;
-                this.pendingByOrigin.delete(origin);
-                await this.forward(file);
+                if (origin !== undefined) {
+                    const file = this.pendingByOrigin.get(origin);
+                    if (file === undefined) continue;
+                    this.pendingByOrigin.delete(origin);
+                    await this.forward(file);
+                    // Give one queued refinement a turn so a continuously
+                    // streaming producer cannot starve the refine queue.
+                    const queued = this.directRefineQueue.shift();
+                    if (queued !== undefined) await this.refineDirect(queued);
+                    continue;
+                }
+                const refinement = this.directRefineQueue.shift();
+                if (refinement === undefined) return;
+                await this.refineDirect(refinement);
             }
         } finally {
             this.draining = false;
-            if (!this.closed && this.pendingOrigins.length > 0) void this.drain();
+            if (!this.closed && (this.pendingOrigins.length > 0 || this.directRefineQueue.length > 0)) void this.drain();
         }
     }
 
@@ -1106,42 +1432,26 @@ export class HerdrGraphicsBridge {
             if (this.shouldDrop(admitted, paneId)) return;
             const processReady = paneId !== undefined && await this.ensurePaneProcess(paneId);
             if (this.shouldDrop(admitted, paneId)) return;
+            if (paneId !== undefined && processReady) this.noteSourceActivity(paneId);
             const prepared = !processReady || paneId === undefined ? undefined : await prepareKitty(
-                rgba, file.control, this.allocateImageId(), file.transferId,
+                rgba, file.control, this.allocateImageId(), file.transferId, this.halveFor(paneId),
             );
             if (this.shouldDrop(admitted, paneId)) return;
             if (paneId !== undefined && prepared !== undefined) {
-                const previous = this.latestByPane.get(paneId);
-                // Replace exactly the image the phone is showing. The frame is
-                // parsed atomically, so the delete and the new placement land
-                // together; a clear-all would also erase unrelated placements
-                // the bridge still owes to late subscribers.
-                const clear = previous === undefined || previous.imageId === prepared.imageId
-                    ? 'none' as const
-                    : { imageId: previous.imageId };
-                if (previous !== undefined) this.imageOwners.delete(previous.transferId);
-                // The atomic frame deletes exactly the presented image with an
-                // uppercase delete: the inline placements carrying it leave the
-                // pane's live set, and the deferred deletes waiting on those
-                // surfaces are settled by this direct successor -- uppercase
-                // ones forget the resident pixels they named. Deferred deletes
-                // for other surfaces keep waiting for their own successors.
-                const replacedKeys = previous === undefined ? [] : this.retireInlinePlacements(paneId, previous.imageId);
-                this.latestByPane.set(paneId, prepared);
-                for (const key of replacedKeys) this.settleDeferredAfterFrame(paneId, key, prepared);
-                this.imageOwners.set(file.transferId, { paneId, imageId: prepared.imageId, sourceImageId: file.imageId });
-                for (const registration of this.registrations.values()) {
-                    if (registration.paneId === paneId) {
-                        const frame = terminalFrame(
-                            encodeKitty(prepared, registration, clear),
-                            registration,
-                            true,
-                            undefined,
-                            'full',
-                        );
-                        registration.write(frame);
-                        this.recordFrame(startedAt, frame.length, prepared.width * prepared.height);
-                    }
+                if (prepared.sourceWidth !== undefined) {
+                    this.retainDirectRefinement(paneId, {
+                        rgba,
+                        control: file.control,
+                        imageId: prepared.imageId,
+                        transferId: file.transferId,
+                        sourceImageId: file.imageId,
+                    });
+                } else {
+                    this.dropDirectRefinement(paneId);
+                }
+                this.presentDirect(paneId, prepared, file.transferId, file.imageId, startedAt);
+                if (prepared.sourceWidth !== undefined && this.directRawByPane.has(paneId) && !this.gestureActive(paneId)) {
+                    this.armRefine(paneId, 'source');
                 }
             }
         } catch (error) {
@@ -1152,6 +1462,128 @@ export class HerdrGraphicsBridge {
             // client. write() is inert after shutdown.
             if (!acknowledged) this.write(clientGraphicsResult(file, true));
         }
+    }
+
+    private retainDirectRefinement(paneId: string, candidate: DirectRawFrame): void {
+        this.dropDirectRefinement(paneId);
+        if (candidate.rgba.length > MAX_REFINEMENT_BYTES
+            || this.directRefinementBytes + candidate.rgba.length > MAX_REFINEMENT_BYTES) return;
+        this.directRawByPane.set(paneId, candidate);
+        this.directRefinementBytes += candidate.rgba.length;
+    }
+
+    private dropDirectRefinement(paneId: string): void {
+        const candidate = this.directRawByPane.get(paneId);
+        if (candidate === undefined) return;
+        this.directRawByPane.delete(paneId);
+        this.directRefinementBytes = Math.max(0, this.directRefinementBytes - candidate.rgba.length);
+    }
+
+    private async refineDirect(work: DirectRefineWork): Promise<void> {
+        const { refinePane: paneId } = work;
+        graphicsTrace?.add('refine.dequeue', { pane: paneId, path: 'direct', reason: work.reason });
+        if (this.closed || !ADAPTIVE_DENSITY || this.gestureActive(paneId)) {
+            graphicsTrace?.add('refine.reject', {
+                pane: paneId, path: 'direct', why: this.closed ? 'closed' : this.gestureActive(paneId) ? 'gesture' : 'disabled', rearmed: false,
+            });
+            return;
+        }
+        if (!work.fenceRetry && work.sourceQueueVersion !== this.sourceQueueVersion) {
+            // Another pane's traffic moved a shared counter. The rearm is fence
+            // exempt, or a streaming neighbour can starve this pane forever.
+            const rearmed = this.rearmAfterFenceLoss(paneId, work.sourceRevision);
+            graphicsTrace?.add('refine.reject', {
+                pane: paneId, path: 'direct', why: 'fence', rearmed,
+                expected: work.sourceQueueVersion, actual: this.sourceQueueVersion,
+                ...this.fenceProvenance(paneId),
+            });
+            return;
+        }
+        if (!this.sourceQuiet(paneId)) {
+            const last = this.lastSourceAt.get(paneId) ?? Date.now();
+            graphicsTrace?.add('refine.reject', { pane: paneId, path: 'direct', why: 'not-quiet', rearmed: true, quietForMs: Date.now() - last });
+            this.armRefine(paneId, work.reason);
+            return;
+        }
+        const raw = this.directRawByPane.get(paneId);
+        const current = this.latestByPane.get(paneId);
+        if (raw === undefined || current?.imageId !== raw.imageId || current.transferId !== raw.transferId
+            || current.sourceWidth === undefined) {
+            graphicsTrace?.add('refine.reject', { pane: paneId, path: 'direct', why: 'no-candidate', rearmed: false });
+            return;
+        }
+        const prepareStartedAt = Date.now();
+        let prepared: PreparedImage;
+        try {
+            prepared = await prepareKitty(raw.rgba, raw.control, raw.imageId, raw.transferId, false);
+        } catch (error) {
+            this.logError(error);
+            graphicsTrace?.add('refine.reject', { pane: paneId, path: 'direct', why: 'prepare-failed', rearmed: false });
+            return;
+        }
+        graphicsTrace?.add('refine.prepare', {
+            pane: paneId, path: 'direct', durationMs: Date.now() - prepareStartedAt,
+            width: prepared.width, height: prepared.height,
+        });
+        if (this.closed || !this.directRefinementCurrent(raw, paneId, work)) {
+            const rearmed = !this.closed && this.rearmAfterFenceLoss(paneId, work.sourceRevision);
+            graphicsTrace?.add('refine.reject', {
+                pane: paneId, path: 'direct', why: this.closed ? 'closed' : 'stale-after-prepare', rearmed,
+                ...this.fenceProvenance(paneId),
+            });
+            return;
+        }
+        this.dropDirectRefinement(paneId);
+        this.presentDirect(paneId, prepared, raw.transferId, raw.sourceImageId, work.at);
+    }
+
+    private directRefinementCurrent(raw: DirectRawFrame, paneId: string, work: DirectRefineWork): boolean {
+        const current = this.directRawByPane.get(paneId);
+        return current === raw
+            && (this.sourceRevision.get(paneId) ?? 0) === work.sourceRevision
+            && (work.fenceRetry || this.sourceQueueVersion === work.sourceQueueVersion)
+            && !this.gestureActive(paneId);
+    }
+
+    private presentDirect(
+        paneId: string,
+        prepared: PreparedImage,
+        transferId: bigint,
+        sourceImageId: number,
+        startedAt: number,
+    ): void {
+        const previous = this.latestByPane.get(paneId);
+        // Replace exactly the image the phone is showing. The frame is parsed
+        // atomically, so the delete and the new placement land together; a
+        // clear-all would also erase unrelated placements the bridge still owes
+        // to late subscribers.
+        const clear = previous === undefined || previous.imageId === prepared.imageId
+            ? 'none' as const
+            : { imageId: previous.imageId };
+        if (previous !== undefined) this.imageOwners.delete(previous.transferId);
+        // A direct successor owns the pane's full surface. Any inline placements
+        // carrying the predecessor leave the live set before this image arrives.
+        const replacedKeys = previous === undefined ? [] : this.retireInlinePlacements(paneId, previous.imageId);
+        this.latestByPane.set(paneId, prepared);
+        for (const key of replacedKeys) this.settleDeferredAfterFrame(paneId, key, prepared);
+        this.imageOwners.set(transferId, { paneId, imageId: prepared.imageId, sourceImageId });
+        for (const registration of this.registrations.values()) {
+            if (registration.paneId !== paneId) continue;
+            const frame = terminalFrame(
+                encodeKitty(prepared, registration, clear),
+                registration,
+                true,
+                undefined,
+                'full',
+            );
+            graphicsTrace?.frame('frame.handoff', frame, {
+                pane: paneId, path: 'direct', sharp: prepared.sourceWidth === undefined,
+                width: prepared.width, height: prepared.height, sinceRoutedMs: Date.now() - startedAt,
+            });
+            registration.write(frame);
+            this.recordFrame(startedAt, frame.length, prepared.width * prepared.height);
+        }
+        this.drainNotch(paneId);
     }
 
     private admit(file: GraphicsFile): AdmittedTransfer {
@@ -1180,7 +1612,18 @@ export class HerdrGraphicsBridge {
 
     /** The pane's foreground process is gone; nothing on the phone survives. */
     private emitPaneClear(paneId: string): void {
+        this.clearScrollState(paneId);
         this.latestByPane.delete(paneId);
+        this.dropDirectRefinement(paneId);
+        this.livePlacements.delete(paneId);
+        for (const key of [...this.inlinePlaced.keys()]) {
+            if (key.startsWith(`${paneId}:`)) this.inlinePlaced.delete(key);
+        }
+        this.cancelRefine(paneId);
+        this.bumpSourceQueueVersion(paneId, 'clear');
+        this.lastSourceAt.delete(paneId);
+        this.lastInputAt.delete(paneId);
+        this.sourceRevision.delete(paneId);
         this.deferredDeletes.delete(paneId);
         for (const [transferId, owner] of this.imageOwners) {
             if (owner.paneId === paneId) this.imageOwners.delete(transferId);
@@ -1551,9 +1994,18 @@ export function decodeServerMessage(payload: Buffer): ServerMessage {
     }
 }
 
+/**
+ * Clear the pane's images and tell the client direct graphics stopped. Used both
+ * when a live bridge shuts down and when one never opened at all.
+ */
+export function graphicsStoppedFrame(cols: number, rows: number, reason?: TerminalGraphicsReason): string {
+    const clear = Buffer.from('\u001b7\u001b_Ga=d,d=A,q=2;\u001b\\\u001b8');
+    return terminalFrame(clear, { cols, rows }, false, reason);
+}
+
 function terminalFrame(
     bytes: Buffer,
-    target: HerdrGraphicsRegistration,
+    target: Pick<HerdrGraphicsRegistration, 'cols' | 'rows'>,
     graphics?: boolean,
     graphicsReason?: TerminalGraphicsReason,
     graphicsSurface?: GraphicsSurface,
@@ -1584,7 +2036,7 @@ async function readGraphicsFile(file: GraphicsFile): Promise<Buffer> {
     }
 }
 
-async function prepareKitty(rgba: Buffer, control: string, imageId: number, transferId: bigint): Promise<PreparedImage> {
+async function prepareKitty(rgba: Buffer, control: string, imageId: number, transferId: bigint, halve: boolean): Promise<PreparedImage> {
     const width = Number(/(?:^|,)s=(\d+)/.exec(control)?.[1]);
     const height = Number(/(?:^|,)v=(\d+)/.exec(control)?.[1]);
     const sourceImageId = Number(/(?:^|,)i=(\d+)/.exec(control)?.[1]);
@@ -1592,14 +2044,11 @@ async function prepareKitty(rgba: Buffer, control: string, imageId: number, tran
         || width * height * 4 !== rgba.length) {
         throw new Error('invalid Herdr graphics control');
     }
-    // The producer renders at the desktop's device pixel ratio -- 411 CSS px
-    // arrive as 2055 -- which no phone panel resolves. Halving before the
-    // deflate is the whole saving: a quarter of the bytes to compress, to
-    // encrypt, and to hold. Kitty c/r are cell counts and graphicsPlacement
-    // refits by aspect ratio, so the placement is unchanged; only the density
-    // is. Small images are left exact: an icon beside a plot has no density to
-    // spare, and halving it would only blur it.
-    const scaled = HALVE_LARGE_FRAMES && rgba.length > COMPRESS_HARDER_BYTES
+    // A moving producer frame is coarse; after input and source quiet the same
+    // pixels are prepared again at their own density. Kitty c/r are cell counts
+    // and graphicsPlacement refits by aspect ratio, so only density changes.
+    // Small images are left exact: an icon beside a plot has no density to spare.
+    const scaled = halve && rgba.length > COMPRESS_HARDER_BYTES
         ? halveRgba(rgba, width, height) : undefined;
     const pixels = scaled?.rgba ?? rgba;
     // Every byte of this frame is decrypted in JavaScript on the phone, so a

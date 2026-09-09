@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Platform, Text, View, type ListRenderItemInfo } from 'react-native';
+import { Platform, Text, View, type ListRenderItemInfo, type RefreshControlProps } from 'react-native';
 import Animated, { useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { Gesture, GestureDetector, type PanGestureHandlerEventPayload, type GestureUpdateEvent } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -103,6 +103,14 @@ export function CodeCore(props: {
     lineNumbers?: boolean;
     selectable?: boolean;
     header?: boolean;
+    /**
+     * With `header`, take the height the parent gives and scroll the file in
+     * the virtualized list instead of mounting every row eagerly. For a screen
+     * that is one file; an excerpt inside another scroller must not set it.
+     */
+    fill?: boolean;
+    /** Pull-to-refresh for `fill`, where this list is the only scroller left. */
+    refreshControl?: React.ReactElement<RefreshControlProps>;
     /** Soft-wrap long lines. Off pans the whole document sideways instead. */
     wrap?: boolean;
     /** 1-based line to bring into view once the list is laid out. */
@@ -117,8 +125,9 @@ export function CodeCore(props: {
     const maxChars = props.maxChars ?? HOST_CODE_MAX_CHARS;
     const selectable = props.selectable !== false;
     const lineNumbers = props.lineNumbers !== false;
-    // A code card inside a plugin screen is a fixed-height excerpt, so it pans;
-    // a whole-file view is read top to bottom, so it wraps.
+    // A code card inside a plugin screen pans sideways; a whole-file view is
+    // read top to bottom, so it wraps. `header` picks the chrome, not the
+    // reading behaviour, so a filled screen keeps the card's panning.
     const wrap = props.wrap ?? props.header !== true;
     const bounded = React.useMemo(() => boundText(props.code, maxLines, maxChars), [maxChars, maxLines, props.code]);
     const language = syntaxLanguage(props.language, props.fileName);
@@ -237,13 +246,71 @@ export function CodeCore(props: {
         </Text>
     ) : null;
 
+    const padding = props.contentPadding ?? { horizontal: 0, top: 0, bottom: 0 };
+    const list = (
+        <Animated.FlatList
+            ref={listRef}
+            data={plain}
+            extraData={layouts}
+            keyExtractor={(_: unknown, index: number) => String(index)}
+            renderItem={({ index }: ListRenderItemInfo<unknown>) => renderRow(index)}
+            getItemLayout={(_: unknown, index: number) => ({
+                length: (layouts[index]?.starts.length ?? 1) * lineHeight,
+                offset: offsets[index] ?? 0,
+                index,
+            })}
+            // A whole file owns the screen, so its list keeps a narrow but
+            // ordinary overscan: about a screenful mounted at first and three
+            // viewports retained. Seven viewports of a 222-line file is most of
+            // the file mounted at once. Every line stays reachable either way --
+            // this is the render window, not a content cap.
+            initialNumToRender={props.fill === true ? 20 : 40}
+            maxToRenderPerBatch={props.fill === true ? 8 : 24}
+            windowSize={props.fill === true ? 3 : 7}
+            // Inside the pan mode's horizontal scroller Android clips against
+            // the wrong window and blanks every row, so only the wrapped list
+            // takes the optimisation.
+            removeClippedSubviews={Platform.OS === 'android' && wrap}
+            showsVerticalScrollIndicator
+            {...(props.refreshControl === undefined ? {} : { refreshControl: props.refreshControl })}
+            ListFooterComponent={footer}
+            contentContainerStyle={{ paddingTop: padding.top, paddingBottom: padding.bottom, paddingHorizontal: padding.horizontal }}
+            style={{ flex: 1, backgroundColor: theme.colors.surface }}
+        />
+    );
+
+    const pathSegments = (props.fileName ?? 'Source').split('/').filter(Boolean).map((label, index, segments) => ({
+        label,
+        ...(index === segments.length - 1 ? { icon: fileIcon(props.fileName ?? label).name } : {}),
+    }));
+
+    // One screen, one file, one scroller: the list is the only thing that
+    // scrolls, so the rows outside its window are never mounted. The excerpt
+    // card below keeps its eager column, which is bounded by the caller.
+    if (props.header === true && props.fill === true) {
+        return (
+            <View
+                onLayout={(event) => setMeasuredWidth(event.nativeEvent.layout.width - 24)}
+                style={{ flex: 1, borderRadius: ui.radius.card, overflow: 'hidden', backgroundColor: theme.colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.diff.outline }}
+            >
+                <PathBreadcrumb segments={pathSegments} fullPath={props.fileName ?? 'Source'} inline
+                    trailing={<Text style={{ color: theme.colors.textSecondary, fontSize: 10.5, ...Typography.mono() }}>{language ?? 'plain text'}</Text>} />
+                {wrap ? <View style={{ flex: 1 }}>{list}</View> : (
+                    <GestureDetector gesture={horizontalPan}>
+                        <View style={{ flex: 1, overflow: 'hidden' }}>
+                            {list}
+                            <EdgeFades scrollX={scrollX} overflow={overflow} left={gutterWidth + GAP} background={theme.colors.surface} />
+                        </View>
+                    </GestureDetector>
+                )}
+                {probe}
+            </View>
+        );
+    }
+
     // The plugin card is a bounded excerpt inside someone else's scroller, so
     // it stays a plain column and pans; only the whole-file view virtualizes.
     if (props.header === true) {
-        const pathSegments = (props.fileName ?? 'Source').split('/').filter(Boolean).map((label, index, segments) => ({
-            label,
-            ...(index === segments.length - 1 ? { icon: fileIcon(props.fileName ?? label).name } : {}),
-        }));
         return (
             <View
                 onLayout={(event) => setMeasuredWidth(event.nativeEvent.layout.width - 24)}
@@ -270,33 +337,6 @@ export function CodeCore(props: {
             </View>
         );
     }
-
-    const padding = props.contentPadding ?? { horizontal: 0, top: 0, bottom: 0 };
-    const list = (
-        <Animated.FlatList
-            ref={listRef}
-            data={plain}
-            extraData={layouts}
-            keyExtractor={(_: unknown, index: number) => String(index)}
-            renderItem={({ index }: ListRenderItemInfo<unknown>) => renderRow(index)}
-            getItemLayout={(_: unknown, index: number) => ({
-                length: (layouts[index]?.starts.length ?? 1) * lineHeight,
-                offset: offsets[index] ?? 0,
-                index,
-            })}
-            initialNumToRender={40}
-            maxToRenderPerBatch={24}
-            windowSize={7}
-            // Inside the pan mode's horizontal scroller Android clips against
-            // the wrong window and blanks every row, so only the wrapped list
-            // takes the optimisation.
-            removeClippedSubviews={Platform.OS === 'android' && wrap}
-            showsVerticalScrollIndicator
-            ListFooterComponent={footer}
-            contentContainerStyle={{ paddingTop: padding.top, paddingBottom: padding.bottom, paddingHorizontal: padding.horizontal }}
-            style={{ flex: 1, backgroundColor: theme.colors.surface }}
-        />
-    );
 
     // Same card the diff sits in, so file and diff share one white surface and
     // the palette gets its white-background contrast ratios.

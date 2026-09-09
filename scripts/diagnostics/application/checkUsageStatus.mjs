@@ -1,10 +1,26 @@
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 let DatabaseSync;
 try { ({ DatabaseSync } = await import('node:sqlite')); } catch {};
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve, join } from 'node:path';
+import { dirname, resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+
+/** One recorded assistant response, in the Pi transcript format OMP and Pi both write. */
+function record(id, at, model, counts, cost) {
+    const usage = {
+        input: counts.input ?? 0, output: counts.output ?? 0, cacheRead: counts.cacheRead ?? 0, cacheWrite: counts.cacheWrite ?? 0,
+        totalTokens: (counts.input ?? 0) + (counts.output ?? 0) + (counts.cacheRead ?? 0) + (counts.cacheWrite ?? 0),
+        ...(cost === undefined ? {} : { cost: { total: cost } }),
+    };
+    return JSON.stringify({ id, parentId: null, type: 'message', timestamp: at, message: { role: 'assistant', model, timestamp: at, usage } });
+}
+
+function writeTranscript(path, lines) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${lines.join('\n')}\n`);
+}
 
 function seedDatabase(path, schema, insert, params) {
     if (DatabaseSync) {
@@ -16,6 +32,25 @@ function seedDatabase(path, schema, insert, params) {
         input: JSON.stringify([path, schema, insert, params]), encoding: 'utf8', timeout: 2_000,
     });
     assert.equal(seeded.status, 0, 'SQLite fixtures require Node 22.13+ or Python 3');
+}
+
+// The same platform map the plugin ships with: pinning one target would test
+// a binary the release never runs anywhere else.
+const ccusageTarget = {
+    'darwin-arm64': '@ccusage/ccusage-darwin-arm64', 'darwin-x64': '@ccusage/ccusage-darwin-x64',
+    'linux-arm64': '@ccusage/ccusage-linux-arm64', 'linux-x64': '@ccusage/ccusage-linux-x64',
+}[`${process.platform}-${process.arch}`];
+assert.ok(ccusageTarget, `Usage has no ccusage backend for ${process.platform}-${process.arch}`);
+const ccusageBinary = createRequire(import.meta.url).resolve(`${ccusageTarget}/bin/ccusage`);
+
+/** One Codex rollout, in the log format ccusage reads from CODEX_HOME. */
+function codexRollout(path, at, model, counts) {
+    const usage = { input_tokens: counts.input, cached_input_tokens: counts.cached, output_tokens: counts.output, reasoning_output_tokens: counts.reasoning, total_tokens: counts.input + counts.output };
+    writeTranscript(path, [
+        JSON.stringify({ timestamp: at, type: 'session_meta', payload: { id: 'fixture', timestamp: at, cwd: '/tmp', originator: 'muxr-check', cli_version: '1.0.0', instructions: null } }),
+        JSON.stringify({ timestamp: at, type: 'turn_context', payload: { model, cwd: '/tmp' } }),
+        JSON.stringify({ timestamp: at, type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: usage, last_token_usage: usage, model_context_window: 272_000 } } }),
+    ]);
 }
 
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-usage-'));
@@ -80,10 +115,9 @@ const run = (input, environment = {}) => spawnSync(process.execPath, ['plugins/s
 });
 
 try {
-    mkdirSync(join(scratch, '.omp'), { recursive: true });
-    seedDatabase(join(scratch, '.omp/stats.db'),
-        'CREATE TABLE messages (timestamp INTEGER, model TEXT, input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER, cache_write_tokens INTEGER, total_tokens INTEGER, cost_total REAL)',
-        'INSERT INTO messages VALUES (?, ?, 100, 20, 30, 0, 150, 0.01)', [Date.parse('2026-09-05T11:00:00Z'), 'fixture-omp']);
+    writeTranscript(join(scratch, '.omp/agent/sessions/proj/session.jsonl'), [
+        record('omp-1', '2026-09-05T11:00:00.000Z', 'fixture-omp', { input: 100, output: 20, cacheRead: 30 }, 0.01),
+    ]);
     mkdirSync(join(scratch, '.local/share/opencode'), { recursive: true });
     seedDatabase(join(scratch, '.local/share/opencode/opencode.db'),
         'CREATE TABLE message (time_created INTEGER, data TEXT)', 'INSERT INTO message VALUES (?, ?)',
@@ -100,7 +134,13 @@ try {
     assert.equal(result.status, 0, result.stderr);
     const output = JSON.parse(result.stdout);
     const activity = Object.fromEntries(output.items.filter((item) => item.id.startsWith('activity-')).map((item) => [item.title, item.metadata[0]?.value]));
-    assert.deepEqual(activity, { 'Anthropic Claude': '1.3M tokens', 'Kimi Code': '2.5K tokens', Pi: '800 tokens', OpenCode: '300 tokens', OMP: '150 tokens' });
+    // Pi is accounted from its own transcripts: with none on disk the measured
+    // answer is nothing, and ccusage's own Pi row never stands in for it.
+    assert.deepEqual(activity, { 'Anthropic Claude': '1.3M tokens', 'Kimi Code': '2.5K tokens', OpenCode: '300 tokens', OMP: '150 tokens' });
+    const emptyPi = JSON.parse(run({ provider: 'pi' }).stdout);
+    assert.equal(emptyPi.todayTokens, '0');
+    assert.equal(emptyPi.weekTokens, '0');
+    assert.match(emptyPi.items.find((item) => item.id === 'available-pi')?.subtitle ?? '', /No measured activity today/);
     assert.ok(output.items.some((item) => item.id === 'limit-codex-0' && item.metadata[0]?.value === '75% left' && item.group === 'Rate limits'));
     assert.ok(output.items.some((item) => item.id === 'limit-codex-1' && item.metadata[0]?.value === '10% left'));
     assert.equal(output.codexRemaining, 10);
@@ -116,7 +156,7 @@ try {
 
     // Claude's tab carries today, its models, the week, and the real plan windows.
     assert.equal(output.todayTokens, '1.3M');
-    assert.equal(output.todayCost, '$123');
+    assert.equal(output.todayCost, '$123.45');
     assert.equal(output.modelSeries[0]?.label, 'claude-opus-5');
     // The window is a fixed 7 days ending today, so an idle day cannot slide an
     // older total into today's slot.
@@ -137,7 +177,7 @@ try {
     // reports its own figure.
     assert.ok(kimi.weekSeries.some((day) => day.valueLabel === '60.0K'), 'older day must keep its total');
     assert.equal(kimi.weekSeries.at(-1)?.valueLabel, '2.5K');
-    assert.equal(kimi.limitLabel, 'Plan limits unsupported for this provider');
+    assert.equal(kimi.limitLabel, 'Plan limits aren’t connected in muxr');
 
     // An installed but unmeasured provider still opens, empty and honest.
     const cursor = JSON.parse(run({ provider: 'cursor' }).stdout);
@@ -163,8 +203,14 @@ try {
     const cached = run({ provider: 'claude' });
     assert.equal(cached.status, 0, cached.stderr);
     assert.equal(JSON.parse(cached.stdout).todayTokens, '1.3M');
-    assert.equal(readFileSync(ccusageMarker, 'utf8'), 'xxx', 'per-tab cache did not prevent a duplicate ccusage scan');
-    assert.equal(readFileSync(codexMarker, 'utf8'), 'xxx', 'per-tab cache did not prevent a duplicate Codex app-server');
+    assert.equal(readFileSync(ccusageMarker, 'utf8'), 'xxxx', 'per-tab cache did not prevent a duplicate ccusage scan');
+    assert.equal(readFileSync(codexMarker, 'utf8'), 'xxxx', 'per-tab cache did not prevent a duplicate Codex app-server');
+
+    // Pi is accounted locally, so its idle row has to report a collection that
+    // failed rather than reading silence as a quiet day.
+    writeTranscript(join(scratch, 'broken-pi/sessions/proj/broken.jsonl'), ['{"message":{"role":"assistant","usage":{"input":5']);
+    const brokenPi = JSON.parse(run({ provider: 'claude' }, { PI_AGENT_DIR: join(scratch, 'broken-pi'), MUXR_PLUGIN_STATE_DIR: '' }).stdout);
+    assert.match(brokenPi.items.find((item) => item.id === 'available-pi')?.subtitle ?? '', /could not be measured/);
 
     const recent = JSON.parse(run({}).stdout);
     assert.equal(recent.provider, 'omp');
@@ -196,8 +242,7 @@ try {
     assert.doesNotMatch(readFileSync(join(scratch, 'usage-v2-opencode.json'), 'utf8'), /fixture-secret-key|different-fixture-key/);
     // A valid dotted profile is isolated from the default; an invalid profile
     // must never quietly read another account's database.
-    mkdirSync(join(scratch, '.omp/profiles/work.team'), { recursive: true });
-    copyFileSync(join(scratch, '.omp/stats.db'), join(scratch, '.omp/profiles/work.team/stats.db'));
+    cpSync(join(scratch, '.omp/agent'), join(scratch, '.omp/profiles/work.team/agent'), { recursive: true });
     const profileEnv = { OMP_PROFILE: 'work.team', MUXR_PLUGIN_STATE_DIR: '' };
     assert.equal(JSON.parse(run({ provider: 'omp' }, profileEnv).stdout).todayTokens, '150');
     const invalidProfile = JSON.parse(run({ provider: 'omp' }, { ...profileEnv, OMP_PROFILE: '../default' }).stdout);
@@ -206,11 +251,8 @@ try {
 
     // A failure in an unselected provider cannot be cached into a healthy tab.
     rmSync(join(scratch, 'usage-v2-kimi.json'));
-    copyFileSync(join(scratch, '.omp/stats.db'), join(scratch, 'omp-backup.db'));
-    writeFileSync(join(scratch, '.omp/stats.db'), 'broken');
-    assert.equal(JSON.parse(run({ provider: 'kimi' }).stdout).todayTokens, '2.5K');
+    assert.equal(JSON.parse(run({ provider: 'kimi' }, { OMP_PROFILE: '../default' }).stdout).todayTokens, '2.5K');
     assert.ok(!existsSync(join(scratch, 'usage-v2-kimi.json')));
-    copyFileSync(join(scratch, 'omp-backup.db'), join(scratch, '.omp/stats.db'));
     assert.equal(JSON.parse(run({ provider: 'kimi' }).stdout).providers[0]?.id, 'omp');
     rmSync(join(scratch, 'usage-v2-all.json'));
     const codexFixture = readFileSync(join(scratch, 'codex'), 'utf8');
@@ -277,9 +319,9 @@ try {
     const hostRoot = join(scratch, 'host-xdg');
     mkdirSync(join(hostRoot, 'omp/profiles/host.flow'), { recursive: true });
     mkdirSync(join(hostRoot, 'opencode'), { recursive: true });
-    seedDatabase(join(hostRoot, 'omp/profiles/host.flow/stats.db'),
-        'CREATE TABLE messages (timestamp INTEGER, model TEXT, input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER, cache_write_tokens INTEGER, total_tokens INTEGER, cost_total REAL)',
-        'INSERT INTO messages VALUES (?, ?, 100, 20, 30, 0, 150, 0.01)', [Date.now() - 60_000, 'host-omp']);
+    writeTranscript(join(hostRoot, 'omp/profiles/host.flow/agent/sessions/proj/session.jsonl'), [
+        record('host-1', new Date(Date.now() - 60_000).toISOString(), 'host-omp', { input: 100, output: 20, cacheRead: 30 }, 0.01),
+    ]);
     writeFileSync(join(hostRoot, 'opencode/auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: 'must-not-borrow-disk-key' } }));
     writeFileSync(join(scratch, 'codex'), codexFixture, { mode: 0o755 });
     mkdirSync(join(scratch, 'host-state'));
@@ -292,10 +334,9 @@ try {
         assert.equal(launched.provider, 'omp');
         assert.equal(launched.todayTokens, '150');
         assert.equal(launched.modelSeries[0]?.label, 'host-omp');
-        mkdirSync(join(hostRoot, 'omp/profiles/host.next'), { recursive: true });
-        seedDatabase(join(hostRoot, 'omp/profiles/host.next/stats.db'),
-            'CREATE TABLE messages (timestamp INTEGER, model TEXT, input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER, cache_write_tokens INTEGER, total_tokens INTEGER, cost_total REAL)',
-            'INSERT INTO messages VALUES (?, ?, 7, 0, 0, 0, 7, 0.01)', [Date.now() - 60_000, 'next-omp']);
+        writeTranscript(join(hostRoot, 'omp/profiles/host.next/agent/sessions/proj/session.jsonl'), [
+            record('next-1', new Date(Date.now() - 60_000).toISOString(), 'next-omp', { input: 7 }, 0.01),
+        ]);
         process.env.OMP_PROFILE = 'host.next';
         const switched = await call(resolve('plugins/status/usage.mjs'), 'omp');
         assert.equal(switched.todayTokens, '7', 'profile switch reused another profile cache');
@@ -311,7 +352,181 @@ try {
             if (value === undefined) delete process.env[key]; else process.env[key] = value;
         }
     }
-    process.stdout.write('PASS e2e: per-provider ccusage tabs + safe live limits\n');
+    // Release flow: real transcripts through the real collector, next to the
+    // real pinned ccusage reading the same Pi root. Everything below is one
+    // journey across tabs at one fixed instant, minutes after Dubai midnight.
+    const flow = mkdtempSync(join(tmpdir(), 'muxr-usage-flow-'));
+    try {
+        const captured = '2026-09-07T20:05:00.000Z'; // 2026-09-08 00:05 in Asia/Dubai
+        const piRoot = join(flow, 'pi-agent');
+        const original = [
+            record('pi-b', '2026-09-07T06:00:00.000Z', 'fixture-pi', { input: 400, output: 100 }, undefined),
+            record('pi-a', '2026-09-07T20:02:00.000Z', 'fixture-pi', { input: 900, output: 100 }, 0.5),
+        ];
+        writeTranscript(join(piRoot, 'sessions/proj/original.jsonl'), original);
+        // The fork file copies its parent's messages verbatim and adds its own.
+        writeTranscript(join(piRoot, 'sessions/proj/fork.jsonl'), [
+            ...original,
+            record('pi-c', '2026-09-07T20:04:00.000Z', 'fixture-pi-mini', { input: 200, output: 50 }, 0.25),
+        ]);
+        const ompRoot = join(flow, '.omp');
+        mkdirSync(ompRoot, { recursive: true });
+        // A stats database frozen days ago must not outrank the transcripts.
+        seedDatabase(join(ompRoot, 'stats.db'),
+            'CREATE TABLE messages (timestamp INTEGER, model TEXT, input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER, cache_write_tokens INTEGER, total_tokens INTEGER, cost_total REAL)',
+            'INSERT INTO messages VALUES (?, ?, 0, 0, 0, 0, 999999999, 4242.42)', [Date.parse('2026-09-02T08:00:00Z'), 'stale-omp']);
+        writeTranscript(join(ompRoot, 'agent/sessions/proj/session.jsonl'), [
+            record('omp-y', '2026-09-07T05:00:00.000Z', 'fixture-omp', { input: 1000, cacheRead: 3000 }, 0),
+        ]);
+        writeFileSync(join(flow, 'codex'), readFileSync(join(scratch, 'codex'), 'utf8'), { mode: 0o755 });
+        // ccusage refuses every agent when CLAUDE_CONFIG_DIR is not a config
+        // directory, which would hide the pinned Codex totals below.
+        mkdirSync(join(flow, '.claude/projects'), { recursive: true });
+        codexRollout(join(flow, '.codex/sessions/2026/09/07/rollout-2026-09-07T20-02-00-a.jsonl'), '2026-09-07T20:02:00.000Z', 'gpt-5-codex', { input: 1000, cached: 200, output: 300, reasoning: 100 });
+        codexRollout(join(flow, '.codex/sessions/2026/09/06/rollout-2026-09-06T10-00-00-b.jsonl'), '2026-09-06T10:00:00.000Z', 'gpt-5-codex', { input: 500, cached: 0, output: 200, reasoning: 0 });
+        const flowRun = (provider, environment = {}) => {
+            const result = spawnSync(process.execPath, ['plugins/status/usage.mjs'], {
+                cwd: process.cwd(), encoding: 'utf8', input: JSON.stringify({ provider }),
+                env: {
+                    ...process.env, HOME: flow, PATH: `${flow}:${process.env.PATH}`,
+                    XDG_DATA_HOME: join(flow, '.local/share'), PI_CONFIG_DIR: '.omp', PI_AGENT_DIR: piRoot,
+                    OMP_PROFILE: '', PI_PROFILE: '', OPENCODE_AUTH_CONTENT: '', CLAUDE_CONFIG_DIR: join(flow, '.claude'),
+                    CODEX_HOME: join(flow, '.codex'), TZ: 'Asia/Dubai', MUXR_USAGE_NOW: captured,
+                    MUXR_PLUGIN_STATE_DIR: join(flow, 'state'),
+                    ...environment,
+                },
+                timeout: 30_000,
+            });
+            assert.equal(result.status, 0, result.stderr);
+            return JSON.parse(result.stdout);
+        };
+        mkdirSync(join(flow, 'state'));
+
+        // Upstream ccusage counts the fork's copies again; that is the defect
+        // this collector exists to correct, so assert the raw report first.
+        const upstream = JSON.parse(spawnSync(ccusageBinary,
+            ['daily', '--by-agent', '--sections', 'daily', '--json', '--offline'],
+            { encoding: 'utf8', env: { ...process.env, HOME: flow, PI_AGENT_DIR: piRoot, TZ: 'Asia/Dubai' }, timeout: 30_000 }).stdout);
+        const upstreamToday = upstream.daily.find((day) => day.period === '2026-09-08')?.agents.find((row) => row.agent === 'pi');
+        assert.equal(upstreamToday?.totalTokens, 2250, 'fixture no longer reproduces the fork duplication');
+
+        const pi = flowRun('pi');
+        assert.equal(pi.provider, 'pi');
+        assert.equal(pi.capturedAt, captured);
+        // 1000 today plus 250 from the fork's own message, each counted once.
+        assert.equal(pi.todayTokens, '1.3K');
+        assert.equal(pi.weekSeries.at(-1)?.value, 1250);
+        assert.equal(pi.todayCost, '$0.75');
+        assert.deepEqual(pi.modelSeries.map((model) => [model.label, model.value]), [['fixture-pi', 1000], ['fixture-pi-mini', 250]]);
+        // Seven dated bars, today last, and the week is exactly their sum.
+        assert.deepEqual(pi.weekSeries.map((day) => day.detail), ['2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-06', '2026-09-07', '2026-09-08']);
+        assert.deepEqual(pi.windowPeriods, pi.weekSeries.map((day) => day.detail));
+        assert.equal(pi.weekSeries.reduce((sum, day) => sum + day.value, 0), 1750);
+        assert.equal(pi.weekTokens, '1.8K');
+        // Yesterday's record has no recorded cost: unknown, never free.
+        assert.equal(pi.weekSeries.at(-2)?.value, 500);
+        assert.equal(pi.weekCost, '—');
+        assert.equal(pi.limitLabel, 'Plan limits aren’t connected in muxr');
+
+        const omp = flowRun('omp');
+        assert.equal(omp.provider, 'omp');
+        // Measured, and measured empty: zero tokens cost zero, not unknown.
+        assert.equal(omp.todayTokens, '0');
+        assert.equal(omp.todayCost, '$0.00');
+        assert.deepEqual(omp.modelSeries, []);
+        assert.equal(omp.weekTokens, '4.0K');
+        assert.equal(omp.weekCost, '$0.00');
+        assert.equal(omp.weekSeries.at(-2)?.value, 4000);
+        assert.doesNotMatch(JSON.stringify(omp), /stale-omp|999999999|4242/, 'stale stats database outranked the transcripts');
+
+        // Real Codex logs through the real ccusage: pinned daily and week totals,
+        // not a shape check.
+        const codex = flowRun('codex');
+        assert.equal(codex.provider, 'codex');
+        assert.ok(codex.limitSeries.length > 0);
+        assert.equal(codex.todayTokens, '1.3K');
+        assert.equal(codex.weekSeries.at(-1)?.value, 1300);
+        assert.equal(codex.weekSeries[4]?.value, 700);
+        assert.equal(codex.weekTokens, '2.0K');
+        assert.equal(codex.todayCost, '$0.00');
+        assert.equal(codex.weekCost, '$0.01');
+        assert.equal(codex.modelSeries[0]?.label, 'gpt-5-codex');
+
+        // A configured agent directory is the OMP root when no profile is set.
+        const custom = join(flow, 'custom-omp');
+        writeTranscript(join(custom, 'sessions/proj/session.jsonl'), [
+            record('custom-1', '2026-09-07T20:03:00.000Z', 'custom-omp', { input: 55 }, 0.02),
+        ]);
+        const customRoot = flowRun('omp', { PI_CODING_AGENT_DIR: custom });
+        assert.equal(customRoot.todayTokens, '55');
+        assert.equal(customRoot.modelSeries[0]?.label, 'custom-omp');
+
+        // A usage record that cannot be parsed makes the total unavailable
+        // rather than quietly dropping what it was worth.
+        const malformed = join(flow, 'malformed-agent');
+        writeTranscript(join(malformed, 'sessions/proj/broken.jsonl'), [
+            record('good-1', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 10 }, 0.01),
+            '{"message":{"role":"assistant","usage":{"input":5',
+        ]);
+        const broken = flowRun('pi', { PI_AGENT_DIR: malformed });
+        assert.equal(broken.todayTokens, '—');
+        assert.match(broken.activityLabel, /could not be measured/);
+        // A transcript nested past the scan's depth bound is unread, not empty.
+        const deep = join(flow, 'deep-agent');
+        writeTranscript(join(deep, 'sessions/a/b/c/d/e/session.jsonl'), [
+            record('deep-1', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 10 }, 0.01),
+        ]);
+        assert.equal(flowRun('pi', { PI_AGENT_DIR: deep }).todayTokens, '—');
+
+        // A line past the 4 MB bound whose usage sits after the retained prefix:
+        // the head alone cannot say the line was worthless, so the total is not
+        // reported as if the line had been read.
+        const oversized = join(flow, 'oversized-agent');
+        writeTranscript(join(oversized, 'sessions/proj/wide.jsonl'), [
+            record('good-2', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 10 }, 0.01),
+            `{"id":"huge","pad":"${'p'.repeat(5 * 1024 * 1024)}","message":{"role":"assistant","model":"fixture-pi","timestamp":"2026-09-07T20:03:30.000Z","usage":{"input":999999}}}`,
+        ]);
+        const huge = flowRun('pi', { PI_AGENT_DIR: oversized });
+        assert.equal(huge.todayTokens, '—');
+        assert.match(huge.activityLabel, /could not be measured/);
+
+        // A root that is there but cannot be read is not an empty root. Only
+        // portable where the process is not root, which ignores the mode.
+        if (process.getuid?.() !== 0) {
+            const locked = join(flow, 'locked-agent');
+            mkdirSync(join(locked, 'sessions/proj'), { recursive: true });
+            writeTranscript(join(locked, 'sessions/proj/session.jsonl'), [
+                record('locked-1', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 10 }, 0.01),
+            ]);
+            chmodSync(join(locked, 'sessions/proj'), 0o000);
+            try {
+                const denied = flowRun('pi', { PI_AGENT_DIR: locked });
+                assert.equal(denied.todayTokens, '—');
+                assert.match(denied.activityLabel, /could not be measured/);
+            } finally { chmodSync(join(locked, 'sessions/proj'), 0o755); }
+        }
+
+        // Back to Pi: the same journey twice reports the same figures.
+        const again = flowRun('pi');
+        assert.equal(again.provider, 'pi');
+        assert.equal(again.todayTokens, '1.3K');
+        assert.equal(again.weekCost, '—');
+
+        // Authoritative collection that cannot complete says so; it never shows
+        // a truncated total, and never caches one.
+        const exhausted = join(flow, 'exhausted-agent');
+        writeTranscript(join(exhausted, 'sessions/proj/wide.jsonl'),
+            Array.from({ length: 1100 }, (_, index) => record(`wide-${index}`, '2026-09-07T20:03:00.000Z', `model-${index}`, { input: 10 }, 0.01)));
+        rmSync(join(flow, 'state', 'usage-v2-pi.json'), { force: true });
+        const unavailable = flowRun('pi', { PI_AGENT_DIR: exhausted });
+        assert.equal(unavailable.todayTokens, '—');
+        assert.equal(unavailable.todayCost, '—');
+        assert.match(unavailable.activityLabel, /could not be measured/);
+        assert.ok(!existsSync(join(flow, 'state', 'usage-v2-pi.json')), 'unavailable collection was cached');
+    } finally {
+        rmSync(flow, { recursive: true, force: true });
+    }
+    process.stdout.write('PASS e2e: per-provider ccusage tabs + safe live limits + deduped local accounting\n');
 } finally {
     rmSync(scratch, { recursive: true, force: true });
 }

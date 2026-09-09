@@ -2,26 +2,24 @@ appId: com.trymuxr.app
 tags:
   - perf
 ---
-# Open the first file of the first agent so the document viewer can be
-# measured. Navigation only: the gate scripts the scroll and the swipes.
+# Open the release gate's document fixture so the reading surface can be
+# measured. Navigation only: the gate scripts the scroll and the swipes, and
+# asserts the fixture text is really on screen before it resets a counter.
 - tapOn:
     text: 'CANCEL|Not now|Deny|Later'
     optional: true
 - tapOn:
     text: 'CANCEL|Not now|Deny|Later'
     optional: true
+# The shared HeaderBackButton exposes `Back`; a plugin route labels its own
+# header control `Go back` (`plugins.goBack`). The run can start on either.
 - runFlow:
     when:
       visible:
-        text: 'Type a prompt.*'
+        text: 'Back|Go back'
     commands:
-      - back
-- runFlow:
-    when:
-      visible:
-        text: 'Go back'
-    commands:
-      - back
+      - tapOn:
+          text: 'Back|Go back'
 - extendedWaitUntil:
     visible:
       text: 'connected'
@@ -32,23 +30,42 @@ tags:
     timeout: 40000
 # `Files` is a plugin navigation item, and those render on the herd screen
 # (`DeclarativeNavigationItems` in herd/presentation/MainView.tsx) -- not
-# inside a session. Opening a terminal first navigated away from the only
-# screen that carries the tap, which is why this flow stalled on the herd with
-# the app idle at 1.6% of the JS thread.
+# inside a session. It exists only because the gate now starts the fake herd
+# with the real `code` plugin.
 - tapOn:
     text: 'Files'
+# Under the loaded herd Android can acknowledge the semantic text tap without
+# delivering it to the segmented control. Fall back to the same control's
+# relative position, then require the repository screen so the workspace card
+# cannot masquerade as the repository row.
+- runFlow:
+    when:
+      notVisible:
+        text: 'Repositories'
+    commands:
+      - tapOn:
+          point: 59%, 13%
 - extendedWaitUntil:
     visible:
-      text: 'README.md|All Files|No files.*|Changes'
+      text: 'Repositories'
     timeout: 20000
-# A repo list comes first on a machine with more than one worktree; the file
-# list is one tap in either way.
-- tapOn:
-    text: 'muxr|pockit|README.md'
-    optional: true
+# `Files` always opens the repository list (`files.browse`), even when the host
+# has exactly one repository, so the repository row comes before any filename.
 - extendedWaitUntil:
     visible:
-      text: 'README.md|AGENTS.md|package.json|No files.*'
+      text: 'project'
     timeout: 20000
 - tapOn:
-    text: 'README.md|AGENTS.md|package.json'
+    text: 'project'
+- extendedWaitUntil:
+    visible:
+      text: 'perf-document.md'
+    timeout: 20000
+- tapOn:
+    text: 'perf-document.md'
+# The fixture's own numbered lines: proof the reading surface mounted with the
+# document on it, not that some file list is still open.
+- extendedWaitUntil:
+    visible:
+      text: 'PERF_LINE_.*'
+    timeout: 20000

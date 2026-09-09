@@ -101,6 +101,9 @@ jobs:
           const selected = distribution(version, channel);
           appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\napp_version=${selected.appVersion}\nchannel=${channel}\nbuild=true\n`);
           JS
+      - name: Require an authored changelog entry for the selected version
+        if: steps.select.outputs.build == 'true'
+        run: node scripts/release/presentation/changelog.mjs validate --version "${{ steps.select.outputs.version }}" --channel "${{ steps.select.outputs.channel }}" --commit "$GITHUB_SHA"
       - id: number
         if: steps.select.outputs.build == 'true'
         name: Reserve a never-reused Android build number
@@ -146,8 +149,13 @@ jobs:
           HOME="$RUNNER_TEMP/candidate-home" node "$cli" plugin check "$install_root/node_modules/@trymuxr/cli/plugins/voice"
           node --input-type=module <<'JS'
           import { readdirSync } from 'node:fs';
+          import { prepareChangelog } from './scripts/release/application/prepareChangelog.mjs';
           import { sealRelease } from './scripts/release/application/sealRelease.mjs';
           const directory = `${process.env.RUNNER_TEMP}/npm-candidate`;
+          const report = { version: process.env.MUXR_RELEASE_VERSION, channel: process.env.MUXR_RELEASE_CHANNEL,
+            commit: process.env.GITHUB_SHA, directory };
+          prepareChangelog({ mode: 'generate', ...report });
+          prepareChangelog({ mode: 'check', ...report });
           await sealRelease({ directory, version: process.env.MUXR_RELEASE_VERSION, channel: process.env.MUXR_RELEASE_CHANNEL,
             files: readdirSync(directory), runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT });
           JS

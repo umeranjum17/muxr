@@ -1,50 +1,155 @@
 {
-  "entries": [
-    {
-      "title": "Computers that work together",
-      "summary": "Authorize paired computers to read, watch, and prompt one another safely.",
-      "markdown": "- Select paired computers in Settings and see saved computers immediately while live collaboration checks finish.\n- Let agents list sessions, read output and status, watch completion, and send prompts across allowed computers without granting shell or destructive access.\n- Keep native realtime voice pinned to one machine while it works with allowed agents elsewhere.\n- Load the compact public agent guide with `muxr --skill`, focused topics on demand, and bounded host history with `muxr diagnostics`; setup and updates never rewrite agent instructions."
-    },
-    {
-      "title": "Pairing that stays paired",
-      "summary": "QRs scan reliably, saved machines switch cleanly, and browser access survives refresh.",
-      "markdown": "- Scan a four-margin terminal QR directly from Settings → Pair another machine, with manual entry beside it.\n- See the active computer on Home and switch saved machines there; stale sessions and forgotten computers disappear immediately.\n- Show the host's real platform and only launchable agents in the Home composer.\n- Pair browsers from one short two-minute HTTPS link with host-enforced control or explicit view-only access.\n- Wait for browser storage to commit before setup reports success, recover interrupted grant indexes, and show an explicit recovery screen instead of silently appearing unpaired."
-    },
-    {
-      "title": "One tap, one destination",
-      "summary": "Pairing, Usage, machine details, and Preview lose their duplicate steps.",
-      "markdown": "- Keep Scan QR and manual pairing separate; the manual screen now contains only the string field and Connect.\n- Open the provider-tab Usage screen from one plain pill beside Machine.\n- See the active transport, relay URL, and muxr CLI version in machine details.\n- Preview only detected HTML frontends by page title and carry the paired relay through the tunnel."
-    },
-    {
-      "title": "Pair without the payload",
-      "summary": "A short relay-qualified code replaces the giant native pairing string.",
-      "markdown": "- Enter one short two-minute pairing string or scan the same value as a QR.\n- Pair through LAN, Tailscale, Cloudflare, or a custom relay without a central discovery service.\n- Pairing lookups are encrypted, single-use, and deleted after resolution; completed handoffs are deleted after grant delivery."
-    },
-    {
-      "title": "Polish everywhere",
-      "summary": "A design-review pass plus simpler, fewer bundled plugins.",
-      "markdown": "- Proper green/red diffs, theme-correct voice overlay, and press feedback across terminal, sheets, and plugin screens.\n- Copy a link from recent terminal output in one tap from the Actions menu.\n- Fewer, simpler bundled plugins: Code (files, changes, and history) and Status (usage and vitals).\n- The read-only browser now shows audited read-only plugin screens like Usage and Files; bundled plugin permissions refresh once after this safety upgrade.\n- The setup menu guides instead of dead-ending, pairing recovers from expired sessions, and the app names OMP correctly."
-    },
-    {
-      "title": "Visual usage and steadier voice",
-      "summary": "Charts and progress in plugin screens, plus screen-off voice fixes.",
-      "markdown": "- See today\u2019s per-agent token activity as charts and Codex limits as progress rings on a native Usage screen.\n- Build richer plugin screens with data-bound progress, responsive columns, and bounded bar/ring charts \u2014 the same public UI vocabulary every extension uses.\n- Keep voice alive with the screen off: wake and Wi-Fi locks during calls, speaking counts as activity, and reconnects recover over long sessions.\n- Plugin failures show one clean message instead of technical detail; Git history shows a friendly empty state when a session has no folder."
-    },
-    {
-      "title": "Readable code and honest usage",
-      "summary": "Syntax-highlighted source and offline multi-agent activity.",
-      "markdown": "- Read source with line numbers and consistent syntax highlighting across Files, Markdown, plugin screens, and diffs.\n- Use the same bounded code and diff views from third-party plugins without HTML or native modules.\n- See today\u2019s local coding-agent activity through a pinned offline ccusage backend, alongside current Codex limits.\n- Keep costs, prompts, model names, projects, and session details out of the Usage card."
-    },
-    {
-      "title": "Shared relays and safer setup",
-      "summary": "Guided onboarding, machine-scoped VPS relays, and runtime agent discovery.",
-      "markdown": "- Run `muxr` for a reviewed, Cancel-first setup and maintenance menu.\n- Host one encrypted relay for several machines without copying relay-owner authority.\n- Pair a read-only browser from a clickable HTTPS link with clear eight-hour expiry and recovery.\n- Choose agents from the connected Herdr host and view safe coding-CLI usage status."
-    },
-    {
-      "title": "muxr",
-      "summary": "A focused mobile control surface for coding agents running through Herdr.",
-      "markdown": "- Watch sessions, terminals, changes, and attention state from your phone.\n- Send keys, inspect attachments, and start agents in a selected workspace.\n- Use provider-neutral realtime voice or fully local Whisper dictation."
-    }
-  ],
-  "latestTitle": "Computers that work together"
+    "releases": [
+        {
+            "appVersion": "0.1.27",
+            "title": "Steadier terminals, honest usage",
+            "summary": "Terminal graphics settle sharp instead of flickering, a dropped host reconnects instead of ending your session, and Usage reports only what the transcripts actually show.",
+            "features": [
+                {
+                    "title": "Keyboard on tap is optional",
+                    "detail": "Tapping the terminal no longer forces the keyboard open when you only wanted to read. The shortcut is a setting, and it stays hidden on web where it has no meaning."
+                },
+                {
+                    "title": "Visual release notes",
+                    "detail": "Each app version now has one authored release entry that this screen renders directly, and that release preparation turns into an offline HTML report and a Markdown release body."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Terminal images settle sharp",
+                    "detail": "A pane keeps one resident full image, refines a frame once output goes quiet, re-arms fences it lost, and bounds retained bytes, so scrolling through graphics stops flickering between blurred and sharp frames."
+                },
+                {
+                    "title": "A host outage no longer ends the terminal",
+                    "detail": "Losing the Herdr connection now recovers the terminal channel instead of closing the session behind it."
+                },
+                {
+                    "title": "Changes and Tools read correctly",
+                    "detail": "An untracked file counts its lines as additions in Changes, and the plugin header's own back control returns where it says it does."
+                },
+                {
+                    "title": "Usage counts what the transcripts hold",
+                    "detail": "Local transcript accounting is authoritative, deduplicated across OMP and Pi sources, and bounded; gaps are shown as gaps rather than dressed up as data."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Automated checks on this source",
+                    "status": "not-run",
+                    "detail": "No automated run is recorded for the source that carries these changes. The earlier local run was on a commit before this work landed, so it says nothing about what shipped here."
+                },
+                {
+                    "title": "Android emulator acceptance",
+                    "status": "not-run",
+                    "detail": "No emulator pass has been recorded for this version. Terminal graphics, keyboard behaviour and reconnect recovery are unverified on an emulator here.",
+                    "evidence": {
+                        "testedCommit": "76b57dd0",
+                        "environment": "not run",
+                        "checkedBy": "umer",
+                        "checkedAt": "2026-09-08"
+                    }
+                },
+                {
+                    "title": "Physical device acceptance",
+                    "status": "not-run",
+                    "detail": "No phone install or on-device pass has been recorded for this version.",
+                    "evidence": {
+                        "testedCommit": "76b57dd0",
+                        "environment": "not run",
+                        "checkedBy": "umer",
+                        "checkedAt": "2026-09-08"
+                    }
+                },
+                {
+                    "title": "iOS load behaviour",
+                    "status": "not-run",
+                    "detail": "No iOS simulator or device acceptance is recorded for this version, and no iOS report is retained with this source. Load behaviour on iOS is unverified here.",
+                    "evidence": {
+                        "testedCommit": "76b57dd0",
+                        "environment": "not run",
+                        "checkedBy": "umer",
+                        "checkedAt": "2026-09-08"
+                    }
+                }
+            ],
+            "knownLimits": [
+                "Final QA has not passed for this version: emulator and physical-device acceptance are not run.",
+                "The release-report and changelog repairs in this entry have not been run through the full suite, an emulator or a signed build; nothing here is claimed as passing QA.",
+                "Terminal graphics sharpness after settling is verified only by local reasoning and unit checks, not by measured frames on a device.",
+                "Historical perf records under docs/perf/ for 0.1.26 recorded failed runs and are not acceptance for this version.",
+                "A successful build is not device acceptance."
+            ]
+        },
+        {
+            "appVersion": "0.1.26",
+            "title": "Computers that work together",
+            "summary": "Authorize paired computers to read, watch, and prompt one another safely.",
+            "features": [
+                {
+                    "title": "Cross-computer agent access",
+                    "detail": "Agents list sessions, read output and status, watch completion, and send prompts across allowed computers without shell or destructive access."
+                },
+                {
+                    "title": "Saved computers in Settings",
+                    "detail": "Select paired computers in Settings and see saved computers immediately while live collaboration checks finish."
+                },
+                {
+                    "title": "Compact public agent guide",
+                    "detail": "Load the compact public agent guide with muxr --skill, pull focused topics on demand, and read bounded host history with muxr diagnostics; setup and updates never rewrite agent instructions."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Voice stays on one machine",
+                    "detail": "Native realtime voice remains pinned to the machine running it while it works with allowed agents elsewhere."
+                }
+            ],
+            "verification": [],
+            "knownLimits": [
+                "This entry was written after the fact from the shipped release notes; no verification record was retained for it."
+            ]
+        }
+    ],
+    "legacyEntries": [
+        {
+            "title": "Pairing that stays paired",
+            "summary": "QRs scan reliably, saved machines switch cleanly, and browser access survives refresh.",
+            "markdown": "- Scan a four-margin terminal QR directly from Settings → Pair another machine, with manual entry beside it.\n- See the active computer on Home and switch saved machines there; stale sessions and forgotten computers disappear immediately.\n- Show the host's real platform and only launchable agents in the Home composer.\n- Pair browsers from one short two-minute HTTPS link with host-enforced control or explicit view-only access.\n- Wait for browser storage to commit before setup reports success, recover interrupted grant indexes, and show an explicit recovery screen instead of silently appearing unpaired."
+        },
+        {
+            "title": "One tap, one destination",
+            "summary": "Pairing, Usage, machine details, and Preview lose their duplicate steps.",
+            "markdown": "- Keep Scan QR and manual pairing separate; the manual screen now contains only the string field and Connect.\n- Open the provider-tab Usage screen from one plain pill beside Machine.\n- See the active transport, relay URL, and muxr CLI version in machine details.\n- Preview only detected HTML frontends by page title and carry the paired relay through the tunnel."
+        },
+        {
+            "title": "Pair without the payload",
+            "summary": "A short relay-qualified code replaces the giant native pairing string.",
+            "markdown": "- Enter one short two-minute pairing string or scan the same value as a QR.\n- Pair through LAN, Tailscale, Cloudflare, or a custom relay without a central discovery service.\n- Pairing lookups are encrypted, single-use, and deleted after resolution; completed handoffs are deleted after grant delivery."
+        },
+        {
+            "title": "Polish everywhere",
+            "summary": "A design-review pass plus simpler, fewer bundled plugins.",
+            "markdown": "- Proper green/red diffs, theme-correct voice overlay, and press feedback across terminal, sheets, and plugin screens.\n- Copy a link from recent terminal output in one tap from the Actions menu.\n- Fewer, simpler bundled plugins: Code (files, changes, and history) and Status (usage and vitals).\n- The read-only browser now shows audited read-only plugin screens like Usage and Files; bundled plugin permissions refresh once after this safety upgrade.\n- The setup menu guides instead of dead-ending, pairing recovers from expired sessions, and the app names OMP correctly."
+        },
+        {
+            "title": "Visual usage and steadier voice",
+            "summary": "Charts and progress in plugin screens, plus screen-off voice fixes.",
+            "markdown": "- See today’s per-agent token activity as charts and Codex limits as progress rings on a native Usage screen.\n- Build richer plugin screens with data-bound progress, responsive columns, and bounded bar/ring charts — the same public UI vocabulary every extension uses.\n- Keep voice alive with the screen off: wake and Wi-Fi locks during calls, speaking counts as activity, and reconnects recover over long sessions.\n- Plugin failures show one clean message instead of technical detail; Git history shows a friendly empty state when a session has no folder."
+        },
+        {
+            "title": "Readable code and honest usage",
+            "summary": "Syntax-highlighted source and offline multi-agent activity.",
+            "markdown": "- Read source with line numbers and consistent syntax highlighting across Files, Markdown, plugin screens, and diffs.\n- Use the same bounded code and diff views from third-party plugins without HTML or native modules.\n- See today’s local coding-agent activity through a pinned offline ccusage backend, alongside current Codex limits.\n- Keep costs, prompts, model names, projects, and session details out of the Usage card."
+        },
+        {
+            "title": "Shared relays and safer setup",
+            "summary": "Guided onboarding, machine-scoped VPS relays, and runtime agent discovery.",
+            "markdown": "- Run `muxr` for a reviewed, Cancel-first setup and maintenance menu.\n- Host one encrypted relay for several machines without copying relay-owner authority.\n- Pair a read-only browser from a clickable HTTPS link with clear eight-hour expiry and recovery.\n- Choose agents from the connected Herdr host and view safe coding-CLI usage status."
+        },
+        {
+            "title": "muxr",
+            "summary": "A focused mobile control surface for coding agents running through Herdr.",
+            "markdown": "- Watch sessions, terminals, changes, and attention state from your phone.\n- Send keys, inspect attachments, and start agents in a selected workspace.\n- Use provider-neutral realtime voice or fully local Whisper dictation."
+        }
+    ]
 }

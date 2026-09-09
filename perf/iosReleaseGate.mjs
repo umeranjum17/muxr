@@ -9,12 +9,13 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { pairingCodeHash, openPairingCodePayload } from '../packages/crypto/dist/index.js';
 import { CommandScope, useCommandScope } from './lib/commands.mjs';
 import { startFakeStack } from './lib/fakeStack.mjs';
+import { documentContract, documentPayload, DOCUMENT_FIXTURE, LOAD, SCENARIO_VERSION } from './lib/scenario.mjs';
 import { IosControls, appPid, command, crashFiles, hostLoad, processSample, reduceSamples, sha256, simctl, sleep, unavailable } from './lib/iosSignals.mjs';
+import { pairIosPhone } from './lib/iosWarm.mjs';
 
-export const LOAD = { panes:100, agents:30, titleChurnHz:2, terminalBytesPerSecond:4096, graphicsFrameHz:4 };
+
 export const PHASES = [
     { name:'idle on the herd', seconds:120, drive:'idle' },
     { name:'herd strip and tree soak', seconds:120, drive:'soak' },
@@ -67,22 +68,8 @@ async function sampleWindow(seconds, destination){
     return {measuredSeconds:(Date.now()-start)/1000,...reduceSamples(destination)};
 }
 async function pair(){
-    const minted=await stack.mintPairing();
-    if(!minted.code)throw new Error('Load host did not mint pairing code');
-    try{
-        const locator=new URL(minted.code), shortCode=locator.searchParams.get('pair');
-        if(!shortCode)throw new Error('Minted pairing locator has no code');
-        locator.protocol=locator.protocol==='wss:'?'https:':'http:';locator.pathname='/v1/selfhost/pair-code';locator.search='';
-        const response=await fetch(locator,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code_hash:pairingCodeHash(shortCode)})});
-        if(!response.ok)throw new Error('Fresh pairing payload lookup failed');
-        const payload=await response.json();
-        const compact=openPairingCodePayload(payload.payload,shortCode);
-        await ui.open('pair?v=2&payload='+encodeURIComponent(compact));
-        await ui.waitFor(/THIS PHONE WILL BE ABLE TO|^Pair$/);
-        if(!await ui.tapMatch(/^Pair$/,{optional:true})){await ui.swipe(200,720,200,350,.4);await ui.tapMatch(/^Pair$/);}
-        await ui.waitFor(/^(LIVE|SPACES|Machine)$/,90_000);
-        report.pairingTransport='Fresh short-code resolved with shared crypto, normal QR deep-link consent and app handshake; no manual-input coverage claimed';
-    }finally{minted.release();}
+    const result = await pairIosPhone({ stack, udid, bundle, ui });
+    report.pairingTransport = result.transport;
 }
 
 async function terminal(){await ui.waitFor(/^Control$|^Enter$|^Show terminal controls$/);}
@@ -113,8 +100,8 @@ async function firstAgent(){await ui.home();const since=Date.now();await ui.open
 async function shell(pane){const since=Date.now();await ui.open(`session/${encodeURIComponent('shell:'+pane.pane_id)}`);await terminal();return proveAttach(pane.pane_id,since);}
 async function document(){
     await ui.home();await ui.tapMatch(/^Files$/);await ui.waitFor(/^Repositories$/);
-    await ui.tapMatch(/^project$/);await ui.waitFor(/^File README.md$/);await ui.tapMatch(/^File README.md$/);
-    await ui.waitFor(/^# iOS load document$|^Line 1: deterministic document/);
+    await ui.tapMatch(/^project$/);await ui.waitFor(new RegExp(`^File ${DOCUMENT_FIXTURE}$`));await ui.tapMatch(new RegExp(`^File ${DOCUMENT_FIXTURE}$`));
+    await ui.waitFor(/^PERF_LINE_/);
 }
 
 async function drive(phase, end, entry, prepareOnly=false){
@@ -205,9 +192,11 @@ try{
     initialPid=await appPid(udid,bundle);if(!initialPid)throw new Error('Retained normal app must already be running');report.initialPid=initialPid;
     stack=await startFakeStack({...LOAD,sourceRoot:process.cwd(),transport:'loopback',pluginsRoot:join(process.cwd(),'plugins')});
     if(stack.world.panes.length!==100||stack.world.agents.length!==30)throw new Error('Load world differs from100 panes/30 agents');
-    const documentText='# iOS load document\n\n'+Array.from({length:2000},(_,i)=>`Line ${i+1}: deterministic document scrolling under full herd load.\n`).join('');
-    const doc=join(stack.world.cwd,'README.md');writeFileSync(doc,documentText);report.documentFixture={lines:documentText.split('\n').length,sha256:sha256(doc)};
-    await command('git',['-C',stack.world.cwd,'init','-q']);await command('git',['-C',stack.world.cwd,'add','README.md','notes.txt']);
+    // The same file the Android gate reads: one payload, one digest, one
+    // served-line count, so a document number means the same thing here.
+    const doc=join(stack.world.cwd,DOCUMENT_FIXTURE);writeFileSync(doc,documentPayload());
+    report.documentFixture={...documentContract(),onDisk:sha256(doc),scenario:SCENARIO_VERSION};
+    await command('git',['-C',stack.world.cwd,'init','-q']);await command('git',['-C',stack.world.cwd,'add',DOCUMENT_FIXTURE,'notes.txt']);
     await command('git',['-C',stack.world.cwd,'-c','user.name=Perf fixture','-c','user.email=perf@example.invalid','commit','-qm','Seed deterministic load document']);
     report.documentFixture.gitTree=(await command('git',['-C',stack.world.cwd,'rev-parse','HEAD^{tree}'])).trim();
     log('pairing fresh isolated host');const pairingAt=Date.now();await pair();report.pairing={freshHost:true,herdVisibleMs:Date.now()-pairingAt};await shot('paired-herd');

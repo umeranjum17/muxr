@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync, s
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runCommand as run, spawnCommand as spawn, onCommandCleanup, commandSignal, assertCommandActive } from './commands.mjs';
+import { androidArgs } from './deviceTarget.mjs';
 
 const RELAY_ENTRY = 'apps/relay/dist/main.js';
 const HOST_ENTRY = 'apps/host/dist/main.js';
@@ -49,6 +50,7 @@ async function spawnFakeHerdr(dir, options) {
     ]) {
         if (value !== undefined) args.push(flag, String(value));
     }
+    if (options.pinGraphicsPane === true) args.push('--pin-graphics-pane');
     const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const log = [];
     child.stderr.on('data', (chunk) => log.push(String(chunk)));
@@ -71,6 +73,7 @@ async function spawnFakeHerdr(dir, options) {
         ...announced,
         pid: child.pid,
         log: () => log.join(''),
+        onExit: (listener) => child.once('exit', listener),
         close: () => { try { child.kill('SIGTERM'); } catch { /* already gone */ } },
     };
 }
@@ -177,6 +180,23 @@ async function startStack(options, live) {
     const relayPort = await freePort();
     const hostHttpPort = await freePort();
     const children = [];
+    // Which of our processes died, and whether we killed it. A gate that failed
+    // because the host exited reads the same as one that timed out unless the
+    // exit is recorded before cleanup takes it away. Names and numbers only:
+    // logs carry pairing strings and paths.
+    const health = [];
+    let stopping = false;
+    const track = (name, child) => {
+        children.push(child);
+        const entry = { name, pid: child.pid, exitCode: null, signal: null, deliberateCleanup: false };
+        if (health.length < 16) health.push(entry);
+        child.once('exit', (code, signal) => {
+            entry.exitCode = code ?? null;
+            entry.signal = signal ?? null;
+            entry.deliberateCleanup = stopping;
+        });
+        return child;
+    };
     let reversed = false;
     // The fake runs in its own process on purpose. In-process it shares an
     // event loop with the harness, and one blocking call here - a Maestro run,
@@ -184,6 +204,15 @@ async function startStack(options, live) {
     // 15-second stall and reports as "reconnecting".
     const pluginsRoot = options.setupPlugins?.({ root, home, env: fixtureEnv }) ?? options.pluginsRoot;
     const fake = live ? { ...live, close() {} } : await spawnFakeHerdr(join(root, 'herdr'), { ...options, pluginsRoot });
+    if (fake.onExit !== undefined) {
+        const entry = { name: 'herdr', pid: fake.pid, exitCode: null, signal: null, deliberateCleanup: false };
+        health.push(entry);
+        fake.onExit((code, signal) => {
+            entry.exitCode = code ?? null;
+            entry.signal = signal ?? null;
+            entry.deliberateCleanup = stopping;
+        });
+    }
     // Older host heads resolve the default HOME socket instead of the env override.
     // Keep both paths inside this run's isolated infrastructure.
     if (!live) {
@@ -192,6 +221,7 @@ async function startStack(options, live) {
     }
 
     const stop = () => {
+        stopping = true;
         for (const child of children.splice(0)) {
             try { child.kill('SIGTERM'); } catch { /* already gone */ }
         }
@@ -201,7 +231,7 @@ async function startStack(options, live) {
         // one -- loopback, or a failure before it -- must not reach for adb.
         if (reversed) {
             reversed = false;
-            spawnSync('adb', ['reverse', '--remove', `tcp:${relayPort}`], { stdio: 'ignore', timeout: 10_000 });
+            spawnSync('adb', androidArgs(['reverse', '--remove', `tcp:${relayPort}`]), { stdio: 'ignore', timeout: 10_000 });
         }
         rmSync(root, { recursive: true, force: true });
     };
@@ -225,7 +255,7 @@ async function startStack(options, live) {
                 MUXR_HOST_HTTP_URL: `http://127.0.0.1:${hostHttpPort}`,
             }, live?.env),
         });
-        children.push(relay);
+        track('relay', relay);
         relay.stdout.on('data', (chunk) => relayLog.push(String(chunk)));
         relay.stderr.on('data', (chunk) => relayLog.push(String(chunk)));
         if (!await relayHealthy(relayPort)) {
@@ -260,12 +290,12 @@ async function startStack(options, live) {
                 ...fixtureEnv,
             }, live?.env),
         });
-        children.push(host);
+        track('host', host);
         host.stdout.on('data', (chunk) => hostLog.push(String(chunk)));
         host.stderr.on('data', (chunk) => hostLog.push(String(chunk)));
 
         if (transport === 'adb') {
-            await run('adb', ['reverse', `tcp:${relayPort}`, `tcp:${relayPort}`], { timeout: 60_000 });
+            await run('adb', androidArgs(['reverse', `tcp:${relayPort}`, `tcp:${relayPort}`]), { timeout: 60_000 });
             reversed = true;
         }
 
@@ -277,9 +307,13 @@ async function startStack(options, live) {
             dataDir: hostDataDir,
             journalPath,
             world: fake.world,
+            // The panes a phase may name. Nothing else is a measurable surface:
+            // a card position is whatever the churning herd left under it.
+            fixturePanes: fake.fixturePanes,
             attachJsonl: fake.attachJsonl,
             graphicsInputJsonl: fake.graphicsInputJsonl,
             inputJsonl: fake.inputJsonl,
+            worldIdentityPath: fake.worldIdentityPath,
             // The service's own processes, for a memory budget. Terminal shims
             // are children of the host, so a tree walk from these covers them.
             // The stand-in for Herdr is reported apart from our own code.
@@ -287,6 +321,8 @@ async function startStack(options, live) {
             herdrPid: fake.pid,
             identity: (identity.stdout ?? '').trim().split('\n').pop(),
             hostLog: () => hostLog.join(''),
+            /** Bounded, credential-free lifecycle of everything this run spawned. */
+            childHealth: () => health.map((entry) => ({ ...entry })),
             relayLog: () => relayLog.join(''),
             /** Did any attached phone declare cell pixels this run? */
             cellMetricsJsonl: `${fake.socketPath}.cell-metrics.jsonl`,
@@ -302,7 +338,7 @@ async function startStack(options, live) {
                     stdio: ['ignore', 'pipe', 'pipe'],
                     env: childEnv(home, muxrHome, undefined, live?.env),
                 });
-                children.push(pairing);
+                track('pair', pairing);
                 const code = await new Promise((resolve) => {
                     let seen = '';
                     const deadline = setTimeout(() => resolve(undefined), 120_000);
