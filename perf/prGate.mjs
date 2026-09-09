@@ -558,6 +558,35 @@ async function polishControls() {
     }
 }
 
+/**
+ * Mermaid mounts its <svg> whatever the sanitizer left inside it, so the status
+ * line and the diagram's own bounds both pass on an empty box. Only ink proves
+ * it: pixels inside the box that differ from the box's own dominant colour --
+ * the page background -- in whichever theme the device is currently in.
+ */
+async function mermaidInk() {
+    const xml = await requireScreen('rich-preview.md-mermaid', /svg-diagram-0/, 20_000);
+    const node = (xml.match(/<node\b[^>]*>/g) ?? []).find((node) => node.includes('svg-diagram-0'));
+    const box = /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(node);
+    check(box, 'Mermaid diagram never mounted in the markdown preview');
+    const frame = cropRaw(await screencapRaw(), { l: Number(box[1]), t: Number(box[2]), r: Number(box[3]), b: Number(box[4]) });
+    const counts = new Map();
+    for (let i = 0; i < frame.bytes.length; i += 4) {
+        const key = (frame.bytes[i] << 16) | (frame.bytes[i + 1] << 8) | frame.bytes[i + 2];
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    let background = 0;
+    for (const [key, seen] of counts) if (seen > (counts.get(background) ?? 0)) background = key;
+    let ink = 0;
+    for (let i = 0; i < frame.bytes.length; i += 4) {
+        const delta = Math.max(Math.abs(frame.bytes[i] - (background >> 16 & 255)), Math.abs(frame.bytes[i + 1] - (background >> 8 & 255)), Math.abs(frame.bytes[i + 2] - (background & 255)));
+        if (delta > 8) ink++;
+    }
+    await capture('rich-preview.md-mermaid.png');
+    check(ink > 2000, `Mermaid diagram mounted but painted no visible pixels (${ink} of ${frame.width * frame.height} differ from the background)`);
+    return { ink, pixels: frame.width * frame.height, background: background.toString(16).padStart(6, '0') };
+}
+
 async function richPreviews() {
     const attachmentDir = join(stack.root, 'muxr/attachments/pane/w1:p1');
     mkdirSync(attachmentDir, { recursive: true });
@@ -592,7 +621,7 @@ async function richPreviews() {
             save('rich-csv-ocr.txt', pixels);
             check(pixels.includes(marker), 'CSV content did not paint in native WebView');
         }
-        report.richPreviews.push({ file, nativeContent: true, evidence: file.endsWith('.csv') ? 'screenshot OCR' : 'native hierarchy' });
+        report.richPreviews.push({ file, nativeContent: true, evidence: file.endsWith('.csv') ? 'screenshot OCR' : 'native hierarchy', ...(file.endsWith('.md') ? { mermaidInk: await mermaidInk() } : {}) });
         await tapText('Close document preview');
     }
     await tapText('preview.pdf');

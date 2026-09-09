@@ -14,6 +14,16 @@ const clean = (text, svg = false) => DOMPurify.sanitize(text, {
     FORBID_ATTR: ['href', 'xlink:href', 'srcset', 'action', 'formaction', 'nonce'],
     ALLOWED_URI_REGEXP: /^data:image\/(?:png|jpeg|webp|gif);base64,/i,
 });
+// Mermaid's own output, not a user file. `clean` is tuned for untrusted markup:
+// it forbids <style> and its data-image URI allowlist strips every geometry and
+// paint attribute, so the diagram survives as an empty box. This policy keeps
+// the library's generated stylesheet and coordinates while still dropping
+// script, links and any outbound reference; the page CSP blocks the rest.
+const cleanDiagram = (svg) => DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true },
+    FORBID_TAGS: ['a', 'image'],
+    FORBID_ATTR: ['href', 'xlink:href'],
+});
 function appendText(text, tag = 'pre') { const node = document.createElement(tag); node.textContent = text; main().append(node); return node; }
 function table(rows) {
     const node = document.createElement('table');
@@ -92,7 +102,7 @@ async function pdf(bytes) {
     }
     await render(); window.addEventListener('pagehide', () => { void doc.destroy(); }, { once: true });
 }
-window.renderMuxrAttachment = async ({ kind, base64 }) => {
+window.renderMuxrAttachment = async ({ kind, base64, dark }) => {
     try {
         const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
         if (kind === 'pdf') return await pdf(bytes);
@@ -114,10 +124,11 @@ window.renderMuxrAttachment = async ({ kind, base64 }) => {
             const id = `diagram-${diagrams.length}`; diagrams.push({ id, code: tokens[index].content }); return `<div id="${id}"></div>`;
         };
         main().innerHTML = clean(md.render(text));
-        mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', maxTextSize: 50000, flowchart: { htmlLabels: false } });
+        // Mermaid draws its own ink, so it needs the app's mode: 'default' is its light palette, 'dark' its dark one.
+        mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default', maxTextSize: 50000, flowchart: { htmlLabels: false } });
         for (const { id, code } of diagrams) {
             const element = document.getElementById(id); if (!element) continue;
-            try { const { svg } = await mermaid.render(`svg-${id}`, code); element.innerHTML = clean(svg, true); }
+            try { const { svg } = await mermaid.render(`svg-${id}`, code); element.innerHTML = cleanDiagram(svg); }
             catch { element.textContent = 'This Mermaid diagram cannot be rendered.'; }
         }
         status('Markdown preview · tables, code and Mermaid diagrams');
