@@ -2,7 +2,7 @@ import * as React from 'react';
 import { BackHandler, Keyboard, PanResponder, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
-import { PanelGlyph, panelPalette, type PanelGlyphName } from '@/components/ActionShortcut';
+import { PanelGlyph, PanelIcon, panelPalette, type PanelGlyphName } from '@/components/ActionShortcut';
 
 export type TerminalCommand = {
     label: string;
@@ -11,8 +11,11 @@ export type TerminalCommand = {
     disabled?: boolean;
     dismiss?: boolean;
 };
-// Keep the closed key compact while retaining a 44dp touch target.
+// Keep the closed key compact while retaining a 44dp touch target: the box
+// stays 44, the painted disc is the 38dp the terminal's own jump-to-bottom
+// control already uses.
 const KEY = 44;
+const KEY_DISC = 38;
 const BUTTON = 44;
 const PANEL_WIDTH = 268;
 // Keep the entire drag target outside Android's system back-gesture edge. The
@@ -26,14 +29,14 @@ const PANEL_PADDING = 4;
 const DIVIDER = 1 + 4; // 1dp rule with 2dp margins on each side
 const SLOT_RADIUS = 10;
 const ICON = 24;
-const KEY_ICON = 20;
+const KEY_ICON = 18;
 
 type Palette = ReturnType<typeof panelPalette>;
 
-// The closed key is a raised light control carrying the terminal's own glyph,
-// not a dark pill: it belongs to the panel it opens.
+// The closed key is a raised light control carrying the app's own overflow
+// glyph, not a dark pill: it belongs to the panel it opens.
 const keyStyle = (panel: Palette, pressed: boolean) => ({
-    width: KEY, height: KEY, borderRadius: KEY / 2,
+    width: KEY_DISC, height: KEY_DISC, borderRadius: KEY_DISC / 2,
     alignItems: 'center' as const, justifyContent: 'center' as const,
     backgroundColor: pressed ? panel.pressed : panel.surface,
     borderWidth: StyleSheet.hairlineWidth, borderColor: panel.border,
@@ -206,9 +209,11 @@ export function FloatingTerminalControls({ width, height, overlayHeight, dismiss
             {!open && <View {...drag.panHandlers} collapsable={false} style={{ width: KEY, height: KEY }}>
                 <Pressable accessibilityRole="button" accessibilityLabel="Show terminal controls"
                     accessibilityHint="Quick terminal controls. Drag to move; tap to open."
-                    accessibilityState={{ expanded: open }} style={({ pressed }) => keyStyle(panel, pressed)}
-                    onPress={openPanel}>
-                    <PanelGlyph name="command" size={KEY_ICON} color={panel.text} />
+                    accessibilityState={{ expanded: open }} onPress={openPanel}
+                    style={{ width: KEY, height: KEY, alignItems: 'center', justifyContent: 'center' }}>
+                    {({ pressed }) => <View style={keyStyle(panel, pressed)}>
+                        <PanelIcon icon="ellipsis-horizontal" size={KEY_ICON} color={panel.text} />
+                    </View>}
                 </Pressable>
             </View>}
         </Animated.View>

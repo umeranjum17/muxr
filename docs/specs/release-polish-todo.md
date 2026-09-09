@@ -262,7 +262,7 @@ Completed locally on the frozen final source, in order: the dev APK native hideK
 
 - [x] **T48 · Use a Command-key icon rather than a Settings-like control** — Done, within stated scope.
   - Evidence / current state: Changed the shared native/web terminal puck from options-outline to the Command-key glyph. Actual dev-client screenshot confirms the distinct Command symbol after Fast Refresh, without rebuilding the APK. Open/close, drag target and command behavior are unchanged.
-  - Remaining / boundary: The translucent top-right gear is Expo development-menu chrome, not the app control and not present in the production APK.
+  - Remaining / boundary: The translucent top-right gear is Expo development-menu chrome, not the app control and not present in the production APK. Superseded on device review: the Command glyph read as visually dominant and semantically wrong on Android, so the closed puck now carries the app's own overflow icon on a 38dp disc inside its unchanged 44dp target. Do not restore the Command glyph.
 
 ## Stable document navigation and change totals
 

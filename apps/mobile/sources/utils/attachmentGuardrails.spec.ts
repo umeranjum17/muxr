@@ -104,7 +104,7 @@ describe('attachment/file guardrail helpers', () => {
         previewMocks.request.mockResolvedValue({ id: 'preview', offset: 0, size: 5, data: 'aGVsbG8=' });
         const result = await readRichAttachment('session-1', attachment, new AbortController().signal);
         expect(result).toEqual({ kind: 'markdown', base64: 'aGVsbG8=' });
-        const html = richPreviewHtml('window.renderMuxrAttachment = () => {};', result);
+        const html = richPreviewHtml('window.renderMuxrAttachment = () => {};', result, { dark: false, surface: '#fff', surfaceHigh: '#f8f8f8', surfaceHighest: '#f0f0f0', text: '#000', textSecondary: '#8e8e93', divider: '#eaeaea' });
         expect(html).toContain("connect-src 'none'");
         expect(html).toContain('"base64":"aGVsbG8="');
         previewMocks.request.mockClear();
