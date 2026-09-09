@@ -136,4 +136,26 @@ describe('attachment/file guardrail helpers', () => {
         expect(svgTextLabels('<svg><text>Beta</text></svg>')).toBe('<svg><text>Beta</text></svg>');
     });
 
+    // Mermaid escapes what it draws, but the rewrite runs before the sanitizer, so
+    // no shape of markup inside a label may leave it as markup: a nested tag whose
+    // removal would reassemble a live one, an unterminated tag, and markup that
+    // arrives already encoded all have to come out as inert, escaped text.
+    it('carries malicious Mermaid labels out as inert text, whatever shape the markup arrives in', () => {
+        const label = (html: string) => svgTextLabels(`<svg><g class="label"><foreignObject width="40" height="24">${html}</foreignObject></g></svg>`);
+        for (const html of [
+            '<div><scr<span>ipt>alert(1)</scr<span>ipt></div>',
+            '<div><img src=x onerror="alert(1)"><p>Ok</p></div>',
+            '<div><p>&lt;img src=x onerror=alert(1)&gt;</p></div>',
+            '<div><p>&#60;script&#62;alert(1)&#60;/script&#62;</p></div>',
+            '<div><p>Ok</p><script src=x',
+            '<div><p>a &lt; b</p><script src=x',
+        ]) {
+            // The only '<' left anywhere is one of the elements this rewrite writes.
+            expect(label(html)).not.toMatch(/<(?!\/?(?:svg|g|text|tspan)\b)/);
+        }
+        // The text itself survives, escaped, rather than being dropped on the floor.
+        expect(label('<div><p>&lt;b&gt;a &amp; b&lt;/b&gt;</p></div>')).toContain('>&lt;b&gt;a &amp; b&lt;/b&gt;</tspan>');
+        expect(label('<div><p>1 &lt; 2</p><p>3 &gt; 2</p></div>')).toContain('<tspan x="20" dy="-0.55em">1 &lt; 2</tspan><tspan x="20" dy="1.1em">3 &gt; 2</tspan>');
+    });
+
 });
