@@ -1601,7 +1601,7 @@ export class HerdrGraphicsBridge {
             registration.write(frame);
             this.recordFrame(startedAt, frame.length, prepared.width * prepared.height);
         }
-        this.drainNotch(paneId);
+        this.drainNotch(paneId, 'frame');
     }
 
     private admit(file: GraphicsFile): AdmittedTransfer {
