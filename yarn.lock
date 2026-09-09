@@ -1437,12 +1437,13 @@
   resolved "https://registry.yarnpkg.com/@expo/sudo-prompt/-/sudo-prompt-9.3.2.tgz#0fd2813402a42988e49145cab220e25bea74b308"
   integrity sha512-HHQigo3rQWKMDzYDLkubN5WQOYXJJE2eNqIQC2axC2iO3mHdwnIR7FgZVvHWtBwAdzBgAP0ECp8KqS8TiMKvgw==
 
-"@expo/ui@55.0.5", "@expo/ui@~55.0.5":
-  version "55.0.5"
-  resolved "https://registry.yarnpkg.com/@expo/ui/-/ui-55.0.5.tgz#bbc6e46dbe46af4c2c6433d1b5b623bc3d86b82a"
-  integrity sha512-Hev/bg0SOQ01+7RPfw0pyafZQWf117qBseG7jKZfvFd+XpFeARsjot5OPvcNcxvxkXD/hSqfmdcv7MlZWU32JA==
+"@expo/ui@57.0.16", "@expo/ui@~57.0.16":
+  version "57.0.16"
+  resolved "https://registry.yarnpkg.com/@expo/ui/-/ui-57.0.16.tgz#c45a5ef996a69a17912879588a2c8258f07c3f54"
+  integrity sha512-3MK74dEPE4mwlv0VbyQKepmHigOs2bcOvay2SFqc1/QSywVTOjbkNPYUbq2H+LyOLP2sHMazrPBwfXGiYn3q7A==
   dependencies:
     sf-symbols-typescript "^2.1.0"
+    vaul "^1.1.2"
 
 "@expo/vector-icons@15.0.3", "@expo/vector-icons@^15.0.2":
   version "15.0.3"
@@ -7184,10 +7185,10 @@ postcss@8.5.26, postcss@^8.5.14, postcss@^8.5.6, postcss@~8.4.32:
     picocolors "^1.1.1"
     source-map-js "^1.2.1"
 
-preact@10.29.1, preact@^10.29.1:
-  version "10.29.1"
-  resolved "https://registry.yarnpkg.com/preact/-/preact-10.29.1.tgz#2a5b936efe91cfe1e773cdb55dceb55d148d1d4b"
-  integrity sha512-gQCLc/vWroE8lIpleXtdJhTFDogTdZG9AjMUpVkDf2iTCNwYNWA+u16dL41TqUDJO4gm2IgrcMv3uTpjd4Pwmg==
+preact@10.29.8, preact@^10.29.8:
+  version "10.29.8"
+  resolved "https://registry.yarnpkg.com/preact/-/preact-10.29.8.tgz#fc85b82dc2474e245b1430b51781d417361f5fc3"
+  integrity sha512-ej2aVZ+vZ8WO7tvlQWRM9N63A0KzF9q4mWJfDUHgYaIofWY9hu74QdnQrjoPMmZi2/nZ5gN0bJCQF49xQqx09Q==
 
 pretty-format@^29.7.0:
   version "29.7.0"
@@ -7480,10 +7481,10 @@ react-native-webview@13.15.0:
     escape-string-regexp "^4.0.0"
     invariant "2.2.4"
 
-react-native-worklets@0.7.2, react-native-worklets@^0.7.1:
-  version "0.7.2"
-  resolved "https://registry.yarnpkg.com/react-native-worklets/-/react-native-worklets-0.7.2.tgz#acfbfe4f8c7f3b2889e7f394e4fbd7e78e167134"
-  integrity sha512-DuLu1kMV/Uyl9pQHp3hehAlThoLw7Yk2FwRTpzASOmI+cd4845FWn3m2bk9MnjUw8FBRIyhwLqYm2AJaXDXsog==
+react-native-worklets@0.7.4, react-native-worklets@^0.7.4:
+  version "0.7.4"
+  resolved "https://registry.yarnpkg.com/react-native-worklets/-/react-native-worklets-0.7.4.tgz#6cc1eed31417ced2b007d82bfbd506ac27797de5"
+  integrity sha512-NYOdM1MwBb3n+AtMqy1tFy3Mn8DliQtd8sbzAVRf9Gc+uvQ0zRfxN7dS8ZzoyX7t6cyQL5THuGhlnX+iFlQTag==
   dependencies:
     "@babel/plugin-transform-arrow-functions" "7.27.1"
     "@babel/plugin-transform-class-properties" "7.27.1"
