@@ -18,6 +18,7 @@ import { boundSessionFileCache } from '@/catalog/application/sessionFileCache';
 import { attachmentPreview } from './attachmentPreview.web';
 import { readRichAttachment } from './richAttachmentPreview';
 import { richPreviewHtml } from './richPreviewHtml';
+import { svgTextLabels } from '@/components/attachment/mermaidLabels';
 
 describe('attachment/file guardrail helpers', () => {
     it('bounds heal payload accounting and source lines/chars before rendering', () => {
@@ -119,6 +120,20 @@ describe('attachment/file guardrail helpers', () => {
         try {
             await expect(readRichAttachment('session-1', attachment, new AbortController().signal)).rejects.toThrow('connection changed');
         } finally { previewMocks.settings.machineId = 'machine-1'; }
+    });
+
+    // The packaged renderer once painted node boxes with no label at all: Mermaid
+    // emitted the labels as <foreignObject> HTML and the diagram sanitizer forbids
+    // that tag. This is that exact Mermaid 11 flowchart output, node for node.
+    it('carries Mermaid foreignObject node labels into SVG text the diagram sanitizer keeps', () => {
+        const rendered = svgTextLabels('<svg id="svg-diagram-0"><g class="node"><rect class="basic label-container" x="-46.5" y="-27" width="93" height="54"></rect>'
+            + '<g class="label" transform="translate(-16.5, -12)"><foreignObject width="32.9" height="24"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell;"><span class="nodeLabel"><p>Beta</p></span></div></foreignObject></g></g>'
+            + '<g class="label"><foreignObject x="4" width="97.9" height="24"><div xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"><p>Phone<br/>&lt;b&gt;testing&lt;/b&gt;</p></span></div></foreignObject></g></svg>');
+        expect(rendered).not.toContain('foreignObject');
+        expect(rendered).toContain('<text x="16.45" y="12" text-anchor="middle" dominant-baseline="central"><tspan x="16.45" dy="0em">Beta</tspan></text>');
+        // Two lines centred as a block, and a label carrying markup stays escaped text.
+        expect(rendered).toContain('<text x="52.95" y="12" text-anchor="middle" dominant-baseline="central"><tspan x="52.95" dy="-0.55em">Phone</tspan><tspan x="52.95" dy="1.1em">&lt;b&gt;testing&lt;/b&gt;</tspan></text>');
+        expect(svgTextLabels('<svg><text>Beta</text></svg>')).toBe('<svg><text>Beta</text></svg>');
     });
 
 });

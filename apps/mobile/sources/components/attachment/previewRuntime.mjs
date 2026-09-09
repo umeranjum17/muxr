@@ -5,6 +5,7 @@ import Papa from 'papaparse';
 import ExcelJS from 'exceljs/dist/exceljs.min.js';
 import { Unzip, UnzipInflate } from 'fflate';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { svgTextLabels } from './mermaidLabels';
 
 const main = () => document.getElementById('content');
 const status = (text) => { document.getElementById('status').textContent = text; };
@@ -125,15 +126,16 @@ window.renderMuxrAttachment = async ({ kind, base64, dark }) => {
         };
         main().innerHTML = clean(md.render(text));
         // Mermaid draws its own ink, so it needs the app's mode: 'default' is its light palette, 'dark' its dark one.
-        // `htmlLabels` is the top-level knob, and the only one the node label path
-        // reads: `flowchart.htmlLabels` is deprecated in Mermaid 11 and never reaches
-        // it, so labels came out as <foreignObject> HTML that `cleanDiagram` strips,
-        // leaving painted but empty boxes. False here keeps every diagram's labels as
-        // <text>/<tspan> the SVG profile already allows, with no sanitizer relaxation.
+        // `htmlLabels` is the top-level knob Mermaid 11 reads for node labels, and
+        // false is the better shape: Mermaid lays the label out as <text>/<tspan>
+        // itself, one tspan per wrapped line. It is a preference, not the guarantee --
+        // a renderer built from another revision reads another key and emits HTML
+        // labels -- so svgTextLabels() makes the labels SVG text either way, before
+        // `cleanDiagram` (which forbids <foreignObject>) can drop them.
         mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default', maxTextSize: 50000, htmlLabels: false });
         for (const { id, code } of diagrams) {
             const element = document.getElementById(id); if (!element) continue;
-            try { const { svg } = await mermaid.render(`svg-${id}`, code); element.innerHTML = cleanDiagram(svg); }
+            try { const { svg } = await mermaid.render(`svg-${id}`, code); element.innerHTML = cleanDiagram(svgTextLabels(svg)); }
             catch { element.textContent = 'This Mermaid diagram cannot be rendered.'; }
         }
         status('Markdown preview · tables, code and Mermaid diagrams');

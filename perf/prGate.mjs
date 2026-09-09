@@ -588,11 +588,18 @@ async function mermaidInk() {
     // <foreignObject> HTML that cleanDiagram drops, leaving painted but empty boxes.
     // Only pixels can prove the labels -- a WebView never exposes SVG text to the
     // native hierarchy -- so read them back, inverting a dark theme's light-on-dark
-    // ink, which tesseract cannot read as it stands.
+    // ink, which tesseract cannot read as it stands, and then keeping only that ink.
     const lightTheme = ((background >> 16 & 255) + (background >> 8 & 255) + (background & 255)) / 3 > 127;
     const labelPng = new PNG({ width: frame.width, height: frame.height });
     for (let i = 0; i < frame.bytes.length; i += 4) {
-        for (let channel = 0; channel < 3; channel++) labelPng.data[i + channel] = lightTheme ? frame.bytes[i + channel] : 255 - frame.bytes[i + channel];
+        // Only the label ink is darker than the node fill it sits on, in either theme
+        // once a dark one is inverted, so everything above the cut -- fills, strokes,
+        // the arrow -- goes white. Tesseract reads four-glyph `Beta` off the resulting
+        // black-on-white far more reliably than off the boxes it is nested in, and a
+        // node that painted no label still reads as nothing at all.
+        const glyph = ([0, 1, 2].map((channel) => lightTheme ? frame.bytes[i + channel] : 255 - frame.bytes[i + channel])
+            .reduce((sum, value, channel) => sum + value * [299, 587, 114][channel], 0) / 1000) < 110 ? 0 : 255;
+        for (let channel = 0; channel < 3; channel++) labelPng.data[i + channel] = glyph;
         labelPng.data[i + 3] = 255;
     }
     const labelPath = join(out, 'rich-preview.md-mermaid-labels.png');
