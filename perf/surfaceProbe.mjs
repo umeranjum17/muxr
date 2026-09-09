@@ -181,11 +181,11 @@ async function navigate() {
     const end = Date.now() + scope.remaining(20_000);
     while (Date.now() < end) {
         const observation = await observe(since, false).catch(() => undefined);
-        // The Files document viewer does not carry the root screen's connected
-        // chrome. exactHostChallenge() already proved the connection on root and
-        // left that proof in hostProof; requiring the chrome again rejects the
-        // document the probe just opened.
-        const connectionProven = observation?.connected === true || (surface === 'document' && observation?.hostProof === true);
+        // Neither the Files document viewer nor the terminal viewer carries the
+        // root screen's connected chrome. exactHostChallenge() already proved the
+        // connection on root and left the fresh exact-attach proof in hostProof;
+        // requiring the chrome again rejects the surface the probe just opened.
+        const connectionProven = observation?.connected === true || (surface !== 'tree' && observation?.hostProof === true);
         if (connectionProven && observation.surfaceSeen && (surface !== 'document' || observation.filename === session.scenario.document.name)) return { since };
     }
     throw new Error(`${surface} did not become the requested surface`);

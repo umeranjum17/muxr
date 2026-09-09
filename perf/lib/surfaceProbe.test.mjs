@@ -196,7 +196,11 @@ test('the prepared descriptor survives serialization and the probe callers judge
     });
     assert.equal(judgeProbeMovement('terminal', terminal()).proven, true);
     assert.equal(judgeProbeMovement('terminal', terminal({ settled: { ...terminal().settled, hostProof: false } })).proven, false);
-    assert.equal(judgeProbeMovement('terminal', terminal({ settled: { ...terminal().settled, connected: false } })).proven, false);
+    // The terminal viewer is off root too: the fresh exact-attach host proof,
+    // terminal identity and input proof stand in for chrome it never draws.
+    const offRootTerminal = terminal();
+    for (const entry of Object.values(offRootTerminal)) entry.connected = false;
+    assert.equal(judgeProbeMovement('terminal', offRootTerminal).proven, true);
 
     // The gesture the probe records is the helper's own, and the existing 70%
     // per-profile guard is what decides whether it was delivered.

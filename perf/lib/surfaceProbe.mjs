@@ -159,10 +159,10 @@ export function judgeProbeMovement(surface, observations) {
     if (crops.some((crop) => !crop.valid)) reasons.push('invalid crop');
     const pixels = pixelsMoved(before?.crop, moving?.crop);
     if (!pixels.moved) reasons.push('before-to-moving pixels below noise floor');
-    // Root chrome proves the connection everywhere it is drawn; the document
-    // viewer replaces it, so there the earlier exact-terminal attach (hostProof)
-    // is the standing proof. Terminal and tree still demand the chrome itself.
-    const connectionProven = (entry) => entry?.connected === true || (surface === 'document' && entry?.hostProof === true);
+    // Root chrome proves the connection everywhere it is drawn; the document and
+    // terminal viewers replace it, so there the fresh exact-terminal attach
+    // (hostProof) is the standing proof. The tree still demands the chrome itself.
+    const connectionProven = (entry) => entry?.connected === true || (surface !== 'tree' && entry?.hostProof === true);
     if ([before, moving, settled].some((entry) => !connectionProven(entry))) reasons.push('connection proof missing');
     if (surface === 'document') {
         const names = [before?.filename, moving?.filename, settled?.filename];
