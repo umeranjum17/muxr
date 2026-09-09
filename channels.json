@@ -18,18 +18,18 @@
       }
     },
     "nightly": {
-      "version": "0.1.29-nightly.12.1",
+      "version": "0.1.29-nightly.13.1",
       "appVersion": "0.1.29",
-      "tag": "v0.1.29-nightly.12.1",
-      "releaseUrl": "https://github.com/umeranjum17/muxr/releases/tag/v0.1.29-nightly.12.1",
+      "tag": "v0.1.29-nightly.13.1",
+      "releaseUrl": "https://github.com/umeranjum17/muxr/releases/tag/v0.1.29-nightly.13.1",
       "npmDistTag": "nightly",
-      "publishedAt": "2026-09-09T11:52:54.000Z",
-      "manifestUrl": "https://github.com/umeranjum17/muxr/releases/download/v0.1.29-nightly.12.1/release-manifest.json",
+      "publishedAt": "2026-09-09T14:06:45.000Z",
+      "manifestUrl": "https://github.com/umeranjum17/muxr/releases/download/v0.1.29-nightly.13.1/release-manifest.json",
       "android": {
-        "url": "https://github.com/umeranjum17/muxr/releases/download/v0.1.29-nightly.12.1/muxr-0.1.29-369.apk",
-        "sha256": "78ee426569110363e89f86076f330d2a72b1dae14c70eb6c934c198d118b606a",
-        "bytes": 176665180,
-        "versionCode": 369,
+        "url": "https://github.com/umeranjum17/muxr/releases/download/v0.1.29-nightly.13.1/muxr-0.1.29-370.apk",
+        "sha256": "1b3b46ed3ab5cf49968b14b3e38e9eebdf04fdb24b739ded64fc67a23ea2a31f",
+        "bytes": 176665776,
+        "versionCode": 370,
         "applicationId": "app.muxr.local.dev"
       }
     },
