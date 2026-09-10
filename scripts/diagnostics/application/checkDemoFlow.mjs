@@ -135,6 +135,21 @@ try {
     });
     await send('Page.enable');
     await send('Runtime.enable');
+    // Capture page errors throughout the journey, not just body text: a
+    // crash behind an error boundary still leaves rendered text behind.
+    const pageErrors = [];
+    const errorListener = (event) => {
+        try {
+            const msg = JSON.parse(String(event.data));
+            if (msg.method === 'Runtime.exceptionThrown') {
+                pageErrors.push(`exception: ${JSON.stringify(msg.params?.exceptionDetails?.text ?? msg.params?.exceptionDetails).slice(0, 300)}`);
+            } else if (msg.method === 'Runtime.consoleAPICalled' && msg.params?.type === 'error') {
+                const text = (msg.params.args ?? []).map((arg) => arg.value ?? arg.description ?? '').join(' ').slice(0, 300);
+                pageErrors.push(`console.error: ${text}`);
+            }
+        } catch {}
+    };
+    ws.addEventListener('message', errorListener);
     const evaluate = async (expression) => {
         const res = await send('Runtime.evaluate', { expression, returnByValue: true });
         if (res.result?.exceptionDetails) throw new Error(`page js error: ${JSON.stringify(res.result.exceptionDetails).slice(0, 200)}`);
@@ -152,6 +167,26 @@ try {
     };
 
     await send('Page.navigate', { url: `http://127.0.0.1:${port}/demo` });
+    // Real hidden→visible transition BEFORE asserting the herd: the demo
+    // must not perform a socket visibility reconnect (tearing down the
+    // deterministic transport used to brick the herd until reload), and the
+    // transport must survive close/reopen regardless.
+    try {
+        await send('Page.setWebLifecycleState', { state: 'hidden' });
+        await new Promise((r) => setTimeout(r, 2000));
+        await send('Page.setWebLifecycleState', { state: 'active' });
+    } catch {
+        await evaluate(`(() => {
+            Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+            document.dispatchEvent(new Event('visibilitychange'));
+        })()`);
+        await new Promise((r) => setTimeout(r, 2000));
+        await evaluate(`(() => {
+            Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+            document.dispatchEvent(new Event('visibilitychange'));
+            window.dispatchEvent(new Event('pageshow'));
+        })()`);
+    }
     const herdText = await waitFor('herd', (text) => text.includes('Rebase release branch onto main'));
     check('demo shows the working agent', herdText.includes('Migrate billing to usage-based plans'));
     check('demo shows the blocked agent', true);
@@ -211,6 +246,7 @@ try {
     check('approval visibly continues the agent', reconciled.includes('in sync with main'));
     check('agent reaches done', reconciled.includes('Done'));
     check('inbox reconciles after done', !reconciled.includes('Needs you'));
+    check('no page errors during the journey', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '));
     ws.close();
 } catch (cause) {
     check('demo browser flow completed', false, cause instanceof Error ? cause.message : String(cause));

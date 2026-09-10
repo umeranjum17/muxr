@@ -64,7 +64,10 @@ class DemoClient implements MuxrTransport {
     private readonly eventListeners = new Set<EventListener>();
     private readonly stateListeners = new Set<StateListener>();
     private timers: ReturnType<typeof setTimeout>[] = [];
-    private closed = false;
+    // Generation, not a latch: close() retires in-flight work, but a later
+    // connect() always revives the singleton. A permanent closed flag here
+    // bricked the replay after any transport close, with no way back.
+    private generation = 0;
     private blockedPhase: BlockedPhase = 'blocked';
     private seq = 0;
     /** Mutable transcript buffers; the memory terminal channel reads these. */
@@ -80,7 +83,7 @@ class DemoClient implements MuxrTransport {
     }
 
     connect(): void {
-        if (this.closed || this.state === 'open' || this.state === 'connecting') return;
+        if (this.state === 'open' || this.state === 'connecting') return;
         this.setState('connecting');
         this.after(250, () => {
             this.setState('open');
@@ -89,7 +92,7 @@ class DemoClient implements MuxrTransport {
     }
 
     close(): void {
-        this.closed = true;
+        this.generation += 1;
         this.timers.forEach(clearTimeout);
         this.timers = [];
         this.setState('closed');
@@ -111,6 +114,7 @@ class DemoClient implements MuxrTransport {
 
     /** Full replay reset for the DemoBar reset action. */
     reset(): void {
+        this.generation += 1;
         this.timers.forEach(clearTimeout);
         this.timers = [];
         this.blockedPhase = 'blocked';
@@ -363,9 +367,9 @@ class DemoClient implements MuxrTransport {
     }
 
     private after(ms: number, work: () => void): void {
-        if (this.closed) return;
+        const generation = this.generation;
         this.timers.push(setTimeout(() => {
-            if (!this.closed) work();
+            if (generation === this.generation) work();
         }, ms));
     }
 }

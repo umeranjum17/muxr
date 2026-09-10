@@ -351,11 +351,15 @@ export default function RootLayout() {
     // The hidden flag plus cooldown collapse the pageshow + visibilitychange
     // echo into a single reconnect; already-visible events are ignored, so no
     // duplicate subscriptions or duplicate terminal commands can result.
+    // The demo replay owns no socket: a visibility resume there must never
+    // tear down the deterministic transport (closing the singleton used to
+    // brick the herd until reload).
     React.useEffect(() => {
-        if (initState?.credentials === undefined || Platform.OS !== 'web') return;
+        if (initState?.credentials === undefined || Platform.OS !== 'web' || isDemoTransport()) return;
         let hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
         let lastReconnect = 0;
         const onReturn = () => {
+            if (isDemoTransport()) return;
             if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
                 hidden = true;
                 return;
