@@ -250,6 +250,50 @@ try {
     check('no Bex card keeps Needs you', !bexSegments.some((segment) => segment.includes('Needs you')));
     check('agent reaches done', reconciled.includes('Done'));
     check('inbox reconciles after done', !reconciled.includes('Needs you'));
+
+    // Artifact journey on the done agent, through the shipped code-plugin
+    // contribution and the production file/diff view — no custom artifact
+    // component, no DemoBar shortcut.
+    const clickText = async (text) => journey.evaluate(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === ${JSON.stringify(text)})?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const clickControl = async (label) => journey.evaluate(`[...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === ${JSON.stringify(label)})?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const shadowText = () => journey.evaluate(`(() => {
+        const host = document.querySelector('diffs-container');
+        if (!host || !host.shadowRoot) return null;
+        return host.shadowRoot.textContent || '';
+    })()`);
+    await clickText('Add retry with backoff to sync');
+    await journey.waitFor('done session', (text) => text.includes('Add retry with backoff to sync') && text.includes('^C'));
+    await clickControl('Session actions');
+    // The row's visible text is the title; the accessibility label is not
+    // part of innerText. The menu itself is proven by its Stop agent row.
+    await journey.waitFor('changes control', (text) => text.includes('Stop agent') && text.includes('Changes'));
+    await clickControl('Open changed files');
+    await journey.waitFor('changed file', (text) => text.includes('sync.ts'));
+    await clickText('sync.ts');
+    // Pierre renders into shadow DOM (invisible to innerText): pierce it.
+    // The deterministic diff lands with the file content; poll both.
+    const diffVisible = await (async () => {
+        const started = Date.now();
+        for (;;) {
+            const shadow = await shadowText();
+            if (typeof shadow === 'string' && shadow.includes('resetReconnectBackoff')) return shadow;
+            if (Date.now() - started > 30000) return shadow;
+            await new Promise((r) => setTimeout(r, 500));
+        }
+    })();
+    check('production file view renders the recorded artifact', typeof diffVisible === 'string' && diffVisible.includes('resetReconnectBackoff'));
+    check('production diff view renders the recorded patch', typeof diffVisible === 'string' && diffVisible.includes('connect(): void'));
+    // Back correctly: file → session → herd, through the real controls.
+    await clickControl('Back');
+    await journey.waitFor('back to session', (text) => text.includes('^C'));
+    check('back from file lands on the session', true);
+    await clickControl('Back');
+    const herdAgain = await journey.waitFor('back to herd', (text) => text.includes('Demo replay') && text.includes('Add retry with backoff to sync'));
+    check('back from session lands on the herd', herdAgain.includes('Migrate billing to usage-based plans'));
+    // Restart restores the whole journey: Bex blocked again, replay intact.
+    await clickControl('Restart demo replay');
+    const restarted = await journey.waitFor('restart', (text) => text.includes('Needs you'), 30000);
+    check('restart restores the blocked agent', restarted.includes('Needs you'));
     check('no page errors during the journey', journey.pageErrors.length === 0, journey.pageErrors.slice(0, 3).join(' | '));
     journey.close();
 

@@ -13,6 +13,10 @@ import {
     DEMO_ARTIFACT_PATCH,
     DEMO_ARTIFACT_PATH,
     DEMO_ATTENTION,
+    DEMO_CHANGES_RESPONSE,
+    DEMO_CODE_MANIFEST,
+    DEMO_CODE_MANIFEST_HASH,
+    DEMO_CODE_SUMMARY,
     DEMO_CONTINUATION,
     DEMO_LIFECYCLE,
     DEMO_MACHINES,
@@ -184,12 +188,31 @@ class DemoClient implements MuxrTransport {
             case 'lifecycle.catalog':
                 return this.lifecycle();
             case 'plugin.list':
-                return [{ ...DEMO_PLUGIN_SUMMARY }];
-            case 'plugin.manifest':
-                if (p['pluginId'] !== 'muxr.terminal-keys' || p['manifestHash'] !== DEMO_PLUGIN_MANIFEST_HASH) {
-                    throw new Error('demo replay: unknown plugin snapshot');
+                return [{ ...DEMO_PLUGIN_SUMMARY }, { ...DEMO_CODE_SUMMARY }];
+            case 'plugin.manifest': {
+                if (p['pluginId'] === 'muxr.terminal-keys' && p['manifestHash'] === DEMO_PLUGIN_MANIFEST_HASH) {
+                    return DEMO_PLUGIN_MANIFEST;
                 }
-                return DEMO_PLUGIN_MANIFEST;
+                if (p['pluginId'] === 'muxr.code' && p['manifestHash'] === DEMO_CODE_MANIFEST_HASH) {
+                    return DEMO_CODE_MANIFEST;
+                }
+                throw new Error('demo replay: unknown plugin snapshot');
+            }
+            case 'plugin.call':
+            case 'plugin.invoke': {
+                // The one read RPC the recorded run exercises: the Changes
+                // item-list. Everything else fails closed, like production
+                // with an unavailable capability.
+                if (p['pluginId'] === 'muxr.code' && p['contributionId'] === 'changes.list') {
+                    const input = p['input'];
+                    const sessionId = typeof input === 'object' && input !== null
+                        ? String((input as Record<string, unknown>)['sessionId'] ?? '')
+                        : '';
+                    if (sessionId === DEMO_SESSION_DONE) return DEMO_CHANGES_RESPONSE;
+                    return { items: [], total: 0 };
+                }
+                throw new Error(`unsupported in demo replay: ${type} ${String(p['contributionId'] ?? '')}`);
+            }
             case 'session.prompt': {
                 const sessionId = String(p['sessionId'] ?? '');
                 const text = String(p['text'] ?? '');

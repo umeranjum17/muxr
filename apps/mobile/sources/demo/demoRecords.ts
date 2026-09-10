@@ -229,3 +229,71 @@ export const DEMO_PLUGIN_MANIFEST: PluginManifestV1 = {
             ],        },
     ],
 };
+
+/**
+ * The shipped muxr.code Files/Changes surface, retyped verbatim for the
+ * recorded run: the session.pills Changes item-list plus its changes.list
+ * read RPC. No other code contributions ship in the replay; their RPCs
+ * would fail closed like any unsupported call.
+ */
+export const DEMO_CODE_MANIFEST_HASH = 'demo-code-manifest-hash-1';
+
+export const DEMO_CODE_SUMMARY: PluginSummary = {
+    pluginId: 'muxr.code',
+    name: 'Code',
+    version: '0.1.0',
+    source: { kind: 'local' },
+    manifestHash: DEMO_CODE_MANIFEST_HASH,
+    approved: true,
+    capabilities: {},
+    hasBackend: false,
+    warnings: [],
+};
+
+export const DEMO_CODE_MANIFEST: PluginManifestV1 = {
+    schemaVersion: 1,
+    pluginId: 'muxr.code',
+    minMuxrVersion: 11,
+    // Parsed manifest shape, exactly as the host serves it after parsing
+    // muxr-ui.json params (mobile never sees the raw file).
+    contributions: [
+        {
+            slot: 'session.pills',
+            id: 'changes',
+            type: 'native',
+            primitive: 'item-list',
+            title: 'Changes',
+            icon: 'git-compare-outline',
+            accessibilityLabel: 'Open changed files',
+            source: {
+                type: 'plugin.call',
+                contributionId: 'changes.list',
+            },
+        },
+        {
+            slot: 'host.rpc',
+            id: 'changes.list',
+            type: 'rpc',
+            method: 'list',
+            entry: 'changes.mjs',
+            mode: 'read',
+        },
+    ],
+};
+
+/** The recorded working tree: what the real changes.mjs would report. */
+export const DEMO_CHANGES_RESPONSE = {
+    items: [
+        {
+            id: 'src/sync.ts',
+            title: 'sync.ts',
+            subtitle: 'src/sync.ts',
+            icon: 'git-compare-outline',
+            metadata: [
+                { value: '+8', tone: 'positive' },
+            ],
+            action: { type: 'kernel.navigate', target: 'file', path: 'src/sync.ts' },
+        },
+    ],
+    total: 1,
+};
