@@ -44,7 +44,8 @@ function muxrVersion(bin, args = ['version']) {
 }
 
 function whichMuxr() {
-    const probe = spawnSync(process.platform === 'win32' ? 'where' : 'command', ['-v', 'muxr'], { encoding: 'utf8', timeout: 10_000 });
+    // `command` is a shell builtin, not an executable: look it up through sh.
+    const probe = spawnSync('sh', ['-c', 'command -v muxr'], { encoding: 'utf8', timeout: 10_000 });
     const found = probe.status === 0 ? probe.stdout.trim().split('\n').pop()?.trim() : undefined;
     return found === '' ? undefined : found;
 }

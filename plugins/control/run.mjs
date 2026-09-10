@@ -90,7 +90,7 @@ function resolveRuntime() {
         if (version === recorded.version) return recorded.bin;
         process.stderr.write(`muxr control: recorded runtime ${recorded.bin} reports ${version ?? 'nothing'} (expected ${recorded.version}); falling back to PATH\n`);
     }
-    const probe = spawnSync(process.platform === 'win32' ? 'where' : 'command', ['-v', 'muxr'], { encoding: 'utf8', timeout: 10_000 });
+    const probe = spawnSync('sh', ['-c', 'command -v muxr'], { encoding: 'utf8', timeout: 10_000 });
     const onPath = probe.status === 0 ? probe.stdout.trim().split('\n').pop()?.trim() : undefined;
     if (onPath === undefined || onPath === '') throw new Error('no muxr runtime: rerun `herdr plugin install muxr` (or set MUXR_BIN to a dev checkout CLI)');
     if (typeof recorded?.version === 'string' && muxrVersion(onPath) !== recorded.version) {
