@@ -90,7 +90,10 @@ function NotAuthenticated() {
                 </View>
                 <View style={[styles.actions, { paddingBottom: insets.bottom + 24 }]}>
                     {Platform.OS === 'web' ? (
-                        <ActionButton title="Enter pairing string" icon="keypad-outline" action={() => promptForPairingString('Enter pairing string')} />
+                        <>
+                            <ActionButton title="Enter pairing string" icon="keypad-outline" action={() => promptForPairingString('Enter pairing string')} />
+                            <ActionButton variant="secondary" title="Try interactive demo" icon="play-circle-outline" onPress={() => router.push('/demo')} />
+                        </>
                     ) : (
                         <>
                             <ActionButton title="Scan QR to pair" icon="qr-code-outline" action={scanHostedQr} />

@@ -133,9 +133,9 @@ muxr
 
 Then install the mobile companion:
 
+- **Web (fastest first contact):** open the in-app **Try interactive demo** replay, then run the install command below and `muxr` — first setup pairs your browser first, no phone required; see `docs/decisions/0006-pwa-primary-acquisition.md`
 - **Android:** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the latest signed APK](https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest/download/SHA256SUMS)
 - **iOS:** [open the public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) — 0.1.24 (build 45); Apple is not accepting new testers right now
-- **Web:** install the PWA from your own host and pair an eight-hour browser (control or view-only) — the fastest first contact; see `docs/decisions/0006-pwa-primary-acquisition.md`
 - **All builds:** [muxr 0.1.25 release](https://github.com/umeranjum17/muxr/releases/tag/v0.1.25)
 
 Verify a downloaded APK with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`. Setup explains one recommended route—the healthy current route, Tailscale, an existing private network, an installed temporary tunnel, or same Wi-Fi—and changes nothing until **Apply setup**. Scan the one-use QR from the phone when it is ready.
