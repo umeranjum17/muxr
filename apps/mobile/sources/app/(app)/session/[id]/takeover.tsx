@@ -9,7 +9,7 @@ import { Modal } from '@/modal';
 import { machineBash } from '@/catalog/ops';
 import { useSession, useSocketStatus } from '@/catalog/store';
 import { mapDisplayToInput, type Size, type StreamFrameMetadata } from '@/takeover';
-import { codeForKey, keyMessage, openTakeover, parseStreamFrame, touchMessage } from '@/takeover';
+import { codeForKey, isTakeoverConflict, keyMessage, openTakeover, parseStreamFrame, touchMessage } from '@/takeover';
 
 function selectedPort(value: string | undefined): number | undefined {
     if (value === undefined || !/^\d{1,5}$/.test(value)) return undefined;
@@ -47,6 +47,7 @@ export default function TakeoverScreen() {
     const [keyboardOpen, setKeyboardOpen] = React.useState(false);
     const [typed, setTyped] = React.useState('');
     const [portDraft, setPortDraft] = React.useState('');
+    const [watching, setWatching] = React.useState(false);
     const socketRef = React.useRef<WebSocket | null>(null);
     const closeTunnelRef = React.useRef<(() => void) | null>(null);
     // Browser stream sender: set while a WebSocket-over-multiplex session is
@@ -61,12 +62,14 @@ export default function TakeoverScreen() {
     const agentBrowser = sessionFlag === undefined ? 'agent-browser' : `agent-browser --session ${sessionFlag}`;
 
     const send = React.useCallback((message: string) => {
+        // Watchers are read-only host-side too; dropping here keeps the UI honest.
+        if (watching) return;
         if (streamSendRef.current !== null) {
             streamSendRef.current(message);
             return;
         }
         if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(message);
-    }, []);
+    }, [watching]);
 
     const disconnect = React.useCallback(() => {
         socketRef.current?.close();
@@ -78,14 +81,15 @@ export default function TakeoverScreen() {
 
     // Refcounted stream lifecycle: the screen enables on mount and disables on
     // unmount, so the screencast never outlives its last watcher.
-    const connect = React.useCallback(async (streamPort: number) => {
+    const connect = React.useCallback(async (streamPort: number, mode: 'observe' | 'control' = 'control') => {
         disconnect();
         setConnecting(true);
         setError(null);
+        setWatching(mode === 'observe');
         try {
             await machineBash('', `${agentBrowser} stream enable --port ${streamPort}`, cwd);
             streamRef.current = { command: agentBrowser, cwd };
-            const opened = await openTakeover({ port: streamPort });
+            const opened = await openTakeover({ port: streamPort, mode });
             closeTunnelRef.current = opened.close;
             if (opened.stream !== undefined) {
                 // Browser: frames and input ride the sealed preview channel;
@@ -119,6 +123,17 @@ export default function TakeoverScreen() {
             };
         } catch (cause: unknown) {
             disconnect();
+            if (mode === 'control' && isTakeoverConflict(cause)) {
+                const watch = await Modal.confirm(
+                    'Another device is controlling this browser',
+                    'Only one device drives the stream. Watch read-only instead?',
+                    { confirmText: 'Watch' },
+                );
+                if (watch) {
+                    await connect(streamPort, 'observe');
+                    return;
+                }
+            }
             setError(cause instanceof Error ? cause.message : String(cause));
         } finally {
             setConnecting(false);
@@ -193,10 +208,14 @@ export default function TakeoverScreen() {
 
     const toolbar = (
         <View style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: theme.colors.surface }}>
-            <Pressable onPress={toggleKeyboard} hitSlop={10} accessibilityRole="button" accessibilityLabel="Toggle keyboard" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name={keyboardOpen ? 'keypad' : 'keypad-outline'} size={20} color={theme.colors.text} />
-                <Text style={{ ...Typography.default(), color: theme.colors.text }}>Type</Text>
-            </Pressable>
+            {watching ? (
+                <Text style={{ ...Typography.default(), color: theme.colors.textSecondary }}>Watching — read-only</Text>
+            ) : (
+                <Pressable onPress={toggleKeyboard} hitSlop={10} accessibilityRole="button" accessibilityLabel="Toggle keyboard" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name={keyboardOpen ? 'keypad' : 'keypad-outline'} size={20} color={theme.colors.text} />
+                    <Text style={{ ...Typography.default(), color: theme.colors.text }}>Type</Text>
+                </Pressable>
+            )}
             <View style={{ flex: 1 }} />
             <Pressable onPress={() => void saveState()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Save browser login" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Ionicons name="key-outline" size={20} color={theme.colors.text} />

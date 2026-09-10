@@ -461,8 +461,12 @@ export interface RequestMap extends PeerRequestMap {
      * Ask the host to join `channel` and forward it to `port`. Native callers
      * send a per-preview key through this encrypted request; local legacy web
      * preview may omit it because the browser cannot decrypt a raw TCP listener.
+     *
+     * Takeover callers claim `mode`: exactly one `control` holder per port may
+     * send input, while `observe` watchers receive frames read-only. Callers
+     * that omit it (dev-server previews) share the port as before.
      */
-    'preview.attach': { params: { channel: string; port: number; key?: string }; result: null };
+    'preview.attach': { params: { channel: string; port: number; key?: string; mode?: 'observe' | 'control' }; result: null };
 
     // --- worktrees ----------------------------------------------------------
     /**

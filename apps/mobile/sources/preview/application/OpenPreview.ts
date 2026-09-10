@@ -76,14 +76,17 @@ function waitForRelay(socket: WebSocket, type: string): Promise<void> {
  * socket -- HTTP for previews, a WebSocket for the takeover stream -- can
  * ride the same tunnel.
  */
-export async function attachPreviewTunnel(port: number, options?: { rawTcp?: boolean; wsStream?: boolean }): Promise<PreviewTunnel> {
+export async function attachPreviewTunnel(port: number, options?: { rawTcp?: boolean; wsStream?: boolean; mode?: 'observe' | 'control' }): Promise<PreviewTunnel> {
     const { previewBridgeAvailable, startPreviewBridge } = await import('../infrastructure/previewBridge');
-    // The takeover stream is a raw WebSocket over TCP, not HTTP: it always
-    // needs the byte tunnel, never the web HTTP bridge.
+    // The raw-TCP takeover stream needs the byte tunnel, never the web HTTP
+    // bridge; the wsStream takeover variant speaks over sealed frames instead.
     const bridgeAvailable = options?.rawTcp === true ? false : previewBridgeAvailable;
     const settings = getCachedConnectionSettings();
     if (!bridgeAvailable && settings.mode !== 'local') {
-        throw new Error('Browser preview needs the muxr app on this platform.');
+        throw new Error(
+            'Browser preview needs a secure context with service workers (https or localhost). '
+            + 'Open this page over https, or use the Android/iOS app.',
+        );
     }
     const hostname = relayHostname(settings.relayUrl);
     if (hostname === undefined) {
@@ -94,7 +97,13 @@ export async function attachPreviewTunnel(port: number, options?: { rawTcp?: boo
     const key = bridgeAvailable ? newPreviewKey() : undefined;
     // The per-preview key crosses inside the existing E2EE request. The relay
     // sees connection ids for multiplexing, never the frontend bytes.
-    await sync.request('preview.attach', { channel, port, ...(key === undefined ? {} : { key }) });
+    // Takeover callers claim a mode so the host arbitrates control.
+    await sync.request('preview.attach', {
+        channel,
+        port,
+        ...(key === undefined ? {} : { key }),
+        ...(options?.mode === undefined ? {} : { mode: options.mode }),
+    });
 
     if (settings.token === '' || settings.token.startsWith('acctok_')) {
         throw new Error('preview: relay ticket required');

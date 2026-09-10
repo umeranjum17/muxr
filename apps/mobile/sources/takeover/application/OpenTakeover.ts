@@ -87,15 +87,21 @@ export interface TakeoverStream {
     close: () => void;
 }
 
-export type OpenTakeoverCommand = { port: number };
+export type OpenTakeoverCommand = { port: number; mode?: 'observe' | 'control' };
+
+/** The host rejects a second controller while one holds the stream. */
+export function isTakeoverConflict(error: unknown): boolean {
+    return error instanceof Error && error.message.includes('controlled by another device');
+}
 
 export async function openTakeover(command: OpenTakeoverCommand): Promise<OpenTakeover> {
+    const mode = command.mode ?? 'control';
     // Native always takes the raw-TCP tunnel with a real loopback listener.
     // A browser with a service-worker-capable secure context instead drives
     // the agent-browser WebSocket over sealed preview frames; anywhere else
     // the legacy relay-side port keeps working through a plain WebSocket.
     if (typeof window !== 'undefined' && previewBridgeAvailable) {
-        const tunnel = await attachPreviewTunnel(command.port, { wsStream: true });
+        const tunnel = await attachPreviewTunnel(command.port, { wsStream: true, mode });
         if (tunnel.wsChannel === undefined) throw new Error('The takeover stream is unavailable in this browser.');
         const ws = createTakeoverWs(tunnel.wsChannel);
         await ws.connect();
@@ -116,7 +122,7 @@ export async function openTakeover(command: OpenTakeoverCommand): Promise<OpenTa
             },
         };
     }
-    const tunnel = await attachPreviewTunnel(command.port, { rawTcp: true });
+    const tunnel = await attachPreviewTunnel(command.port, { rawTcp: true, mode });
     // Always ws: the tunnel carries raw TCP with no TLS in front of it.
     return {
         wsUrl: `ws://${tunnel.hostname}:${tunnel.port}/`,
