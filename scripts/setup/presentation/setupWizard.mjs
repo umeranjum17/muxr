@@ -466,10 +466,12 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     ];
     let pairing;
     if (firstRun) {
-        // First setup pairs phone + browser together when web is on — no
-        // either/or fork. Each grant stays individually minted, scoped, and
-        // revocable via `muxr devices`; minting happens behind Apply.
-        pairing = web ? 'both' : 'phone';
+        // Browser-first when web is on: the PWA is the primary acquisition
+        // surface and new iOS users cannot reach TestFlight, so first run
+        // must not block on native pairing. One grant, one pending session —
+        // no parallel pair-session machinery. The native app stays optional
+        // via `muxr pair` afterwards.
+        pairing = web ? 'browser' : 'phone';
     } else {
         setupStep(2, stepsTotal, 'Choose what to pair');
         // Phone QR and browser link are minted together (not either/or): when
@@ -630,7 +632,7 @@ export async function applyMachineSetup(args = []) {
     const plugins = current === undefined ? [] : await choosePlugins();
     if (plugins === undefined) return cancelSetup();
 
-    setupStep(4, stepsTotal, 'Review setup');
+    setupStep(2, stepsTotal, 'Review setup');
     const operatorPreview = formatOperatorConfig({
         connection: plan.mode,
         relayPort: plan.port,
@@ -698,8 +700,11 @@ export async function applyMachineSetup(args = []) {
     if (doctor !== 0) return doctor;
     const summary = await selfhostPublicSummary();
     setupStep(stepsTotal, stepsTotal, 'Setup complete');
+    let hostLineSuffix = '';
+    if (pairing === 'none') hostLineSuffix = ' Pair with `muxr pair` when ready.';
+    if (pairing === 'browser') hostLineSuffix = ' This browser is paired; add the native app later with `muxr pair`.';
     note([
-        `Your host runs here. Phones reach it over ${relayKind(mode)}.${pairing === 'none' ? ' Pair with `muxr pair` when ready.' : ''}`,
+        `Your host runs here. Phones reach it over ${relayKind(mode)}.${hostLineSuffix}`,
         `Connection: ${connectionLabel(mode, endpoint, port)}`,
         'Relay location: this machine',
         `Relay URL: ${summary?.relayUrl ?? 'unavailable'}`,
@@ -717,11 +722,12 @@ export async function applyMachineSetup(args = []) {
         'Configuration: ~/.muxr (owner-only)',
     ]);
     const partial = browserPairFailed || pluginResult.failed.length > 0;
+    let farewell = 'Paired. Open muxr on your phone, or run `muxr` anytime to change these choices.';
+    if (pairing === 'none') farewell = 'Setup updated. Existing devices will reconnect automatically.';
+    if (pairing === 'browser') farewell = 'Paired in this browser. Run `muxr pair` anytime to add the native app, or `muxr` to change these choices.';
     outro(partial
         ? 'Core setup is ready, but one or more optional steps need attention.'
-        : pairing === 'none'
-            ? 'Setup updated. Existing devices will reconnect automatically.'
-            : 'Paired. Open muxr on your phone, or run `muxr` anytime to change these choices.', partial ? 'warn' : 'ok');
+        : farewell, partial ? 'warn' : 'ok');
     completeFullscreen();
     return partial ? 1 : 0;
     });

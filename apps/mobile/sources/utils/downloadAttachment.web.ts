@@ -42,9 +42,11 @@ interface FileSystemFileHandle {
 function saveFilePicker(): undefined | ((options?: { suggestedName?: string }) => Promise<FileSystemFileHandle>) {
     if (typeof window === 'undefined') return undefined;
     const picker = (window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker;
-    return typeof picker === 'function'
-        ? picker as (options?: { suggestedName?: string }) => Promise<FileSystemFileHandle>
-        : undefined;
+    if (typeof picker !== 'function') return undefined;
+    const bound = picker as (this: Window, options?: { suggestedName?: string }) => Promise<FileSystemFileHandle>;
+    // Call with the Window receiver: extracting the WebIDL method loses it
+    // and Chrome throws Illegal invocation.
+    return (options?: { suggestedName?: string }) => bound.call(window, options);
 }
 
 async function readChunk(sessionId: string, attachmentId: string, offset: number): Promise<{ id: string; size: number; bytes: Uint8Array }> {

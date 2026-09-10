@@ -73,10 +73,11 @@ for (const file of ['public/sw.js', 'public/manifest.webmanifest', 'sources/app/
 const deploy = read(join(root, 'scripts', 'deployWebExport.sh'));
 check('deploy uses the credential-free selfhost export', deploy.includes('web:export:selfhost'));
 check('deploy does not bake marketing origin', deploy.includes('-u MUXR_PUBLIC_BASE_URL') || read(join(root, 'package.json')).includes('"web:export:selfhost": "npm run web:export"'));
-const rsyncAt = deploy.indexOf('rsync -a');
+const mergeAt = deploy.indexOf('Fingerprinted assets first');
 const entriesAt = deploy.indexOf('Mutable entries last');
-check('deploy syncs assets before replacing entries', rsyncAt !== -1 && entriesAt !== -1 && rsyncAt < entriesAt);
-check('deploy never deletes the live root', !deploy.includes('--delete') && !deploy.includes('mv "$DOC_ROOT"'));
+check('deploy merges assets before replacing entries', mergeAt !== -1 && entriesAt !== -1 && mergeAt < entriesAt);
+check('deploy needs no rsync and never deletes the live root', !/^rsync /m.test(deploy) && !deploy.includes('--delete') && !deploy.includes('mv "$DOC_ROOT"'));
+check('deploy stages entries as doc-root siblings then renames', deploy.includes('.new-$$') && deploy.includes('mv "$tmp" "$DOC_ROOT/$entry"'));
 check('deploy prunes only aged orphans', deploy.includes('-mtime') && deploy.includes('PRUNE_DAYS'));
 
 // 5. Unhashed entry payload: icons + manifest + worker stay small. This is

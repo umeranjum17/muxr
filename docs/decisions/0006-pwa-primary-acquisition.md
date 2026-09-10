@@ -43,9 +43,11 @@ preview/takeover, and other native-only features.
    the Review/Open buttons) open the blocked request, where approval runs
    under the real device grant. Synthetic relay answers stay rejected with
    E2EE on (HTTP 410).
-5. **Funnel order.** When web hosting is on, setup pairs phone and browser
-   together (no either/or fork); the owner's own browser is a first-class
-   first contact. Install is never prompted on the public demo origin.
+5. **Funnel order.** When web hosting is on, first run pairs the control
+   browser first — the PWA is the acquisition surface and must not block on
+   native pairing (new iOS users cannot reach TestFlight). The native app
+   stays optional via `muxr pair` afterwards. Install is never prompted on
+   the public demo origin.
 
 ## Failure cases
 

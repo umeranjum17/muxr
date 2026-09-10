@@ -2,11 +2,13 @@
 # Export the paired browser client and update the served document root
 # without ever taking it offline or orphaning already-loaded pages.
 #
-# Strategy: fingerprinted (content-hashed) assets sync first with no
-# deletion, then each mutable entry file is renamed over last — renames are
-# atomic, so a browser always reads the old or the new entry, never a mix.
-# Old hashed assets stay until they age out, so HTML loaded before the
-# deploy keeps resolving its chunks.
+# Strategy: fingerprinted (content-hashed) assets merge first with plain cp
+# (no deletion, no rsync requirement), then each mutable entry file is
+# copied to a temporary sibling inside DOC_ROOT and renamed over the live
+# entry. The temp file and the live entry share a directory, so they share
+# a filesystem and the rename is atomic: a browser always reads the old or
+# the new entry, never a mix. Old hashed assets stay until they age out, so
+# HTML loaded before the deploy keeps resolving its chunks.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,15 +29,26 @@ DIST="$ROOT/apps/mobile/dist"
 mkdir -p "$DOC_ROOT"
 
 # 1. Fingerprinted assets first (everything except the mutable entries).
-# No deletion: old hashed assets stay so already-loaded pages keep working.
-rsync -a \
-    $(printf -- '--exclude=%s ' $ENTRIES) \
-    "$DIST/" "$DOC_ROOT/"
+# Plain cp merge, no deletion: old hashed assets stay so already-loaded
+# pages keep working.
+cd "$DIST"
+find . -type f -print0 | while IFS= read -r -d '' src; do
+    case "$src" in
+        ./index.html|./sw.js|./manifest.webmanifest|./install.sh) continue ;;
+    esac
+    dest="$DOC_ROOT/${src#./}"
+    mkdir -p "$(dirname "$dest")"
+    cp "$src" "$dest"
+done
+cd "$ROOT"
 
-# 2. Mutable entries last, one atomic rename each.
+# 2. Mutable entries last: stage to a temporary sibling inside DOC_ROOT,
+# then rename the sibling over the live entry (same directory, atomic).
 for entry in $ENTRIES; do
     if [ -f "$DIST/$entry" ]; then
-        mv "$DIST/$entry" "$DOC_ROOT/$entry"
+        tmp="$DOC_ROOT/$entry.new-$$"
+        cp "$DIST/$entry" "$tmp"
+        mv "$tmp" "$DOC_ROOT/$entry"
     fi
 done
 
