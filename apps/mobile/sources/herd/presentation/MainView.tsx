@@ -409,7 +409,13 @@ export const MainView = React.memo(() => {
     // NOTE: Zen tab removed - the feature never got to a useful state
     const [searchQuery, setSearchQuery] = React.useState('');
     const [searchActive, setSearchActive] = React.useState(false);
-    const [homePrompt, setHomePrompt] = React.useState('');
+    const [homePrompt, setHomePrompt] = React.useState(() => useNewSessionDraft.getState().input);
+    // The draft store (not this component state) owns the prompt, so text
+    // survives the compact/split remount across the 900px breakpoint.
+    const handleHomePromptChange = React.useCallback((value: string) => {
+        setHomePrompt(value);
+        useNewSessionDraft.getState().setInput(value);
+    }, []);
     const [headerBackdropVisible, setHeaderBackdropVisible] = React.useState(false);
     const headerBackdropVisibleRef = React.useRef(false);
     const topContentInset = safeArea.top
@@ -548,7 +554,7 @@ export const MainView = React.memo(() => {
                 {!searchActive && (
                     <HomeDock
                         prompt={homePrompt}
-                        onPromptChange={setHomePrompt}
+                            onPromptChange={handleHomePromptChange}
                         onSubmit={handleHomePromptSubmit}
                         onStartBlank={handleStartBlankSession}
                         isSubmitting={isStartingHomeSession}

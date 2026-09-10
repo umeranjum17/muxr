@@ -170,7 +170,7 @@ try {
     await journey.hideAndShow();
     const herdText = await journey.waitFor('herd', (text) => text.includes('Rebase release branch onto main'));
     check('demo shows the working agent', herdText.includes('Migrate billing to usage-based plans'));
-    check('demo shows the blocked agent', true);
+    check('demo shows the blocked agent', herdText.includes('Rebase release branch onto main') && herdText.includes('Needs you'));
     check('demo shows the done agent', herdText.includes('Add retry with backoff to sync'));
     check('demo shows inbox attention', herdText.includes('Needs you'));
     check('demo bar marks the replay', herdText.includes('Demo replay'));
@@ -290,7 +290,7 @@ try {
     // Back correctly: file → session → herd, through the real controls.
     await clickControl('Back');
     await journey.waitFor('back to session', (text) => text.includes('^C'));
-    check('back from file lands on the session', true);
+    check('back from file lands on the session', (await journey.evaluate('window.location.pathname')).startsWith('/session/'));
     await clickControl('Back');
     const herdAgain = await journey.waitFor('back to herd', (text) => text.includes('Demo replay') && text.includes('Add retry with backoff to sync'));
     check('back from session lands on the herd', herdAgain.includes('Migrate billing to usage-based plans'));
@@ -418,10 +418,45 @@ try {
             await new Promise((r) => setTimeout(r, 500));
         }
     };
+    // parityWaitFor only polls text: state predicates need their own poller.
+    // (An async predicate is always truthy and would pass vacuously.)
+    const parityWaitForState = async (label, poll, timeoutMs = 20000) => {
+        const started = Date.now();
+        for (;;) {
+            const value = await poll();
+            if (value) return value;
+            if (Date.now() - started > timeoutMs) throw new Error(`timed out waiting for ${label}`);
+            await new Promise((r) => setTimeout(r, 400));
+        }
+    };
     const noOverflow = () => parityEval('document.documentElement.scrollWidth <= window.innerWidth + 1');
     // The collapsed dock entry renders placeholder text (not an input); the
     // focused composer renders the real textarea.
-    const dockPresent = () => parityEval(`[...document.querySelectorAll('*')].some((el) => el.children.length === 0 && el.innerText === 'Plan, ask, build…')`);
+    // Test-id entry handle: placeholder text hides once a draft exists.
+    const dockEntryPresent = () => parityEval(`!!document.querySelector('[data-testid="home-dock-entry"]')`);
+    const clickDockEntry = () => parityEval(`document.querySelector('[data-testid="home-dock-entry"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const parityClickText = (text) => parityEval(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === ${JSON.stringify(text)})?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const parityClickLabel = (label) => parityEval(`[...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === ${JSON.stringify(label)})?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const pathname = () => parityEval('window.location.pathname');
+    const waitPath = async (prefix, timeoutMs = 20000) => {
+        const started = Date.now();
+        for (;;) {
+            const path = await pathname();
+            if (path.startsWith(prefix)) return path;
+            if (Date.now() - started > timeoutMs) throw new Error(`timed out waiting for route ${prefix} (at ${path})`);
+            await new Promise((r) => setTimeout(r, 500));
+        }
+    };
+    const testid = (id) => parityEval(`!!document.querySelector('[data-testid="${id}"]')`);
+    const pressKey = async (key, code, keyCode) => {
+        await paritySend('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: keyCode });
+        await paritySend('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: keyCode });
+    };
+    const activeElementLabel = () => parityEval(`(() => {
+        const el = document.activeElement;
+        if (!el || el === document.body) return 'body';
+        return el.getAttribute && (el.getAttribute('aria-label') || el.innerText || el.tagName) || el.tagName;
+    })()`);
 
     // 390: native phone composition, no tab bar, no primary +.
     await parityShot('parity-390-demo', 390, 844, '/demo');
@@ -430,19 +465,90 @@ try {
     check('compact has no bottom tab bar', !await parityEval('!!document.querySelector(\'[role="tablist"], [role="tab"]\')'));
     check('compact search and settings controls present', await parityEval(`!![...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === 'Search')`) && await parityEval(`!![...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === 'Settings')`));
     check('compact has no primary new-agent plus', !await parityEval(`!![...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === 'New agent')`));
-    check('compact HomeDock entry present', await dockPresent());
+    check('compact HomeDock entry present', await dockEntryPresent());
+    check('compact dock entry is named', await parityEval(`!![...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === 'Start an agent')`));
     check('compact has no horizontal overflow', await noOverflow());
+    check('compact nav row exposes production chips', await testid('phone-nav-row')
+        && herd390.includes('Machine') && herd390.includes('Usage') && herd390.includes('Inbox') && herd390.includes('Files') && herd390.includes('Ports'));
+    check('compact thumbnails carry no raw ANSI', !herd390.includes('\x1b'));
+    check('compact inbox badge counts attention', herd390.includes('Needs you'));
+
+    // Chips navigate through the real plugin routes and back.
+    const chipJourneys = [
+        { chip: 'Usage', marker: 'Tokens' },
+        { chip: 'Inbox', marker: 'Needs approval' },
+        { chip: 'Files', marker: 'Repositories' },
+        { chip: 'Ports', marker: 'Nothing listening' },
+    ];
+    for (const journey of chipJourneys) {
+        await parityClickText(journey.chip);
+        await waitPath('/plugin');
+        const content = await parityWaitFor(`${journey.chip} content`, (text) => text.includes(journey.marker), 20000);
+        check(`${journey.chip} chip opens its plugin destination`, content.includes(journey.marker));
+        await parityEval('window.history.back()');
+        await parityWaitFor('back to herd', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('SPACES'));
+    }
+    check('browser back leaves every plugin destination', (await pathname()) === '/demo');
 
     // Focus reveals the progressive config; a typed prompt sends. The rows
     // show icon + value (labels live in accessibility names, as on native).
-    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Plan, ask, build…')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await clickDockEntry();
     const focusText = await parityWaitFor('focus config', (text) => text.includes('No worktree') && text.includes('Start '));
     check('focus reveals agent/project/worktree config', focusText.includes('No worktree') && focusText.includes('Start '));
+    check('focus composer is marked', await testid('focus-composer'));
+
+    // Browser back with focus open closes the modal without leaving the route.
+    await parityEval('window.history.back()');
+    await parityWaitFor('focus closed by history', (text) => !text.includes('No worktree'), 15000);
+    check('history back closes focus mode on the herd', (await pathname()) === '/demo');
+
+    // Gear menu keyboard journey: initial focus, arrows, select, restore.
+    await clickDockEntry();
+    await parityWaitFor('refocus config', (text) => text.includes('No worktree'));
+    await parityClickLabel('Composer options');
+    await parityWaitFor('menu opens', (text) => text.includes('Shell'));
+    await parityWaitForState('menu initial focus', async () => (
+        await parityEval(`(() => { const el = document.activeElement; return el && el.getAttribute && el.getAttribute('role') === 'radio'; })()`)
+    ));
+    check('menu opens with focus on an option', true);
+    const optionBefore = await parityEval(`(document.activeElement && document.activeElement.innerText || '').slice(0, 40)`);
+    await pressKey('ArrowDown', 'ArrowDown', 40);
+    await new Promise((r) => setTimeout(r, 800));
+    const optionAfter = await parityEval(`(document.activeElement && document.activeElement.innerText || '').slice(0, 40)`);
+    check('arrow keys move within the menu', optionBefore !== '' && optionAfter !== '' && optionBefore !== optionAfter, `${optionBefore} -> ${optionAfter}`);
+    await pressKey('Enter', 'Enter', 13);
+    await parityWaitForState('menu selects', async () => !(await parityEval(`!!document.querySelector('[role="menu"]')`)), 15000);
+    await parityWaitForState('trigger focus restored', async () => (
+        await parityEval(`(() => { const el = document.activeElement; return el && el.getAttribute && el.getAttribute('aria-label'); })()`)
+    ) === 'Composer options', 15000);
+    check('enter selects and restores trigger focus', true);
+
+    // A typed prompt sends through the real session.start fixture: the new
+    // session route loads with the requested configuration. Any agent kind
+    // works (the menu journey above may reselect); the title names it.
+    // Type and send in separate tasks with a draft assertion between: React
+    // flushes the draft on the input event, and the send must observe it.
+    const typePrompt = async (text) => {
+        await parityEval(`(() => {
+            const box = [...document.querySelectorAll('textarea')].find((el) => el.offsetParent !== null)
+                ?? [...document.querySelectorAll('input')].find((el) => el.placeholder && el.offsetParent !== null);
+            if (!box) return;
+            Object.getOwnPropertyDescriptor(box.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(box, ${JSON.stringify(text)});
+            box.dispatchEvent(new Event('input', { bubbles: true }));
+        })()`);
+        await parityWaitFor('draft arrives', (visible) => visible.includes(text), 15000);
+        // State proof, not just DOM: the focused Send enables only when the
+        // draft (not the DOM value) is non-empty.
+        await parityWaitForState('send enables on draft', async () => await parityEval(`(() => {
+            const sendButtons = [...document.querySelectorAll('*')].filter((el) => el.getAttribute && el.getAttribute('aria-label') === 'Send' && el.offsetParent !== null);
+            const sendButton = sendButtons[sendButtons.length - 1];
+            return !!sendButton && sendButton.getAttribute('aria-disabled') !== 'true';
+        })()`), 15000);
+    };
+    await clickDockEntry();
+    await parityWaitFor('focus for send', (text) => text.includes('No worktree'));
+    await typePrompt('parity spawn probe');
     const sent = await parityEval(`(() => {
-        const box = [...document.querySelectorAll('textarea, input')].find((el) => el.placeholder && el.placeholder.startsWith('Ask ') && el.offsetParent !== null);
-        if (!box) return 'missing';
-        Object.getOwnPropertyDescriptor(box.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(box, 'compact parity probe');
-        box.dispatchEvent(new Event('input', { bubbles: true }));
         // The collapsed dock hides behind the focus modal but stays laid
         // out: take the last visible Send, which is the focused one.
         const sendButtons = [...document.querySelectorAll('*')].filter((el) => el.getAttribute && el.getAttribute('aria-label') === 'Send' && el.offsetParent !== null);
@@ -451,50 +557,133 @@ try {
         sendButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         return 'sent';
     })()`);
-    check('compact focus send starts a session', sent === 'sent');
-    // Submit dismisses focus mode immediately (demo records cannot spawn a
-    // session; production navigates to it through the same handler).
-    await parityWaitFor('submit dismisses', (text) => !text.includes('No worktree'), 15000);
-    check('send submits and dismisses focus', true);
-    // Browser back works for session and settings through real history.
-    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Migrate billing to usage-based plans')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
-    await parityWaitFor('demo session', (text) => text.includes('^C'));
+    check('compact focus send submits', sent === 'sent', sent);
+    let createdPath = '/demo';
+    try {
+        createdPath = await waitPath('/session/demo-session-created');
+    } catch (error) {
+        const diag = await parityEval(`(() => {
+            const text = document.body.innerText;
+            const sendBtns = [...document.querySelectorAll('*')].filter((el) => el.getAttribute && el.getAttribute('aria-label') === 'Send');
+            return JSON.stringify({
+                path: window.location.pathname,
+                modal: (text.match(/.{0,60}(Please select a machine|could not start|Try again|Machine is offline|worktree.{0,40}failed|not scripted).{0,60}/) || [null])[0],
+                sends: sendBtns.map((b) => b.getAttribute('aria-disabled')).join(','),
+                menuOpen: !!document.querySelector('[role="menu"]'),
+            });
+        })()`);
+        throw new Error(`no created session: ${diag} (${error instanceof Error ? error.message : String(error)})`);
+    }
+    // The prompt itself paints on canvas (screenshot evidence below); the DOM
+    // carries the deterministic title for the requested kind.
+    const createdTitle = await parityWaitFor('created session title', (text) => /New (pi|shell|claude|codex|opencode|gemini|grok) session/i.test(text), 20000);
+    check('spawned session shows the requested configuration', /New (pi|shell|claude|codex|opencode|gemini|grok) session/i.test(createdTitle));
     await parityEval('window.history.back()');
-    await parityWaitFor('back to herd', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('SPACES'));
-    check('browser back leaves the session for the herd', true);
-    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === 'Settings')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await parityWaitFor('back to herd after spawn', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('SPACES'));
+
+    // Live resize across the breakpoint: the typed draft survives, no ghost
+    // modal, no duplicate submission surface.
+    await clickDockEntry();
+    await parityWaitFor('focus for resize probe', (text) => text.includes('No worktree'));
+    await typePrompt('resize survival probe');
+    await pressKey('Escape', 'Escape', 27);
+    await parityWaitFor('escape keeps the draft', (text) => !text.includes('No worktree'), 15000);
+    await paritySend('Emulation.setDeviceMetricsOverride', { width: 901, height: 1024, deviceScaleFactor: 2, mobile: false });
+    await new Promise((r) => setTimeout(r, 2500));
+    await paritySend('Emulation.setDeviceMetricsOverride', { width: 899, height: 1024, deviceScaleFactor: 2, mobile: true });
+    // Poll: dimension propagation + re-render under load takes longer than
+    // the emulation round trip.
+    const resizedText = await parityWaitFor('resized draft', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('resize survival probe'), 30000);
+    check('prompt survives 899-901-899 live resize', resizedText.includes('resize survival probe'));
+    check('no ghost focus modal after resize', !(await testid('focus-composer')));
+
+    // Compact session keeps the production chrome; the terminal paints on
+    // canvas, so the shot is the CRLF evidence alongside the canvas check.
+    await parityClickText('Rebase release branch onto main');
+    await parityWaitFor('demo session', (text) => text.includes('^C'));
+    const canvasBox = await parityEval(`(() => { const c = document.querySelector('canvas'); if (!c) return null; const r = c.getBoundingClientRect(); return { w: r.width, h: r.height }; })()`);
+    check('session terminal canvas paints', canvasBox !== null && canvasBox.w > 100 && canvasBox.h > 100, JSON.stringify(canvasBox));
+    await paritySend('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+    await paritySend('Page.captureScreenshot', { format: 'jpeg', quality: 70 }).then((shot) => {
+        if (attachmentsDir) {
+            writeFileSync(`${attachmentsDir}/parity-390-session.jpg`, Buffer.from(shot.result.data, 'base64'));
+            process.stdout.write(`shot ${attachmentsDir}/parity-390-session.jpg\n`);
+        }
+    });
+    await parityEval('window.history.back()');
+    await parityWaitFor('back to herd from session', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('SPACES'));
+    check('browser back leaves the session for the herd', (await pathname()) === '/demo');
+
+    // Settings gear routes like native; browser back returns.
+    await parityClickLabel('Settings');
     await parityWaitFor('settings route', (text) => !text.includes('Migrate billing to usage-based plans'));
-    check('settings gear routes like native', true);
+    check('settings gear routes like native', (await pathname()).startsWith('/settings'));
     await parityEval('window.history.back()');
     await parityWaitFor('back to herd again', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('SPACES'));
-    check('browser back leaves settings for the herd', true);
-    // Escape closes an open focus mode. Reload for a clean dock: the
-    // submitted prompt text persists in the draft by design.
-    await paritySend('Page.navigate', { url: `http://127.0.0.1:${port}/demo` });
-    await parityWaitFor('reload herd', (text) => text.includes('Migrate billing to usage-based plans'));
-    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Plan, ask, build…')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    check('browser back leaves settings for the herd', (await pathname()) === '/demo');
+    // Escape closes an open focus mode.
+    await clickDockEntry();
     await parityWaitFor('refocus config', (text) => text.includes('No worktree'));
-    await paritySend('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
-    await paritySend('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    await pressKey('Escape', 'Escape', 27);
     await new Promise((r) => setTimeout(r, 1500));
     check('escape closes focus mode', !(await parityText()).includes('No worktree'));
 
-    // Width matrix screenshots + overflow checks.
+    // Width matrix screenshots + overflow checks + wide shell assertions.
     await parityShot('parity-768-demo', 768, 1024, '/demo');
     await parityWaitFor('tablet herd', (text) => text.includes('Migrate billing to usage-based plans'));
     check('768 has no horizontal overflow', await noOverflow());
     await parityShot('parity-899-demo', 899, 1024, '/demo');
     await parityWaitFor('899 herd', (text) => text.includes('Migrate billing to usage-based plans'));
-    check('899 stays compact with the dock', await dockPresent());
+    check('899 stays compact with the dock', await dockEntryPresent());
     check('899 has no horizontal overflow', await noOverflow());
     await parityShot('parity-901-demo', 901, 1024, '/demo');
     await parityWaitFor('901 herd', (text) => text.includes('Migrate billing to usage-based plans'));
-    check('901 switches to split desktop without the dock', !(await dockPresent()));
+    check('901 switches to split desktop without the dock', !(await dockEntryPresent()));
+    check('901 renders the real sidebar shell', await testid('sidebar'));
+    {
+        const wide = await parityText();
+        check('901 sidebar carries Spaces', wide.includes('SPACES') && wide.includes('acme-app'));
+        check('901 sidebar carries destinations', wide.includes('New session') && wide.includes('Usage') && wide.includes('Inbox') && wide.includes('Files') && wide.includes('Ports') && wide.includes('Settings'));
+    }
     check('901 has no horizontal overflow', await noOverflow());
     await parityShot('parity-1280-demo', 1280, 800, '/demo');
     await parityWaitFor('desktop herd', (text) => text.includes('Migrate billing to usage-based plans'));
-    check('1280 keeps the split desktop without the dock', !(await dockPresent()));
+    check('1280 keeps the split desktop without the dock', !(await dockEntryPresent()));
+    check('1280 renders the real sidebar shell', await testid('sidebar'));
+    {
+        const desktop = await parityText();
+        check('1280 sidebar carries Spaces', desktop.includes('SPACES') && desktop.includes('acme-app'));
+        check('1280 sidebar carries destinations', desktop.includes('New session') && desktop.includes('Usage') && desktop.includes('Inbox') && desktop.includes('Files') && desktop.includes('Ports') && desktop.includes('Settings'));
+    }
     check('1280 has no horizontal overflow', await noOverflow());
+    // Desktop New Agent reuses the progressive flow with advanced options.
+    await parityClickLabel('New session');
+    await waitPath('/new-agent');
+    const newAgentText = await parityWaitFor('new-agent desktop', (text) => text.includes('ADVANCED'));
+    check('new-agent desktop shows the progressive flow', newAgentText.includes('START') && await testid('home-dock-entry'));
+    check('new-agent desktop keeps advanced squad and join', /squad/i.test(newAgentText) && newAgentText.includes('JOIN A RUNNING WORKSPACE'));
+    // Failed start retains the draft with an actionable error. Synthetic
+    // input cannot cross the sheet modal's portal root, so the failure
+    // drives the advanced squad flow on this desktop page instead: the
+    // fixture refuses multi-kind starts (a squad is N tabs, not one
+    // session), the error surfaces, and the squad stays selected.
+    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.getAttribute && (el.getAttribute('aria-label') || '').startsWith('pi, '))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.getAttribute && (el.getAttribute('aria-label') || '').startsWith('claude, '))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await parityWaitFor('squad picked', (text) => text.includes('SQUAD 2'), 15000);
+    await parityEval(`(() => {
+        const box = [...document.querySelectorAll('input')].find((el) => (el.placeholder || '').startsWith('/home/you/project') && el.offsetParent !== null);
+        if (!box) return;
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(box, '/home/demo/acme-app');
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Start squad (2)')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const failureText = await parityWaitFor('failure error', (text) => text.includes('Agent could not start. Try again.'), 30000);
+    check('failed start shows an actionable error', failureText.includes('Agent could not start. Try again.'));
+    check('failed start retains the squad draft', (await parityText()).includes('SQUAD 2'));
+    check('failed start stays on the form', (await pathname()) === '/new-agent');
+    await parityEval('window.history.back()');
+    await parityWaitFor('back to herd from new-agent', (text) => text.includes('Migrate billing to usage-based plans'));
+    check('browser back leaves new-agent for the herd', (await pathname()) === '/demo');
     check('no page errors during parity', parityErrors.length === 0, parityErrors.slice(0, 3).join(' | '));
 } catch (cause) {
     check('demo browser flow completed', false, cause instanceof Error ? cause.message : String(cause));

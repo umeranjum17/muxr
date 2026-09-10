@@ -1,4 +1,5 @@
 import { useAuth } from '@/account/ui';
+import { isDemoTransport } from '@/demo/demoTransport';
 import * as React from 'react';
 import { Drawer } from 'expo-router/drawer';
 import { sidebarWidth, useSplitViewLayout, useHeaderHeight } from '@/utils/responsive';
@@ -23,7 +24,10 @@ export const SidebarNavigator = React.memo(() => {
     const { theme } = useUnistyles();
     const splitViewLayout = useSplitViewLayout();
     const zenMode = useLocalSetting('zenMode');
-    const isDesktopLayout = auth.isAuthenticated && splitViewLayout;
+    // Shell readiness is live authentication OR explicitly admitted fixture
+    // runtime. The demo transport is ephemeral and read-only by construction
+    // (demoRuntime.web gate); it forges no grant and persists no credential.
+    const isDesktopLayout = (auth.isAuthenticated || isDemoTransport()) && splitViewLayout;
     const showSidebar = isDesktopLayout && !zenMode;
     const { width: windowWidth } = useWindowDimensions();
 

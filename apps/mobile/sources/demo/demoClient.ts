@@ -5,9 +5,11 @@ import type {
     RequestType,
     SessionEvent,
     SessionEventBody,
+    SessionInfo,
     SessionStatus,
 } from '@muxr/contract';
 import type { ConnectionState, MuxrTransport } from '@/pairing/infrastructure/muxrClient';
+import { stripTerminalEscapes } from '@/terminal/application/recentOutput';
 import {
     DEMO_ARTIFACT_CONTENT,
     DEMO_ARTIFACT_PATCH,
@@ -23,11 +25,25 @@ import {
     DEMO_PLUGIN_MANIFEST,
     DEMO_PLUGIN_MANIFEST_HASH,
     DEMO_PLUGIN_SUMMARY,
+    DEMO_FILES_REPOS,
+    DEMO_FILES_TREE,
+    DEMO_INBOX_MANIFEST,
+    DEMO_INBOX_MANIFEST_HASH,
+    DEMO_INBOX_SUMMARY,
+    DEMO_PORTS_EMPTY,
+    DEMO_PORTS_MANIFEST,
+    DEMO_PORTS_MANIFEST_HASH,
+    DEMO_PORTS_SUMMARY,
     DEMO_SESSION_BLOCKED,
     DEMO_SESSION_DONE,
     DEMO_SESSION_WORKING,
     DEMO_SESSIONS,
+    DEMO_STATUS_MANIFEST,
+    DEMO_STATUS_MANIFEST_HASH,
+    DEMO_STATUS_SUMMARY,
     DEMO_TRANSCRIPTS,
+    DEMO_USAGE_SNAPSHOT,
+    DEMO_VITALS_TEXT,
     DEMO_WORKSPACE,
 } from './demoRecords';
 
@@ -74,6 +90,8 @@ class DemoClient implements MuxrTransport {
     private generation = 0;
     private blockedPhase: BlockedPhase = 'blocked';
     private seq = 0;
+    /** Sessions created through the real session.start path; reset clears them. */
+    private created: SessionInfo[] = [];
     /** Mutable transcript buffers; the memory terminal channel reads these. */
     private readonly transcripts: Record<string, string[]> = {
         [DEMO_SESSION_WORKING]: [...DEMO_TRANSCRIPTS[DEMO_SESSION_WORKING]!],
@@ -129,6 +147,8 @@ class DemoClient implements MuxrTransport {
         this.timers.forEach(clearTimeout);
         this.timers = [];
         this.blockedPhase = 'blocked';
+        for (const created of this.created) delete this.transcripts[created.id];
+        this.created = [];
         this.transcripts[DEMO_SESSION_WORKING] = [...DEMO_TRANSCRIPTS[DEMO_SESSION_WORKING]!];
         this.transcripts[DEMO_SESSION_BLOCKED] = [...DEMO_TRANSCRIPTS[DEMO_SESSION_BLOCKED]!];
         this.transcripts[DEMO_SESSION_DONE] = [...DEMO_TRANSCRIPTS[DEMO_SESSION_DONE]!];
@@ -188,7 +208,7 @@ class DemoClient implements MuxrTransport {
             case 'lifecycle.catalog':
                 return this.lifecycle();
             case 'plugin.list':
-                return [{ ...DEMO_PLUGIN_SUMMARY }, { ...DEMO_CODE_SUMMARY }];
+                return [{ ...DEMO_PLUGIN_SUMMARY }, { ...DEMO_STATUS_SUMMARY }, { ...DEMO_INBOX_SUMMARY }, { ...DEMO_CODE_SUMMARY }, { ...DEMO_PORTS_SUMMARY }];
             case 'plugin.manifest': {
                 if (p['pluginId'] === 'muxr.terminal-keys' && p['manifestHash'] === DEMO_PLUGIN_MANIFEST_HASH) {
                     return DEMO_PLUGIN_MANIFEST;
@@ -196,13 +216,21 @@ class DemoClient implements MuxrTransport {
                 if (p['pluginId'] === 'muxr.code' && p['manifestHash'] === DEMO_CODE_MANIFEST_HASH) {
                     return DEMO_CODE_MANIFEST;
                 }
+                if (p['pluginId'] === 'muxr.inbox' && p['manifestHash'] === DEMO_INBOX_MANIFEST_HASH) {
+                    return DEMO_INBOX_MANIFEST;
+                }
+                if (p['pluginId'] === 'muxr.status' && p['manifestHash'] === DEMO_STATUS_MANIFEST_HASH) {
+                    return DEMO_STATUS_MANIFEST;
+                }
+                if (p['pluginId'] === 'muxr.servers' && p['manifestHash'] === DEMO_PORTS_MANIFEST_HASH) {
+                    return DEMO_PORTS_MANIFEST;
+                }
                 throw new Error('demo replay: unknown plugin snapshot');
             }
             case 'plugin.call':
             case 'plugin.invoke': {
-                // The one read RPC the recorded run exercises: the Changes
-                // item-list. Everything else fails closed, like production
-                // with an unavailable capability.
+                // The read RPCs the recorded run exercises. Everything else
+                // fails closed, like production with an unavailable capability.
                 if (p['pluginId'] === 'muxr.code' && p['contributionId'] === 'changes.list') {
                     const input = p['input'];
                     const sessionId = typeof input === 'object' && input !== null
@@ -210,6 +238,27 @@ class DemoClient implements MuxrTransport {
                         : '';
                     if (sessionId === DEMO_SESSION_DONE) return DEMO_CHANGES_RESPONSE;
                     return { items: [], total: 0 };
+                }
+                if (p['pluginId'] === 'muxr.inbox' && p['contributionId'] === 'count') {
+                    return { count: this.inboxRows().filter((entry) => entry.bucket === 'needsYou').length };
+                }
+                if (p['pluginId'] === 'muxr.inbox' && p['contributionId'] === 'list') {
+                    return this.inboxGroups();
+                }
+                if (p['pluginId'] === 'muxr.status' && p['contributionId'] === 'vitals') {
+                    return DEMO_VITALS_TEXT;
+                }
+                if (p['pluginId'] === 'muxr.status' && p['contributionId'] === 'usage') {
+                    return { ...DEMO_USAGE_SNAPSHOT };
+                }
+                if (p['pluginId'] === 'muxr.code' && p['contributionId'] === 'files.repos') {
+                    return { ...DEMO_FILES_REPOS };
+                }
+                if (p['pluginId'] === 'muxr.code' && p['contributionId'] === 'files.list') {
+                    return { ...DEMO_FILES_TREE };
+                }
+                if (p['pluginId'] === 'muxr.servers' && p['contributionId'] === 'ports.list') {
+                    return { ...DEMO_PORTS_EMPTY };
                 }
                 throw new Error(`unsupported in demo replay: ${type} ${String(p['contributionId'] ?? '')}`);
             }
@@ -241,8 +290,10 @@ class DemoClient implements MuxrTransport {
                 const sessionId = String(p['sessionId'] ?? '');
                 return statusFor(sessionId, this.agentStatus(sessionId), sessionId !== DEMO_SESSION_DONE, this.isWorking(sessionId));
             }
-            case 'session.readFile': {
-                if (String(p['sessionId'] ?? '') === DEMO_SESSION_DONE && String(p['path'] ?? '').endsWith(DEMO_ARTIFACT_PATH)) {
+            case 'session.start': {
+                return this.spawnSession(p as Record<string, unknown>);
+            }
+            case 'session.readFile': {                if (String(p['sessionId'] ?? '') === DEMO_SESSION_DONE && String(p['path'] ?? '').endsWith(DEMO_ARTIFACT_PATH)) {
                     return { content: DEMO_ARTIFACT_CONTENT };
                 }
                 throw new Error('demo replay: file not in the recorded run');
@@ -256,7 +307,10 @@ class DemoClient implements MuxrTransport {
             }
             case 'pane.read': {
                 const sessionId = String(p['sessionId'] ?? '');
-                return { text: (this.transcripts[sessionId] ?? []).join('\n'), truncated: false };
+                // Production thumbnails render ANSI-stripped text (the host
+                // strips before serving pane.read); the ANSI channel is the
+                // terminal itself, which keeps its escapes untouched.
+                return { text: stripTerminalEscapes((this.transcripts[sessionId] ?? []).join('\n')), truncated: false };
             }
             default:
                 // Fail closed and visibly: no network fallback, no invented data.
@@ -270,6 +324,7 @@ class DemoClient implements MuxrTransport {
             if (this.blockedPhase === 'done') return 'done';
             return 'blocked';
         }
+        if (this.created.some((session) => session.id === sessionId)) return 'working';
         return sessionId === DEMO_SESSION_WORKING ? 'working' : 'done';
     }
 
@@ -278,11 +333,93 @@ class DemoClient implements MuxrTransport {
     }
 
     private sessions() {
-        return DEMO_SESSIONS.map((session) => {
+        return [...DEMO_SESSIONS, ...this.created].map((session) => {
             if (session.id !== DEMO_SESSION_BLOCKED) return session;
             const status = this.agentStatus(session.id);
             return { ...session, agentStatus: status };
         });
+    }
+
+    /**
+     * Inbox rows from the same records as the herd, bucketed like the real
+     * rpc.mjs: blocked attention first, then working, then recent done. When
+     * the blocked agent reconciles to done the needs-you bucket empties, so
+     * the badge and the collection move together.
+     */
+    private inboxRows(): Array<{ bucket: string; row: Record<string, unknown> }> {
+        const attentionBySession = new Map(DEMO_ATTENTION.map((entry) => [entry.sessionId, entry]));
+        const rows: Array<{ bucket: string; row: Record<string, unknown> }> = [];
+        for (const session of this.sessions()) {
+            const attention = attentionBySession.get(session.id);
+            const base = {
+                id: session.id,
+                title: session.taskTitle,
+                subtitle: attention?.detail ?? session.cwd,
+                glyph: session.agentKind,
+                timestamp: attention?.at ?? new Date().toISOString(),
+                action: { type: 'kernel.navigate', target: 'session', sessionId: session.id },
+            };
+            if (session.agentStatus === 'blocked' && this.blockedPhase !== 'done') {
+                rows.push({ bucket: 'needsYou', row: { ...base, status: 'danger', pulsing: true } });
+            } else if (session.agentStatus === 'working') {
+                rows.push({ bucket: 'working', row: { ...base, status: 'warning', pulsing: true } });
+            } else if (session.agentStatus === 'done') {
+                rows.push({ bucket: 'done', row: { ...base, status: 'positive' } });
+            }
+        }
+        return rows;
+    }
+
+    private inboxGroups(): { title: string; groups: Array<{ id: string; title: string; items: unknown[] }> } {
+        const groups = new Map<string, unknown[]>();
+        for (const entry of this.inboxRows()) {
+            const list = groups.get('acme-app') ?? [];
+            list.push(entry.row);
+            groups.set('acme-app', list);
+        }
+        return {
+            title: 'Inbox',
+            groups: [...groups.entries()].map(([title, items], index) => ({ id: `group-${index + 1}`, title, items })),
+        };
+    }
+
+    /** Deterministic session creation through the real session.start path. */
+
+    private spawnSession(params: Record<string, unknown>): unknown {
+        // Squad starts fan out to one tab per kind on production; the replay
+        // scripts a single session, so multi-kind requests fail closed and
+        // visibly instead of pretending one tab is a squad.
+        if (Array.isArray(params['kinds']) && params['kinds'].length > 1) {
+            throw new Error('demo replay: squad start is not scripted');
+        }        const id = 'demo-session-created';
+        const kind = typeof params['kind'] === 'string' && params['kind'] !== '' ? params['kind'] : 'pi';
+        const cwd = typeof params['cwd'] === 'string' && params['cwd'] !== '' ? params['cwd'] : '/home/demo/acme-app';
+        const existing = this.created.find((session) => session.id === id);
+        const session: SessionInfo = existing ?? {
+            id,
+            cwd,
+            messageCount: 0,
+            firstMessage: '',
+            agentName: kind.length > 0 ? kind[0]!.toUpperCase() + kind.slice(1) : 'Agent',
+            taskTitle: `New ${kind} session`,
+            agentKind: kind,
+            agentStatus: 'working',
+            promptable: true,
+        };
+        if (existing === undefined) {
+            this.created.push(session);
+            this.transcripts[id] = [`$ new ${kind} session in ${cwd}`];
+            this.emit(id, { type: 'session.created', session });
+            this.emit(id, {
+                type: 'status.update',
+                status: statusFor(id, 'working', true, false),
+            });
+        }
+        return {
+            info: session,
+            status: statusFor(id, 'working', true, false),
+            page: { messages: [], hasMore: false },
+        };
     }
 
     private tree() {
@@ -291,10 +428,25 @@ class DemoClient implements MuxrTransport {
             agentStatus: this.blockedPhase === 'done' ? 'working' as const : DEMO_WORKSPACE.agentStatus,
             tabs: DEMO_WORKSPACE.tabs.map((tab) => ({
                 ...tab,
-                panes: tab.panes.map((pane) => {
-                    if (pane.sessionId === undefined || pane.sessionId !== DEMO_SESSION_BLOCKED) return pane;
-                    return { ...pane, agentStatus: this.agentStatus(pane.sessionId) };
-                }),
+                panes: [
+                    ...tab.panes.map((pane) => {
+                        if (pane.sessionId === undefined || pane.sessionId !== DEMO_SESSION_BLOCKED) return pane;
+                        return { ...pane, agentStatus: this.agentStatus(pane.sessionId) };
+                    }),
+                    // Spawned sessions join the tree like production herdr
+                    // tracks them, so the session header and herd resolve.
+                    ...this.created.map((session) => ({
+                        paneId: `demo-pane-${session.id}`,
+                        tabId: 'demo-tab-main',
+                        focused: false,
+                        sessionId: session.id,
+                        agentName: session.agentName,
+                        taskTitle: session.taskTitle,
+                        agentKind: session.agentKind,
+                        agentStatus: 'working' as const,
+                        promptable: true,
+                    })),
+                ],
             })),
         };
     }

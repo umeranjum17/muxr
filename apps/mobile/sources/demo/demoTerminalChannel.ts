@@ -10,7 +10,9 @@ import { demoClient } from './demoClient';
  */
 
 function toBase64Line(line: string): string {
-    return encodeBase64(new TextEncoder().encode(`${line}\n`), 'base64');
+    // Real Herdr frames carry CRLF and TerminalView.web sets convertEol:
+    // false, so the fixture must too or every line staircases.
+    return encodeBase64(new TextEncoder().encode(`${line}\r\n`), 'base64');
 }
 
 export function isDemoTerminalSession(sessionId: string): boolean {

@@ -30,6 +30,7 @@ import type { HerdrTreeTab } from '@muxr/contract';
 // shell paints first, the terminal implementation streams in behind it.
 const TerminalView = React.lazy(() => import('./TerminalView').then((module) => ({ default: module.TerminalView })));
 import { usePaneGestures } from '../application/usePaneGestures';
+import { useWebImeComposing } from '@/components/useWebImeComposing';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
 import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, agentStatusColor, herdrPaneForSession, isShellLabels } from '@/herd';
@@ -133,6 +134,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     draftRef.current = draft;
 
     const { selectedImages, pickImages, clearImages } = useImagePicker();
+    const composerRef = React.useRef<TextInput>(null);
+    // Same IME hazard as the home dock: Enter confirms composition on web.
+    const isComposingRef = useWebImeComposing(composerRef, true);
 
     const onChannel = React.useCallback((channel: TerminalChannel | undefined) => {
         if (channel !== undefined) {
@@ -765,9 +769,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={24} color={theme.colors.textSecondary} />
                 </Pressable>
                 <TextInput
+                    ref={composerRef}
                     value={draft}
                     onChangeText={handleDraftChange}
-                    onSubmitEditing={sendPrompt}
+                    onSubmitEditing={() => {
+                        if (!isComposingRef.current) sendPrompt();
+                    }}
                     returnKeyType="send"
                     blurOnSubmit
                     submitBehavior="blurAndSubmit"

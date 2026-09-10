@@ -233,8 +233,9 @@ export const DEMO_PLUGIN_MANIFEST: PluginManifestV1 = {
 /**
  * The shipped muxr.code Files/Changes surface, retyped verbatim for the
  * recorded run: the session.pills Changes item-list plus its changes.list
- * read RPC. No other code contributions ship in the replay; their RPCs
- * would fail closed like any unsupported call.
+ * read RPC. The files browser contributions below round out the same
+ * manifest; runbook/history/cmd stay out and fail closed like any
+ * unsupported call.
  */
 export const DEMO_CODE_MANIFEST_HASH = 'demo-code-manifest-hash-1';
 
@@ -246,7 +247,7 @@ export const DEMO_CODE_SUMMARY: PluginSummary = {
     manifestHash: DEMO_CODE_MANIFEST_HASH,
     approved: true,
     capabilities: {},
-    hasBackend: false,
+    hasBackend: true,
     warnings: [],
 };
 
@@ -278,6 +279,56 @@ export const DEMO_CODE_MANIFEST: PluginManifestV1 = {
             entry: 'changes.mjs',
             mode: 'read',
         },
+        {
+            slot: 'navigation.primary',
+            id: 'files.nav',
+            type: 'navigation-item',
+            label: 'Files',
+            icon: 'document-text-outline',
+            contentContributionId: 'files.browse',
+        },
+        {
+            slot: 'navigation.content',
+            id: 'files.browse',
+            type: 'screen',
+            title: '{{data.title}}',
+            data: { type: 'plugin.call', contributionId: 'files.repos' },
+            children: [
+                {
+                    type: 'list',
+                    title: 'Repositories',
+                    emptyText: 'No git repositories open',
+                    rows: [],
+                    repeat: {
+                        path: 'data.repos',
+                        template: {
+                            type: 'row',
+                            title: '{{item.name}}',
+                            action: { type: 'screen', contributionId: 'files', params: { root: '{{item.root}}' } },
+                        },
+                    },
+                },
+            ],
+        },
+        {
+            slot: 'navigation.content',
+            id: 'files',
+            type: 'screen',
+            title: '{{data.title}}',
+            data: { type: 'plugin.call', contributionId: 'files.list' },
+            children: [
+                { type: 'text', text: '{{data.count}}', tone: 'secondary' },
+                {
+                    type: 'tree',
+                    title: 'Explorer',
+                    emptyText: 'No files',
+                    path: 'data.tree',
+                    source: { type: 'plugin.call', contributionId: 'files.list' },
+                },
+            ],
+        },
+        { slot: 'host.rpc', id: 'files.repos', type: 'rpc', method: 'repos', entry: 'files.mjs', mode: 'read' },
+        { slot: 'host.rpc', id: 'files.list', type: 'rpc', method: 'list', entry: 'files.mjs', mode: 'read' },
     ],
 };
 
@@ -297,3 +348,238 @@ export const DEMO_CHANGES_RESPONSE = {
     ],
     total: 1,
 };
+
+/**
+ * Navigation fixtures: the real bundled production manifests (retyped from
+ * plugins/inbox, plugins/status, plugins/code files.*, plugins/servers
+ * muxr-ui.json), served through the same plugin snapshot/call seams. No
+ * decorative chips: every contribution below has a destination and an
+ * answered RPC. The Panes chip in the reference comes from a plugin outside
+ * this checkout and cannot be fixtured honestly.
+ */
+export const DEMO_INBOX_MANIFEST_HASH = 'demo-inbox-manifest-hash-1';
+
+export const DEMO_INBOX_SUMMARY: PluginSummary = {
+    pluginId: 'muxr.inbox',
+    name: 'Inbox',
+    version: '0.1.0',
+    source: { kind: 'local' },
+    manifestHash: DEMO_INBOX_MANIFEST_HASH,
+    approved: true,
+    capabilities: {},
+    hasBackend: true,
+    warnings: [],
+};
+
+export const DEMO_INBOX_MANIFEST: PluginManifestV1 = {
+    schemaVersion: 1,
+    pluginId: 'muxr.inbox',
+    contributions: [
+        {
+            slot: 'navigation.primary',
+            id: 'inbox',
+            type: 'navigation-item',
+            label: 'Inbox',
+            icon: 'file-tray-full-outline',
+            contentContributionId: 'content',
+            badge: { type: 'plugin.call', contributionId: 'count' },
+        },
+        {
+            slot: 'navigation.content',
+            id: 'content',
+            type: 'native',
+            primitive: 'collection',
+            title: 'Inbox',
+            emptyTitle: 'Nothing needs you',
+            emptyMessage: 'Agents show up here when they ask you something, get stuck, or finish',
+            icon: 'file-tray-full-outline',
+            source: { type: 'plugin.call', contributionId: 'list' },
+        },
+        { slot: 'host.rpc', id: 'list', type: 'rpc', method: 'list', entry: 'rpc.mjs', mode: 'read' },
+        { slot: 'host.rpc', id: 'count', type: 'rpc', method: 'count', entry: 'rpc.mjs', mode: 'read' },
+    ],
+};
+
+export const DEMO_STATUS_MANIFEST_HASH = 'demo-status-manifest-hash-1';
+
+export const DEMO_STATUS_SUMMARY: PluginSummary = {
+    pluginId: 'muxr.status',
+    name: 'Status',
+    version: '0.1.0',
+    source: { kind: 'local' },
+    manifestHash: DEMO_STATUS_MANIFEST_HASH,
+    approved: true,
+    capabilities: {},
+    hasBackend: true,
+    warnings: [],
+};
+
+export const DEMO_STATUS_MANIFEST: PluginManifestV1 = {
+    schemaVersion: 1,
+    pluginId: 'muxr.status',
+    contributions: [
+        {
+            slot: 'navigation.primary',
+            id: 'usage.nav',
+            type: 'navigation-item',
+            label: 'Usage',
+            icon: 'speedometer-outline',
+            contentContributionId: 'usage.details',
+        },
+        {
+            slot: 'home.cards',
+            id: 'vitals.card',
+            type: 'data-card',
+            title: 'Machine',
+            presentation: 'sheet',
+            source: { type: 'plugin.call', contributionId: 'vitals' },
+            emptyText: 'Vitals unavailable',
+        },
+        {
+            slot: 'navigation.content',
+            id: 'usage.details',
+            type: 'screen',
+            title: 'Usage',
+            data: { type: 'plugin.call', contributionId: 'usage' },
+            children: [
+                { type: 'tabs', path: 'data.providers', selectedPath: 'data.provider', param: 'provider' },
+                {
+                    type: 'section',
+                    title: 'Today',
+                    children: [
+                        {
+                            type: 'section',
+                            columns: 2,
+                            children: [
+                                { type: 'metric', label: 'Tokens', value: '{{data.todayTokens}}' },
+                                { type: 'metric', label: 'Cost', value: '{{data.todayCost}}' },
+                            ],
+                        },
+                        { type: 'progress', path: 'data.fiveHourUsed', max: 100, label: '5-hour limit', valueLabel: '{{data.fiveHourLabel}}' },
+                        { type: 'progress', path: 'data.sevenDayUsed', max: 100, label: '7-day limit', valueLabel: '{{data.sevenDayLabel}}' },
+                        { type: 'text', text: '{{data.limitLabel}}', tone: 'secondary' },
+                    ],
+                },
+                {
+                    type: 'section',
+                    title: 'Last 7 days',
+                    children: [
+                        {
+                            type: 'section',
+                            columns: 2,
+                            children: [
+                                { type: 'metric', label: 'Tokens', value: '{{data.weekTokens}}' },
+                                { type: 'metric', label: 'Cost', value: '{{data.weekCost}}' },
+                            ],
+                        },
+                        { type: 'chart', variant: 'column', path: 'data.weekSeries', emptyText: 'No measured activity this week' },
+                    ],
+                },
+            ],
+        },
+        { slot: 'host.rpc', id: 'usage', type: 'rpc', method: 'usage', entry: 'usage.mjs', mode: 'read' },
+        { slot: 'host.rpc', id: 'vitals', type: 'rpc', method: 'vitals', entry: 'vitals.mjs', mode: 'read' },
+    ],
+};
+
+/** Static snapshots in the exact shapes usage.mjs/vitals.mjs emit. */
+export const DEMO_VITALS_TEXT = 'memory 3.1 of 15.6G · load 1.20 0.80 0.40 · up 5h · disk 12G used of 100G (12%) · 88G free';
+
+export const DEMO_USAGE_SNAPSHOT = {
+    providers: [{ id: 'claude', label: 'Claude' }],
+    provider: 'claude',
+    providerName: 'Claude',
+    todayTokens: '1,540',
+    todayCost: '$0.02',
+    fiveHourUsed: 62,
+    fiveHourLabel: '62% used · resets in 3h',
+    sevenDayUsed: 34,
+    sevenDayLabel: '34% used',
+    limitLabel: 'Plan limits refresh on the Claude schedule.',
+    modelSeries: [
+        { label: 'Mon', value: 120, valueLabel: '120' },
+        { label: 'Tue', value: 340, valueLabel: '340' },
+        { label: 'Wed', value: 210, valueLabel: '210' },
+    ],
+    limitSeries: [],
+    weekTokens: '1,540',
+    weekCost: '$0.02',
+    weekSeries: [
+        { label: 'Mon', value: 120, valueLabel: '120' },
+        { label: 'Tue', value: 340, valueLabel: '340' },
+        { label: 'Wed', value: 210, valueLabel: '210' },
+    ],
+};
+
+/** The recorded repo, mirroring the files.mjs repos/list shapes. */
+export const DEMO_FILES_REPOS = {
+    title: '1 repository',
+    repos: [{ root: '/home/demo/acme-app', name: 'acme-app', path: '/home/demo/acme-app' }],
+};
+
+export const DEMO_FILES_TREE = {
+    root: '/home/demo/acme-app',
+    title: 'acme-app',
+    count: '3 files',
+    tree: [
+        { name: 'src', path: 'src', kind: 'folder', hasChildren: true },
+        { name: 'sync.ts', path: 'src/sync.ts', kind: 'file' },
+        { name: 'README.md', path: 'README.md', kind: 'file' },
+    ],
+};
+
+export const DEMO_PORTS_MANIFEST_HASH = 'demo-ports-manifest-hash-1';
+
+export const DEMO_PORTS_SUMMARY: PluginSummary = {
+    pluginId: 'muxr.servers',
+    name: 'Servers',
+    version: '0.1.0',
+    source: { kind: 'local' },
+    manifestHash: DEMO_PORTS_MANIFEST_HASH,
+    approved: true,
+    capabilities: {},
+    hasBackend: true,
+    warnings: [],
+};
+
+export const DEMO_PORTS_MANIFEST: PluginManifestV1 = {
+    schemaVersion: 1,
+    pluginId: 'muxr.servers',
+    contributions: [
+        {
+            slot: 'navigation.primary',
+            id: 'ports.nav',
+            type: 'navigation-item',
+            label: 'Ports',
+            icon: 'git-network-outline',
+            contentContributionId: 'ports.browse',
+        },
+        {
+            slot: 'navigation.content',
+            id: 'ports.browse',
+            type: 'screen',
+            title: '{{data.title}}',
+            data: { type: 'plugin.call', contributionId: 'ports.list' },
+            children: [
+                {
+                    type: 'list',
+                    title: 'Listening',
+                    emptyText: 'Nothing listening',
+                    rows: [],
+                    repeat: {
+                        path: 'data.ports',
+                        template: {
+                            type: 'row',
+                            title: '{{item.title}}',
+                            subtitle: '{{item.subtitle}}',
+                        },
+                    },
+                },
+            ],
+        },
+        { slot: 'host.rpc', id: 'ports.list', type: 'rpc', method: 'list', entry: 'ports.mjs', mode: 'read' },
+    ],
+};
+
+/** Nothing listens in the replay: the honest empty state. */
+export const DEMO_PORTS_EMPTY = { title: '0 listening', ports: [] };

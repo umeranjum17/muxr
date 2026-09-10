@@ -5,6 +5,9 @@ import { useUnistyles } from 'react-native-unistyles';
 import { MainView } from '@/herd/ui';
 import { DemoBar } from '@/demo/DemoBar';
 import { activateDemoTransport, ensureDemoRuntime } from '@/demo/demoRuntime';
+import { DEMO_MACHINE_ID } from '@/demo/demoRecords';
+import { useNewSessionDraft } from '@/spawn';
+import { storage } from '@/catalog/store';
 import { onDemoTransitionComplete } from '@/demo/demoTransport';
 import { sync } from '@/catalog/sync';
 
@@ -47,9 +50,23 @@ export default function DemoRoute() {
             // Deterministic bootstrap, not focus-dependent: drive the first
             // production herd/catalog refresh through the activated demo
             // transport BEFORE MainView mounts, so the herd never depends on
-            // a focus effect firing to perform its first load.
+            // a focus effect firing to perform its first load. The catalog
+            // refresh also loads machines, which the dock spawn flow needs.
+            // Default the in-memory draft to the demo machine: the unpaired
+            // demo has no connection machine to sync from, and this writes
+            // nothing persisted (unlike setMachineId, which would).
             try {
                 await sync.refreshHerdTree();
+                await sync.refreshSessions();
+                // The catalog refresh loaded machines through the real path;
+                // mark it ready so selectors (machines, sessions) read what
+                // the demo transport served. No credentials involved.
+                storage.getState().applyReady();
+                useNewSessionDraft.setState({
+                    selectedMachineId: DEMO_MACHINE_ID,
+                    selectedPath: null,
+                    worktreeKey: null,
+                });
             } catch {
                 // MainView's own refresh covers a bootstrap miss.
             }

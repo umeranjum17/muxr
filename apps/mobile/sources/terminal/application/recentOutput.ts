@@ -88,38 +88,55 @@ function touch(sessionId: string, state?: TailState): TailState {
 }
 
 /**
- * Strip terminal control sequences across socket-message boundaries. Returns
- * the visible text and appends it to the rolling tail. The tail is a chunk
- * list joined only when links are requested -- per frame this is one array
- * push, never a 24KB string rebuild and rescan.
+ * One step of the production escape machine. Returns true when the char is
+ * visible text. Shared by the rolling tail and one-shot snapshot strips so
+ * the two can never disagree about what is control and what is content.
  */
+function feedEscape(state: { escape: EscapeState }, code: number, char: string): boolean {
+    if (state.escape === 'text') {
+        if (code === 0x1b) state.escape = 'escape';
+        else if (code === 0x9b) state.escape = 'csi';
+        else if ([0x90, 0x98, 0x9d, 0x9e, 0x9f].includes(code)) state.escape = 'string';
+        else return true;
+    } else if (state.escape === 'escape') {
+        if (char === '[') state.escape = 'csi';
+        else if (']PX^_'.includes(char)) state.escape = 'string';
+        else if (code >= 0x20 && code <= 0x2f) state.escape = 'escapeIntermediate';
+        else if (code !== 0x1b) state.escape = 'text';
+    } else if (state.escape === 'escapeIntermediate') {
+        if (code >= 0x30 && code <= 0x7e) state.escape = 'text';
+        else if (code === 0x1b) state.escape = 'escape';
+    } else if (state.escape === 'csi') {
+        if (code >= 0x40 && code <= 0x7e) state.escape = 'text';
+    } else if (state.escape === 'string') {
+        if (code === 0x07 || code === 0x9c) state.escape = 'text';
+        else if (code === 0x1b) state.escape = 'stringEscape';
+    } else if (char === '\\') {
+        state.escape = 'text';
+    } else if (code !== 0x1b) {
+        state.escape = 'string';
+    }
+    return false;
+}
+
+/**
+ * Strip terminal control sequences from a complete snapshot (pane.read
+ * thumbnails). Starts in text state: a snapshot carries complete sequences,
+ * unlike the streaming tail above.
+ */
+export function stripTerminalEscapes(input: string): string {
+    const state: { escape: EscapeState } = { escape: 'text' };
+    let visible = '';
+    for (const char of input) {
+        if (feedEscape(state, char.charCodeAt(0), char)) visible += char;
+    }
+    return visible;
+}
+
 function appendVisible(state: TailState, input: string): string {
     let visible = '';
     for (const char of input) {
-        const code = char.charCodeAt(0);
-        if (state.escape === 'text') {
-            if (code === 0x1b) state.escape = 'escape';
-            else if (code === 0x9b) state.escape = 'csi';
-            else if ([0x90, 0x98, 0x9d, 0x9e, 0x9f].includes(code)) state.escape = 'string';
-            else visible += char;
-        } else if (state.escape === 'escape') {
-            if (char === '[') state.escape = 'csi';
-            else if (']PX^_'.includes(char)) state.escape = 'string';
-            else if (code >= 0x20 && code <= 0x2f) state.escape = 'escapeIntermediate';
-            else if (code !== 0x1b) state.escape = 'text';
-        } else if (state.escape === 'escapeIntermediate') {
-            if (code >= 0x30 && code <= 0x7e) state.escape = 'text';
-            else if (code === 0x1b) state.escape = 'escape';
-        } else if (state.escape === 'csi') {
-            if (code >= 0x40 && code <= 0x7e) state.escape = 'text';
-        } else if (state.escape === 'string') {
-            if (code === 0x07 || code === 0x9c) state.escape = 'text';
-            else if (code === 0x1b) state.escape = 'stringEscape';
-        } else if (char === '\\') {
-            state.escape = 'text';
-        } else if (code !== 0x1b) {
-            state.escape = 'string';
-        }
+        if (feedEscape(state, char.charCodeAt(0), char)) visible += char;
     }
     if (visible !== '') {
         state.chunks.push(visible);

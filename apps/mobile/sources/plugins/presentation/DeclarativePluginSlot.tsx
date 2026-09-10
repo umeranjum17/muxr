@@ -322,13 +322,13 @@ export function DeclarativePhoneNavRow({ onSelect }: { onSelect: (pluginId: stri
     </>;
     if (width >= 560) {
         return (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
+            <View testID="phone-nav-row" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
                 {content}
             </View>
         );
     }
     return (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
+        <ScrollView testID="phone-nav-row" horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
             {content}
         </ScrollView>
     );

@@ -32,6 +32,7 @@ import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { listWorktrees } from '../infrastructure/worktree';
 import { type NewSessionAgentType } from '@/catalog/application/persistence';
 import { useImagePicker } from '@/hooks/useImagePicker';
+import { useWebImeComposing } from '@/components/useWebImeComposing';
 import { sync } from '@/catalog/sync';
 import { resolveAgentCatalog } from '@/catalog';
 import { useDeviceAuthority } from '@/pairing';
@@ -491,7 +492,11 @@ export const HomeDock = React.memo(({
     const inputRef = React.useRef<TextInput>(null);
     const focusedInputRef = React.useRef<TextInput>(null);
     const focusReturnRef = React.useRef<HTMLElement | null>(null);
-    const isComposingRef = React.useRef(false);
+    // Browser back closes focus mode instead of leaving the route: opening
+    // pushes a dummy history entry that back pops. The entry is consumed on
+    // every close path so one Back never needs two presses.
+    const focusHistoryPushedRef = React.useRef(false);
+    const focusOpenRef = React.useRef(false);
     const focusAnimationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const focusPresentation = useSharedValue(0);
     const [isFocused, setIsFocused] = React.useState(false);
@@ -568,6 +573,10 @@ export const HomeDock = React.memo(({
                 name: worktree.branch,
                 description: worktree.path,
             })));
+        }).catch(() => {
+            // Unavailable host capability (demo replay included): no
+            // worktrees, not an unhandled rejection.
+            if (!cancelled) setExistingWorktrees([]);
         });
         return () => {
             cancelled = true;
@@ -611,6 +620,11 @@ export const HomeDock = React.memo(({
     // The keyboard controller has no native module on web, so the dock
     // follows the visual viewport there instead. Applied only while the
     // composer holds focus, so desktop zoom/pinch never shifts the dock.
+    // This is the one geometry system on web, not two: where the viewport
+    // meta (interactive-widget=resizes-content) shrinks the layout, the
+    // visual and layout viewports move together and this offset measures
+    // ~0; where it doesn't (iOS Safari), the offset is the whole story.
+    // Either way exactly one of them moves the dock.
     const [viewportOffset, setViewportOffset] = React.useState(0);
     React.useEffect(() => {
         if (Platform.OS !== 'web' || typeof window === 'undefined' || window.visualViewport === null) return;
@@ -720,6 +734,22 @@ export const HomeDock = React.memo(({
         }
     }, []);
 
+    const disarmFocusHistory = React.useCallback((consume: boolean) => {
+        if (Platform.OS !== 'web' || typeof window === 'undefined' || typeof history === 'undefined') {
+            focusHistoryPushedRef.current = false;
+            return;
+        }
+        // Submit paths navigate away right after: leave the buried dummy
+        // entry alone (back from the session consumes it) instead of racing
+        // a back() against the push. Close paths consume it so one Back
+        // never needs two presses.
+        if (consume && focusHistoryPushedRef.current
+            && (window.history.state as { muxrDockFocus?: boolean } | null)?.muxrDockFocus === true) {
+            window.history.back();
+        }
+        focusHistoryPushedRef.current = false;
+    }, []);
+
     const openFocusMode = React.useCallback(() => {
         if (focusAnimationTimerRef.current) {
             clearTimeout(focusAnimationTimerRef.current);
@@ -728,6 +758,11 @@ export const HomeDock = React.memo(({
             // Escape and menu dismissal restore focus where it started.
             focusReturnRef.current = document.activeElement as HTMLElement | null;
         }
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof history !== 'undefined' && !focusHistoryPushedRef.current) {
+            window.history.pushState({ muxrDockFocus: true }, '');
+            focusHistoryPushedRef.current = true;
+        }
+        focusOpenRef.current = true;
         focusPresentation.value = 0;
         setIsFocused(true);
         setFocusModeVisible(true);
@@ -743,6 +778,7 @@ export const HomeDock = React.memo(({
     const finishCloseFocusMode = React.useCallback(() => {
         setIsFocused(false);
         setFocusModeVisible(false);
+        focusOpenRef.current = false;
         if (Platform.OS === 'web') {
             const returnTo = focusReturnRef.current;
             focusReturnRef.current = null;
@@ -763,6 +799,8 @@ export const HomeDock = React.memo(({
             clearTimeout(focusAnimationTimerRef.current);
             focusAnimationTimerRef.current = null;
         }
+        focusOpenRef.current = false;
+        disarmFocusHistory(true);
         focusedInputRef.current?.blur();
         inputRef.current?.blur();
         Keyboard.dismiss();
@@ -774,12 +812,26 @@ export const HomeDock = React.memo(({
                 runOnJS(finishCloseFocusMode)();
             }
         });
-    }, [finishCloseFocusMode, focusPresentation]);
+    }, [finishCloseFocusMode, focusPresentation, disarmFocusHistory]);
+
+    // Browser back while focus mode is open pops the dummy entry pushed on
+    // open; close the modal instead of leaving the route.
+    React.useEffect(() => {
+        if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+        const onPopState = () => {
+            if (!focusOpenRef.current) return;
+            focusHistoryPushedRef.current = false;
+            closeFocusMode();
+        };
+        window.addEventListener('popstate', onPopState);
+        return () => window.removeEventListener('popstate', onPopState);
+    }, [closeFocusMode]);
 
     // Enter confirms IME composition on web; submitting on that keystroke
     // would send half-composed text. Track composition on the real input.
     // Escape never reaches onKeyPress in browsers (no keypress event for
     // non-printable keys), so close focus mode from keydown directly.
+    const isComposingRef = useWebImeComposing(focusedInputRef, focusModeVisible);
     React.useEffect(() => {
         if (Platform.OS !== 'web' || !focusModeVisible) return;
         const node = focusedInputRef.current as unknown as {
@@ -787,17 +839,11 @@ export const HomeDock = React.memo(({
             removeEventListener?: (type: string, listener: (event: KeyboardEvent) => void) => void;
         } | null;
         if (node?.addEventListener === undefined || node.removeEventListener === undefined) return;
-        const onStart = () => { isComposingRef.current = true; };
-        const onEnd = () => { isComposingRef.current = false; };
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape') closeFocusMode();
         };
-        node.addEventListener('compositionstart', onStart);
-        node.addEventListener('compositionend', onEnd);
         node.addEventListener('keydown', onKeyDown);
         return () => {
-            node.removeEventListener?.('compositionstart', onStart);
-            node.removeEventListener?.('compositionend', onEnd);
             node.removeEventListener?.('keydown', onKeyDown);
         };
     }, [focusModeVisible, closeFocusMode]);
@@ -838,7 +884,7 @@ export const HomeDock = React.memo(({
                 onPress={() => setOpenSheet(row.page as EnvironmentSetting)}
                 style={styles.focusConfigRow}
                 accessibilityRole="button"
-                accessibilityLabel={row.label}
+                accessibilityLabel={`${row.label}, ${row.value}`}
             >
                 <View style={styles.focusConfigIcon}>
                     <Ionicons name={row.icon} size={21} color={theme.colors.text} />
@@ -874,7 +920,13 @@ export const HomeDock = React.memo(({
             <View style={styles.composerContent}>
                 <PluginSlot slot="home.composer.leading" context={{}} />
                 {activateOnPress ? (
-                    <Pressable onPress={activateOnPress} style={styles.inputEntry}>
+                    <Pressable
+                        onPress={activateOnPress}
+                        style={styles.inputEntry}
+                        accessibilityRole="button"
+                        accessibilityLabel="Start an agent"
+                        testID="home-dock-entry"
+                    >
                         <Text
                             style={[styles.inputEntryText, !prompt && styles.inputEntryPlaceholder]}
                             numberOfLines={1}
@@ -932,6 +984,8 @@ export const HomeDock = React.memo(({
 
     const submitFromFocusMode = () => {
         if (!canSubmit) return;
+        focusOpenRef.current = false;
+        disarmFocusHistory(false);
         setFocusModeVisible(false);
         setIsFocused(false);
         void submit();
@@ -939,6 +993,8 @@ export const HomeDock = React.memo(({
 
     const startBlankSession = () => {
         if (isSubmitting || readOnly) return;
+        focusOpenRef.current = false;
+        disarmFocusHistory(false);
         setFocusModeVisible(false);
         setIsFocused(false);
         void onStartBlank();
@@ -1114,7 +1170,9 @@ export const HomeDock = React.memo(({
                         <View style={[
                             styles.focusComposerArea,
                             { paddingBottom: safeArea.bottom + 8 },
-                        ]}>
+                        ]}
+                        testID="focus-composer"
+                        >
                             {renderFocusedComposer()}
                         </View>
                     </Animated.View>

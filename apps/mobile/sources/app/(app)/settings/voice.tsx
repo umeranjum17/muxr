@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator } from 'react-native';
+import { ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { VoiceProviderOption } from '@muxr/contract';
 import { Item } from '@/components/Item';
@@ -136,7 +136,14 @@ export default function VoiceProviderScreen() {
                     />
                 </ItemGroup>
             )}
-            <ItemGroup title="Hands-free" footer="Listens only on this device until speech is detected. The setting stays enabled until you disable it and uses additional battery.">
+            <ItemGroup
+                title="Hands-free"
+                footer={
+                    Platform.OS === 'web'
+                        ? 'Listens only while this app is open and visible. Browsers cannot listen in the background; keep this tab in the foreground.'
+                        : 'Listens only on this device until speech is detected. The setting stays enabled until you disable it and uses additional battery.'
+                }
+            >
                 <Item
                     title="Wake on speech"
                     subtitle="Reconnect realtime voice when someone starts talking"
