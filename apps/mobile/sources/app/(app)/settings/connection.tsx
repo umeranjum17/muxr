@@ -6,7 +6,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { RoundButton } from '@/components/RoundButton';
 import { Typography } from '@/constants/Typography';
-import { useMachine, useSocketStatus } from '@/catalog/store';
+import { useMachine, usePairingFailure, useSocketStatus } from '@/catalog/store';
 import { syncReconnect } from '@/catalog/sync';
 import {
     getCachedConnectionSettings,
@@ -94,6 +94,10 @@ export default function ConnectionSettingsScreen() {
     const router = useRouter();
     const [initial, setInitial] = React.useState(() => getCachedConnectionSettings());
     const { status, error: socketError } = useSocketStatus();
+    // An expired or revoked grant is not a network problem: it needs a fresh
+    // pairing, so the status row offers exactly that instead of reconnecting.
+    const pairingFailure = usePairingFailure();
+    const pairAgainReason = pairingFailure === 'grant-expired' ? 'expired' : pairingFailure === 'device-revoked' ? 'revoked' : undefined;
     const [clock, setClock] = React.useState(Date.now());
     React.useEffect(() => {
         if (Platform.OS !== 'web') return undefined;
@@ -155,6 +159,15 @@ export default function ConnectionSettingsScreen() {
                         leftElement={<View style={[styles.dot, statusDot]} />}
                         loading={status === 'connecting'}
                     />
+                    {pairAgainReason !== undefined && (
+                        <Item
+                            title="Pair again"
+                            subtitle={pairAgainReason === 'expired'
+                                ? 'This grant expired — claim a fresh link to reconnect'
+                                : 'This device was revoked — claim a fresh link to reconnect'}
+                            onPress={() => router.push(`/pair?source=settings&reason=${pairAgainReason}` as never)}
+                        />
+                    )}
                     <Item title="Transport" subtitle={transport} detail="Self-host" />
                     <Item title="Relay" subtitle={initial.relayUrl} subtitleLines={0} />
                     <Item
@@ -163,7 +176,7 @@ export default function ConnectionSettingsScreen() {
                         {...(mismatch ? { detail: '⚠ mismatch', detailStyle: styles.detailMismatch } : {})}
                     />
                     {Platform.OS === 'web' && <Item title="Browser access" subtitle={browserExpiresAt === undefined || browserMinutes === undefined
-                        ? `${browserRole} · pair again every eight hours`
+                        ? `${browserRole} · pair again when it expires`
                         : `${browserRole} · expires in ${Math.floor(browserMinutes / 60)}h ${browserMinutes % 60}m · ${new Date(browserExpiresAt).toLocaleString()}`} />}
                 </ItemGroup>
 

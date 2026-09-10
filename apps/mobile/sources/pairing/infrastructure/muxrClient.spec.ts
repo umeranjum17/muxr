@@ -7,7 +7,7 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('../application/hostedE2ee', () => ({
     refreshHostedGrant: vi.fn(async () => undefined),
-    DeviceV2Crypto: class {},
+    DeviceV2Crypto: class { grant = { keyVersion: 0 }; },
 }));
 
 import { MuxrClient } from './muxrClient';
@@ -121,6 +121,31 @@ describe('mobile relay liveness', () => {
         await new Promise<void>((resolve) => queueMicrotask(resolve));
         expect(FakeWebSocket.current).not.toBe(first);
         expect(client.isLive()).toBe(false);
+        client.close();
+    });
+
+    it('reports an expired grant with its kind so the UI can offer re-pairing', async () => {
+        const { refreshHostedGrant } = await import('../application/hostedE2ee');
+        vi.mocked(refreshHostedGrant).mockResolvedValueOnce({ expiresAt: Date.now() - 1000, keyVersion: 2 } as never);
+        const failures: unknown[] = [];
+        const states: string[] = [];
+        const client = new MuxrClient({
+            mode: 'hosted',
+            relayUrl: 'wss://relay.test',
+            machineId: 'machine-1',
+            token: 'credential-1',
+            hostedGrant: { keyVersion: 1 } as never,
+            onPermanentError: (failure) => { failures.push(failure); },
+        });
+        client.onStateChange((state) => { states.push(state); });
+        client.connect();
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        expect(failures).toEqual([{
+            kind: 'grant-expired',
+            message: expect.stringContaining('expired'),
+        }]);
+        expect(states).toContain('stale');
+        expect(client.state).toBe('stale');
         client.close();
     });
 });

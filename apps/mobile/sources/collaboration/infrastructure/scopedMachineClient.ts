@@ -29,7 +29,7 @@ export async function requestPairedMachine<T extends PeerRequestType>(
         requestTimeoutMs: 12_000,
         reconnectDelayMs: 30_000,
         onTicketRejected: () => { ticketRejected = true; },
-        onPermanentError: (message) => { permanentError = message; },
+        onPermanentError: (failure) => { permanentError = failure.message; },
     });
     try {
         await new Promise<void>((resolve, reject) => {

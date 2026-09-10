@@ -41,7 +41,13 @@ export interface MuxrClientOptions {
     /** A ticket refusal triggers separate account-session validation; it is not itself a logout signal. */
     onTicketRejected?: () => void;
     /** Permanent self-host credential failures must stop retrying and offer pairing again. */
-    onPermanentError?: (message: string) => void;
+    onPermanentError?: (failure: PermanentTransportFailure) => void;
+}
+
+/** Machine-readable pairing failure: the UI routes expired/revoked grants to re-pairing. */
+export interface PermanentTransportFailure {
+    kind: 'grant-expired' | 'device-revoked';
+    message: string;
 }
 
 interface Pending {
@@ -173,8 +179,8 @@ export class MuxrClient {
             if (rejected) this.options.onTicketRejected?.();
             if (permanent) {
                 this.options.onPermanentError?.(expired
-                    ? 'This browser grant expired. Pair again from `muxr pair --browser`.'
-                    : 'This device was revoked. Run `muxr pair` on the machine, then re-pair from Settings → Pair another machine on this device.');
+                    ? { kind: 'grant-expired', message: 'This browser grant expired. Pair again from `muxr pair --browser`.' }
+                    : { kind: 'device-revoked', message: 'This device was revoked. Run `muxr pair` on the machine, then re-pair from Settings → Pair another machine on this device.' });
                 return;
             }
             if (!this.closed) {

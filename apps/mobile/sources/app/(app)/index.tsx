@@ -72,10 +72,8 @@ function NotAuthenticated() {
     const promptForPairingString = async (title: string) => {
         const pasted = await Modal.prompt(
             title,
-            Platform.OS === 'web'
-                ? 'Paste the short link shown by `muxr pair --browser` for eight hours of control, or `muxr pair --browser-view` for view-only access.'
-                : 'Paste the pairing string shown by `muxr pair` on that machine. It pairs this phone end-to-end encrypted.',
-            { placeholder: Platform.OS === 'web' ? 'https://your-relay/pair?pair=…' : 'wss://your-relay?pair=7KDM4-QXP7N' },
+            'Paste the pairing string shown by `muxr pair` on that machine. It pairs this phone end-to-end encrypted.',
+            { placeholder: 'wss://your-relay?pair=7KDM4-QXP7N' },
         );
         if (!pasted?.trim()) return;
         await processPairLink(pasted.trim());
@@ -91,7 +89,10 @@ function NotAuthenticated() {
                 <View style={[styles.actions, { paddingBottom: insets.bottom + 24 }]}>
                     {Platform.OS === 'web' ? (
                         <>
-                            <ActionButton title="Enter pairing string" icon="keypad-outline" action={() => promptForPairingString('Enter pairing string')} />
+                            {/* Browser pairing lives in one place: /pair owns
+                                deep links, manual paste, install-before-claim,
+                                and expired/revoked re-pairing. */}
+                            <ActionButton title="Enter pairing string" icon="keypad-outline" onPress={() => router.push('/pair')} />
                             <ActionButton variant="secondary" title="Try interactive demo" icon="play-circle-outline" onPress={() => router.push('/demo')} />
                         </>
                     ) : (

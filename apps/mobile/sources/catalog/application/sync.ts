@@ -296,7 +296,10 @@ class MuxrSync {
             ...(hostedGrant === undefined ? {} : { hostedGrant }),
             ...(settings.mode === 'hosted' ? {
                 onTicketRejected: () => { void this.refreshAccountSession().catch(() => undefined); },
-                onPermanentError: (message: string) => storage.getState().setSocketError(message),
+                onPermanentError: (failure) => {
+                    storage.getState().setSocketError(failure.message);
+                    storage.getState().setPairingFailure(failure.kind);
+                },
             } : {}),
         });
         this.attachClient(client);
@@ -316,6 +319,7 @@ class MuxrSync {
             // that only a manual app reload could fix.
             if (state === 'open') {
                 storage.getState().setSocketError(null);
+                storage.getState().setPairingFailure(null);
                 // Machine frames are edge-triggered; reconnect/mount paths also
                 // reconcile caches so a lost wakeup cannot leave stale UI.
                 reconcilePluginCaches({ type: 'plugins.invalidated', reason: 'changed', pluginIds: [] });
@@ -778,6 +782,7 @@ class MuxrSync {
             this.client?.close();
             this.client = undefined;
             storage.getState().setSocketStatus(this.hasTransport() ? 'connecting' : 'disconnected');
+            storage.getState().setPairingFailure(null);
             const settings = this.getConnection();
             watchAgentLifecycle(
                 { authority: this.anonID, machineId: settings.machineId },

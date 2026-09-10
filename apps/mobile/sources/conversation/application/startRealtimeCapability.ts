@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { Platform } from 'react-native';
 import { storage } from '@/catalog/store';
 import { getCachedConnectionSettings } from '@/connection';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
@@ -6,6 +7,7 @@ import { startSessionFromDraft } from '@/hooks/startSessionFromDraft';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { Modal } from '@/modal';
 import {
+    alertRealtimeWebUnsupported,
     beginRealtimeConversation,
     ensureRealtimeProviderConfigured,
     requestRealtimePermission,
@@ -48,6 +50,12 @@ export async function startRealtimeCapability(input: { sessionId?: string } = {}
     if (starting) return;
     starting = true;
     try {
+        // Same gate as session start: never ask for the microphone for a
+        // call the browser cannot carry.
+        if (Platform.OS === 'web') {
+            alertRealtimeWebUnsupported();
+            return;
+        }
         const explicit = input.sessionId?.trim();
         const target = explicit
             ? { machineId: getCachedConnectionSettings().machineId, sessionId: explicit }

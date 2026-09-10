@@ -102,6 +102,7 @@ vi.mock('../../catalog/application/storage', () => ({
             sessionsLoaded: false,
             setSocketStatus: (status: string) => { harness.socketStatus = status; },
             setSocketError: (message: string | null) => { harness.socketError = message; },
+            setPairingFailure: vi.fn(),
             applyMachines: (machines: unknown[], replace = false) => {
                 harness.machineReplaceFlags.push(replace);
                 const id = (machines[0] as { id?: string } | undefined)?.id;

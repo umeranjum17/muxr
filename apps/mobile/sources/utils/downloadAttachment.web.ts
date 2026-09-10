@@ -19,10 +19,12 @@ import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 import { decodeBase64 } from '@/encryption/base64';
 
-export type DownloadHandoff = 'browser' | 'device';
+export type DownloadHandoff = 'browser' | 'device' | 'cancelled';
 
 /** Same chunk size as the native hosted path. */
 const CHUNK_LENGTH = 512 * 1024;
+/** Transient relay hiccups must not kill a large download outright. */
+const CHUNK_ATTEMPTS = 3;
 /**
  * Blob-fallback ceiling: without filesystem streaming the whole file sits on
  * the JS heap plus a base64 copy in flight. Above this, say so plainly.
@@ -50,25 +52,45 @@ function saveFilePicker(): undefined | ((options?: { suggestedName?: string }) =
 }
 
 async function readChunk(sessionId: string, attachmentId: string, offset: number): Promise<{ id: string; size: number; bytes: Uint8Array }> {
-    const chunk = await sync.request('attachment.read', {
-        sessionId,
-        attachmentId,
-        offset,
-        length: CHUNK_LENGTH,
-    }, 60_000);
-    if (chunk === null || chunk.offset !== offset) {
-        throw new Error('attachment changed or disappeared during download');
+    let failed: unknown = undefined;
+    for (let attempt = 1; attempt <= CHUNK_ATTEMPTS; attempt += 1) {
+        try {
+            const chunk = await sync.request('attachment.read', {
+                sessionId,
+                attachmentId,
+                offset,
+                length: CHUNK_LENGTH,
+            }, 60_000);
+            if (chunk === null || chunk.offset !== offset) {
+                throw new Error('attachment changed or disappeared during download');
+            }
+            const bytes = decodeBase64(chunk.data, 'base64');
+            if (bytes.length === 0) throw new Error('attachment download returned an empty chunk');
+            return { id: chunk.id, size: chunk.size, bytes };
+        } catch (error) {
+            failed = error;
+            // Changed-file mismatches are deterministic; only the transport
+            // itself is worth retrying.
+            if (error instanceof Error && /changed or disappeared|empty chunk/.test(error.message)) throw error;
+            if (attempt < CHUNK_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+        }
     }
-    const bytes = decodeBase64(chunk.data, 'base64');
-    if (bytes.length === 0) throw new Error('attachment download returned an empty chunk');
-    return { id: chunk.id, size: chunk.size, bytes };
+    throw failed instanceof Error ? failed : new Error('attachment download failed');
 }
 
 /** Hosted/E2EE: stream chunks straight to disk, nothing retained on the heap. */
 async function streamHostedFile(sessionId: string, attachment: StoredSessionAttachment): Promise<DownloadHandoff> {
     const pick = saveFilePicker();
     if (pick === undefined) return blobHostedFile(sessionId, attachment);
-    const handle = await pick({ suggestedName: attachment.name });
+    let handle: FileSystemFileHandle;
+    try {
+        handle = await pick({ suggestedName: attachment.name });
+    } catch (error) {
+        // Dismissing the save dialog is a cancel, not a failure: resolve
+        // quietly so no Download failed modal follows.
+        if (error instanceof DOMException && error.name === 'AbortError') return 'cancelled';
+        throw error;
+    }
     const writable = await handle.createWritable();
     try {
         let offset = 0;

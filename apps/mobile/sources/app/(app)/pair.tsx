@@ -10,6 +10,7 @@ import { useAuth } from '@/account/ui';
 import { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '@/pairing/e2ee';
 import { pairMachine, usePairQrScanner } from '@/pairing';
 import { getCachedConnectionSettings } from '@/connection';
+import { storage } from '@/catalog/store';
 import { canPromptInstall, isIOSBrowser, isStandaloneDisplay, onInstallPromptAvailable, promptInstall } from '@/utils/pwaInstall';
 import { ActionButton } from '@/components/ActionButton';
 import { Typography } from '@/constants/Typography';
@@ -61,6 +62,10 @@ export default function PairScreen() {
     const routeParams = useLocalSearchParams();
     const browser = Platform.OS === 'web';
     const openedFromSettings = routeParams.source === 'settings';
+    // Re-pair entry: the connection screen routes expired/revoked grants
+    // here with a reason, so the banner names the cause and the fix instead
+    // of showing a generic prompt.
+    const pairReason = routeParams.reason === 'expired' || routeParams.reason === 'revoked' ? routeParams.reason : undefined;
     const reviewPairing = React.useCallback((raw: string) => {
         try {
             const url = prepareHostedPairingInput(raw);
@@ -101,7 +106,8 @@ export default function PairScreen() {
         if (typeof v !== 'string' || v === '') return undefined;
         const query = new URLSearchParams();
         for (const [key, value] of Object.entries(routeParams)) {
-            if (key === 'source' || typeof value !== 'string') continue;
+            // source/reason are UI routing, never pairing material.
+            if (key === 'source' || key === 'reason' || typeof value !== 'string') continue;
             // Expo's deep-link parser form-decodes, so the `%2B` in a
             // standard-base64 machinePk arrives as a space and the rebuilt
             // mailbox no longer matches the machine's signing key. base64
@@ -177,6 +183,9 @@ export default function PairScreen() {
             throw new Error(paired.message ?? 'Pairing failed');
         }
         await auth.login(paired.credential, paired.secretKey);
+        // A fresh grant supersedes the dead one: clear the recorded failure
+        // so connection UI stops offering re-pairing.
+        storage.getState().setPairingFailure(null);
         finishPair();
     }, [auth, browser, router]);
 
@@ -220,6 +229,16 @@ export default function PairScreen() {
                 )}
                 {state?.phase === 'success' && (
                     <Text style={styles.subtitle}>with {state.machineName}</Text>
+                )}
+                {pairReason !== undefined && (state === undefined || state.phase === 'confirm' || state.phase === 'error') && (
+                    <View style={styles.reasonBanner}>
+                        <Ionicons name="refresh-outline" size={16} color={styles.securityText.color} />
+                        <Text style={styles.securityText}>
+                            {pairReason === 'expired'
+                                ? 'This browser’s access expired. Pair again below with a fresh link — nothing else changes.'
+                                : 'This device was revoked on the machine. Pair again below with a fresh link to restore access.'}
+                        </Text>
+                    </View>
                 )}
             </View>
 
@@ -428,6 +447,16 @@ const styles = StyleSheet.create((theme) => ({
         gap: 10,
         alignItems: 'flex-start',
         paddingBottom: 8,
+    },
+    reasonBanner: {
+        flexDirection: 'row',
+        gap: 10,
+        alignItems: 'flex-start',
+        marginTop: 14,
+        paddingHorizontal: 16,
+        maxWidth: 380,
+        width: '100%',
+        alignSelf: 'center',
     },
     securityText: {
         ...Typography.default(),
