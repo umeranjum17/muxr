@@ -30,6 +30,12 @@ export interface PreviewTunnel {
     hostname: string;
     port: number;
     close: () => void;
+    /**
+     * Loadable URL on web, where the bridge serves same-origin through a
+     * service worker instead of a loopback listener. Absent for raw-TCP
+     * tunnels (native bridge, relay-side port, takeover stream).
+     */
+    url?: string;
 }
 
 /** Regex, not `new URL`: React Native's URL is partial and this is one field. */
@@ -62,10 +68,13 @@ function waitForRelay(socket: WebSocket, type: string): Promise<void> {
  * socket -- HTTP for previews, a WebSocket for the takeover stream -- can
  * ride the same tunnel.
  */
-export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> {
+export async function attachPreviewTunnel(port: number, options?: { rawTcp?: boolean }): Promise<PreviewTunnel> {
     const { previewBridgeAvailable, startPreviewBridge } = await import('../infrastructure/previewBridge');
+    // The takeover stream is a raw WebSocket over TCP, not HTTP: it always
+    // needs the byte tunnel, never the web HTTP bridge.
+    const bridgeAvailable = options?.rawTcp === true ? false : previewBridgeAvailable;
     const settings = getCachedConnectionSettings();
-    if (!previewBridgeAvailable && settings.mode !== 'local') {
+    if (!bridgeAvailable && settings.mode !== 'local') {
         throw new Error('Browser preview needs the muxr app on this platform.');
     }
     const hostname = relayHostname(settings.relayUrl);
@@ -74,7 +83,7 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
     }
 
     const channel = newPreviewChannel();
-    const key = previewBridgeAvailable ? newPreviewKey() : undefined;
+    const key = bridgeAvailable ? newPreviewKey() : undefined;
     // The per-preview key crosses inside the existing E2EE request. The relay
     // sees connection ids for multiplexing, never the frontend bytes.
     await sync.request('preview.attach', { channel, port, ...(key === undefined ? {} : { key }) });
@@ -92,11 +101,14 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
     }), 'preview', previewBridgeAvailable);
     const socket = new WebSocket(socketUrl);
 
-    if (previewBridgeAvailable) {
+    if (bridgeAvailable) {
         socket.binaryType = 'arraybuffer';
         await waitForRelay(socket, 'preview.bridge');
         if (key === undefined) throw new Error('Encrypted preview key unavailable.');
-        const bridge = await startPreviewBridge(socket, key);
+        const bridge = await startPreviewBridge(socket, key, channel);
+        if (bridge.url !== undefined) {
+            return { hostname: '', port: 0, url: bridge.url, close: bridge.close };
+        }
         return { hostname: '127.0.0.1', port: bridge.port, close: bridge.close };
     }
 
@@ -150,6 +162,7 @@ export async function openPreview(command: OpenPreviewCommand): Promise<OpenPrev
         );
     }
     const tunnel = await attachPreviewTunnel(port);
+    if (tunnel.url !== undefined) return { url: tunnel.url, close: tunnel.close };
     return {
         url: `http://${tunnel.hostname}:${tunnel.port}/`,
         close: tunnel.close,

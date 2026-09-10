@@ -75,7 +75,7 @@ export interface OpenTakeover {
 export type OpenTakeoverCommand = { port: number };
 
 export async function openTakeover(command: OpenTakeoverCommand): Promise<OpenTakeover> {
-    const tunnel = await attachPreviewTunnel(command.port);
+    const tunnel = await attachPreviewTunnel(command.port, { rawTcp: true });
     // Always ws: the tunnel carries raw TCP with no TLS in front of it.
     return {
         wsUrl: `ws://${tunnel.hostname}:${tunnel.port}/`,

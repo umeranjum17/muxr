@@ -17,10 +17,38 @@ function selectedPort(value: string | undefined): number | undefined {
 }
 
 /**
- * An https page cannot frame an http preview, so the selected server keeps a
- * real tap on TLS web. Native and non-TLS web can open a selected port directly.
+ * An https page cannot frame an http preview, so a legacy relay-port preview
+ * keeps a real tap on TLS web. The service-worker bridge serves same-origin
+ * over TLS and frames inline -- native and non-TLS web open directly too.
  */
-const webNeedsTab = Platform.OS === 'web' && typeof window !== 'undefined' && window.location.protocol === 'https:';
+const pageIsHttps = Platform.OS === 'web' && typeof window !== 'undefined' && window.location.protocol === 'https:';
+
+function previewUrlNeedsTab(url: string): boolean {
+    if (!pageIsHttps) return false;
+    try {
+        return new URL(url, window.location.href).protocol === 'http:';
+    } catch {
+        return true;
+    }
+}
+
+/**
+ * A same-origin preview runs page JS in the PWA's origin, where the device
+ * credential lives -- sandbox it away from storage, cookies, and top
+ * navigation. Cross-origin (relay-port) previews are isolated already.
+ * Cost: app-JS fetch/XHR under the opaque origin needs the app to allow it,
+ * and HMR sockets cannot ride the request bridge.
+ */
+const PREVIEW_SANDBOX = 'allow-scripts allow-forms allow-modals allow-popups allow-downloads';
+
+function previewUrlIsSandboxed(url: string): boolean {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
+    try {
+        return new URL(url, window.location.href).origin === window.location.origin;
+    } catch {
+        return false;
+    }
+}
 
 export default function PreviewScreen() {
     const { theme } = useUnistyles();
@@ -37,13 +65,21 @@ export default function PreviewScreen() {
     const choose = React.useCallback(async (selected: number): Promise<void> => {
         setOpening(true);
         setError(null);
-        const tab = webNeedsTab ? window.open('about:blank', '_blank') : null;
+        // Popup blockers need the gesture: open tentatively on TLS web, where
+        // a legacy relay-port preview cannot be framed. The service-worker
+        // bridge frames inline, so an unused tab is closed again below.
+        const tab = pageIsHttps ? window.open('about:blank', '_blank') : null;
         try {
             const opened = await openPreview({
                 port: selected,
                 onIosSimulator: Platform.OS === 'ios' && Device.isDevice === false,
             });
-            if (tab !== null) tab.location.href = opened.url;
+            if (previewUrlNeedsTab(opened.url)) {
+                if (tab !== null) tab.location.href = opened.url;
+                else window.open(opened.url, '_blank');
+            } else {
+                tab?.close();
+            }
             setPreview(opened);
         } catch (cause: unknown) {
             tab?.close();
@@ -55,7 +91,7 @@ export default function PreviewScreen() {
 
     const directAttempt = React.useRef<string | undefined>(undefined);
     React.useEffect(() => {
-        if (directPort === undefined || webNeedsTab || status !== 'connected' || session === undefined || preview !== null) return;
+        if (directPort === undefined || pageIsHttps || status !== 'connected' || session === undefined || preview !== null) return;
         const key = `${id}:${directPort}`;
         if (directAttempt.current === key) return;
         directAttempt.current = key;
@@ -64,7 +100,7 @@ export default function PreviewScreen() {
 
     if (preview !== null) {
         if (Platform.OS === 'web') {
-            if (webNeedsTab) {
+            if (previewUrlNeedsTab(preview.url)) {
                 return (
                     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: theme.colors.groupped.background }}>
                         <Ionicons name="open-outline" size={32} color={theme.colors.textSecondary} />
@@ -75,7 +111,7 @@ export default function PreviewScreen() {
                     </View>
                 );
             }
-            return <View style={{ flex: 1 }}><iframe src={preview.url} style={{ flex: 1, border: 'none' }} title="preview" /></View>;
+            return <View style={{ flex: 1 }}><iframe src={preview.url} sandbox={previewUrlIsSandboxed(preview.url) ? PREVIEW_SANDBOX : undefined} style={{ flex: 1, border: 'none' }} title="preview" /></View>;
         }
         return (
             <WebView
@@ -92,7 +128,7 @@ export default function PreviewScreen() {
     return (
         <View style={{ flex: 1, backgroundColor: theme.colors.groupped.background, padding: 16 }}>
             {error !== null && <Text style={{ ...Typography.default(), color: theme.colors.textDestructive, marginBottom: 12 }}>{error}</Text>}
-            {error !== null && directPort !== undefined && !webNeedsTab && !opening && (
+            {error !== null && directPort !== undefined && !opening && (
                 <Pressable onPress={() => void choose(directPort)} accessibilityRole="button" accessibilityLabel="Retry preview" style={{ paddingVertical: 14, alignItems: 'center' }}>
                     <Text style={{ ...Typography.default('semiBold'), color: theme.colors.textLink }}>Retry</Text>
                 </Pressable>
@@ -106,11 +142,11 @@ export default function PreviewScreen() {
                 </Text>
             )}
 
-            {directPort !== undefined && webNeedsTab && !opening && (
+            {directPort !== undefined && pageIsHttps && !opening && (
                 <Pressable
                     onPress={() => void choose(directPort)}
                     accessibilityRole="button"
-                    accessibilityLabel={`Open localhost:${directPort} in a new tab`}
+                    accessibilityLabel={`Open a preview of localhost:${directPort}`}
                     style={{
                         flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 16,
                         marginBottom: 8, borderRadius: 12, backgroundColor: theme.colors.surface,
@@ -119,7 +155,7 @@ export default function PreviewScreen() {
                     <Ionicons name="globe-outline" size={20} color={theme.colors.text} />
                     <View style={{ flex: 1 }}>
                         <Text style={{ ...Typography.default('semiBold'), color: theme.colors.text }}>{`localhost:${directPort}`}</Text>
-                        <Text style={{ ...Typography.default(), fontSize: 13, color: theme.colors.textSecondary }}>Open in a new tab</Text>
+                        <Text style={{ ...Typography.default(), fontSize: 13, color: theme.colors.textSecondary }}>Open preview</Text>
                     </View>
                 </Pressable>
             )}

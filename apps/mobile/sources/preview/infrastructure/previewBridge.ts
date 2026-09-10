@@ -16,6 +16,11 @@ import { decodePreviewFrame, encodePreviewFrame, PREVIEW_CLOSE, PREVIEW_DATA } f
 export interface PreviewBridge {
     port: number;
     close: () => void;
+    /**
+     * Same-origin service-worker URL on web, where no loopback listener can
+     * exist. Absent on native, where the URL is always `http://127.0.0.1:port/`.
+     */
+    url?: string;
 }
 
 export const previewBridgeAvailable = true;
@@ -32,7 +37,7 @@ function toBytes(data: string | Buffer): Uint8Array {
     return bytes;
 }
 
-export async function startPreviewBridge(socket: WebSocket, key: string): Promise<PreviewBridge> {
+export async function startPreviewBridge(socket: WebSocket, key: string, _channel?: string): Promise<PreviewBridge> {
     const clientToHostKey = deriveV2Key(key, 'client->host');
     const hostToClientKey = deriveV2Key(key, 'host->client');
     const connections = new Map<number, Connection>();
