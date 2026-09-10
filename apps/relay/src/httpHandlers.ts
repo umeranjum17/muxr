@@ -88,7 +88,7 @@ export function isExpoPushToken(value: unknown): value is string {
     return typeof value === 'string' && /^(?:Exponent|Expo)PushToken\[[A-Za-z0-9_-]+\]$/.test(value);
 }
 
-function isPushSubscription(
+export function isPushSubscription(
     value: unknown,
 ): value is { endpoint: string; keys: { p256dh: string; auth: string } } {
     if (typeof value !== 'object' || value === null) return false;
@@ -359,7 +359,14 @@ export async function handleHttpRequest(
             writeJson(res, 400, { error: 'subscription must be {endpoint, keys: {p256dh, auth}}' });
             return;
         }
-        await ctx.push.subscribe(account.accountId, body.subscription);
+        const level = (body as { level?: unknown }).level === undefined
+            ? 'important'
+            : parseLifecycleNotificationLevel((body as { level?: unknown }).level);
+        if (level === undefined) {
+            writeJson(res, 400, { error: 'invalid lifecycle notification level' });
+            return;
+        }
+        await ctx.push.subscribe(account.accountId, body.subscription, { level });
         writeJson(res, 200, { ok: true });
         return;
     }

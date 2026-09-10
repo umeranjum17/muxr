@@ -1,5 +1,6 @@
 import * as React from 'react';
 import * as Linking from 'expo-linking';
+import * as Clipboard from 'expo-clipboard';
 import { ActivityIndicator, Platform, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -9,6 +10,7 @@ import { useAuth } from '@/account/ui';
 import { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '@/pairing/e2ee';
 import { pairMachine, usePairQrScanner } from '@/pairing';
 import { getCachedConnectionSettings } from '@/connection';
+import { canPromptInstall, isIOSBrowser, isStandaloneDisplay, promptInstall } from '@/utils/pwaInstall';
 import { ActionButton } from '@/components/ActionButton';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
@@ -68,6 +70,15 @@ export default function PairScreen() {
     }, []);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
     const browserAuthority = browser && state?.url ? hostedPairingAuthority(state.url) : 'observe';
+    // iOS Safari tabs and installed web apps do not share IndexedDB: claiming
+    // here would pair a storage partition the install then abandons. Install
+    // first; the one-use code stays valid until claimed inside the app.
+    const installFirst = browser && isIOSBrowser() && !isStandaloneDisplay();
+    const [installBusy, setInstallBusy] = React.useState(false);
+    const copyLink = React.useCallback(async (url: string) => {
+        await Clipboard.setStringAsync(url);
+        await Modal.alert('Link copied', 'Open the installed muxr app and paste it there.');
+    }, []);
     const grants = browser
         ? browserAuthority === 'control' ? BROWSER_CONTROL_GRANTS : BROWSER_OBSERVE_GRANTS
         : PHONE_PAIRING_GRANTS;
@@ -203,6 +214,33 @@ export default function PairScreen() {
                         ))}
                     </>
                 ) : state?.phase === 'confirm' ? (
+                    installFirst ? (
+                        <>
+                            <View style={styles.stepGroup}>
+                                <Text style={styles.stepHeading}>Install muxr first</Text>
+                                <Text style={styles.grantText}>
+                                    This Safari tab cannot hand its pairing to the installed app — iOS keeps their storage separate.
+                                    Install first, then claim this link inside the app.
+                                </Text>
+                            </View>
+                            <View style={styles.stepGroup}>
+                                {['Tap Share, then Add to Home Screen.', 'Open muxr from the Home Screen.', 'Paste the pairing link there and Pair.'].map((step, index) => (
+                                    <View key={step} style={styles.stepRow}>
+                                        <Text style={styles.stepIndex}>{index + 1}</Text>
+                                        <Text style={styles.stepText}>{step}</Text>
+                                    </View>
+                                ))}
+                            </View>
+                            <View style={styles.securityRow}>
+                                <Ionicons name="lock-closed-outline" size={16} color={styles.securityText.color} />
+                                <Text style={styles.securityText}>
+                                    Your link stays one-use and valid for two minutes — nothing is claimed until you Pair inside the installed app.
+                                </Text>
+                            </View>
+                            <ActionButton title="Copy pairing link" icon="copy-outline" onPress={() => void copyLink(state.url)} />
+                            <ActionButton title="Back" variant="secondary" onPress={cancel} />
+                        </>
+                    ) : (
                     <>
                         <View style={styles.stepGroup}>
                             <Text style={styles.stepHeading}>{browser ? `This ${browserAuthority === 'control' ? 'control' : 'view-only'} browser will be able to` : 'This phone will be able to'}</Text>
@@ -238,14 +276,45 @@ export default function PairScreen() {
                         </View>
                         <ActionButton title="Pair" icon="link-outline" onPress={confirm} />
                         <ActionButton title="Cancel" variant="secondary" onPress={cancel} />
+                        {browser && !isStandaloneDisplay() && !isIOSBrowser() && (
+                            <View style={styles.securityRow}>
+                                <Ionicons name="download-outline" size={16} color={styles.securityText.color} />
+                                <Text style={styles.securityText}>
+                                    Pair first — your grant carries into the installed app. After pairing, install it for an icon and blocked-agent alerts.
+                                </Text>
+                            </View>
+                        )}
+                        {browser && canPromptInstall() && (
+                            <ActionButton
+                                title={installBusy ? 'Installing…' : 'Install the app'}
+                                icon="download-outline"
+                                disabled={installBusy}
+                                onPress={() => {
+                                    setInstallBusy(true);
+                                    void promptInstall().finally(() => setInstallBusy(false));
+                                }}
+                            />
+                        )}
                     </>
+                    )
                 ) : state?.phase === 'error' && state.url !== undefined ? (
+                    installFirst ? (
+                        <>
+                            <Text accessibilityRole="alert" style={styles.errorText}>{state.message}</Text>
+                            <Text style={styles.securityText}>
+                                Install muxr from the Home Screen first, then claim the link inside the app — this Safari tab cannot keep the pairing.
+                            </Text>
+                            <ActionButton title="Copy pairing link" icon="copy-outline" onPress={() => void copyLink(state.url!)} />
+                            <ActionButton title="Back" variant="secondary" onPress={cancel} />
+                        </>
+                    ) : (
                     <>
                         <Text accessibilityRole="alert" style={styles.errorText}>{state.message}</Text>
                         <ActionButton title="Try again" icon="refresh-outline" onPress={confirm} />
                         <ActionButton title="Enter another code" icon="keypad-outline" onPress={() => setState(undefined)} />
                         <ActionButton title="Back" variant="secondary" onPress={cancel} />
                     </>
+                    )
                 ) : (
                     <>
                         {state?.phase === 'error' && (

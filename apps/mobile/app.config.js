@@ -175,7 +175,15 @@ export default {
         web: {
             bundler: "metro",
             output: "single",
-            favicon: "./sources/assets/images/favicon.png"
+            favicon: "./sources/assets/images/favicon.png",
+            // PWA installability for the self-hosted browser client. The
+            // static manifest in public/manifest.webmanifest carries the
+            // icons; these fields keep `expo config` and the generated
+            // metadata consistent with it.
+            display: "standalone",
+            themeColor: "#000000",
+            backgroundColor: "#000000",
+            description: "Every coding agent on your phone — paired browser client for your own muxr host."
         },
         plugins: [
             withDevelopmentCleartext,

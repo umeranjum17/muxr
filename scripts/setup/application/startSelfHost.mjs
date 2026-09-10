@@ -11,6 +11,7 @@ import {
     stateDir,
 } from '../infrastructure/runtime.mjs';
 import { daemonIsRunning, runDaemon, startMuxrDaemon } from '../infrastructure/daemon.mjs';
+import { operatorConfigPath, resolveOperatorConfig } from '../infrastructure/operatorConfig.mjs';
 import {
     cleanupManagedIngress,
     cloudflaredAlive,
@@ -32,17 +33,34 @@ import { mintDeviceGrant } from './pairDevice.mjs';
 
 export async function startSelfHost(args = []) {
     let pendingIngress;
-    const port = Number(flagValue(args, '--port') ?? 8792);
+    // One precedence rule: CLI flag > MUXR_* env > ~/.muxr/config.env >
+    // probed/default. The operator file never carries secrets.
+    const operator = resolveOperatorConfig({ args });
+    const applyConfig = args.includes('--apply-config');
+    if (applyConfig) {
+        const missing = [];
+        if (operator.values.connection === undefined) missing.push('MUXR_CONNECTION (tailscale|tailscale-direct|private|lan|cloudflare|external)');
+        if (operator.values.connection === 'external' && operator.values.advertiseUrl === undefined) {
+            missing.push('MUXR_ADVERTISE_URL (required for MUXR_CONNECTION=external)');
+        }
+        if (missing.length > 0) {
+            error(`--apply-config needs every decision in ${operatorConfigPath()} or flags:\n  missing: ${missing.join(', ')}`);
+            return 1;
+        }
+        print(`  applying operator config from ${operatorConfigPath()}`);
+    }
+    const port = operator.values.relayPort ?? 8792;
     const relayOnly = args.includes('--relay-only');
     const managedRelay = args.includes('--managed-relay');
     const hostOnly = args.includes('--host-only');
     const dryRun = args.includes('--dry-run');
-    const web = args.includes('--web');
+    const web = operator.values.web ?? false;
     const pair = pairingIntentFromSelfhostFlags(args);
     const noPair = args.includes('--no-pair');
-    const connectionMode = flagValue(args, '--connection-mode');
+    const connectionMode = operator.values.connection;
     const reconfigure = args.includes('--reconfigure');
-    if (web && !process.stdout.isTTY && !args.includes('--yes')) {
+    const yes = args.includes('--yes') || applyConfig;
+    if (web && !process.stdout.isTTY && !yes) {
         error('--web requires an interactive trust confirmation or explicit --yes');
         return 1;
     }
@@ -54,7 +72,7 @@ export async function startSelfHost(args = []) {
             // machine identity and destroy every pairing.
             throw new Error(`${selfhostPath()} exists but is unreadable (truncated or corrupt); refusing to reconfigure over it. Move it aside when you are sure — \`mv ${selfhostPath()} ${selfhostPath()}.broken\` — then rerun`);
         }
-        if (web && process.stdout.isTTY && !args.includes('--yes')) {
+        if (web && process.stdout.isTTY && !yes) {
             print('Web access supports 8-hour control or view-only browser grants. Secret material is WebCrypto-wrapped in IndexedDB; close shared browsers and revoke them from `muxr devices`.');
             const approved = await askVisible('Continue with browser access? [y/N] ');
             if (!approved) return 0;
@@ -65,6 +83,9 @@ export async function startSelfHost(args = []) {
             else if (hostOnly) target = 'the self-host agent host';
             print(`  would start ${target}`);
             if (!relayOnly) print('  would create a single-use encrypted mobile pairing QR');
+            for (const [key, val] of Object.entries(operator.values)) {
+                print(`  config: ${key}=${val} (${operator.provenance[key]})`);
+            }
             return 0;
         }
         let state = readSelfhostState();
@@ -78,7 +99,7 @@ export async function startSelfHost(args = []) {
             state = { version: 1, machine: machineIdentity(undefined), relayPort: port };
         }
         const hostWasRunning = daemonIsRunning();
-        const explicitAdvertise = flagValue(args, '--advertise')?.replace(/\/$/, '');
+        const explicitAdvertise = flagValue(args, '--advertise')?.replace(/\/$/, '') ?? operator.values.advertiseUrl;
         const connection = parseConnection(state);
         const sameConfiguration = connection.ok && connection.value.sameAs({ port, connectionMode, web, explicitAdvertise });
         if (!sameConfiguration && reconfigure) {
@@ -155,7 +176,7 @@ export async function startSelfHost(args = []) {
             print('Ready — existing paired devices will reconnect automatically.');
             return 0;
         }
-        return await withSelfhostRotationLock(() => mintDeviceGrant(state, pair.kind, pair.authority));
+        return await withSelfhostRotationLock(() => mintDeviceGrant(state, pair.kind, pair.authority, pair.personal));
     } catch (cause) {
         if (pendingIngress && cloudflaredAlive(pendingIngress)) process.kill(Number(pendingIngress.pid), 'SIGTERM');
         error(cause instanceof Error ? cause.message : String(cause));

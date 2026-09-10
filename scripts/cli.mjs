@@ -17,12 +17,14 @@ import {
     enableBrowserHosting,
     hasPendingRemoteConnect,
     heading,
+    hostEntry,
     hostSharedRelay,
     inspectSetup,
     listDevices,
     listMachines,
     manageMachines,
     pairDevice,
+    printOperatorConfig,
     prompt,
     revokeDevice,
     revokeMachine,
@@ -59,14 +61,16 @@ Get started
   muxr doctor                    check the complete local setup
   muxr diagnostics               show bounded redacted host history for agents
   muxr report                    prepare a local redacted bug report draft
-  muxr pair [--browser|--browser-view] pair a phone or control/view-only browser
+  muxr pair [--browser|--browser-view|--browser-personal] pair a phone, a control/view-only browser, or your installed browser
+  muxr demo                      replay the blocked-agent loop against a fake host; no route needed
+  muxr config                    show effective operator intent and where each value came from
   muxr connect --enrollment ...  connect this agent machine to a shared relay
   muxr shared-relay              host an always-on relay for other machines
 
 Run and maintain
   muxr status                    check this setup (same as muxr doctor)
   muxr restart                   restart the supervised relay and host
-  muxr update [--check|--yes]    check for or install the latest npm release
+  muxr update [--check|--yes|--to <version>] check, install, or roll back the npm release (single update owner)
   muxr uninstall [--yes]         fully remove muxr; keep Herdr and repositories
   muxr self-host [options]       run the relay, host, and pairing flow
   muxr daemon <command>          install, start, stop, restart, or inspect muxr services
@@ -87,7 +91,7 @@ Use “muxr help <command>” for command options.
 
 const COMMAND_HELP = {
     setup: `muxr setup [--inspect] [--dry-run] [--no-install-herdr] [--port <n>]\n\nInteractive setup installs Herdr when missing, lets you choose networking, lifecycle integrations, plugins, and services, shows a final plan, then applies it and displays a short-lived pairing QR. It never installs agent skills or edits prompt files.\n`,
-    'self-host': `muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]\n               [--port <n>] [--relay-only|--host-only] [--web] [--yes]\n`,
+    'self-host': `muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]\n               [--port <n>] [--relay-only|--host-only] [--web] [--yes]\n               [--apply-config] [--dry-run]\n\n--apply-config reads ~/.muxr/config.env (flag > env > file > default) and applies it non-interactively; exits non-zero listing any missing decision.\n`,
     daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n\n\`install\` writes or updates the background-service definition without starting it. Normal \`muxr setup\` installs, starts, and verifies the service for you.\n`,
     devices: `muxr devices list\nmuxr devices revoke <number|name>\n`,
     integrations: `muxr integrations sync [--all] [--dry-run]\nmuxr integrations uninstall [--dry-run]\n\nSync Herdr lifecycle integrations only. Agent skills and prompt files are never changed.\n`,
@@ -102,14 +106,16 @@ const COMMAND_HELP = {
     'plugin install': `muxr plugin install <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nMaterialize, validate, confirm, and enable a plugin.\n`,
     'plugin update': `muxr plugin update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nReplace plugin files transactionally while preserving its enabled state.\n`,
     'plugin remove': `muxr plugin remove <plugin-id> [--yes]\n\nDisable, unlink, and remove muxr-managed plugin files.\n`,
-    pair: `muxr pair [--browser|--browser-view]\n\nCreate a two-minute native QR/string, an eight-hour control-browser link (--browser), or an eight-hour view-only browser link (--browser-view).\n`,
+    pair: `muxr pair [--browser|--browser-view|--browser-personal]\n\nCreate a two-minute native QR/string, an eight-hour control-browser link (--browser), an eight-hour view-only browser link (--browser-view), or a 30-day personal-browser link for your own installed browser (--browser-personal).\n`,
+    demo: `muxr demo\n\nRun the deterministic blocked-agent replay against the fake host (no route, no pairing). In the app, the same replay lives at the Demo route with zero backend. Stop with Ctrl-C.\n`,
+    config: `muxr config\n\nPrint the effective operator intent (~/.muxr/config.env values overlaid by MUXR_* env and CLI flags) with provenance per value. Read-only; the setup wizard writes the file when you Apply.\n`,
     doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
     diagnostics: `muxr diagnostics\n\nPrint seven days of bounded redacted host, client, relay, collaboration, and broker history as JSON. No prompts, terminal output, paths, secrets, or internal ids are recorded.\n`,
     report: `muxr report > muxr-report.md\n\nPrepare a local GitHub issue draft with environment versions, redacted doctor check names, and the latest 50 bounded diagnostic events. The command only prints a draft. Review every line, add what happened, and explicitly decide whether to post it; muxr never opens or submits an issue.\n`,
     status: `muxr status\n\nAlias for muxr doctor.\n`,
     restart: `muxr restart\n\nRestart the supervised relay and host (same as muxr daemon restart).\n`,
     uninstall: `muxr uninstall [--yes|--resume]\n\nRemove all muxr-owned services, ingress, identity, pairings, grants, relay/plugin state, provider keys, logs, caches, and managed integrations. Herdr, its sessions, repositories, worktrees, exports, signing keys, and unrecognized files stay. The globally installed CLI can be removed last.\n`,
-    update: `muxr update [--check|--yes]\n\nCheck npm for a newer @trymuxr/cli release. Interactive terminals ask before installing; --yes updates without prompting.\n`,
+    update: `muxr update [--check|--yes|--to <version>]\n\nCheck npm for a newer @trymuxr/cli release. Interactive terminals ask before installing; --yes updates without prompting. --to <version> rolls back through the same trusted install path.\n`,
     skill: `muxr --skill\nmuxr skill\nmuxr skill <onboarding|herdr|collaboration|browser-takeover|plugins>\nmuxr skill all\n\nPrint the compact canonical skill by default. Load one focused reference on demand; muxr skill all prints the archival self-contained bundle. Herdr guidance comes from the installed binary when available. No files or state are changed.\n`,
     peers: `muxr peers list [--machine <name>]\nmuxr peers read --machine <name> [--agent <name>] [--lines <n>]\nmuxr peers status --machine <name> [--agent <name>]\nmuxr peers watch --machine <name> [--agent <name>] [--timeout-ms <n>]\nmuxr peers prompt --machine <name> [--agent <name>] --text <prompt>\n\nUse established computer collaboration with Machine Names and Agent Names only. Output is JSON. Raw shell, takeover, and destructive actions are never granted.\n`,
     connect: `muxr connect --enrollment <muxr://enroll?...> [--no-pair|--pair-browser|--pair-browser-view|--pair-both]\nmuxr connect --resume\n`,
@@ -327,10 +333,30 @@ async function runUninstall(args = []) {
     return 0;
 }
 
+/** Deterministic replay: fake host on stdio, plus pointers to the in-app Demo route. */
+function runDemo() {
+    process.stdout.write([
+        'muxr demo — blocked-agent replay against the fake host.',
+        'In the app the same replay lives at the Demo route with zero backend.',
+        '',
+    ].join('\n'));
+    const result = spawnSync(process.execPath, [hostEntry(), '--fake'], { stdio: 'inherit' });
+    if (result.error) process.stderr.write(`${result.error.message}\n`);
+    return result.status ?? 1;
+}
+
 async function applyUpdate(args = []) {
+    const toInline = args.find((arg) => arg.startsWith('--to='));
+    let toVersion;
+    if (toInline !== undefined) toVersion = toInline.slice('--to='.length);
+    else {
+        const toIndex = args.indexOf('--to');
+        if (toIndex >= 0) toVersion = args[toIndex + 1];
+    }
     return updateCli({
         checkOnly: args.includes('--check'),
         yes: args.includes('--yes'),
+        to: toVersion,
         confirm: process.stdin.isTTY && process.stdout.isTTY
             ? async ({ latest }) => select('Apply this update?', [
                 { value: false, title: 'Not now', description: 'leave this installation unchanged' },
@@ -462,6 +488,8 @@ async function dispatch(command, args = []) {
         }
     }
     if (command === 'pair') return pairDevice(args);
+    if (command === 'demo') return runDemo();
+    if (command === 'config') return printOperatorConfig(args);
     if (command === 'version' || command === '--version' || command === '-v') {
         process.stdout.write(`${versionString()}\n`);
         return 0;
@@ -501,6 +529,7 @@ async function devicesMenu() {
             { value: 'pair', title: 'Pair a phone', description: 'show a two-minute QR and short pairing string' },
             { value: 'pair-browser', title: 'Pair a control browser', description: 'full terminal and agent control for eight hours' },
             { value: 'pair-browser-view', title: 'Pair a view-only browser', description: 'observe agents without control for eight hours' },
+            { value: 'pair-browser-personal', title: 'Pair your installed browser', description: 'control from your own installed PWA for 30 days; revoke anytime' },
             { value: 'list', title: 'List paired devices', description: 'names and pairing dates' },
             { value: 'revoke', title: 'Revoke a device', description: 'disconnect a phone or browser' },
             { value: 'back', title: 'Back', description: 'return to the main menu' },
@@ -509,7 +538,10 @@ async function devicesMenu() {
         if (choice === BACK || choice === 'back') return;
         let code = 0;
         if (choice === 'pair') code = await pairDevice([]);
-        else if (choice === 'pair-browser' || choice === 'pair-browser-view') {
+        else if (choice === 'pair-browser' || choice === 'pair-browser-view' || choice === 'pair-browser-personal') {
+            let flag = '--browser';
+            if (choice === 'pair-browser-view') flag = '--browser-view';
+            if (choice === 'pair-browser-personal') flag = '--browser-personal';
             if (!browserHostingReady()) {
                 const targeted = browserHostingCanEnable();
                 const enable = await select(
@@ -527,9 +559,9 @@ async function devicesMenu() {
                 if (enable === undefined) return 'quit';
                 if (enable === 'enable') {
                     code = await enableBrowserHosting();
-                    if (code === 0) code = await pairDevice([choice === 'pair-browser-view' ? '--browser-view' : '--browser']);
+                    if (code === 0) code = await pairDevice([flag]);
                 } else if (enable === 'setup') code = await dispatch('setup', []);
-            } else code = await pairDevice([choice === 'pair-browser-view' ? '--browser-view' : '--browser']);
+            } else code = await pairDevice([flag]);
         } else if (choice === 'list') code = await listDevices();
         else if (choice === 'revoke') {
             code = await listDevices();

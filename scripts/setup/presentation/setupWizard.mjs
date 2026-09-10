@@ -10,6 +10,7 @@ import { enrollMachine } from '../application/enrollMachine.mjs';
 import { listMachines } from '../application/listMachines.mjs';
 import { revokeMachine } from '../application/revokeMachine.mjs';
 import { selfhostPublicSummary, sharedMachineCount } from '../infrastructure/selfhostRelay.mjs';
+import { formatOperatorConfig, resolveOperatorConfig, writeOperatorConfig } from '../infrastructure/operatorConfig.mjs';
 import { inspectTailscaleServeRoot, runTailscale, tailscaleBin } from '../infrastructure/selfhost.mjs';
 import { advertisedUrlForMode, connectionLabel, ingressPlan, modeAllowsBrowserHosting } from '../domain/dist/index.js';
 
@@ -356,7 +357,9 @@ function serveRootFor(found, port) {
 
 async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args }) {
     const requestedPort = value(args, '--port');
-    const plannedPort = requestedPort === undefined ? current?.relayPort || 8792 : Number(requestedPort);
+    // Operator intent overlays the current state: flag > env > config.env.
+    const operator = resolveOperatorConfig({ args, probed: { relayPort: current?.relayPort, web: current?.webEnabled } });
+    const plannedPort = requestedPort === undefined ? (operator.values.relayPort ?? 8792) : Number(requestedPort);
     const serveRoot = serveRootFor(found, plannedPort);
     let mode = requestedMode;
     if (mode === 'selfhost') mode = undefined;
@@ -429,10 +432,13 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     setupStep(2, 5, 'Choose app access');
     let web = false;
     if (modeAllowsBrowserHosting(mode)) {
+        // Inferred default: hosting on when the route supports HTTPS. Shown
+        // in Review; nothing mutates before Apply.
+        const webDefault = operator.values.web ?? current?.webEnabled ?? false;
         web = await select('Host the browser client too?', [
             { value: false, title: 'Native app only', description: 'do not expose the browser client' },
             { value: true, title: 'Host the browser client', description: 'serve it over the selected HTTPS/WSS connection' },
-        ], current?.webEnabled ? 1 : 0);
+        ], webDefault ? 1 : 0);
         if (aborted(web)) return undefined;
     } else {
         status('Browser client', 'requires Tailscale Serve, External WSS, or Cloudflare; native app only', 'off');
@@ -455,9 +461,14 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         ] : []),
     ];
     setupStep(2, 5, 'Choose what to pair');
+    // Phone QR and browser link are minted together (not either/or): when web
+    // hosting is on, pair both by default; each grant stays individually
+    // minted, scoped, and revocable via `muxr devices`.
+    const defaultPairing = web ? 'both' : 'phone';
+    const pairingInitial = Math.max(0, pairingChoices.findIndex((choice) => choice.value === defaultPairing));
     const pairing = pairingChoices.length === 1 ? pairingChoices[0].value : await select(connectionChanged && current !== undefined
         ? 'The connection changed. Keep existing devices or pair another one?'
-        : 'Pair a client?', pairingChoices);
+        : 'Pair a client?', pairingChoices, pairingInitial);
     if (aborted(pairing)) return undefined;
     return { mode, port, endpoint, web, pairing };
 }
@@ -588,6 +599,13 @@ export async function applyMachineSetup(args = []) {
     if (plugins === undefined) return cancelSetup();
 
     setupStep(4, 5, 'Review setup');
+    const operatorPreview = formatOperatorConfig({
+        connection: plan.mode,
+        relayPort: plan.port,
+        web: plan.web,
+        ...(plan.mode === 'external' && plan.endpoint ? { advertiseUrl: plan.endpoint } : {}),
+        integrationsSync: syncIntegrations ? 'on' : 'off',
+    });
     note([
         `Connection: ${connectionLabel(plan.mode, plan.endpoint, plan.port)}`,
         `Herdr: ${found.herdr.installed ? 'adopt existing installation and ensure its server is running' : 'download, install, and start during setup'}`,
@@ -599,6 +617,7 @@ export async function applyMachineSetup(args = []) {
         `Ingress: ${ingressPlan(plan.mode, tailscalePlanned)}`,
         'Services: register or restart the relay and host with systemd/launchd',
         `Existing connections: ${connectionChanged ? 'stored grants stay authoritative and adopt the advertised endpoint automatically' : 'keep working; restart only if a reviewed runtime setting changed'}`,
+        `Operator config to write (~/.muxr/config.env):\n${operatorPreview.trimEnd()}`,
         'No change is made until you choose Apply setup.',
     ]);
     const apply = await select('Apply this setup?', [
@@ -631,6 +650,16 @@ export async function applyMachineSetup(args = []) {
         const failedServe = plan.mode === 'tailscale' ? serveRootFor(found, plan.port).status : undefined;
         if (failedServe !== 'occupied' && failedServe !== 'disabled') return result;
     }
+    // The wizard is a config-file generator: persist the reviewed operator
+    // intent (never secrets) so `muxr config` shows it and
+    // `muxr self-host --apply-config` reproduces this setup.
+    writeOperatorConfig({
+        connection: plan.mode,
+        relayPort: plan.port,
+        web: plan.web,
+        ...(plan.mode === 'external' && plan.endpoint ? { advertiseUrl: plan.endpoint } : {}),
+        integrationsSync: syncIntegrations ? 'on' : 'off',
+    });
     const { mode, endpoint, port, pairing } = plan;
     const browserPairFailed = pairing === 'both' && (await pairDevice(['--browser'])) !== 0;
     const doctor = await inspectSetup();

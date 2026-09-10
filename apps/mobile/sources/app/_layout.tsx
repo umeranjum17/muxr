@@ -23,6 +23,7 @@ import sodium from '@/encryption/libsodium.lib';
 import { View, Platform, AppState, Pressable, Text } from 'react-native';
 import { ModalProvider } from '@/modal';
 import { syncRestore, syncResume } from '@/catalog/sync';
+import { watchInstallPrompt } from '@/utils/pwaInstall';
 import { FaviconPermissionIndicator } from '@/components/web/FaviconPermissionIndicator';
 import { CommandPaletteProvider } from '@/components/CommandPalette/CommandPaletteProvider';
 import { StatusBarProvider } from '@/components/StatusBarProvider';
@@ -332,6 +333,26 @@ export default function RootLayout() {
             if (resumed) void syncResume().catch(() => undefined);
         });
         return () => subscription.remove();
+    }, [initState?.credentials]);
+
+    // Web has no AppState foregrounding: a frozen/hidden tab returns with a
+    // stale socket and up to 30s of backoff. visibilitychange + pageshow feed
+    // the same syncResume() path as native, which fast-forwards backoff and
+    // re-opens from a fresh catalog snapshot. Guarded to visible-only so one
+    // foregrounding produces one resume, never duplicate subscriptions.
+    React.useEffect(() => {
+        if (initState?.credentials === undefined || Platform.OS !== 'web') return;
+        watchInstallPrompt();
+        const onReturn = () => {
+            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+            void syncResume().catch(() => undefined);
+        };
+        document.addEventListener('visibilitychange', onReturn);
+        window.addEventListener('pageshow', onReturn);
+        return () => {
+            document.removeEventListener('visibilitychange', onReturn);
+            window.removeEventListener('pageshow', onReturn);
+        };
     }, [initState?.credentials]);
 
     const handledNotificationIds = React.useRef<Set<string>>(new Set());

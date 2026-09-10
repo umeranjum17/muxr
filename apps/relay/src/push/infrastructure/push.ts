@@ -15,6 +15,10 @@ import { readPrivateFile, writeJsonFileAtomic } from '../../platform/persist.js'
 export interface PushSubscriptionRecord {
     endpoint: string;
     keys: { p256dh: string; auth: string };
+    /** Paired device that owns this subscription; taken from the presenting credential, never the body. */
+    deviceId?: string;
+    /** Lifecycle level filter, parity with ExpoPushTokenRecord. */
+    level?: LifecycleNotificationLevel;
     createdAt: string;
 }
 
@@ -147,9 +151,18 @@ export class PushService {
         return this.vapid.publicKey;
     }
 
-    async subscribe(accountId: string, subscription: { endpoint: string; keys: { p256dh: string; auth: string } }): Promise<void> {
+    async subscribe(
+        accountId: string,
+        subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+        opts: { deviceId?: string; level?: LifecycleNotificationLevel } = {},
+    ): Promise<void> {
         const list = (this.subs[accountId] ?? []).filter((entry) => entry.endpoint !== subscription.endpoint);
-        list.push({ ...subscription, createdAt: new Date().toISOString() });
+        list.push({
+            ...subscription,
+            ...(opts.deviceId === undefined ? {} : { deviceId: opts.deviceId }),
+            ...(opts.level === undefined ? {} : { level: opts.level }),
+            createdAt: new Date().toISOString(),
+        });
         this.subs[accountId] = list;
         await this.persist();
     }
@@ -168,6 +181,15 @@ export class PushService {
 
     async removeExpoDevice(accountId: string, deviceId: string): Promise<void> {
         await this.removeExpo(accountId, (entry) => entry.deviceId === deviceId);
+    }
+
+    /** Drop every web-push subscription owned by a revoked device. */
+    async removeWebDevice(accountId: string, deviceId: string): Promise<void> {
+        const list = this.subs[accountId] ?? [];
+        const remaining = list.filter((entry) => entry.deviceId !== deviceId);
+        if (remaining.length === list.length) return;
+        this.subs[accountId] = remaining;
+        await this.persist();
     }
 
     async removeExpoToken(accountId: string, token: string): Promise<void> {
@@ -198,9 +220,13 @@ export class PushService {
             : COPY_SUFFIX[payload.kind];
         const bodyText = `${payload.agentName}${suffix}`;
         const list = this.subs[accountId] ?? [];
+        // Level-filtered like Expo subs: a device that asked for important-only
+        // never wakes for done/failed noise.
+        const eligible = list.filter((entry) =>
+            lifecycleNotificationAllowed(entry.level ?? 'important', payload.kind));
         const body = JSON.stringify({ ...payload, title, body: bodyText, presentationOwner: 'relay-push' });
-        const results = await Promise.allSettled(list.map((sub) => webpush.sendNotification(sub, body)));
-        const dead = list.filter((sub, index) => results[index]?.status === 'rejected' && isGone((results[index] as PromiseRejectedResult).reason));
+        const results = await Promise.allSettled(eligible.map((sub) => webpush.sendNotification(sub, body, { TTL: 24 * 60 * 60, urgency: payload.kind === 'blocked' ? 'high' : 'normal' })));
+        const dead = eligible.filter((sub, index) => results[index]?.status === 'rejected' && isGone((results[index] as PromiseRejectedResult).reason));
         if (dead.length > 0) {
             const gone = new Set(dead);
             this.subs[accountId] = list.filter((sub) => !gone.has(sub));

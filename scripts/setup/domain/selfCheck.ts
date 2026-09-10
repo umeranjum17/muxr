@@ -1,7 +1,7 @@
 import { advertisedUrlForMode, parseConnection } from './connection.js';
 import { parseEnrollment } from './enrollment.js';
 import { parseMachineCrypto, validMachineCrypto } from './machineCrypto.js';
-import { pairingIntent } from './pairing.js';
+import { BROWSER_PERSONAL_GRANT_TTL_MS, pairingIntent, pairingIntentFromDevice, pairingIntentFromHostedFlags } from './pairing.js';
 
 function assert(condition: boolean, message: string): asserts condition {
     if (!condition) throw new Error(message);
@@ -29,6 +29,25 @@ function runSelfCheck(): void {
     const controlBrowser = pairingIntent({ kind: 'browser', authority: 'control' });
     assert(controlBrowser.authority === 'control', 'owner can grant browser control');
     assert(controlBrowser.promptLine().includes('control'), 'prompt names the authority');
+    assert(!controlBrowser.personal, 'shared browser grants stay eight-hour by default');
+    assert(controlBrowser.grantDurationLabel() === 'eight hours', 'default duration copy is eight hours');
+
+    // Explicit personal-browser opt-in: longer renewable lifetime through the
+    // same intent machinery, never inferred from install state.
+    const personal = pairingIntent({ kind: 'browser', authority: 'control', personal: true });
+    assert(personal.personal, 'personal opt-in is explicit');
+    assert(personal.grantExpiresAt(1_000) === 1_000 + BROWSER_PERSONAL_GRANT_TTL_MS, 'personal grants last thirty days');
+    assert(personal.grantDurationLabel() === '30 days', 'personal duration copy is thirty days');
+    const personalRecord = personal.deviceRecord({ deviceId: 'device-9', devicePublicKey: 'k', ingressKey: 'i', expiresAt: 1_000 });
+    assert(personalRecord.personal === true, 'personal marker rides the stored device record');
+    assert(pairingIntentFromDevice({ kind: 'browser', authority: 'control', personal: true }).grantExpiresAt(1_000) === 1_000 + BROWSER_PERSONAL_GRANT_TTL_MS, 'stored personal marker restores the longer refresh clamp');
+    assert(pairingIntentFromDevice({ kind: 'browser', authority: 'control' }).grantExpiresAt(1_000) === 1_000 + 8 * 60 * 60_000, 'stored shared grants keep the safe default');
+    const flagPersonal = pairingIntentFromHostedFlags(['--browser-personal']);
+    assert(flagPersonal.personal && flagPersonal.kind === 'browser' && flagPersonal.authority === 'control', '--browser-personal mints an explicit personal control grant');
+    const flagDefault = pairingIntentFromHostedFlags(['--browser']);
+    assert(!flagDefault.personal && flagDefault.grantDurationLabel() === 'eight hours', '--browser keeps the eight-hour default');
+    assert(!personal.matchesPending({ deviceKind: 'browser', authority: 'control' }), 'personal intent never reuses a shared pending session');
+    assert(!controlBrowser.matchesPending({ deviceKind: 'browser', authority: 'control', personal: true }), 'shared intent never reuses a personal pending session');
 
     const enrollment = parseEnrollment('not-a-link');
     assert(!enrollment.ok, 'malformed enrollment is rejected');

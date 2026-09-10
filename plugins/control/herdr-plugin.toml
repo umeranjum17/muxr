@@ -5,6 +5,19 @@ min_herdr_version = "0.8.0"
 description = "Set up, pair, and operate muxr from Herdr"
 platforms = ["linux", "macos"]
 
+# Thin bootstrap: install the pinned CLI payload on plugin install. The real
+# payload stays npm @trymuxr/cli (trusted publishing + provenance); the
+# plugin never vendors the runtime and never owns updates.
+[[build]]
+command = ["node", "./build.mjs"]
+
+# Control-plane only: kick the already-configured systemd/launchd service.
+# Daemon lifecycle stays with the OS service muxr writes; Herdr has no
+# supervised-service primitive, so this hook never configures or restarts.
+[[startup]]
+id = "muxr-daemon"
+command = ["node", "./run.mjs", "start-if-configured"]
+
 [[panes]]
 id = "setup"
 title = "muxr setup"

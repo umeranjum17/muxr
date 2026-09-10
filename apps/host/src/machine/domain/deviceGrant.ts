@@ -52,7 +52,14 @@ export class DeviceGrant {
     }
 
     grantExpiresAtMs(now: number, durableNativeExpiresAt: number): number {
-        if (this.kind() === 'browser') return Math.min(Date.parse(this.record.expiresAt), now + 8 * 60 * 60_000);
+        // Browser grants stay short-lived by default. The longer personal TTL
+        // applies only when the stored device record carries the explicit
+        // opt-in marker minted by `muxr pair --browser-personal` — installed
+        // display-mode alone never implies it.
+        if (this.kind() === 'browser') {
+            const cap = this.record.personal === true ? 30 * 24 * 60 * 60_000 : 8 * 60 * 60_000;
+            return Math.min(Date.parse(this.record.expiresAt), now + cap);
+        }
         if (this.isPeer()) return Date.parse(this.record.expiresAt);
         return durableNativeExpiresAt;
     }

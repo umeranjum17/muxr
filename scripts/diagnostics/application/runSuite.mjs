@@ -32,6 +32,7 @@ const checks = [
     ['policy: store/direct mobile commerce builds', 'node', ['scripts/diagnostics/application/checkMobileCommerceBuilds.mjs']],
     ['e2e: device pairing through relay', 'node', ['scripts/diagnostics/application/checkPairing.mjs']],
     ['e2e: durable self-host device revocation', 'node', ['scripts/diagnostics/application/checkSelfhostRevocation.mjs']],
+    ['e2e: self-host web push (device auth, levels, revoke)', 'node', ['scripts/diagnostics/application/checkWebPush.mjs']],
     ['e2e: shared remote relay isolation', 'node', ['scripts/diagnostics/application/checkRemoteRelay.mjs']],
     ['e2e: multi-provider usage aggregation', 'node', ['scripts/diagnostics/application/checkUsageStatus.mjs']],
     ['e2e: tailscale ingress ownership', 'node', ['scripts/diagnostics/application/checkTailscaleIngress.mjs']],
@@ -48,6 +49,7 @@ const checks = [
     ['package: full lifecycle smoke', 'node', ['scripts/diagnostics/application/packageLifecycleSmoke.mjs'], undefined, 300000],
     ['policy: core purity (no cloud refs in OSS)', 'node', ['scripts/diagnostics/application/checkCorePurity.mjs']],
     ['policy: tooling architecture (named use cases, layers, no nested ternaries)', 'node', ['scripts/diagnostics/application/checkArchitecture.mjs']],
+    ['package: web export (manifest, MIME, cache, secrets, budget)', 'node', ['scripts/diagnostics/application/checkWebExport.mjs']],
     ['security: tracked/package secret scan', 'node', ['scripts/diagnostics/application/checkNoSecrets.mjs']],
 ];
 

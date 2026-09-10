@@ -89,6 +89,13 @@ export function compareVersions(left, right) {
 
 export async function updateCli(command = {}) {
     const current = currentVersion();
+    // Rollback uses the same trusted install path as updates: one owner
+    // (`muxr update`), explicit version, contract checks fail closed on skew.
+    const pinned = typeof command.to === 'string' && command.to.trim() !== '' ? command.to.trim() : undefined;
+    if (pinned !== undefined && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(pinned)) {
+        process.stderr.write(`invalid version for --to: ${pinned}\n`);
+        return 1;
+    }
     const lookup = npm(['view', PACKAGE, 'dist-tags.latest', '--json']);
     if (lookup.status !== 0) {
         process.stderr.write(`Could not check npm: ${(lookup.stderr || lookup.stdout || 'npm failed').trim()}\n`);
@@ -102,33 +109,36 @@ export async function updateCli(command = {}) {
         process.stderr.write('npm returned an invalid muxr version\n');
         return 1;
     }
-    const comparison = compareVersions(latest, current);
+    const target = pinned ?? latest;
+    const comparison = compareVersions(target, current);
     if (comparison === undefined) {
         process.stderr.write('installed muxr version is invalid\n');
         return 1;
     }
-    if (comparison <= 0) {
+    if (pinned === undefined && comparison <= 0) {
         process.stdout.write(comparison === 0
             ? `muxr ${current} is current.\n`
             : `muxr ${current} is newer than npm latest (${latest}); nothing changed.\n`);
         return 0;
     }
 
-    process.stdout.write(`muxr ${latest} is available (installed: ${current}).\n`);
+    process.stdout.write(pinned !== undefined
+        ? `muxr ${target} was requested (installed: ${current}).\n`
+        : `muxr ${latest} is available (installed: ${current}).\n`);
     if (command.checkOnly) return 0;
     const installedMode = daemonMode();
     let approved = command.yes === true;
     if (!approved && command.confirm) {
         process.stdout.write([
-            'Update plan:',
-            `  • install ${PACKAGE}@${latest}`,
+            pinned !== undefined ? 'Rollback plan:' : 'Update plan:',
+            `  • install ${PACKAGE}@${target}`,
             installedMode === 'relay'
                 ? '  • leave Herdr and agent integrations unchanged on this relay-only server'
                 : '  • ensure the Herdr server is running and relink bundled plugins',
             '  • restart the muxr relay and host if they are running',
             '',
         ].join('\n'));
-        approved = await command.confirm({ latest, current }) === true;
+        approved = await command.confirm({ latest: target, current }) === true;
     }
     if (!approved) {
         process.stdout.write(`Nothing changed. Run \`muxr update --yes\` when ready.\n`);
@@ -138,7 +148,7 @@ export async function updateCli(command = {}) {
     if (!activePackageUsesCurrentNpmPrefix()) return 1;
     const restart = daemonIsRunning();
     const restartMode = installedMode;
-    const install = npm(['install', '--global', '--ignore-scripts', `${PACKAGE}@${latest}`], 'inherit');
+    const install = npm(['install', '--global', '--ignore-scripts', `${PACKAGE}@${target}`], 'inherit');
     if (install.status !== 0) return install.status ?? 1;
 
     if (restartMode !== 'relay' && (await runBootstrap(['--no-install-herdr'])) !== 0) {
@@ -171,6 +181,8 @@ export async function updateCli(command = {}) {
     if (relayRestarted) parts.push('relay');
     if (restart) parts.push('host');
     const restarted = parts.join(' and ');
-    process.stdout.write(`Updated muxr to ${latest}${restarted ? ` and restarted the ${restarted}` : ''}.\n`);
+    const action = pinned !== undefined ? 'Rolled back' : 'Updated';
+    const restartedNote = restarted === '' ? '' : ` and restarted the ${restarted}`;
+    process.stdout.write(`${action} muxr to ${target}${restartedNote}.\n`);
     return 0;
 }

@@ -172,7 +172,7 @@ const newestMtime = (path) => {
     if (!info.isDirectory()) return info.mtimeMs;
     return Math.max(info.mtimeMs, ...readdirSync(path).map((name) => newestMtime(join(path, name))));
 };
-const webInputs = ['apps/mobile/sources', 'apps/mobile/app.config.js', 'apps/mobile/package.json']
+const webInputs = ['apps/mobile/sources', 'apps/mobile/public', 'apps/mobile/app.config.js', 'apps/mobile/package.json']
     .map((path) => join(root, path));
 const sourceMtime = Math.max(...webInputs.map(newestMtime));
 if (statSync(join(webDist, 'index.html')).mtimeMs < sourceMtime) {

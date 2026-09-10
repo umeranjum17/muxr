@@ -510,7 +510,10 @@ export function isRetryableCloseFailure(error: unknown): boolean {
 export async function createHerdrSessionSource(
     options: CreateHerdrSessionSourceOptions,
 ): Promise<SessionSource> {
-    const socketPath = options.socketPath ?? join(homedir(), '.config', 'herdr', 'herdr.sock');
+    // The Herdr plugin records the invoking instance in the environment and
+    // ~/.muxr/herdr-plugin.env; explicit options still win over all of it.
+    const socketPath = options.socketPath
+        ?? (process.env.HERDR_SOCKET_PATH?.trim() || join(homedir(), '.config', 'herdr', 'herdr.sock'));
     const routes = options.routes ?? new AgentRouteStore(options.dataDir);
     await routes.load();
     const catalog = new PluginCatalog();

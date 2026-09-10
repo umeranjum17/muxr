@@ -2,6 +2,7 @@ export {
     accepted,
     advertisedUrlForMode,
     BROWSER_GRANT_TTL_MS,
+    BROWSER_PERSONAL_GRANT_TTL_MS,
     connectionLabel,
     DURABLE_GRANT_EXPIRES_AT,
     defaultAuthorityFor,
@@ -113,5 +114,13 @@ export {
     runIntegrations,
     runLocalPrerequisites,
 } from './infrastructure/herdr.mjs';
+export {
+    formatOperatorConfig,
+    operatorConfigPath,
+    operatorReportLines,
+    printOperatorConfig,
+    resolveOperatorConfig,
+    writeOperatorConfig,
+} from './infrastructure/operatorConfig.mjs';
 export { BACK, heading, prompt, select, status } from './presentation/ui.mjs';
 export { hostEntry, relayEntry } from './infrastructure/paths.mjs';

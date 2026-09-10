@@ -35,7 +35,7 @@ return after login or reboot and `muxr update` restarts them as one managed unit
 Unchanged setup choices keep existing devices paired; changing the endpoint
 requires and displays a fresh pairing step.
 
-In the native app: **Scan QR code** or enter the short relay-qualified pairing string. Browser pairing prints one short two-minute HTTPS link. `muxr pair --browser` grants full terminal and agent control; `muxr pair --browser-view` grants explicit view-only access. Both browser grants expire after eight hours, survive refresh/restart, and are reported as paired only after durable browser storage acknowledges the grant.
+In the native app: **Scan QR code** or enter the short relay-qualified pairing string. Browser pairing prints one short two-minute HTTPS link. `muxr pair --browser` grants full terminal and agent control; `muxr pair --browser-view` grants explicit view-only access. Both browser grants expire after eight hours, survive refresh/restart, and are reported as paired only after durable browser storage acknowledges the grant. `muxr pair --browser-personal` mints a 30-day grant for your own installed browser; authority is never inferred from installed display-mode. On iPhone, install the PWA (Add to Home Screen) *before* claiming — iOS does not share storage between the Safari tab and the installed app. On Android and desktop, pair first and install after; the grant carries over. Notification taps always deep-link into the request; the service worker holds no credential and cannot approve on its own.
 
 For automation use `muxr daemon status|logs|start|stop|restart`. Shared relay
 automation uses `muxr shared-relay`, `muxr machines enroll|list|revoke`, and
