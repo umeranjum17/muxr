@@ -60,9 +60,18 @@ check('app.config web themeColor', appConfig.includes('themeColor'));
 const relay = read(join(root, 'apps', 'relay', 'src', 'relay.ts'));
 check('relay serves .mjs as javascript', relay.includes("'.mjs': 'text/javascript"));
 check('relay serves .webmanifest', relay.includes("'.webmanifest': 'application/manifest+json'"));
+check('relay serves .wasm as application/wasm', relay.includes("'.wasm': 'application/wasm'"));
 check('relay sw.js revalidates', relay.includes("base === 'sw.js'"));
 check('relay manifest revalidates', relay.includes("base === 'manifest.webmanifest'"));
 check('relay web permissions allow self camera/mic', relay.includes("'permissions-policy': 'camera=(self), microphone=(self)"));
+const serveWebExport = read(join(root, 'scripts', 'diagnostics', 'application', 'serveWebExport.mjs'));
+check('serveWebExport serves .wasm as application/wasm', serveWebExport.includes("'.wasm': 'application/wasm'"));
+// Every production export must install the lazy WASM/PDF payload into
+// public/ first — dist without canvaskit.wasm fails at runtime with
+// WebAssembly magic-word errors.
+const packageJson = read(join(root, 'package.json'));
+check('web:export installs canvaskit before exporting', packageJson.includes('setup-canvaskit') && packageJson.includes('npx expo export'));
+check('web:export installs the pdf worker before exporting', packageJson.includes('setup-pdfjs'));
 
 // 4. Secret hygiene: the exportable surface must not carry credentials.
 const secretPattern = /(acctok_|EXPO_PUBLIC_MUXR_TOKEN\s*=\s*['"][^'"]+['"]|mint-secret|BEGIN (?:OPENSSH|EC|RSA) PRIVATE KEY)/;
@@ -82,11 +91,12 @@ check('deploy prunes only aged orphans', deploy.includes('-mtime') && deploy.inc
 
 // 5. Unhashed entry payload: icons + manifest + worker stay small. This is
 // NOT the initial bundle budget — hashed JS/CSS is measured against dist
-// below. It only guards the always-fetched root files.
+// below. The known lazy payload (canvaskit.wasm, pdf.worker) is excluded:
+// it loads on demand, never as startup transfer.
 const BUDGET_BYTES = 512 * 1024;
 let rootBytes = 0;
 for (const name of readdirSync(join(mobile, 'public'))) {
-    if (name.endsWith('.mjs') && name.includes('pdf')) continue; // hashed lazy worker, not entry payload
+    if (name.endsWith('.wasm') || name === 'pdf.worker.min.mjs') continue;
     const info = statSync(join(mobile, 'public', name));
     if (info.isFile()) rootBytes += info.size;
 }
@@ -147,6 +157,12 @@ if (!existsSync(distIndex)) {
         return existsSync(file) ? readFileSync(file, 'utf8') : '';
     })].join('\n');
     check('dist initial payload has no marketing origin', !distText.includes('https://trymuxr.com'));
+    // CanvasKit is fetched lazily by Skia at runtime; without it the app
+    // dies in Error initializing. Observed ~8.0 MB; anything under 1 MB is
+    // a stub or a truncation, not the engine.
+    const canvaskitDist = join(mobile, 'dist', 'canvaskit.wasm');
+    const canvaskitBytes = existsSync(canvaskitDist) ? statSync(canvaskitDist).size : 0;
+    check('dist ships a full canvaskit.wasm', canvaskitBytes > 1024 * 1024, `${canvaskitBytes} bytes`);
 }
 
 if (failures.length > 0) {

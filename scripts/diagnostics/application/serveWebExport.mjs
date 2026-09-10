@@ -19,6 +19,7 @@ const mime = {
     '.ttf': 'font/ttf',
     '.woff': 'font/woff',
     '.woff2': 'font/woff2',
+    '.wasm': 'application/wasm',
     '.svg': 'image/svg+xml',
 };
 
