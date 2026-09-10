@@ -297,6 +297,7 @@ export function planToArgs(plan, { reconfigure = true } = {}) {
     if (plan.advertiseUrl !== undefined) argv.push('--advertise', plan.advertiseUrl);
     if (plan.tunnel === true) argv.push('--tunnel');
     if (plan.tailscaleDirect === true) argv.push('--tailscale-direct');
+    if (plan.notifyEmail !== undefined) argv.push('--notify-email', plan.notifyEmail);
     if (reconfigure) argv.push('--reconfigure');
     return argv;
 }

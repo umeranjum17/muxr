@@ -104,6 +104,42 @@ export async function applyConfigSelfcheck() {
     assert.equal(malformed.code, 1);
     assert.equal(snapshotHome(), before);
 
+    // First-apply ordering (the wizard applies before writing config.env):
+    // with no config file, finalize → apply argv → resolve must preserve a
+    // CLI-provided notification address with flag precedence — and a flag
+    // must override a filed address before anything is written.
+    cleanEnv();
+    rmSync(configPath, { force: true });
+    const workingPlan = { mode: 'lan', port: 8792, web: false, endpoint: undefined };
+    const workingFound = { lan: '192.168.1.5' };
+    const firstFinal = finalizeSetupPlan({
+        plan: workingPlan,
+        found: workingFound,
+        syncIntegrations: true,
+        notifyEmail: 'owner@example.com',
+    });
+    const firstApplied = resolveSetupPlan({
+        args: selfhostArgsFromSetupPlan({ ...workingPlan, pairing: 'phone', found: workingFound, notifyEmail: firstFinal.notifyEmail }),
+    });
+    assert.equal(firstApplied.values.notifyEmail, 'owner@example.com');
+    assert.equal(firstApplied.provenance.notifyEmail, 'flag');
+    assert.equal(firstApplied.values.connection, 'lan');
+    assert.equal(firstApplied.values.advertiseUrl, 'ws://192.168.1.5:8792');
+    writeConfig('MUXR_CONNECTION=lan\nMUXR_NOTIFY_EMAIL=file@example.com\n');
+    const reviewedOverride = resolveSetupPlan({ args: ['--notify-email', 'flag@example.com'] });
+    assert.equal(reviewedOverride.values.notifyEmail, 'flag@example.com');
+    const overrideFinal = finalizeSetupPlan({
+        plan: workingPlan,
+        found: workingFound,
+        syncIntegrations: true,
+        notifyEmail: reviewedOverride.values.notifyEmail,
+    });
+    const overrideApplied = resolveSetupPlan({
+        args: selfhostArgsFromSetupPlan({ ...workingPlan, pairing: 'phone', found: workingFound, notifyEmail: overrideFinal.notifyEmail }),
+    });
+    assert.equal(overrideApplied.values.notifyEmail, 'flag@example.com');
+    assert.equal(overrideApplied.provenance.notifyEmail, 'flag');
+
     // Beyond dry-run: the wizard's finalize → serialize → resolve → argv
     // chain. writeOperatorConfig(finalPlan) re-resolves to identical
     // values, the apply argv re-resolves to the same intent (review ==

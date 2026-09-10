@@ -60,7 +60,11 @@ const serve = spawn(process.execPath, ['scripts/diagnostics/application/serveWeb
     env: { ...process.env, MUXR_WEB_EXPORT_DIR: dist, MUXR_WEB_PORT: String(port) },
     stdio: ['ignore', 'pipe', 'pipe'],
 });
-const browser = spawn(chromium, ['--headless=new', '--no-sandbox', '--disable-gpu', `--remote-debugging-port=${CDP_PORT}`, 'about:blank'], {
+// Test browser only: software rasterizer off denies WebGL contexts, so the
+// production TerminalView falls back to its canvas renderer whose pixels
+// headless capture can read. Production keeps WebGL; nothing in the app
+// changes for this flag.
+const browser = spawn(chromium, ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-software-rasterizer', `--remote-debugging-port=${CDP_PORT}`, 'about:blank'], {
     stdio: ['ignore', 'pipe', 'pipe'],
 });
 
@@ -572,15 +576,48 @@ try {
     })()`);
     await clickDockEntry();
     await parityWaitFor('focus for send', (text) => text.includes('No worktree'));
-    // Exact selected configuration, read before send: the created session
-    // must carry this agent/project/worktree/prompt, not just any title.
-    const focusConfig = await parityEval(`[...document.querySelectorAll('*')].filter((el) => el.getAttribute && typeof el.getAttribute('aria-label') === 'string').map((el) => el.getAttribute('aria-label')).filter((label) => /^(AGENT|PROJECT|WORKTREE), /.test(label))`);
-    check(
-        'focus names the selected agent/project/worktree',
-        focusConfig.some((label) => label.startsWith('AGENT, ')) && focusConfig.some((label) => label.startsWith('PROJECT, ')) && focusConfig.some((label) => label.startsWith('WORKTREE, ')),
-        JSON.stringify(focusConfig),
-    );
-    await typePrompt('parity spawn probe');
+    // Independent expectations (fixed constants, never derived from the
+    // result): explicitly select this agent, project, and worktree state
+    // before Send, then compare the title and transcript to the constants.
+    const expectedKind = 'claude';
+    const expectedAgentName = 'Claude Code';
+    const expectedCwd = '/home/demo/acme-app';
+    const expectedPrompt = 'parity spawn probe';
+    const focusRowLabel = (prefix) => parityEval(`([...document.querySelectorAll('*')].map((el) => el.getAttribute && el.getAttribute('aria-label') || '').find((label) => label.startsWith(${JSON.stringify(prefix)})) ?? '')`);
+    const clickFocusRow = (prefix) => parityEval(`[...document.querySelectorAll('*')].find((el) => el.getAttribute && (el.getAttribute('aria-label') || '').startsWith(${JSON.stringify(prefix)}))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await clickFocusRow('AGENT, ');
+    await parityWaitFor('agent sheet', (text) => text.includes(expectedAgentName), 15000);
+    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === ${JSON.stringify(expectedAgentName)})?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await parityWaitForState('agent picked', async () => (await focusRowLabel('AGENT, ')) === `AGENT, ${expectedAgentName}`, 15000);
+    check('agent selection sticks', (await focusRowLabel('AGENT, ')) === `AGENT, ${expectedAgentName}`);
+    await clickFocusRow('PROJECT, ');
+    await parityWaitForState('project sheet input', async () => parityEval(`!![...document.querySelectorAll('input')].find((el) => (el.placeholder || '') === 'search or type a path' && el.offsetParent !== null)`), 15000);
+    await parityEval(`(() => {
+        const box = [...document.querySelectorAll('input')].find((el) => (el.placeholder || '') === 'search or type a path' && el.offsetParent !== null);
+        if (!box) return 'missing';
+        box.focus();
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(box, ${JSON.stringify(expectedCwd)});
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+        return 'typed';
+    })()`);
+    // Synthetic typing never moves DOM focus and the sheet traps it on a
+    // DIV, so CDP Enter cannot reach the input: dispatch keydown on the
+    // node itself. React handles the bubbled event at its root through the
+    // exact production submit path (RN TextInput → onSubmitCustom).
+    await parityEval(`(() => {
+        const box = [...document.querySelectorAll('input')].find((el) => (el.placeholder || '') === 'search or type a path' && el.offsetParent !== null);
+        if (!box) return 'missing';
+        box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+        return 'dispatched';
+    })()`);
+    await parityWaitForState('project picked', async () => (await focusRowLabel('PROJECT, ')) === `PROJECT, ${expectedCwd}`, 15000);
+    check('project selection sticks', (await focusRowLabel('PROJECT, ')) === `PROJECT, ${expectedCwd}`);
+    await clickFocusRow('WORKTREE, ');
+    await parityWaitFor('worktree sheet', (text) => text.includes('No worktree'), 15000);
+    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'No worktree')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await parityWaitForState('worktree picked', async () => (await focusRowLabel('WORKTREE, ')) === 'WORKTREE, No worktree', 15000);
+    check('worktree stays explicitly none', (await focusRowLabel('WORKTREE, ')) === 'WORKTREE, No worktree');
+    await typePrompt(expectedPrompt);
     const sent = await clickFocusSend();
     check('compact focus send submits', sent === 'sent', sent);
     let createdPath = '/demo';
@@ -599,12 +636,11 @@ try {
         })()`);
         throw new Error(`no created session: ${diag} (${error instanceof Error ? error.message : String(error)})`);
     }
-    // The created route carries the exact kind in its title: extract it and
-    // require the same kind in the title construction and the transcript,
-    // so configuration propagation is proven instead of pattern-matched.
-    const createdTitle = await parityWaitFor('created session title', (text) => /^New [a-z][a-z0-9_-]* session$/m.test(text), 20000);
-    const createdKind = (createdTitle.match(/^New ([a-z][a-z0-9_-]*) session$/m) ?? [])[1] ?? '';
-    check('spawned session names the selected kind exactly', createdKind !== '' && createdTitle.includes(`New ${createdKind} session`), createdKind);
+    // The created route must carry the independently selected kind: compare
+    // the resulting title and transcript to the constants, never to
+    // themselves. A regression that always starts Pi fails here.
+    const createdTitle = await parityWaitFor('created session title', (text) => text.includes(`New ${expectedKind} session`), 20000);
+    check('spawned session names the selected kind exactly', createdTitle.split('\n').some((line) => line.trim() === `New ${expectedKind} session`), expectedKind);
 
     // IME guard on the real session composer: Enter mid-composition must
     // not send (the draft stays); Enter after compositionend must send
@@ -648,9 +684,10 @@ try {
     // The created card sits fourth in the live strip, past the preview
     // pause window: swipe it into view like a user, which unpauses its
     // pane.read thumbnail.
-    const herdAfterScroll = await waitThumbnailLine('created thumbnail settles', `New ${createdKind} session`, `$ new ${createdKind} session in ~`);
-    check('created transcript carries the selected kind and project', herdAfterScroll.includes(`$ new ${createdKind} session in ~`), createdKind);
-    check('created transcript carries the dock prompt', herdAfterScroll.includes('$ parity spawn probe'));
+    const expectedSpawnLine = `$ new ${expectedKind} session in ${expectedCwd}`;
+    const herdAfterScroll = await waitThumbnailLine('created thumbnail settles', `New ${expectedKind} session`, expectedSpawnLine);
+    check('created transcript carries the selected kind and project', herdAfterScroll.includes(expectedSpawnLine), expectedKind);
+    check('created transcript carries the dock prompt', herdAfterScroll.includes(`$ ${expectedPrompt}`));
     check('created transcript carries the composed prompt', herdAfterScroll.includes(`$ ${imeProbe}`));
 
     // Live resize across the breakpoint: the typed draft survives, no ghost
@@ -669,14 +706,29 @@ try {
     check('prompt survives 899-901-899 live resize', resizedText.includes('resize survival probe'));
     check('no ghost focus modal after resize', !(await testid('focus-composer')));
 
-    // Compact session keeps the production chrome. The terminal paints on a
-    // WebGL canvas, which headless capture cannot read (preserveDrawingBuffer
-    // stays off for production frame rate), so the screenshot is a settled
-    // artifact only: the proof is textual — the recorded transcript the
-    // channel fed xterm, observed through pane.read thumbnails on the herd.
+    // Compact session keeps the production chrome. Terminal proof comes
+    // from the actual xterm buffer through the demo-only probe (channel →
+    // decode → term.write → buffer), not from thumbnails or canvas size.
+    // Headless capture cannot read WebGL pixels (preserveDrawingBuffer
+    // stays off for production frame rate), so this test browser denies
+    // WebGL and the production canvas fallback renders capturable text.
     await parityClickText('Rebase release branch onto main');
     await parityWaitFor('demo session', (text) => text.includes('^C'));
     check('session keeps production chrome', (await pathname()).startsWith('/session/'));
+    const terminalBufferText = () => parityEval(`document.querySelector('[data-demo-terminal-text]')?.getAttribute('data-demo-terminal-text') ?? ''`);
+    const bufferText = await (async () => {
+        const started = Date.now();
+        for (;;) {
+            const text = await terminalBufferText();
+            if (text.includes('rebased 4 commits cleanly') && text.includes('main: 12 new commits')) return text;
+            if (Date.now() - started > 30000) throw new Error(`timed out waiting for xterm buffer proof (got ${JSON.stringify(text.slice(0, 200))})`);
+            await new Promise((r) => setTimeout(r, 800));
+        }
+    })();
+    check(
+        'xterm buffer carries the delivered transcript',
+        bufferText.includes('$ git fetch origin') && bufferText.includes('$ git rebase origin/main') && bufferText.includes('Needs approval: run git push --force-with-lease?'),
+    );
     // Settle: channel replay plus the rAF frame-batching flush, then the
     // viewport the capture is taken in.
     await new Promise((r) => setTimeout(r, 3000));
@@ -695,7 +747,7 @@ try {
         30000,
     );
     check(
-        'session transcript reaches the rendered thumbnail',
+        'thumbnail pane.read path carries the transcript',
         herdAfterSession.includes('rebased 4 commits cleanly') && herdAfterSession.includes('main: 12 new commits') && herdAfterSession.includes('$ git fetch origin'),
     );
     check('browser back leaves the session for the herd', (await pathname()) === '/demo');
@@ -814,9 +866,8 @@ try {
         return !!sendButton && sendButton.getAttribute('aria-disabled') !== 'true';
     })()`), 15000) === true);
     check('retry submits', (await clickFocusSend()) === 'sent');
-    const retryTitle = await parityWaitFor('retry session title', (text) => /^New [a-z][a-z0-9_-]* session$/m.test(text), 30000);
-    const retryKind = (retryTitle.match(/^New ([a-z][a-z0-9_-]*) session$/m) ?? [])[1] ?? '';
-    check('retry lands on the created session', retryKind !== '' && retryTitle.includes(`New ${retryKind} session`) && (await pathname()).startsWith('/session/'), retryKind);
+    const retryTitle = await parityWaitFor('retry session title', (text) => text.includes(`New ${expectedKind} session`), 30000);
+    check('retry lands on the created session', retryTitle.split('\n').some((line) => line.trim() === `New ${expectedKind} session`) && (await pathname()).startsWith('/session/'), expectedKind);
 
     await parityEval('window.history.back()');
     await waitPath('/new-agent');
@@ -833,7 +884,7 @@ try {
     check('browser back leaves new-agent for the herd', (await pathname()) === '/demo', await pathname());
     // Same pause window as above: swipe until the retried prompt lands in
     // the created card's transcript.
-    const herdAfterRetry = await waitThumbnailLine('retry transcript settles', `New ${retryKind} session`, '$ dock worktree probe');
+    const herdAfterRetry = await waitThumbnailLine('retry transcript settles', `New ${expectedKind} session`, '$ dock worktree probe');
     check('retry prompt reaches the transcript', herdAfterRetry.includes('$ dock worktree probe'));
     check('no page errors during parity', parityErrors.length === 0, parityErrors.slice(0, 3).join(' | '));
 } catch (cause) {

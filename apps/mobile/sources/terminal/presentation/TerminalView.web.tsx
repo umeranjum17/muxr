@@ -11,6 +11,7 @@ import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import { beginViewportCapture, recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
+import { isDemoTerminalSession } from '@/demo/demoTransport';
 
 export interface TerminalViewProps {
     sessionId: string;
@@ -24,6 +25,20 @@ function decodeBase64(value: string): Uint8Array {
     const bytes = new Uint8Array(binary.length);
     for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
     return bytes;
+}
+
+/**
+ * Visible xterm buffer text after a real write. Demo probe only: hosted
+ * sessions never expose buffer text.
+ */
+function visibleTerminalText(term: Terminal): string {
+    const buffer = term.buffer.active;
+    const lines: string[] = [];
+    const start = Math.max(0, buffer.length - term.rows);
+    for (let row = start; row < buffer.length; row += 1) {
+        lines.push(buffer.getLine(row)?.translateToString(true) ?? '');
+    }
+    return lines.join('\n').replace(/\s+$/, '');
 }
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
@@ -72,6 +87,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
 
         let channel: TerminalChannel | undefined;
         let disposed = false;
+        // Demo-only: mirror the actual xterm buffer for automation after the
+        // real write path. The attribute never exists for hosted sessions.
+        const demoTerminalSession = isDemoTerminalSession(sessionId);
 
         onStatus?.('connecting');
         void openTerminal({ agentRoute: sessionId, size: { cols: term.cols, rows: term.rows } })
@@ -100,7 +118,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     const all = new Uint8Array(total);
                     let offset = 0;
                     for (const chunk of decoded) { all.set(chunk, offset); offset += chunk.length; }
-                    term.write(all);
+                    if (demoTerminalSession) {
+                        term.write(all, () => {
+                            if (!disposed) element.setAttribute('data-demo-terminal-text', visibleTerminalText(term));
+                        });
+                    } else {
+                        term.write(all);
+                    }
                 };
                 opened.onData((base64) => {
                     recordTerminalOutput(sessionId, base64);

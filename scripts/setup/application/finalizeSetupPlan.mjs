@@ -24,7 +24,7 @@ function advertiseUrlForPlan({ mode, port, endpoint, found }) {
     return undefined;
 }
 
-function intentValues({ mode, port, web, endpoint, found }) {
+function intentValues({ mode, port, web, endpoint, found, notifyEmail }) {
     const advertiseUrl = advertiseUrlForPlan({ mode, port, endpoint, found });
     return {
         connection: mode,
@@ -33,6 +33,7 @@ function intentValues({ mode, port, web, endpoint, found }) {
         ...(advertiseUrl === undefined ? {} : { advertiseUrl }),
         tunnel: mode === 'cloudflare',
         tailscaleDirect: mode === 'tailscale-direct',
+        ...(notifyEmail === undefined ? {} : { notifyEmail }),
     };
 }
 
@@ -46,9 +47,8 @@ function intentValues({ mode, port, web, endpoint, found }) {
  */
 export function finalizeSetupPlan({ plan, found, syncIntegrations, notifyEmail }) {
     const values = {
-        ...intentValues({ mode: plan.mode, port: plan.port, web: plan.web, endpoint: plan.endpoint, found }),
+        ...intentValues({ mode: plan.mode, port: plan.port, web: plan.web, endpoint: plan.endpoint, found, notifyEmail }),
         integrationsSync: syncIntegrations ? 'on' : 'off',
-        ...(notifyEmail === undefined ? {} : { notifyEmail }),
     };
     validateSetupPlan(values);
     return values;
@@ -57,12 +57,12 @@ export function finalizeSetupPlan({ plan, found, syncIntegrations, notifyEmail }
 /**
  * Canonical apply argv for a working plan: the same normalized intent,
  * plus per-invocation pairing flags. Apply therefore consumes exactly what
- * Review showed — never re-derived intent. Serialization-only fields
- * (integrations choice, notification address) ride config.env into the
- * apply instead of argv.
+ * Review showed — never re-derived intent — including the notification
+ * address, which the wizard applies before config.env exists. Only the
+ * integrations choice rides config.env into the apply instead of argv.
  */
-export function selfhostArgsFromSetupPlan({ mode, port, web, pairing, found, endpoint }) {
-    const planValues = intentValues({ mode, port, web, endpoint, found });
+export function selfhostArgsFromSetupPlan({ mode, port, web, pairing, found, endpoint, notifyEmail }) {
+    const planValues = intentValues({ mode, port, web, endpoint, found, notifyEmail });
     validateSetupPlan(planValues);
     const selfhostArgs = [...planToArgs(planValues), ...(web ? ['--yes'] : [])];
     if (pairing === 'browser') selfhostArgs.push('--pair-browser');

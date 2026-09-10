@@ -685,7 +685,7 @@ export async function applyMachineSetup(args = []) {
         const recovered = await recoverTailscaleServe({ plan, found, stepsTotal });
         if (recovered === undefined) return stoppedAfterApply();
         plan = recovered;
-        result = await startSelfHost(selfhostArgsFromSetupPlan({ ...plan, found }));
+        result = await startSelfHost(selfhostArgsFromSetupPlan({ ...plan, found, notifyEmail: reviewedPlan.notifyEmail }));
         if (result === 0) break;
         const failedServe = plan.mode === 'tailscale' ? serveRootFor(found, plan.port).status : undefined;
         if (failedServe !== 'occupied' && failedServe !== 'disabled') return result;
