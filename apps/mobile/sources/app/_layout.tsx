@@ -23,6 +23,8 @@ import sodium from '@/encryption/libsodium.lib';
 import { View, Platform, AppState, Pressable, Text } from 'react-native';
 import { ModalProvider } from '@/modal';
 import { syncReconnect, syncRestore, syncResume } from '@/catalog/sync';
+import { isDemoPathname } from '@/demo/demoGuard';
+import { isDemoTransport } from '@/demo/demoTransport';
 import { watchInstallPrompt } from '@/utils/pwaInstall';
 import { FaviconPermissionIndicator } from '@/components/web/FaviconPermissionIndicator';
 import { CommandPaletteProvider } from '@/components/CommandPalette/CommandPaletteProvider';
@@ -237,6 +239,10 @@ export default function RootLayout() {
     const [initState, setInitState] = React.useState<{ credentials: AuthCredentials | null; error?: string } | null>(null);
 
     React.useEffect(() => {
+        // Demo replay: no credential restore, no device sync, no push
+        // registration. The demo route installs its deterministic backend
+        // before any of these effects could mount it.
+        if (isDemoPathname()) return () => undefined;
         const subscription = Notifications.addNotificationReceivedListener((notification) => {
             acknowledgeLifecyclePush(notification.request.content.data);
         });
@@ -249,22 +255,24 @@ export default function RootLayout() {
                 await loadFonts();
                 await sodium.ready;
 
-                try {
-                    credentials = await TokenStorage.getCredentials();
-                    const restoredGrant = await restoreHostedConnection();
-                    if (restoredGrant !== undefined && (credentials?.token !== restoredGrant.credential
-                        || credentials?.secret !== restoredGrant.deviceKey.secretKey)) {
-                        credentials = { token: restoredGrant.credential, secret: restoredGrant.deviceKey.secretKey };
-                        await TokenStorage.setCredentials(credentials);
+                if (!isDemoPathname()) {
+                    try {
+                        credentials = await TokenStorage.getCredentials();
+                        const restoredGrant = await restoreHostedConnection();
+                        if (restoredGrant !== undefined && (credentials?.token !== restoredGrant.credential
+                            || credentials?.secret !== restoredGrant.deviceKey.secretKey)) {
+                            credentials = { token: restoredGrant.credential, secret: restoredGrant.deviceKey.secretKey };
+                            await TokenStorage.setCredentials(credentials);
+                        }
+                    } catch (error) {
+                        setInitState({
+                            credentials,
+                            error: error instanceof Error ? error.message : String(error),
+                        });
+                        return;
                     }
-                } catch (error) {
-                    setInitState({
-                        credentials,
-                        error: error instanceof Error ? error.message : String(error),
-                    });
-                    return;
                 }
-                const devCredentials = getDevWebQueryCredentials() ?? getDevEnvironmentCredentials();
+                const devCredentials = isDemoPathname() ? null : getDevWebQueryCredentials() ?? getDevEnvironmentCredentials();
 
                 if (devCredentials) {
                     const credentialsChanged = credentials?.token !== devCredentials.token
@@ -408,7 +416,7 @@ export default function RootLayout() {
     }, [router]);
 
     React.useEffect(() => {
-        if (!initState) {
+        if (!initState || isDemoTransport()) {
             return;
         }
 

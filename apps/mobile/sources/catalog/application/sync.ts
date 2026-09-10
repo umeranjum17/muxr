@@ -24,7 +24,8 @@ import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../i
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
 import type { DecryptedArtifact } from '../infrastructure/artifactTypes';
-import { MuxrClient } from '@/pairing/client';
+import { MuxrClient, type MuxrTransport } from '@/pairing/client';
+import { demoTransport, isDemoTransport } from '@/demo/demoTransport';
 import * as Notifications from 'expo-notifications';
 import { AppState, Platform } from 'react-native';
 import {
@@ -76,7 +77,7 @@ function socketStatusFromClient(state: string): 'connected' | 'connecting' | 'er
     return 'disconnected';
 }
 
-function waitUntilClientOpen(client: MuxrClient, timeoutMs: number): Promise<void> {
+function waitUntilClientOpen(client: MuxrTransport, timeoutMs: number): Promise<void> {
     if (client.isLive()) return Promise.resolve();
     // Header can stay `open` after the socket dies without onclose. A new
     // connect() is what unblocks herdr.tree / terminal.attach.
@@ -220,7 +221,7 @@ async function toPromptAttachments(previews: readonly AttachmentPreview[]): Prom
 }
 
 class MuxrSync {
-    private client: MuxrClient | undefined;
+    private client: MuxrTransport | undefined;
     private lifecycleWork: Promise<void> = Promise.resolve();
     private reconnectWork: Promise<void> | undefined;
     private resumeWork: Promise<void> | undefined;
@@ -241,6 +242,9 @@ class MuxrSync {
     }
 
     private hasTransport(): boolean {
+        // The demo replay is transport by selection: no grant, no relay, no
+        // pairing — the deterministic backend answers instead.
+        if (isDemoTransport()) return true;
         const settings = this.getConnection();
         return hostedTransportReady(settings.mode, settings.machineId, getCachedHostedGrant(settings.machineId));
     }
@@ -262,15 +266,25 @@ class MuxrSync {
         return this.accountValidation;
     }
 
-    private ensureClient(): MuxrClient {
+    private ensureClient(): MuxrTransport {
         if (this.client !== undefined) return this.client;
+        // Demo replay first: no grant, no relay, no readiness gate — the
+        // deterministic backend answers instead. Selected here, never inside
+        // the client, and only on the unpaired demo route.
+        if (isDemoTransport()) {
+            const demo = demoTransport();
+            this.attachClient(demo);
+            demo.connect();
+            this.client = demo;
+            return demo;
+        }
         const settings = this.getConnection();
         const hostedGrant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
         if (!hostedTransportReady(settings.mode, settings.machineId, hostedGrant)) {
             throw new Error('machine transport unavailable until secure pairing completes');
         }
         const transportToken = settings.mode === 'hosted' ? hostedGrant?.credential : settings.token.trim();
-        const client = new MuxrClient({
+        const client: MuxrTransport = new MuxrClient({
             mode: settings.mode,
             relayUrl: hostedGrant?.relayUrl ?? settings.relayUrl,
             machineId: settings.machineId,
@@ -285,6 +299,14 @@ class MuxrSync {
                 onPermanentError: (message: string) => storage.getState().setSocketError(message),
             } : {}),
         });
+        this.attachClient(client);
+        client.connect();
+        this.client = client;
+        return client;
+    }
+
+    /** Shared wiring for every transport behind the seam: state, events, refresh. */
+    private attachClient(client: MuxrTransport): void {
         client.onPluginsInvalidated?.((frame) => reconcilePluginCaches(frame));
         client.onStateChange((state) => {
             recordSocketState(state, client.isLive());
@@ -306,9 +328,6 @@ class MuxrSync {
             }
         });
         client.onEvent((sessionId, event) => this.handleSessionEvent(sessionId, event));
-        client.connect();
-        this.client = client;
-        return client;
     }
 
     private handleSessionEvent(sessionId: string, event: SessionEvent): void {

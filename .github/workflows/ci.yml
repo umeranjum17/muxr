@@ -26,6 +26,8 @@ jobs:
         run: node scripts/diagnostics/application/checkWebServing.mjs
       - name: Export chain isolation (canary export + full-dist secret scan)
         run: node scripts/diagnostics/application/checkExportIsolation.mjs
+      - name: Demo replay loop (production /demo in headless Chromium)
+        run: node scripts/diagnostics/application/checkDemoFlow.mjs
       - name: Full suite (typecheck, crypto, pairing, e2e, package smoke, purity, secrets, architecture)
         run: yarn run check
       - name: Core purity guard

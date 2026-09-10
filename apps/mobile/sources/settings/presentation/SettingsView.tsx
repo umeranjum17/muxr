@@ -20,6 +20,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { layout } from '@/components/layout';
 import { t } from '@/text';
 import { requestPermissionAndSubscribe, refreshPushState, type PushState } from '@/utils/pushNotifications';
+import { isDemoTransport } from '@/demo/demoTransport';
 import { loadAppConfig } from '@/catalog/infrastructure/appConfig';
 import { knownHostVersion } from '@/utils/versionStatus';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
@@ -272,7 +273,7 @@ export const SettingsView = React.memo(function SettingsView({
     };
 
     const handlePushToggle = async () => {
-        if (pushBusy) return;
+        if (pushBusy || isDemoTransport()) return;
         setPushBusy(true);
         try {
             await requestPermissionAndSubscribe();

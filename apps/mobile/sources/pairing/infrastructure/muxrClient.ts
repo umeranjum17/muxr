@@ -70,6 +70,23 @@ type StateListener = (state: ConnectionState) => void;
 type PluginInvalidationListener = (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void;
 const MAX_PENDING_REQUESTS = 128;
 
+/**
+ * The transport surface MuxrSync drives. MuxrClient is the production
+ * implementation; the web-only demo installs a deterministic in-memory one
+ * at this same seam. Structural on purpose: the demo never subclasses the
+ * socket client.
+ */
+export interface MuxrTransport {
+    state: ConnectionState;
+    isLive(): boolean;
+    connect(): void;
+    close(): void;
+    request<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>>;
+    onEvent(listener: EventListener): () => void;
+    onStateChange(listener: StateListener): () => void;
+    onPluginsInvalidated?(listener: PluginInvalidationListener): () => void;
+}
+
 export class MuxrClient {
     private socket: WebSocket | undefined;
     private readonly pending = new Map<string, Pending>();

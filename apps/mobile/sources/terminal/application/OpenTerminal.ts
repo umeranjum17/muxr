@@ -16,6 +16,7 @@ import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 import { recordTerminalChannel } from '@/catalog/infrastructure/connectionDiagnostics';
 import { DeviceV2Crypto, getCachedHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
+import { isDemoTerminalSession, isDemoTransport, openDemoTerminal } from '@/demo/demoTransport';
 
 export type TerminalChannelState = 'live' | 'reconnecting';
 
@@ -49,6 +50,9 @@ export type OpenTerminalCommand = {
 const MAX_ATTEMPTS = 15;
 
 export async function openTerminal(command: OpenTerminalCommand): Promise<TerminalChannel> {
+    // Demo replay: same contract, in-memory channel. Selected here — never by
+    // the channel implementation — and only on the unpaired demo route.
+    if (isDemoTransport() && isDemoTerminalSession(command.agentRoute)) return openDemoTerminal(command);
     const sessionId = command.agentRoute;
     const size = command.size;
     const options = command.mode === undefined ? undefined : { mode: command.mode };
