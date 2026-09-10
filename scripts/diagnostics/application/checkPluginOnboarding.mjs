@@ -28,6 +28,8 @@
  * herdr binary in context), network for GitHub/npm. The container runs
  * privileged with the host cgroup namespace so PID 1 is a genuine systemd
  * and `muxr daemon` drives real user units.
+ * Exits before any stage when the pinned ref is not fetchable from GitHub
+ * (push the candidate first); the previous gate report is left in place.
  * Writes a JSON report to stdout and, when HERDR_PANE_ID is set, to the
  * pane attachments directory.
  */
@@ -81,6 +83,58 @@ const csh = (script, options) => dock(['sh', '-c', script], options);
 const cherdr = (args, options) => dock(['herdr', ...args], options);
 
 const state = { uid: undefined, pin: undefined, setupPane: undefined, workspace: undefined, rootPane: undefined, pluginCwd: undefined };
+
+/**
+ * Is the pinned plugin ref fetchable from GitHub? Names resolve through
+ * ls-remote; raw SHAs are not ref names, so they probe with a shallow
+ * fetch — the same transport the installer uses. Returns true (fetchable),
+ * false (definitely absent — unpushed candidate or unknown ref), or null
+ * (network or tooling failure, in which case the install stage remains the
+ * backstop instead of blocking the gate on infra flakiness).
+ */
+function networkFailed(output) {
+    return /could not resolve host|unable to connect|failed to connect|network is unreachable|timed out|connection refused/i.test(output);
+}
+
+const gitAt = (args, options) => sh(['git', ...args], { ...options, spawn: { cwd: ROOT } });
+
+function refFetchable(ref) {
+    const [owner, repo] = SOURCE.split('/');
+    const url = `https://github.com/${owner}/${repo}.git`;
+    // Resolve the ref to a commit. A remotely existing name is fetchable by
+    // name; anything else must be an ancestor of an advertised tip (raw SHAs
+    // are not ref names, and anonymous SHA fetch is refused server-side, so
+    // only reachability proves a clean-room installer can obtain it).
+    let commit = /^[0-9a-f]{40,64}$/i.test(ref) ? ref.toLowerCase() : null;
+    if (commit === null) {
+        const local = gitAt(['rev-parse', '--verify', `${ref}^{commit}`], { timeout: 15_000 });
+        if (local.status === 0) {
+            commit = local.stdout.trim();
+        } else {
+            const remote = gitAt(['ls-remote', url, ref], { timeout: 30_000 });
+            if (remote.status !== 0) return networkFailed(`${remote.stdout}\n${remote.stderr}`) ? null : false;
+            return remote.stdout.trim() !== '';
+        }
+    }
+    const tips = gitAt(['ls-remote', url], { timeout: 60_000 });
+    if (tips.status !== 0) return networkFailed(`${tips.stdout}\n${tips.stderr}`) ? null : false;
+    for (const line of tips.stdout.split('\n')) {
+        const tip = line.split(/\s+/)[0] ?? '';
+        if (!/^[0-9a-f]{40}$/.test(tip)) continue;
+        if (gitAt(['cat-file', '-e', tip], { timeout: 15_000 }).status !== 0) continue;
+        if (gitAt(['merge-base', '--is-ancestor', commit, tip], { timeout: 15_000 }).status === 0) return true;
+    }
+    return false;
+}
+
+const fetchable = refFetchable(REF);
+if (fetchable === false) {
+    process.stderr.write(`gate preflight: plugin ref ${REF} is not fetchable from GitHub (unpushed candidate or unknown ref) — push the candidate first, then rerun. No stages ran; the previous gate report is retained.\n`);
+    process.exit(1);
+}
+if (fetchable === null) {
+    process.stdout.write(`gate preflight: could not verify plugin ref ${REF} (network/tooling); continuing, install remains the backstop\n`);
+}
 
 /** Start the container herdr server headless (real mechanism, not the TUI). */
 function startHerdrServer() {

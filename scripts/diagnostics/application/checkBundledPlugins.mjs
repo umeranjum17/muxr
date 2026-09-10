@@ -44,11 +44,19 @@ const bundledIds = plugins.flatMap((name) => {
     return typeof value.pluginId === 'string' ? [value.pluginId] : [];
 });
 const shellFiles = [];
+// The demo replay fixture must speak exact bundled plugin ids (it serves
+// the recorded manifests/snapshots); it sits behind the demo transport and
+// never branches production shell on identity. Exempt only these two
+// explicit fixture files — the scan stays strict for all normal source.
+const fixtureExempt = new Set([
+    join(root, 'apps/mobile/sources/demo/demoClient.ts'),
+    join(root, 'apps/mobile/sources/demo/demoRecords.ts'),
+]);
 function collectShell(directory) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
         const path = join(directory, entry.name);
         if (entry.isDirectory()) collectShell(path);
-        else if (/\.(ts|tsx)$/.test(entry.name) && !/\.(?:test|spec)\.(?:ts|tsx)$/.test(entry.name)) shellFiles.push(path);
+        else if (/\.(ts|tsx)$/.test(entry.name) && !/\.(?:test|spec)\.(?:ts|tsx)$/.test(entry.name) && !fixtureExempt.has(path)) shellFiles.push(path);
     }
 }
 collectShell(join(root, 'apps/mobile/sources'));

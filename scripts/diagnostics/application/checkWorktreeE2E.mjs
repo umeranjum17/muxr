@@ -12,6 +12,16 @@ import { dirname, join } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { encodePayload, decodePayload, nextRequestId } from '@muxr/contract';
 import { waitForRelay } from './waitForRelay.mjs';
+import { herdrClosePrerequisite } from './herdrClosePrerequisite.mjs';
+
+// Same close contract as the backend loop: session.stop needs the packaged
+// workspace-hierarchy root on the live server. Skip that tail honestly
+// when it carries a foreign build instead of failing on environment;
+// done() still removes this run's own workspace through the herdr CLI.
+const closeCheck = herdrClosePrerequisite();
+if (!closeCheck.ok) {
+    console.log(`.. session.stop close skipped: ${closeCheck.reason}`);
+}
 
 const repo = mkdtempSync(join(tmpdir(), 'pph-wt-repo-'));
 const branch = `pph-e2e-${process.pid}`;
@@ -135,6 +145,9 @@ ws.on('open', async () => {
         const mine = list.find((s) => s.id === id);
         if (mine?.cwd !== startCwd) done(1, `FAIL: detected cwd drifted: ${mine?.cwd}`);
         console.log(`ok: herdr detected the agent inside the worktree (${mine.paneId})`);
+        if (!closeCheck.ok) {
+            done(0, `PASS e2e: worktree session (stop close skipped: ${closeCheck.reason})`);
+        }
         await request('session.stop', { sessionId: id });
         done(0, 'PASS e2e: worktree session');
     } catch (e) {
