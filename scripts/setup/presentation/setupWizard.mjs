@@ -364,12 +364,35 @@ function serveRootFor(found, port) {
     return inspectTailscaleServeRoot(port, found.tailscale.dnsName, undefined, 8_000);
 }
 
+/** Explicit operator route (flag/env/config — never probed/default). */
+function explicitOperatorRoute(operator) {
+    if (operator?.values.connection === undefined) return undefined;
+    if (!['flag', 'env', 'config'].includes(operator.provenance.connection)) return undefined;
+    return operator.values.connection;
+}
+
+/** Root wss://host URL without credentials, query, or fragment — or undefined. */
+function parseExternalEndpoint(entered) {
+    try {
+        const parsed = new URL(entered);
+        if (parsed.protocol === 'wss:' && parsed.hostname && !parsed.username && !parsed.password && parsed.pathname === '/' && !parsed.search && !parsed.hash) {
+            return parsed.toString().replace(/\/$/, '');
+        }
+    } catch {
+        // Falls through to undefined below.
+    }
+    return undefined;
+}
+
 async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, firstRun, operator, stepsTotal }) {
     const requestedPort = value(args, '--port');
     const plannedPort = requestedPort === undefined ? (operator.values.relayPort ?? 8792) : Number(requestedPort);
     const serveRoot = serveRootFor(found, plannedPort);
     let mode = requestedMode;
     if (mode === 'selfhost') mode = undefined;
+    // Preconfigured route goes straight to review: an explicit flag, env, or
+    // config value must not be asked again. Probed/default still asks.
+    if (mode === undefined) mode = explicitOperatorRoute(operator);
     if (!mode) {
         heading('Connect your phone to this computer');
         const proposal = recommendedConnection(found, current, tailscalePlanned, serveRoot);
@@ -422,16 +445,27 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     }
     let endpoint = mode === 'private' && current?.connectionMode === 'private' && current.publicHealthy ? current.relayUrl : undefined;
     if (mode === 'external') {
-        while (endpoint === undefined) {
-            setupStep(2, stepsTotal, 'Enter your server address');
-            const entered = await prompt('External relay URL (wss://...)', current?.connectionMode === 'external' ? current.relayUrl : '');
-            if (entered === undefined) return undefined;
-            try {
-                const parsed = new URL(entered);
-                if (parsed.protocol === 'wss:' && parsed.hostname && !parsed.username && !parsed.password && parsed.pathname === '/' && !parsed.search && !parsed.hash) endpoint = parsed.toString().replace(/\/$/, '');
-                else status('External relay URL', 'use a root wss://host URL without credentials, query, or fragment', 'warn');
-            } catch {
-                status('External relay URL', 'use a valid wss:// URL', 'warn');
+        // An explicitly configured advertise URL (flag/env/config) applies
+        // without re-prompting; a malformed one fails closed instead of
+        // falling back to asking. Probed values still prompt below.
+        const configured = ['flag', 'env', 'config'].includes(operator.provenance.advertiseUrl)
+            ? operator.values.advertiseUrl
+            : undefined;
+        if (configured !== undefined) {
+            const normalized = parseExternalEndpoint(configured);
+            if (normalized === undefined) {
+                process.stderr.write(`invalid advertise URL from ${operator.provenance.advertiseUrl ?? 'operator config'}: use a root wss://host URL without credentials, query, or fragment\n`);
+                return 1;
+            }
+            endpoint = normalized;
+        } else {
+            while (endpoint === undefined) {
+                setupStep(2, stepsTotal, 'Enter your server address');
+                const entered = await prompt('External relay URL (wss://...)', current?.connectionMode === 'external' ? current.relayUrl : '');
+                if (entered === undefined) return undefined;
+                const normalized = parseExternalEndpoint(entered);
+                if (normalized === undefined) status('External relay URL', 'use a root wss://host URL without credentials, query, or fragment', 'warn');
+                else endpoint = normalized;
             }
         }
     }

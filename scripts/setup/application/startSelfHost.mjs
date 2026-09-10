@@ -55,8 +55,8 @@ export async function startSelfHost(args = []) {
     const applyConfig = args.includes('--apply-config');
     if (applyConfig) {
         const missing = [];
-        if (operator.values.connection === undefined) missing.push('MUXR_CONNECTION (tailscale|tailscale-direct|private|lan|cloudflare|external)');
-        if (operator.values.connection === 'external' && operator.values.advertiseUrl === undefined) {
+        if (plan.values.connection === undefined) missing.push('MUXR_CONNECTION (tailscale|tailscale-direct|private|lan|cloudflare|external)');
+        if (plan.values.connection === 'external' && plan.values.advertiseUrl === undefined) {
             missing.push('MUXR_ADVERTISE_URL (required for MUXR_CONNECTION=external)');
         }
         if (missing.length > 0) {

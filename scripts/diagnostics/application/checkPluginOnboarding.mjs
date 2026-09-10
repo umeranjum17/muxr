@@ -56,7 +56,9 @@ const REF = process.env.GATE_PLUGIN_REF?.trim() || REF_ARG || gitHead();
 const results = [];
 function record(stage, ok, detail) {
     results.push({ stage, ok, detail });
-    process.stdout.write(`gate ${stage}: ${ok ? 'PASS' : 'FAIL'}${detail ? ` — ${detail}` : ''}\n`);
+    const mark = ok ? 'PASS' : 'FAIL';
+    const suffix = detail ? ` — ${detail}` : '';
+    process.stdout.write(`gate ${stage}: ${mark}${suffix}\n`);
 }
 
 function sh(args, options = {}) {

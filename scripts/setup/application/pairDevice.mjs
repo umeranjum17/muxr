@@ -13,6 +13,7 @@ import {
     createDeviceGrant,
     deriveV2Key,
     error,
+    executable,
     hostPlatform,
     newPairingCode,
     newV2ReplayTracker,
@@ -20,6 +21,7 @@ import {
     pairingCodeHash,
     print,
     printTerminalQr,
+    run,
     sealPairingCodePayload,
     stateDir,
 } from '../infrastructure/runtime.mjs';
@@ -37,6 +39,29 @@ import {
     relayDiscovery,
     withSelfhostRotationLock,
 } from '../infrastructure/selfhostRelay.mjs';
+
+/**
+ * Best-effort convenience only: open a browser pairing link on an
+ * interactive graphical local session. The printed link and
+ * pairing-string.txt stay authoritative; opener failure only warns and
+ * never fails pairing. Never opens headless, over SSH, or without a
+ * display — and never for non-HTTPS values.
+ */
+function maybeOpenPairUrl(pairValue, isBrowserLink) {
+    if (!isBrowserLink || typeof pairValue !== 'string' || !pairValue.startsWith('https://')) return;
+    if (!process.stdout.isTTY) return;
+    if (process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY || process.env.TERMUX_VERSION) return;
+    if (hostPlatform() !== 'darwin' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return;
+    const opener = hostPlatform() === 'darwin' ? 'open' : 'xdg-open';
+    if (executable(opener) === undefined) return;
+    try {
+        if (!run(opener, [pairValue], { timeout: 15_000 }).ok) {
+            print('  warn: could not open the browser automatically; use the link above');
+        }
+    } catch {
+        print('  warn: could not open the browser automatically; use the link above');
+    }
+}
 
 export async function mintDeviceGrant(state, requestedKind = 'native', requestedAuthority = 'control', requestedPersonal = false) {
     const intent = pairingIntent({ kind: requestedKind, authority: requestedAuthority, personal: requestedPersonal });
@@ -157,6 +182,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             : 'Pairing string (expires in two minutes):');
         print(pairValue);
         if (waiting.requiresWebHosting) print(`Browser access expires after ${waiting.grantDurationLabel()}.`);
+        maybeOpenPairUrl(pairValue, waiting.requiresWebHosting);
         const pairFile = join(stateDir(), 'pairing-string.txt');
         writeFileSync(pairFile, `${pairValue}\n`, { mode: 0o600 });
         // wl-copy/xclip stay alive as clipboard owners and can freeze setup in a

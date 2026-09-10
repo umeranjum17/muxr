@@ -41,6 +41,28 @@ For automation use `muxr daemon status|logs|start|stop|restart`. Shared relay
 automation uses `muxr shared-relay`, `muxr machines enroll|list|revoke`, and
 `muxr connect --enrollment …`; interactive `muxr` remains the primary path.
 
+## Operator config file
+
+Repeatable setups can preconfigure every setup decision in
+`~/.muxr/config.env` (`KEY=value` lines; unknown keys and malformed lines are
+rejected, never ignored):
+
+| Key | Decides |
+|---|---|
+| `MUXR_CONNECTION` | Route: `tailscale`, `tailscale-direct`, `private`, `lan`, `cloudflare`, or `external`. |
+| `MUXR_RELAY_PORT` | Relay port (default `8792`). |
+| `MUXR_WEB` | `true`/`false`: host the browser client. |
+| `MUXR_ADVERTISE_URL` | Root `wss://host` URL, required for `external`. |
+| `MUXR_INTEGRATIONS_SYNC` | `on`/`off`: sync coding-agent lifecycle integrations. |
+| `MUXR_NOTIFY_EMAIL` | Address for relay email notifications. |
+
+Precedence is flag > env > config file > detected/default. An explicit flag,
+env, or config value goes straight to Review without re-prompting; anything
+missing or malformed fails closed before anything changes. `muxr config`
+prints the resolved values with their source, and
+`muxr self-host --apply-config` applies a complete config without the wizard.
+The file holds routing intent only — never secrets or credentials.
+
 ## Reaching the relay from your phone
 
 Interactive onboarding does not begin with a transport menu. It recommends one
