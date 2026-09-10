@@ -11,8 +11,9 @@
  * clears 2FA and password walls over this channel.
  */
 
-import { attachPreviewTunnel } from '@/preview';
+import { attachPreviewTunnel, previewBridgeAvailable } from '@/preview';
 import type { Point, StreamFrameMetadata } from '../domain/coordinates';
+import { createTakeoverWs } from '../infrastructure/takeoverWs';
 
 export interface StreamFrame {
     type: 'frame';
@@ -68,13 +69,53 @@ export function codeForKey(key: string): string {
 }
 
 export interface OpenTakeover {
-    wsUrl: string;
+    /** Raw-TCP path only; absent when `stream` carries the session. */
+    wsUrl?: string;
+    close: () => void;
+    /**
+     * WebSocket-over-multiplex stream for browsers, which cannot bind the
+     * loopback listener the raw path needs. Same agent-browser protocol,
+     * same input messages -- only the transport differs.
+     */
+    stream?: TakeoverStream;
+}
+
+export interface TakeoverStream {
+    send: (message: string) => void;
+    onMessage: (handler: (data: string) => void) => void;
+    onClose: (handler: () => void) => void;
     close: () => void;
 }
 
 export type OpenTakeoverCommand = { port: number };
 
 export async function openTakeover(command: OpenTakeoverCommand): Promise<OpenTakeover> {
+    // Native always takes the raw-TCP tunnel with a real loopback listener.
+    // A browser with a service-worker-capable secure context instead drives
+    // the agent-browser WebSocket over sealed preview frames; anywhere else
+    // the legacy relay-side port keeps working through a plain WebSocket.
+    if (typeof window !== 'undefined' && previewBridgeAvailable) {
+        const tunnel = await attachPreviewTunnel(command.port, { wsStream: true });
+        if (tunnel.wsChannel === undefined) throw new Error('The takeover stream is unavailable in this browser.');
+        const ws = createTakeoverWs(tunnel.wsChannel);
+        await ws.connect();
+        let messageHandler: ((data: string) => void) | undefined;
+        let closeHandler: (() => void) | undefined;
+        ws.onText((text) => messageHandler?.(text));
+        ws.onClose(() => closeHandler?.());
+        return {
+            close: () => {
+                ws.close();
+                tunnel.close();
+            },
+            stream: {
+                send: (message) => ws.sendText(message),
+                onMessage: (handler) => { messageHandler = handler; },
+                onClose: (handler) => { closeHandler = handler; },
+                close: () => ws.close(),
+            },
+        };
+    }
     const tunnel = await attachPreviewTunnel(command.port, { rawTcp: true });
     // Always ws: the tunnel carries raw TCP with no TLS in front of it.
     return {

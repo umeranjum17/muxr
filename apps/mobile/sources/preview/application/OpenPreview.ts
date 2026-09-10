@@ -13,6 +13,7 @@ import { newPreviewKey } from '@muxr/crypto';
 import { issueWsTicket, newPreviewChannel, ticketSocketUrl } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
+import type { PreviewChannel } from '../infrastructure/previewChannel';
 
 const READY_TIMEOUT_MS = 15_000;
 
@@ -36,6 +37,13 @@ export interface PreviewTunnel {
      * tunnels (native bridge, relay-side port, takeover stream).
      */
     url?: string;
+    /**
+     * Raw sealed frame channel for consumers that speak their own protocol
+     * over the tunnel (the takeover stream). Present only on the bridge path
+     * when the caller asked for it; the HTTP preview bridge consumes its own
+     * socket instead.
+     */
+    wsChannel?: PreviewChannel;
 }
 
 /** Regex, not `new URL`: React Native's URL is partial and this is one field. */
@@ -68,7 +76,7 @@ function waitForRelay(socket: WebSocket, type: string): Promise<void> {
  * socket -- HTTP for previews, a WebSocket for the takeover stream -- can
  * ride the same tunnel.
  */
-export async function attachPreviewTunnel(port: number, options?: { rawTcp?: boolean }): Promise<PreviewTunnel> {
+export async function attachPreviewTunnel(port: number, options?: { rawTcp?: boolean; wsStream?: boolean }): Promise<PreviewTunnel> {
     const { previewBridgeAvailable, startPreviewBridge } = await import('../infrastructure/previewBridge');
     // The takeover stream is a raw WebSocket over TCP, not HTTP: it always
     // needs the byte tunnel, never the web HTTP bridge.
@@ -105,6 +113,12 @@ export async function attachPreviewTunnel(port: number, options?: { rawTcp?: boo
         socket.binaryType = 'arraybuffer';
         await waitForRelay(socket, 'preview.bridge');
         if (key === undefined) throw new Error('Encrypted preview key unavailable.');
+        if (options?.wsStream === true) {
+            // The takeover stream speaks WebSocket itself over sealed frames;
+            // hand over the socket untouched instead of starting the HTTP bridge.
+            const { createPreviewChannel } = await import('../infrastructure/previewChannel');
+            return { hostname: '', port: 0, close: () => socket.close(), wsChannel: createPreviewChannel(socket, key) };
+        }
         const bridge = await startPreviewBridge(socket, key, channel);
         if (bridge.url !== undefined) {
             return { hostname: '', port: 0, url: bridge.url, close: bridge.close };

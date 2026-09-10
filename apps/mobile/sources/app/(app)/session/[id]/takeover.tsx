@@ -49,6 +49,9 @@ export default function TakeoverScreen() {
     const [portDraft, setPortDraft] = React.useState('');
     const socketRef = React.useRef<WebSocket | null>(null);
     const closeTunnelRef = React.useRef<(() => void) | null>(null);
+    // Browser stream sender: set while a WebSocket-over-multiplex session is
+    // live, so send/disconnect treat both transports the same below.
+    const streamSendRef = React.useRef<((message: string) => void) | null>(null);
     const inputRef = React.useRef<TextInput>(null);
     const tapRef = React.useRef<{ x: number; y: number; at: number } | null>(null);
     const streamRef = React.useRef<{ command: string; cwd: string } | null>(null);
@@ -58,12 +61,17 @@ export default function TakeoverScreen() {
     const agentBrowser = sessionFlag === undefined ? 'agent-browser' : `agent-browser --session ${sessionFlag}`;
 
     const send = React.useCallback((message: string) => {
+        if (streamSendRef.current !== null) {
+            streamSendRef.current(message);
+            return;
+        }
         if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(message);
     }, []);
 
     const disconnect = React.useCallback(() => {
         socketRef.current?.close();
         socketRef.current = null;
+        streamSendRef.current = null;
         closeTunnelRef.current?.();
         closeTunnelRef.current = null;
     }, []);
@@ -79,6 +87,23 @@ export default function TakeoverScreen() {
             streamRef.current = { command: agentBrowser, cwd };
             const opened = await openTakeover({ port: streamPort });
             closeTunnelRef.current = opened.close;
+            if (opened.stream !== undefined) {
+                // Browser: frames and input ride the sealed preview channel;
+                // rendering, tap mapping, and input messages below are shared.
+                const stream = opened.stream;
+                streamSendRef.current = (message) => stream.send(message);
+                stream.onMessage((data) => {
+                    const next = parseStreamFrame(data);
+                    if (next !== undefined) setFrame({ uri: `data:image/jpeg;base64,${next.data}`, metadata: next.metadata });
+                });
+                stream.onClose(() => {
+                    setFrame(null);
+                    // Deliberate teardown nulls the sender first, as with the socket.
+                    if (streamSendRef.current !== null) setError('The takeover stream closed.');
+                });
+                return;
+            }
+            if (opened.wsUrl === undefined) throw new Error('The takeover stream is unavailable on this platform.');
             const socket = new WebSocket(opened.wsUrl);
             socketRef.current = socket;
             socket.onmessage = (event) => {
