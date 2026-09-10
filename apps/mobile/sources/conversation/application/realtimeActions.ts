@@ -3,7 +3,6 @@ import {
     requestNotificationPermission,
     showMicrophonePermissionDeniedAlert,
 } from '@/utils/microphonePermissions';
-import { Platform } from 'react-native';
 import { Modal } from '@/modal';
 import {
     openRealtimeConversation,
@@ -56,22 +55,7 @@ export function beginRealtimeConversation(target: RealtimeTarget): boolean {
     return true;
 }
 
-/** Realtime calls need the mic foreground service and background audio, which
- * browsers cannot provide — and asking for the microphone first would imply
- * the call can work. Say so up front; terminal, files, diffs, pairing, and
- * notifications all work in this browser. */
-export function alertRealtimeWebUnsupported(): void {
-    Modal.alert(
-        'Realtime voice needs the native app',
-        'Voice calls stay on Android and iOS, where the microphone foreground service keeps them alive with the screen off. Everything else works here.',
-    );
-}
-
 export async function startRealtimeWithPermission(target: RealtimeTarget): Promise<boolean> {
-    if (Platform.OS === 'web') {
-        alertRealtimeWebUnsupported();
-        return false;
-    }
     if (!(await requestRealtimePermission())) return false;
     if (!(await ensureRealtimeProviderConfigured())) return false;
     return beginRealtimeConversation(target);

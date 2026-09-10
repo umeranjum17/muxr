@@ -41,7 +41,7 @@ const mocks = vi.hoisted(() => ({
     },
 }));
 
-vi.mock('react-native', () => ({ AppState: { addEventListener: vi.fn() } }));
+vi.mock('react-native', () => ({ AppState: { addEventListener: vi.fn() }, Platform: { OS: 'android' } }));
 vi.mock('@/plugins/openPluginStream', () => ({
     capturePluginStreamSnapshot: mocks.captureStream,
     openPluginStream: mocks.openStream,

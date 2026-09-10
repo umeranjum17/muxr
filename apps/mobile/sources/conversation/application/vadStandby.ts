@@ -1,6 +1,7 @@
-import LiveAudioStream from 'react-native-live-audio-stream';
+import { Platform } from 'react-native';
 import { REALTIME_INPUT_RATE, realtimePcm16ByteLength } from '@muxr/contract';
 import { chunkEnergy } from '../infrastructure/audioEnergy';
+import { openRealtimeRecorder, type RealtimeRecorder } from '../infrastructure/realtimeCapture';
 import {
     releaseVoiceAudio,
     routeVoiceAudio,
@@ -35,8 +36,11 @@ const enqueue = <T>(transition: () => Promise<T>): Promise<T> => {
     return result;
 };
 const isOwner = (candidate: CaptureOwner): boolean => owner?.id === candidate.id;
+let recorder: RealtimeRecorder | undefined;
 const stopRecorder = async (): Promise<void> => {
-    await Promise.resolve(LiveAudioStream.stop()).catch(() => undefined);
+    const stopping = recorder;
+    recorder = undefined;
+    await stopping?.stop().catch(() => undefined);
 };
 const clearVadState = (): void => {
     active = false;
@@ -65,7 +69,10 @@ export async function startVadStandby(onWake: () => void): Promise<boolean> {
             return false;
         }
         setVoiceNetworkActive(false);
-        if (!routeVoiceAudio()) {
+        // Native audio routing has no browser equivalent; the web recorder
+        // routes through getUserMedia itself. The foreground service calls
+        // below stay null-safe no-ops on web.
+        if (Platform.OS !== 'web' && !routeVoiceAudio()) {
             if (isOwner(candidate)) {
                 owner = undefined;
                 clearVadState();
@@ -75,14 +82,8 @@ export async function startVadStandby(onWake: () => void): Promise<boolean> {
             return false;
         }
         try {
-            await LiveAudioStream.init({
-                sampleRate: REALTIME_INPUT_RATE,
-                channels: 1,
-                bitsPerSample: 16,
-                audioSource: 7,
-                bufferSize: 4_800,
-                wavFile: '',
-            });
+            recorder = openRealtimeRecorder();
+            await recorder.init(REALTIME_INPUT_RATE);
             if (!isOwner(candidate)) {
                 await stopRecorder();
                 if (owner === undefined) { stopVoiceService(); releaseVoiceAudio(); }
@@ -93,8 +94,8 @@ export async function startVadStandby(onWake: () => void): Promise<boolean> {
             buffered = [];
             loudFrames = 0;
             noiseFloor = 0.02;
-            LiveAudioStream.on('data', inspect);
-            await LiveAudioStream.start();
+            recorder.onData(inspect);
+            await recorder.start();
             if (!isOwner(candidate)) {
                 await stopRecorder();
                 if (owner === undefined) { stopVoiceService(); releaseVoiceAudio(); }
@@ -143,17 +144,21 @@ export function acquireRealtimeCapture(sampleRate: number, onData: (data: string
     const pending = claimed ? buffered : [];
     owner = candidate;
     clearVadState();
-    if (claimed) LiveAudioStream.on('data', onData);
+    // The armed VAD recorder keeps running; take over its frames. A fresh
+    // recorder below replaces the listener either way.
+    if (claimed) recorder?.onData(onData);
 
     const ready = claimed ? Promise.resolve() : enqueue(async () => {
         if (!isOwner(candidate)) return;
         await stopRecorder();
         if (!isOwner(candidate)) return;
-        if (!routeVoiceAudio()) throw new Error('This device could not route realtime audio.');
-        await LiveAudioStream.init({ sampleRate, channels: 1, bitsPerSample: 16, audioSource: 7, bufferSize: 4_800, wavFile: '' });
+        if (Platform.OS !== 'web' && !routeVoiceAudio()) throw new Error('This device could not route realtime audio.');
+        const opened = openRealtimeRecorder();
+        recorder = opened;
+        await opened.init(sampleRate);
         if (!isOwner(candidate)) { await stopRecorder(); return; }
-        LiveAudioStream.on('data', onData);
-        await LiveAudioStream.start();
+        opened.onData(onData);
+        await opened.start();
         if (!isOwner(candidate)) await stopRecorder();
     });
     return {
