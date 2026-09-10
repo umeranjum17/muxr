@@ -34,6 +34,7 @@ import { type NewSessionAgentType } from '@/catalog/application/persistence';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { sync } from '@/catalog/sync';
 import { resolveAgentCatalog } from '@/catalog';
+import { useDeviceAuthority } from '@/pairing';
 import {
     applyWorktreeSelection,
     currentDockAgent,
@@ -308,6 +309,13 @@ const styles = StyleSheet.create((theme) => ({
         paddingBottom: 10,
         gap: 8,
     },
+    readOnlyHint: {
+        color: theme.colors.textSecondary,
+        fontSize: 13,
+        textAlign: 'center',
+        paddingBottom: 2,
+        ...Typography.default(),
+    },
     focusConfigGroup: {
         gap: 1,
     },
@@ -476,8 +484,14 @@ export const HomeDock = React.memo(({
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
     const keyboard = useReanimatedKeyboardAnimation();
+    const { authority } = useDeviceAuthority();
+    // View-only browsers can read the draft but must not start sessions.
+    // Native keeps its existing behavior; the web dock enforces read-only.
+    const readOnly = Platform.OS === 'web' && authority !== 'control';
     const inputRef = React.useRef<TextInput>(null);
     const focusedInputRef = React.useRef<TextInput>(null);
+    const focusReturnRef = React.useRef<HTMLElement | null>(null);
+    const isComposingRef = React.useRef(false);
     const focusAnimationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const focusPresentation = useSharedValue(0);
     const [isFocused, setIsFocused] = React.useState(false);
@@ -593,7 +607,28 @@ export const HomeDock = React.memo(({
     );
     const currentAgent = currentDockAgent(availableAgents, agentType);
     const hasPrompt = prompt.trim().length > 0 || selectedImages.length > 0;
-    const canSubmit = !isSubmitting && hasPrompt;
+    const canSubmit = !isSubmitting && hasPrompt && !readOnly;
+    // The keyboard controller has no native module on web, so the dock
+    // follows the visual viewport there instead. Applied only while the
+    // composer holds focus, so desktop zoom/pinch never shifts the dock.
+    const [viewportOffset, setViewportOffset] = React.useState(0);
+    React.useEffect(() => {
+        if (Platform.OS !== 'web' || typeof window === 'undefined' || window.visualViewport === null) return;
+        const viewport = window.visualViewport;
+        const update = () => {
+            setViewportOffset(Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop));
+        };
+        update();
+        viewport.addEventListener('resize', update);
+        viewport.addEventListener('scroll', update);
+        return () => {
+            viewport.removeEventListener('resize', update);
+            viewport.removeEventListener('scroll', update);
+        };
+    }, []);
+    const webKeyboardOffsetStyle = Platform.OS === 'web' && isFocused && viewportOffset > 0
+        ? { transform: [{ translateY: -viewportOffset }] }
+        : null;
     const focusedComposerHeight = selectedImages.length > 0 ? 206 : 126;
     const keyboardStyle = useAnimatedStyle(() => ({
         // Keyboard height includes the bottom safe area on iOS. The resting
@@ -689,6 +724,10 @@ export const HomeDock = React.memo(({
         if (focusAnimationTimerRef.current) {
             clearTimeout(focusAnimationTimerRef.current);
         }
+        if (Platform.OS === 'web' && typeof document !== 'undefined') {
+            // Escape and menu dismissal restore focus where it started.
+            focusReturnRef.current = document.activeElement as HTMLElement | null;
+        }
         focusPresentation.value = 0;
         setIsFocused(true);
         setFocusModeVisible(true);
@@ -704,6 +743,19 @@ export const HomeDock = React.memo(({
     const finishCloseFocusMode = React.useCallback(() => {
         setIsFocused(false);
         setFocusModeVisible(false);
+        if (Platform.OS === 'web') {
+            const returnTo = focusReturnRef.current;
+            focusReturnRef.current = null;
+            if (returnTo !== null && typeof returnTo.focus === 'function') {
+                requestAnimationFrame(() => {
+                    try {
+                        returnTo.focus();
+                    } catch {
+                        // Focus restore is best-effort; the mode already closed.
+                    }
+                });
+            }
+        }
     }, []);
 
     const closeFocusMode = React.useCallback(() => {
@@ -723,6 +775,32 @@ export const HomeDock = React.memo(({
             }
         });
     }, [finishCloseFocusMode, focusPresentation]);
+
+    // Enter confirms IME composition on web; submitting on that keystroke
+    // would send half-composed text. Track composition on the real input.
+    // Escape never reaches onKeyPress in browsers (no keypress event for
+    // non-printable keys), so close focus mode from keydown directly.
+    React.useEffect(() => {
+        if (Platform.OS !== 'web' || !focusModeVisible) return;
+        const node = focusedInputRef.current as unknown as {
+            addEventListener?: (type: string, listener: (event: KeyboardEvent) => void) => void;
+            removeEventListener?: (type: string, listener: (event: KeyboardEvent) => void) => void;
+        } | null;
+        if (node?.addEventListener === undefined || node.removeEventListener === undefined) return;
+        const onStart = () => { isComposingRef.current = true; };
+        const onEnd = () => { isComposingRef.current = false; };
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') closeFocusMode();
+        };
+        node.addEventListener('compositionstart', onStart);
+        node.addEventListener('compositionend', onEnd);
+        node.addEventListener('keydown', onKeyDown);
+        return () => {
+            node.removeEventListener?.('compositionstart', onStart);
+            node.removeEventListener?.('compositionend', onEnd);
+            node.removeEventListener?.('keydown', onKeyDown);
+        };
+    }, [focusModeVisible, closeFocusMode]);
 
     const selectAgent = React.useCallback((agent: NewSessionAgentType) => {
         setAgentType(agent);
@@ -809,7 +887,9 @@ export const HomeDock = React.memo(({
                         ref={ref}
                         value={prompt}
                         onChangeText={onPromptChange}
-                        onSubmitEditing={() => canSubmit && onSend()}
+                        onSubmitEditing={() => {
+                            if (!isComposingRef.current && canSubmit) onSend();
+                        }}
                         onFocus={onFocus}
                         onBlur={onBlur}
                         placeholder={t('homeDock.inputPlaceholder')}
@@ -858,7 +938,7 @@ export const HomeDock = React.memo(({
     };
 
     const startBlankSession = () => {
-        if (isSubmitting) return;
+        if (isSubmitting || readOnly) return;
         setFocusModeVisible(false);
         setIsFocused(false);
         void onStartBlank();
@@ -884,6 +964,11 @@ export const HomeDock = React.memo(({
                             value={prompt}
                             onChangeText={onPromptChange}
                             onFocus={() => setIsFocused(true)}
+                            onKeyPress={(event) => {
+                                if (Platform.OS === 'web' && event.nativeEvent.key === 'Escape') {
+                                    closeFocusMode();
+                                }
+                            }}
                             placeholder={currentAgent.key === 'shell' ? t('homeDock.runCommandPlaceholder') : t('homeDock.askPlaceholder', { name: currentAgent.name })}
                             placeholderTextColor={theme.colors.textSecondary}
                             selectionColor={theme.colors.text}
@@ -901,7 +986,7 @@ export const HomeDock = React.memo(({
                         >
                             <Ionicons name="image-outline" size={24} color={theme.colors.text} />
                         </BubblePressable>
-                        <NativeSettingsMenu groups={gearSettingsGroups} style={styles.nativeGearMenu}>
+                        <NativeSettingsMenu groups={gearSettingsGroups} style={styles.nativeGearMenu} disabled={readOnly}>
                             <View style={styles.sideButton}>
                                 <Ionicons name="settings-outline" size={20} color={theme.colors.text} />
                             </View>
@@ -942,7 +1027,7 @@ export const HomeDock = React.memo(({
         <>
             <Animated.View
                 pointerEvents="box-none"
-                style={[styles.keyboardFollower, keyboardStyle]}
+                style={[styles.keyboardFollower, keyboardStyle, webKeyboardOffsetStyle]}
             >
                 <View
                     pointerEvents="box-none"
@@ -1003,8 +1088,13 @@ export const HomeDock = React.memo(({
                         </MobileGlassSurface>
                     </Animated.View>
 
-                    <Animated.View style={[styles.focusDock, keyboardStyle]}>
+                    <Animated.View style={[styles.focusDock, keyboardStyle, webKeyboardOffsetStyle]}>
                         <View style={styles.focusConfig}>
+                            {readOnly ? (
+                                <Text style={styles.readOnlyHint}>
+                                    View-only browser — starting sessions is disabled
+                                </Text>
+                            ) : null}
                             <View style={styles.focusConfigGroup}>
                                 {renderEnvironmentPickers()}
                                 <FocusConfigRevealRow progress={focusPresentation} index={3}>

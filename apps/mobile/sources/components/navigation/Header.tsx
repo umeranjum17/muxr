@@ -60,7 +60,11 @@ export const Header = React.memo((props: HeaderProps) => {
     const paddingTop = safeAreaEnabled ? insets.top : 0;
     const headerHeight = useHeaderHeight();
     const isTablet = useIsTablet();
-    const isDesktop = Platform.OS === 'web' || isRunningOnMac();
+    // Density comes from width, not the platform: compact web renders the
+    // phone chrome, wide web keeps the desktop chrome. Native behavior is
+    // unchanged (Mac Catalyst stays desktop, phones/tablets stay phone).
+    const splitView = useSplitViewLayout();
+    const isDesktop = Platform.OS === 'web' ? splitView : isRunningOnMac();
     const floatingControlsEnabled = !isDesktop && !isTablet;
     const headerLeftUsesGlass = headerLeftGlass && !isDesktop;
     const headerRightUsesGlass = headerRightGlass && !isDesktop;
@@ -174,7 +178,7 @@ const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((
     const { options, route, back, navigation } = props;
     const extendedOptions = options as ExtendedNavigationOptions;
     const splitViewLayout = useSplitViewLayout();
-    const isDesktop = Platform.OS === 'web' || isRunningOnMac();
+    const isDesktop = Platform.OS === 'web' ? splitViewLayout : isRunningOnMac();
 
     // The permanent split-view header owns Back only while the drawer is present.
     const shouldHideBackButton = splitViewLayout;

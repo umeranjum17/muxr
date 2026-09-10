@@ -188,7 +188,7 @@ try {
     const composerPresent = await (async () => {
         const started = Date.now();
         for (;;) {
-            const present = await journey.evaluate(`!!document.querySelector('input[placeholder="Type a prompt…"]')`);
+            const present = await journey.evaluate(`!![...document.querySelectorAll('input[placeholder="Type a prompt…"]')].some((el) => el.offsetParent !== null)`);
             if (present === true) return true;
             if (Date.now() - started > 30000) return present;
             await new Promise((r) => setTimeout(r, 500));
@@ -199,16 +199,20 @@ try {
 
     // Approve through the real composer (native setter so React sees it).
     // The composer can remount as the terminal attaches, so find-set-click
-    // retries as one unit instead of assuming a stable node.
+    // retries as one unit instead of assuming a stable node. HomeDock mounts
+    // under pushed session routes, so the selectors take the visible
+    // composer — the one a user and assistive tech actually reach.
+    const visibleComposer = `[...document.querySelectorAll('input[placeholder="Type a prompt…"]')].find((el) => el.offsetParent !== null) ?? document.querySelector('input[placeholder="Type a prompt…"]')`;
+    const visibleSend = `[...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === 'Send' && el.offsetParent !== null) ?? [...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === 'Send')`;
     await (async () => {
         const started = Date.now();
         for (;;) {
             const sent = await journey.evaluate(`(() => {
-                const box = document.querySelector('input[placeholder="Type a prompt…"]');
+                const box = ${visibleComposer};
                 if (!box) return 'missing';
                 Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(box, 'approved, push it');
                 box.dispatchEvent(new Event('input', { bubbles: true }));
-                const sendButton = [...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === 'Send');
+                const sendButton = ${visibleSend};
                 if (!sendButton || sendButton.getAttribute('aria-disabled') === 'true') return 'not-ready';
                 sendButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
                 return 'sent';
@@ -305,12 +309,21 @@ try {
     const browserWs = new WebSocket(browserVersion.webSocketDebuggerUrl);
     let browserId = 0;
     const browserPending = new Map();
+    const parityErrors = [];
+    let paritySessionId = null;
     browserWs.addEventListener('message', (event) => {
         try {
             const msg = JSON.parse(String(event.data));
             if (msg.id !== undefined && browserPending.has(msg.id)) {
                 browserPending.get(msg.id)(msg);
                 browserPending.delete(msg.id);
+            } else if (msg.sessionId !== undefined && msg.sessionId === paritySessionId) {
+                if (msg.method === 'Runtime.exceptionThrown') {
+                    parityErrors.push(`exception: ${JSON.stringify(msg.params?.exceptionDetails?.text ?? msg.params?.exceptionDetails).slice(0, 300)}`);
+                } else if (msg.method === 'Runtime.consoleAPICalled' && msg.params?.type === 'error') {
+                    const text = (msg.params.args ?? []).map((arg) => arg.value ?? arg.description ?? '').join(' ').slice(0, 300);
+                    parityErrors.push(`console.error: ${text}`);
+                }
             }
         } catch {}
     });
@@ -339,7 +352,7 @@ try {
     const freshTabs = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json();
     const freshPage = freshTabs.find((tab) => tab.id === freshTargetId || tab.targetId === freshTargetId);
     if (!freshPage?.webSocketDebuggerUrl) throw new Error('fresh page target unavailable');
-    browserWs.close();
+    // NOTE: browserWs stays open — Phase C reuses it for the parity target.
     const fresh = await drive(freshPage);
     await fresh.send('Page.navigate', { url: `http://127.0.0.1:${port}/demo` });
     await fresh.hideAndShow();
@@ -353,6 +366,136 @@ try {
     check('fresh load never shows the pairing root', !freshHerd.includes('Enter pairing string'));
     check('no page errors on fresh load', fresh.pageErrors.length === 0, fresh.pageErrors.slice(0, 3).join(' | '));
     fresh.close();
+
+    // Phase C: compact parity — the phone composition at phone widths, the
+    // split desktop at desktop widths. Same production export, dark scheme
+    // like the native reference, screenshots to the pane attachments dir.
+    const attachmentsDir = process.env.HERDR_PANE_ID
+        ? `/home/umer/.muxr/attachments/pane/${process.env.HERDR_PANE_ID}`
+        : null;
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    if (attachmentsDir) mkdirSync(attachmentsDir, { recursive: true });
+    const parityTarget = await browserSend('Target.createTarget', {
+        url: 'about:blank',
+        browserContextId: contextId,
+    });
+    const parityTargetId = parityTarget.result?.targetId;
+    if (!parityTargetId) throw new Error('parity target unavailable');
+    const parityAttach = await browserSend('Target.attachToTarget', { targetId: parityTargetId, flatten: true });
+    paritySessionId = parityAttach.result?.sessionId;
+    if (!paritySessionId) throw new Error('parity attach unavailable');
+    const paritySend = (method, params = {}) => new Promise((resolve, reject) => {
+        const cur = ++browserId;
+        const timer = setTimeout(() => { browserPending.delete(cur); reject(new Error(`cdp timeout ${method}`)); }, 20000);
+        browserPending.set(cur, (msg) => { clearTimeout(timer); resolve(msg); });
+        browserWs.send(JSON.stringify({ id: cur, method, params, sessionId: paritySessionId }));
+    });
+    const parityEval = async (expression) => {
+        const res = await paritySend('Runtime.evaluate', { expression, returnByValue: true });
+        if (res.result?.exceptionDetails) throw new Error(`parity js error: ${JSON.stringify(res.result.exceptionDetails).slice(0, 200)}`);
+        return res.result?.result?.value;
+    };
+    await paritySend('Runtime.enable');
+    const parityShot = async (name, width, height, path) => {
+        await paritySend('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 2, mobile: width < 900 });
+        await paritySend('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
+        await paritySend('Page.navigate', { url: `http://127.0.0.1:${port}${path}` });
+        await new Promise((r) => setTimeout(r, 9000));
+        const shot = await paritySend('Page.captureScreenshot', { format: 'jpeg', quality: 70 });
+        if (attachmentsDir) {
+            writeFileSync(`${attachmentsDir}/${name}.jpg`, Buffer.from(shot.result.data, 'base64'));
+            process.stdout.write(`shot ${attachmentsDir}/${name}.jpg\n`);
+        }
+        return shot;
+    };
+    const parityText = () => parityEval('document.body.innerText');
+    const parityWaitFor = async (label, predicate, timeoutMs = 45000) => {
+        const started = Date.now();
+        for (;;) {
+            const text = await parityText();
+            if (predicate(text)) return text;
+            if (Date.now() - started > timeoutMs) throw new Error(`timed out waiting for ${label}`);
+            await new Promise((r) => setTimeout(r, 500));
+        }
+    };
+    const noOverflow = () => parityEval('document.documentElement.scrollWidth <= window.innerWidth + 1');
+    // The collapsed dock entry renders placeholder text (not an input); the
+    // focused composer renders the real textarea.
+    const dockPresent = () => parityEval(`[...document.querySelectorAll('*')].some((el) => el.children.length === 0 && el.innerText === 'Plan, ask, build…')`);
+
+    // 390: native phone composition, no tab bar, no primary +.
+    await parityShot('parity-390-demo', 390, 844, '/demo');
+    const herd390 = await parityWaitFor('compact herd', (text) => text.includes('Migrate billing to usage-based plans'));
+    check('compact herd renders dark phone composition', herd390.includes('WHILE YOU WERE AWAY') && herd390.includes('SPACES'));
+    check('compact has no bottom tab bar', !await parityEval('!!document.querySelector(\'[role="tablist"], [role="tab"]\')'));
+    check('compact search and settings controls present', await parityEval(`!![...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === 'Search')`) && await parityEval(`!![...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === 'Settings')`));
+    check('compact has no primary new-agent plus', !await parityEval(`!![...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === 'New agent')`));
+    check('compact HomeDock entry present', await dockPresent());
+    check('compact has no horizontal overflow', await noOverflow());
+
+    // Focus reveals the progressive config; a typed prompt sends. The rows
+    // show icon + value (labels live in accessibility names, as on native).
+    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Plan, ask, build…')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const focusText = await parityWaitFor('focus config', (text) => text.includes('No worktree') && text.includes('Start '));
+    check('focus reveals agent/project/worktree config', focusText.includes('No worktree') && focusText.includes('Start '));
+    const sent = await parityEval(`(() => {
+        const box = [...document.querySelectorAll('textarea, input')].find((el) => el.placeholder && el.placeholder.startsWith('Ask ') && el.offsetParent !== null);
+        if (!box) return 'missing';
+        Object.getOwnPropertyDescriptor(box.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(box, 'compact parity probe');
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+        // The collapsed dock hides behind the focus modal but stays laid
+        // out: take the last visible Send, which is the focused one.
+        const sendButtons = [...document.querySelectorAll('*')].filter((el) => el.getAttribute && el.getAttribute('aria-label') === 'Send' && el.offsetParent !== null);
+        const sendButton = sendButtons[sendButtons.length - 1];
+        if (!sendButton || sendButton.getAttribute('aria-disabled') === 'true') return 'not-ready';
+        sendButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        return 'sent';
+    })()`);
+    check('compact focus send starts a session', sent === 'sent');
+    // Submit dismisses focus mode immediately (demo records cannot spawn a
+    // session; production navigates to it through the same handler).
+    await parityWaitFor('submit dismisses', (text) => !text.includes('No worktree'), 15000);
+    check('send submits and dismisses focus', true);
+    // Browser back works for session and settings through real history.
+    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Migrate billing to usage-based plans')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await parityWaitFor('demo session', (text) => text.includes('^C'));
+    await parityEval('window.history.back()');
+    await parityWaitFor('back to herd', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('SPACES'));
+    check('browser back leaves the session for the herd', true);
+    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === 'Settings')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await parityWaitFor('settings route', (text) => !text.includes('Migrate billing to usage-based plans'));
+    check('settings gear routes like native', true);
+    await parityEval('window.history.back()');
+    await parityWaitFor('back to herd again', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('SPACES'));
+    check('browser back leaves settings for the herd', true);
+    // Escape closes an open focus mode. Reload for a clean dock: the
+    // submitted prompt text persists in the draft by design.
+    await paritySend('Page.navigate', { url: `http://127.0.0.1:${port}/demo` });
+    await parityWaitFor('reload herd', (text) => text.includes('Migrate billing to usage-based plans'));
+    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Plan, ask, build…')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await parityWaitFor('refocus config', (text) => text.includes('No worktree'));
+    await paritySend('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    await paritySend('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    await new Promise((r) => setTimeout(r, 1500));
+    check('escape closes focus mode', !(await parityText()).includes('No worktree'));
+
+    // Width matrix screenshots + overflow checks.
+    await parityShot('parity-768-demo', 768, 1024, '/demo');
+    await parityWaitFor('tablet herd', (text) => text.includes('Migrate billing to usage-based plans'));
+    check('768 has no horizontal overflow', await noOverflow());
+    await parityShot('parity-899-demo', 899, 1024, '/demo');
+    await parityWaitFor('899 herd', (text) => text.includes('Migrate billing to usage-based plans'));
+    check('899 stays compact with the dock', await dockPresent());
+    check('899 has no horizontal overflow', await noOverflow());
+    await parityShot('parity-901-demo', 901, 1024, '/demo');
+    await parityWaitFor('901 herd', (text) => text.includes('Migrate billing to usage-based plans'));
+    check('901 switches to split desktop without the dock', !(await dockPresent()));
+    check('901 has no horizontal overflow', await noOverflow());
+    await parityShot('parity-1280-demo', 1280, 800, '/demo');
+    await parityWaitFor('desktop herd', (text) => text.includes('Migrate billing to usage-based plans'));
+    check('1280 keeps the split desktop without the dock', !(await dockPresent()));
+    check('1280 has no horizontal overflow', await noOverflow());
+    check('no page errors during parity', parityErrors.length === 0, parityErrors.slice(0, 3).join(' | '));
 } catch (cause) {
     check('demo browser flow completed', false, cause instanceof Error ? cause.message : String(cause));
 } finally {
