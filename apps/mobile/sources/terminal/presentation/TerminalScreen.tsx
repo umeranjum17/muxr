@@ -26,7 +26,9 @@ import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/session
 import { SessionMetaLine } from '@/herd/ui';
 import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import type { HerdrTreeTab } from '@muxr/contract';
-import { TerminalView } from './TerminalView';
+// The xterm/Ghostty view stays out of the initial load graph: the session
+// shell paints first, the terminal implementation streams in behind it.
+const TerminalView = React.lazy(() => import('./TerminalView').then((module) => ({ default: module.TerminalView })));
 import { usePaneGestures } from '../application/usePaneGestures';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
@@ -64,6 +66,16 @@ const TOOLS_MENU_GAP = 6;
 /** Room for roughly five rows: the least a menu can be and still be worth
  *  opening. The trigger stops climbing when the menu would fall below it. */
 const TOOLS_MENU_MIN = 260;
+
+/** Shown while the terminal implementation streams in behind the shell. */
+function TerminalViewFallback() {
+    const { theme } = useUnistyles();
+    return (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+        </View>
+    );
+}
 
 export const TerminalScreen = React.memo((props: { id: string }) => {
     const { theme } = useUnistyles();
@@ -514,7 +526,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 }}
                 style={{ flex: 1 }}
             >
-                <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} />
+                <React.Suspense fallback={<TerminalViewFallback />}>
+                    <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} />
+                </React.Suspense>
                 {gestureHint !== null && (
                     <View
                         pointerEvents="none"

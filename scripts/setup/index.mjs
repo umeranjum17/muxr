@@ -89,11 +89,14 @@ export {
     enrollmentPayload,
     ensureSelfhostRelay,
     hasPendingRemoteConnect,
+    readRelayEnv,
+    relayEnvPath,
     resolveAdvertise,
     restartSelfhostRelayIfRunning,
     selfhostPublicSummary,
     sharedMachineCount,
     stopSelfhostRelayIfRunning,
+    writeRelayEnv,
 } from './infrastructure/selfhostRelay.mjs';
 
 export {
@@ -119,8 +122,11 @@ export {
     formatOperatorConfig,
     operatorConfigPath,
     operatorReportLines,
+    planToArgs,
     printOperatorConfig,
     resolveOperatorConfig,
+    resolveSetupPlan,
+    validateSetupPlan,
     writeOperatorConfig,
 } from './infrastructure/operatorConfig.mjs';
 export { BACK, heading, prompt, select, status } from './presentation/ui.mjs';

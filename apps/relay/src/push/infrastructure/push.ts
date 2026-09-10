@@ -22,6 +22,33 @@ export interface PushSubscriptionRecord {
     createdAt: string;
 }
 
+/** At most this many live subscriptions per device; oldest beyond the cap drop on subscribe. */
+export const MAX_SUBSCRIPTIONS_PER_DEVICE = 5;
+/** Delivery dedup entries older than this stop suppressing retries. */
+const DELIVERED_EVENT_TTL_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * Push endpoints must be deliverable Web Push destinations: https with no
+ * embedded credentials, or plain http only to loopback (local diagnostics
+ * stubs). Rejects non-http(s) schemes, userinfo, and absurd lengths — a
+ * subscription must never point the relay at an arbitrary internal URL.
+ */
+export function isAllowedPushEndpoint(value: unknown): value is string {
+    if (typeof value !== 'string' || value === '' || value.length > 2048) return false;
+    let parsed: URL;
+    try {
+        parsed = new URL(value);
+    } catch {
+        return false;
+    }
+    if (parsed.username !== '' || parsed.password !== '') return false;
+    if (/\s/.test(parsed.hostname) || parsed.hostname === '') return false;
+    if (parsed.protocol === 'https:') return true;
+    if (parsed.protocol !== 'http:') return false;
+    const host = parsed.hostname.toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+}
+
 export interface PushPayload {
     eventId: string;
     kind: PushNotificationKind;
@@ -84,14 +111,15 @@ interface ExpoPushTokenRecord {
 interface PushSubscriptionsFile {
     accounts: Record<string, PushSubscriptionRecord[]>;
     expoAccounts?: Record<string, ExpoPushTokenRecord[]>;
-    deliveredEvents?: Array<{ accountId: string; eventId: string }>;
+    deliveredEvents?: Array<{ accountId: string; eventId: string; at?: string }>;
 }
 
 const DELIVERED_EVENT_LIMIT = 2_048;
 
-function boundDeliveredEvents(events: Array<{ accountId: string; eventId: string }>): Array<{ accountId: string; eventId: string }> {
+function boundDeliveredEvents(events: Array<{ accountId: string; eventId: string; at?: string }>, now = Date.now()): Array<{ accountId: string; eventId: string; at?: string }> {
     const counts = new Map<string, number>();
-    return events.filter((entry) => typeof entry?.accountId === 'string' && typeof entry.eventId === 'string')
+    return events.filter((entry) => typeof entry?.accountId === 'string' && typeof entry.eventId === 'string'
+        && (typeof entry.at !== 'string' || now - Date.parse(entry.at) < DELIVERED_EVENT_TTL_MS))
         .reverse()
         .filter((entry) => {
             const count = counts.get(entry.accountId) ?? 0;
@@ -112,10 +140,17 @@ export class PushService {
     private vapid: { publicKey: string; privateKey: string } | undefined;
     private subs: Record<string, PushSubscriptionRecord[]> = {};
     private expoSubs: Record<string, ExpoPushTokenRecord[]> = {};
-    private deliveredEvents: Array<{ accountId: string; eventId: string }> = [];
+    private deliveredEvents: Array<{ accountId: string; eventId: string; at?: string }> = [];
     private readonly deliveries = new Map<string, Promise<{ sent: number; duplicate?: true }>>();
     private readonly undurableEvents = new Set<string>();
     private persistChain: Promise<void> = Promise.resolve();
+    /**
+     * Current-authorization re-check, wired by the relay to the live pairing
+     * store. Delivery drops (and prunes) subscriptions whose device is no
+     * longer active — revoked or naturally expired. Unset (legacy hosted
+     * path): delivery trusts stored subscriptions as before.
+     */
+    private authorizer: ((accountId: string, deviceId: string) => Promise<boolean>) | undefined;
 
     constructor(dataDir: string) {
         this.vapidPath = join(dataDir, 'vapid.json');
@@ -151,11 +186,16 @@ export class PushService {
         return this.vapid.publicKey;
     }
 
+    setAuthorizer(check: (accountId: string, deviceId: string) => Promise<boolean>): void {
+        this.authorizer = check;
+    }
+
     async subscribe(
         accountId: string,
         subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
         opts: { deviceId?: string; level?: LifecycleNotificationLevel } = {},
     ): Promise<void> {
+        if (!isAllowedPushEndpoint(subscription.endpoint)) throw new Error('push subscription endpoint is not an allowed Web Push destination');
         const list = (this.subs[accountId] ?? []).filter((entry) => entry.endpoint !== subscription.endpoint);
         list.push({
             ...subscription,
@@ -163,6 +203,16 @@ export class PushService {
             ...(opts.level === undefined ? {} : { level: opts.level }),
             createdAt: new Date().toISOString(),
         });
+        // Cap per device so one browser cannot accumulate unbounded entries.
+        if (opts.deviceId !== undefined) {
+            const owned = list.filter((entry) => entry.deviceId === opts.deviceId);
+            if (owned.length > MAX_SUBSCRIPTIONS_PER_DEVICE) {
+                const drop = new Set(owned.slice(0, owned.length - MAX_SUBSCRIPTIONS_PER_DEVICE));
+                this.subs[accountId] = list.filter((entry) => !drop.has(entry));
+                await this.persist();
+                return;
+            }
+        }
         this.subs[accountId] = list;
         await this.persist();
     }
@@ -219,7 +269,21 @@ export class PushService {
             ? ' could not start.'
             : COPY_SUFFIX[payload.kind];
         const bodyText = `${payload.agentName}${suffix}`;
-        const list = this.subs[accountId] ?? [];
+        let list = this.subs[accountId] ?? [];
+        let authorizationPruned = false;
+        // Re-check current device authorization at delivery: a subscription
+        // outliving its grant (revoked or naturally expired) is pruned, not
+        // sent to. Subscriptions without a device owner predate the binding.
+        if (this.authorizer !== undefined) {
+            const checks = await Promise.all(list.map(async (entry) =>
+                entry.deviceId === undefined ? true : this.authorizer!(accountId, entry.deviceId).catch(() => false)));
+            const before = list.length;
+            list = list.filter((_, index) => checks[index] === true);
+            if (list.length !== before) {
+                this.subs[accountId] = list;
+                authorizationPruned = true;
+            }
+        }
         // Level-filtered like Expo subs: a device that asked for important-only
         // never wakes for done/failed noise.
         const eligible = list.filter((entry) =>
@@ -276,11 +340,11 @@ export class PushService {
         if (sent > 0) {
             // Mark after provider acceptance so total send failures remain retryable.
             // A crash before this queued write can still duplicate; transports offer no atomic send+commit.
-            this.deliveredEvents.push({ accountId, eventId: payload.eventId });
+            this.deliveredEvents.push({ accountId, eventId: payload.eventId, at: new Date().toISOString() });
             this.deliveredEvents = boundDeliveredEvents(this.deliveredEvents);
             this.undurableEvents.add(`${accountId}\0${payload.eventId}`);
         }
-        if (sent > 0 || dead.length > 0 || this.expoSubs[accountId]?.length !== expo.length) await this.persist();
+        if (sent > 0 || dead.length > 0 || authorizationPruned || this.expoSubs[accountId]?.length !== expo.length) await this.persist();
         if (sent > 0) this.undurableEvents.delete(`${accountId}\0${payload.eventId}`);
         return { sent };
     }

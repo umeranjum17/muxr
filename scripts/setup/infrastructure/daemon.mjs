@@ -22,6 +22,7 @@ import {
 } from './runtime.mjs';
 import { ensureHerdrServer, herdrBin } from './herdr.mjs';
 import { cleanupManagedIngress, readSelfhostState, selfhostRelayHealthy, stopOwnedSelfhostRelay } from './selfhost.mjs';
+import { readRelayEnv } from './selfhostRelay.mjs';
 
 /** Invoking Herdr socket: live env first, then the control-plugin record. */
 export function herdrSocketPath() {
@@ -43,6 +44,9 @@ export function daemonDefinition(mode) {    if (mode !== undefined) parseDaemonM
     // The invoking Herdr instance reaches the supervised service: live env
     // first, then the file the control plugin persists per invocation.
     const serviceHerdrSocket = herdrSocketPath();
+    // Operator intent the service needs but never inherits from a shell:
+    // read from the owner-only relay.env record at install time.
+    const relayEnv = readRelayEnv();
     const servicePath = [...new Set([
         ...(process.env.PATH ?? '').split(delimiter),
         dirname(process.execPath),
@@ -69,6 +73,7 @@ export function daemonDefinition(mode) {    if (mode !== undefined) parseDaemonM
             ['PATH', servicePath],
             ...(serviceHerdr === undefined ? [] : [['HERDR_BIN', serviceHerdr]]),
             ...(serviceHerdrSocket === undefined ? [] : [['HERDR_SOCKET_PATH', serviceHerdrSocket]]),
+            ...(relayEnv.MUXR_NOTIFY_EMAIL === undefined ? [] : [['MUXR_NOTIFY_EMAIL', relayEnv.MUXR_NOTIFY_EMAIL]]),
             ...(mode === undefined ? [] : [['MUXR_MODE', mode]]),
             ...(process.env.MUXR_HOME?.trim() ? [['MUXR_HOME', stateDir()]] : []),
         ];
@@ -82,6 +87,7 @@ export function daemonDefinition(mode) {    if (mode !== undefined) parseDaemonM
             `Environment=PATH=${systemdArg(servicePath)}`,
             ...(serviceHerdr === undefined ? [] : [`Environment=HERDR_BIN=${systemdArg(serviceHerdr)}`]),
             ...(serviceHerdrSocket === undefined ? [] : [`Environment=HERDR_SOCKET_PATH=${systemdArg(serviceHerdrSocket)}`]),
+            ...(relayEnv.MUXR_NOTIFY_EMAIL === undefined ? [] : [`Environment=MUXR_NOTIFY_EMAIL=${systemdArg(relayEnv.MUXR_NOTIFY_EMAIL)}`]),
             ...(mode === undefined ? [] : [`Environment=MUXR_MODE=${systemdArg(mode)}`]),
             ...(process.env.MUXR_HOME?.trim() ? [`Environment=MUXR_HOME=${systemdArg(stateDir())}`] : []),
         ].join('\n');

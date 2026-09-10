@@ -231,6 +231,50 @@ export function operatorReportLines(resolved) {
     return Object.keys(resolved.values).map((key) => `${key}=${resolved.values[key]} (${resolved.provenance[key]})`);
 }
 
+/** Completeness rule for an applicable plan: external names its own URL. */
+export function validateSetupPlan(values) {
+    if (values.connection === 'external' && values.advertiseUrl === undefined) {
+        throw new Error('MUXR_CONNECTION=external needs MUXR_ADVERTISE_URL (or --advertise <wss://...>)');
+    }
+}
+
+/**
+ * One normalized setup plan: precedence resolved once (flags > env > file >
+ * probed/default), validated once, then reviewed, persisted, and applied
+ * without re-deriving intent from raw args downstream. Pairing and other
+ * per-invocation actions stay out: the plan is intent, not actions.
+ */
+export function resolveSetupPlan({ args = [], probed = {} } = {}) {
+    const base = resolveOperatorConfig({ args, probed });
+    const tunnel = args.includes('--tunnel');
+    const tailscaleDirect = args.includes('--tailscale-direct');
+    const values = {
+        ...base.values,
+        tunnel,
+        tailscaleDirect,
+    };
+    const provenance = {
+        ...base.provenance,
+        tunnel: tunnel ? 'flag' : 'default',
+        tailscaleDirect: tailscaleDirect ? 'flag' : 'default',
+    };
+    validateSetupPlan(values);
+    return { values, provenance };
+}
+
+/** Canonical argv for a reviewed plan: the only flag derivation allowed. */
+export function planToArgs(plan, { reconfigure = true } = {}) {
+    const argv = ['--port', String(plan.relayPort ?? 8792)];
+    if (plan.connection !== undefined) argv.push('--connection-mode', plan.connection);
+    if (plan.web === true) argv.push('--web');
+    if (plan.web === false) argv.push('--no-web');
+    if (plan.advertiseUrl !== undefined) argv.push('--advertise', plan.advertiseUrl);
+    if (plan.tunnel === true) argv.push('--tunnel');
+    if (plan.tailscaleDirect === true) argv.push('--tailscale-direct');
+    if (reconfigure) argv.push('--reconfigure');
+    return argv;
+}
+
 function snakeToEnv(key) {
     return { connection: 'MUXR_CONNECTION', relayPort: 'MUXR_RELAY_PORT', web: 'MUXR_WEB', advertiseUrl: 'MUXR_ADVERTISE_URL', integrationsSync: 'MUXR_INTEGRATIONS_SYNC', notifyEmail: 'MUXR_NOTIFY_EMAIL' }[key] ?? key;
 }

@@ -11,7 +11,7 @@ import {
     stateDir,
 } from '../infrastructure/runtime.mjs';
 import { daemonIsRunning, runDaemon, startMuxrDaemon } from '../infrastructure/daemon.mjs';
-import { operatorConfigPath, resolveOperatorConfig } from '../infrastructure/operatorConfig.mjs';
+import { operatorConfigPath, planToArgs, resolveSetupPlan } from '../infrastructure/operatorConfig.mjs';
 import {
     cleanupManagedIngress,
     cloudflaredAlive,
@@ -28,21 +28,30 @@ import {
     relayDiscovery,
     resolveAdvertise,
     withSelfhostRotationLock,
+    writeRelayEnv,
 } from '../infrastructure/selfhostRelay.mjs';
 import { mintDeviceGrant } from './pairDevice.mjs';
 
 export async function startSelfHost(args = []) {
     let pendingIngress;
-    let operator;
+    let plan;
     try {
-        // One precedence rule: CLI flag > MUXR_* env > ~/.muxr/config.env >
-        // probed/default. The operator file never carries secrets. A missing
-        // file defaults; a malformed or unsupported file fails here, clearly.
-        operator = resolveOperatorConfig({ args });
+        // One normalized plan: precedence resolved once (flag > env > file >
+        // probed/default), validated once. Downstream helpers read intent
+        // from the plan-derived argv, never re-derived from raw args, so
+        // apply cannot diverge from what Review showed. The operator file
+        // never carries secrets. A missing file defaults; a malformed or
+        // unsupported file fails here, clearly.
+        plan = resolveSetupPlan({ args });
     } catch (cause) {
         error(cause instanceof Error ? cause.message : String(cause));
         return 1;
     }
+    // Intent flags, canonically derived: every helper below that reads
+    // --port/--connection-mode/--web/--advertise/--tunnel/--tailscale-direct
+    // sees the reviewed plan, even when it arrived via env or config.env.
+    const intentArgs = planToArgs(plan.values);
+    const effectiveArgs = [...args, ...intentArgs];
     const applyConfig = args.includes('--apply-config');
     if (applyConfig) {
         const missing = [];
@@ -56,15 +65,15 @@ export async function startSelfHost(args = []) {
         }
         print(`  applying operator config from ${operatorConfigPath()}`);
     }
-    const port = operator.values.relayPort ?? 8792;
+    const port = plan.values.relayPort ?? 8792;
     const relayOnly = args.includes('--relay-only');
     const managedRelay = args.includes('--managed-relay');
     const hostOnly = args.includes('--host-only');
     const dryRun = args.includes('--dry-run');
-    const web = operator.values.web ?? false;
+    const web = plan.values.web ?? false;
     const pair = pairingIntentFromSelfhostFlags(args);
     const noPair = args.includes('--no-pair');
-    const connectionMode = operator.values.connection;
+    const connectionMode = plan.values.connection;
     const reconfigure = args.includes('--reconfigure');
     const yes = args.includes('--yes') || applyConfig;
     if (web && !process.stdout.isTTY && !yes) {
@@ -90,8 +99,8 @@ export async function startSelfHost(args = []) {
             else if (hostOnly) target = 'the self-host agent host';
             print(`  would start ${target}`);
             if (!relayOnly) print('  would create a single-use encrypted mobile pairing QR');
-            for (const [key, val] of Object.entries(operator.values)) {
-                print(`  config: ${key}=${val} (${operator.provenance[key]})`);
+            for (const [key, val] of Object.entries(plan.values)) {
+                print(`  config: ${key}=${val} (${plan.provenance[key]})`);
             }
             return 0;
         }
@@ -106,7 +115,7 @@ export async function startSelfHost(args = []) {
             state = { version: 1, machine: machineIdentity(undefined), relayPort: port };
         }
         const hostWasRunning = daemonIsRunning();
-        const explicitAdvertise = flagValue(args, '--advertise')?.replace(/\/$/, '') ?? operator.values.advertiseUrl;
+        const explicitAdvertise = plan.values.advertiseUrl;
         const connection = parseConnection(state);
         const sameConfiguration = connection.ok && connection.value.sameAs({ port, connectionMode, web, explicitAdvertise });
         if (!sameConfiguration && reconfigure) {
@@ -120,22 +129,26 @@ export async function startSelfHost(args = []) {
         // Missing Tailscale is fine. Broken/unsafe Tailscale status must fail
         // closed; another transport is chosen explicitly, never as a guess.
         print('  … checking network connection and ingress');
-        const tailscale = tailscaleIngress(args);
+        const tailscale = tailscaleIngress(effectiveArgs);
         const advertise = sameConfiguration && connectionMode === 'cloudflare' && typeof state.relayUrl === 'string' && cloudflaredAlive(state.ingress)
             ? { url: state.relayUrl, note: 'existing Cloudflare quick tunnel', ingress: state.ingress }
-            : await resolveAdvertise(args, port, tailscale);
+            : await resolveAdvertise(effectiveArgs, port, tailscale);
         pendingIngress = advertise.ingress?.kind === 'cloudflare-quick' ? advertise.ingress : undefined;
         if (advertise.ingress?.kind === 'tailscale-serve') state = persistOwnedServeIngress(state, advertise.ingress);
         if (web && !advertise.url.startsWith('wss://')) throw new Error('--web requires HTTPS (Tailscale Serve, a named HTTPS tunnel, or --advertise wss://...)');
         const bindHost = tailscale || args.includes('--tunnel') || web || explicitAdvertise?.startsWith('wss://') ? '127.0.0.1' : '0.0.0.0';
         const webOrigin = web ? advertise.url.replace(/^wss/, 'https') : undefined;
+        // Operator intent that the relay process itself consumes travels as
+        // explicit env (never via ambient process env, which setup cannot
+        // rely on). Persisted to relay.env below for the supervised service.
+        const relayEnv = plan.values.notifyEmail === undefined ? {} : { MUXR_NOTIFY_EMAIL: plan.values.notifyEmail };
         print(`  … checking local relay port ${port}`);
         await ensureSelfhostRelay(port, web ? webRoot : undefined, bindHost, webOrigin, {
             machineId: state.machine.id,
             name: state.machine.name,
             relayUrl: advertise.url,
             mode: connectionMode,
-        });
+        }, relayEnv);
         const mintPath = join(stateDir(), 'relay', 'mint-secret');
         const mintInfo = lstatSync(mintPath);
         if (!mintInfo.isFile() || mintInfo.isSymbolicLink() || (mintInfo.mode & 0o077) !== 0) {
@@ -155,6 +168,9 @@ export async function startSelfHost(args = []) {
         state.bindHost = bindHost;
         state.ingress = advertise.ingress;
         writeSelfhostState(state);
+        // Persisted for the supervised service (unit EnvironmentFile), which
+        // never inherits this process's env.
+        writeRelayEnv({ notifyEmail: plan.values.notifyEmail });
         pendingIngress = undefined;
         print(`  ✓ self-host relay on :${port} (${advertise.note})`);
         print(`  ✓ advertise ${advertise.url}`);
@@ -165,7 +181,7 @@ export async function startSelfHost(args = []) {
                 if (env('MUXR_NO_SERVICE_COMMANDS') !== '1') await stopOwnedSelfhostRelay();
                 try { await startMuxrDaemon('relay', args, !sameConfiguration || !hostWasRunning); }
                 catch (cause) {
-                    await ensureSelfhostRelay(port, web ? webRoot : undefined, bindHost, webOrigin, relayDiscovery(state)).catch(() => undefined);
+                    await ensureSelfhostRelay(port, web ? webRoot : undefined, bindHost, webOrigin, relayDiscovery(state), relayEnv).catch(() => undefined);
                     throw new Error(`the supervised relay service did not start; the temporary relay was restored when possible: ${cause instanceof Error ? cause.message : String(cause)}`);
                 }
                 delete state.machine;

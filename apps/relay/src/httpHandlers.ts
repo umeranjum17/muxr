@@ -4,7 +4,7 @@ import { get as httpGet } from 'node:http';
 import type { RelayE2eeMode } from './config.js';
 import { extractBearerToken, isValidPublicKey, pairMachine, approveMachinePairing, type PairingRequests, type MachineRegistry } from './admission/index.js';
 import type { OfflineBuffer, PeerTable, ReplayLog } from './routing/index.js';
-import { parsePushNotification, type PushService } from './push/index.js';
+import { isAllowedPushEndpoint, parsePushNotification, type PushService } from './push/index.js';
 
 export interface PushActionOutcome {
     ok: boolean;
@@ -357,6 +357,10 @@ export async function handleHttpRequest(
         }
         if (!isPushSubscription(body.subscription)) {
             writeJson(res, 400, { error: 'subscription must be {endpoint, keys: {p256dh, auth}}' });
+            return;
+        }
+        if (!isAllowedPushEndpoint(body.subscription.endpoint)) {
+            writeJson(res, 400, { error: 'subscription endpoint is not an allowed Web Push destination' });
             return;
         }
         const level = (body as { level?: unknown }).level === undefined

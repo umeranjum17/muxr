@@ -2,19 +2,28 @@
 /**
  * Herdr plugin build hook (runs on `herdr plugin install`).
  *
- * Bootstraps one exact muxr payload through the trusted npm release path.
- * The runtime is never vendored into the plugin dir (herdr git installs have
- * no integrity verification), never uses sudo, and `muxr update` remains the
- * single update owner afterwards. Daemon ownership stays with the
- * systemd/launchd unit muxr already writes; the [[startup]] hook only kicks
- * a configured service.
+ * Resolves ONE verified installed executable and records it for every
+ * plugin action:
+ *
+ *   ~/.muxr/herdr-plugin.runtime — owner-only JSON: { bin, version }
+ *
+ * Resolution order: explicit MUXR_BIN (dev override, always wins and is
+ * always reported) > `muxr` on PATH verified at the pinned version >
+ * fresh pinned npm install. The runtime is never vendored into the plugin
+ * dir (herdr git installs have no integrity verification), never uses sudo,
+ * and `muxr update` remains the single update owner afterwards. Daemon
+ * ownership stays with the systemd/launchd unit muxr already writes; the
+ * [[startup]] hook only kicks a configured service.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const root = dirname(fileURLToPath(import.meta.url));
+const stateDir = () => process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
+const runtimePath = () => join(stateDir(), 'herdr-plugin.runtime');
 const fail = (message) => {
     process.stderr.write(`muxr plugin build: ${message}\n`);
     process.exit(1);
@@ -25,10 +34,19 @@ if (!Number.isInteger(nodeMajor) || nodeMajor < 22) {
     fail(`node 22+ is required (found ${process.version}); install it, then rerun \`herdr plugin install muxr\``);
 }
 
-// Explicit binary always wins; nothing to install or verify.
-if (process.env.MUXR_BIN?.trim()) {
-    process.stdout.write(`muxr plugin build: using MUXR_BIN=${process.env.MUXR_BIN.trim()}\n`);
-    process.exit(0);
+function muxrVersion(bin, args = ['version']) {
+    try {
+        const check = spawnSync(bin, args, { encoding: 'utf8', timeout: 15_000 });
+        return check.status === 0 ? check.stdout.trim().split('\n').pop() : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function whichMuxr() {
+    const probe = spawnSync(process.platform === 'win32' ? 'where' : 'command', ['-v', 'muxr'], { encoding: 'utf8', timeout: 10_000 });
+    const found = probe.status === 0 ? probe.stdout.trim().split('\n').pop()?.trim() : undefined;
+    return found === '' ? undefined : found;
 }
 
 // Pin to one exact version: an explicit MUXR_CLI_PIN, else the version of
@@ -62,16 +80,25 @@ if (pin === undefined) {
     fail('cannot determine the pinned CLI version (no muxr checkout package.json, no MUXR_CLI_PIN); set MUXR_CLI_PIN=<exact version>');
 }
 
-const installed = (() => {
-    try {
-        const check = spawnSync('muxr', ['version'], { encoding: 'utf8', timeout: 15_000 });
-        return check.status === 0 ? check.stdout.trim().split('\n').pop() : undefined;
-    } catch {
-        return undefined;
-    }
-})();
-if (installed === pin) {
-    process.stdout.write(`muxr plugin build: @trymuxr/cli@${pin} already installed; nothing changed.\n`);
+function recordRuntime(bin, source) {
+    const version = muxrVersion(bin);
+    if (version !== pin) fail(`resolved runtime ${bin} reports ${version ?? 'nothing'}; expected ${pin} (source: ${source})`);
+    mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
+    writeFileSync(runtimePath(), `${JSON.stringify({ bin, version, source, recordedAt: new Date().toISOString() })}\n`, { mode: 0o600 });
+    chmodSync(runtimePath(), 0o600);
+    process.stdout.write(`muxr plugin build: plugin actions will execute ${bin} @ ${pin} (source: ${source}).\n`);
+}
+
+// Explicit dev override: obvious, reported, and re-verified (not trusted blind).
+const devBin = process.env.MUXR_BIN?.trim();
+if (devBin) {
+    recordRuntime(devBin, 'MUXR_BIN dev override');
+    process.exit(0);
+}
+
+const onPath = whichMuxr();
+if (onPath !== undefined && muxrVersion(onPath) === pin) {
+    recordRuntime(onPath, '`muxr` on PATH at the pinned version');
     process.exit(0);
 }
 
@@ -80,13 +107,6 @@ if (process.env.SUDO_USER || process.env.SUDO_UID) {
 }
 const install = spawnSync('npm', ['install', '--global', '--ignore-scripts', `@trymuxr/cli@${pin}`], { stdio: 'inherit' });
 if (install.status !== 0) fail(`npm install -g @trymuxr/cli@${pin} failed; install it manually, then rerun`);
-const after = (() => {
-    try {
-        const check = spawnSync('muxr', ['version'], { encoding: 'utf8', timeout: 15_000 });
-        return check.status === 0 ? check.stdout.trim().split('\n').pop() : undefined;
-    } catch {
-        return undefined;
-    }
-})();
-if (after !== pin) fail(`installed muxr reports ${after ?? 'nothing'}; expected ${pin}`);
-process.stdout.write(`muxr plugin build: installed @trymuxr/cli@${pin}.\n`);
+const after = whichMuxr();
+if (after === undefined) fail(`installed @trymuxr/cli@${pin} but no \`muxr\` is on PATH afterwards`);
+recordRuntime(after, `npm install -g @trymuxr/cli@${pin}`);

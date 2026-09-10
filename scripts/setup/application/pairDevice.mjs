@@ -72,7 +72,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         const created = await api(base, '/v1/selfhost/pair-sessions', {
             method: 'POST',
             headers: authHeaders,
-            body: JSON.stringify({ claim, machineSlug: state.machine.id, deviceKind: requestedKind, authority: requestedAuthority }),
+            body: JSON.stringify({ claim, machineSlug: state.machine.id, deviceKind: requestedKind, authority: requestedAuthority, ...(intent.personal ? { personal: true } : {}) }),
         });
         if (!created.response.ok) throw new Error(created.body.error || `pair session failed (${created.response.status})`);
         const payload = Buffer.from(JSON.stringify({

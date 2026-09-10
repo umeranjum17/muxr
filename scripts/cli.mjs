@@ -17,7 +17,6 @@ import {
     enableBrowserHosting,
     hasPendingRemoteConnect,
     heading,
-    hostEntry,
     hostSharedRelay,
     inspectSetup,
     listDevices,
@@ -62,7 +61,6 @@ Get started
   muxr diagnostics               show bounded redacted host history for agents
   muxr report                    prepare a local redacted bug report draft
   muxr pair [--browser|--browser-view|--browser-personal] pair a phone, a control/view-only browser, or your installed browser
-  muxr demo                      replay the blocked-agent loop against a fake host; no route needed
   muxr config                    show effective operator intent and where each value came from
   muxr connect --enrollment ...  connect this agent machine to a shared relay
   muxr shared-relay              host an always-on relay for other machines
@@ -107,7 +105,6 @@ const COMMAND_HELP = {
     'plugin update': `muxr plugin update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nReplace plugin files transactionally while preserving its enabled state.\n`,
     'plugin remove': `muxr plugin remove <plugin-id> [--yes]\n\nDisable, unlink, and remove muxr-managed plugin files.\n`,
     pair: `muxr pair [--browser|--browser-view|--browser-personal]\n\nCreate a two-minute native QR/string, an eight-hour control-browser link (--browser), an eight-hour view-only browser link (--browser-view), or a 30-day personal-browser link for your own installed browser (--browser-personal).\n`,
-    demo: `muxr demo\n\nRun the deterministic blocked-agent replay against the fake host (no route, no pairing). In the app, the same replay lives at the Demo route with zero backend. Stop with Ctrl-C.\n`,
     config: `muxr config\n\nPrint the effective operator intent (~/.muxr/config.env values overlaid by MUXR_* env and CLI flags) with provenance per value. Read-only; the setup wizard writes the file when you Apply.\n`,
     doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
     diagnostics: `muxr diagnostics\n\nPrint seven days of bounded redacted host, client, relay, collaboration, and broker history as JSON. No prompts, terminal output, paths, secrets, or internal ids are recorded.\n`,
@@ -333,18 +330,6 @@ async function runUninstall(args = []) {
     return 0;
 }
 
-/** Deterministic replay: fake host on stdio, plus pointers to the in-app Demo route. */
-function runDemo() {
-    process.stdout.write([
-        'muxr demo — blocked-agent replay against the fake host.',
-        'In the app the same replay lives at the Demo route with zero backend.',
-        '',
-    ].join('\n'));
-    const result = spawnSync(process.execPath, [hostEntry(), '--fake'], { stdio: 'inherit' });
-    if (result.error) process.stderr.write(`${result.error.message}\n`);
-    return result.status ?? 1;
-}
-
 async function applyUpdate(args = []) {
     const toInline = args.find((arg) => arg.startsWith('--to='));
     let toVersion;
@@ -488,7 +473,6 @@ async function dispatch(command, args = []) {
         }
     }
     if (command === 'pair') return pairDevice(args);
-    if (command === 'demo') return runDemo();
     if (command === 'config') return printOperatorConfig(args);
     if (command === 'version' || command === '--version' || command === '-v') {
         process.stdout.write(`${versionString()}\n`);

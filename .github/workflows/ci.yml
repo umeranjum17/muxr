@@ -22,6 +22,10 @@ jobs:
         run: yarn web:export:selfhost
       - name: Web export checks against dist (manifest, budget, no marketing origin)
         run: node scripts/diagnostics/application/checkWebExport.mjs
+      - name: Live web serving delivery (relay + static server over HTTP)
+        run: node scripts/diagnostics/application/checkWebServing.mjs
+      - name: Export chain isolation (canary export + full-dist secret scan)
+        run: node scripts/diagnostics/application/checkExportIsolation.mjs
       - name: Full suite (typecheck, crypto, pairing, e2e, package smoke, purity, secrets, architecture)
         run: yarn run check
       - name: Core purity guard

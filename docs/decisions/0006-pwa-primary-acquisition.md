@@ -32,7 +32,10 @@ preview/takeover, and other native-only features.
    the operator's own installed browser. The longer TTL applies only when the
    stored device record carries the explicit `personal: true` marker minted
    through the centralized pairing intent; the host refresh clamp honors the
-   marker and nothing else. The 8-hour default is unchanged everywhere else.
+   marker and nothing else. The relay issues the device credential itself at
+   30d from the owner-created pair session (the browser claim body can never
+   request lifetime); normal browsers stay 8h end to end. The 8-hour default
+   is unchanged everywhere else.
 3. **Authority is never inferred from installed display-mode.** Standalone
    vs. tab only picks install UX ordering (iOS Safari must install *before*
    claiming because IndexedDB does not transfer; Android/desktop pair first,
@@ -101,3 +104,8 @@ subscriptions, and serves an unregistering service worker if one was deployed.
 - G1: whether the *default* browser TTL or control-by-default may move.
 - G4: install reliability matrix across iOS point releases.
 - G5: executed XSS verification under the shipped CSP.
+- Usable-screen budget: enforced as a regression ceiling at the measured
+  value (initial JS/CSS gzip, CanvasKit lazy and excluded by construction).
+  The 2.0 MB compressed target stays open — reaching it needs route-level
+  splitting, and the number must not be faked by relabeling. `checkWebExport`
+  names both the ceiling and the target.

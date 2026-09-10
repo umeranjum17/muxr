@@ -93,12 +93,12 @@ const stub = createServer({
 });
 await new Promise((resolve) => stub.listen(stubPort, '127.0.0.1', resolve));
 
-async function pairBrowser(name) {
+async function pairBrowser(name, personal = false) {
     const keys = generateKeyPair();
     const claim = randomBytes(32).toString('base64url');
     const opened = await json('/v1/selfhost/pair-sessions', {
         method: 'POST', headers: bearer(mintSecret),
-        body: JSON.stringify({ claim, machineSlug: machine, deviceKind: 'browser', authority: 'control' }),
+        body: JSON.stringify({ claim, machineSlug: machine, deviceKind: 'browser', authority: 'control', ...(personal ? { personal: true } : {}) }),
     });
     assert(opened.response.ok, `open browser pair failed: ${JSON.stringify(opened.body)}`);
     const pairId = opened.body.pair_id;
@@ -115,6 +115,9 @@ async function pairBrowser(name) {
     assert(claimed.response.ok, `browser claim failed: ${JSON.stringify(claimed.body)}`);
     return { id: claimed.body.device_id, credential: claimed.body.device_credential, keys, name };
 }
+
+const pairingStore = () => JSON.parse(readFileSync(join(dataDir, 'selfhost-pairing.json'), 'utf8'));
+const deviceRecord = (deviceId) => pairingStore().devices.find((entry) => entry.deviceId === deviceId);
 
 const subsFile = () => JSON.parse(readFileSync(join(dataDir, 'push-subscriptions.json'), 'utf8'));
 
@@ -136,6 +139,25 @@ try {
 
     const browser = await pairBrowser('browser-pwa');
     const accountId = `local:${machine}`;
+
+    // Owner-authorized personal browsers carry a 30d credential; the claim
+    // body cannot request it, and normal browsers stay 8h. Lifetimes are
+    // read off the real pairing store, not echoed request bodies.
+    const personal = await pairBrowser('browser-personal', true);
+    const eightHours = 8 * 60 * 60_000;
+    const thirtyDays = 30 * 24 * 60 * 60_000;
+    const normalTtl = (deviceRecord(browser.id)?.expiresAt ?? 0) - Date.now();
+    const personalTtl = (deviceRecord(personal.id)?.expiresAt ?? 0) - Date.now();
+    assert(normalTtl > eightHours - 60_000 && normalTtl <= eightHours, `normal browser credential not 8h: ${normalTtl}`);
+    assert(personalTtl > thirtyDays - 60_000 && personalTtl <= thirtyDays, `personal browser credential not 30d: ${personalTtl}`);
+    // A personal marker on a NATIVE session must not lengthen anything: the
+    // marker is browser-only at issuance.
+    const nativeOpened = await json('/v1/selfhost/pair-sessions', {
+        method: 'POST', headers: bearer(mintSecret),
+        body: JSON.stringify({ claim: randomBytes(32).toString('base64url'), machineSlug: machine, deviceKind: 'native', personal: true }),
+    });
+    assert(nativeOpened.response.ok, `native session with stray personal flag rejected: ${nativeOpened.response.status}`);
+    process.stdout.write('ok  personal 30d propagates through relay issuance; normal browsers stay 8h\n');
 
     // Legacy hosted action surface stays unreachable without the dev API.
     const action = await json('/v1/push/action', {
@@ -161,6 +183,16 @@ try {
         body: JSON.stringify({ subscription: { endpoint: 'http://cleartext/', keys: { p256dh: 'a', auth: 'b' } } }),
     });
     assert(badSub.response.status === 400, `cleartext subscription accepted: ${badSub.response.status}`);
+    const userinfoSub = await json('/v1/push/subscribe', {
+        method: 'POST', headers: bearer(browser.credential),
+        body: JSON.stringify({ subscription: { endpoint: 'https://user:pw@push.example/hook', keys: { p256dh: 'a', auth: 'b' } } }),
+    });
+    assert(userinfoSub.response.status === 400, `userinfo endpoint accepted: ${userinfoSub.response.status}`);
+    const remoteHttpSub = await json('/v1/push/subscribe', {
+        method: 'POST', headers: bearer(browser.credential),
+        body: JSON.stringify({ subscription: { endpoint: 'http://push.example/hook', keys: { p256dh: 'a', auth: 'b' } } }),
+    });
+    assert(remoteHttpSub.response.status === 400, `non-loopback http endpoint accepted: ${remoteHttpSub.response.status}`);
     const badLevel = await json('/v1/push/subscribe', {
         method: 'POST', headers: bearer(browser.credential),
         body: JSON.stringify({ subscription, level: 'everything' }),
@@ -174,6 +206,19 @@ try {
     const stored = subsFile().accounts[accountId] ?? [];
     assert(stored.length === 1 && stored[0].deviceId === browser.id && stored[0].level === 'important',
         `deviceId/level not persisted: ${JSON.stringify(stored)}`);
+
+    // Per-device cap: six subscriptions collapse to the five newest.
+    for (let index = 0; index < 5; index += 1) {
+        const extra = await json('/v1/push/subscribe', {
+            method: 'POST', headers: bearer(browser.credential),
+            body: JSON.stringify({ subscription: { endpoint: `https://127.0.0.1:${stubPort}/push/${browser.id}-${index}`, keys: { p256dh: 'x'.repeat(87), auth: 'y'.repeat(22) } }, level: 'all' }),
+        });
+        assert(extra.response.ok, `capped subscribe failed: ${JSON.stringify(extra.body)}`);
+    }
+    const capped = (subsFile().accounts[accountId] ?? []).filter((entry) => entry.deviceId === browser.id);
+    assert(capped.length === 5, `per-device cap not enforced: ${capped.length}`);
+    assert(!capped.some((entry) => entry.endpoint === subscription.endpoint), 'cap dropped the newest instead of the oldest');
+    process.stdout.write('ok  subscription endpoints allowlisted; per-device cap enforced\n');
 
     // Revocation drops the web subscription and rejects the credential.
     const revoked = await json(`/v1/selfhost/devices/${encodeURIComponent(browser.id)}`, {
@@ -212,7 +257,34 @@ try {
     const out3 = await push.notify('acct:b', { ...blocked, eventId: 'ev-blocked-2' });
     assert(out3.sent === 1, `post-revocation blocked expected 1 send, got ${JSON.stringify(out3)}`);
     assert(deliveries.length === 1 && deliveries[0].url === '/push/stub', `revoked device still notified: ${JSON.stringify(deliveries)}`);
+    deliveries.length = 0;
+    // Delivery-time authorization: a subscription whose device grant died is
+    // pruned, not sent to — even with no explicit revoke call in between.
+    // Unsafe endpoints never reach storage, whatever the caller claims.
+    await push.setAuthorizer(async (_accountId, deviceId) => deviceId !== 'dev-important');
+    const out4 = await push.notify('acct:b', { ...blocked, eventId: 'ev-blocked-3' });
+    assert(out4.sent === 0, `dead device notified: ${JSON.stringify(out4)}`);
+    assert(deliveries.length === 0, `dead device delivery attempted: ${JSON.stringify(deliveries)}`);
+    // Unsafe endpoints never reach storage, whatever the caller claims.
+    const subscribeThrows = async (endpoint) => {
+        try {
+            await push.subscribe('acct:b', { endpoint, keys: { p256dh: 'a', auth: 'b' } }, { deviceId: 'dev-x' });
+        } catch (cause) {
+            if (/not an allowed Web Push destination/.test(cause instanceof Error ? cause.message : String(cause))) return;
+            throw cause;
+        }
+        throw new Error(`unsafe endpoint accepted: ${endpoint}`);
+    };
+    await subscribeThrows('http://push.example/hook');
+    await subscribeThrows('https://user:pw@push.example/hook');
+    await subscribeThrows('javascript:alert(1)');
+    for (let index = 0; index < 6; index += 1) {
+        await push.subscribe('acct:cap', { ...stubSub, endpoint: `https://127.0.0.1:${stubPort}/push/cap-${index}` }, { deviceId: 'dev-cap' });
+    }
+    const persisted = JSON.parse(readFileSync(join(dataDir, 'push-subscriptions.json'), 'utf8'));
+    assert((persisted.accounts['acct:cap'] ?? []).length === 5, 'direct per-device cap not enforced');
     process.stdout.write('ok  web push level-filtered delivery, urgency/TTL, revocation unsubscribes\n');
+    process.stdout.write('ok  delivery re-checks device authorization and prunes the dead\n');
 
     process.stdout.write('PASS e2e: self-host web push subscribe/notify/revoke with device auth\n');
 } catch (error) {

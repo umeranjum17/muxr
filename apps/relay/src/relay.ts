@@ -25,7 +25,7 @@ import { handleHttpRequest, isExpoPushToken, isPushSubscription, readJsonBody, w
 import { OfflineBuffer, PeerTable, parseLastSeq, peerMayRoute, sendEnvelope, type ConnectedPeer, PreviewChannels, TerminalChannels, ReplayLog, deliverReplayAndOffline, routeEnvelope, type PeerRouteOutcome } from './routing/index.js';
 import { type RelayConfig, clientIp, isLoopbackAddress, loadRelayConfig } from './config.js';
 import { isValidPublicKey, PairingRequests, FileTicketStore, SelfhostPairing, MachineAuthority, enrollmentProofMessage, MachineRegistry } from './admission/index.js';
-import { parsePushNotification, PushService, notificationEmailFromEnv, type PushWebhookConfig } from './push/index.js';
+import { parsePushNotification, PushService, isAllowedPushEndpoint, notificationEmailFromEnv, type PushWebhookConfig } from './push/index.js';
 import { awaitPersistChain, writeJsonFileAtomic, readPrivateFile } from './platform/persist.js';
 
 /** How long push/action waits for the machine's answer before giving up. */
@@ -153,6 +153,16 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     const localTickets = config.localAuthority ? new FileTicketStore(config.dataDir) : undefined;
     const localPairing = config.localAuthority ? new SelfhostPairing(config.dataDir) : undefined;
     const machineAuthority = config.localAuthority ? new MachineAuthority(config.dataDir) : undefined;
+    if (localPairing !== undefined) {
+        // Delivery-time authorization: subscriptions are pruned the moment
+        // their device grant dies — revoked or naturally expired — instead of
+        // sending to a dead endpoint or waiting for a revoke call.
+        push.setAuthorizer(async (accountId, deviceId) => {
+            const slug = accountId.startsWith('local:') ? accountId.slice('local:'.length) : undefined;
+            if (slug === undefined || slug === '') return false;
+            return localPairing.deviceActiveIn(deviceId, slug);
+        });
+    }
     const notifications = config.localAuthority ? notificationEmailFromEnv() : undefined;
     // One email per machine per 5 minutes — a flap loop must not spam.
     const lastNotified = new Map<string, number>();
@@ -603,12 +613,15 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                         return;
                     }
                     const deviceAuthority = deviceKind === 'browser' && requestedAuthority === 'observe' ? 'observe' : 'control';
+                    // Personal lifetime is owner-authorized at session creation;
+                    // the browser claim body can never request it.
+                    const personal = deviceKind === 'browser' && body?.personal === true;
                     if (claim.length < 43 || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(machineSlug) || deviceKind === undefined) {
                         writeJsonError(res, 400, 'claim, machineSlug and deviceKind are required');
                         return;
                     }
                     if (!(await machineAuthority?.isMachineAllowed(machineSlug))) { writeJsonError(res, 403, 'machine is revoked or expired'); return; }
-                    const session = await localPairing.createSession({ claim, machineSlug, deviceKind, authority: deviceAuthority });
+                    const session = await localPairing.createSession({ claim, machineSlug, deviceKind, authority: deviceAuthority, ...(personal ? { personal: true } : {}) });
                     writeJson(res, 201, { pair_id: session.pairId, expires_in: session.expiresIn });
                     return;
                 }
@@ -641,14 +654,14 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     const deviceName = typeof body?.device_name === 'string' ? body.device_name.slice(0, 120) : '';
                     const mailbox = typeof body?.mailbox === 'string' ? body.mailbox : '';
                     const deviceKind = body?.device_kind === 'browser' ? 'browser' : 'native';
-                    const browserExpiresAt = deviceKind === 'browser' ? Date.now() + 8 * 60 * 60_000 : undefined;
                     if (claim === '' || devicePublicKey === '' || deviceName === '' || mailbox === '' || mailbox.length > 16 * 1024) {
                         writeJsonError(res, 400, 'claim, device_public_key, device_name and mailbox are required');
                         return;
                     }
+                    // Credential lifetime is decided inside claim() from the
+                    // owner-created session (personal marker or 8h default).
                     const result = await localPairing.claim(claimMatch[1], {
                         claim, devicePublicKey, deviceName, deviceKind, mailbox,
-                        ...(browserExpiresAt === undefined ? {} : { expiresAt: browserExpiresAt }),
                     });
                     if (result.state === 'issued') {
                         writeJson(res, 201, { device_id: result.deviceId, device_credential: result.credential });
@@ -948,6 +961,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 }
                 const body = (await readJsonBody(req).catch(() => undefined)) as { subscription?: unknown; level?: unknown } | undefined;
                 if (!isPushSubscription(body?.subscription)) { writeJsonError(res, 400, 'subscription must be {endpoint, keys: {p256dh, auth}}'); return; }
+                if (!isAllowedPushEndpoint(body.subscription.endpoint)) { writeJsonError(res, 400, 'subscription endpoint is not an allowed Web Push destination'); return; }
                 const level = body.level === undefined ? 'important' : parseLifecycleNotificationLevel(body.level);
                 if (level === undefined) { writeJsonError(res, 400, 'invalid lifecycle notification level'); return; }
                 await push.subscribe(accountId, body.subscription, { deviceId: device.deviceId, level });

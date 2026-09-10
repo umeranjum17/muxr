@@ -9,10 +9,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
     formatOperatorConfig,
+    planToArgs,
     printOperatorConfig,
     resolveOperatorConfig,
+    resolveSetupPlan,
+    validateSetupPlan,
     writeOperatorConfig,
 } from './operatorConfig.mjs';
+import { readRelayEnv, writeRelayEnv } from './selfhostRelay.mjs';
 
 const HOME = mkdtempSync(join(tmpdir(), 'muxr-opcfg-check-'));
 const INTENT_KEYS = ['MUXR_CONNECTION', 'MUXR_RELAY_PORT', 'MUXR_WEB', 'MUXR_ADVERTISE_URL', 'MUXR_INTEGRATIONS_SYNC', 'MUXR_NOTIFY_EMAIL'];
@@ -87,7 +91,41 @@ try {
     assert.ok(formatOperatorConfig({ connection: 'x' }).includes('MUXR_CONNECTION=x'));
     assert.equal(printOperatorConfig([]), 0);
 
+    // Normalized plan: intent resolved once, validated once, derived once.
+    cleanEnv();
+    rmSync(configPath, { force: true });
+    let plan = resolveSetupPlan({ args: ['--connection-mode', 'tailscale', '--port', '8792', '--web', '--yes'] });
+    assert.equal(plan.values.connection, 'tailscale');
+    assert.equal(plan.values.tunnel, false);
+    assert.equal(plan.values.tailscaleDirect, false);
+    assert.deepEqual(
+        planToArgs(plan.values),
+        ['--port', '8792', '--connection-mode', 'tailscale', '--web', '--reconfigure'],
+    );
+    plan = resolveSetupPlan({ args: ['--connection-mode', 'cloudflare', '--tailscale-direct'] });
+    assert.equal(plan.values.tunnel, false);
+    assert.equal(plan.values.tailscaleDirect, true);
+    assert.ok(planToArgs(plan.values).includes('--tailscale-direct'));
+    assert.throws(() => resolveSetupPlan({ args: ['--connection-mode', 'external'] }), /MUXR_ADVERTISE_URL/);
+    plan = resolveSetupPlan({ args: ['--connection-mode', 'external', '--advertise', 'wss://relay.example'] });
+    assert.equal(plan.values.advertiseUrl, 'wss://relay.example');
+    assert.throws(() => validateSetupPlan({ connection: 'external' }), /MUXR_ADVERTISE_URL/);
+    // A reviewed plan persists exactly and re-resolves identically (review == apply).
+    writeOperatorConfig({ ...plan.values, integrationsSync: 'auto' });
+    const reread = resolveSetupPlan({ args: [] });
+    assert.equal(reread.values.connection, 'external');
+    assert.equal(reread.values.advertiseUrl, 'wss://relay.example');
+    assert.equal(reread.provenance.connection, 'config');
+
+    // Relay process env round-trips through the owner-only record (never secrets).
+    cleanEnv();
+    writeRelayEnv({ notifyEmail: 'owner@example.com' });
+    assert.deepEqual(readRelayEnv(), { MUXR_NOTIFY_EMAIL: 'owner@example.com' });
+    writeRelayEnv({});
+    assert.deepEqual(readRelayEnv(), {});
+
     process.stdout.write('PASS unit: operator config precedence, malformed/unknown rejection, --mode collision\n');
+    process.stdout.write('PASS unit: normalized setup plan round-trip and relay env record\n');
 } finally {
     restoreEnv();
     rmSync(HOME, { recursive: true, force: true });

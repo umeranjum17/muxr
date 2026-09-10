@@ -56,19 +56,13 @@ const appConfig = read(join(mobile, 'app.config.js'));
 check('app.config web display standalone', appConfig.includes('display: "standalone"') || appConfig.includes("display: 'standalone'"));
 check('app.config web themeColor', appConfig.includes('themeColor'));
 
-// 3. Relay delivery rules.
-const relay = read(join(root, 'apps', 'relay', 'src', 'relay.ts'));
-check('relay serves .mjs as javascript', relay.includes("'.mjs': 'text/javascript"));
-check('relay serves .webmanifest', relay.includes("'.webmanifest': 'application/manifest+json'"));
-check('relay serves .wasm as application/wasm', relay.includes("'.wasm': 'application/wasm'"));
-check('relay sw.js revalidates', relay.includes("base === 'sw.js'"));
-check('relay manifest revalidates', relay.includes("base === 'manifest.webmanifest'"));
-check('relay web permissions allow self camera/mic', relay.includes("'permissions-policy': 'camera=(self), microphone=(self)"));
-const serveWebExport = read(join(root, 'scripts', 'diagnostics', 'application', 'serveWebExport.mjs'));
-check('serveWebExport serves .wasm as application/wasm', serveWebExport.includes("'.wasm': 'application/wasm'"));
+// 3. Relay delivery rules are proven behaviorally by checkWebServing (live
+// relay + static server over HTTP), not by asserting source strings here.
+// This file keeps artifact checks: manifest, shell metadata, config.
 // Every production export must install the lazy WASM/PDF payload into
 // public/ first — dist without canvaskit.wasm fails at runtime with
-// WebAssembly magic-word errors.
+// WebAssembly magic-word errors. Asserted on the export script contract;
+// checkExportIsolation proves the chain end to end with canaries.
 const packageJson = read(join(root, 'package.json'));
 check('web:export installs canvaskit before exporting', packageJson.includes('setup-canvaskit') && packageJson.includes('npx expo export'));
 check('web:export installs the pdf worker before exporting', packageJson.includes('setup-pdfjs'));
@@ -127,11 +121,14 @@ for (const importer of binImporters) {
 const publicModels = readdirSync(join(mobile, 'public')).filter((name) => /\.bin$|\.pt$|\.onnx$/i.test(name));
 check('no model binaries in public/', publicModels.length === 0, publicModels.slice(0, 5).join(', '));
 
-// 7. Dist properties (only when an export exists — CI exports first). The
-// initial transfer is the JS/CSS dist/index.html references directly; lazy
-// chunks (mermaid languages, canvaskit) load on demand and are not budgeted
-// here. Tight target: 3.12 MB gzip (2026-09-10); the enforced regression
-// budget carries headroom for content churn.
+// 7. Dist properties (only when an export exists — CI exports first).
+// Usable load is the gzip of JS/CSS dist/index.html references directly:
+// CanvasKit is lazy (never root-awaited, loaded on first Canvas use), so it
+// is excluded by construction, and lazy chunks (mermaid languages, pdf
+// worker) load on demand. The enforced ceiling is a regression ratchet at
+// the measured value, NOT the target: the 2.0 MB compressed usable-screen
+// target stays open (needs route-level splitting; see ADR-0006 gates) and
+// must not be faked by relabeling today's number as success.
 const distIndex = join(mobile, 'dist', 'index.html');
 if (!existsSync(distIndex)) {
     process.stdout.write('..  dist export absent — skipping dist budget/origin checks (CI exports first)\n');
@@ -141,6 +138,7 @@ if (!existsSync(distIndex)) {
         [...distHtml.matchAll(/(?:src|href)="(\/[^"]+\.(?:js|css))"/g)].map((match) => match[1]),
     )];
     check('dist index references initial JS/CSS', refs.length > 0);
+    check('dist initial refs exclude wasm (CanvasKit is lazy)', refs.every((ref) => !ref.endsWith('.wasm')));
     let initialGzip = 0;
     for (const ref of refs) {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
@@ -150,8 +148,8 @@ if (!existsSync(distIndex)) {
         }
         initialGzip += gzipSync(readFileSync(file)).length;
     }
-    const INITIAL_GZIP_BUDGET = Math.round(3.5 * 1024 * 1024);
-    check(`dist initial gzip ≤ 3.5 MB (target 3.12)`, initialGzip <= INITIAL_GZIP_BUDGET, `${(initialGzip / 1024 / 1024).toFixed(2)} MB`);
+    const USABLE_GZIP_CEILING = Math.round(3.0 * 1024 * 1024);
+    check(`dist usable gzip ≤ 3.0 MB regression ceiling (2.0 MB target open)`, initialGzip <= USABLE_GZIP_CEILING, `${(initialGzip / 1024 / 1024).toFixed(2)} MB`);
     const distText = [distHtml, ...refs.map((ref) => {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
         return existsSync(file) ? readFileSync(file, 'utf8') : '';
