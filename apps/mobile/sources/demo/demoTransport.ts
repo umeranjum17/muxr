@@ -21,6 +21,10 @@ export function isDemoTerminalSession(_sessionId: string): boolean {
     return false;
 }
 
+export function onDemoTransitionComplete(_listener: () => void): () => void {
+    return () => {};
+}
+
 export function openDemoTerminal(_command: OpenTerminalCommand): Promise<TerminalChannel> {
     throw new Error('demo replay is web-only');
 }

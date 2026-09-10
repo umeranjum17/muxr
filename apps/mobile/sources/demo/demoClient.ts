@@ -77,6 +77,13 @@ class DemoClient implements MuxrTransport {
         [DEMO_SESSION_DONE]: [...DEMO_TRANSCRIPTS[DEMO_SESSION_DONE]!],
     };
     private readonly transcriptListeners = new Set<(sessionId: string, lines: string[]) => void>();
+    /**
+     * Fired when a scripted transition completes (blocked → done). The demo
+     * shell uses it to re-read tree-pane state through the production
+     * refresh: live cards render tree panes, and nothing else re-reads them
+     * after an event-driven transition in a focusless context.
+     */
+    private readonly transitionListeners = new Set<() => void>();
 
     isLive(): boolean {
         return this.state === 'open';
@@ -139,6 +146,13 @@ class DemoClient implements MuxrTransport {
         this.transcriptListeners.add(listener);
         return () => {
             this.transcriptListeners.delete(listener);
+        };
+    }
+
+    onTransitionComplete(listener: () => void): () => void {
+        this.transitionListeners.add(listener);
+        return () => {
+            this.transitionListeners.delete(listener);
         };
     }
 
@@ -354,6 +368,7 @@ class DemoClient implements MuxrTransport {
                     at: new Date().toISOString(),
                 },
             });
+            for (const listener of [...this.transitionListeners]) listener();
         });
     }
 

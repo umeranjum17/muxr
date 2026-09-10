@@ -5,6 +5,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { MainView } from '@/herd/ui';
 import { DemoBar } from '@/demo/DemoBar';
 import { activateDemoTransport, ensureDemoRuntime } from '@/demo/demoRuntime';
+import { onDemoTransitionComplete } from '@/demo/demoTransport';
 import { sync } from '@/catalog/sync';
 
 export const unstable_settings = {
@@ -22,6 +23,16 @@ export default function DemoRoute() {
     const { theme } = useUnistyles();
     const router = useRouter();
     const [allowed, setAllowed] = React.useState(false);
+    // Tree-pane state (live cards, Spaces rows) only re-reads on explicit
+    // tree refreshes — event transitions don't touch it, and a focusless
+    // context never runs the interval/focus refreshes. Re-read once when a
+    // scripted transition completes, through the same production refresh.
+    React.useEffect(() => {
+        if (!allowed) return undefined;
+        return onDemoTransitionComplete(() => {
+            void sync.refreshHerdTree().catch(() => undefined);
+        });
+    }, [allowed]);
     React.useEffect(() => {
         let live = true;
         void ensureDemoRuntime().then(async (ok) => {

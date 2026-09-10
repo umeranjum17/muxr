@@ -32,6 +32,10 @@ export function isDemoTerminalSession(sessionId: string): boolean {
     return isDemoTransport() && demoClient.knows(sessionId);
 }
 
+export function onDemoTransitionComplete(listener: () => void): () => void {
+    return demoClient.onTransitionComplete(listener);
+}
+
 export async function openDemoTerminal(command: OpenTerminalCommand): Promise<TerminalChannel> {
     const { openDemoTerminalChannel } = await import('./demoTerminalChannel');
     return openDemoTerminalChannel(command);

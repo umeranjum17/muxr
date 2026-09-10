@@ -218,13 +218,36 @@ try {
             await new Promise((r) => setTimeout(r, 500));
         }
     })();
-    await journey.evaluate('window.history.back()');
+    // Fixture completion: the scripted continuation lands ~2s after send,
+    // but the session terminal paints to canvas (invisible to innerText),
+    // so wait out the deterministic timeline with margin rather than
+    // polling for pixels a human sees but the DOM never carries.
+    await new Promise((r) => setTimeout(r, 8000));
+    // Back through the real accessible control, not history.back(): only
+    // the real control exercises the navigation blur/focus path the
+    // tree-pane refresh depends on.
+    await journey.evaluate(`[...document.querySelectorAll('*')].find((el) => el.getAttribute && (el.getAttribute('aria-label') === 'Back' || el.getAttribute('aria-label') === 'Go back'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
     const reconciled = await journey.waitFor(
         'reconciliation',
         (text) => text.includes('in sync with main') && !text.includes('Needs you'),
         30000,
     );
     check('approval visibly continues the agent', reconciled.includes('in sync with main'));
+    // Bex-specific: every Bex card segment must read Done — the already-done
+    // third card also says Done, so a generic check would pass on a stale
+    // blocked card. Spaces rows carry no status word and are exempt.
+    const bexSegments = [];
+    {
+        let from = -1;
+        for (;;) {
+            const at = reconciled.indexOf('Rebase release branch onto main', from + 1);
+            if (at === -1) break;
+            bexSegments.push(reconciled.slice(at, at + 120));
+            from = at;
+        }
+    }
+    check('blocked card reconciles to Done', bexSegments.length > 0 && bexSegments.some((segment) => segment.includes('Done')), `${bexSegments.length} Bex segments`);
+    check('no Bex card keeps Needs you', !bexSegments.some((segment) => segment.includes('Needs you')));
     check('agent reaches done', reconciled.includes('Done'));
     check('inbox reconciles after done', !reconciled.includes('Needs you'));
     check('no page errors during the journey', journey.pageErrors.length === 0, journey.pageErrors.slice(0, 3).join(' | '));
