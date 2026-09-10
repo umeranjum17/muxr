@@ -109,6 +109,18 @@ try {
     assert.throws(() => resolveSetupPlan({ args: ['--connection-mode', 'external'] }), /MUXR_ADVERTISE_URL/);
     plan = resolveSetupPlan({ args: ['--connection-mode', 'external', '--advertise', 'wss://relay.example'] });
     assert.equal(plan.values.advertiseUrl, 'wss://relay.example');
+    // External endpoints, one strict rule for flag and file alike: root
+    // wss://host, no credentials/query/fragment, never plain ws:// — so a
+    // secret-bearing URL can never be serialized as the safe config.
+    for (const bad of ['ws://relay.example', 'wss://user:secret@relay.example', 'wss://relay.example/hooks', 'wss://relay.example?token=secret', 'wss://relay.example#frag']) {
+        assert.throws(
+            () => resolveSetupPlan({ args: ['--connection-mode', 'external', '--advertise', bad] }),
+            /root wss:\/\/host/,
+        );
+    }
+    assert.throws(() => resolveSetupPlan({ args: ['--connection-mode', 'external', '--advertise', 'https://relay.example'] }), /ws\(s\)/);
+    writeConfig('MUXR_CONNECTION=external\nMUXR_ADVERTISE_URL=ws://relay.example\n');
+    assert.throws(() => resolveSetupPlan({ args: [] }), /root wss:\/\/host/);
     assert.throws(() => validateSetupPlan({ connection: 'external' }), /MUXR_ADVERTISE_URL/);
     // A reviewed plan persists exactly and re-resolves identically (review == apply).
     writeOperatorConfig({ ...plan.values, integrationsSync: 'auto' });

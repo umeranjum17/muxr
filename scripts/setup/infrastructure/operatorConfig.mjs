@@ -124,6 +124,29 @@ function parseAdvertise(raw) {
 }
 
 /**
+ * External relay endpoint, one rule for config and wizard alike: a root
+ * wss://host URL without credentials, query, or fragment. Plain ws:// and
+ * credential/query/fragment-bearing URLs are rejected rather than
+ * serialized into the advertised safe config.
+ */
+export function parseExternalAdvertiseUrl(raw, from = 'operator config') {
+    const entered = String(raw).trim();
+    let parsed;
+    try {
+        parsed = new URL(entered);
+    } catch {
+        parsed = undefined;
+    }
+    if (
+        parsed === undefined || parsed.protocol !== 'wss:' || !parsed.hostname
+        || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash
+    ) {
+        throw new Error(`external advertise URL must be a root wss://host URL without credentials, query, or fragment (got ${raw} from ${from})`);
+    }
+    return parsed.toString().replace(/\/$/, '');
+}
+
+/**
  * Resolve effective operator intent. `overrides.probed` carries values the
  * machine detected (recommended route, current state); anything unresolved
  * stays undefined with a 'default'/'probed' provenance note.
@@ -231,10 +254,13 @@ export function operatorReportLines(resolved) {
     return Object.keys(resolved.values).map((key) => `${key}=${resolved.values[key]} (${resolved.provenance[key]})`);
 }
 
-/** Completeness rule for an applicable plan: external names its own URL. */
+/** Completeness rule for an applicable plan: external names its own URL, and a named external URL always passes the strict external rule (root wss://host, no credentials/query/fragment, never plain ws://) — whether it arrived via config or the wizard prompt. */
 export function validateSetupPlan(values) {
-    if (values.connection === 'external' && values.advertiseUrl === undefined) {
-        throw new Error('MUXR_CONNECTION=external needs MUXR_ADVERTISE_URL (or --advertise <wss://...>)');
+    if (values.connection === 'external') {
+        if (values.advertiseUrl === undefined) {
+            throw new Error('MUXR_CONNECTION=external needs MUXR_ADVERTISE_URL (or --advertise <wss://...>)');
+        }
+        parseExternalAdvertiseUrl(values.advertiseUrl);
     }
 }
 

@@ -52,7 +52,8 @@ try {
     assert.equal(recommendedConnection({ ...found, private: undefined, cloudflared: { ok: true } }, undefined, false, { status: 'inconclusive' }).mode, 'cloudflare');
     assert.equal(recommendedConnection({ ...found, private: undefined }, undefined, false, { status: 'inconclusive' }).mode, 'lan');
     const privateArgs = selfhostArgsFromSetupPlan({ mode: 'private', port: 8792, web: false, pairing: 'phone', found });
-    assert.deepEqual(privateArgs.slice(-2), ['--advertise', 'ws://100.90.0.4:8792']);
+    const advertiseAt = privateArgs.indexOf('--advertise');
+    assert.deepEqual(privateArgs.slice(advertiseAt, advertiseAt + 2), ['--advertise', 'ws://100.90.0.4:8792']);
     assert.equal((await resolveAdvertise(privateArgs, 8792)).url, 'ws://100.90.0.4:8792');
     assert.equal(recommendedConnection(found, { connectionMode: 'external', relayUrl: 'wss://relay.example', relayPort: 8792, relayHealthy: true, publicHealthy: true }, false, { status: 'free' }).mode, 'external');
     assert.equal(recommendedConnection({ ...found, tailscale: { connected: true } }, undefined, false, { status: 'inconclusive' }).mode, 'tailscale');

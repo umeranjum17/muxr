@@ -759,7 +759,11 @@ export const HomeDock = React.memo(({
             focusReturnRef.current = document.activeElement as HTMLElement | null;
         }
         if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof history !== 'undefined' && !focusHistoryPushedRef.current) {
-            window.history.pushState({ muxrDockFocus: true }, '');
+            // Echo the router's entry id so expo's memory index survives the
+            // pop: an id-less entry resets its index and later backs get
+            // "repaired" with fresh pushes that trap Back on this screen.
+            const routerId = (window.history.state as { id?: unknown } | null)?.id;
+            window.history.pushState({ ...(typeof routerId === 'string' ? { id: routerId } : {}), muxrDockFocus: true }, '');
             focusHistoryPushedRef.current = true;
         }
         focusOpenRef.current = true;

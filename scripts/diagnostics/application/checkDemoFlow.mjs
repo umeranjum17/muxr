@@ -435,6 +435,24 @@ try {
     // Test-id entry handle: placeholder text hides once a draft exists.
     const dockEntryPresent = () => parityEval(`!!document.querySelector('[data-testid="home-dock-entry"]')`);
     const clickDockEntry = () => parityEval(`document.querySelector('[data-testid="home-dock-entry"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    // A card past the strip's preview pause window only polls pane.read
+    // once swiped into view: keep swiping until its thumbnail carries the
+    // expected transcript line (the card itself may still be mounting).
+    const waitThumbnailLine = async (label, cardTitle, needle, timeoutMs = 30000) => {
+        const started = Date.now();
+        for (;;) {
+            // The card title renders in both the session list and the live
+            // strip (DOM order varies by density): swipe every match so the
+            // strip card unpauses its pane.read thumbnail regardless.
+            await parityEval(`[...document.querySelectorAll('*')].filter((el) => el.children.length === 0 && el.innerText === ${JSON.stringify(cardTitle)}).forEach((el) => el.scrollIntoView({ block: 'nearest', inline: 'center' }))`);
+            const text = await parityText();
+            if (text.includes(needle)) return text;
+            if (Date.now() - started > timeoutMs) {
+                throw new Error(`timed out waiting for ${label}`);
+            }
+            await new Promise((r) => setTimeout(r, 800));
+        }
+    };
     const parityClickText = (text) => parityEval(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === ${JSON.stringify(text)})?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
     const parityClickLabel = (label) => parityEval(`[...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === ${JSON.stringify(label)})?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
     const pathname = () => parityEval('window.location.pathname');
@@ -507,10 +525,9 @@ try {
     await parityWaitFor('refocus config', (text) => text.includes('No worktree'));
     await parityClickLabel('Composer options');
     await parityWaitFor('menu opens', (text) => text.includes('Shell'));
-    await parityWaitForState('menu initial focus', async () => (
-        await parityEval(`(() => { const el = document.activeElement; return el && el.getAttribute && el.getAttribute('role') === 'radio'; })()`)
-    ));
-    check('menu opens with focus on an option', true);
+    check('menu opens with focus on an option', await parityWaitForState('menu initial focus', async () => (
+        await parityEval(`(() => { const el = document.activeElement; return el && el.getAttribute && el.getAttribute('role'); })()`)
+    )) === 'radio');
     const optionBefore = await parityEval(`(document.activeElement && document.activeElement.innerText || '').slice(0, 40)`);
     await pressKey('ArrowDown', 'ArrowDown', 40);
     await new Promise((r) => setTimeout(r, 800));
@@ -518,10 +535,9 @@ try {
     check('arrow keys move within the menu', optionBefore !== '' && optionAfter !== '' && optionBefore !== optionAfter, `${optionBefore} -> ${optionAfter}`);
     await pressKey('Enter', 'Enter', 13);
     await parityWaitForState('menu selects', async () => !(await parityEval(`!!document.querySelector('[role="menu"]')`)), 15000);
-    await parityWaitForState('trigger focus restored', async () => (
+    check('enter selects and restores trigger focus', await parityWaitForState('trigger focus restored', async () => (
         await parityEval(`(() => { const el = document.activeElement; return el && el.getAttribute && el.getAttribute('aria-label'); })()`)
-    ) === 'Composer options', 15000);
-    check('enter selects and restores trigger focus', true);
+    ), 15000) === 'Composer options');
 
     // A typed prompt sends through the real session.start fixture: the new
     // session route loads with the requested configuration. Any agent kind
@@ -545,10 +561,7 @@ try {
             return !!sendButton && sendButton.getAttribute('aria-disabled') !== 'true';
         })()`), 15000);
     };
-    await clickDockEntry();
-    await parityWaitFor('focus for send', (text) => text.includes('No worktree'));
-    await typePrompt('parity spawn probe');
-    const sent = await parityEval(`(() => {
+    const clickFocusSend = async () => parityEval(`(() => {
         // The collapsed dock hides behind the focus modal but stays laid
         // out: take the last visible Send, which is the focused one.
         const sendButtons = [...document.querySelectorAll('*')].filter((el) => el.getAttribute && el.getAttribute('aria-label') === 'Send' && el.offsetParent !== null);
@@ -557,6 +570,18 @@ try {
         sendButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         return 'sent';
     })()`);
+    await clickDockEntry();
+    await parityWaitFor('focus for send', (text) => text.includes('No worktree'));
+    // Exact selected configuration, read before send: the created session
+    // must carry this agent/project/worktree/prompt, not just any title.
+    const focusConfig = await parityEval(`[...document.querySelectorAll('*')].filter((el) => el.getAttribute && typeof el.getAttribute('aria-label') === 'string').map((el) => el.getAttribute('aria-label')).filter((label) => /^(AGENT|PROJECT|WORKTREE), /.test(label))`);
+    check(
+        'focus names the selected agent/project/worktree',
+        focusConfig.some((label) => label.startsWith('AGENT, ')) && focusConfig.some((label) => label.startsWith('PROJECT, ')) && focusConfig.some((label) => label.startsWith('WORKTREE, ')),
+        JSON.stringify(focusConfig),
+    );
+    await typePrompt('parity spawn probe');
+    const sent = await clickFocusSend();
     check('compact focus send submits', sent === 'sent', sent);
     let createdPath = '/demo';
     try {
@@ -574,12 +599,59 @@ try {
         })()`);
         throw new Error(`no created session: ${diag} (${error instanceof Error ? error.message : String(error)})`);
     }
-    // The prompt itself paints on canvas (screenshot evidence below); the DOM
-    // carries the deterministic title for the requested kind.
-    const createdTitle = await parityWaitFor('created session title', (text) => /New (pi|shell|claude|codex|opencode|gemini|grok) session/i.test(text), 20000);
-    check('spawned session shows the requested configuration', /New (pi|shell|claude|codex|opencode|gemini|grok) session/i.test(createdTitle));
+    // The created route carries the exact kind in its title: extract it and
+    // require the same kind in the title construction and the transcript,
+    // so configuration propagation is proven instead of pattern-matched.
+    const createdTitle = await parityWaitFor('created session title', (text) => /^New [a-z][a-z0-9_-]* session$/m.test(text), 20000);
+    const createdKind = (createdTitle.match(/^New ([a-z][a-z0-9_-]*) session$/m) ?? [])[1] ?? '';
+    check('spawned session names the selected kind exactly', createdKind !== '' && createdTitle.includes(`New ${createdKind} session`), createdKind);
+
+    // IME guard on the real session composer: Enter mid-composition must
+    // not send (the draft stays); Enter after compositionend must send
+    // (the draft clears). Real CompositionEvents through the production
+    // hook wiring — no synthetic submit bypass.
+    const sessionComposer = `[...document.querySelectorAll('input[placeholder="Type a prompt…"]')].find((el) => el.offsetParent !== null)`;
+    const composerValue = () => parityEval(`(${sessionComposer}?.value ?? '')`);
+    const imeProbe = 'ime guard probe';
+    await parityEval(`(() => {
+        const box = ${sessionComposer};
+        if (!box) return;
+        box.focus();
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(box, ${JSON.stringify(imeProbe)});
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    // Input values never reach innerText: poll the DOM property directly,
+    // then assert an independent re-read (the poll throws on timeout).
+    await parityWaitForState('ime draft arrives', async () => (await composerValue()) === imeProbe, 15000);
+    check('ime draft arrives', (await composerValue()) === imeProbe);
+    await parityEval(`(${sessionComposer})?.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))`);
+    await pressKey('Enter', 'Enter', 13);
+    await new Promise((r) => setTimeout(r, 2000));
+    check('enter during composition does not send', (await composerValue()) === imeProbe);
+    await parityEval(`(${sessionComposer})?.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))`);
+    // The blocked submit still blurs (blurOnSubmit): refocus like a user
+    // tapping back into the composer before sending for real.
+    await parityEval(`(${sessionComposer})?.focus()`);
+    await pressKey('Enter', 'Enter', 13);
+    await parityWaitForState('composition draft clears', async () => (await composerValue()) === '', 15000);
+    check('enter after composition sends', (await composerValue()) === '');
+
     await parityEval('window.history.back()');
-    await parityWaitFor('back to herd after spawn', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('SPACES'));
+    // The created session's transcript tail renders through pane.read into
+    // the herd thumbnail: the exact selected kind, project, and both
+    // prompts must be there textually — not inferred from canvas geometry.
+    await parityWaitFor(
+        'back to herd after spawn',
+        (text) => text.includes('Migrate billing to usage-based plans') && text.includes('SPACES'),
+        30000,
+    );
+    // The created card sits fourth in the live strip, past the preview
+    // pause window: swipe it into view like a user, which unpauses its
+    // pane.read thumbnail.
+    const herdAfterScroll = await waitThumbnailLine('created thumbnail settles', `New ${createdKind} session`, `$ new ${createdKind} session in ~`);
+    check('created transcript carries the selected kind and project', herdAfterScroll.includes(`$ new ${createdKind} session in ~`), createdKind);
+    check('created transcript carries the dock prompt', herdAfterScroll.includes('$ parity spawn probe'));
+    check('created transcript carries the composed prompt', herdAfterScroll.includes(`$ ${imeProbe}`));
 
     // Live resize across the breakpoint: the typed draft survives, no ghost
     // modal, no duplicate submission surface.
@@ -597,13 +669,19 @@ try {
     check('prompt survives 899-901-899 live resize', resizedText.includes('resize survival probe'));
     check('no ghost focus modal after resize', !(await testid('focus-composer')));
 
-    // Compact session keeps the production chrome; the terminal paints on
-    // canvas, so the shot is the CRLF evidence alongside the canvas check.
+    // Compact session keeps the production chrome. The terminal paints on a
+    // WebGL canvas, which headless capture cannot read (preserveDrawingBuffer
+    // stays off for production frame rate), so the screenshot is a settled
+    // artifact only: the proof is textual — the recorded transcript the
+    // channel fed xterm, observed through pane.read thumbnails on the herd.
     await parityClickText('Rebase release branch onto main');
     await parityWaitFor('demo session', (text) => text.includes('^C'));
-    const canvasBox = await parityEval(`(() => { const c = document.querySelector('canvas'); if (!c) return null; const r = c.getBoundingClientRect(); return { w: r.width, h: r.height }; })()`);
-    check('session terminal canvas paints', canvasBox !== null && canvasBox.w > 100 && canvasBox.h > 100, JSON.stringify(canvasBox));
+    check('session keeps production chrome', (await pathname()).startsWith('/session/'));
+    // Settle: channel replay plus the rAF frame-batching flush, then the
+    // viewport the capture is taken in.
+    await new Promise((r) => setTimeout(r, 3000));
     await paritySend('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+    await new Promise((r) => setTimeout(r, 1500));
     await paritySend('Page.captureScreenshot', { format: 'jpeg', quality: 70 }).then((shot) => {
         if (attachmentsDir) {
             writeFileSync(`${attachmentsDir}/parity-390-session.jpg`, Buffer.from(shot.result.data, 'base64'));
@@ -611,7 +689,15 @@ try {
         }
     });
     await parityEval('window.history.back()');
-    await parityWaitFor('back to herd from session', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('SPACES'));
+    const herdAfterSession = await parityWaitFor(
+        'back to herd from session',
+        (text) => text.includes('Migrate billing to usage-based plans') && text.includes('SPACES') && text.includes('rebased 4 commits cleanly'),
+        30000,
+    );
+    check(
+        'session transcript reaches the rendered thumbnail',
+        herdAfterSession.includes('rebased 4 commits cleanly') && herdAfterSession.includes('main: 12 new commits') && herdAfterSession.includes('$ git fetch origin'),
+    );
     check('browser back leaves the session for the herd', (await pathname()) === '/demo');
 
     // Settings gear routes like native; browser back returns.
@@ -621,11 +707,15 @@ try {
     await parityEval('window.history.back()');
     await parityWaitFor('back to herd again', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('SPACES'));
     check('browser back leaves settings for the herd', (await pathname()) === '/demo');
-    // Escape closes an open focus mode.
+    // Escape closes an open focus mode. Synthetic clicks never move DOM
+    // focus, so tap the composer first like a user; otherwise Escape lands
+    // on body and the keydown listener on the input never fires.
     await clickDockEntry();
     await parityWaitFor('refocus config', (text) => text.includes('No worktree'));
+    await parityEval(`[...document.querySelectorAll('[data-testid="focus-composer"] input, [data-testid="focus-composer"] textarea')].find((el) => el.offsetParent !== null)?.focus()`);
+    await parityWaitForState('composer focused', async () => (await activeElementLabel()) !== 'body', 10000);
     await pressKey('Escape', 'Escape', 27);
-    await new Promise((r) => setTimeout(r, 1500));
+    await parityWaitFor('escape closes focus', (text) => !text.includes('No worktree'), 15000);
     check('escape closes focus mode', !(await parityText()).includes('No worktree'));
 
     // Width matrix screenshots + overflow checks + wide shell assertions.
@@ -662,6 +752,17 @@ try {
     const newAgentText = await parityWaitFor('new-agent desktop', (text) => text.includes('ADVANCED'));
     check('new-agent desktop shows the progressive flow', newAgentText.includes('START') && await testid('home-dock-entry'));
     check('new-agent desktop keeps advanced squad and join', /squad/i.test(newAgentText) && newAgentText.includes('JOIN A RUNNING WORKSPACE'));
+    // Clean-host catalog: unavailable agents stay hidden behind an exact
+    // count until revealed, each revealed entry carrying install guidance.
+    // The inverted-count regression fails the exact label here.
+    await parityWaitFor('unavailable toggle', (text) => text.includes('Show 2 more agents'), 30000);
+    check('unavailable toggle shows the exact hidden count', (await parityText()).includes('Show 2 more agents'));
+    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Show 2 more agents')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const revealedText = await parityWaitFor('unavailable revealed', (text) => text.includes('Not installed'), 15000);
+    check('revealed entries carry install guidance', revealedText.includes('Not installed') && revealedText.includes('cursor') && revealedText.includes('gemini'));
+    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Show installed agents only')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await parityWaitFor('unavailable hidden again', (text) => text.includes('Show 2 more agents') && !text.includes('Not installed'), 15000);
+    check('reveal collapses back to installed-only', (await parityText()).includes('Show 2 more agents'));
     // Failed start retains the draft with an actionable error. Synthetic
     // input cannot cross the sheet modal's portal root, so the failure
     // drives the advanced squad flow on this desktop page instead: the
@@ -681,9 +782,59 @@ try {
     check('failed start shows an actionable error', failureText.includes('Agent could not start. Try again.'));
     check('failed start retains the squad draft', (await parityText()).includes('SQUAD 2'));
     check('failed start stays on the form', (await pathname()) === '/new-agent');
+
+    // Real HomeDock failed start through the dock's own submit: a fresh
+    // worktree cannot be created in the replayed non-repo directory, so
+    // creation fails into an actionable alert, the prompt survives, and
+    // dropping the worktree retries into a real session.
+    await clickDockEntry();
+    await parityWaitFor('dock focus for worktree probe', (text) => text.includes('No worktree'), 15000);
+    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.getAttribute && (el.getAttribute('aria-label') || '').startsWith('WORKTREE, '))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await parityWaitFor('worktree sheet', (text) => text.includes('Create new worktree'), 15000);
+    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Create new worktree')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await parityWaitFor('worktree picked', (text) => text.includes('Create new worktree') && !text.includes('No worktree'), 15000);
+    await typePrompt('dock worktree probe');
+    check('dock worktree send submits', (await clickFocusSend()) === 'sent');
+    const worktreeAlert = await parityWaitFor('worktree failure alert', (text) => text.includes('Not a Git repository'), 30000);
+    check('dock failure surfaces an actionable error', worktreeAlert.includes('Not a Git repository'));
+    await parityEval(`[...[...document.querySelectorAll('*')].filter((el) => el.children.length === 0 && el.innerText === 'OK')].pop()?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await parityWaitFor('alert dismissed', (text) => !text.includes('Not a Git repository'), 15000);
+    // The collapsed dock entry still carries the prompt: retention without
+    // reopening anything.
+    check('failed dock keeps the prompt for retry', (await parityText()).includes('dock worktree probe'));
+    await clickDockEntry();
+    await parityWaitFor('dock refocus for retry', (text) => text.includes('Create new worktree'), 15000);
+    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.getAttribute && (el.getAttribute('aria-label') || '').startsWith('WORKTREE, '))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await parityWaitFor('worktree sheet again', (text) => text.includes('No worktree'), 15000);
+    await parityEval(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'No worktree')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await parityWaitFor('worktree cleared', (text) => text.includes('No worktree') && !text.includes('Create new worktree'), 15000);
+    check('retry send stays enabled', await parityWaitForState('retry send enabled', async () => parityEval(`(() => {
+        const sendButtons = [...document.querySelectorAll('*')].filter((el) => el.getAttribute && el.getAttribute('aria-label') === 'Send' && el.offsetParent !== null);
+        const sendButton = sendButtons[sendButtons.length - 1];
+        return !!sendButton && sendButton.getAttribute('aria-disabled') !== 'true';
+    })()`), 15000) === true);
+    check('retry submits', (await clickFocusSend()) === 'sent');
+    const retryTitle = await parityWaitFor('retry session title', (text) => /^New [a-z][a-z0-9_-]* session$/m.test(text), 30000);
+    const retryKind = (retryTitle.match(/^New ([a-z][a-z0-9_-]*) session$/m) ?? [])[1] ?? '';
+    check('retry lands on the created session', retryKind !== '' && retryTitle.includes(`New ${retryKind} session`) && (await pathname()).startsWith('/session/'), retryKind);
+
     await parityEval('window.history.back()');
+    await waitPath('/new-agent');
+    // Focus submits intentionally leave their same-URL history entries
+    // behind, so leaving for the herd takes one press per buried entry:
+    // keep pressing until the route actually leaves.
+    let herdPath = await pathname();
+    for (let press = 0; press < 5 && herdPath !== '/demo'; press += 1) {
+        await parityEval('window.history.back()');
+        await new Promise((r) => setTimeout(r, 800));
+        herdPath = await pathname();
+    }
     await parityWaitFor('back to herd from new-agent', (text) => text.includes('Migrate billing to usage-based plans'));
-    check('browser back leaves new-agent for the herd', (await pathname()) === '/demo');
+    check('browser back leaves new-agent for the herd', (await pathname()) === '/demo', await pathname());
+    // Same pause window as above: swipe until the retried prompt lands in
+    // the created card's transcript.
+    const herdAfterRetry = await waitThumbnailLine('retry transcript settles', `New ${retryKind} session`, '$ dock worktree probe');
+    check('retry prompt reaches the transcript', herdAfterRetry.includes('$ dock worktree probe'));
     check('no page errors during parity', parityErrors.length === 0, parityErrors.slice(0, 3).join(' | '));
 } catch (cause) {
     check('demo browser flow completed', false, cause instanceof Error ? cause.message : String(cause));

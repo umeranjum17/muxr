@@ -35,6 +35,7 @@ export { listMachines } from './application/listMachines.mjs';
 export { revokeMachine } from './application/revokeMachine.mjs';
 export { connectEnrollment } from './application/connectEnrollment.mjs';
 export { startSelfHost } from './application/startSelfHost.mjs';
+export { continueWithDirectTailscale, finalizeSetupPlan, selfhostArgsFromSetupPlan } from './application/finalizeSetupPlan.mjs';
 export { enableBrowserHosting } from './application/enableBrowserHosting.mjs';
 export {
     applyHostedSetup,
@@ -55,11 +56,9 @@ export {
     applyMachineSetup,
     classifyNetworkRoutes,
     connectRemoteRelay,
-    continueWithDirectTailscale,
     hostSharedRelay,
     manageMachines,
     recommendedConnection,
-    selfhostArgsFromSetupPlan,
 } from './presentation/setupWizard.mjs';
 
 export {

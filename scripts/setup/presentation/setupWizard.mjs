@@ -10,7 +10,8 @@ import { enrollMachine } from '../application/enrollMachine.mjs';
 import { listMachines } from '../application/listMachines.mjs';
 import { revokeMachine } from '../application/revokeMachine.mjs';
 import { selfhostPublicSummary, sharedMachineCount } from '../infrastructure/selfhostRelay.mjs';
-import { formatOperatorConfig, planToArgs, resolveOperatorConfig, validateSetupPlan, writeOperatorConfig } from '../infrastructure/operatorConfig.mjs';
+import { formatOperatorConfig, parseExternalAdvertiseUrl, resolveOperatorConfig, writeOperatorConfig } from '../infrastructure/operatorConfig.mjs';
+import { continueWithDirectTailscale, finalizeSetupPlan, selfhostArgsFromSetupPlan } from '../application/finalizeSetupPlan.mjs';
 import { inspectTailscaleServeRoot, runTailscale, tailscaleBin } from '../infrastructure/selfhost.mjs';
 import { advertisedUrlForMode, connectionLabel, ingressPlan, modeAllowsBrowserHosting } from '../domain/dist/index.js';
 
@@ -325,40 +326,6 @@ export function recommendedConnection(found, current, tailscalePlanned, serveRoo
 
 const aborted = (value) => value === undefined || value === BACK;
 
-export function continueWithDirectTailscale(plan) {
-    const browserPair = plan.pairing === 'browser' || plan.pairing === 'browser-view' || plan.pairing === 'both';
-    return {
-        mode: 'tailscale-direct',
-        port: plan.port,
-        endpoint: plan.endpoint,
-        web: false,
-        pairing: browserPair ? 'phone' : plan.pairing,
-    };
-}
-
-export function selfhostArgsFromSetupPlan({ mode, port, web, pairing, found, endpoint }) {
-    // The reviewed plan, canonically derived once: intent goes through
-    // planToArgs, per-invocation pair selection stays explicit flags.
-    const advertiseUrl = mode === 'lan' ? `ws://${found.lan}:${port}`
-        : mode === 'private' ? (endpoint ?? `ws://${found.private.address}:${port}`)
-        : mode === 'external' ? endpoint
-        : undefined;
-    const planValues = {
-        connection: mode,
-        relayPort: port,
-        web,
-        ...(advertiseUrl === undefined ? {} : { advertiseUrl }),
-        tunnel: mode === 'cloudflare',
-        tailscaleDirect: mode === 'tailscale-direct',
-    };
-    validateSetupPlan(planValues);
-    const selfhostArgs = [...planToArgs(planValues), ...(web ? ['--yes'] : [])];
-    if (pairing === 'browser') selfhostArgs.push('--pair-browser');
-    if (pairing === 'browser-view') selfhostArgs.push('--pair-browser-view');
-    if (pairing === 'none') selfhostArgs.push('--no-pair');
-    return selfhostArgs;
-}
-
 function serveRootFor(found, port) {
     if (!found.tailscale.connected && !found.tailscale.dnsName) return { status: 'inconclusive' };
     return inspectTailscaleServeRoot(port, found.tailscale.dnsName, undefined, 8_000);
@@ -371,17 +338,13 @@ function explicitOperatorRoute(operator) {
     return operator.values.connection;
 }
 
-/** Root wss://host URL without credentials, query, or fragment — or undefined. */
+/** Root wss://host URL without credentials, query, or fragment — or undefined for interactive re-prompting. One rule shared with operator config. */
 function parseExternalEndpoint(entered) {
     try {
-        const parsed = new URL(entered);
-        if (parsed.protocol === 'wss:' && parsed.hostname && !parsed.username && !parsed.password && parsed.pathname === '/' && !parsed.search && !parsed.hash) {
-            return parsed.toString().replace(/\/$/, '');
-        }
+        return parseExternalAdvertiseUrl(entered, 'setup prompt');
     } catch {
-        // Falls through to undefined below.
+        return undefined;
     }
-    return undefined;
 }
 
 async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, firstRun, operator, stepsTotal }) {
@@ -676,23 +639,12 @@ export async function applyMachineSetup(args = []) {
     if (plugins === undefined) return cancelSetup();
 
     setupStep(2, stepsTotal, 'Review setup');
-    // The reviewed plan, validated once: Review shows it, Apply persists and
-    // applies exactly it — startSelfHost re-resolves the same values from the
-    // plan-derived argv, so apply cannot diverge from review.
-    const reviewedAdvertiseUrl = plan.mode === 'lan' ? `ws://${found.lan}:${plan.port}`
-        : plan.mode === 'private' ? (plan.endpoint ?? `ws://${found.private.address}:${plan.port}`)
-        : plan.mode === 'external' ? plan.endpoint
-        : undefined;
-    const reviewedPlan = {
-        connection: plan.mode,
-        relayPort: plan.port,
-        web: plan.web,
-        ...(reviewedAdvertiseUrl === undefined ? {} : { advertiseUrl: reviewedAdvertiseUrl }),
-        integrationsSync: syncIntegrations ? 'on' : 'off',
-        tunnel: plan.mode === 'cloudflare',
-        tailscaleDirect: plan.mode === 'tailscale-direct',
-    };
-    validateSetupPlan(reviewedPlan);
+    // One final normalized plan: Review shows it, recovery re-derives it,
+    // Apply persists and applies exactly it — startSelfHost re-resolves the
+    // same values from the plan-derived argv, so apply cannot diverge from
+    // review. Supported operator fields (notification address, integrations
+    // choice) are part of the plan and survive recovery.
+    const reviewedPlan = finalizeSetupPlan({ plan, found, syncIntegrations, notifyEmail: operator.values.notifyEmail });
     const operatorPreview = formatOperatorConfig(reviewedPlan);
     note([
         `Connection: ${connectionLabel(plan.mode, plan.endpoint, plan.port)}`,
@@ -738,10 +690,33 @@ export async function applyMachineSetup(args = []) {
         const failedServe = plan.mode === 'tailscale' ? serveRootFor(found, plan.port).status : undefined;
         if (failedServe !== 'occupied' && failedServe !== 'disabled') return result;
     }
-    // The wizard is a config-file generator: persist exactly the reviewed
+    // One final plan: Serve recovery inside the loop may have changed the
+    // applied mode/web/pairing after Review. Serializing the pre-recovery
+    // plan would describe a setup that does not exist, so re-derive from
+    // the actually applied working plan and require explicit acceptance of
+    // any change before anything is saved.
+    const finalPlan = finalizeSetupPlan({ plan, found, syncIntegrations, notifyEmail: operator.values.notifyEmail });
+    if (JSON.stringify(finalPlan) !== JSON.stringify(reviewedPlan)) {
+        const changed = Object.keys(finalPlan).filter((key) => JSON.stringify(finalPlan[key]) !== JSON.stringify(reviewedPlan[key]));
+        note([
+            'Tailscale Serve recovery changed the setup after Review:',
+            ...changed.map((key) => `${key}: ${JSON.stringify(reviewedPlan[key])} -> ${JSON.stringify(finalPlan[key])}`),
+            'The relay already runs this recovered plan. Nothing is saved until you accept it.',
+        ]);
+        const keep = await select('Keep the recovered setup and save it?', [
+            { value: false, title: 'Discard', description: 'leave config.env unchanged; rerun setup to choose another route' },
+            { value: true, title: 'Keep and save', description: 'save the recovered plan, then pair' },
+        ], 1);
+        if (keep !== true) {
+            process.stderr.write('Setup not saved: config.env was left unchanged. Rerun `muxr` to review and save.\n');
+            completeFullscreen();
+            return 1;
+        }
+    }
+    // The wizard is a config-file generator: persist exactly the applied
     // operator intent (never secrets) so `muxr config` shows it and
     // `muxr self-host --apply-config` reproduces this setup.
-    writeOperatorConfig(reviewedPlan);
+    writeOperatorConfig(finalPlan);
     const { mode, endpoint, port, pairing } = plan;
     const browserPairFailed = pairing === 'both' && (await pairDevice(['--browser'])) !== 0;
     const doctor = await inspectSetup();

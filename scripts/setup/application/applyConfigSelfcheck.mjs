@@ -10,6 +10,8 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { startSelfHost } from './startSelfHost.mjs';
+import { continueWithDirectTailscale, finalizeSetupPlan, selfhostArgsFromSetupPlan } from './finalizeSetupPlan.mjs';
+import { resolveSetupPlan, writeOperatorConfig } from '../infrastructure/operatorConfig.mjs';
 
 const HOME = mkdtempSync(join(tmpdir(), 'muxr-apply-config-check-'));
 const INTENT_KEYS = ['MUXR_CONNECTION', 'MUXR_RELAY_PORT', 'MUXR_WEB', 'MUXR_ADVERTISE_URL', 'MUXR_INTEGRATIONS_SYNC', 'MUXR_NOTIFY_EMAIL'];
@@ -95,14 +97,91 @@ export async function applyConfigSelfcheck() {
         assert.match(noUrl.out, /MUXR_ADVERTISE_URL/);
         assert.equal(snapshotHome(), before);
 
-        // Malformed config fails closed, never defaults.
-        writeConfig('MUXR_CONNECTION lan\n');
-        before = snapshotHome();
-        const malformed = await runApplyConfig(['--apply-config', '--dry-run']);
-        assert.equal(malformed.code, 1);
-        assert.equal(snapshotHome(), before);
+    // Malformed config fails closed, never defaults.
+    writeConfig('MUXR_CONNECTION lan\n');
+    before = snapshotHome();
+    const malformed = await runApplyConfig(['--apply-config', '--dry-run']);
+    assert.equal(malformed.code, 1);
+    assert.equal(snapshotHome(), before);
 
-        process.stdout.write('PASS unit: self-host --apply-config executes current-source operator plan\n');
+    // Beyond dry-run: the wizard's finalize → serialize → resolve → argv
+    // chain. writeOperatorConfig(finalPlan) re-resolves to identical
+    // values, the apply argv re-resolves to the same intent (review ==
+    // apply == reapply), rewriting is byte-identical, and only config.env
+    // changes — no state/grant files. Service reapplication itself
+    // (ensureSelfhostRelay binds a real port and spawns a relay) cannot
+    // run in this harness and is honestly skipped: no fake relay seam.
+    cleanEnv();
+    rmSync(configPath, { force: true });
+    const lanFinal = finalizeSetupPlan({
+        plan: { mode: 'lan', port: 8792, web: false, endpoint: undefined },
+        found: { lan: '192.168.1.5' },
+        syncIntegrations: true,
+        notifyEmail: 'owner@example.com',
+    });
+    assert.deepEqual(lanFinal, {
+        connection: 'lan',
+        relayPort: 8792,
+        web: false,
+        advertiseUrl: 'ws://192.168.1.5:8792',
+        integrationsSync: 'on',
+        tunnel: false,
+        tailscaleDirect: false,
+        notifyEmail: 'owner@example.com',
+    });
+    const entriesOf = (snap) => new Map(snap === '' ? [] : snap.split('\n').map((line) => {
+        const at = line.lastIndexOf(':');
+        return [line.slice(0, at), line.slice(at + 1)];
+    }));
+    const preWrite = entriesOf(snapshotHome());
+    writeOperatorConfig(lanFinal);
+    assert.deepEqual(resolveSetupPlan({ args: [] }).values, lanFinal);
+    const fileBytes = readFileSync(configPath, 'utf8');
+    writeOperatorConfig(lanFinal);
+    assert.equal(readFileSync(configPath, 'utf8'), fileBytes);
+    const postWrite = entriesOf(snapshotHome());
+    for (const [path, hash] of preWrite) assert.equal(postWrite.get(path), hash);
+    assert.deepEqual(
+        [...postWrite.keys()].filter((path) => postWrite.get(path) !== preWrite.get(path)),
+        ['/config.env'],
+    );
+    // The apply argv over the written file re-resolves to the identical
+    // intent: file and argv converge, so review == apply == reapply.
+    const applyValues = resolveSetupPlan({
+        args: selfhostArgsFromSetupPlan({ mode: 'lan', port: 8792, web: false, pairing: 'phone', found: { lan: '192.168.1.5' }, endpoint: undefined }),
+    }).values;
+    assert.deepEqual(applyValues, lanFinal);
+
+    // Occupied Serve → direct recovery: the pure mapping is testable and
+    // round-trips; the ownership probe needs Tailscale and stays out.
+    const recovered = continueWithDirectTailscale({ mode: 'tailscale', port: 8792, web: true, endpoint: undefined, pairing: 'both' });
+    assert.deepEqual(recovered, { mode: 'tailscale-direct', port: 8792, endpoint: undefined, web: false, pairing: 'phone' });
+    const directFinal = finalizeSetupPlan({ plan: recovered, found: {}, syncIntegrations: false, notifyEmail: undefined });
+    assert.equal(directFinal.connection, 'tailscale-direct');
+    assert.equal(directFinal.web, false);
+    assert.equal(directFinal.tailscaleDirect, true);
+    assert.equal(directFinal.advertiseUrl, undefined);
+    assert.equal(directFinal.integrationsSync, 'off');
+    writeOperatorConfig(directFinal);
+    const directFileValues = resolveSetupPlan({ args: [] }).values;
+    assert.equal(directFileValues.connection, 'tailscale-direct');
+    assert.equal(directFileValues.web, false);
+    assert.equal(directFileValues.integrationsSync, 'off');
+    // Flag reflections (tunnel/tailscaleDirect) ride the derived argv the
+    // wizard always supplies: file + argv converge to the final plan.
+    const directApplyValues = resolveSetupPlan({
+        args: selfhostArgsFromSetupPlan({ mode: 'tailscale-direct', port: 8792, web: false, pairing: 'phone', found: {}, endpoint: undefined }),
+    }).values;
+    assert.deepEqual(directApplyValues, directFinal);
+    // A non-root external endpoint fails at finalize: wizard and config agree.
+    assert.throws(() => finalizeSetupPlan({
+        plan: { mode: 'external', port: 8792, web: true, endpoint: 'ws://relay.example/hooks' },
+        found: {},
+        syncIntegrations: true,
+        notifyEmail: undefined,
+    }), /root wss:\/\/host/);
+
+    process.stdout.write('PASS unit: self-host --apply-config executes current-source operator plan\n');
     } finally {
         restoreEnv();
         rmSync(HOME, { recursive: true, force: true });

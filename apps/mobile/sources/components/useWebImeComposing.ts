@@ -12,6 +12,11 @@ type DomNode = {
  * text, so guarded onSubmitEditing handlers check
  * `isComposingRef.current` first. Native needs nothing: the OS delivers
  * composed text. Returns a ref that stays false everywhere off web.
+ *
+ * `active` must track composer availability (mounted and controllable), not
+ * a constant: the effect attaches when the node appears and detaches when
+ * it goes away, so hosted authority resolving after mount still gets the
+ * guard and observe/control transitions re-attach to the fresh node.
  */
 export function useWebImeComposing(
     inputRef: React.RefObject<TextInput | null>,
@@ -27,6 +32,10 @@ export function useWebImeComposing(
         node.addEventListener('compositionstart', onStart);
         node.addEventListener('compositionend', onEnd);
         return () => {
+            // Losing the composer (observe, unmount, remount) must neither
+            // leave listeners on a dead node nor strand a stale composing
+            // flag that would block every later submit.
+            isComposingRef.current = false;
             node.removeEventListener?.('compositionstart', onStart);
             node.removeEventListener?.('compositionend', onEnd);
         };

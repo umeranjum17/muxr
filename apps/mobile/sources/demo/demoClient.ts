@@ -207,6 +207,26 @@ class DemoClient implements MuxrTransport {
                 return { revision: this.blockedPhase === 'done' ? 2 : 1, entries: this.attention() };
             case 'lifecycle.catalog':
                 return this.lifecycle();
+            case 'herdr.agentKinds': {
+                // Clean-host replay: the host reports a bounded catalog with
+                // only the replay's agents installed. The rest stay
+                // unavailable so the reveal/install-guidance surface is
+                // exercised, never bypassed.
+                return {
+                    kinds: ['pi', 'shell', 'claude', 'codex', 'gemini', 'cursor'],
+                    installed: ['pi', 'shell', 'claude', 'codex'],
+                };
+            }
+            case 'machine.shell': {
+                const command = String(p['command'] ?? '');
+                // The replayed project directory is not a git repository, so
+                // worktree creation genuinely fails here exactly as it would
+                // on a host without a repo. Anything else stays unscripted.
+                if (command.includes('git rev-parse')) {
+                    return { stdout: '', stderr: 'fatal: not a git repository', exitCode: 128 };
+                }
+                throw new Error(`unsupported in demo replay: ${type} ${command.slice(0, 60)}`);
+            }
             case 'plugin.list':
                 return [{ ...DEMO_PLUGIN_SUMMARY }, { ...DEMO_STATUS_SUMMARY }, { ...DEMO_INBOX_SUMMARY }, { ...DEMO_CODE_SUMMARY }, { ...DEMO_PORTS_SUMMARY }];
             case 'plugin.manifest': {

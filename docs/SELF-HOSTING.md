@@ -62,6 +62,9 @@ missing or malformed fails closed before anything changes. `muxr config`
 prints the resolved values with their source, and
 `muxr self-host --apply-config` applies a complete config without the wizard.
 The file holds routing intent only — never secrets or credentials.
+`MUXR_WEB=true` in the file is the explicit browser-hosting trust consent
+the wizard otherwise asks for interactively: `--apply-config` treats a
+complete config as that consent and applies web hosting without a prompt.
 
 ## Reaching the relay from your phone
 

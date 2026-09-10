@@ -136,7 +136,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const { selectedImages, pickImages, clearImages } = useImagePicker();
     const composerRef = React.useRef<TextInput>(null);
     // Same IME hazard as the home dock: Enter confirms composition on web.
-    const isComposingRef = useWebImeComposing(composerRef, true);
+    // The composer mounts only under control and hosted authority resolves
+    // after mount, so attachment follows canControl — a constant true would
+    // attach to nothing and never re-run when the composer appears.
+    const isComposingRef = useWebImeComposing(composerRef, canControl);
 
     const onChannel = React.useCallback((channel: TerminalChannel | undefined) => {
         if (channel !== undefined) {

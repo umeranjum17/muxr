@@ -305,7 +305,7 @@ export default function NewAgentScreen() {
 
     const kinds = [...selected];
     const squad = kinds.length > 1;
-    const unavailableCount = catalog.filter((option) => option.availability !== 'unavailable').length;
+    const unavailableCount = catalog.filter((option) => option.availability === 'unavailable').length;
     const visibleCatalog = showUnavailableAgents
         ? catalog
         : catalog.filter((option) => option.availability !== 'unavailable');
