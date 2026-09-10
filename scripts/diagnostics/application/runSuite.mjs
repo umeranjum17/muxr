@@ -14,6 +14,16 @@ const herdrSocket = process.env.HERDR_SOCKET_PATH?.trim()
     || join(process.env.HOME?.trim() || homedir(), '.config', 'herdr', 'herdr.sock');
 const hasHerdr = existsSync(herdrSocket);
 
+// The plugin onboarding gate needs docker for its clean systemd container.
+// Without it the gate would fail on environment, not product, so skip.
+import { spawnSync as spawnSyncForDockerCheck } from 'node:child_process';
+let hasDocker = false;
+try {
+    hasDocker = spawnSyncForDockerCheck('docker', ['info'], { stdio: 'ignore', timeout: 15_000 }).status === 0;
+} catch {
+    hasDocker = false;
+}
+
 const checks = [
     ['typecheck: workspace (strict)', 'npx', ['tsc', '--build', '--force']],
     ['typecheck: mobile (expo/RN)', 'npx', ['tsc', '--noEmit', '--project', 'apps/mobile/tsconfig.json']],
@@ -43,6 +53,7 @@ const checks = [
     ['e2e: second host retires the first', 'node', ['scripts/diagnostics/application/checkHostTakeover.mjs']],
     ['e2e: wire + RPC (all event types)', 'node', ['scripts/diagnostics/application/runSkeletonCheck.mjs']],
     ['e2e: browser preview tunnel', 'node', ['scripts/diagnostics/application/checkPreviewTunnel.mjs']],
+    ['gate: herdr plugin onboarding (clean systemd container)', 'node', ['scripts/diagnostics/application/checkPluginOnboarding.mjs'], 'docker', 1500000],
     ['unit: takeover control arbitration (control, observe, release)', 'node', ['apps/host/dist/requests/infrastructure/previewArbitration.selfCheck.js']],
     ['e2e: herdr backend loop (live server)', 'node', ['scripts/diagnostics/application/checkHerdrE2E.mjs'], 'herdr', 180000],
     ['e2e: worktree session (live stack)', 'node', ['scripts/diagnostics/application/checkWorktreeE2E.mjs'], 'herdr'],
@@ -105,6 +116,11 @@ for (const [name, cmd, args, needs, timeoutMs] of checks) {
         process.stdout.write(`SKIP  ${name}  (no herdr server)\n`);
         continue;
     }
+    if (needs === 'docker' && !hasDocker) {
+        skipped += 1;
+        process.stdout.write(`SKIP  ${name}  (no docker)\n`);
+        continue;
+    }
     await run(name, cmd, args, timeoutMs);
     // e2e checks bind ports; let them release before the next one.
     await new Promise((r) => setTimeout(r, 500));
@@ -112,7 +128,7 @@ for (const [name, cmd, args, needs, timeoutMs] of checks) {
 
 const failed = results.filter((r) => r.code !== 0);
 const total = (results.reduce((sum, r) => sum + r.ms, 0) / 1000).toFixed(1);
-const skipNote = skipped > 0 ? `, ${skipped} skipped (no herdr server)` : '';
+const skipNote = skipped > 0 ? `, ${skipped} skipped (missing herdr server or docker)` : '';
 process.stdout.write(`\n=== ${results.length - failed.length}/${results.length} passed in ${total}s${skipNote} ===\n`);
 if (failed.length > 0) {
     process.stdout.write(`failed: ${failed.map((r) => r.name).join(', ')}\n`);

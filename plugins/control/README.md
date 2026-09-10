@@ -22,7 +22,8 @@ bootstrap and control-plane only: Herdr never owns the daemon.
   restart and setup target the invoking Herdr instance instead of a guessed
   socket.
 - **Updates:** `muxr update` is the single update owner (`--to <version>`
-  rolls back); the plugin never updates the CLI itself.
+  rolls back where the installed CLI supports it); the plugin never updates
+  the CLI itself.
 - **State:** uses muxr state under `~/.muxr`; secrets are never returned as UI data.
 - **Removal:** `herdr plugin unlink muxr.control` removes the shim only and
   leaves the daemon plus `~/.muxr` intact. Complete removal is
