@@ -118,7 +118,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             state.machine.crypto.pendingPair = pending;
             writeSelfhostState(state);
         }
-        if (pairingIntent({ kind: pending.deviceKind, authority: pending.authority }).requiresWebHosting) {
+        if (pairingIntent({ kind: pending.deviceKind, authority: pending.authority, personal: pending.personal }).requiresWebHosting) {
             const deadline = Date.now() + 2 * 60_000;
             let acknowledged = false;
             while (Date.now() < deadline) {
@@ -141,7 +141,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
 
     if (recoveredPoll === undefined) {
         print('');
-        const waiting = pairingIntent({ kind: pending.deviceKind, authority: pending.authority });
+        const waiting = pairingIntent({ kind: pending.deviceKind, authority: pending.authority, personal: pending.personal });
         if (!waiting.requiresWebHosting) {
             print('Open the muxr app on your phone before scanning.');
             print('  Android: https://github.com/umeranjum17/muxr/releases/latest');

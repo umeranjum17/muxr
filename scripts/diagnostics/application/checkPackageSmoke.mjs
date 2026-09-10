@@ -361,12 +361,15 @@ try {
         ['muxr', 'muxr', 'com.trymuxr.app', 'com.trymuxr.app', 'https://owner.invalid'],
     );
     assert.equal(production.extra.eas, undefined, 'an old EAS project id leaked into production config');
-    const unconfiguredProduction = run('npx', ['expo', 'config', '--json'], {
+    const unconfiguredProduction = JSON.parse(run('npx', ['expo', 'config', '--json'], {
         cwd: join(root, 'apps', 'mobile'),
-        env: { ...process.env, APP_ENV: 'production', MUXR_APP_ID_BASE: '', MUXR_PUBLIC_BASE_URL: '' },
-        allowFailure: true,
-    });
-    assert.notEqual(unconfiguredProduction.status, 0, 'production config accepted missing publishing origin');
+        env: { ...process.env, APP_ENV: 'production', MUXR_APP_ID_BASE: 'com.trymuxr.app', MUXR_PUBLIC_BASE_URL: '' },
+    }).stdout);
+    // Production without a publishing origin is the self-host build: nothing
+    // baked in, no app links emitted.
+    assert.equal(unconfiguredProduction.extra.app.publicBaseUrl, undefined, 'self-host production config baked a base URL');
+    assert.equal(unconfiguredProduction.ios.associatedDomains, undefined, 'self-host production config emitted app links');
+    assert.equal(unconfiguredProduction.android.intentFilters, undefined, 'self-host production config emitted intent filters');
 
     run(process.execPath, ['scripts/release/application/pack.mjs'], {
         env: { ...process.env, MUXR_PACKAGE_CONTROL_URL: 'https://package-smoke.invalid' },

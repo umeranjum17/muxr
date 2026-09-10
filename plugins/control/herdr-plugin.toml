@@ -15,7 +15,6 @@ command = ["node", "./build.mjs"]
 # Daemon lifecycle stays with the OS service muxr writes; Herdr has no
 # supervised-service primitive, so this hook never configures or restarts.
 [[startup]]
-id = "muxr-daemon"
 command = ["node", "./run.mjs", "start-if-configured"]
 
 [[panes]]

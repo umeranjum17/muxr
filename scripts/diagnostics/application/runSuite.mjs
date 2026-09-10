@@ -26,6 +26,7 @@ const checks = [
     ['unit: relay pairing (expiry, cap, validation)', 'node', ['apps/relay/dist/selfCheck.js']],
     ['unit: layout snapshot round-trip', 'node', ['apps/host/dist/agent/infrastructure/layoutSelfCheck.js']],
     ['unit: setup domain (pairing/connection/crypto)', 'node', ['scripts/setup/domain/dist/selfCheck.js']],
+    ['unit: operator config (precedence, malformed/unknown, --mode)', 'node', ['scripts/setup/infrastructure/operatorConfig.selfcheck.mjs']],
     ['policy: host/relay architecture', 'npx', ['vitest', 'run', 'apps/host/src/architecture.test.ts', 'apps/relay/src/architecture.test.ts']],
     ['unit: all vitest flows', 'npx', ['vitest', 'run', '--root', '.']],
     ['policy: mobile architecture', 'npx', ['vitest', 'run', 'apps/mobile/sources/architecture.spec.ts', '--config', 'apps/mobile/vitest.config.ts']],

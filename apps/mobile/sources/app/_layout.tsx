@@ -22,7 +22,7 @@ import { SidebarNavigator } from '@/herd/ui';
 import sodium from '@/encryption/libsodium.lib';
 import { View, Platform, AppState, Pressable, Text } from 'react-native';
 import { ModalProvider } from '@/modal';
-import { syncRestore, syncResume } from '@/catalog/sync';
+import { syncReconnect, syncRestore, syncResume } from '@/catalog/sync';
 import { watchInstallPrompt } from '@/utils/pwaInstall';
 import { FaviconPermissionIndicator } from '@/components/web/FaviconPermissionIndicator';
 import { CommandPaletteProvider } from '@/components/CommandPalette/CommandPaletteProvider';
@@ -335,17 +335,37 @@ export default function RootLayout() {
         return () => subscription.remove();
     }, [initState?.credentials]);
 
-    // Web has no AppState foregrounding: a frozen/hidden tab returns with a
-    // stale socket and up to 30s of backoff. visibilitychange + pageshow feed
-    // the same syncResume() path as native, which fast-forwards backoff and
-    // re-opens from a fresh catalog snapshot. Guarded to visible-only so one
-    // foregrounding produces one resume, never duplicate subscriptions.
+    // beforeinstallprompt fires around first load — long before pairing
+    // credentials exist — so the watcher mounts unconditionally (once) and
+    // never depends on auth state. Capture is idempotent; the prompt itself
+    // is only ever shown from an explicit post-pairing gesture.
+    React.useEffect(() => {
+        if (Platform.OS !== 'web') return;
+        watchInstallPrompt();
+    }, []);
+
+    // Web has no AppState foregrounding, and a frozen tab can return with a
+    // half-open socket that still reads `open` while delivering nothing. On a
+    // real hidden -> visible transition, run the serialized reconnect path:
+    // it replaces the socket and refreshes from a fresh catalog exactly once.
+    // The hidden flag plus cooldown collapse the pageshow + visibilitychange
+    // echo into a single reconnect; already-visible events are ignored, so no
+    // duplicate subscriptions or duplicate terminal commands can result.
     React.useEffect(() => {
         if (initState?.credentials === undefined || Platform.OS !== 'web') return;
-        watchInstallPrompt();
+        let hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+        let lastReconnect = 0;
         const onReturn = () => {
-            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-            void syncResume().catch(() => undefined);
+            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+                hidden = true;
+                return;
+            }
+            if (!hidden) return;
+            const now = Date.now();
+            if (now - lastReconnect < 1000) return;
+            lastReconnect = now;
+            hidden = false;
+            void syncReconnect().catch(() => undefined);
         };
         document.addEventListener('visibilitychange', onReturn);
         window.addEventListener('pageshow', onReturn);

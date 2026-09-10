@@ -107,15 +107,6 @@ export class MuxrClient {
         void this.open();
     }
 
-    /**
-     * A returning tab waited out exponential backoff while frozen. Reset the
-     * counter so the next reconnect starts at the base delay instead of up to
-     * 30s out. Never opens a socket itself, so it cannot duplicate one.
-     */
-    resetReconnectBackoff(): void {
-        this.reconnectAttempt = 0;
-    }
-
     private async open(): Promise<void> {
         if (this.closed) return;
         if (this.socket !== undefined

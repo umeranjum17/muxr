@@ -18,10 +18,11 @@ if (variant === 'production' && configuredAppId !== undefined && configuredAppId
 }
 const appIdBase = variant === 'production' ? PRODUCTION_APP_ID : configuredAppId || 'app.muxr.local';
 const bundleId = variant === 'production' ? appIdBase : `${appIdBase}.${variant === 'development' ? 'dev' : 'preview'}`;
-const publicBaseUrl = process.env.MUXR_PUBLIC_BASE_URL?.trim().replace(/\/$/, '');
-if (variant === 'production' && publicBaseUrl === undefined) {
-    throw new Error('MUXR_PUBLIC_BASE_URL is required for production publishing');
-}
+const publicBaseUrlRaw = process.env.MUXR_PUBLIC_BASE_URL?.trim().replace(/\/$/, '');
+// Production without a publishing origin is a self-host build: the client is
+// served from the owner's own machine, so no app links are emitted and no
+// base URL is baked in. Store builds pass MUXR_PUBLIC_BASE_URL at EAS time.
+const publicBaseUrl = publicBaseUrlRaw === '' ? undefined : publicBaseUrlRaw;
 let publicHost;
 if (publicBaseUrl !== undefined) {
     const parsedPublicUrl = URL.canParse(publicBaseUrl) ? new URL(publicBaseUrl) : undefined;

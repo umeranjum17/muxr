@@ -33,9 +33,16 @@ import { mintDeviceGrant } from './pairDevice.mjs';
 
 export async function startSelfHost(args = []) {
     let pendingIngress;
-    // One precedence rule: CLI flag > MUXR_* env > ~/.muxr/config.env >
-    // probed/default. The operator file never carries secrets.
-    const operator = resolveOperatorConfig({ args });
+    let operator;
+    try {
+        // One precedence rule: CLI flag > MUXR_* env > ~/.muxr/config.env >
+        // probed/default. The operator file never carries secrets. A missing
+        // file defaults; a malformed or unsupported file fails here, clearly.
+        operator = resolveOperatorConfig({ args });
+    } catch (cause) {
+        error(cause instanceof Error ? cause.message : String(cause));
+        return 1;
+    }
     const applyConfig = args.includes('--apply-config');
     if (applyConfig) {
         const missing = [];

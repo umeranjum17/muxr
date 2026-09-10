@@ -51,15 +51,39 @@ export const OPERATOR_KEYS = [
 const CONNECTION_MODES = ['tailscale', 'tailscale-direct', 'private', 'lan', 'cloudflare', 'external'];
 
 function readConfigFile() {
+    const path = operatorConfigPath();
+    if (!existsSync(path)) return { values: {}, error: undefined };
+    let raw;
     try {
-        if (!existsSync(operatorConfigPath())) return {};
-        const parsed = parseEnv(readFileSync(operatorConfigPath(), 'utf8'));
-        return Object.fromEntries(
-            Object.entries(parsed).filter(([key, value]) => OPERATOR_KEYS.includes(key) && typeof value === 'string' && value.trim() !== ''),
-        );
-    } catch {
-        return {};
+        raw = readFileSync(path, 'utf8');
+    } catch (cause) {
+        return { values: {}, error: `cannot read ${path}: ${cause instanceof Error ? cause.message : String(cause)}` };
     }
+    let parsed;
+    try {
+        // parseEnv silently drops lines without `=` (the classic typo), so
+        // validate the shape first: a malformed file must fail, never default.
+        raw.split('\n').forEach((line, index) => {
+            const trimmed = line.trim();
+            if (trimmed === '' || trimmed.startsWith('#')) return;
+            if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(trimmed)) {
+                throw new Error(`malformed ${path} line ${index + 1}: ${JSON.stringify(trimmed)} — expected KEY=value`);
+            }
+        });
+        parsed = parseEnv(raw);
+    } catch (cause) {
+        return { values: {}, error: `malformed ${path}: ${cause instanceof Error ? cause.message : String(cause)} — fix or delete it (a missing file defaults)` };
+    }
+    const unknown = Object.keys(parsed).filter((key) => !OPERATOR_KEYS.includes(key));
+    if (unknown.length > 0) {
+        return { values: {}, error: `unsupported key(s) in ${path}: ${unknown.join(', ')} — supported: ${OPERATOR_KEYS.join(', ')}` };
+    }
+    return {
+        values: Object.fromEntries(
+            Object.entries(parsed).filter(([, value]) => typeof value === 'string' && value.trim() !== ''),
+        ),
+        error: undefined,
+    };
 }
 
 const truthy = (value) => ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
@@ -106,38 +130,42 @@ function parseAdvertise(raw) {
  */
 export function resolveOperatorConfig({ args = [], probed = {} } = {}) {
     const file = readConfigFile();
+    if (file.error !== undefined) throw new Error(file.error);
+    const fileValues = file.values;
     let webFlag;
     if (args.includes('--web')) webFlag = 'true';
     else if (args.includes('--no-web')) webFlag = 'false';
     const integrationsFlag = args.includes('--no-integrations') ? 'off' : undefined;
 
     const connection = pick({
-        flag: flagValue(args, '--connection-mode') ?? flagValue(args, '--mode'),
-        envName: 'MUXR_CONNECTION', file: file.MUXR_CONNECTION,
+        // NOTE: `--mode` is intentionally not an alias here. `muxr setup
+        // --mode selfhost` is setup operation mode, not a connection route.
+        flag: flagValue(args, '--connection-mode'),
+        envName: 'MUXR_CONNECTION', file: fileValues.MUXR_CONNECTION,
         fallback: { value: probed.connection, provenance: probed.connection === undefined ? 'default' : 'probed' },
         parse: parseConnection,
     });
     const relayPort = pick({
         flag: flagValue(args, '--port'),
-        envName: 'MUXR_RELAY_PORT', file: file.MUXR_RELAY_PORT,
+        envName: 'MUXR_RELAY_PORT', file: fileValues.MUXR_RELAY_PORT,
         fallback: { value: probed.relayPort ?? 8792, provenance: probed.relayPort === undefined ? 'default' : 'probed' },
         parse: parsePort,
     });
     const web = pick({
         flag: webFlag,
-        envName: 'MUXR_WEB', file: file.MUXR_WEB,
+        envName: 'MUXR_WEB', file: fileValues.MUXR_WEB,
         fallback: { value: probed.web, provenance: probed.web === undefined ? 'default' : 'probed' },
         parse: parseWeb,
     });
     const advertiseUrl = pick({
         flag: flagValue(args, '--advertise'),
-        envName: 'MUXR_ADVERTISE_URL', file: file.MUXR_ADVERTISE_URL,
+        envName: 'MUXR_ADVERTISE_URL', file: fileValues.MUXR_ADVERTISE_URL,
         fallback: { value: probed.advertiseUrl, provenance: probed.advertiseUrl === undefined ? 'default' : 'probed' },
         parse: parseAdvertise,
     });
     const integrationsSync = pick({
         flag: integrationsFlag,
-        envName: 'MUXR_INTEGRATIONS_SYNC', file: file.MUXR_INTEGRATIONS_SYNC,
+        envName: 'MUXR_INTEGRATIONS_SYNC', file: fileValues.MUXR_INTEGRATIONS_SYNC,
         fallback: { value: probed.integrationsSync ?? 'auto', provenance: 'default' },
         parse: (raw, from) => {
             const value = raw.trim().toLowerCase();
@@ -147,7 +175,7 @@ export function resolveOperatorConfig({ args = [], probed = {} } = {}) {
     });
     const notifyEmail = pick({
         flag: flagValue(args, '--notify-email'),
-        envName: 'MUXR_NOTIFY_EMAIL', file: file.MUXR_NOTIFY_EMAIL,
+        envName: 'MUXR_NOTIFY_EMAIL', file: fileValues.MUXR_NOTIFY_EMAIL,
         fallback: { value: undefined, provenance: 'default' },
         parse: (raw) => raw.trim(),
     });
@@ -209,8 +237,14 @@ function snakeToEnv(key) {
 
 /** `muxr config`: effective operator intent with provenance. Read-only. */
 export function printOperatorConfig(args = []) {
-    const { print } = { print: (text = '') => process.stdout.write(`${text}\n`) };
-    const resolved = resolveOperatorConfig({ args });
+    const print = (text = '') => process.stdout.write(`${text}\n`);
+    let resolved;
+    try {
+        resolved = resolveOperatorConfig({ args });
+    } catch (cause) {
+        process.stderr.write(`muxr config: ${cause instanceof Error ? cause.message : String(cause)}\n`);
+        return 1;
+    }
     print(`operator intent: ${operatorConfigPath()}${existsSync(operatorConfigPath()) ? '' : ' (missing — defaults and probes apply)'}`);
     for (const key of Object.keys(resolved.values)) {
         print(`  ${snakeToEnv(key)}=${resolved.values[key]} (${resolved.provenance[key]})`);

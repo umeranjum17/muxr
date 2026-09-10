@@ -35,17 +35,44 @@ type InstallPromptEvent = Event & {
 };
 
 let deferredPrompt: InstallPromptEvent | undefined;
+let watching = false;
+const availabilityListeners = new Set<() => void>();
 
-/** Call once from the web layout effect; captures beforeinstallprompt. */
+function notifyAvailability(): void {
+    for (const listener of [...availabilityListeners]) {
+        try {
+            listener();
+        } catch {
+            // A stale listener must not break prompt capture.
+        }
+    }
+}
+
+/**
+ * Call once from a mount-once web layout effect; captures
+ * beforeinstallprompt. Idempotent: StrictMode remounts and repeated calls
+ * never register duplicate listeners.
+ */
 export function watchInstallPrompt(): void {
-    if (!isWebPlatform() || typeof window === 'undefined') return;
+    if (!isWebPlatform() || typeof window === 'undefined' || watching) return;
+    watching = true;
     window.addEventListener('beforeinstallprompt', (event) => {
         event.preventDefault();
         deferredPrompt = event as InstallPromptEvent;
+        notifyAvailability();
     });
     window.addEventListener('appinstalled', () => {
         deferredPrompt = undefined;
+        notifyAvailability();
     });
+}
+
+/** Re-render hook for install affordances; immediately true when deferred. */
+export function onInstallPromptAvailable(listener: () => void): () => void {
+    availabilityListeners.add(listener);
+    return () => {
+        availabilityListeners.delete(listener);
+    };
 }
 
 export function canPromptInstall(): boolean {

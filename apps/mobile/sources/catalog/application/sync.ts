@@ -781,14 +781,7 @@ class MuxrSync {
                 this.client = undefined;
                 storage.getState().setSocketStatus(this.hasTransport() ? 'connecting' : 'disconnected');
             }
-            if (this.client?.state === 'closed') {
-                // A frozen tab returns with stale backoff; fast-forward it so
-                // resume-to-live does not wait out the pre-freeze delay.
-                // Optional-chained: test doubles of the client seam may predate
-                // the method, and resume must never crash on them.
-                this.client.resetReconnectBackoff?.();
-                this.client.connect();
-            }
+            if (this.client?.state === 'closed') this.client.connect();
             await this.refreshCatalog();
         });
         this.resumeWork = work.finally(() => { this.resumeWork = undefined; });

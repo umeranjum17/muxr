@@ -100,6 +100,7 @@ export {
     daemonDefinition,
     daemonIsRunning,
     daemonMode,
+    herdrSocketPath,
     runDaemon,
     serviceCommand,
     startMuxrDaemon,

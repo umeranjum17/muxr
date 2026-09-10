@@ -18,6 +18,10 @@ jobs:
           node-version: 22
       - run: yarn install --frozen-lockfile --non-interactive
       - run: yarn build
+      - name: Production web export (self-host, origin-clean)
+        run: yarn web:export:selfhost
+      - name: Web export checks against dist (manifest, budget, no marketing origin)
+        run: node scripts/diagnostics/application/checkWebExport.mjs
       - name: Full suite (typecheck, crypto, pairing, e2e, package smoke, purity, secrets, architecture)
         run: yarn run check
       - name: Core purity guard

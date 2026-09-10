@@ -23,11 +23,26 @@ import {
 import { ensureHerdrServer, herdrBin } from './herdr.mjs';
 import { cleanupManagedIngress, readSelfhostState, selfhostRelayHealthy, stopOwnedSelfhostRelay } from './selfhost.mjs';
 
-export function daemonDefinition(mode) {
-    if (mode !== undefined) parseDaemonModeArg(mode);
+/** Invoking Herdr socket: live env first, then the control-plugin record. */
+export function herdrSocketPath() {
+    const live = env('HERDR_SOCKET_PATH');
+    if (live) return live;
+    try {
+        const match = readFileSync(join(stateDir(), 'herdr-plugin.env'), 'utf8').match(/^HERDR_SOCKET_PATH=(.+)$/m);
+        const persisted = match?.[1]?.trim();
+        return persisted === '' || persisted === undefined ? undefined : persisted;
+    } catch {
+        return undefined;
+    }
+}
+
+export function daemonDefinition(mode) {    if (mode !== undefined) parseDaemonModeArg(mode);
     const cli = realpathSync(process.argv[1]);
     const logs = join(stateDir(), 'logs');
     const serviceHerdr = herdrBin();
+    // The invoking Herdr instance reaches the supervised service: live env
+    // first, then the file the control plugin persists per invocation.
+    const serviceHerdrSocket = herdrSocketPath();
     const servicePath = [...new Set([
         ...(process.env.PATH ?? '').split(delimiter),
         dirname(process.execPath),
@@ -53,6 +68,7 @@ export function daemonDefinition(mode) {
         const environment = [
             ['PATH', servicePath],
             ...(serviceHerdr === undefined ? [] : [['HERDR_BIN', serviceHerdr]]),
+            ...(serviceHerdrSocket === undefined ? [] : [['HERDR_SOCKET_PATH', serviceHerdrSocket]]),
             ...(mode === undefined ? [] : [['MUXR_MODE', mode]]),
             ...(process.env.MUXR_HOME?.trim() ? [['MUXR_HOME', stateDir()]] : []),
         ];
@@ -65,6 +81,7 @@ export function daemonDefinition(mode) {
         const modeEnv = [
             `Environment=PATH=${systemdArg(servicePath)}`,
             ...(serviceHerdr === undefined ? [] : [`Environment=HERDR_BIN=${systemdArg(serviceHerdr)}`]),
+            ...(serviceHerdrSocket === undefined ? [] : [`Environment=HERDR_SOCKET_PATH=${systemdArg(serviceHerdrSocket)}`]),
             ...(mode === undefined ? [] : [`Environment=MUXR_MODE=${systemdArg(mode)}`]),
             ...(process.env.MUXR_HOME?.trim() ? [`Environment=MUXR_HOME=${systemdArg(stateDir())}`] : []),
         ].join('\n');

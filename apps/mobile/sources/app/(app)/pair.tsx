@@ -10,7 +10,7 @@ import { useAuth } from '@/account/ui';
 import { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '@/pairing/e2ee';
 import { pairMachine, usePairQrScanner } from '@/pairing';
 import { getCachedConnectionSettings } from '@/connection';
-import { canPromptInstall, isIOSBrowser, isStandaloneDisplay, promptInstall } from '@/utils/pwaInstall';
+import { canPromptInstall, isIOSBrowser, isStandaloneDisplay, onInstallPromptAvailable, promptInstall } from '@/utils/pwaInstall';
 import { ActionButton } from '@/components/ActionButton';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
@@ -47,6 +47,7 @@ const PAIRING_STEPS = [
 type PairState =
     | { phase: 'confirm'; url: string; machineName: string }
     | { phase: 'working'; url: string; machineName: string }
+    | { phase: 'success'; machineName: string }
     | { phase: 'error'; message: string; url?: string; machineName?: string };
 
 export default function PairScreen() {
@@ -69,12 +70,21 @@ export default function PairScreen() {
         }
     }, []);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
-    const browserAuthority = browser && state?.url ? hostedPairingAuthority(state.url) : 'observe';
+    const stateUrl = state !== undefined && 'url' in state ? state.url : undefined;
+    const browserAuthority = browser && stateUrl ? hostedPairingAuthority(stateUrl) : 'observe';
     // iOS Safari tabs and installed web apps do not share IndexedDB: claiming
     // here would pair a storage partition the install then abandons. Install
     // first; the one-use code stays valid until claimed inside the app.
     const installFirst = browser && isIOSBrowser() && !isStandaloneDisplay();
     const [installBusy, setInstallBusy] = React.useState(false);
+    // Install is offered only after a successful pairing (Android/desktop);
+    // the deferred prompt is captured unconditionally at layout mount.
+    const [installAvailable, setInstallAvailable] = React.useState(() => browser && canPromptInstall());
+    React.useEffect(() => {
+        if (!browser) return undefined;
+        setInstallAvailable(canPromptInstall());
+        return onInstallPromptAvailable(() => setInstallAvailable(canPromptInstall()));
+    }, [browser]);
     const copyLink = React.useCallback(async (url: string) => {
         await Clipboard.setStringAsync(url);
         await Modal.alert('Link copied', 'Open the installed muxr app and paste it there.');
@@ -108,9 +118,12 @@ export default function PairScreen() {
             if (cancelled || !raw) return false;
             try {
                 const url = prepareHostedPairingInput(raw);
-                setState((current) => current?.url === url
-                    ? current
-                    : { phase: 'confirm', url, machineName: hostedPairingDisplayName(url) });
+                setState((current) => {
+                    const currentUrl = current !== undefined && 'url' in current ? current.url : undefined;
+                    return currentUrl === url
+                        ? current
+                        : { phase: 'confirm', url, machineName: hostedPairingDisplayName(url) };
+                });
                 return true;
             } catch {
                 return false;
@@ -135,7 +148,12 @@ export default function PairScreen() {
         return () => { cancelled = true; subscription.remove(); };
     }, [routePairUrl, browser]);
 
-    const pair = React.useCallback(async (url: string) => {
+    const pair = React.useCallback(async (url: string, machineName: string) => {
+        // On web the pairing lands on a paired-success phase (install offer)
+        // instead of routing away immediately; phones route home as before.
+        const finishPair = browser
+            ? () => setState({ phase: 'success', machineName })
+            : () => router.replace('/');
         const paired = await pairMachine({ url });
         if (!paired.ok && paired.reason === 'voice-pinned') {
             const switchApproved = await Modal.confirm(
@@ -152,21 +170,22 @@ export default function PairScreen() {
                 throw new Error(retried.reason === 'failed' ? retried.message ?? 'Pairing failed' : 'Pairing failed');
             }
             await auth.login(retried.credential, retried.secretKey);
-            router.replace('/');
+            finishPair();
             return;
         }
         if (!paired.ok) {
             throw new Error(paired.message ?? 'Pairing failed');
         }
         await auth.login(paired.credential, paired.secretKey);
-        router.replace('/');
-    }, [auth, router]);
+        finishPair();
+    }, [auth, browser, router]);
 
     const confirm = React.useCallback(() => {
-        if (state === undefined || (state.phase !== 'confirm' && state.phase !== 'error') || state.url === undefined) return;
+        if (state?.phase !== 'confirm' && state?.phase !== 'error') return;
+        if (state.url === undefined) return;
         const { url, machineName } = state;
         setState({ phase: 'working', url, machineName: machineName ?? 'this machine' });
-        void pair(url).catch((cause) => {
+        void pair(url, machineName ?? 'this machine').catch((cause) => {
             setState({
                 phase: 'error',
                 message: cause instanceof Error ? cause.message : String(cause),
@@ -192,10 +211,15 @@ export default function PairScreen() {
                 <Text style={styles.machineName} numberOfLines={2}>
                     {state === undefined
                         ? 'Securely pair this device'
-                        : state.machineName ?? 'Securely pair this device'}
+                        : state.phase === 'success'
+                            ? 'Paired'
+                            : state.machineName ?? 'Securely pair this device'}
                 </Text>
                 {state?.phase === 'confirm' && (
                     <Text style={styles.subtitle}>wants to pair with this {browser ? 'browser' : 'phone'}</Text>
+                )}
+                {state?.phase === 'success' && (
+                    <Text style={styles.subtitle}>with {state.machineName}</Text>
                 )}
             </View>
 
@@ -276,15 +300,17 @@ export default function PairScreen() {
                         </View>
                         <ActionButton title="Pair" icon="link-outline" onPress={confirm} />
                         <ActionButton title="Cancel" variant="secondary" onPress={cancel} />
-                        {browser && !isStandaloneDisplay() && !isIOSBrowser() && (
-                            <View style={styles.securityRow}>
-                                <Ionicons name="download-outline" size={16} color={styles.securityText.color} />
-                                <Text style={styles.securityText}>
-                                    Pair first — your grant carries into the installed app. After pairing, install it for an icon and blocked-agent alerts.
-                                </Text>
-                            </View>
-                        )}
-                        {browser && canPromptInstall() && (
+                    </>
+                    )
+                ) : state?.phase === 'success' ? (
+                    <>
+                        <View style={styles.stepGroup}>
+                            <Text style={styles.stepHeading}>Paired with {state.machineName}</Text>
+                            <Text style={styles.grantText}>
+                                This browser is paired and ready. Your grant carries into the installed app on Android and desktop.
+                            </Text>
+                        </View>
+                        {installAvailable && (
                             <ActionButton
                                 title={installBusy ? 'Installing…' : 'Install the app'}
                                 icon="download-outline"
@@ -295,8 +321,8 @@ export default function PairScreen() {
                                 }}
                             />
                         )}
+                        <ActionButton title={installAvailable ? 'Continue without installing' : 'Continue'} icon="arrow-forward-outline" onPress={() => router.replace('/')} />
                     </>
-                    )
                 ) : state?.phase === 'error' && state.url !== undefined ? (
                     installFirst ? (
                         <>

@@ -510,8 +510,9 @@ export function isRetryableCloseFailure(error: unknown): boolean {
 export async function createHerdrSessionSource(
     options: CreateHerdrSessionSourceOptions,
 ): Promise<SessionSource> {
-    // The Herdr plugin records the invoking instance in the environment and
-    // ~/.muxr/herdr-plugin.env; explicit options still win over all of it.
+    // Socket selection: explicit options win, then HERDR_SOCKET_PATH — which
+    // the daemon unit captures at install (live env, else the file the Herdr
+    // control plugin persists per invocation) — then the default socket.
     const socketPath = options.socketPath
         ?? (process.env.HERDR_SOCKET_PATH?.trim() || join(homedir(), '.config', 'herdr', 'herdr.sock'));
     const routes = options.routes ?? new AgentRouteStore(options.dataDir);

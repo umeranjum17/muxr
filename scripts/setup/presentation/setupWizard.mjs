@@ -355,10 +355,8 @@ function serveRootFor(found, port) {
     return inspectTailscaleServeRoot(port, found.tailscale.dnsName, undefined, 8_000);
 }
 
-async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args }) {
+async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, firstRun, operator, stepsTotal }) {
     const requestedPort = value(args, '--port');
-    // Operator intent overlays the current state: flag > env > config.env.
-    const operator = resolveOperatorConfig({ args, probed: { relayPort: current?.relayPort, web: current?.webEnabled } });
     const plannedPort = requestedPort === undefined ? (operator.values.relayPort ?? 8792) : Number(requestedPort);
     const serveRoot = serveRootFor(found, plannedPort);
     let mode = requestedMode;
@@ -416,7 +414,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     let endpoint = mode === 'private' && current?.connectionMode === 'private' && current.publicHealthy ? current.relayUrl : undefined;
     if (mode === 'external') {
         while (endpoint === undefined) {
-            setupStep(2, 5, 'Enter your server address');
+            setupStep(2, stepsTotal, 'Enter your server address');
             const entered = await prompt('External relay URL (wss://...)', current?.connectionMode === 'external' ? current.relayUrl : '');
             if (entered === undefined) return undefined;
             try {
@@ -429,17 +427,23 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         }
     }
 
-    setupStep(2, 5, 'Choose app access');
+    setupStep(2, stepsTotal, 'Choose app access');
     let web = false;
     if (modeAllowsBrowserHosting(mode)) {
-        // Inferred default: hosting on when the route supports HTTPS. Shown
-        // in Review; nothing mutates before Apply.
-        const webDefault = operator.values.web ?? current?.webEnabled ?? false;
-        web = await select('Host the browser client too?', [
-            { value: false, title: 'Native app only', description: 'do not expose the browser client' },
-            { value: true, title: 'Host the browser client', description: 'serve it over the selected HTTPS/WSS connection' },
-        ], webDefault ? 1 : 0);
-        if (aborted(web)) return undefined;
+        if (firstRun) {
+            // Inferred, not asked: hosting stays on when the route supports
+            // HTTPS, unless the operator explicitly disabled it via CLI flag,
+            // MUXR_* env, or config.env. The value is shown in Review and
+            // nothing mutates before Apply.
+            web = operator.values.web ?? true;
+        } else {
+            const webDefault = operator.values.web ?? current?.webEnabled ?? false;
+            web = await select('Host the browser client too?', [
+                { value: false, title: 'Native app only', description: 'do not expose the browser client' },
+                { value: true, title: 'Host the browser client', description: 'serve it over the selected HTTPS/WSS connection' },
+            ], webDefault ? 1 : 0);
+            if (aborted(web)) return undefined;
+        }
     } else {
         status('Browser client', 'requires Tailscale Serve, External WSS, or Cloudflare; native app only', 'off');
     }
@@ -460,26 +464,34 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
             { value: 'both', title: 'Phone, then control browser', description: 'complete both pairing steps' },
         ] : []),
     ];
-    setupStep(2, 5, 'Choose what to pair');
-    // Phone QR and browser link are minted together (not either/or): when web
-    // hosting is on, pair both by default; each grant stays individually
-    // minted, scoped, and revocable via `muxr devices`.
-    const defaultPairing = web ? 'both' : 'phone';
-    const pairingInitial = Math.max(0, pairingChoices.findIndex((choice) => choice.value === defaultPairing));
-    const pairing = pairingChoices.length === 1 ? pairingChoices[0].value : await select(connectionChanged && current !== undefined
-        ? 'The connection changed. Keep existing devices or pair another one?'
-        : 'Pair a client?', pairingChoices, pairingInitial);
-    if (aborted(pairing)) return undefined;
+    let pairing;
+    if (firstRun) {
+        // First setup pairs phone + browser together when web is on — no
+        // either/or fork. Each grant stays individually minted, scoped, and
+        // revocable via `muxr devices`; minting happens behind Apply.
+        pairing = web ? 'both' : 'phone';
+    } else {
+        setupStep(2, stepsTotal, 'Choose what to pair');
+        // Phone QR and browser link are minted together (not either/or): when
+        // web hosting is on, pair both by default. Existing setups default to
+        // keeping devices unless explicitly pairing here.
+        const defaultPairing = web ? 'both' : 'phone';
+        const pairingInitial = Math.max(0, pairingChoices.findIndex((choice) => choice.value === defaultPairing));
+        pairing = pairingChoices.length === 1 ? pairingChoices[0].value : await select(connectionChanged && current !== undefined
+            ? 'The connection changed. Keep existing devices or pair another one?'
+            : 'Pair a client?', pairingChoices, pairingInitial);
+        if (aborted(pairing)) return undefined;
+    }
     return { mode, port, endpoint, web, pairing };
 }
 
-async function recoverTailscaleServe({ plan, found }) {
+async function recoverTailscaleServe({ plan, found, stepsTotal }) {
     if (plan.mode !== 'tailscale') return plan;
     const serveRoot = serveRootFor(found, plan.port);
     if (serveRoot.status === 'free' || serveRoot.status === 'ours' || serveRoot.status === 'inconclusive') return plan;
     const occupied = serveRoot.status === 'occupied';
     const title = occupied ? 'Tailscale Serve is already in use' : 'Tailscale Serve is unavailable';
-    setupStep(5, 5, title);
+    setupStep(stepsTotal, stepsTotal, title);
     heading(title);
     note(occupied ? [
         'Another service already owns the Tailscale Serve root.',
@@ -570,35 +582,55 @@ export async function applyMachineSetup(args = []) {
     }
 
     return withFullscreen(async () => {
-    setupStep(1, 5, 'Check this machine');
+    // Read-only state first: it decides whether this is the three-interaction
+    // first run (confirm route -> Review/Apply -> perform pairing) or the
+    // full five-step reconfiguration of an existing setup.
+    const current = await selfhostPublicSummary();
+    const firstRun = current === undefined;
+    const stepsTotal = firstRun ? 3 : 5;
+    let operator;
+    try {
+        operator = resolveOperatorConfig({ args, probed: { relayPort: current?.relayPort, web: current?.webEnabled } });
+    } catch (cause) {
+        process.stderr.write(`muxr setup: ${cause instanceof Error ? cause.message : String(cause)}\n`);
+        completeFullscreen();
+        return 1;
+    }
+    setupStep(1, stepsTotal, 'Check this machine');
     const found = await withSpinner('Inspecting Herdr, agents, and networking', async () => probeMachine());
     renderInspection(found);
     // A disconnected Tailscale installation is proposed as one reviewed route;
     // connecting it remains behind Apply instead of becoming a preflight prompt.
     const tailscalePlanned = found.tailscale.installed && !found.tailscale.connected && found.tailscale.backend !== undefined;
     const cancelSetup = () => cancelled();
-    const current = await selfhostPublicSummary();
 
-    setupStep(2, 5, 'Connect your phone');
-    let plan = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args });
+    setupStep(2, stepsTotal, 'Connect your phone');
+    let plan = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, firstRun, operator, stepsTotal });
     if (plan === undefined) return cancelSetup();
     if (plan === 1) return 1;
     const desiredUrl = advertisedUrlForMode({ ...plan, found, current, tailscalePlanned });
     const connectionChanged = current === undefined || desiredUrl === undefined || current.relayUrl !== desiredUrl;
 
-    setupStep(3, 5, 'Connect agents and add-ons');
-    const syncIntegrations = await select(found.agents.checked
-        ? `Connect your coding agents (${found.agents.available.length} detected)?`
-        : 'Agent availability could not be checked. Retry integration setup anyway?', [
-        { value: true, title: 'Connect coding agents', description: 'install lifecycle detection so their status stays current' },
-        { value: false, title: 'Leave integrations unchanged', description: 'do not change coding-agent lifecycle integrations' },
-    ]);
-    if (aborted(syncIntegrations)) return cancelSetup();
+    let syncIntegrations;
+    if (firstRun) {
+        // Inferred from operator intent (flag/env/config, default auto);
+        // shown in Review, applied behind Apply.
+        syncIntegrations = operator.values.integrationsSync !== 'off';
+    } else {
+        setupStep(3, 5, 'Connect agents and add-ons');
+        syncIntegrations = await select(found.agents.checked
+            ? `Connect your coding agents (${found.agents.available.length} detected)?`
+            : 'Agent availability could not be checked. Retry integration setup anyway?', [
+            { value: true, title: 'Connect coding agents', description: 'install lifecycle detection so their status stays current' },
+            { value: false, title: 'Leave integrations unchanged', description: 'do not change coding-agent lifecycle integrations' },
+        ]);
+        if (aborted(syncIntegrations)) return cancelSetup();
+    }
 
     const plugins = current === undefined ? [] : await choosePlugins();
     if (plugins === undefined) return cancelSetup();
 
-    setupStep(4, 5, 'Review setup');
+    setupStep(4, stepsTotal, 'Review setup');
     const operatorPreview = formatOperatorConfig({
         connection: plan.mode,
         relayPort: plan.port,
@@ -626,7 +658,7 @@ export async function applyMachineSetup(args = []) {
     ], 1);
     if (apply !== true) return cancelSetup();
 
-    setupStep(5, 5, 'Install, start, and pair');
+    setupStep(stepsTotal, stepsTotal, 'Install, start, and pair');
     if ((plan.mode === 'tailscale' || plan.mode === 'tailscale-direct') && tailscalePlanned && !(await applyTailscaleConnect(found))) {
         process.stderr.write('Tailscale did not connect; fix the reported issue, then rerun setup\n');
         return 1;
@@ -642,7 +674,7 @@ export async function applyMachineSetup(args = []) {
     status('Network', 'checking Tailscale Serve ownership and local relay port', 'off');
     let result = 1;
     for (;;) {
-        const recovered = await recoverTailscaleServe({ plan, found });
+        const recovered = await recoverTailscaleServe({ plan, found, stepsTotal });
         if (recovered === undefined) return stoppedAfterApply();
         plan = recovered;
         result = await startSelfHost(selfhostArgsFromSetupPlan({ ...plan, found }));
@@ -665,7 +697,7 @@ export async function applyMachineSetup(args = []) {
     const doctor = await inspectSetup();
     if (doctor !== 0) return doctor;
     const summary = await selfhostPublicSummary();
-    setupStep(5, 5, 'Setup complete');
+    setupStep(stepsTotal, stepsTotal, 'Setup complete');
     note([
         `Your host runs here. Phones reach it over ${relayKind(mode)}.${pairing === 'none' ? ' Pair with `muxr pair` when ready.' : ''}`,
         `Connection: ${connectionLabel(mode, endpoint, port)}`,

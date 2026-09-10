@@ -1,82 +1,26 @@
 import * as React from 'react';
 import * as Clipboard from 'expo-clipboard';
-import { Platform, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import { WebLinksAddon } from '@xterm/addon-web-links';
-import '@xterm/xterm/css/xterm.css';
 import { agentLabels, HERD_STATUS_LABELS } from '@/herd/domain/agentPresentation';
 import { attentionPresentation } from '@/herd/presentation/attentionPresentation';
 import { PierreDiffView } from '@/components/diff/PierreDiffView';
 import { ActionButton } from '@/components/ActionButton';
 import { Typography } from '@/constants/Typography';
+import { DemoTerminal } from './DemoTerminal';
 import { DEMO_AGENTS, DEMO_APPROVAL_REQUEST, DEMO_DONE_PATCH, DEMO_INSTALL_COMMAND } from './demoFixtures';
 
 /**
  * Deterministic product replay. Renders recorded fixtures through the real
  * presentation modules — agent labels, status copy, attention presentation,
- * Pierre diff, and an xterm.js terminal (the same stack as TerminalView.web).
- * No backend, no network beyond static assets, no Add-to-Home-Screen prompt.
+ * Pierre diff, and an xterm.js terminal (the same stack as TerminalView.web,
+ * kept in the platform-split DemoTerminal so native bundling never sees
+ * xterm). No backend, no network beyond static assets, no
+ * Add-to-Home-Screen prompt.
  */
 
 type Phase = 'loop' | 'request' | 'continuing' | 'done';
-
-function ReplayTerminal({ lines, live }: { lines: string[]; live: boolean }) {
-    const hostRef = React.useRef<View | null>(null);
-    const termRef = React.useRef<Terminal | null>(null);
-
-    React.useEffect(() => {
-        if (Platform.OS !== 'web') return;
-        const host = hostRef.current as unknown as HTMLElement | null;
-        if (!host) return;
-        const term = new Terminal({ scrollback: 500, fontSize: 13 });
-        const fit = new FitAddon();
-        term.loadAddon(fit);
-        term.loadAddon(new WebLinksAddon());
-        term.open(host);
-        fit.fit();
-        termRef.current = term;
-        return () => {
-            termRef.current = null;
-            term.dispose();
-        };
-    }, []);
-
-    const written = React.useRef(0);
-    React.useEffect(() => {
-        const term = termRef.current;
-        if (!term) return;
-        // Timed replay of the recorded transcript — authentic ANSI through
-        // the authentic xterm path.
-        let cancelled = false;
-        const timers: ReturnType<typeof setTimeout>[] = [];
-        lines.slice(written.current).forEach((line, index) => {
-            timers.push(setTimeout(() => {
-                if (!cancelled) term.writeln(line);
-            }, (live ? 350 : 0) * (index + 1)));
-        });
-        written.current = lines.length;
-        return () => {
-            cancelled = true;
-            timers.forEach(clearTimeout);
-        };
-    }, [lines, live]);
-
-    if (Platform.OS !== 'web') {
-        return (
-            <View>
-                {lines.map((line, index) => (
-                    <Text key={index} style={{ fontFamily: 'monospace', fontSize: 12 }}>
-                        {line.replace(/\x1b\[[0-9;]*m/g, '')}
-                    </Text>
-                ))}
-            </View>
-        );
-    }
-    return <View ref={hostRef} style={{ height: 220, borderRadius: 8, overflow: 'hidden' }} />;
-}
 
 function AgentCard({
     index, selected, onSelect,
@@ -92,7 +36,12 @@ function AgentCard({
     if (agent.agentStatus === 'blocked') attention = attentionPresentation('blocked', theme);
     if (agent.agentStatus === 'done') attention = attentionPresentation('done', theme);
     return (
-        <View style={[styles.card, selected && styles.cardSelected]} onTouchEnd={onSelect}>
+        <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+            style={[styles.card, selected && styles.cardSelected]}
+            onPress={onSelect}
+        >
             <View style={styles.cardHead}>
                 <Text style={styles.agentName}>{labels.taskTitle}</Text>
                 {attention && (
@@ -103,7 +52,7 @@ function AgentCard({
                 )}
             </View>
             <Text style={styles.agentSub}>{labels.agentName} · {status}</Text>
-        </View>
+        </Pressable>
     );
 }
 
@@ -144,7 +93,7 @@ export function DemoScreen() {
 
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Terminal — {agentLabels(agent).agentName}</Text>
-                <ReplayTerminal lines={lines} live={continued || agent.agentStatus === 'working'} />
+                <DemoTerminal key={agent.paneId} lines={lines} live={continued || agent.agentStatus === 'working'} />
             </View>
 
             {isBlocked && phase === 'loop' && (

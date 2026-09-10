@@ -48,6 +48,11 @@ function runSelfCheck(): void {
     assert(!flagDefault.personal && flagDefault.grantDurationLabel() === 'eight hours', '--browser keeps the eight-hour default');
     assert(!personal.matchesPending({ deviceKind: 'browser', authority: 'control' }), 'personal intent never reuses a shared pending session');
     assert(!controlBrowser.matchesPending({ deviceKind: 'browser', authority: 'control', personal: true }), 'shared intent never reuses a personal pending session');
+    // Recovered pending sessions rebuild their intent from the stored record,
+    // personal marker included — the consent copy must not fall back to 8h.
+    const recoveredPending = { deviceKind: 'browser', authority: 'control', personal: true };
+    const recoveredIntent = pairingIntent({ kind: recoveredPending.deviceKind, authority: recoveredPending.authority, personal: recoveredPending.personal });
+    assert(recoveredIntent.grantDurationLabel() === '30 days', 'recovered personal pending keeps its consent copy');
 
     const enrollment = parseEnrollment('not-a-link');
     assert(!enrollment.ok, 'malformed enrollment is rejected');
