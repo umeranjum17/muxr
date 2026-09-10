@@ -112,7 +112,7 @@ class DemoClient implements MuxrTransport {
         };
     }
 
-    /** Full replay reset for the DemoBar reset action. */
+    /** Full replay reset for the DemoBar reset action. Revives first if needed. */
     reset(): void {
         this.generation += 1;
         this.timers.forEach(clearTimeout);
@@ -121,7 +121,10 @@ class DemoClient implements MuxrTransport {
         this.transcripts[DEMO_SESSION_WORKING] = [...DEMO_TRANSCRIPTS[DEMO_SESSION_WORKING]!];
         this.transcripts[DEMO_SESSION_BLOCKED] = [...DEMO_TRANSCRIPTS[DEMO_SESSION_BLOCKED]!];
         this.transcripts[DEMO_SESSION_DONE] = [...DEMO_TRANSCRIPTS[DEMO_SESSION_DONE]!];
+        // A reset with a never-opened transport must still bring the herd up:
+        // connect() replays the initial catalog on open.
         if (this.state === 'open') this.emitInitial();
+        else this.connect();
     }
 
     transcript(sessionId: string): string[] {

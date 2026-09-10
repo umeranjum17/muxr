@@ -5,6 +5,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { MainView } from '@/herd/ui';
 import { DemoBar } from '@/demo/DemoBar';
 import { activateDemoTransport, ensureDemoRuntime } from '@/demo/demoRuntime';
+import { sync } from '@/catalog/sync';
 
 export const unstable_settings = {
     headerShown: false,
@@ -23,15 +24,26 @@ export default function DemoRoute() {
     const [allowed, setAllowed] = React.useState(false);
     React.useEffect(() => {
         let live = true;
-        void ensureDemoRuntime().then((ok) => {
+        void ensureDemoRuntime().then(async (ok) => {
             if (!live) return;
-            if (!ok) router.replace('/');
-            else {
-                // Sticky for this page load: session routes leave /demo but
-                // stay inside the replay. Only this gated route sets it.
-                activateDemoTransport();
-                setAllowed(true);
+            if (!ok) {
+                router.replace('/');
+                return;
             }
+            // Sticky for this page load: session routes leave /demo but
+            // stay inside the replay. Only this gated route sets it.
+            activateDemoTransport();
+            // Deterministic bootstrap, not focus-dependent: drive the first
+            // production herd/catalog refresh through the activated demo
+            // transport BEFORE MainView mounts, so the herd never depends on
+            // a focus effect firing to perform its first load.
+            try {
+                await sync.refreshHerdTree();
+            } catch {
+                // MainView's own refresh covers a bootstrap miss.
+            }
+            if (!live) return;
+            setAllowed(true);
         });
         return () => {
             live = false;
