@@ -1728,6 +1728,12 @@ export async function createHerdrSessionSource(
      */
     async function promptSession(sessionId: string, text: string): Promise<void> {
         let session = await resolvePane(sessionId);
+        // A pane with no agent is a plain shell: the "prompt" is a command
+        // line, typed and submitted atomically (bracketed paste, then Enter).
+        if (session.agent === undefined) {
+            await client.call('pane.send_input', { pane_id: session.paneId, text, keys: ['Enter'] });
+            return;
+        }
         if (!agentPromptable(session)) {
             // Cheap event-driven wait first, then a short poll for the route
             // rebind that adoption performs a beat later.
