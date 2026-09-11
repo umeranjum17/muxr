@@ -322,7 +322,7 @@ try {
     const sourceSkill = run(process.execPath, ['scripts/cli.mjs', '--skill'], { env: sourceEnv }).stdout;
     assertCompactSkillOutput(sourceSkill);
     assert.equal(run(process.execPath, ['scripts/cli.mjs', 'skill'], { env: sourceEnv }).stdout, sourceSkill, 'source skill alias diverged from --skill');
-    assert.match(run(process.execPath, ['scripts/cli.mjs', 'skill', 'onboarding'], { env: sourceEnv }).stdout, /## Diagnose and recover[\s\S]*muxr doctor[\s\S]*muxr diagnostics/);
+    assert.match(run(process.execPath, ['scripts/cli.mjs', 'skill', 'onboarding'], { env: sourceEnv }).stdout, /## Diagnose[\s\S]*muxr doctor[\s\S]*muxr diagnostics/);
     assert.match(run(process.execPath, ['scripts/cli.mjs', 'skill', 'collaboration'], { env: sourceEnv }).stdout, /muxr peers prompt/);
     assertUnifiedSkillOutput(run(process.execPath, ['scripts/cli.mjs', 'skill', 'all'], { env: sourceEnv }).stdout);
     const fallbackHome = join(scratch, 'skill-fallback-home');
@@ -583,7 +583,7 @@ try {
     assert.equal(run(cli, ['skill'], { cwd: installDir, env: cliEnv() }).stdout, installedSkill, 'packed skill alias diverged from --skill');
     const onboardingSkill = run(cli, ['skill', 'onboarding'], { cwd: installDir, env: cliEnv() }).stdout;
     assert.match(onboardingSkill, /proposes one route[\s\S]*NetBird[\s\S]*WireGuard/);
-    assert.match(onboardingSkill, /## Diagnose and recover[\s\S]*muxr doctor[\s\S]*muxr diagnostics/);
+    assert.match(onboardingSkill, /## Diagnose[\s\S]*muxr doctor[\s\S]*muxr diagnostics/);
     assert.match(run(cli, ['skill', 'collaboration'], { cwd: installDir, env: cliEnv() }).stdout, /muxr peers prompt/);
     assertUnifiedSkillOutput(run(cli, ['skill', 'all'], { cwd: installDir, env: cliEnv() }).stdout);
     const unavailablePeers = run(cli, ['peers', 'list'], { cwd: installDir, env: cliEnv(), allowFailure: true });

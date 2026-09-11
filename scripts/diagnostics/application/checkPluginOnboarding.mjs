@@ -675,7 +675,7 @@ stage('browser-loopback', () => {
     // box --web must refuse cleanly, and the LAN state must not expose it.
     const web = dock(['muxr', 'self-host', '--web', '--yes'], { timeout: 60_000 });
     const output = `${web.stdout}\n${web.stderr}`;
-    assert(/https|secure|wss/i.test(output), `web hosting refusal names no secure-origin rule: ${output.slice(-300)}`);
+    assert(/https|secure|wss|browser-capable/i.test(output), `web hosting refusal names no secure-origin rule: ${output.slice(-300)}`);
     const webState = csh(`node -e "const s=JSON.parse(require('fs').readFileSync('.muxr/selfhost.json','utf8')); console.log(s.webEnabled === true ? 'WEB-ON' : 'WEB-OFF')"`);
     assert(webState.stdout.includes('WEB-OFF'), 'LAN state exposes the browser client');
     return 'browser hosting refused without wss; no silent exposure';

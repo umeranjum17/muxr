@@ -283,7 +283,8 @@ try {
     browser.kill();
     await new Promise((resolve) => browser.once('exit', resolve));
     server.close();
-    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    // Chromium may still be flushing its profile; a leftover temp profile is not a finding.
+    try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch { /* left in tmp */ }
 }
 
 if (failures.length > 0) {
