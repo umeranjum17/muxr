@@ -68,17 +68,25 @@ export function wheelMessage(point: Point, deltaX: number, deltaY: number): stri
     });
 }
 
+/**
+ * Chromium performs an editing key's action (delete, submit, move) only when
+ * the dispatched event carries its virtual key code; `key`/`code` alone is a
+ * dead keypress. Printable characters act through `text` instead.
+ */
+const VIRTUAL_KEY_CODES: Record<string, number> = {
+    Backspace: 8, Tab: 9, Enter: 13, Escape: 27, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46,
+};
+
 export function keyMessage(eventType: 'keyDown' | 'keyUp', key: string, code: string): string {
-    // The stream server inserts text only from the `text` field: a keyDown
-    // without it dispatches a dead keypress. Printable characters carry
-    // their text; editing and control keys keep dispatch-only shape.
     const printable = key.length === 1 && key >= ' ' && key !== '\x7f';
+    const virtualKeyCode = VIRTUAL_KEY_CODES[key];
     return JSON.stringify({
         type: 'input_keyboard',
         eventType,
         key,
         code,
         ...(eventType === 'keyDown' && printable ? { text: key } : {}),
+        ...(virtualKeyCode === undefined ? {} : { windowsVirtualKeyCode: virtualKeyCode, nativeVirtualKeyCode: virtualKeyCode }),
     });
 }
 

@@ -15,7 +15,7 @@ import { canPromptInstall, isIOSBrowser, isStandaloneDisplay, onInstallPromptAva
 import { ActionButton } from '@/components/ActionButton';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
-import { humanError } from '@/utils/errors';
+import { failureText } from '@/utils/errors';
 
 /**
  * What pairing actually authorises. The previous copy described only the
@@ -72,16 +72,6 @@ type PairState =
     | { phase: 'success'; machineName: string; expiresAt: number }
     | { phase: 'error'; message: string; url?: string; machineName?: string };
 
-/**
- * Pairing failures are mostly written for people already (the pairing domain
- * names the exact fix); only unknown shapes and transport failures need the
- * shared mapping.
- */
-function pairingFailureText(cause: unknown): string {
-    const human = humanError(cause);
-    return human.title === 'Something went wrong' && human.details ? human.details.replace(/`/g, '') : human.message;
-}
-
 /** "until 14 Sept, 09:12" for browser grants; durable native grants say so. */
 function accessUntil(expiresAt: number): string {
     if (expiresAt - Date.now() > 365 * 24 * 60 * 60 * 1000) return 'until you revoke it';
@@ -108,7 +98,7 @@ export default function PairScreen() {
             const url = prepareHostedPairingInput(raw);
             setState({ phase: 'confirm', url, machineName: hostedPairingDisplayName(url) });
         } catch (cause) {
-            setState({ phase: 'error', message: pairingFailureText(cause) });
+            setState({ phase: 'error', message: failureText(cause) });
         }
     }, []);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
@@ -184,7 +174,7 @@ export default function PairScreen() {
             if (cancelled) return;
             // No link is not a failure: the manual form below is the next step.
         }).catch((cause) => {
-            if (!cancelled) setState({ phase: 'error', message: pairingFailureText(cause) });
+            if (!cancelled) setState({ phase: 'error', message: failureText(cause) });
         });
         // Warm start: the app was already open when the link arrived.
         const subscription = Linking.addEventListener('url', (event) => receive(event.url));
@@ -234,7 +224,7 @@ export default function PairScreen() {
         void pair(url, machineName ?? 'this machine').catch((cause) => {
             setState({
                 phase: 'error',
-                message: pairingFailureText(cause),
+                message: failureText(cause),
                 url,
                 machineName,
             });

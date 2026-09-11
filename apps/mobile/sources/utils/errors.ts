@@ -32,3 +32,12 @@ export function humanError(cause: unknown): HumanError {
     }
     return { title: 'Something went wrong', message: "That didn't work. Try again in a moment.", details: raw || undefined };
 }
+
+/**
+ * The human sentence when one exists; otherwise the raw cause, since a bare
+ * "try again" hides the one detail that would let the person fix it.
+ */
+export function failureText(cause: unknown): string {
+    const human = humanError(cause);
+    return human.title === 'Something went wrong' && human.details ? human.details.replace(/`/g, '') : human.message;
+}

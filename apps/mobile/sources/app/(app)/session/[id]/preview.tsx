@@ -9,7 +9,7 @@ import { Typography } from '@/constants/Typography';
 import { useSession, useSocketStatus } from '@/catalog/store';
 import * as Device from 'expo-device';
 import { openPreview, previewIsSameOrigin, previewMayOpenTopLevel, type OpenPreview } from '@/preview';
-import { humanError } from '@/utils/errors';
+import { failureText } from '@/utils/errors';
 
 /** A tunnel that never delivers a first paint is a failure with a retry, not a blank frame. */
 const FIRST_PAINT_TIMEOUT_MS = 15_000;
@@ -130,7 +130,7 @@ export default function PreviewScreen() {
         } catch (cause: unknown) {
             tab?.close();
             if (attempt !== attemptRef.current) return;
-            setError(humanError(cause).message);
+            setError(failureText(cause));
         } finally {
             if (attempt === attemptRef.current) setOpening(false);
         }
@@ -203,7 +203,7 @@ export default function PreviewScreen() {
                     startInLoadingState
                     onLoadEnd={() => setPainted(true)}
                     onNavigationStateChange={(state) => setNav({ canGoBack: state.canGoBack, canGoForward: state.canGoForward })}
-                    onError={({ nativeEvent }) => { setPreview((current) => { current?.close(); return null; }); setError(humanError(nativeEvent.description).message); }}
+                    onError={({ nativeEvent }) => { setPreview((current) => { current?.close(); return null; }); setError(failureText(nativeEvent.description)); }}
                 />
             </View>
         );

@@ -21,7 +21,7 @@ export function DictateButton({ context }: PrimitiveProps) {
         <BubblePressable
             onPress={unavailable ? undefined : dictation.toggle}
             disabled={unavailable}
-            style={{ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', opacity: unavailable ? 0.4 : 1 }}
+            style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', opacity: unavailable ? 0.4 : 1 }}
             pressedStyle={{ backgroundColor: theme.colors.glass.backgroundSubtle }}
             accessibilityRole="button"
             accessibilityLabel={t('plugins.dictate')}

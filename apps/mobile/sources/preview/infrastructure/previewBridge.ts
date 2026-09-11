@@ -9,6 +9,7 @@
  * where it is reachable.
  */
 
+import { Buffer } from 'buffer';
 import TcpSocket from 'react-native-tcp-socket';
 import { deriveV2Key, openPreviewPayload, sealPreviewPayload } from '@muxr/crypto';
 import { decodePreviewFrame, encodePreviewFrame, PREVIEW_CLOSE, PREVIEW_DATA } from '@muxr/contract';
@@ -52,7 +53,10 @@ export async function startPreviewBridge(socket: WebSocket, key: string, _channe
     socket.onmessage = (event) => {
         if (typeof event.data === 'string') return;
         const frame = decodePreviewFrame(new Uint8Array(event.data as ArrayBuffer));
-        if (frame === undefined) return;
+        if (frame === undefined) {
+            console.warn(`preview: dropped a malformed host frame (${Object.prototype.toString.call(event.data)})`);
+            return;
+        }
         const connection = connections.get(frame.connId);
         if (connection === undefined) return;
         if (frame.flag === PREVIEW_CLOSE) {
@@ -63,7 +67,9 @@ export async function startPreviewBridge(socket: WebSocket, key: string, _channe
         if (frame.payload.length > 0) {
             try {
                 connection.write(Buffer.from(openPreviewPayload(frame.payload, hostToClientKey)));
-            } catch {
+            } catch (error) {
+                // Same visibility the host gives its rejected frames.
+                console.warn(`preview: rejected host frame: ${error instanceof Error ? error.message : String(error)}`);
                 connections.delete(frame.connId);
                 connection.destroy();
                 send(frame.connId, PREVIEW_CLOSE);

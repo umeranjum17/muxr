@@ -11,7 +11,7 @@ import { useSession, useSocketStatus } from '@/catalog/store';
 import { mapDisplayToInput, type Size, type StreamFrameMetadata } from '@/takeover';
 import { codeForKey, isTakeoverConflict, keyMessage, openTakeover, parseStreamFrame, textEdits, touchMessage, wheelMessage } from '@/takeover';
 import { useWebImeComposing } from '@/components/useWebImeComposing';
-import { humanError } from '@/utils/errors';
+import { failureText } from '@/utils/errors';
 
 function selectedPort(value: string | undefined): number | undefined {
     if (value === undefined || !/^\d{1,5}$/.test(value)) return undefined;
@@ -188,7 +188,7 @@ export default function TakeoverScreen() {
                 }
             }
             if (superseded()) return;
-            setError(humanError(cause).message);
+            setError(failureText(cause));
             setConnecting(false);
         } finally {
             if (!stale()) setConnecting(false);
