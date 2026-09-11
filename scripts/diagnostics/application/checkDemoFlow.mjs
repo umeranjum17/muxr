@@ -275,6 +275,18 @@ try {
     // The row's visible text is the title; the accessibility label is not
     // part of innerText. The menu itself is proven by its Stop agent row.
     await journey.waitFor('changes control', (text) => text.includes('Stop agent') && text.includes('Changes'));
+    // The open menu owns one history entry: browser Back closes it and stays
+    // on the session; Escape does the same.
+    await journey.evaluate('window.history.back()');
+    await journey.waitFor('menu closed by back', (text) => !text.includes('Stop agent'));
+    check('browser back closes the session menu without leaving', (await journey.evaluate('window.location.pathname')).startsWith('/session/'));
+    await clickControl('Session actions');
+    await journey.waitFor('menu reopened', (text) => text.includes('Stop agent'));
+    await journey.evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await journey.waitFor('menu closed by escape', (text) => !text.includes('Stop agent'));
+    check('escape closes the session menu and stays', (await journey.evaluate('window.location.pathname')).startsWith('/session/'));
+    await clickControl('Session actions');
+    await journey.waitFor('menu open again', (text) => text.includes('Stop agent') && text.includes('Changes'));
     await clickControl('Open changed files');
     await journey.waitFor('changed file', (text) => text.includes('sync.ts'));
     await clickText('sync.ts');

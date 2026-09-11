@@ -9,7 +9,9 @@ import { Modal } from '@/modal';
 import { machineBash } from '@/catalog/ops';
 import { useSession, useSocketStatus } from '@/catalog/store';
 import { mapDisplayToInput, type Size, type StreamFrameMetadata } from '@/takeover';
-import { codeForKey, isTakeoverConflict, keyMessage, openTakeover, parseStreamFrame, touchMessage } from '@/takeover';
+import { codeForKey, isTakeoverConflict, keyMessage, openTakeover, parseStreamFrame, textEdits, touchMessage, wheelMessage } from '@/takeover';
+import { useWebImeComposing } from '@/components/useWebImeComposing';
+import { humanError } from '@/utils/errors';
 
 function selectedPort(value: string | undefined): number | undefined {
     if (value === undefined || !/^\d{1,5}$/.test(value)) return undefined;
@@ -29,6 +31,8 @@ interface LiveFrame {
 
 const TAP_SLOP_PX = 12;
 const TAP_TIMEOUT_MS = 400;
+/** A connected stream that never paints is a failure, not a spinner. */
+const FIRST_FRAME_TIMEOUT_MS = 15_000;
 
 /**
  * Live view of an agent-browser stream, tunnelled through the relay preview
@@ -56,6 +60,14 @@ export default function TakeoverScreen() {
     const inputRef = React.useRef<TextInput>(null);
     const tapRef = React.useRef<{ x: number; y: number; at: number } | null>(null);
     const streamRef = React.useRef<{ command: string; cwd: string } | null>(null);
+    // Every async startup stage checks this: a retry or navigation away bumps
+    // it, and whatever a late stage produced is closed instead of adopted.
+    const attemptRef = React.useRef(0);
+    const firstFrameTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const surfaceRef = React.useRef<View>(null);
+    const dragRef = React.useRef<{ active: boolean; pending: { x: number; y: number } | null; raf: number | undefined }>({ active: false, pending: null, raf: undefined });
+    const committedRef = React.useRef('');
+    const isComposingRef = useWebImeComposing(inputRef, keyboardOpen);
 
     const cwd = session?.metadata?.path ?? '.';
     const sessionFlag = selectedSession(browserSession);
@@ -72,6 +84,9 @@ export default function TakeoverScreen() {
     }, [watching]);
 
     const disconnect = React.useCallback(() => {
+        attemptRef.current += 1;
+        if (firstFrameTimerRef.current !== undefined) clearTimeout(firstFrameTimerRef.current);
+        firstFrameTimerRef.current = undefined;
         socketRef.current?.close();
         socketRef.current = null;
         streamSendRef.current = null;
@@ -79,31 +94,52 @@ export default function TakeoverScreen() {
         closeTunnelRef.current = null;
     }, []);
 
+    const armFirstFrame = React.useCallback((attempt: number) => {
+        firstFrameTimerRef.current = setTimeout(() => {
+            if (attempt !== attemptRef.current) return;
+            disconnect();
+            setError('The browser stream connected but never sent a picture. Check the agent browser is open, then retry.');
+        }, FIRST_FRAME_TIMEOUT_MS);
+    }, [disconnect]);
+
     // Refcounted stream lifecycle: the screen enables on mount and disables on
     // unmount, so the screencast never outlives its last watcher.
     const connect = React.useCallback(async (streamPort: number, mode: 'observe' | 'control' = 'control') => {
         disconnect();
+        const attempt = attemptRef.current;
+        const stale = () => attempt !== attemptRef.current;
         setConnecting(true);
         setError(null);
         setWatching(mode === 'observe');
         try {
             await machineBash('', `${agentBrowser} stream enable --port ${streamPort}`, cwd);
             streamRef.current = { command: agentBrowser, cwd };
+            if (stale()) return;
             const opened = await openTakeover({ port: streamPort, mode });
+            if (stale()) {
+                // Late result after retry or leaving the screen: never adopt it.
+                opened.close();
+                return;
+            }
             closeTunnelRef.current = opened.close;
+            const paint = (next: ReturnType<typeof parseStreamFrame>) => {
+                if (next === undefined || stale()) return;
+                if (firstFrameTimerRef.current !== undefined) clearTimeout(firstFrameTimerRef.current);
+                firstFrameTimerRef.current = undefined;
+                setFrame({ uri: `data:image/jpeg;base64,${next.data}`, metadata: next.metadata });
+            };
+            armFirstFrame(attempt);
             if (opened.stream !== undefined) {
                 // Browser: frames and input ride the sealed preview channel;
                 // rendering, tap mapping, and input messages below are shared.
                 const stream = opened.stream;
                 streamSendRef.current = (message) => stream.send(message);
-                stream.onMessage((data) => {
-                    const next = parseStreamFrame(data);
-                    if (next !== undefined) setFrame({ uri: `data:image/jpeg;base64,${next.data}`, metadata: next.metadata });
-                });
+                stream.onMessage((data) => paint(parseStreamFrame(data)));
                 stream.onClose(() => {
+                    if (stale()) return;
                     setFrame(null);
                     // Deliberate teardown nulls the sender first, as with the socket.
-                    if (streamSendRef.current !== null) setError('The takeover stream closed.');
+                    if (streamSendRef.current !== null) setError('The browser stream closed. Retry to reconnect.');
                     // An upstream death leaves the outer tunnel open but useless:
                     // close it so the relay and host reap the pair and free the
                     // port for the next device. A no-op after deliberate teardown.
@@ -114,18 +150,17 @@ export default function TakeoverScreen() {
             if (opened.wsUrl === undefined) throw new Error('The takeover stream is unavailable on this platform.');
             const socket = new WebSocket(opened.wsUrl);
             socketRef.current = socket;
-            socket.onmessage = (event) => {
-                const next = parseStreamFrame(event.data);
-                if (next !== undefined) setFrame({ uri: `data:image/jpeg;base64,${next.data}`, metadata: next.metadata });
-            };
-            socket.onerror = () => setError('The takeover stream connection failed.');
+            socket.onmessage = (event) => paint(parseStreamFrame(event.data));
+            socket.onerror = () => { if (!stale()) setError('Could not reach the browser stream. Retry to reconnect.'); };
             socket.onclose = () => {
+                if (stale()) return;
                 setFrame(null);
                 // A close on the live socket is never silent: deliberate
                 // teardown nulls the ref first, so this only fires upstream.
-                if (socketRef.current === socket) setError('The takeover stream closed.');
+                if (socketRef.current === socket) setError('The browser stream closed. Retry to reconnect.');
             };
         } catch (cause: unknown) {
+            if (stale()) return;
             disconnect();
             if (mode === 'control' && isTakeoverConflict(cause)) {
                 const watch = await Modal.confirm(
@@ -138,11 +173,11 @@ export default function TakeoverScreen() {
                     return;
                 }
             }
-            setError(cause instanceof Error ? cause.message : String(cause));
+            setError(humanError(cause).message);
         } finally {
-            setConnecting(false);
+            if (!stale()) setConnecting(false);
         }
-    }, [agentBrowser, cwd, disconnect]);
+    }, [agentBrowser, armFirstFrame, cwd, disconnect]);
 
     const attempted = React.useRef<string | undefined>(undefined);
     const directPort = selectedPort(port);
@@ -166,26 +201,104 @@ export default function TakeoverScreen() {
     };
     React.useEffect(() => () => cleanupRef.current(), []);
 
+    // One finger past the tap slop is a touch drag: the page gets the same
+    // touchStart/touchMove/touchEnd it would from a real finger and decides
+    // itself whether that scrolls or drags. Moves coalesce to one per frame.
+    const flushDrag = React.useCallback(() => {
+        const drag = dragRef.current;
+        drag.raf = undefined;
+        if (!drag.active || drag.pending === null || frame === null) return;
+        send(touchMessage('touchMove', mapDisplayToInput(drag.pending, display, frame.metadata)));
+        drag.pending = null;
+    }, [display, frame, send]);
+
+    const moveTouch = React.useCallback((x: number, y: number) => {
+        const start = tapRef.current;
+        const drag = dragRef.current;
+        if (start === null || frame === null) return;
+        if (!drag.active) {
+            if (Math.abs(x - start.x) <= TAP_SLOP_PX && Math.abs(y - start.y) <= TAP_SLOP_PX) return;
+            drag.active = true;
+            send(touchMessage('touchStart', mapDisplayToInput(start, display, frame.metadata)));
+        }
+        drag.pending = { x, y };
+        if (drag.raf === undefined) drag.raf = requestAnimationFrame(flushDrag);
+    }, [display, flushDrag, frame, send]);
+
+    const endTouch = React.useCallback(() => {
+        const drag = dragRef.current;
+        if (!drag.active) return false;
+        if (drag.raf !== undefined) cancelAnimationFrame(drag.raf);
+        drag.raf = undefined;
+        drag.pending = null;
+        drag.active = false;
+        send(touchMessage('touchEnd'));
+        return true;
+    }, [send]);
+
     const releaseTap = React.useCallback((x: number, y: number) => {
         const start = tapRef.current;
         tapRef.current = null;
+        if (endTouch()) return;
         if (start === null || frame === null) return;
         if (Math.abs(x - start.x) > TAP_SLOP_PX || Math.abs(y - start.y) > TAP_SLOP_PX) return;
         if (Date.now() - start.at > TAP_TIMEOUT_MS) return;
         const point = mapDisplayToInput({ x, y }, display, frame.metadata);
         send(touchMessage('touchStart', point));
         send(touchMessage('touchEnd'));
+    }, [display, endTouch, frame, send]);
+
+    // Wheel on web goes to the page as a wheel tick at the pointer; the page
+    // scrolls or not. Native has no wheel; touch drag covers it.
+    React.useEffect(() => {
+        if (Platform.OS !== 'web' || frame === null) return;
+        const node = surfaceRef.current as unknown as HTMLElement | null;
+        if (node === null || typeof node.addEventListener !== 'function') return;
+        const onWheel = (event: WheelEvent) => {
+            event.preventDefault();
+            const rect = node.getBoundingClientRect();
+            const point = mapDisplayToInput({ x: event.clientX - rect.left, y: event.clientY - rect.top }, display, frame.metadata);
+            send(wheelMessage(point, event.deltaX, event.deltaY));
+        };
+        node.addEventListener('wheel', onWheel, { passive: false });
+        return () => node.removeEventListener('wheel', onWheel);
     }, [display, frame, send]);
 
-    const pushText = React.useCallback((value: string) => {
-        const added = value.slice(typed.length);
-        for (const key of added) {
+    // Edits, not appends: whatever changed since the last committed value is
+    // sent as backspaces plus retyped tail. Mid-composition text stays local
+    // until the IME commits, so the page never sees half a character.
+    const commitText = React.useCallback((value: string) => {
+        const edits = textEdits(committedRef.current, value);
+        for (let index = 0; index < edits.deletions; index += 1) {
+            send(keyMessage('keyDown', 'Backspace', 'Backspace'));
+            send(keyMessage('keyUp', 'Backspace', 'Backspace'));
+        }
+        for (const key of edits.inserted) {
             send(keyMessage('keyDown', key, codeForKey(key)));
             send(keyMessage('keyUp', key, codeForKey(key)));
         }
         // Keep the hidden field short so diffs stay cheap and nothing accumulates.
-        setTyped(value.length > 32 ? '' : value);
-    }, [send, typed]);
+        const kept = value.length > 32 ? '' : value;
+        committedRef.current = kept;
+        setTyped(kept);
+    }, [send]);
+
+    const pushText = React.useCallback((value: string) => {
+        if (isComposingRef.current) {
+            setTyped(value);
+            return;
+        }
+        commitText(value);
+    }, [commitText, isComposingRef]);
+
+    React.useEffect(() => {
+        if (Platform.OS !== 'web' || !keyboardOpen) return;
+        const node = inputRef.current as unknown as HTMLInputElement | null;
+        if (node === null || typeof node.addEventListener !== 'function') return;
+        const onEnd = () => commitText(node.value);
+        node.addEventListener('compositionend', onEnd);
+        return () => node.removeEventListener('compositionend', onEnd);
+    }, [commitText, keyboardOpen]);
 
     const saveState = React.useCallback(async () => {
         const accepted = await Modal.confirm(
@@ -205,6 +318,7 @@ export default function TakeoverScreen() {
             setKeyboardOpen(false);
         } else {
             setTyped('');
+            committedRef.current = '';
             inputRef.current?.focus();
             setKeyboardOpen(true);
         }
@@ -234,7 +348,9 @@ export default function TakeoverScreen() {
             value={typed}
             onChangeText={pushText}
             onKeyPress={({ nativeEvent }) => {
-                if (nativeEvent.key === 'Backspace') {
+                // With text in the field, the diff path sends the deletion;
+                // an empty field has nothing to diff, so forward it directly.
+                if (nativeEvent.key === 'Backspace' && committedRef.current === '') {
                     send(keyMessage('keyDown', 'Backspace', 'Backspace'));
                     send(keyMessage('keyUp', 'Backspace', 'Backspace'));
                 }
@@ -256,14 +372,17 @@ export default function TakeoverScreen() {
         return (
             <View style={{ flex: 1, backgroundColor: '#000' }}>
                 <View
+                    ref={surfaceRef}
                     style={{ flex: 1 }}
                     onLayout={(event) => setDisplay({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
                     onStartShouldSetResponder={() => true}
+                    onMoveShouldSetResponder={() => true}
                     onResponderGrant={(event) => {
                         tapRef.current = { x: event.nativeEvent.locationX, y: event.nativeEvent.locationY, at: Date.now() };
                     }}
+                    onResponderMove={(event) => moveTouch(event.nativeEvent.locationX, event.nativeEvent.locationY)}
                     onResponderRelease={(event) => releaseTap(event.nativeEvent.locationX, event.nativeEvent.locationY)}
-                    onResponderTerminate={() => { tapRef.current = null; }}
+                    onResponderTerminate={() => { tapRef.current = null; endTouch(); }}
                 >
                     <Image source={{ uri: frame.uri }} style={{ flex: 1 }} resizeMode="contain" />
                 </View>

@@ -80,11 +80,22 @@ export function openRealtimeRecorder(): RealtimeRecorder {
             if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
                 throw new Error('This browser cannot capture microphone audio.');
             }
-            // Permission denial propagates with its platform name intact so
-            // the caller can tell a refusal from a failure.
-            stream = await navigator.mediaDevices.getUserMedia({
-                audio: { echoCancellation: true, noiseSuppression: true },
-            });
+            // Permission denial is named as such so the overlay can say what
+            // to do; other failures keep their platform message.
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    audio: { echoCancellation: true, noiseSuppression: true },
+                });
+            } catch (cause) {
+                // The platform name stays on the error (callers match it);
+                // the message becomes the sentence the overlay shows.
+                const name = cause instanceof Error ? cause.name : '';
+                let message: string | undefined;
+                if (name === 'NotAllowedError' || name === 'SecurityError') message = 'Microphone permission denied for this site.';
+                if (name === 'NotFoundError' || name === 'OverconstrainedError') message = 'No microphone was found on this device.';
+                if (message === undefined) throw cause instanceof Error ? cause : new Error(String(cause));
+                throw Object.assign(new Error(message), { name });
+            }
             try {
                 context = new AudioContext({ sampleRate, latencyHint: 'interactive' });
             } catch (cause) {
@@ -128,7 +139,15 @@ export function openRealtimeRecorder(): RealtimeRecorder {
             if (context === undefined || stream === undefined) {
                 throw new Error('Realtime web recorder is not initialized.');
             }
+            // "Listening" must mean frames are flowing: a context the browser
+            // keeps suspended (no user activation, autoplay policy) produces
+            // silence, so give it a moment to resume and otherwise say so.
             await context.resume().catch(() => undefined);
+            for (let waited = 0; context.state !== 'running' && waited < 1500; waited += 100) {
+                await new Promise((resolve) => setTimeout(resolve, 100));
+                await context.resume().catch(() => undefined);
+            }
+            if (context.state !== 'running') throw new Error('Audio is suspended by the browser until you tap the page.');
         },
         stop: async (): Promise<void> => {
             closed = true;

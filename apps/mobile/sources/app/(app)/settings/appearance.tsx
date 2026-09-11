@@ -25,6 +25,7 @@ export default function AppearanceSettingsScreen() {
     const [avatarStyle, setAvatarStyle] = useSettingMutable('avatarStyle');
     const [showFlavorIcons, setShowFlavorIcons] = useSettingMutable('showFlavorIcons');
     const [themePreference, setThemePreference] = useLocalSettingMutable('themePreference');
+    const [terminalScreenReader, setTerminalScreenReader] = useLocalSettingMutable('terminalScreenReader');
     const [preferredLanguage] = useSettingMutable('preferredLanguage');
 
     // Ensure we have a valid style for display, defaulting to gradient for unknown values
@@ -105,6 +106,18 @@ export default function AppearanceSettingsScreen() {
                         const nextStyle = nextIndex === 0 ? 'pixelated' : nextIndex === 1 ? 'gradient' : 'brutalist';
                         setAvatarStyle(nextStyle);
                     }}
+                />
+                <Item
+                    title="Accessible terminal"
+                    subtitle="Expose terminal text to screen readers in the browser. Slower on very busy output."
+                    icon={<Ionicons name="accessibility-outline" size={29} color={theme.colors.textSecondary} />}
+                    rightElement={
+                        <Switch
+                            value={terminalScreenReader}
+                            onValueChange={setTerminalScreenReader}
+                            accessibilityLabel="Accessible terminal"
+                        />
+                    }
                 />
                 <Item
                     title={t('settingsAppearance.showFlavorIcons')}

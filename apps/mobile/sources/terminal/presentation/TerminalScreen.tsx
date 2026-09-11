@@ -31,6 +31,7 @@ import type { HerdrTreeTab } from '@muxr/contract';
 const TerminalView = React.lazy(() => import('./TerminalView').then((module) => ({ default: module.TerminalView })));
 import { usePaneGestures } from '../application/usePaneGestures';
 import { useWebImeComposing } from '@/components/useWebImeComposing';
+import { useWebBackCloses } from '@/components/useWebBackCloses';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
 import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, agentStatusColor, herdrPaneForSession, isShellLabels } from '@/herd';
@@ -336,6 +337,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         return () => subscription.remove();
     }, []);
 
+    // Browser Back and Escape close the menu instead of leaving the session.
+    const closeActions = React.useCallback(() => setActionsOpen(false), []);
+    useWebBackCloses(actionsOpen, closeActions, 'muxrSessionActions');
+    const closeMenu = React.useCallback(() => setMenu(null), []);
+    useWebBackCloses(menu !== null, closeMenu, 'muxrSessionMenu');
+
     // The action menu is a plain absolute View, not a modal, so Android's
     // hardware back would leave the screen instead of dismissing it.
     React.useEffect(() => {
@@ -620,6 +627,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 <React.Suspense fallback={<TerminalViewFallback />}>
                     <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} attempt={openAttempt} />
                 </React.Suspense>
+                {/* Connection changes are announced, not only coloured: the pill
+                    is visual, this one line is for assistive tech. */}
+                <Text accessibilityLiveRegion="polite" style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}>
+                    {`Terminal ${statusText}`}
+                </Text>
                 {gestureHint !== null && (
                     <View
                         pointerEvents="none"

@@ -12,6 +12,7 @@ import '@xterm/xterm/css/xterm.css';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import { beginViewportCapture, recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { isDemoTerminalSession } from '@/demo/demoTransport';
+import { useLocalSetting } from '@/catalog/store';
 
 export interface TerminalViewProps {
     sessionId: string;
@@ -43,9 +44,15 @@ function visibleTerminalText(term: Terminal): string {
     return lines.join('\n').replace(/\s+$/, '');
 }
 
+// ponytail: one flat cap, 4 MiB of base64 (~3 MiB ANSI); a full herdr screen is a few KB.
+const PENDING_FRAME_BYTES_MAX = 4 * 1024 * 1024;
+
 export const TerminalView = React.memo((props: TerminalViewProps) => {
     const hostRef = React.useRef<View | null>(null);
     const { sessionId, onStatus, onChannel, attempt = 0 } = props;
+    // Opt-in: xterm's screen-reader DOM costs on busy output, so it is a
+    // persisted preference, never the default. Changing it rebuilds the view.
+    const screenReaderMode = useLocalSetting('terminalScreenReader');
 
     React.useEffect(() => {
         const element = hostRef.current as unknown as HTMLElement | null;
@@ -58,6 +65,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             convertEol: false,
             scrollback: 5000,
             cursorBlink: true,
+            screenReaderMode,
         });
         const fit = new FitAddon();
         term.loadAddon(fit);
@@ -107,12 +115,26 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // arrive back-to-back -- one term.write per rAF instead of one
                 // per socket message halves render passes.
                 let pending: string[] = [];
+                let pendingBytes = 0;
+                let overflowed = false;
                 let frameScheduled = false;
                 const flushFrames = (): void => {
                     frameScheduled = false;
-                    if (disposed || pending.length === 0) return;
+                    if (disposed) return;
+                    if (overflowed) {
+                        // The queue was cut while the tab was backgrounded. What
+                        // survived is not a valid ANSI stream; ask herdr for the
+                        // whole screen instead of painting fragments.
+                        overflowed = false;
+                        pending = [];
+                        pendingBytes = 0;
+                        opened.repaint();
+                        return;
+                    }
+                    if (pending.length === 0) return;
                     const chunks = pending;
                     pending = [];
+                    pendingBytes = 0;
                     let total = 0;
                     const decoded = chunks.map(decodeBase64);
                     for (const chunk of decoded) total += chunk.length;
@@ -129,7 +151,18 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 };
                 opened.onData((base64) => {
                     recordTerminalOutput(sessionId, base64);
-                    pending.push(base64);
+                    // rAF does not fire in a hidden tab, so the queue is bounded
+                    // by bytes; past the cap the last frame stays on screen and
+                    // the next visible frame requests a fresh snapshot.
+                    if (overflowed) return;
+                    pendingBytes += base64.length;
+                    if (pendingBytes > PENDING_FRAME_BYTES_MAX) {
+                        overflowed = true;
+                        pending = [];
+                        pendingBytes = 0;
+                    } else {
+                        pending.push(base64);
+                    }
                     if (!frameScheduled) {
                         frameScheduled = true;
                         requestAnimationFrame(flushFrames);
@@ -269,7 +302,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         };
     // `attempt` reopens from scratch: a failed first attach left no channel to
     // reconnect, and nothing on screen worth keeping.
-    }, [sessionId, onStatus, onChannel, attempt]);
+    }, [sessionId, onStatus, onChannel, attempt, screenReaderMode]);
 
     return <View ref={hostRef} style={{ flex: 1, backgroundColor: '#0c0c0b' }} />;
 });

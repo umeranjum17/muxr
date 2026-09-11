@@ -316,7 +316,35 @@ function applyTransportStatus(handle: RealtimeHandle, liveEpoch: number, next: R
     notify();
 }
 
+// Browser voice is foreground-only: a hidden tab cannot be trusted to keep
+// the microphone or playback alive, so the call sleeps with a reason the
+// overlay can name, and the tracks are released instead of lingering.
+let backgroundWatch = false;
+function watchBackgroundOnWeb(): void {
+    if (backgroundWatch || typeof document === 'undefined' || typeof document.addEventListener !== 'function') return;
+    backgroundWatch = true;
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            // Back in front: standby may listen again; a live call stays paused
+            // until the user taps, since the browser may have dropped audio.
+            if (watching && session === null && !starting) void armVadStandby();
+            return;
+        }
+        const wasLive = session !== null || starting;
+        // Sleeping re-arms standby by design; a hidden tab must not hold the
+        // microphone for standby either, so stop that after.
+        if (wasLive) sleepRealtimeSession();
+        vadEpoch += 1;
+        stopVadStandby();
+        if (wasLive) {
+            detail = 'Voice paused while this tab was in the background.';
+            notify();
+        }
+    });
+}
+
 export function startRealtimeSession(input: RealtimeTarget | string): boolean {
+    watchBackgroundOnWeb();
     const target = typeof input === 'string'
         ? { machineId: getCachedConnectionSettings().machineId, sessionId: input }
         : { ...input };

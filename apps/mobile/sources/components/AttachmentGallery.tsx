@@ -9,6 +9,7 @@ import { Typography } from '@/constants/Typography';
 import { downloadAttachment } from '@/utils/downloadAttachment';
 import { Modal as AppModal } from '@/modal';
 import { attachmentPreview, type AttachmentAction, type AttachmentPreviewSource } from '@/utils/attachmentPreview';
+import { humanError } from '@/utils/errors';
 
 export interface GalleryImage {
     id: string;
@@ -36,7 +37,7 @@ export function AttachmentThumbnail({ sessionId, image, onPress, enabled = true,
         if (enabled && (image.action.size > MAX_THUMBNAIL_BYTES || preview === null)) settle();
     }, [enabled, image.action.size, preview, settle]);
     return (
-        <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`Open ${image.title}`}
+        <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={preview === null || failed ? `Open ${image.title}, preview failed to load` : `Open ${image.title}`}
             style={({ pressed }) => [styles.thumbnail, pressed && styles.pressed]}>
             {!enabled || image.action.size > MAX_THUMBNAIL_BYTES
                 ? <Ionicons name="image-outline" size={22} color="rgba(255,255,255,0.38)" />
@@ -91,7 +92,7 @@ export function AttachmentGallery({ sessionId, images, initialIndex, onClose }: 
                     <Pressable disabled={downloading} onPress={() => {
                         setDownloading(true);
                         void downloadAttachment(sessionId, { ...active.action, mimeType: active.action.mimeType ?? 'application/octet-stream', at: 0 })
-                            .catch((error: unknown) => AppModal.alert('Download failed', error instanceof Error ? error.message : String(error)))
+                            .catch((error: unknown) => AppModal.alert(`Couldn't download ${active.title}`, humanError(error).message))
                             .finally(() => setDownloading(false));
                     }} accessibilityRole="button" accessibilityLabel={`Download ${active.title}`} style={({ pressed }) => [styles.galleryControl, pressed && styles.pressed]}>
                         {downloading ? <ActivityIndicator color="#fff" /> : <Ionicons name="download-outline" size={21} color="#fff" />}
@@ -129,21 +130,28 @@ export function AttachmentGallery({ sessionId, images, initialIndex, onClose }: 
 function GalleryPage({ sessionId, image, width, height, active }: { sessionId: string; image: GalleryImage; width: number; height: number; active: boolean }) {
     // FlatList keeps neighbour pages mounted for smooth swiping; only the page
     // actually on screen is allowed to ask the host for bytes.
-    const preview = useAttachmentPreview(sessionId, image.action, active);
+    const [attempt, setAttempt] = React.useState(0);
+    const preview = useAttachmentPreview(sessionId, image.action, active, attempt);
     const [failed, setFailed] = React.useState(false);
-    React.useEffect(() => setFailed(false), [image.id]);
+    React.useEffect(() => setFailed(false), [image.id, attempt]);
     return <View style={{ width, height, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 86 }}>
         {!active
             ? null
             : preview === undefined
               ? <ActivityIndicator color="rgba(255,255,255,0.6)" />
             : preview === null || failed
-              ? <Ionicons name="image-outline" size={34} color="rgba(255,255,255,0.32)" />
+              ? <View style={{ alignItems: 'center', gap: 10 }}>
+                  <Ionicons name="image-outline" size={34} color="rgba(255,255,255,0.32)" />
+                  <Text style={styles.failedName} numberOfLines={2}>{`Couldn't load ${image.title}`}</Text>
+                  <Pressable onPress={() => setAttempt((value) => value + 1)} accessibilityRole="button" accessibilityLabel={`Retry loading ${image.title}`} hitSlop={10} style={({ pressed }) => [styles.retry, pressed && styles.pressed]}>
+                      <Text style={styles.retryText}>Retry</Text>
+                  </Pressable>
+              </View>
               : <Image source={{ uri: preview.uri }} style={{ width: '100%', height: '100%' }} contentFit="contain" transition={160} recyclingKey={image.id} onError={() => setFailed(true)} />}
     </View>;
 }
 
-function useAttachmentPreview(sessionId: string, action: AttachmentAction, enabled = true): AttachmentPreviewSource | null | undefined {
+function useAttachmentPreview(sessionId: string, action: AttachmentAction, enabled = true, attempt = 0): AttachmentPreviewSource | null | undefined {
     const [source, setSource] = React.useState<AttachmentPreviewSource | null>();
     React.useEffect(() => {
         let alive = true;
@@ -155,11 +163,14 @@ function useAttachmentPreview(sessionId: string, action: AttachmentAction, enabl
             if (alive) setSource(next); else next.dispose?.();
         }).catch(() => { if (alive) setSource(null); });
         return () => { alive = false; loaded?.dispose?.(); };
-    }, [action.id, action.name, action.size, enabled, sessionId]);
+    }, [action.id, action.name, action.size, attempt, enabled, sessionId]);
     return source;
 }
 
 const styles = StyleSheet.create({
+    failedName: { color: 'rgba(255,255,255,0.7)', fontSize: 13, textAlign: 'center', paddingHorizontal: 24 },
+    retry: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)' },
+    retryText: { color: '#fff', fontSize: 14, fontWeight: '600' },
     thumbnail: { aspectRatio: 1.25, borderRadius: 14, overflow: 'hidden', backgroundColor: '#151619', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
     thumbnailShade: { ...StyleSheet.absoluteFillObject, top: '30%' },
     thumbnailCaption: { position: 'absolute', left: 10, right: 10, bottom: 9 },

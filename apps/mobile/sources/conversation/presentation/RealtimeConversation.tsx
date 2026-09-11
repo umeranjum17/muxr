@@ -19,7 +19,7 @@ import {
     useRealtimeTurns,
     useRealtimeWatching,
 } from '../application/realtimeSessionState';
-import { realtimeCallLabel } from '../domain/micOwnership';
+import { realtimeCallLabel, voiceStopReason } from '../domain/micOwnership';
 
 export const RealtimeConversation = React.memo(function RealtimeConversation({
     visible,
@@ -35,6 +35,8 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     const watching = useRealtimeWatching();
     const previousState = React.useRef(state);
     const transcript = React.useRef<ScrollView>(null);
+    const followRef = React.useRef(true);
+    const [behind, setBehind] = React.useState(false);
     // The voice is attached to a working session; what that session is doing is
     // the other half of "what is happening right now".
     const bound = rememberedRealtimeSession();
@@ -68,7 +70,8 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     if (!visible) return null;
 
     const speaking = state === 'speaking';
-    const status = realtimeCallLabel(state, watching, muted, speaking);
+    const stopReason = state === 'disconnected' ? voiceStopReason(detail) : undefined;
+    const status = realtimeCallLabel(state, watching, muted, speaking, stopReason);
     const failure = state === 'disconnected' || state === 'connecting' ? detail : undefined;
 
     return (
@@ -98,8 +101,10 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
             </View>
 
             <View style={{ flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 8, gap: 18 }}>
-                <RealtimeSessionVisual size={240} state={state} muted={muted} />
-                <Text style={{ color: '#f7f8fb', fontSize: 22, lineHeight: 28, textAlign: 'center', ...Typography.default('semiBold') }}>
+                <View accessible={false} importantForAccessibility="no-hide-descendants">
+                    <RealtimeSessionVisual size={240} state={state} muted={muted} />
+                </View>
+                <Text accessibilityRole="header" accessibilityLiveRegion="polite" style={{ color: '#f7f8fb', fontSize: 22, lineHeight: 28, textAlign: 'center', ...Typography.default('semiBold') }}>
                     {status}
                 </Text>
                 {activity !== undefined && (
@@ -117,7 +122,19 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
                     hid the half of the conversation you wanted to check. */}
                 <ScrollView ref={transcript} style={{ flex: 1, alignSelf: 'stretch' }} contentContainerStyle={{ paddingVertical: 8, gap: 10 }}
                     showsVerticalScrollIndicator={false}
-                    onContentSizeChange={() => transcript.current?.scrollToEnd({ animated: true })}>
+                    scrollEventThrottle={64}
+                    onScroll={({ nativeEvent }) => {
+                        const gap = nativeEvent.contentSize.height - nativeEvent.layoutMeasurement.height - nativeEvent.contentOffset.y;
+                        const atBottom = gap < 24;
+                        followRef.current = atBottom;
+                        setBehind(!atBottom);
+                    }}
+                    onContentSizeChange={() => {
+                        // Follow only while the reader is at the end; a scrolled-up
+                        // reader keeps their place and gets a way back instead.
+                        if (followRef.current) transcript.current?.scrollToEnd({ animated: true });
+                        else setBehind(true);
+                    }}>
                     {turns.slice(-24).map((turn) => (
                         <View key={turn.id} style={{ flexDirection: 'row', gap: 10 }}>
                             <Text style={{ color: turn.role === 'agent' ? '#7f8794' : '#5d636e', fontSize: 11, lineHeight: 21, width: 34, ...Typography.mono('regular') }}>
@@ -129,6 +146,18 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
                         </View>
                     ))}
                 </ScrollView>
+                {behind && (
+                    <Pressable
+                        onPress={() => { followRef.current = true; setBehind(false); transcript.current?.scrollToEnd({ animated: true }); }}
+                        hitSlop={10}
+                        accessibilityRole="button"
+                        accessibilityLabel="Jump to the latest turn"
+                        style={{ position: 'absolute', bottom: 8, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: '#202329' }}
+                    >
+                        <Ionicons name="arrow-down" size={14} color="#f3f4f7" />
+                        <Text style={{ color: '#f3f4f7', fontSize: 12, ...Typography.default('semiBold') }}>Latest</Text>
+                    </Pressable>
+                )}
             </View>
 
             <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 28, paddingBottom: insets.bottom + 28 }}>

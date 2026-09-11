@@ -46,11 +46,25 @@ export function parseStreamFrame(raw: unknown): StreamFrame | undefined {
     }
 }
 
-export function touchMessage(eventType: 'touchStart' | 'touchEnd', point?: Point): string {
+export function touchMessage(eventType: 'touchStart' | 'touchMove' | 'touchEnd', point?: Point): string {
     return JSON.stringify({
         type: 'input_touch',
         eventType,
         touchPoints: point === undefined ? [] : [{ x: point.x, y: point.y }],
+    });
+}
+
+/** A wheel tick at a page point; the page decides whether it scrolls. */
+export function wheelMessage(point: Point, deltaX: number, deltaY: number): string {
+    return JSON.stringify({
+        type: 'input_mouse',
+        eventType: 'mouseWheel',
+        x: point.x,
+        y: point.y,
+        button: 'none',
+        clickCount: 0,
+        deltaX: Math.round(deltaX),
+        deltaY: Math.round(deltaY),
     });
 }
 

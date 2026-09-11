@@ -35,6 +35,9 @@ export interface TerminalViewProps {
     attempt?: number;
 }
 
+/** Backgrounded rAF never fires; past this the queue is cut and a snapshot requested instead. */
+const PENDING_FRAME_BYTES_MAX = 4 * 1024 * 1024;
+
 /** KeyboardAvoidingView animates through many intermediate sizes; wait for settle. */
 const RESIZE_DEBOUNCE_MS = 120;
 
@@ -46,6 +49,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const lastSizeRef = React.useRef<{ cols: number; rows: number } | null>(null);
     const resizeTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const pendingWritesRef = React.useRef<string[]>([]);
+    const pendingBytesRef = React.useRef(0);
+    const overflowedRef = React.useRef(false);
     const writeRafRef = React.useRef<number | undefined>(undefined);
     const pendingScrollRef = React.useRef(0);
     const scrollRafRef = React.useRef<number | undefined>(undefined);
@@ -61,6 +66,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         scrollAckTimerRef.current = undefined;
         scrollInFlightRef.current = false;
         pendingWritesRef.current = [];
+        pendingBytesRef.current = 0;
+        overflowedRef.current = false;
         pendingScrollRef.current = 0;
     };
 
@@ -68,6 +75,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         writeRafRef.current = undefined;
         const chunks = pendingWritesRef.current;
         pendingWritesRef.current = [];
+        pendingBytesRef.current = 0;
+        if (overflowedRef.current) {
+            // Cut queue is not a valid ANSI stream: ask for the whole screen.
+            overflowedRef.current = false;
+            beginViewportCapture(sessionId);
+            channelRef.current?.repaint();
+            return;
+        }
         const view = termRef.current;
         if (view === null || chunks.length === 0) return;
         if (chunks.length === 1) {
@@ -172,7 +187,15 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     channel.onData((base64) => {
                         recordTerminalOutput(sessionId, base64);
                         settleScroll();
-                        pendingWritesRef.current.push(base64);
+                        if (overflowedRef.current) return;
+                        pendingBytesRef.current += base64.length;
+                        if (pendingBytesRef.current > PENDING_FRAME_BYTES_MAX) {
+                            overflowedRef.current = true;
+                            pendingWritesRef.current = [];
+                            pendingBytesRef.current = 0;
+                        } else {
+                            pendingWritesRef.current.push(base64);
+                        }
                         if (writeRafRef.current === undefined) {
                             writeRafRef.current = requestAnimationFrame(flushWrites);
                         }
