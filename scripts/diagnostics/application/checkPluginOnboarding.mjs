@@ -55,7 +55,7 @@ const KEEP = process.argv.includes('--keep');
 const ONLY = (process.argv.find((arg) => arg.startsWith('--only='))?.slice('--only='.length) ?? '')
     .split(',').map((stage) => stage.trim()).filter((stage) => stage !== '');
 const REF_ARG = process.argv.find((arg) => arg.startsWith('--ref='))?.slice('--ref='.length);
-const TARBALL_ARG = process.argv.find((arg) => arg.startsWith('--tarball='))?.slice('--tarball='.length);
+const TARBALL_ARG = process.argv.find((arg) => arg.startsWith('--tarball='))?.slice('--tarball='.length) ?? process.env.GATE_TARBALL?.trim();
 
 function gitHead() {
     const check = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' });
