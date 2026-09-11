@@ -88,17 +88,25 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const keyboardVisible = useKeyboardState().isVisible;
     const keyboardHeight = useKeyboardState().height;
     // The keyboard controller has no native module on web, so the session
-    // follows the visual viewport there instead — same shape as the home
-    // dock. Applied only while the composer holds focus, so desktop
-    // zoom/pinch never shifts the session. This is the one geometry system
-    // on web: exactly one of the two sources below ever moves the layout.
+    // follows the visual viewport there instead. Any real keyboard
+    // occlusion moves the layout — the composer, but also raw xterm focus,
+    // which is a supported input path (term.onData) with its own hidden
+    // textarea. Pinch zoom also shrinks the visual viewport, so the zoom
+    // level tells them apart: a keyboard preserves it exactly, a pinch
+    // changes it. The resting zoom is whatever scale reads with no
+    // occlusion (and whatever it reads on the very first update, so a
+    // mount with the keyboard already up still pads). This is the one
+    // geometry system on web: exactly one of the two sources below ever
+    // moves the layout.
     const [viewportOffset, setViewportOffset] = React.useState(0);
-    const [composerFocused, setComposerFocused] = React.useState(false);
+    const restZoomRef = React.useRef<number | null>(null);
     React.useEffect(() => {
         if (Platform.OS !== 'web' || typeof window === 'undefined' || window.visualViewport == null) return;
         const viewport = window.visualViewport;
         const update = () => {
-            setViewportOffset(Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop));
+            const occlusion = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+            if (occlusion === 0 || restZoomRef.current === null) restZoomRef.current = viewport.scale;
+            setViewportOffset(viewport.scale === restZoomRef.current ? occlusion : 0);
         };
         update();
         viewport.addEventListener('resize', update);
@@ -109,7 +117,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         };
     }, []);
     const keyboardPad = Platform.OS === 'web'
-        ? (composerFocused ? viewportOffset : 0)
+        ? viewportOffset
         : (keyboardVisible ? keyboardHeight : 0);
     const session = useSession(props.id);
     const sessions = useSessions();
@@ -799,8 +807,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     ref={composerRef}
                     value={draft}
                     onChangeText={handleDraftChange}
-                    onFocus={() => setComposerFocused(true)}
-                    onBlur={() => setComposerFocused(false)}
                     onSubmitEditing={() => {
                         if (!isComposingRef.current) sendPrompt();
                     }}
