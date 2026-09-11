@@ -38,7 +38,7 @@ export function DemoBar({ topInset = 0 }: { topInset?: number }) {
             </Pressable>
             <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={open ? 'Hide the connect steps' : 'Connect your computer: show the install steps'}
+                accessibilityLabel={`Connect your computer: ${open ? 'hide' : 'show'} the install steps`}
                 accessibilityState={{ expanded: open }}
                 onPress={() => setOpen((value) => !value)}
                 style={styles.action}
@@ -153,7 +153,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 4,
-        minHeight: 32,
+        minHeight: 44,
     },
     toggleLabel: {
         ...Typography.default('semiBold'),

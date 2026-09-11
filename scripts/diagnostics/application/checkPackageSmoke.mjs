@@ -667,7 +667,10 @@ try {
     run(cli, ['voice', 'key', 'set', '--stdin'], { cwd: installDir, env: providerEnv, input: 'smoke-key\n' });
     assert.equal(statSync(providerRoot).mode & 0o777, 0o700);
     assert.equal(statSync(join(providerRoot, 'xai.key')).mode & 0o777, 0o600);
-    const packagedStatus = run(cli, ['plugin', 'call', voicePlugin, 'status'], { cwd: installDir, env: { ...providerEnv, MUXR_PLUGIN_STATE_DIR: join(providerRoot, 'plugin-state', 'muxr.voice') } }).stdout;
+    // `muxr plugin call` runs authors' RPCs in a throwaway state dir; the host
+    // hands the Voice plugin its persistent one, so call the packaged RPC the
+    // way the host does.
+    const packagedStatus = run(process.execPath, [join(voicePlugin, 'rpc.mjs'), 'status'], { cwd: installDir, env: { ...providerEnv, MUXR_PLUGIN_STATE_DIR: join(providerRoot, 'plugin-state', 'muxr.voice') }, input: 'null' }).stdout;
     assert.match(packagedStatus, /"configured": true/);
     assert.doesNotMatch(packagedStatus, /xai|grok|key/i, 'client-visible voice status leaked provider vocabulary');
     run(cli, ['voice', 'key', 'clear'], { cwd: installDir, env: providerEnv });
