@@ -1,6 +1,10 @@
 const { execFileSync } = require('node:child_process');
 const { withAndroidManifest } = require('@expo/config-plugins');
 
+// One version for the app: the release build's APP_VERSION, otherwise the
+// repository version. The Android versionName resolves the same way, so the
+// version the app reports is the version the package carries.
+const version = process.env.APP_VERSION || require('../../package.json').version;
 
 const variant = process.env.APP_ENV || 'development';
 if (!['development', 'preview', 'production'].includes(variant)) {
@@ -107,7 +111,7 @@ export default {
     expo: {
         name,
         slug: "muxr",
-        version: "0.1.12",
+        version,
         runtimeVersion: "2",
         orientation: "default",
         icon: "./sources/assets/images/icon.png",

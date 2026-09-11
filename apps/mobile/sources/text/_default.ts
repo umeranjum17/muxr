@@ -46,6 +46,7 @@ export const en = {
         treeUnavailable: 'Tree unavailable.',
         dictate: 'Dictate',
         unavailableSuffix: 'unavailable',
+        needsAgentSuffix: '— needs an agent session; this pane is a plain shell',
         showingStale: 'showing stale data',
         partialList: ({ shown, total }: { shown: number; total: number }) => `Showing the first ${shown} of ${total}. Open the terminal for the rest.`,
         settingsTitle: 'Plugins',

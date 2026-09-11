@@ -124,6 +124,30 @@ describe('mobile relay liveness', () => {
         client.close();
     });
 
+    it('re-dials when the host never answers client.hello, then goes live on the next socket', async () => {
+        // A freshly paired phone can dial before the host has loaded the new
+        // device key; the dropped hello must not pin the client to connecting.
+        vi.useFakeTimers();
+        vi.stubGlobal('WebSocket', FakeWebSocket);
+        const client = new MuxrClient({ mode: 'local', relayUrl: 'ws://relay.test', machineId: 'machine-1', helloTimeoutMs: 100, reconnectDelayMs: 10 });
+        client.connect();
+        await vi.advanceTimersByTimeAsync(0);
+        const first = FakeWebSocket.current!;
+        expect(client.state).toBe('connecting');
+        await vi.advanceTimersByTimeAsync(150);
+        await vi.advanceTimersByTimeAsync(50);
+        const second = FakeWebSocket.current!;
+        expect(second).not.toBe(first);
+        second.onmessage?.({ data: JSON.stringify({
+            header: { machineId: 'machine-1', seq: 1, at: Date.now() },
+            payload: encodePayload({ type: 'plugins.invalidated', reason: 'changed', pluginIds: ['example.ui'] } as never),
+        }) });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(client.state).toBe('open');
+        client.close();
+        vi.useRealTimers();
+    });
+
     it('reports an expired grant with its kind so the UI can offer re-pairing', async () => {
         const { refreshHostedGrant } = await import('../application/hostedE2ee');
         vi.mocked(refreshHostedGrant).mockResolvedValueOnce({ expiresAt: Date.now() - 1000, keyVersion: 2 } as never);

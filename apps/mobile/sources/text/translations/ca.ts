@@ -46,6 +46,7 @@ export const ca: TranslationStructure = {
         treeUnavailable: 'L’arbre no està disponible.',
         dictate: 'Dicta',
         unavailableSuffix: 'no disponible',
+        needsAgentSuffix: "— necessita una sessió d'agent; aquest panell és un shell simple",
         showingStale: 'mostrant dades anteriors',
         partialList: ({ shown, total }: { shown: number; total: number }) => `Es mostren els primers ${shown} de ${total}. Obre el terminal per veure la resta.`,
         settingsTitle: 'Connectors',

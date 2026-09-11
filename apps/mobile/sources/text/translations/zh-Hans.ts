@@ -48,6 +48,7 @@ export const zhHans: TranslationStructure = {
         treeUnavailable: '树不可用。',
         dictate: '听写',
         unavailableSuffix: '不可用',
+        needsAgentSuffix: '— 需要代理会话；此窗格只是普通 shell',
         showingStale: '正在显示旧数据',
         partialList: ({ shown, total }: { shown: number; total: number }) => `显示前 ${shown} 项，共 ${total} 项。其余请在终端查看。`,
         settingsTitle: '插件',

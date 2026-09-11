@@ -35,6 +35,8 @@ export interface MuxrClientOptions {
     machineId: string;
     requestTimeoutMs?: number;
     reconnectDelayMs?: number;
+    /** How long an opened socket may wait for the host's first authenticated frame. */
+    helloTimeoutMs?: number;
     /** Account token. Required by a strict relay, which is any remote one. */
     token?: string;
     hostedGrant?: StoredHostedGrant;
@@ -104,6 +106,7 @@ export class MuxrClient {
     private closed = false;
     private readonly clientId = nextRequestId('client');
     private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    private helloTimer: ReturnType<typeof setTimeout> | undefined;
     private reconnectAttempt = 0;
     /** Valid host traffic observed on the current socket. Request timers use it as a liveness fence. */
     private hostFrameRevision = 0;
@@ -207,6 +210,14 @@ export class MuxrClient {
             // first authenticated host frame arrives (handleMessage flips it);
             // the host answers client.hello immediately when it is alive.
             this.send({ type: 'client.hello', clientId: this.clientId });
+            // A hello the host could not read yet (it learns a fresh pairing a
+            // beat after the phone does) is dropped silently. Retire this
+            // socket and dial again instead of waiting on it forever.
+            clearTimeout(this.helloTimer);
+            this.helloTimer = setTimeout(() => {
+                if (this.socket !== socket || this.state !== 'connecting') return;
+                socket.close();
+            }, this.options.helloTimeoutMs ?? 5000);
         };
         socket.onmessage = (message: MessageEvent) => {
             if (this.socket === socket) void this.handleMessage(String(message.data));
@@ -219,6 +230,8 @@ export class MuxrClient {
         this.closed = true;
         clearTimeout(this.reconnectTimer);
         this.reconnectTimer = undefined;
+        clearTimeout(this.helloTimer);
+        this.helloTimer = undefined;
         this.rejectPending('client closed');
         const socket = this.socket;
         this.socket = undefined;
@@ -237,6 +250,8 @@ export class MuxrClient {
     private retireSocket(socket: WebSocket): void {
         if (this.socket !== socket) return;
         this.socket = undefined;
+        clearTimeout(this.helloTimer);
+        this.helloTimer = undefined;
         this.rejectPending('connection lost');
         this.setState('closed');
         if (this.closed) return;
@@ -364,6 +379,8 @@ export class MuxrClient {
         // Socket open only proves the relay accepted us; the first frame that
         // survives the machine's E2EE context proves the host is really there.
         this.hostFrameRevision += 1;
+        clearTimeout(this.helloTimer);
+        this.helloTimer = undefined;
         if (this.state !== 'open') this.setState('open');
 
         if (frame.type === 'result') {

@@ -674,6 +674,26 @@ class MuxrSync {
         await this.bootstrap(credentials);
     }
 
+    /**
+     * Forget/logout: drop the transport and every per-machine memory so a
+     * stale client cannot reconnect with a deleted grant, or report its late
+     * failure into the pairing that replaces it.
+     */
+    shutdown(): void {
+        this.client?.close();
+        this.client = undefined;
+        this.credentials = undefined;
+        this.accountValidation = undefined;
+        this.activeMachineId = undefined;
+        this.openedSessions.clear();
+        this.opening.clear();
+        this.herdrTreeRequest += 1;
+        for (const resolve of this.pendingShell.values()) resolve({ stdout: '', exitCode: 1, isError: true });
+        this.pendingShell.clear();
+        storage.getState().setSocketStatus('disconnected');
+        storage.getState().setPairingFailure(null);
+    }
+
     async restore(credentials: AuthCredentials): Promise<void> {
         await this.bootstrap(credentials);
     }
@@ -846,6 +866,12 @@ export async function syncRestore(credentials: AuthCredentials): Promise<void> {
         initialized = false;
         throw error;
     }
+}
+
+/** Tear the transport down before local state is cleared; the next login bootstraps afresh. */
+export function syncShutdown(): void {
+    sync.shutdown();
+    initialized = false;
 }
 
 export async function syncReconnect(): Promise<void> {

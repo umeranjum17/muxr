@@ -18,7 +18,10 @@ export function CapabilityButton({ context, contribution, pluginId, manifestHash
     const capability = contribution.capability!;
     const manifest = pluginSnapshot().find((entry) => entry.summary.pluginId === pluginId && entry.summary.manifestHash === manifestHash)?.manifest;
     const handler = manifest === undefined ? undefined : capabilityFor(capability, manifest);
-    const available = handler !== undefined;
+    // Voice talks to an agent: on a plain shell the control says so instead
+    // of starting a session the host would refuse.
+    const needsAgent = capability === 'voice.start' && 'hasAgent' in context && context.hasAgent === false;
+    const available = handler !== undefined && !needsAgent;
     const icon = contribution.icon!;
     const label = resolvePluginText(contribution.accessibilityLabel!);
     const showsRealtime = contribution.indicator === 'realtime-session';
@@ -31,7 +34,7 @@ export function CapabilityButton({ context, contribution, pluginId, manifestHash
         disabled={!available}
         hitSlop={6}
         accessibilityRole="button"
-        accessibilityLabel={available ? label : `${label} ${t('plugins.unavailableSuffix')}`}
+        accessibilityLabel={available ? label : `${label} ${needsAgent ? t('plugins.needsAgentSuffix') : t('plugins.unavailableSuffix')}`}
         accessibilityState={{ busy: connecting, selected: active, disabled: !available }}
         style={({ pressed }) => ({
             width: 44,

@@ -48,6 +48,7 @@ export const zhHant: TranslationStructure = {
         treeUnavailable: '樹狀結構無法使用。',
         dictate: '聽寫',
         unavailableSuffix: '無法使用',
+        needsAgentSuffix: '— 需要代理程式工作階段；此窗格只是普通 shell',
         showingStale: '正在顯示舊資料',
         partialList: ({ shown, total }: { shown: number; total: number }) => `顯示前 ${shown} 項，共 ${total} 項。其餘請在終端機查看。`,
         settingsTitle: '外掛程式',

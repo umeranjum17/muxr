@@ -875,7 +875,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     }}
                 />
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
+                    <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, hasAgent: currentPane?.agentKind !== undefined, getText: () => draftRef.current, setText: setDraft }} />
                 </View>
                 <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
                     <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
@@ -958,8 +958,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         </ScrollView>
                         {/* Stopping the agent is the one row here that destroys
                             something, so it never scrolls away and never sits in
-                            the run of things you were only going to look at. */}
-                        {!stopping && (
+                            the run of things you were only going to look at. A
+                            plain shell has no agent to stop, so it has no row. */}
+                        {!stopping && !shell && (
                             <Pressable onPress={() => { setActionsOpen(false); stopSession(); }} accessibilityRole="button" accessibilityLabel="Stop agent"
                                 style={({ pressed }) => ({ minHeight: 44, marginTop: 5, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                 <Ionicons name="stop-circle-outline" size={18} color={theme.colors.status.error} />

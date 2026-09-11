@@ -37,7 +37,7 @@ export interface PluginSlotContexts {
         showHint: (text: string) => void;
     };
     'session.pills': { sessionId: string };
-    'session.composer.trailing': { sessionId: string; getText: () => string; setText: (text: string) => void };
+    'session.composer.trailing': { sessionId: string; hasAgent: boolean; getText: () => string; setText: (text: string) => void };
     'terminal.key-row': { channel: PluginTerminalChannel | undefined };
     'settings.items': {};
 }

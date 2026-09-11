@@ -46,6 +46,7 @@ export const es: TranslationStructure = {
         treeUnavailable: 'El árbol no está disponible.',
         dictate: 'Dictar',
         unavailableSuffix: 'no disponible',
+        needsAgentSuffix: '— necesita una sesión de agente; este panel es un shell simple',
         showingStale: 'mostrando datos anteriores',
         partialList: ({ shown, total }: { shown: number; total: number }) => `Mostrando los primeros ${shown} de ${total}. Abre el terminal para ver el resto.`,
         settingsTitle: 'Plugins',

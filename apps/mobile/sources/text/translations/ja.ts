@@ -49,6 +49,7 @@ export const ja: TranslationStructure = {
         treeUnavailable: 'ツリーを利用できません。',
         dictate: '音声入力',
         unavailableSuffix: '利用不可',
+        needsAgentSuffix: '— エージェントセッションが必要です。このペインはただのシェルです',
         showingStale: '古いデータを表示中',
         partialList: ({ shown, total }: { shown: number; total: number }) => `${total}件中、最初の${shown}件を表示中。残りはターミナルで確認してください。`,
         settingsTitle: 'プラグイン',

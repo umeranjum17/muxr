@@ -57,6 +57,7 @@ export const ru: TranslationStructure = {
         treeUnavailable: 'Дерево недоступно.',
         dictate: 'Диктовать',
         unavailableSuffix: 'недоступно',
+        needsAgentSuffix: '— нужна сессия агента; эта панель — обычная оболочка',
         showingStale: 'показаны устаревшие данные',
         partialList: ({ shown, total }: { shown: number; total: number }) => `Показаны первые ${shown} из ${total}. Остальное — в терминале.`,
         settingsTitle: 'Плагины',

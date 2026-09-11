@@ -57,6 +57,7 @@ export const pl: TranslationStructure = {
         treeUnavailable: 'Drzewo jest niedostępne.',
         dictate: 'Dyktuj',
         unavailableSuffix: 'niedostępne',
+        needsAgentSuffix: '— wymaga sesji agenta; ten panel to zwykła powłoka',
         showingStale: 'pokazano nieaktualne dane',
         partialList: ({ shown, total }: { shown: number; total: number }) => `Pokazano pierwsze ${shown} z ${total}. Resztę zobaczysz w terminalu.`,
         settingsTitle: 'Wtyczki',

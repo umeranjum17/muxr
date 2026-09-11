@@ -2207,6 +2207,10 @@ export async function createHerdrSessionSource(
                 const voiceSession = catalog.streamClaimsCapability(pluginId, manifestHash, contributionId, 'voice.session');
                 let publicContext: RealtimePluginPublicContext | undefined;
                 if (voiceSession) {
+                    // Voice prompts and reads an agent; a plain shell has neither.
+                    if (record !== undefined && record.agent === undefined) {
+                        throw Object.assign(new Error('Voice needs an agent session. This pane is a plain shell with no agent to talk to.'), { code: 'voice-needs-agent' });
+                    }
                     publicContext = realtimePluginPublicContext(
                         currentSessions()
                             .filter((session) => session.agent !== undefined)

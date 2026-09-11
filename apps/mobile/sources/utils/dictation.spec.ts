@@ -201,8 +201,9 @@ describe('on-device dictation flow', () => {
     it('starts notification Talk on the pane last used on the phone, not a stale desk focus', async () => {
         mocks.syncRequest.mockResolvedValue({
             workspaces: [
-                { focused: true, tabs: [{ focused: true, panes: [{ sessionId: 'session-a', focused: true, agentStatus: 'idle' }] }] },
-                { focused: false, tabs: [{ focused: true, panes: [{ sessionId: 'session-b', focused: true, agentStatus: 'working' }] }] },
+                // A focused plain shell is never a voice target: it has no agent to talk to.
+                { focused: true, tabs: [{ focused: true, panes: [{ sessionId: 'shell:pane-x', focused: true, agentStatus: 'unknown' }, { sessionId: 'session-a', focused: false, agentKind: 'claude', agentStatus: 'idle' }] }] },
+                { focused: false, tabs: [{ focused: true, panes: [{ sessionId: 'session-b', focused: true, agentKind: 'claude', agentStatus: 'working' }] }] },
             ],
         });
         const setMuted = vi.fn();

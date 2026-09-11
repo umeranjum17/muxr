@@ -113,12 +113,17 @@ export function realtimeMachineSwitchGuard(machineId: string): RealtimeMachineSw
 export async function resolveRealtimeTarget(): Promise<RealtimeTarget | null> {
     const machineId = getCachedConnectionSettings().machineId;
     const tree = await sync.request('herdr.tree', {}).catch(() => undefined);
+    // Voice talks to an agent: a plain shell has nobody to prompt, so it is
+    // never a target, focused or not.
+    const panes = tree?.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes)) ?? [];
+    const agentRoutes = new Set(panes.filter((pane) => pane.agentKind !== undefined && pane.sessionId !== undefined).map((pane) => pane.sessionId!));
     const focused = tree?.workspaces
         .filter((workspace) => workspace.focused)
         .flatMap((workspace) => workspace.tabs.filter((tab) => tab.focused))
         .flatMap((tab) => tab.panes)
-        .find((pane) => pane.focused && pane.sessionId !== undefined);
-    const sessions = Object.values(storage.getState().sessions);
+        .find((pane) => pane.focused && pane.sessionId !== undefined && agentRoutes.has(pane.sessionId));
+    const sessions = Object.values(storage.getState().sessions)
+        .filter((session) => tree === undefined || agentRoutes.has(session.id));
     const focusedRoute = focusAgent({
         machineId,
         deskFocus: focused?.sessionId === undefined

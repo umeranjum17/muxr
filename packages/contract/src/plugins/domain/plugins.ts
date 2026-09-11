@@ -173,7 +173,7 @@ export const NATIVE_SLOT_CONTEXT_KEYS = {
     'session.header.trailing': ['sessionId', 'cwd'],
     'session.overlay': ['sessionId', 'visible', 'onClose', 'openMenu', 'showHint'],
     'session.pills': ['sessionId'],
-    'session.composer.trailing': ['sessionId', 'getText', 'setText'],
+    'session.composer.trailing': ['sessionId', 'hasAgent', 'getText', 'setText'],
     'terminal.key-row': ['channel'],
     'settings.items': [],
 } as const satisfies Record<PluginNativeSlot, readonly string[]>;
