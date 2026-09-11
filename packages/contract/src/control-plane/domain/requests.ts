@@ -49,12 +49,20 @@ export interface PromptAttachment {
 }
 
 export type StreamingBehavior = 'steer' | 'followUp';
-export type VoiceProviderOption = { id: string; name: string; selected: boolean; source: PluginSource; hasBackend: boolean };
 
 export interface WatchSettlement {
     status: string;
     detail: string;
     timedOut?: boolean;
+}
+
+/** Attribution carried with a peer message so a reply can be addressed. The
+ *  sending host resolves it; a caller never supplies its own name. */
+export interface PeerMessageSender {
+    machine: string;
+    agent?: string;
+    /** More than one agent there answers to that name, so it addresses nobody. */
+    agentAmbiguous?: boolean;
 }
 
 /** Host-owned collaboration ceremony and constrained outbound broker requests. */
@@ -142,6 +150,9 @@ export interface PeerRequestMap {
             text: string;
             streamingBehavior?: StreamingBehavior;
             mutation: PeerMutationMetadata;
+            /** Who is sending, resolved by the sending host. Absent means the
+             *  recipient has no named agent to reply to and must not guess. */
+            sender?: PeerMessageSender;
         };
         result: { machineAlias: string; agentName: string; delivered: true };
     };
@@ -229,21 +240,16 @@ export interface RequestMap extends PeerRequestMap {
         params: { pluginId: string; manifestHash: string; contributionId: string; channel: string; sessionId?: string };
         result: null;
     };
-    /** Installed realtime providers and the one currently active on this machine. */
-    'voice.provider.list': {
-        params: Record<string, never>;
-        result: VoiceProviderOption[];
-    };
-    /** Switch the machine to exactly one installed realtime provider. */
-    'voice.provider.select': {
-        params: { providerId: string };
-        result: VoiceProviderOption[];
-    };
     /**
      * Full herdr CLI for trusted clients such as the realtime voice agent.
      * Arguments go straight to execFile (never a shell), so this reaches every
      * pane/tab/workspace/worktree/agent command without a second API that drifts.
      */
+    /** Owner-authorized, exact-release host maintenance; never arbitrary commands. */
+    'host.update': {
+        params: { action: 'plan'; appVersion: string; protocol: number } | { action: 'apply' | 'status'; planId: string };
+        result: { planId?: string; currentVersion: string; targetVersion: string; status: string; compatible: boolean; canApply: boolean; message: string };
+    };
     'herdr.cli': {
         params: { args: string[]; timeoutMs?: number };
         result: { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean };
@@ -449,7 +455,7 @@ export interface RequestMap extends PeerRequestMap {
         };
     };
 
-    // --- browser preview ----------------------------------------------------
+    // --- preview tunnel -----------------------------------------------------
     /**
      * What content-type a loopback port answers with, probed on the host
      * (where the port is). `text/html` marks a web app worth a Preview chip;
@@ -493,12 +499,16 @@ export interface RequestMap extends PeerRequestMap {
             channel: string;
             cols: number;
             rows: number;
+            cellWidthPx?: number;
+            cellHeightPx?: number;
             /** control (default) takes over the pane; observe just watches. */
             mode?: 'control' | 'observe';
             /** Authenticated v2 sender. Required by a hosted host, ignored in explicit local mode. */
             deviceId?: string;
             /** User explicitly chose to take control from another device. */
             takeover?: boolean;
+            /** Reopen Herdr's direct-graphics client before this control attach. */
+            graphicsReset?: boolean;
         };
         result: { paneId: string };
     };
@@ -526,8 +536,8 @@ const E2EE_REQUEST_TYPES = new Set([
     'plugin.invoke',
     'plugin.call',
     'plugin.stream',
-    'voice.provider.select',
     'herdr.cli',
+    'host.update',
 ]);
 
 export function requestRequiresE2ee(type: string): boolean {

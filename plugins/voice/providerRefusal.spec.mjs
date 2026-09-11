@@ -10,11 +10,21 @@ import { describe, expect, it } from 'vitest';
 import { RealtimeCodingCoordinator } from '../../apps/host/src/agent/infrastructure/realtimeCoordinator.ts';
 import { HostDiagnosticsJournal } from '../../apps/host/src/diagnostics/infrastructure/journal.ts';
 import { parseRealtimeHostFrame } from '../../packages/contract/src/realtime/domain/realtimeStream.ts';
-import { chunkAudio as chunkGeminiAudio, providerTools as geminiTools } from '../voice-gemini/stream.mjs';
-import { providerTools as openaiTools } from '../voice-openai/stream.mjs';
-import { providerError, providerRefusal, providerTools as xaiTools } from './stream.mjs';
+import { chunkAudio as chunkGeminiAudio, providerTools as geminiTools } from './providers/gemini.mjs';
+import { providerTools as openaiTools } from './providers/openai.mjs';
+import { providerError, providerRefusal, providerTools as xaiTools } from './providers/xai.mjs';
 import { cleanProviderProse } from './coordinatorPolicy.mjs';
-import { approvedSignalingUrl } from '../voice-codex/stream.mjs';
+import { approvedSignalingUrl, providerTools as codexTools } from './providers/codex.mjs';
+import { createVoiceTools } from './toolRuntime.mjs';
+
+const streamEntry = fileURLToPath(new URL('./stream.mjs', import.meta.url));
+
+/** stream.mjs dispatches on the selected adapter, which lives in the state dir. */
+async function providerStateDir(providerId) {
+    const dir = await mkdtemp(join(tmpdir(), `muxr-voice-${providerId}-state-`));
+    await writeFile(join(dir, 'provider'), `${providerId}\n`);
+    return dir;
+}
 
 const waitFor = async (predicate, message, timeoutMs = 4_000) => {
     const deadline = Date.now() + timeoutMs;
@@ -140,12 +150,13 @@ describe('providerRefusal', () => {
             connections.push(connection);
             socket.on('message', (data) => connection.frames.push(JSON.parse(String(data))));
         });
-        const child = spawn(process.execPath, [fileURLToPath(new URL('../voice-gemini/stream.mjs', import.meta.url))], {
+        const child = spawn(process.execPath, [streamEntry], {
             cwd: fileURLToPath(new URL('../..', import.meta.url)),
             env: {
                 ...process.env,
                 NODE_ENV: 'test',
                 MUXR_HOME: muxrHome,
+                MUXR_PLUGIN_STATE_DIR: await providerStateDir('gemini'),
                 MUXR_TEST_GEMINI_REALTIME_URL: `ws://127.0.0.1:${address.port}`,
                 MUXR_VOICE_COORDINATOR_SOCKET: access.socketPath,
                 MUXR_VOICE_COORDINATOR_CAPABILITY: access.capability,
@@ -160,7 +171,7 @@ describe('providerRefusal', () => {
             const connection = await waitFor(() => connections[0], 'Gemini provider connection was not opened');
             const setup = await waitFor(() => connection.frames.find((frame) => frame.setup), 'Gemini provider session was not configured');
             const promptTool = setup.setup.tools[0].functionDeclarations.find((tool) => tool.name === 'prompt_agent');
-            expect(promptTool.parameters.required).toEqual(['agent', 'text']);
+            expect(promptTool.parameters.required).toEqual(['text']);
             connection.socket.send(JSON.stringify({ setupComplete: {} }));
 
             const call = async (id, args) => {
@@ -188,7 +199,8 @@ describe('providerRefusal', () => {
 
             expect(queued).toBe('Queued: instruction for Beta.');
             expect(queued).not.toMatch(/sent|delivered/i);
-            expect(missing).toBe('Which named agent should I prompt? Ask me to list agents.');
+            expect(missing).toContain('No prompt sent.');
+            expect(missing).toContain('Voice target or last tool-selected agent: Beta');
             expect(ambiguous).toContain('could not find an agent or task matching pi');
             expect(privateRejected).toContain('[internal reference]');
             expect(privateRejected).not.toMatch(/diagnostic-private|key-private|wAG:p9S|w1AK:p1|w1BS:t6/);
@@ -274,6 +286,7 @@ describe('providerRefusal', () => {
         ];
         const coordinator = new RealtimeCodingCoordinator(join(muxrHome, 'coding.sock'), {
             list: async () => agents,
+            kinds: async () => ['codex', 'pi'],
             activity: async () => [{
                 eventId: 'activity-one', sessionId: 'pp_john_private', agentName: 'John', taskTitle: 'Harden audio',
                 state: 'done', reasonCode: 'agent-done', reason: 'agent-done', at: '2026-08-28T00:00:00.000Z',
@@ -326,12 +339,14 @@ describe('providerRefusal', () => {
             socket.on('message', (data) => connection.frames.push(JSON.parse(String(data))));
         });
 
+        await writeFile(join(muxrHome, 'provider'), 'xai\n');
         const child = spawn(process.execPath, [fileURLToPath(new URL('./stream.mjs', import.meta.url))], {
             cwd: fileURLToPath(new URL('../..', import.meta.url)),
             env: {
                 ...process.env,
                 NODE_ENV: 'test',
                 MUXR_HOME: muxrHome,
+                MUXR_PLUGIN_STATE_DIR: muxrHome,
                 MUXR_TEST_XAI_REALTIME_URL: `ws://127.0.0.1:${address.port}`,
                 MUXR_VOICE_COORDINATOR_SOCKET: access.socketPath,
                 MUXR_VOICE_COORDINATOR_CAPABILITY: access.capability,
@@ -354,7 +369,7 @@ describe('providerRefusal', () => {
                 sessionId: 'pp_open_must_stay_private',
                 paneId: 'w7:p9',
                 cwd: privateProject,
-                publicContext: '{"sessionId":"pp_leak"}',
+                publicContext: { sessions: [{ sessionId: 'pp_snapshot_private', agentName: 'John', taskTitle: 'Harden audio', agentKind: 'pi', agentStatus: 'idle', promptable: true }] },
             })}\n`);
             const connection = await waitFor(() => connections[0], 'provider connection was not opened');
             const update = await waitFor(
@@ -362,15 +377,16 @@ describe('providerRefusal', () => {
                 'provider session was not configured',
             );
             const expectedCodingTools = [
-                'list_agents', 'recent_agent_activity', 'start_agent', 'prompt_agent', 'send_agent_keybinding', 'read_agent_output', 'agent_status', 'watch_agent', 'focus_agent',
+                'agent_context', 'list_agents', 'recent_agent_activity', 'start_agent', 'prompt_agent', 'send_agent_keybinding', 'read_agent_output', 'agent_status', 'watch_agent', 'focus_agent',
             ];
             const expectedAppTools = ['inspect_app', 'navigate_app', 'activate_app_control'];
-            expect(update.session.tools.map((tool) => tool.name)).toEqual([...expectedCodingTools, ...expectedAppTools]);
+            expect(update.session.tools.map((tool) => tool.name)).toEqual([...expectedCodingTools, ...expectedAppTools, 'read_work_context']);
             expect(update.session.tools.find((tool) => tool.name === 'start_agent').parameters.properties).not.toHaveProperty('name');
             expect(update.session.tools.find((tool) => tool.name === 'send_agent_keybinding').parameters.properties.key.enum).toEqual(['escape']);
-            for (const tools of [xaiTools, openaiTools, geminiTools]) {
+            for (const tools of [xaiTools, openaiTools, geminiTools, codexTools]) {
                 const promptTool = tools.find((tool) => tool.name === 'prompt_agent');
-                expect(promptTool.parameters.required).toEqual(['agent', 'text']);
+                expect(promptTool.parameters.required).toEqual(['text']);
+                expect(tools.map((tool) => tool.name)).toEqual([...expectedCodingTools, ...expectedAppTools, 'read_work_context']);
                 expect(tools.find((tool) => tool.name === 'read_agent_output').parameters.required).toBeUndefined();
                 const surface = JSON.stringify(tools);
                 expect(surface).not.toMatch(/herdr_cli|list_machines|end_conversation|list_panes|focus_pane|shell|close/);
@@ -381,6 +397,9 @@ describe('providerRefusal', () => {
             expect(providerSetup).not.toContain('list_machines');
             expect(providerSetup).not.toContain('w7:p9');
             expect(providerSetup).not.toContain('pp_open');
+            expect(providerSetup).not.toContain('pp_snapshot_private');
+            expect(providerSetup).toContain('Workspace snapshot');
+            expect(providerSetup).toContain('John: Harden audio; pi; idle');
             expect(providerSetup).not.toContain(privateProject);
             expect(providerSetup).toContain('John is stabilizing realtime voice');
             expect(providerSetup).toContain('Ask for confirmation only before destructive actions');
@@ -425,7 +444,12 @@ describe('providerRefusal', () => {
 
             const taskFocus = await call('focus_agent', { agent: 'Fix auth' });
             expect(taskFocus).toBe('Confirmed: Maria is now in focus.');
-            expect(calls.focuses).toEqual(['pp_maria_one']);
+            expect(await call('list_agents', { query: 'audo' })).toContain('John — Harden audio');
+            expect(await call('focus_agent', { agent: 'Harden audo' })).toBe('Confirmed: John is now in focus.');
+            expect(calls.focuses).toEqual(['pp_maria_one', 'pp_john_private']);
+            const context = await call('agent_context', {});
+            expect(context).toContain('Voice target or last tool-selected agent: John');
+            expect(context).toContain('Installed agent kinds: Codex, Pi');
             const piAgents = await call('list_agents', { kind: 'pi', limit: 3 });
             expect(piAgents).toContain('John — Harden audio; Pi; idle');
             expect(piAgents).not.toContain('Fix auth');
@@ -465,8 +489,11 @@ describe('providerRefusal', () => {
             expect(await call('send_agent_keybinding', { agent: 'Harden audio', key: 'Escape' })).toBe('Confirmed: Escape was sent to John.');
             expect(calls.keys).toEqual([{ sessionId: 'pp_john_private', keys: ['escape'] }]);
 
-            const startReceipt = await call('start_agent', { kind: 'codex', taskTitle: 'Market ready voice' });
-            expect(startReceipt).toBe('Confirmed: Nora was created for Market ready voice with Codex and is starting.');
+            const promptsBeforeStart = calls.prompts.length;
+            const startReceipt = await call('start_agent', { kind: 'codex', taskTitle: 'Market ready voice', prompt: 'Inspect the realtime routing and report the actual blockers.' });
+            expect(calls.prompts.length).toBe(promptsBeforeStart + 1);
+            expect(calls.prompts.at(-1).text).toContain('Inspect the realtime routing');
+            expect(startReceipt).toBe('Confirmed: Nora was created for Market ready voice with Codex and is starting. Initial instruction queued.');
             expect(calls.starts[0]).toEqual({
                 cwd: privateProject, taskTitle: 'Market ready voice', kind: 'codex',
             });
@@ -505,9 +532,9 @@ describe('providerRefusal', () => {
 
             const reportCases = [
                 { rpc: './rpc.mjs', confirmedStatus: 'done', confirmedText: 'has finished', unconfirmedStatus: 'timeout' },
-                { rpc: '../voice-openai/rpc.mjs', confirmedStatus: 'failed', confirmedText: 'could not finish', unconfirmedStatus: 'error' },
-                { rpc: '../voice-gemini/rpc.mjs', confirmedStatus: 'blocked', confirmedText: 'is blocked on', unconfirmedStatus: 'unknown' },
-                { rpc: '../voice-codex/rpc.mjs', confirmedStatus: 'done', confirmedText: 'has finished', unconfirmedStatus: 'timeout' },
+                { rpc: './rpc.mjs', confirmedStatus: 'failed', confirmedText: 'could not finish', unconfirmedStatus: 'error' },
+                { rpc: './rpc.mjs', confirmedStatus: 'blocked', confirmedText: 'is blocked on', unconfirmedStatus: 'unknown' },
+                { rpc: './rpc.mjs', confirmedStatus: 'done', confirmedText: 'has finished', unconfirmedStatus: 'timeout' },
             ];
             const reportDisplayName = 'Nora token=display-private';
             const reportTaskTitle = 'Market ready voice password=task-private api_key=api-private key=key-private XAI_API_KEY=env-private pp_deadbeef';
@@ -611,12 +638,14 @@ describe('providerRefusal', () => {
             socket.on('message', (data) => connection.frames.push(JSON.parse(String(data))));
         });
 
+        await writeFile(join(muxrHome, 'provider'), 'xai\n');
         const child = spawn(process.execPath, [fileURLToPath(new URL('./stream.mjs', import.meta.url))], {
             cwd: fileURLToPath(new URL('../..', import.meta.url)),
             env: {
                 ...process.env,
                 NODE_ENV: 'test',
                 MUXR_HOME: muxrHome,
+                MUXR_PLUGIN_STATE_DIR: muxrHome,
                 MUXR_TEST_XAI_REALTIME_URL: `ws://127.0.0.1:${address.port}`,
             },
             stdio: ['pipe', 'pipe', 'pipe'],
@@ -782,11 +811,48 @@ describe('providerRefusal', () => {
 
     it('keeps Codex OAuth host-only while bounding signaling and lifecycle frames', async () => {
         const requests = [];
+        const planningRequests = [];
         const server = createServer((request, response) => {
             let body = '';
             request.on('data', (chunk) => { body += chunk; });
             request.on('end', () => {
-                requests.push({ headers: request.headers, body: JSON.parse(body) });
+                const parsed = JSON.parse(body);
+                if (request.url === '/responses') {
+                    planningRequests.push(parsed);
+                    const latestRequest = parsed.input.filter((entry) => entry.type === 'message' && entry.role === 'user').at(-1);
+                    if (latestRequest?.content?.[0]?.text === 'Ask John for an update.') {
+                        const item = { id: 'failed_fixture', type: 'function_call', call_id: 'failed_call', name: 'prompt_agent', arguments: JSON.stringify({ agent: 'John', text: 'Report your status.' }) };
+                        response.writeHead(200, { 'content-type': 'text/event-stream' });
+                        response.end(`data: ${JSON.stringify({ type: 'response.output_item.done', item })}\n\ndata: ${JSON.stringify({ type: 'response.failed', response: { error: { message: 'Fixture provider refusal' } } })}\n\n`);
+                        return;
+                    }
+                    if (latestRequest?.content?.[0]?.text === 'Ping the agent I was using for a progress update and blockers.') {
+                        const answered = parsed.input.some((item) => item.type === 'function_call_output' && item.call_id === 'repeat_call');
+                        const item = answered
+                            ? { id: 'repeat_message_fixture', type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Queued: progress update request for John.' }] }
+                            : { id: 'repeat_call_fixture', type: 'function_call', call_id: 'repeat_call', name: 'prompt_agent', arguments: JSON.stringify({ agent: 'John', text: 'Report your progress and blockers.' }) };
+                        response.writeHead(200, { 'content-type': 'text/event-stream' });
+                        response.end(`data: ${JSON.stringify({ type: 'response.output_item.done', item })}\n\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response_repeat', status: 'completed', output: [item] } })}\n\n`);
+                        return;
+                    }
+                    if (latestRequest?.content?.[0]?.text === 'Yes, go ahead and ask John for the progress update.') {
+                        const answered = parsed.input.some((item) => item.type === 'function_call_output' && item.call_id === 'confirm_call');
+                        const item = answered
+                            ? { id: 'confirm_message_fixture', type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Queued: the confirmed progress update for John.' }] }
+                            : { id: 'confirm_call_fixture', type: 'function_call', call_id: 'confirm_call', name: 'prompt_agent', arguments: JSON.stringify({ agent: 'John', text: 'Report your progress and blockers.' }) };
+                        response.writeHead(200, { 'content-type': 'text/event-stream' });
+                        response.end(`data: ${JSON.stringify({ type: 'response.output_item.done', item })}\n\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response_confirm', status: 'completed', output: [item] } })}\n\n`);
+                        return;
+                    }
+                    const answered = parsed.input.some((item) => item.type === 'function_call_output');
+                    const item = answered
+                        ? { id: 'message_fixture', type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Queued: instruction for Jane.' }] }
+                        : { id: 'function_fixture', type: 'function_call', call_id: 'call_fixture', name: 'prompt_agent', arguments: JSON.stringify({ agent: 'Jane', text: 'Explain the review delay.' }) };
+                    response.writeHead(200, { 'content-type': 'text/event-stream' });
+                    response.end(`data: ${JSON.stringify({ type: 'response.output_item.done', item })}\n\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response_fixture', status: 'completed', output: [item] } })}\n\n`);
+                    return;
+                }
+                requests.push({ headers: request.headers, body: parsed });
                 response.writeHead(201, { 'content-type': 'application/sdp' });
                 response.end('v=0\r\na=answer');
             });
@@ -801,15 +867,36 @@ describe('providerRefusal', () => {
         const account = 'acct-test';
         const payload = Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: account } })).toString('base64url');
         const token = `e30.${payload}.test-signature`;
+        const codexState = await providerStateDir('codex');
+        const reads = [];
+        const mutations = [];
+        const agent = { sessionId: 'pp_summary_private', cwd: codexState, agentName: 'John', taskTitle: 'Repair voice', agentKind: 'codex', agentStatus: 'idle', promptable: true };
+        const reviewer = { ...agent, sessionId: 'pp_review_private', agentName: 'Jane', taskTitle: 'Review attachment polish', agentStatus: 'working' };
+        const refuseMutation = async () => { mutations.push('unexpected'); throw new Error('No mutation authorized in this flow'); };
+        const coordinator = new RealtimeCodingCoordinator(join(codexState, 'coding.sock'), {
+            list: async () => [agent, reviewer], kinds: async () => ['codex'], activity: async () => [],
+            read: async (sessionId, options) => { reads.push(sessionId); return { text: sessionId === reviewer.sessionId
+                ? `PR 224 adds image thumbnails and movable controls; inspected ${options.lines} lines. Device validation is pending.`
+                : 'Implemented reconnect recovery; all four focused checks pass. Live audio still needs verification.', truncated: false }; },
+            status: async () => 'idle', start: refuseMutation,
+            prompt: async (sessionId, text) => { mutations.push({ sessionId, text }); },
+            sendKeys: refuseMutation, watch: refuseMutation, focus: refuseMutation,
+        });
+        await coordinator.start();
+        const access = coordinator.issueCapability({ provider: 'muxr.voice', sessionId: agent.sessionId, cwd: codexState });
         const spawnProvider = (boundAccount = account) => {
-            const child = spawn(process.execPath, [fileURLToPath(new URL('../voice-codex/stream.mjs', import.meta.url))], {
+            const child = spawn(process.execPath, [streamEntry], {
                 cwd: fileURLToPath(new URL('../..', import.meta.url)),
                 env: {
                     ...process.env,
                     NODE_ENV: 'test',
+                    MUXR_PLUGIN_STATE_DIR: codexState,
                     MUXR_TEST_CODEX_SIGNALING_URL: `http://127.0.0.1:${address.port}/signal`,
+                    MUXR_TEST_CODEX_RESPONSES_URL: `http://127.0.0.1:${address.port}/responses`,
                     MUXR_TEST_CODEX_TOKEN: token,
                     MUXR_TEST_CODEX_ACCOUNT_ID: boundAccount,
+                    MUXR_VOICE_COORDINATOR_SOCKET: access.socketPath,
+                    MUXR_VOICE_COORDINATOR_CAPABILITY: access.capability,
                 },
                 stdio: ['pipe', 'pipe', 'pipe'],
             });
@@ -833,6 +920,7 @@ describe('providerRefusal', () => {
             expect(requests[0].headers['chatgpt-account-id']).toBe(account);
             expect(requests[0].headers.originator).toBe('Codex Desktop');
             expect(requests[0].body.sdp).toBe('v=0\r\na=offer');
+            expect(requests[0].body.session.delegation.ack_filler).toBe(false);
 
             flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'session.started', session: { id: 'rtc_private' } }) });
             flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'user', transcript: 'Please inspect the build.' } }) });
@@ -849,9 +937,12 @@ describe('providerRefusal', () => {
                 type: 'realtime.webrtc.data',
                 data: JSON.stringify({
                     type: 'delegation.created',
-                    item: { id: 'delegation-no-target', content: [{ type: 'input_text', text: 'Inspect the build.' }] },
+                    item: { type: 'delegation', target: 'client', id: 'delegation-no-target', content: [{ type: 'input_text', text: JSON.stringify({ name: 'inspect_app', arguments: {} }) }] },
                 }),
             });
+            const appRequest = await waitFor(() => flow.frames.find((frame) => frame.type === 'realtime.app.request'), 'Codex did not dispatch its client tool');
+            expect(appRequest.action).toBe('view');
+            flow.send({ type: 'realtime.app.result', requestId: appRequest.requestId, ok: true, text: 'Screen: home. Agent John is working on the build.' });
             const delegationFrame = await waitFor(
                 () => flow.frames.find((frame) => {
                     if (frame.type !== 'realtime.webrtc.data') return false;
@@ -865,12 +956,162 @@ describe('providerRefusal', () => {
                 channel: 'speakable',
                 content: [{
                     type: 'input_text',
-                    text: 'Codex Voice could not queue that instruction. An explicit Agent Name or Task Title is required.',
+                    text: 'Screen: home. Agent John is working on the build.',
                 }],
             });
             expect(delegationFrame.data).not.toMatch(/Queued:|sent|delivered/i);
-            flow.send({ type: 'realtime.control', action: 'stop' });
+            // The real voice protocol delegates natural language. It must reach
+            // the restricted tool planner, not read the original target instead.
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                type: 'delegation', target: 'client', id: 'unstructured-message', content: [{ type: 'input_text',
+                    text: 'Ask Jane why the attachment review is taking so long.' }],
+            } }) });
+            await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).some((frame) => frame.delegation_item_id === 'unstructured-message'),
+            'Natural-language request did not return a tool-backed result');
+            expect(reads).toEqual([]);
+            expect(mutations).toEqual([{ sessionId: reviewer.sessionId, text: 'Explain the review delay.\n\ncame from a real-time agent' }]);
+            expect(planningRequests[0].model).toBe('gpt-5.6-sol');
+            expect(planningRequests[0].tools.every((tool) => tool.type === 'function')).toBe(true);
+            const summaryRequest = { type: 'delegation.created', item: { type: 'delegation', target: 'client', id: 'summary-request', content: [{ type: 'input_text', text: JSON.stringify({ name: 'read_work_context', arguments: { agent: 'John' } }) }] } };
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify(summaryRequest) });
+            const summary = await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).filter((frame) => frame.delegation_item_id === 'summary-request')
+                .map((frame) => frame.content?.map((part) => part.text).join('')).join('')
+                .includes('Implemented reconnect recovery'), 'A structured work read must return the requested agent output');
+            expect(summary).toBe(true);
+            expect(reads).toEqual([agent.sessionId]);
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify(summaryRequest) });
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'assistant', transcript: 'John implemented reconnect recovery and four checks pass; live audio is still unverified.' } }) });
+            await waitFor(() => flow.frames.some((frame) => frame.type === 'realtime.transcript' && frame.text.includes('John implemented')), 'Completed answer was not returned to the phone');
+            expect(reads).toHaveLength(1);
+            // A named follow-up must read that agent, not silently summarize
+            // the original voice target again. Exercise the real dispatcher,
+            // socket coordinator, catalog resolution and returned provider data.
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                type: 'delegation', target: 'client', id: 'review-context', content: [{ type: 'input_text',
+                    text: JSON.stringify({ name: 'read_work_context', arguments: { agent: 'Jane', lines: 200 } }) }],
+            } }) });
+            const reviewOutput = await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).find((frame) => frame.delegation_item_id === 'review-context'), 'Named work context was not returned');
+            expect(JSON.stringify(reviewOutput)).toContain('PR 224 adds image thumbnails and movable controls');
+            expect(JSON.stringify(reviewOutput)).toContain('inspected 200 lines');
+            expect(JSON.stringify(reviewOutput)).not.toContain('Implemented reconnect recovery');
+            expect(reads).toEqual([agent.sessionId, reviewer.sessionId]);
+            expect(JSON.stringify(flow.frames)).not.toContain(reviewer.sessionId);
+            expect(JSON.stringify(flow.frames)).not.toContain(agent.sessionId);
+            expect(JSON.stringify(flow.frames)).not.toContain(access.capability);
+            expect(mutations).toEqual([{ sessionId: reviewer.sessionId, text: 'Explain the review delay.\n\ncame from a real-time agent' }]);
+            const followUp = { type: 'delegation.created', item: {
+                type: 'delegation', target: 'client', id: 'confirmed-follow-up', content: [{ type: 'input_text',
+                    text: JSON.stringify({ name: 'prompt_agent', arguments: { agent: 'Jane', text: 'Report your progress and blockers.' } }) }],
+            } };
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify(followUp) });
+            await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).some((frame) => frame.delegation_item_id === 'confirmed-follow-up'
+                    && frame.content?.some((part) => part.text.startsWith('Queued:'))), 'Working agent prompt was not confirmed');
+            // Replaying a delegation cannot send the same instruction twice.
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify(followUp) });
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                ...followUp.item, id: 'follow-up-status', content: [{ type: 'input_text',
+                    text: JSON.stringify({ name: 'agent_status', arguments: { agent: 'Jane' } }) }],
+            } }) });
+            await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).some((frame) => frame.delegation_item_id === 'follow-up-status'), 'Follow-up status did not finish');
+            expect(mutations).toEqual([
+                { sessionId: reviewer.sessionId, text: 'Explain the review delay.\n\ncame from a real-time agent' },
+                { sessionId: reviewer.sessionId, text: 'Report your progress and blockers.\n\ncame from a real-time agent' },
+            ]);
+            // A completed tool item inside a failed provider response does not
+            // authorize a new side effect.
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                ...followUp.item, id: 'failed-delegation', content: [{ type: 'input_text', text: 'Ask John for an update.' }],
+            } }) });
+            await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).some((frame) => frame.delegation_item_id === 'failed-delegation'), 'Provider refusal did not return');
+            expect(mutations).toHaveLength(2);
+            // One user utterance retransmitted by the provider: fresh item and
+            // handoff ids under one user turn share one planner run, one
+            // mutation and one result. Retransmission is not a confirmation.
+            const repeatText = 'Ping the agent I was using for a progress update and blockers.';
+            const repeatHandoffs = ['repeat-handoff-a', 'repeat-handoff-b', 'repeat-handoff-c'];
+            for (const [index, repeatId] of repeatHandoffs.entries()) {
+                flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                    type: 'delegation', target: 'client', id: repeatId, handoff_id: `handoff-${index + 1}`,
+                    user_bidi_turn_id: 'turn-repeat-fixture', content: [{ type: 'input_text', text: repeatText }],
+                } }) });
+            }
+            const contextAppends = () => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).filter((frame) => frame.type === 'delegation.context.append');
+            await waitFor(() => repeatHandoffs.every((repeatId) => contextAppends().some((frame) => frame.delegation_item_id === repeatId
+                && frame.content?.some((part) => part.text.startsWith('Queued:')))), 'Retransmitted handoffs did not share one result');
+            const repeatPlanning = planningRequests.filter((request) => request.input.some((item) => item.type === 'message' && item.role === 'user'
+                && item.content?.[0]?.text === repeatText));
+            expect(repeatPlanning).toHaveLength(2);
+            expect(mutations).toEqual([
+                { sessionId: reviewer.sessionId, text: 'Explain the review delay.\n\ncame from a real-time agent' },
+                { sessionId: reviewer.sessionId, text: 'Report your progress and blockers.\n\ncame from a real-time agent' },
+                { sessionId: agent.sessionId, text: 'Report your progress and blockers.\n\ncame from a real-time agent' },
+            ]);
+            // A distinct request inside the same user turn must not ride the
+            // shared run.
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                type: 'delegation', target: 'client', id: 'repeat-turn-distinct', handoff_id: 'handoff-4',
+                user_bidi_turn_id: 'turn-repeat-fixture',
+                content: [{ type: 'input_text', text: JSON.stringify({ name: 'read_work_context', arguments: { agent: 'John' } }) }],
+            } }) });
+            await waitFor(() => contextAppends().some((frame) => frame.delegation_item_id === 'repeat-turn-distinct'
+                && JSON.stringify(frame.content).includes('Implemented reconnect recovery')), 'A distinct request in the same turn did not run on its own');
+            expect(planningRequests.filter((request) => request.input.some((item) => item.type === 'message' && item.role === 'user'
+                && item.content?.[0]?.text === repeatText))).toHaveLength(2);
+            // A late retransmission after completion replays the stored result
+            // without another planner turn or another mutation.
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                type: 'delegation', target: 'client', id: 'repeat-handoff-late', handoff_id: 'handoff-5',
+                user_bidi_turn_id: 'turn-repeat-fixture', content: [{ type: 'input_text', text: repeatText }],
+            } }) });
+            await waitFor(() => contextAppends().some((frame) => frame.delegation_item_id === 'repeat-handoff-late'
+                && frame.content?.some((part) => part.text.startsWith('Queued:'))), 'Late retransmission did not receive the shared result');
+            expect(planningRequests.filter((request) => request.input.some((item) => item.type === 'message' && item.role === 'user'
+                && item.content?.[0]?.text === repeatText))).toHaveLength(2);
+            expect(mutations).toHaveLength(3);
+            // A genuine confirmation in a NEW user turn still proceeds end to end.
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                type: 'delegation', target: 'client', id: 'confirmed-new-turn', handoff_id: 'handoff-6',
+                user_bidi_turn_id: 'turn-confirm-fixture',
+                content: [{ type: 'input_text', text: 'Yes, go ahead and ask John for the progress update.' }],
+            } }) });
+            await waitFor(() => contextAppends().some((frame) => frame.delegation_item_id === 'confirmed-new-turn'
+                && frame.content?.some((part) => part.text.startsWith('Queued:'))), 'A genuine new-turn confirmation did not proceed');
+            expect(mutations).toEqual([
+                { sessionId: reviewer.sessionId, text: 'Explain the review delay.\n\ncame from a real-time agent' },
+                { sessionId: reviewer.sessionId, text: 'Report your progress and blockers.\n\ncame from a real-time agent' },
+                { sessionId: agent.sessionId, text: 'Report your progress and blockers.\n\ncame from a real-time agent' },
+                { sessionId: agent.sessionId, text: 'Report your progress and blockers.\n\ncame from a real-time agent' },
+            ]);
+            const kernelFrames = [];
+            let aborted = false;
+            const kernel = createVoiceTools((frame) => kernelFrames.push(frame), {
+                timeoutMs: 20, answerTimeoutMs: 20,
+                invoke: (_name, _args, _id, signal) => new Promise(() => { signal.addEventListener('abort', () => { aborted = true; }); }),
+            });
+            try {
+                const request = kernel.run('read_agent_output', {}, 'timeout-flow');
+                kernel.state('connected');
+                expect(kernelFrames.at(-1).state).toBe('thinking');
+                expect(await request).toContain('timed out');
+                expect(aborted).toBe(true);
+                await waitFor(() => kernelFrames.some((frame) => frame.state === 'connected' && frame.detail?.includes('did not finish answering')), 'Missing generic unanswered-result feedback');
+            } finally { kernel.close(); }
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'user', transcript: "Don't go to sleep; tell me what John is doing." } }) });
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'assistant', transcript: 'John is checking reconnect recovery.' } }) });
+            await waitFor(() => flow.frames.some((frame) => frame.type === 'realtime.transcript' && frame.text === 'John is checking reconnect recovery.'), 'A mention of sleep interrupted the conversation');
+            expect(flow.frames.some((frame) => frame.type === 'realtime.closed')).toBe(false);
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'user', transcript: 'Cool, go to sleep.' } }) });
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'assistant', transcript: 'Okay, stopping now.' } }) });
             await waitFor(() => flow.frames.some((frame) => frame.type === 'realtime.closed'), 'Codex provider did not close');
+            expect(flow.frames.at(-1)).toEqual({ type: 'realtime.closed', reason: 'ended' });
+            expect(flow.frames.at(-2)).toEqual({ type: 'realtime.transcript', role: 'agent', text: 'Okay, stopping now.' });
             await waitFor(() => flow.child.exitCode !== null, `Codex provider did not exit: ${flow.errors.join('\n')}`);
 
             const refused = spawnProvider('acct-other');
@@ -882,6 +1123,8 @@ describe('providerRefusal', () => {
             expect(requests).toHaveLength(1);
             if (refused.child.exitCode === null) refused.child.kill('SIGKILL');
         } finally {
+            await coordinator.close();
+            await rm(codexState, { recursive: true, force: true });
             if (flow.child.exitCode === null) flow.child.kill('SIGKILL');
             const closed = Promise.withResolvers();
             server.close(closed.resolve);

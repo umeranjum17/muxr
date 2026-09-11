@@ -1,6 +1,7 @@
 export type {
     ClientRequest,
     PeerClientRequest,
+    PeerMessageSender,
     PeerRequestMap,
     PeerRequestParams,
     PeerRequestResult,
@@ -12,7 +13,6 @@ export type {
     RequestResult,
     RequestType,
     StreamingBehavior,
-    VoiceProviderOption,
     WatchSettlement,
     LayoutSnapshot,
 } from './domain/requests.js';
@@ -42,7 +42,7 @@ export {
     PREVIEW_HEADER_BYTES,
 } from './infrastructure/preview.js';
 
-export type { TerminalClientFrame, TerminalHostFrame } from './infrastructure/terminal.js';
+export type { TerminalClientFrame, TerminalGraphicsReason, TerminalGraphicsSurface, TerminalHostFrame } from './infrastructure/terminal.js';
 export { newTerminalChannel, terminalSocketUrl } from './infrastructure/terminal.js';
 
 export { relayControlUrl, isWebSocketRelayUrl, relayChannelSocketUrl } from './infrastructure/controlPlaneUrl.js';

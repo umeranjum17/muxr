@@ -15,6 +15,7 @@ export const LocalSettingsSchema = z.object({
     zenMode: z.boolean().describe('Hide all sidebars and non-essential UI for focused work'),
     promotedNotificationsPrompted: z.boolean().describe('Whether Android Live Updates access was already explained'),
     backgroundConnectionPrompted: z.boolean().describe('Whether Android background activity settings were already explained'),
+    terminalKeyboardDisabled: z.boolean().describe('Disable opening the Android terminal keyboard when tapping its surface'),
     vadStandbyEnabled: z.boolean().describe('Persistently wake realtime voice from local speech activity standby'),
     terminalScreenReader: z.boolean().describe('Expose terminal output to screen readers (web xterm screenReaderMode)'),
     terminalFontSize: z.union([z.literal(11), z.literal(12), z.literal(13), z.literal(14), z.literal(16), z.literal(18)]).describe('Browser terminal font size in px'),
@@ -51,6 +52,7 @@ export const localSettingsDefaults: LocalSettings = {
     zenMode: false,
     promotedNotificationsPrompted: false,
     backgroundConnectionPrompted: false,
+    terminalKeyboardDisabled: false,
     vadStandbyEnabled: false,
     terminalScreenReader: false,
     terminalFontSize: 13,
@@ -68,7 +70,12 @@ export function localSettingsParse(settings: unknown): LocalSettings {
     if (!parsed.success) {
         return { ...localSettingsDefaults };
     }
-    return { ...localSettingsDefaults, ...parsed.data };
+    // The old flag had the opposite meaning. Ignore it rather than turning an
+    // old `false` into a new disable, which would preserve the broken default.
+    const { terminalAutoShowKeyboard: _legacy, ...current } = parsed.data as typeof parsed.data & {
+        terminalAutoShowKeyboard?: unknown;
+    };
+    return { ...localSettingsDefaults, ...current };
 }
 
 //

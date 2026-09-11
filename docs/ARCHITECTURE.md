@@ -80,8 +80,8 @@ native slots, declarative terminal keys/navigation/settings/data cards, shortcut
 and a central primitive registry. The phone is a dumb translator of `muxr-ui.json`:
 it mounts slots and draws widgets. Inbox, Voice, Changes, Attachments, terminal
 keys, usage, and the workspace sheet are ordinary plugins that compose those
-widgets and call host backends. Preview transport/viewing is kernel substrate;
-plugins reach it only through the validated current-session preview action.
+widgets and call host backends. Preview transport is kernel substrate for
+browser takeover; plugins do not expose a preview action.
 Navigation destinations open `/plugin`.
 
 Bundled extensions compose the same primitives as any other plugin. The app

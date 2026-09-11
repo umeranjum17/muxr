@@ -21,7 +21,7 @@ Navigate by intent. Socket handlers in `host.ts` / `createRequestDispatcher.ts` 
 | Grant peer authority | `peer/application/grantPeerAuthority.ts` | Device Grant, peer limit | `peer.authorize` |
 | Revoke peer authority | `peer/application/revokePeerAuthority.ts` | Device Grant | `peer.revoke` |
 | Admit an inbound peer request | `peer/application/admitPeerRequest.ts` | Peer start surface, mutation receipt | PeerRuntime inbound |
-| Open / probe Preview | `requests/application/openPreview.ts` | — | `preview.attach`, `preview.probe` |
+| Attach Preview Tunnel | `requests/application/attachPreviewTunnel.ts` | — | `preview.attach` |
 
 Not in this process: StartDictation, StartRealtimeConversation, InterruptPlayback — those live on the phone. Host only lists/selects voice providers through `SessionSource`.
 

@@ -14,6 +14,13 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 : "${IOS_PROVISIONING_PROFILE_PATH:?IOS_PROVISIONING_PROFILE_PATH is required}"
 : "${APPLE_TEAM_ID:?APPLE_TEAM_ID is required}"
 : "${IOS_IPA_OUTPUT:?IOS_IPA_OUTPUT is required}"
+# The store build's Expo project id decides whether push registration can even
+# ask for a token: app.config only publishes extra.eas when this is set, and
+# the app reports no native push without it. The value the App Store build
+# expects is the one committed in apps/mobile/eas.json under
+# build.production.env; it is supplied explicitly so a local archive can never
+# quietly fall back to a different project or to none.
+: "${MUXR_EAS_PROJECT_ID:?MUXR_EAS_PROJECT_ID is required}"
 
 [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "APP_VERSION must be semantic" >&2; exit 1; }
 [[ "$IOS_BUILD_NUMBER" =~ ^[1-9][0-9]*(\.[0-9]+)*$ ]] || { echo "IOS_BUILD_NUMBER must be positive numeric components" >&2; exit 1; }
@@ -21,7 +28,20 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 [[ "$IOS_IPA_OUTPUT" = *.ipa ]] || { echo "IOS_IPA_OUTPUT must end in .ipa" >&2; exit 1; }
 [ -f "$IOS_CERTIFICATE_PATH" ] || { echo "IOS_CERTIFICATE_PATH does not exist" >&2; exit 1; }
 [ -f "$IOS_PROVISIONING_PROFILE_PATH" ] || { echo "IOS_PROVISIONING_PROFILE_PATH does not exist" >&2; exit 1; }
-for command in xcodebuild security node yarn ruby bundle pod openssl unzip plutil shasum git awk; do
+[[ "$MUXR_EAS_PROJECT_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || { echo "MUXR_EAS_PROJECT_ID must be a lowercase UUID" >&2; exit 1; }
+# The Live Activity extension is a second signed target inside the app. Only
+# its presence in the generated project decides whether it must be signed, and
+# a missing profile is worth catching now rather than after an archive; the
+# lane asks the project itself, this is the cheap pre-check.
+extension_target=HerdLiveActivity
+extension_bundle_id=com.trymuxr.app.activity
+extension_present=false
+grep -q "$extension_target" "$ROOT/apps/mobile/ios/muxr.xcodeproj/project.pbxproj" && extension_present=true
+if [ "$extension_present" = true ]; then
+  : "${IOS_EXTENSION_PROVISIONING_PROFILE_PATH:?IOS_EXTENSION_PROVISIONING_PROFILE_PATH is required while the project declares $extension_target}"
+  [ -f "$IOS_EXTENSION_PROVISIONING_PROFILE_PATH" ] || { echo "IOS_EXTENSION_PROVISIONING_PROFILE_PATH does not exist" >&2; exit 1; }
+fi
+for command in xcodebuild codesign security node yarn ruby bundle pod openssl unzip plutil shasum git awk; do
   command -v "$command" >/dev/null || { echo "$command is required" >&2; exit 1; }
 done
 [ -z "$(git -C "$ROOT" status --porcelain)" ] || { echo "The repository must be clean before iOS validation" >&2; exit 1; }
@@ -37,7 +57,20 @@ fi
 export APP_ENV=production
 export MUXR_PUBLIC_BASE_URL=https://trymuxr.com
 export MUXR_DISTRIBUTION=store
-unset EXPO_PUBLIC_MUXR_MODE EXPO_PUBLIC_MUXR_RELAY_URL EXPO_PUBLIC_MUXR_TOKEN EXPO_PUBLIC_MUXR_MACHINE_ID
+export MUXR_EAS_PROJECT_ID
+# Metro inlines these at bundle time and they are not part of app.config, so
+# they cannot be checked in the archive afterwards. Dropping them does not
+# fall back to the hosted relay: the mode does default to hosted, but the
+# relay URL defaults to a loopback address, which is not what a store build
+# declares. Take the declared values from the committed production profile
+# rather than restating them here. Credentials are never baked in.
+store_profile="$ROOT/apps/mobile/eas.json"
+for store_key in EXPO_PUBLIC_MUXR_MODE EXPO_PUBLIC_MUXR_RELAY_URL; do
+  store_value="$(node -e 'const {env}=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).build.production;process.stdout.write(env[process.argv[2]] ?? "")' "$store_profile" "$store_key")"
+  [ -n "$store_value" ] || { echo "$store_key is missing from the production build profile" >&2; exit 1; }
+  export "$store_key=$store_value"
+done
+unset EXPO_PUBLIC_MUXR_TOKEN EXPO_PUBLIC_MUXR_MACHINE_ID
 
 (cd "$ROOT" && yarn install --frozen-lockfile --non-interactive)
 (cd "$ROOT" && (bundle check || bundle install))
@@ -53,6 +86,7 @@ keychain="$workdir/build.keychain-db"
 keychain_password="$(openssl rand -hex 24)"
 profile_plist="$workdir/profile.plist"
 installed_profile=""
+installed_extension_profile=""
 original_default="$(security default-keychain -d user | tr -d '"')"
 original_keychains=()
 while IFS= read -r keychain_path; do
@@ -64,9 +98,30 @@ cleanup() {
   security list-keychains -d user -s "${original_keychains[@]}" >/dev/null 2>&1 || true
   security delete-keychain "$keychain" >/dev/null 2>&1 || true
   [ -z "$installed_profile" ] || rm -f "$installed_profile"
+  [ -z "$installed_extension_profile" ] || rm -f "$installed_extension_profile"
   rm -rf "$workdir"
 }
 trap cleanup EXIT
+
+# PlistBuddy renders a boolean and the string "false" the same way, and a
+# profile may authorise domains with a scalar wildcard rather than a list, so
+# the checks that turn on type read the plist as JSON. A conversion that fails
+# aborts rather than reading as an absent key.
+entitlements_json() { plutil -convert json -o "$2" "$1"; }
+debuggable_entitlement() {
+  ENTITLEMENTS_JSON="$1" node -e 'const entitlements = JSON.parse(require("fs").readFileSync(process.env.ENTITLEMENTS_JSON, "utf8"));
+const value = entitlements["get-task-allow"];
+process.stdout.write(value === undefined || value === false ? "no" : `yes (${JSON.stringify(value)})`);'
+}
+associated_domain_allowed() {
+  ENTITLEMENTS_JSON="$1" node -e 'const entitlements = JSON.parse(require("fs").readFileSync(process.env.ENTITLEMENTS_JSON, "utf8"));
+const declared = entitlements["com.apple.developer.associated-domains"];
+const [required, mode] = process.argv.slice(1);
+const entries = Array.isArray(declared) ? declared : [declared];
+// A profile may carry the wildcard that authorises every domain; a signed app
+// and the project always name the concrete domain.
+process.stdout.write(entries.some((entry) => entry === required || (mode === "authorises" && entry === "*")) ? "yes" : "no");' "$2" "$3"
+}
 
 security cms -D -i "$IOS_PROVISIONING_PROFILE_PATH" > "$profile_plist"
 profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")"
@@ -77,16 +132,49 @@ get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow
 [ "$profile_team" = "$APPLE_TEAM_ID" ] || { echo "Provisioning profile team does not match APPLE_TEAM_ID" >&2; exit 1; }
 [ "$application_id" = "$APPLE_TEAM_ID.com.trymuxr.app" ] || { echo "Provisioning profile application identifier is invalid" >&2; exit 1; }
 [ "$get_task_allow" = false ] || { echo "A non-debug provisioning profile is required" >&2; exit 1; }
+# The signed archive can only carry what both the profile and the project
+# declare, so disagreement is caught here rather than after the build.
+profile_aps="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:aps-environment' "$profile_plist" 2>/dev/null || true)"
+[ "$profile_aps" = production ] || { echo "The provisioning profile does not authorise production push" >&2; exit 1; }
+profile_entitlements="$workdir/profile-entitlements.json"
+# A decoded profile carries objects JSON cannot represent, and plutil rejects
+# the whole document rather than just the subtree being asked for, so the
+# entitlements are lifted out as a plist first and converted on their own.
+profile_entitlements_plist="$workdir/profile-entitlements.plist"
+plutil -extract Entitlements xml1 -o "$profile_entitlements_plist" "$profile_plist"
+entitlements_json "$profile_entitlements_plist" "$profile_entitlements"
+[ "$(associated_domain_allowed "$profile_entitlements" applinks:trymuxr.com authorises)" = yes ] || { echo "The provisioning profile does not authorise the trymuxr.com associated domain" >&2; exit 1; }
+project_entitlements="$workdir/project-entitlements.json"
+entitlements_json "$ROOT/apps/mobile/ios/muxr/muxr.entitlements" "$project_entitlements"
+[ "$(/usr/libexec/PlistBuddy -c 'Print :aps-environment' "$ROOT/apps/mobile/ios/muxr/muxr.entitlements")" = production ] || { echo "The project does not declare production push" >&2; exit 1; }
+[ "$(associated_domain_allowed "$project_entitlements" applinks:trymuxr.com exact)" = yes ] || { echo "The project does not declare the trymuxr.com associated domain" >&2; exit 1; }
 
 profiles_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
 mkdir -p "$profiles_dir"
-profile_destination="$profiles_dir/$profile_uuid.mobileprovision"
-if [ ! -e "$profile_destination" ]; then
-  install -m 600 "$IOS_PROVISIONING_PROFILE_PATH" "$profile_destination"
-  installed_profile="$profile_destination"
-elif ! cmp -s "$IOS_PROVISIONING_PROFILE_PATH" "$profile_destination"; then
-  echo "A different provisioning profile with this UUID is already installed" >&2
-  exit 1
+# Prints the destination when this run installed it, so only what was added is
+# removed again; an existing file under the same UUID must be the same profile.
+install_provisioning_profile() {
+  local destination="$profiles_dir/$2.mobileprovision"
+  if [ ! -e "$destination" ]; then
+    install -m 600 "$1" "$destination"
+    printf '%s' "$destination"
+    return 0
+  fi
+  cmp -s "$1" "$destination" || { echo "A different provisioning profile with this UUID is already installed" >&2; return 1; }
+}
+installed_profile="$(install_provisioning_profile "$IOS_PROVISIONING_PROFILE_PATH" "$profile_uuid")"
+if [ "$extension_present" = true ]; then
+  extension_profile_plist="$workdir/extension-profile.plist"
+  security cms -D -i "$IOS_EXTENSION_PROVISIONING_PROFILE_PATH" > "$extension_profile_plist"
+  extension_profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$extension_profile_plist")"
+  extension_profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$extension_profile_plist")"
+  [ "$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$extension_profile_plist")" = "$APPLE_TEAM_ID" ] || { echo "The extension provisioning profile is from a different team" >&2; exit 1; }
+  [ "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$extension_profile_plist")" = "$APPLE_TEAM_ID.$extension_bundle_id" ] || { echo "The extension provisioning profile is not for $extension_bundle_id" >&2; exit 1; }
+  [ "$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$extension_profile_plist" 2>/dev/null || true)" = false ] || { echo "A non-debug extension provisioning profile is required" >&2; exit 1; }
+  # A Live Activity needs neither push nor associated domains, and no app
+  # group: the widget declares none of them, so none are demanded here.
+  installed_extension_profile="$(install_provisioning_profile "$IOS_EXTENSION_PROVISIONING_PROFILE_PATH" "$extension_profile_uuid")"
+  export IOS_EXTENSION_PROFILE_NAME="$extension_profile_name"
 fi
 
 security create-keychain -p "$keychain_password" "$keychain" >/dev/null
@@ -100,6 +188,10 @@ security default-keychain -d user -s "$keychain" >/dev/null
 security find-identity -v -p codesigning "$keychain" | grep -q '1)'
 
 mkdir -p "$(dirname "$IOS_IPA_OUTPUT")"
+# The framework a build links is downloaded, never committed. Recompute its
+# library bytes before pods so a tree that skipped postinstall fails here
+# rather than archiving whatever binary happens to be extracted.
+node "$ROOT/scripts/diagnostics/application/syncIosFramework.mjs" --verify
 (cd "$ROOT/apps/mobile/ios" && pod install)
 export IOS_PROFILE_NAME="$profile_name"
 (cd "$ROOT" && bundle exec fastlane ios build_internal)
@@ -113,11 +205,101 @@ unzip -p "$IOS_IPA_OUTPUT" "$mapfile_entry" > "$mapfile_path"
 [ "$(plutil -extract CFBundleShortVersionString raw "$mapfile_path")" = "$APP_VERSION" ]
 [ "$(plutil -extract CFBundleVersion raw "$mapfile_path")" = "$IOS_BUILD_NUMBER" ]
 
+commit_sha="$(git -C "$ROOT" rev-parse HEAD)"
+payload="$workdir/payload"
+unzip -q "$IOS_IPA_OUTPUT" -d "$payload"
+app="$payload/${mapfile_entry%/Info.plist}"
+[ -d "$app" ] || { echo "The IPA does not contain the expected app bundle" >&2; exit 1; }
+
+# An unsigned or development-signed export drops the capabilities the app
+# declares without failing, so the signature the IPA actually ships is what
+# gets checked, not the settings that were asked for.
+codesign --verify --deep --strict "$app" || { echo "The exported app is not validly signed" >&2; exit 1; }
+signature="$workdir/signature.txt"
+codesign -dvvv "$app" > "$signature" 2>&1
+[ "$(awk -F= '/^TeamIdentifier=/{print $2}' "$signature")" = "$APPLE_TEAM_ID" ] || { echo "The signed app is not from the expected team" >&2; exit 1; }
+signing_identity="$(awk -F= '/^Authority=/{print $2; exit}' "$signature")"
+case "$signing_identity" in
+  "Apple Distribution: "*|"iPhone Distribution: "*) ;;
+  *) echo "The app is not signed with a distribution identity: $signing_identity" >&2; exit 1 ;;
+esac
+
+entitlements="$workdir/entitlements.plist"
+codesign -d --entitlements :- --xml "$app" > "$entitlements"
+plutil -lint "$entitlements" >/dev/null
+signed_entitlement() { /usr/libexec/PlistBuddy -c "Print :$1" "$entitlements" 2>/dev/null || true; }
+[ "$(signed_entitlement aps-environment)" = production ] || { echo "The signed app does not carry production push" >&2; exit 1; }
+[ "$(signed_entitlement application-identifier)" = "$APPLE_TEAM_ID.com.trymuxr.app" ] || { echo "The signed application identifier is wrong" >&2; exit 1; }
+[ "$(signed_entitlement com.apple.developer.team-identifier)" = "$APPLE_TEAM_ID" ] || { echo "The signed team identifier is wrong" >&2; exit 1; }
+signed_entitlements="$workdir/entitlements.json"
+entitlements_json "$entitlements" "$signed_entitlements"
+# A store signature normally omits get-task-allow entirely; boolean false is
+# equally non-debug. Any other value, of any type, is not shippable.
+debuggable="$(debuggable_entitlement "$signed_entitlements")"
+[ "$debuggable" = no ] || { echo "The signed app is debuggable: get-task-allow is $debuggable" >&2; exit 1; }
+[ "$(associated_domain_allowed "$signed_entitlements" applinks:trymuxr.com exact)" = yes ] || { echo "The signed app is missing the trymuxr.com associated domain" >&2; exit 1; }
+
+embedded_plist="$workdir/embedded.plist"
+security cms -D -i "$app/embedded.mobileprovision" > "$embedded_plist"
+[ "$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$embedded_plist")" = "$profile_uuid" ] || { echo "The IPA embeds a different provisioning profile" >&2; exit 1; }
+
+# The extension ships inside the app and is signed separately, so the app's
+# signature proves nothing about it. Everything it is signed to be is checked
+# here: who signed it, for what, that it is not debuggable, that it carries the
+# profile that was validated up front, and that it shipped at this version.
+extension_evidence="no extension target"
+if [ "$extension_present" = true ]; then
+  appex="$app/PlugIns/$extension_target.appex"
+  [ -d "$appex" ] || { echo "The archive does not contain $extension_target.appex" >&2; exit 1; }
+  extension_signature="$workdir/extension-signature.txt"
+  codesign -dvvv "$appex" > "$extension_signature" 2>&1
+  [ "$(awk -F= '/^TeamIdentifier=/{print $2}' "$extension_signature")" = "$APPLE_TEAM_ID" ] || { echo "The signed extension is not from the expected team" >&2; exit 1; }
+  extension_identity="$(awk -F= '/^Authority=/{print $2; exit}' "$extension_signature")"
+  case "$extension_identity" in
+    "Apple Distribution: "*|"iPhone Distribution: "*) ;;
+    *) echo "The extension is not signed with a distribution identity: $extension_identity" >&2; exit 1 ;;
+  esac
+  extension_entitlements="$workdir/extension-entitlements.plist"
+  codesign -d --entitlements :- --xml "$appex" > "$extension_entitlements"
+  plutil -lint "$extension_entitlements" >/dev/null
+  extension_signed="$workdir/extension-entitlements.json"
+  entitlements_json "$extension_entitlements" "$extension_signed"
+  [ "$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$extension_entitlements")" = "$APPLE_TEAM_ID.$extension_bundle_id" ] || { echo "The signed extension identifier is wrong" >&2; exit 1; }
+  extension_debuggable="$(debuggable_entitlement "$extension_signed")"
+  [ "$extension_debuggable" = no ] || { echo "The signed extension is debuggable: get-task-allow is $extension_debuggable" >&2; exit 1; }
+  extension_embedded="$workdir/extension-embedded.plist"
+  security cms -D -i "$appex/embedded.mobileprovision" > "$extension_embedded"
+  [ "$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$extension_embedded")" = "$extension_profile_uuid" ] || { echo "The extension embeds a different provisioning profile" >&2; exit 1; }
+  [ "$(plutil -extract CFBundleIdentifier raw "$appex/Info.plist")" = "$extension_bundle_id" ] || { echo "The extension has the wrong bundle identifier" >&2; exit 1; }
+  [ "$(plutil -extract CFBundleShortVersionString raw "$appex/Info.plist")" = "$APP_VERSION" ] || { echo "The extension ships a different release version than the app" >&2; exit 1; }
+  [ "$(plutil -extract CFBundleVersion raw "$appex/Info.plist")" = "$IOS_BUILD_NUMBER" ] || { echo "The extension ships a different build than the app" >&2; exit 1; }
+  extension_evidence="identity=$extension_identity profile_uuid=$extension_profile_uuid entitlements_sha256=$(shasum -a 256 "$extension_entitlements" | awk '{print $1}')"
+fi
+
+# Push registration reads the project id out of this file at runtime, so an
+# archive built without it reports no native push however well it is signed.
+app_config="$app/EXConstants.bundle/app.config"
+[ -f "$app_config" ] || { echo "The app bundle does not contain EXConstants.bundle/app.config" >&2; exit 1; }
+config_value() {
+  APP_CONFIG="$app_config" node -e 'const config = JSON.parse(require("fs").readFileSync(process.env.APP_CONFIG, "utf8"));
+const value = process.argv.slice(1).reduce((node, key) => (node === undefined ? undefined : node[key]), config);
+process.stdout.write(value === undefined ? "" : String(value));' "$@"
+}
+[ "$(config_value extra eas projectId)" = "$MUXR_EAS_PROJECT_ID" ] || { echo "The archive does not embed the required Expo project id" >&2; exit 1; }
+[ "$(config_value extra app publicBaseUrl)" = "$MUXR_PUBLIC_BASE_URL" ] || { echo "The archive embeds a different public base URL" >&2; exit 1; }
+[ "$(config_value extra app directDistribution)" = false ] || { echo "The archive is not configured for store distribution" >&2; exit 1; }
+[ "$(config_value extra app consoleLoggingDefault)" = false ] || { echo "The archive would log to the console by default" >&2; exit 1; }
+[ "$(config_value extra app releaseVersion)" = "$APP_VERSION" ] || { echo "The archive embeds a different release version" >&2; exit 1; }
+[ "$(config_value extra app buildCommitSha)" = "$commit_sha" ] || { echo "The archive embeds a different source commit" >&2; exit 1; }
+
 ipa_sha256="$(shasum -a 256 "$IOS_IPA_OUTPUT" | awk '{print $1}')"
+entitlements_sha256="$(shasum -a 256 "$entitlements" | awk '{print $1}')"
+app_config_sha256="$(shasum -a 256 "$app_config" | awk '{print $1}')"
 podfile_lock="$ROOT/apps/mobile/ios/Podfile.lock"
 [ -f "$podfile_lock" ] || { echo "pod install did not produce Podfile.lock" >&2; exit 1; }
 podfile_lock_sha256="$(shasum -a 256 "$podfile_lock" | awk '{print $1}')"
-commit_sha="$(git -C "$ROOT" rev-parse HEAD)"
+ghostty_libraries="$(cd "$ROOT/node_modules/expo-libghostty/ios/vendor/Frameworks/GhosttyKit.xcframework" \
+  && shasum -a 256 ios-arm64/libghostty.a ios-arm64_x86_64-simulator/libghostty.a | awk '{printf "%s=%s ", $2, $1}')"
 printf '%s\n' \
   "iOS archive validation passed" \
   "commit: $commit_sha" \
@@ -126,4 +308,12 @@ printf '%s\n' \
   "xcode: ${xcode_version//$'\n'/; }" \
   "ipa_sha256: $ipa_sha256" \
   "podfile_lock_sha256: $podfile_lock_sha256" \
+  "ghostty_libraries: $ghostty_libraries" \
+  "entitlements_sha256: $entitlements_sha256" \
+  "app_config_sha256: $app_config_sha256" \
+  "signing_identity: $signing_identity" \
+  "profile_uuid: $profile_uuid" \
+  "eas_project_id: $MUXR_EAS_PROJECT_ID" \
+  "extension: $extension_evidence" \
+  "build_env: EXPO_PUBLIC_MUXR_MODE=$EXPO_PUBLIC_MUXR_MODE EXPO_PUBLIC_MUXR_RELAY_URL=$EXPO_PUBLIC_MUXR_RELAY_URL (Metro inputs, not app.config keys)" \
   "ipa: $IOS_IPA_OUTPUT"

@@ -23,3 +23,4 @@ export {
     realtimeSocketUrl,
 } from './domain/realtimeStream.js';
 export { boundRealtimePublicContext, realtimePluginPublicContext } from './application/boundRealtimePublicContext.js';
+export { spokenMatches } from './domain/spokenMatch.js';

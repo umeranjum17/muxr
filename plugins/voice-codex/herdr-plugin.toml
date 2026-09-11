@@ -1,6 +1,0 @@
-id = "muxr.voice-codex"
-name = "Codex Voice (experimental)"
-version = "0.1.0"
-min_herdr_version = "0.8.0"
-description = "Subscription-backed Codex WebRTC signaling behind muxr's provider-neutral stream"
-platforms = ["linux", "macos"]

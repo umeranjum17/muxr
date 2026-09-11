@@ -1,7 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import React from 'react';
+import TestRenderer from 'react-test-renderer';
+import type { HerdrTreeWorkspace } from '@muxr/contract';
 
 const mocks = vi.hoisted(() => ({
+    focused: true,
     request: vi.fn(),
+    replace: vi.fn(),
+    catalog: { workspaces: [] as HerdrTreeWorkspace[], loaded: true },
+    catalogListeners: new Set<() => void>(),
+    terminalMounts: [] as string[],
+    terminalChannels: new Map<string, { sendText: (text: string) => void }>(),
     fetch: vi.fn(),
     settings: { relayUrl: 'ws://relay.test', machineId: 'machine', token: 'devtok_test' },
 }));
@@ -18,6 +27,34 @@ vi.mock('@/pairing/e2ee', () => ({
     getCachedHostedGrant: () => undefined,
     DeviceV2Crypto: class {},
 }));
+
+vi.mock('@react-navigation/native', () => ({ useIsFocused: () => mocks.focused }));
+vi.mock('expo-router', () => ({ router: { replace: mocks.replace } }));
+vi.mock('@/catalog/store', async () => {
+    const React = await import('react');
+    return { useHerdrTree: () => React.useSyncExternalStore(
+        (listener) => { mocks.catalogListeners.add(listener); return () => { mocks.catalogListeners.delete(listener); }; },
+        () => mocks.catalog,
+    ) };
+});
+vi.mock('../presentation/TerminalScreen', async () => {
+    const React = await import('react');
+    const { openTerminal } = await import('./OpenTerminal');
+    return { TerminalScreen: ({ id }: { id: string }) => {
+        React.useEffect(() => {
+            mocks.terminalMounts.push(id);
+            let disposed = false;
+            let channel: Awaited<ReturnType<typeof openTerminal>> | undefined;
+            void openTerminal({ agentRoute: id, size: { cols: 80, rows: 24 } }).then((opened) => {
+                if (disposed) { opened.close(); return; }
+                channel = opened;
+                mocks.terminalChannels.set(id, opened);
+            });
+            return () => { disposed = true; channel?.close(); mocks.terminalChannels.delete(id); };
+        }, [id]);
+        return React.createElement('terminal-screen', { id });
+    } };
+});
 
 class FakeWebSocket {
     static readonly CONNECTING = 0;
@@ -55,12 +92,20 @@ class FakeWebSocket {
 vi.stubGlobal('WebSocket', FakeWebSocket);
 vi.stubGlobal('fetch', mocks.fetch);
 
+import { decodeBase64, encodeBase64 } from '@/encryption/base64';
+import { createKittyDecoderState, inflateZlib, materializeKittyCommands, splitKittyFrame } from './kittyDecoder';
 import { openTerminal } from './OpenTerminal';
-import { readConnectionDiagnostics, resetConnectionDiagnostics } from '@/catalog/infrastructure/connectionDiagnostics';
+import { TerminalRoute } from '../presentation/TerminalRoute';
+import { createTerminalWritePump } from './terminalWritePump';
+import { formatConnectionDiagnosticsForReport, readConnectionDiagnostics, resetConnectionDiagnostics } from '@/catalog/infrastructure/connectionDiagnostics';
 
 describe('openTerminal reconnect ownership', () => {
     beforeEach(() => {
         mocks.request.mockReset();
+        mocks.replace.mockReset();
+        mocks.catalog = { workspaces: [], loaded: true };
+        mocks.terminalMounts.length = 0;
+        mocks.terminalChannels.clear();
         mocks.fetch.mockReset();
         mocks.settings.token = 'devtok_test';
         mocks.fetch.mockResolvedValue({
@@ -93,11 +138,171 @@ describe('openTerminal reconnect ownership', () => {
         await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
         const socket = FakeWebSocket.instances[0]!;
         socket.open();
-        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-paint' }) });
+        const graphics: Array<{ active: boolean; reason?: string }> = [];
+        channel.onGraphics((active, reason) => graphics.push({ active, ...(reason === undefined ? {} : { reason }) }));
+        expect(graphics).toEqual([{ active: false }]);
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-paint', graphics: true }) });
 
-        const frames: string[] = [];
-        channel.onData((bytes) => frames.push(bytes));
-        expect(frames).toEqual(['full-paint']);
+        const frames: Array<{ bytes: string; graphics?: boolean }> = [];
+        channel.onData((bytes, graphicsFlag) => frames.push({ bytes, graphics: graphicsFlag }));
+        expect(frames).toEqual([{ bytes: 'full-paint', graphics: true }]);
+        expect(graphics).toEqual([{ active: false }, { active: true }]);
+
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'ansi', graphics: false }) });
+        expect(frames).toEqual([{ bytes: 'full-paint', graphics: true }, { bytes: 'ansi', graphics: false }]);
+        expect(graphics).toEqual([{ active: false }, { active: true }, { active: false }]);
+
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'plain-herdr' }) });
+        expect(frames.at(-1)).toEqual({ bytes: 'plain-herdr' });
+
+        const deleteBytes = encodeBase64(new TextEncoder().encode('\x1b_Ga=d,d=A;\x1b\\'));
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: deleteBytes, graphics: false }) });
+        expect(frames.at(-1)).toEqual({ bytes: deleteBytes, graphics: false });
+        const routed = splitKittyFrame(decodeBase64(deleteBytes), createKittyDecoderState());
+        expect(routed.error).toBeUndefined();
+        expect(routed.commands).toEqual([{ kind: 'delete-all' }]);
+        expect(new TextDecoder().decode(routed.ansi)).toBe('');
+        const cleared = await materializeKittyCommands(routed.commands, inflateZlib);
+        expect(cleared.deleteAll).toBe(true);
+        expect(cleared.placements).toEqual([]);
+
+        socket.onmessage?.({ data: JSON.stringify({
+            type: 'terminal.frame',
+            bytes: deleteBytes,
+            graphics: false,
+            graphicsReason: 'retired',
+        }) });
+        expect(graphics.at(-1)).toEqual({ active: false, reason: 'retired' });
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'draw-again', graphics: true }) });
+        expect(graphics.at(-1)).toEqual({ active: true });
+
+        channel.repaint(true);
+        expect(graphics.at(-1)).toEqual({ active: false });
+        await vi.waitFor(() => expect(mocks.request).toHaveBeenCalledWith(
+            'terminal.attach',
+            expect.objectContaining({ graphicsReset: true }),
+        ));
+
+        channel.close();
+        expect(graphics.at(-1)).toEqual({ active: false });
+    });
+
+    it('drives socket frames through one in-flight graphics-aware write pump', async () => {
+        mocks.request.mockResolvedValue({});
+        const channel = await openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } });
+        await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
+        const socket = FakeWebSocket.instances[0]!;
+        socket.open();
+
+        const writes: string[] = [];
+        let concurrent = 0;
+        let maxConcurrent = 0;
+        const gates: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
+        const recoveries: unknown[] = [];
+        let scheduledId = 0;
+        const scheduled = new Set<number>();
+        const pump = createTerminalWritePump({
+            write: (bytes) => {
+                concurrent += 1;
+                maxConcurrent = Math.max(maxConcurrent, concurrent);
+                writes.push(bytes);
+                return new Promise<void>((resolve, reject) => {
+                    gates.push({
+                        resolve: () => { concurrent -= 1; resolve(); },
+                        reject: (error) => { concurrent -= 1; reject(error); },
+                    });
+                });
+            },
+            combineText: (frames) => frames.join(''),
+            schedule: (run) => {
+                const handle = ++scheduledId;
+                scheduled.add(handle);
+                queueMicrotask(() => {
+                    if (!scheduled.has(handle)) return;
+                    scheduled.delete(handle);
+                    run();
+                });
+                return handle;
+            },
+            cancelSchedule: (handle) => { scheduled.delete(handle as number); },
+            onRejected: (error) => { recoveries.push(error); },
+        });
+        channel.onData((bytes, graphics) => {
+            pump.push(typeof graphics === 'boolean' ? { bytes, graphics } : { bytes });
+        });
+
+        const frame = (bytes: string, graphics?: boolean) => {
+            socket.onmessage?.({ data: JSON.stringify(typeof graphics === 'boolean'
+                ? { type: 'terminal.frame', bytes, graphics }
+                : { type: 'terminal.frame', bytes }) });
+        };
+
+        frame('draw-1', true);
+        await vi.waitFor(() => expect(writes).toEqual(['draw-1']));
+        frame('text-A');
+        frame('draw-2', true);
+        frame('text-B');
+        frame('draw-3', true);
+        frame('retire-F', false);
+        expect(writes).toEqual(['draw-1']);
+        expect(maxConcurrent).toBe(1);
+
+        // Each graphics draw can be an independent placement; text and
+        // targeted deletes must retain their position between those draws.
+        const expected = ['draw-1', 'text-A', 'draw-2', 'text-B', 'draw-3', 'retire-F'];
+        for (let index = 0; index < expected.length; index++) {
+            if (index > 0) await vi.waitFor(() => expect(writes).toEqual(expected.slice(0, index + 1)));
+            gates[index]!.resolve();
+        }
+        await vi.waitFor(() => expect(concurrent).toBe(0));
+        expect(maxConcurrent).toBe(1);
+
+        frame('draw-4', true);
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('draw-4'));
+        frame('draw-5', true);
+        frame('draw-6', true);
+        gates[6]!.resolve();
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('draw-5'));
+        gates[7]!.resolve();
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('draw-6'));
+        gates[8]!.resolve();
+        await vi.waitFor(() => expect(concurrent).toBe(0));
+
+        frame('text-C');
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('text-C'));
+        frame('text-D');
+        const cancelled = pump.cancel();
+        gates[9]!.resolve();
+        await cancelled;
+        await Promise.resolve();
+        expect(writes.at(-1)).toBe('text-C');
+        expect(writes).not.toContain('text-D');
+
+        frame('text-E');
+        frame('draw-7', true);
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('text-E'));
+        frame('text-F');
+        gates[10]!.reject(undefined);
+        await vi.waitFor(() => expect(recoveries).toEqual([undefined]));
+        expect(writes).not.toContain('draw-7');
+        expect(writes).not.toContain('text-F');
+        expect(maxConcurrent).toBe(1);
+
+        // A stalled native writer cannot accumulate unlimited frames. Recover
+        // only after its admitted write settles, never overlap a new surface.
+        frame('blocked-write', true);
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('blocked-write'));
+        for (let i = 0; i < 129; i++) frame(`queued-${i}`, true);
+        expect(recoveries).toHaveLength(1);
+        gates[11]!.resolve();
+        await vi.waitFor(() => expect(recoveries).toHaveLength(2));
+        expect(String(recoveries[1])).toContain('backlog exceeded');
+        expect(writes.some((entry) => entry.startsWith('queued-'))).toBe(false);
+        frame('recovered-paint', true);
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('recovered-paint'));
+        gates[12]!.resolve();
+        await vi.waitFor(() => expect(concurrent).toBe(0));
+        expect(maxConcurrent).toBe(1);
 
         channel.close();
     });
@@ -118,6 +323,7 @@ describe('openTerminal reconnect ownership', () => {
         await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
         const first = FakeWebSocket.instances[0]!;
         first.open();
+        first.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'paint' }) });
 
         channel.reconnect();
         channel.reconnect();
@@ -139,6 +345,7 @@ describe('openTerminal reconnect ownership', () => {
         await vi.waitFor(() => expect(FakeWebSocket.instances[1]).toBeDefined());
         const replacement = FakeWebSocket.instances[1]!;
         replacement.open();
+        replacement.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'repaint' }) });
 
         // A late duplicate close from the old transport cannot schedule over
         // the live replacement.
@@ -162,11 +369,104 @@ describe('openTerminal reconnect ownership', () => {
             expect.objectContaining({ event: 'terminal.channel', phase: 'reconnecting', outcome: 'ok' }),
         ]));
     });
+
+    it('keeps the open pane usable across agent exit, shell input and a new agent', async () => {
+        mocks.request.mockResolvedValue({});
+        const catalog = (route: string, paneId = 'pane-a') => ({ workspaces: [{
+            workspaceId: 'workspace-a', label: 'Work', focused: true, agentStatus: 'idle', tabs: [{ tabId: 'tab-a', focused: true, agentStatus: 'idle', panes: [
+                { paneId, tabId: 'tab-a', focused: true, sessionId: route, agentStatus: 'idle' },
+                { paneId: 'pane-other', tabId: 'tab-a', focused: false, sessionId: 'other-agent', agentStatus: 'working' },
+            ] }],
+        }] as HerdrTreeWorkspace[], loaded: true });
+        mocks.focused = true;
+        mocks.catalog = catalog('first-agent');
+        let rendered: ReturnType<typeof TestRenderer.create>;
+        await TestRenderer.act(async () => { rendered = TestRenderer.create(React.createElement(TerminalRoute, { id: 'first-agent' })); });
+        try {
+            await vi.waitFor(() => expect(mocks.terminalChannels.has('first-agent')).toBe(true));
+            const first = FakeWebSocket.instances.at(-1)!;
+            first.open();
+            mocks.focused = false; // A file viewer above this route must stay open.
+            await TestRenderer.act(async () => {
+                mocks.catalog = catalog('shell:work-pane');
+                mocks.catalogListeners.forEach((listener) => listener());
+            });
+            expect(mocks.replace).not.toHaveBeenCalled();
+            expect(first.close).not.toHaveBeenCalled();
+            mocks.focused = true;
+            await TestRenderer.act(async () => { rendered!.update(React.createElement(TerminalRoute, { id: 'first-agent' })); });
+            expect(mocks.replace).toHaveBeenLastCalledWith('/session/shell%3Awork-pane');
+            await vi.waitFor(() => expect(mocks.terminalChannels.has('shell:work-pane')).toBe(true));
+            expect(first.close).toHaveBeenCalledOnce();
+            const shell = FakeWebSocket.instances.at(-1)!;
+            shell.open();
+            mocks.terminalChannels.get('shell:work-pane')!.sendText('pwd\n');
+            expect(JSON.parse(shell.send.mock.calls.at(-1)![0] as string)).toEqual({ type: 'terminal.input', text: 'pwd\n' });
+            await TestRenderer.act(async () => { rendered!.update(React.createElement(TerminalRoute, { id: 'shell:work-pane' })); });
+            await TestRenderer.act(async () => {
+                mocks.catalog = catalog('second-agent');
+                mocks.catalogListeners.forEach((listener) => listener());
+            });
+            expect(mocks.replace).toHaveBeenLastCalledWith('/session/second-agent');
+            await vi.waitFor(() => expect(mocks.terminalChannels.has('second-agent')).toBe(true));
+            expect(shell.close).toHaveBeenCalledOnce();
+            const second = FakeWebSocket.instances.at(-1)!;
+            second.open();
+            mocks.terminalChannels.get('second-agent')!.sendText('Continue');
+            expect(JSON.parse(second.send.mock.calls.at(-1)![0] as string).text).toBe('Continue');
+            expect(mocks.terminalMounts).toEqual(['first-agent', 'shell:work-pane', 'second-agent']);
+            await TestRenderer.act(async () => { rendered!.update(React.createElement(TerminalRoute, { id: 'second-agent' })); });
+            // Closing this pane does not authorize following another pane or old history.
+            mocks.replace.mockClear();
+            await TestRenderer.act(async () => {
+                mocks.catalog = catalog('unrelated-agent', 'pane-different');
+                mocks.catalogListeners.forEach((listener) => listener());
+            });
+            expect(mocks.replace).not.toHaveBeenCalled();
+            await TestRenderer.act(async () => { rendered!.update(React.createElement(TerminalRoute, { id: 'historical-agent' })); });
+            expect(mocks.replace).not.toHaveBeenCalled();
+            expect(mocks.terminalMounts).not.toContain('other-agent');
+            expect(mocks.terminalMounts).not.toContain('unrelated-agent');
+        } finally { await TestRenderer.act(async () => { rendered!.unmount(); }); }
+    });
+
+    it('records first-frame once and finalizes received/written counts without identifiers', async () => {
+        mocks.request.mockResolvedValue({});
+        const channel = await openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } });
+        await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
+        const socket = FakeWebSocket.instances[0]!;
+        socket.open();
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-frame' }) });
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'second' }) });
+        await vi.waitFor(() => {
+            expect(readConnectionDiagnostics().some((event) => event.event === 'terminal.first-frame')).toBe(true);
+        });
+        expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.first-frame')).toHaveLength(1);
+        expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.frames')).toEqual([]);
+        const live = formatConnectionDiagnosticsForReport();
+        expect(live).toMatch(/Redacted: durations, counts, and enums only/);
+        expect(live).toMatch(/terminal\.first-frame \d+ms/);
+        expect(live).toMatch(/terminal\.frames live received=2 written=0/);
+        channel.recordFrameWritten();
+        channel.recordFrameWritten();
+        expect(formatConnectionDiagnosticsForReport()).toMatch(/terminal\.frames live received=2 written=2/);
+        channel.close();
+        expect(readConnectionDiagnostics()).toEqual(expect.arrayContaining([
+            expect.objectContaining({ event: 'terminal.first-frame' }),
+            expect.objectContaining({ event: 'terminal.frames', received: 2, written: 2 }),
+        ]));
+        const report = formatConnectionDiagnosticsForReport();
+        expect(report).toMatch(/terminal\.frames received=2 written=2/);
+        expect(report).not.toMatch(/terminal\.frames live /);
+        expect(report).not.toMatch(/full-frame|second|pp_|pwt-|devtok_|machine-|session-/);
+        channel.recordFrameWritten();
+        expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.frames')).toHaveLength(1);
+    });
 });
 
 describe('recentTerminalLinks', () => {
     it('keeps a bounded latest-first list of safe visible URLs', async () => {
-        const { recordTerminalOutput, recentTerminalLinks, viewportTerminalLinks, clearTerminalOutput, setTerminalColumns } = await import('./recentOutput');
+        const { recordTerminalOutput, recentTerminalLinks, clearTerminalOutput, setTerminalColumns } = await import('./recentOutput');
         const { encodeBase64 } = await import('@/encryption/base64');
         const record = (sessionId: string, text: string) => recordTerminalOutput(sessionId, encodeBase64(new TextEncoder().encode(text)));
 
@@ -189,9 +489,6 @@ describe('recentTerminalLinks', () => {
         clearTerminalOutput('split-scheme');
         record('split-scheme', 'ht');
         record('split-scheme', 'tps://split.example/path');
-        await new Promise((resolve) => setTimeout(resolve, 350));
-        expect(viewportTerminalLinks('long')).toEqual([longUrl]);
-        expect(viewportTerminalLinks('split-scheme')).toEqual(['https://split.example/path']);
 
         clearTerminalOutput('hard-break');
         setTerminalColumns('hard-break', columns);
@@ -205,39 +502,5 @@ describe('recentTerminalLinks', () => {
         for (let index = 0; index < 33; index++) record(`lru-${index}`, ' https://example.com');
         expect(recentTerminalLinks('lru-0')).toEqual([]);
         expect(recentTerminalLinks('unknown')).toEqual([]);
-    });
-});
-
-describe('viewportTerminalLinks', () => {
-    it('surfaces only the scroll burst’s links, not the older tail', async () => {
-        vi.useFakeTimers();
-        try {
-            const { recordTerminalOutput, beginViewportCapture, viewportTerminalLinks, recentTerminalLinks, clearTerminalOutput } = await import('./recentOutput');
-            const { encodeBase64 } = await import('@/encryption/base64');
-            const record = (text: string) => recordTerminalOutput('scroll', encodeBase64(new TextEncoder().encode(text)));
-
-            clearTerminalOutput('scroll');
-            record('old boot log: serving https://old-tail.example/ since yesterday');
-
-            // A scroll gesture: herdr answers with full-screen repaint frames.
-            beginViewportCapture('scroll');
-            record('\x1b[2J\x1b[Hrepainted screen  Local: http://localhost:3210/');
-            record('  ready in 412ms');
-            // The regex runs once per gesture: nothing before the debounce.
-            expect(viewportTerminalLinks('scroll')).toEqual([]);
-            await vi.advanceTimersByTimeAsync(120);
-            expect(viewportTerminalLinks('scroll')).toEqual(['http://localhost:3210/']);
-            // The tail still holds both, for the ⋮ menu.
-            expect(recentTerminalLinks('scroll')).toEqual(['http://localhost:3210/', 'https://old-tail.example/']);
-
-            // Scrolling past the link clears the chip.
-            beginViewportCapture('scroll');
-            record('\x1b[2J\x1b[Han older screen with no links at all');
-            await vi.advanceTimersByTimeAsync(120);
-            expect(viewportTerminalLinks('scroll')).toEqual([]);
-            clearTerminalOutput('scroll');
-        } finally {
-            vi.useRealTimers();
-        }
     });
 });

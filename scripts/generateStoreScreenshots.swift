@@ -12,7 +12,6 @@ let iphoneShots = [
     StoreShot(name: "01-new-agent", headline: "One agent.\nOr a whole squad."),
     StoreShot(name: "02-files", headline: "Browse every file.\nFrom anywhere."),
     StoreShot(name: "03-terminal", headline: "Approve the work.\nNot the laptop."),
-    StoreShot(name: "04-runbook", headline: "Your commands.\nOne tap away."),
     StoreShot(name: "05-settings", headline: "Everything connected.\nEverything under control."),
     StoreShot(name: "06-appearance", headline: "Make it yours.\nEverywhere."),
 ]
@@ -21,7 +20,6 @@ let ipadShots = [
     StoreShot(name: "01-new-agent", headline: "One agent.\nOr a whole squad."),
     StoreShot(name: "02-files", headline: "Browse every file.\nFrom anywhere."),
     StoreShot(name: "03-terminal", headline: "Live terminals.\nRoom to work."),
-    StoreShot(name: "04-runbook", headline: "Your agents.\nAll in one place."),
     StoreShot(name: "05-settings", headline: "Everything connected.\nEverything under control."),
     StoreShot(name: "06-appearance", headline: "Speak naturally.\nStay in the flow."),
 ]

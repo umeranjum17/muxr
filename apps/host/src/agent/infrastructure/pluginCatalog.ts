@@ -3,7 +3,8 @@ import { spawn } from 'node:child_process';
 import { closeSync, constants, lstatSync, openSync, readFileSync, realpathSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { PluginsInvalidatedFrame, PluginContextRequest, PluginManifestV1, PluginRpcMode, PluginSource, PluginSummary } from '@muxr/contract';
 import {
     MAX_RPC_STDERR_BYTES,
@@ -152,20 +153,6 @@ export class PluginCatalog {
         this.active = active;
         this.installed = installed;
         return digests;
-    }
-
-    capabilityPlugins(capability: string): Array<{ pluginId: string; name: string; enabled: boolean; source: PluginSource; hasBackend: boolean }> {
-        return [...this.installed].flatMap(([pluginId, { snapshot, enabled }]) =>
-            snapshot.manifest.capabilities?.[capability] === undefined
-                ? []
-                : [{
-                    pluginId,
-                    name: snapshot.summary.name,
-                    enabled,
-                    source: snapshot.summary.source,
-                    hasBackend: snapshot.summary.hasBackend,
-                }],
-        ).sort((left, right) => left.name.localeCompare(right.name));
     }
 
     list(isApproved: (pluginId: string, hash: string) => boolean): PluginSummary[] {
@@ -347,6 +334,12 @@ function backendOnly(plugin: HerdrPlugin, warning?: string, pluginRoot = plugin.
     };
 }
 
+/** Herdr runs something for this package, rather than only registering it. */
+function herdrBackendOf(plugin: HerdrPlugin): boolean {
+    return [plugin.build, plugin.startup, plugin.actions, plugin.events, plugin.panes, plugin.link_handlers]
+        .some((value) => (value?.length ?? 0) > 0);
+}
+
 function summaryOf(plugin: HerdrPlugin, manifestHash: string | undefined, capabilities: Record<string, string>, source = sourceOf(plugin.source, plugin), manifest?: PluginManifestV1): Omit<PluginSummary, 'approved'> {
     return {
         pluginId: plugin.plugin_id,
@@ -356,8 +349,9 @@ function summaryOf(plugin: HerdrPlugin, manifestHash: string | undefined, capabi
         source,
         ...(manifestHash === undefined ? {} : { manifestHash }),
         capabilities,
-        hasBackend: [plugin.build, plugin.startup, plugin.actions, plugin.events, plugin.panes, plugin.link_handlers].some((value) => (value?.length ?? 0) > 0)
+        hasBackend: herdrBackendOf(plugin)
             || manifest?.contributions.some((item) => item.slot === 'host.rpc' || item.slot === 'host.stream') === true,
+        herdrBackend: herdrBackendOf(plugin),
         warnings: (plugin.warnings ?? []).filter((warning): warning is string => typeof warning === 'string').slice(0, 4).flatMap((warning) => safeText(warning, MAX_TEXT)),
     };
 }
@@ -472,8 +466,81 @@ export interface RunPluginProcessOptions {
     trustedHerdrSocketPath?: string;
 }
 
+/** Installation-owned recipes grant private context to exact script identities.
+ * A target plugin cannot grant itself host environment access through its own
+ * manifest, claimed id, or caller input. Provider selection belongs in recipes,
+ * not in the generic launcher; all projected values travel on private stdin.
+ */
+function privateProcessInput(options: RunPluginProcessOptions): string {
+    let directory = dirname(fileURLToPath(import.meta.url));
+    let registry: unknown;
+    let registryRoot: string | undefined;
+    for (let depth = 0; depth < 8; depth += 1) {
+        const candidate = join(directory, 'plugins/private-contexts.json');
+        try {
+            const stat = lstatSync(candidate);
+            if (!stat.isFile() || stat.size > MAX_MANIFEST_BYTES) return options.serializedInput;
+            registry = JSON.parse(readFileSync(candidate, 'utf8'));
+            registryRoot = dirname(candidate);
+            break;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return options.serializedInput;
+        }
+        const parent = dirname(directory);
+        if (parent === directory) break;
+        directory = parent;
+    }
+    if (registryRoot === undefined || !Array.isArray(registry)) return options.serializedInput;
+    const recipe: unknown = registry.find((entry: unknown) => isRecord(entry) && entry.pluginId === options.pluginId && entry.method === options.method);
+    if (!isRecord(recipe) || typeof recipe.entry !== 'string' || typeof recipe.inputKey !== 'string') return options.serializedInput;
+    if (!recipe.entry || !recipe.inputKey) return options.serializedInput;
+    if (!Array.isArray(recipe.environment) || !recipe.environment.every((key: unknown) => typeof key === 'string' && key.length > 0)) return options.serializedInput;
+    if (!isRecord(recipe.jsonEnvironment)) return options.serializedInput;
+    for (const projection of Object.values(recipe.jsonEnvironment)) {
+        if (!isRecord(projection) || typeof projection.environment !== 'string' || typeof projection.member !== 'string') return options.serializedInput;
+        if (!Array.isArray(projection.fields) || projection.fields.length === 0 || !projection.fields.every((field: unknown) => typeof field === 'string' && field.length > 0)) return options.serializedInput;
+        if (projection.match !== undefined && (!isRecord(projection.match) || !Object.values(projection.match).every((value) => typeof value === 'string'))) return options.serializedInput;
+    }
+    try {
+        if (isAbsolute(recipe.entry)) return options.serializedInput;
+        const root = realpathSync(registryRoot);
+        const entry = realpathSync(join(root, recipe.entry));
+        const within = relative(root, entry);
+        if (within === '..' || within.startsWith(`..${sep}`) || isAbsolute(within)) return options.serializedInput;
+        if (realpathSync(options.script) !== entry) return options.serializedInput;
+    } catch { return options.serializedInput; }
+    const config: Record<string, unknown> = Object.create(null);
+    if (Array.isArray(recipe.environment)) {
+        for (const key of recipe.environment) {
+            if (typeof key === 'string' && process.env[key] !== undefined) config[key] = process.env[key];
+        }
+    }
+    if (isRecord(recipe.jsonEnvironment)) {
+        for (const [key, projection] of Object.entries(recipe.jsonEnvironment)) {
+            if (!isRecord(projection) || typeof projection.environment !== 'string' || typeof projection.member !== 'string' || !Array.isArray(projection.fields)) continue;
+            try {
+                const value: unknown = JSON.parse(process.env[projection.environment] ?? '');
+                const member = isRecord(value) ? value[projection.member] : undefined;
+                // Null preserves a valid empty override: the child must not
+                // silently fall back to another account's configuration.
+                config[key] = null;
+                if (!isRecord(member)) continue;
+                if (isRecord(projection.match) && Object.entries(projection.match).some(([field, expected]) => member[field] !== expected)) continue;
+                const selected: Record<string, string> = Object.create(null);
+                for (const field of projection.fields) {
+                    if (typeof field === 'string' && typeof member[field] === 'string' && member[field].length <= 16 * 1024) selected[field] = member[field];
+                }
+                if (Object.keys(selected).length === projection.fields.length) config[key] = selected;
+            } catch { /* Invalid/absent JSON follows the child's disk fallback. */ }
+        }
+    }
+    const input: unknown = JSON.parse(options.serializedInput);
+    return JSON.stringify({ ...(isRecord(input) ? input : {}), [recipe.inputKey]: config });
+}
+
 /** Run one bounded plugin process and escape even when descendants retain stdio. */
 export function runPluginProcess(options: RunPluginProcessOptions): Promise<unknown> {
+    const serializedInput = privateProcessInput(options);
     const deadlineMs = options.deadlineMs ?? PLUGIN_CALL_DEADLINE_MS;
     const killGraceMs = options.killGraceMs ?? PLUGIN_CALL_KILL_GRACE_MS;
     if (options.signal?.aborted === true) return Promise.reject(pluginProcessError('AbortError', 'plugin call revoked'));
@@ -499,7 +566,7 @@ export function runPluginProcess(options: RunPluginProcessOptions): Promise<unkn
         // Caller input can contain secure-prompt values. stdin is private to this
         // child; unlike the environment it is not readable from /proc/<pid>/environ.
         child.stdin.on('error', () => { /* child may close stdin before reading */ });
-        child.stdin.end(options.serializedInput);
+        child.stdin.end(serializedInput);
         let stdout = Buffer.alloc(0);
         let stderr = Buffer.alloc(0);
         let stdoutOversize = false;

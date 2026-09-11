@@ -108,11 +108,11 @@ async function waitFor(predicate: () => boolean, message: string, timeoutMs = 5_
     if (!predicate()) throw new Error(`Timed out waiting for ${message}`);
 }
 
-async function peerCli(accessFile: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+async function peerCli(accessFile: string, args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number; stdout: string; stderr: string }> {
     const cli = fileURLToPath(new URL('../../../../../scripts/cli.mjs', import.meta.url));
     return new Promise((resolve, reject) => {
         const child = spawn(process.execPath, [cli, 'peers', ...args], {
-            env: { ...process.env, MUXR_PEER_ACCESS_FILE: accessFile },
+            env: { ...process.env, MUXR_PEER_ACCESS_FILE: accessFile, ...env },
             stdio: ['ignore', 'pipe', 'pipe'],
         });
         let stdout = '';
@@ -173,6 +173,13 @@ async function brokerReady(socketPath: string, capability: string): Promise<bool
         socket.on('error', reject);
     });
 }
+
+/** A mutation stored before senders existed, replayed exactly as it was sent. */
+const LEGACY_PROMPT = 'Peer message from Linux builder:\nRun the iOS build';
+/** What an unattributed peer message must say: no agent to reply to, and no guess. */
+const UNNAMED_SENDER_PROMPT = 'Peer message from Linux builder:\nRun the iOS build\n\n'
+    + 'Reply target unavailable: this message carries no named sender agent, so there is no agent to reply to. '
+    + 'Do not pick one; ask the sender to resend from a named agent.';
 
 describe('host peer collaboration flow', () => {
     it('rejects persisted non-string machine aliases', () => {
@@ -369,7 +376,51 @@ describe('host peer collaboration flow', () => {
             mutation: promptMutation,
         });
         expect(prompts).toBe(1);
-        expect(promptTexts).toEqual(['Peer message from Linux builder:\nRun the iOS build']);
+        // No sender in the params is a pre-upgrade record: rendered verbatim, so
+        // a replay still fingerprints to what the recipient already received.
+        expect(promptTexts).toEqual([LEGACY_PROMPT]);
+        // A sender that resolved to no agent is a different case, and says so.
+        await call(sourceRuntime, 'peer.remote.prompt', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            text: 'Run the iOS build',
+            sender: { machine: 'Linux builder' },
+            mutation: fresh('prompt-unnamed-sender'),
+        });
+        expect(promptTexts.at(-1)).toBe(UNNAMED_SENDER_PROMPT);
+        // A named sender carries the agent and the exact command that answers it.
+        await call(sourceRuntime, 'peer.remote.prompt', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            text: 'Ship it',
+            sender: { machine: 'Linux builder', agent: 'Release captain' },
+            mutation: fresh('prompt-named-sender'),
+        });
+        expect(promptTexts[2]).toBe('Peer message from Linux builder \u00b7 Release captain:\nShip it\n\n'
+            + 'Reply with: muxr peers prompt --machine "Linux builder" --agent "Release captain" --text "your reply"\n'
+            + 'If Linux builder is not the name this computer uses for it, run muxr peers list for the local name.');
+        // A name two local agents share addresses neither, so no command is offered.
+        await call(sourceRuntime, 'peer.remote.prompt', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            text: 'Which of us',
+            sender: { machine: 'Linux builder', agent: 'Release captain', agentAmbiguous: true },
+            mutation: fresh('prompt-ambiguous-sender'),
+        });
+        expect(promptTexts[3]).toContain('more than one agent on Linux builder answers to "Release captain"');
+        expect(promptTexts[3]).not.toContain('muxr peers prompt --machine');
+        // An internal id is never shown, and never becomes a reply target.
+        await call(sourceRuntime, 'peer.remote.prompt', {
+            relationshipId: installed.relationshipId,
+            sessionId: 'muxr-session-ios',
+            text: 'Who are you',
+            sender: { machine: 'Linux builder', agent: 'pp_7f3a91c2' },
+            mutation: fresh('prompt-opaque-sender'),
+        });
+        expect(promptTexts[4]).toBe(UNNAMED_SENDER_PROMPT.replace('Run the iOS build', 'Who are you'));
+        expect(promptTexts[4]).not.toContain('pp_7f3a91c2');
+        promptTexts.length = 1;
+        prompts = 1;
         await expect(call(sourceRuntime, 'peer.remote.watch', {
             relationshipId: installed.relationshipId,
             sessionId: 'muxr-session-ios',
@@ -414,7 +465,7 @@ describe('host peer collaboration flow', () => {
         targetDispatch = makeTargetDispatcher(restartedTarget).dispatch;
         await expect(targetDispatch({
             type: 'session.prompt', requestId: 'target-receipt-retry',
-            params: { sessionId: 'muxr-session-ios', text: 'Peer message from Linux builder:\nRun the iOS build', peerMutation: promptMutation },
+            params: { sessionId: 'muxr-session-ios', text: LEGACY_PROMPT, peerMutation: promptMutation },
         }, authorized.peerDeviceId)).resolves.toMatchObject({ ok: true });
         expect(prompts).toBe(1);
         await call(sourceRuntime, 'peer.remote.prompt', {
@@ -524,10 +575,45 @@ describe('host peer collaboration flow', () => {
         const afterReadd = await brokerCall(broker.socketPath, access.capability, { method: 'list', machine: 'Build Mac' }) as { machines: Array<{ agents: Array<{ agent: string }> }> };
         expect(afterReadd.machines[0]!.agents).toEqual([{ agent: 'iOS builder' }, { agent: 'iOS builder' }]);
         remoteSessions = [session];
-        const promptedFromCli = await peerCli(cliFile, ['prompt', '--machine', 'Build Mac', '--agent', 'iOS builder', '--text', 'Report Xcode status']);
+        // The reported bug: a real CLI prompt from an agent's own herdr pane must
+        // reach the recipient naming who sent it and how to answer them.
+        sourceRuntime.setLocalAgentResolver(async (caller) => (caller.paneId === 'w1FE:p4'
+            ? { agent: 'Release captain' }
+            : {}));
+        const promptedFromCli = await peerCli(
+            cliFile,
+            ['prompt', '--machine', 'Build Mac', '--agent', 'iOS builder', '--text', 'Report Xcode status'],
+            { HERDR_PANE_ID: 'w1FE:p4' },
+        );
         expect(promptedFromCli).toMatchObject({ code: 0, stderr: '' });
         expect(JSON.parse(promptedFromCli.stdout)).toEqual({ machine: 'Build Mac', agent: 'iOS builder', delivered: true });
         expect(prompts).toBe(4);
+        expect(promptTexts.at(-1)).toBe('Peer message from Linux builder \u00b7 Release captain:\nReport Xcode status\n\n'
+            + 'Reply with: muxr peers prompt --machine "Linux builder" --agent "Release captain" --text "your reply"\n'
+            + 'If Linux builder is not the name this computer uses for it, run muxr peers list for the local name.');
+        // Without a pane there is nobody to name, and nobody is invented.
+        await peerCli(cliFile, ['prompt', '--machine', 'Build Mac', '--agent', 'iOS builder', '--text', 'Anonymous ping'], { HERDR_PANE_ID: '' });
+        expect(promptTexts.at(-1)).toContain('Reply target unavailable');
+        expect(promptTexts.at(-1)).not.toContain('Release captain');
+        // A host from before this field rejects the unknown key. The message
+        // still goes, unattributed, instead of failing during an update window.
+        const strictBroker = new PeerBroker(join(root, 'source', 'strict.sock'), sourceRuntime, diagnostics);
+        (strictBroker as unknown as { invoke: (value: unknown, access?: unknown) => Promise<unknown> }).invoke = async function strict(value, access) {
+            if ((value as { fromPaneId?: string }).fromPaneId !== undefined) throw new Error('invalid peer broker request fields');
+            return PeerBroker.prototype.invoke.call(this, value, access as never);
+        };
+        await strictBroker.start();
+        const strictFile = join(root, 'source', 'strict.json');
+        await strictBroker.issuePersistentCapability(strictFile);
+        const degraded = await peerCli(
+            strictFile,
+            ['prompt', '--machine', 'Build Mac', '--agent', 'iOS builder', '--text', 'Older host still delivers'],
+            { HERDR_PANE_ID: 'w1FE:p4' },
+        );
+        expect(degraded).toMatchObject({ code: 0, stderr: '' });
+        expect(promptTexts.at(-1)).toContain('Older host still delivers');
+        expect(promptTexts.at(-1)).toContain('Reply target unavailable');
+        await strictBroker.close();
         forcedRemoteError = Object.assign(new Error('Agent is not ready yet.'), { code: 'agent-not-ready' });
         await expect(brokerCall(broker.socketPath, access.capability, {
             method: 'prompt', machine: 'Build Mac', agent: 'iOS builder', text: 'Too early',
@@ -539,7 +625,9 @@ describe('host peer collaboration flow', () => {
             text: 'Exit after queue',
             mutation: fresh('prompt-fast-exit'),
         })).resolves.toMatchObject({ agentName: 'iOS builder', delivered: true });
-        expect(prompts).toBe(5);
+        // Three more than the original flow: the attributed CLI prompt, the
+        // unattributed one, and the one that degraded past a strict host.
+        expect(prompts).toBe(7);
         dropSessionsAfterPrompt = false;
         remoteSessions = [session];
         remoteSessions = [session, { ...session, id: 'another-internal-session' }];
@@ -578,6 +666,16 @@ describe('host peer collaboration flow', () => {
         diagnostics.agentLaunch('rejected', { kind: 'cursor', gate: 'unnamed' });
         diagnostics.agentLaunch('rejected', { kind: 'w1EW:pH', gate: 'no-session' });
         diagnostics.request('terminal.attach', 'native', 'rejected', 11, 'socket-timeout');
+        diagnostics.graphicsPipeline({
+            frames: 12,
+            superseded: 3,
+            p50Ms: 40.4,
+            p95Ms: 90.6,
+            bytesP95: 1_600_000.2,
+            pixelsP95: 309_925.8,
+            notchesSent: 9.7,
+            notchesDropped: 2.2,
+        });
         for (let index = 0; index < 600; index += 1) diagnostics.request('herdr.tree', 'native', 'ok', 1);
         await broker.close();
         await diagnostics.flush();
@@ -602,6 +700,9 @@ describe('host peer collaboration flow', () => {
             expect.objectContaining({ event: 'agent.readiness', reason: 'not-promptable', kind: 'omp', lifecycle: 'idle', gate: 'not-interactive' }),
         ]));
         expect(diagnosticEvents).toContainEqual(expect.objectContaining({ event: 'client.request', request: 'terminal.attach', outcome: 'rejected', code: 'socket-timeout' }));
+        expect(diagnosticEvents).toContainEqual(expect.objectContaining({
+            event: 'graphics.pipeline', frames: 12, superseded: 3, p50Ms: 40, p95Ms: 91, bytesP95: 1600000, pixelsP95: 309926, notchesSent: 10, notchesDropped: 2,
+        }));
         expect(diagnosticEvents).not.toContainEqual(expect.objectContaining({ kind: 'w1EW:pH' }));
         expect(diagnosticEvents).not.toContainEqual(expect.objectContaining({ kind: 'w1ew:ph' }));
         expect(diagnosticEvents).not.toContainEqual(expect.objectContaining({ event: 'client.request', request: 'herdr.tree', outcome: 'ok' }));
@@ -809,6 +910,7 @@ describe('host peer collaboration flow', () => {
                 ingressKeys: { [peerDeviceId]: ingressKey }, deviceKinds: { [peerDeviceId]: 'peer' },
             },
             onPeerIngress: (outcome) => diagnostics.peerIngress(outcome),
+            onClientReject: (clientKey, kind, outcome) => diagnostics.clientReject(clientKey, kind, outcome),
             onClientFrame: () => decoded(),
         });
         const socket = await accepted;
@@ -816,6 +918,7 @@ describe('host peer collaboration flow', () => {
             machineId, senderId: peerDeviceId, recipientId: machineId,
             channel: 'session' as const, streamId: 'machine', keyVersion: 1, at: Date.now(),
         };
+        socket.send('null');
         socket.send(JSON.stringify({ header: { ...header, seq: 0 }, payload: 'invalid-ciphertext' } satisfies Envelope));
         const payload = sealV2(
             encodePayload({ type: 'client.hello', clientId: 'private-client' }),
@@ -830,6 +933,8 @@ describe('host peer collaboration flow', () => {
         const state = JSON.parse(output) as { events: Array<{ event: string; outcome?: string }> };
         expect(state.events.filter((event) => event.event === 'peer.ingress').map((event) => event.outcome))
             .toEqual(['received', 'decrypt-rejected', 'received', 'decoded']);
+        expect(state.events.filter((event) => event.event === 'client.reject').map((event) => event.outcome))
+            .toEqual(['malformed', 'decrypt-rejected']);
         expect(output).not.toContain(machineId);
         expect(output).not.toContain(peerDeviceId);
         link.close();

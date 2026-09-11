@@ -40,6 +40,10 @@ export function openDemoTerminalChannel(command: OpenTerminalCommand): Promise<T
     });
 
     const channel: TerminalChannel = {
+        // Scripted transcript: no graphics, no pointer surface, no frame accounting.
+        recordFrameWritten: () => {},
+        onGraphics: () => () => {},
+        pointer: () => {},
         onData: (listener) => {
             for (const line of demoClient.transcript(sessionId)) listener(toBase64Line(line));
             dataListeners.add(listener);

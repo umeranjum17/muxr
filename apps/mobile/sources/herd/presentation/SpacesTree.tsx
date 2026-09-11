@@ -213,8 +213,8 @@ const AgentRow = React.memo(({
     const labels = agentLabels(pane);
     const sessionId = pane.sessionId;
     const shell = isShellLabels(labels);
-    const title = shell ? 'Shell' : labels.taskTitle;
-    const subtitle = shell ? 'Terminal' : agentIdentityLine(labels);
+    const title = labels.taskTitle;
+    const subtitle = agentIdentityLine(labels);
 
     return (
         <View style={[styles.agentRow, compact && styles.agentRowCompact]}>
@@ -451,7 +451,7 @@ export const SpacesTree = React.memo(({
                 ListFooterComponent={listFooterComponent === undefined ? undefined : <>{listFooterComponent}</>}
                 ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
                 onScroll={onScroll}
-                scrollEventThrottle={16}
+                scrollEventThrottle={100}
                 contentContainerStyle={{ paddingTop: topContentInset, paddingBottom: bottomContentInset }}
             />
         </View>

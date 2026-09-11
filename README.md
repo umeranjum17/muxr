@@ -19,8 +19,8 @@
 <p align="center">
   <a href="https://play.google.com/apps/testing/com.trymuxr.app">Google Play testing</a> ·
   <a href="https://testflight.apple.com/join/aJSbs8pN">iOS TestFlight</a> ·
-  <a href="https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk">Direct APK: latest signed build</a> ·
-  <a href="https://github.com/umeranjum17/muxr/releases/tag/v0.1.25">Release 0.1.25</a>
+  <a href="https://trymuxr.com/downloads/stable/android">Download the Android APK</a> ·
+  <a href="https://trymuxr.com/downloads">Stable and nightly</a>
 </p>
 
 <p align="center">
@@ -103,8 +103,8 @@ Use native realtime speech-to-speech when typing is the slow part. Ask what chan
 **Also on your phone:**
 
 - **New agents and worktrees** — choose the machine, repository, worktree, and one of 20+ agent CLIs from the home composer.
-- **Files, attachments, ports, and previews** — inspect outputs or open the dev server an agent just started.
-- **Usage, runbooks, and [extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
+- **Files, attachments, and changes** — inspect repository files, diffs, and agent outputs from your phone.
+- **Usage and [extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
 
 The [release history](https://github.com/umeranjum17/muxr/releases) is the real feature list.
 
@@ -127,7 +127,7 @@ Terminal text, prompts, responses, keystrokes, files, and pairing secrets remain
 You need [Node.js 22 or newer](https://nodejs.org/) on Linux, macOS, or WSL. muxr installs [Herdr](https://herdr.dev) during setup if it is missing.
 
 ```bash
-npm install -g --ignore-scripts @trymuxr/cli@0.1.25
+npm install -g --ignore-scripts @trymuxr/cli@latest
 muxr
 ```
 
@@ -141,9 +141,12 @@ Browser access is a grant you choose, and it expires:
 
 Pair again when a grant expires; the app tells you where. The native apps are optional and keep their pairing until you revoke it:
 
-- **Android:** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the latest signed APK](https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest/download/SHA256SUMS) — verify with `sha256sum --ignore-missing -c SHA256SUMS`, then scan the one-use QR from `muxr pair`.
-- **iOS:** [open the public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) — 0.1.24 (build 45); Apple is not accepting new testers right now
-- **All builds:** [muxr 0.1.25 release](https://github.com/umeranjum17/muxr/releases/tag/v0.1.25)
+- **Android (stable):** [download the stable APK](https://trymuxr.com/downloads/stable/android) · [stable checksum](https://trymuxr.com/downloads/stable/checksums). Save the checksum beside the APK as `SHA256SUMS`, verify with `sha256sum --ignore-missing -c SHA256SUMS`, then scan the one-use QR from `muxr pair`.
+- **Google Play testing:** [join the testing track](https://play.google.com/apps/testing/com.trymuxr.app) — availability depends on Google review and testing access
+- **iOS TestFlight:** [open the public link](https://testflight.apple.com/join/aJSbs8pN) — build availability depends on Apple review and tester capacity
+- **All builds:** [every download channel](https://trymuxr.com/downloads)
+
+Want the newest build? Install it with `npm install -g --ignore-scripts @trymuxr/cli@nightly` and take its APK from the [nightly channel](https://trymuxr.com/downloads/nightly). The Android nightly app installs alongside a stable one; on your computer both channels are the same CLI, so switching npm tags replaces the host you already run. Each channel publishes its own checksum, so verify against the channel you downloaded from.
 
 [Read the step-by-step quickstart →](https://trymuxr.com/docs/quickstart)
 
@@ -177,3 +180,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and pull requests.
 ## License
 
 muxr is licensed under [Apache License 2.0](LICENSE). Third-party notices are recorded in [NOTICE](NOTICE) and the [license inventory](docs/license-inventory.md). The muxr name and marks are covered by [TRADEMARK.md](TRADEMARK.md).
+
+## Development and nightly builds
+
+Merging into `main` advances development, not production. Use the [release channel workflow](docs/RELEASING.md) for signed nightly APKs, verified npm artifacts and explicit stable promotion. Emulator acceptance stays local.

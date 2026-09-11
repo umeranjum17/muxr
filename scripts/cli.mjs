@@ -68,7 +68,8 @@ Get started
 Run and maintain
   muxr status                    check this setup (same as muxr doctor)
   muxr restart                   restart the supervised relay and host
-  muxr update [--check|--yes|--to <version>] check, install, or roll back the npm release (single update owner)
+  muxr update [--check|--yes]    update within the installed release channel
+              [--channel stable|nightly] [--to VERSION] [--allow-downgrade]
   muxr uninstall [--yes]         fully remove muxr; keep Herdr and repositories
   muxr self-host [options]       run the relay, host, and pairing flow
   muxr daemon <command>          install, start, stop, restart, or inspect muxr services
@@ -112,7 +113,7 @@ const COMMAND_HELP = {
     status: `muxr status\n\nAlias for muxr doctor.\n`,
     restart: `muxr restart\n\nRestart the supervised relay and host (same as muxr daemon restart).\n`,
     uninstall: `muxr uninstall [--yes|--resume]\n\nRemove all muxr-owned services, ingress, identity, pairings, grants, relay/plugin state, provider keys, logs, caches, and managed integrations. Herdr, its sessions, repositories, worktrees, exports, signing keys, and unrecognized files stay. The globally installed CLI can be removed last.\n`,
-    update: `muxr update [--check|--yes|--to <version>]\n\nCheck npm for a newer @trymuxr/cli release. Interactive terminals ask before installing; --yes updates without prompting. --to <version> rolls back through the same trusted install path.\n`,
+    update: `muxr update [--check|--yes] [--channel stable|nightly] [--to VERSION] [--allow-downgrade]\n\nCheck npm for a newer @trymuxr/cli release. --to VERSION selects an exact published version through the same trusted install path; changing channels or downgrading (rollback) remains explicit with --allow-downgrade. Interactive terminals ask before installing; --yes updates without prompting.\n`,
     skill: `muxr --skill\nmuxr skill\nmuxr skill <onboarding|herdr|collaboration|browser-takeover|plugins>\nmuxr skill all\n\nPrint the compact canonical skill by default. Load one focused reference on demand; muxr skill all prints the archival self-contained bundle. Herdr guidance comes from the installed binary when available. No files or state are changed.\n`,
     peers: `muxr peers list [--machine <name>]\nmuxr peers read --machine <name> [--agent <name>] [--lines <n>]\nmuxr peers status --machine <name> [--agent <name>]\nmuxr peers watch --machine <name> [--agent <name>] [--timeout-ms <n>]\nmuxr peers prompt --machine <name> [--agent <name>] --text <prompt>\n\nUse established computer collaboration with Machine Names and Agent Names only. Output is JSON. Raw shell, takeover, and destructive actions are never granted.\n`,
     connect: `muxr connect --enrollment <muxr://enroll?...> [--no-pair|--pair-browser|--pair-browser-view|--pair-both]\nmuxr connect --resume\n`,
@@ -331,17 +332,22 @@ async function runUninstall(args = []) {
 }
 
 async function applyUpdate(args = []) {
-    const toInline = args.find((arg) => arg.startsWith('--to='));
-    let toVersion;
-    if (toInline !== undefined) toVersion = toInline.slice('--to='.length);
-    else {
-        const toIndex = args.indexOf('--to');
-        if (toIndex >= 0) toVersion = args[toIndex + 1];
+    const targetIndex = args.indexOf('--to');
+    if (targetIndex !== -1 && (!args[targetIndex + 1] || args[targetIndex + 1].startsWith('--'))) {
+        process.stderr.write('--to requires an exact published version\n');
+        return 1;
+    }
+    const channelIndex = args.indexOf('--channel');
+    if (channelIndex !== -1 && !args[channelIndex + 1]) {
+        process.stderr.write('--channel requires stable or nightly\n');
+        return 1;
     }
     return updateCli({
         checkOnly: args.includes('--check'),
         yes: args.includes('--yes'),
-        to: toVersion,
+        channel: channelIndex === -1 ? undefined : args[channelIndex + 1],
+        targetVersion: targetIndex === -1 ? undefined : args[targetIndex + 1],
+        allowDowngrade: args.includes('--allow-downgrade'),
         confirm: process.stdin.isTTY && process.stdout.isTTY
             ? async ({ latest }) => select('Apply this update?', [
                 { value: false, title: 'Not now', description: 'leave this installation unchanged' },
@@ -457,6 +463,13 @@ async function dispatch(command, args = []) {
     if (command === 'report') {
         try { issueReport(); return 0; }
         catch (error) { process.stderr.write(`muxr report: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
+    }
+    if (command === 'host-repair') {
+        try {
+            const { repairHost } = await import('./release/application/repairHost.mjs');
+            const result = await repairHost(JSON.parse(args[0] ?? 'null'));
+            process.stdout.write(`${JSON.stringify(result)}\n`); return 0;
+        } catch (error) { process.stdout.write(`${JSON.stringify({ error: error.message })}\n`); return 1; }
     }
     if (command === 'update') return applyUpdate(args);
     if (command === 'daemon') return runDaemon(args);

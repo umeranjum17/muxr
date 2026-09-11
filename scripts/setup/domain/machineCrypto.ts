@@ -46,9 +46,14 @@ function devicePasses(device: unknown): device is Record<string, unknown> {
     if (typeof record.deviceId !== 'string' || record.deviceId.length === 0) return false;
     if (!validBase64(record.devicePublicKey, 32) || !validBase64(record.ingressKey, 32)) return false;
     if (typeof record.expiresAt !== 'string' || !Number.isFinite(Date.parse(record.expiresAt))) return false;
+    if (record.kind !== undefined && typeof record.kind !== 'string') return false;
     const peer = record.kind === 'peer';
-    const knownKind = record.kind === undefined || record.kind === 'browser' || peer;
-    if (!knownKind) return false;
+    if (record.kind !== undefined && record.kind !== 'browser' && !peer) {
+        // A newer service may add device kinds before this CLI knows their
+        // kind-specific fields. Validate the shared identity envelope and skip
+        // the extension instead of declaring the whole machine corrupt.
+        return true;
+    }
     if (peer) {
         if (record.authority !== undefined) return false;
         if (!validBase64(record.dataKey, 32) || !validCapabilities(record.capabilities)) return false;

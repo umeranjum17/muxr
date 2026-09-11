@@ -3,6 +3,7 @@ import { sync } from '@/catalog/sync';
 import { useImagePicker, type AttachmentPreview } from '@/hooks/useImagePicker';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
+import type { ComposerAttachment } from '@/components/ComposerAttachments';
 
 /**
  * Attachments for one session: the picker's active queue uploads once; a
@@ -14,7 +15,9 @@ import { encodeBase64 } from '@/encryption/base64';
 export function useAttachmentUploads(sessionId: string, onFailure: (message: unknown) => void) {
     const { selectedImages, pickImages, clearImages, addImages } = useImagePicker();
     const [attaching, setAttaching] = React.useState(false);
-    const [attachedPaths, setAttachedPaths] = React.useState<string[]>([]);
+    // Local previews stay visible after upload; only host paths are sent.
+    const [attachedImages, setAttachedImages] = React.useState<ComposerAttachment[]>([]);
+    const attachedPaths = React.useMemo(() => attachedImages.flatMap((image) => image.path === undefined ? [] : [image.path]), [attachedImages]);
     const [failed, setFailed] = React.useState<AttachmentPreview[]>([]);
     const onFailureRef = React.useRef(onFailure);
     onFailureRef.current = onFailure;
@@ -34,9 +37,13 @@ export function useAttachmentUploads(sessionId: string, onFailure: (message: unk
                     });
                 }
                 const result = await sync.request('session.saveAttachments', { sessionId, attachments });
-                if (result.savedPaths.length > 0) {
-                    setAttachedPaths((previous) => [...previous, ...result.savedPaths]);
-                }
+                if (result.savedPaths.length !== batch.length) throw new Error('The host did not confirm every image. Please attach them again.');
+                setAttachedImages((previous) => [...previous, ...result.savedPaths.map((path, index) => ({
+                    id: batch[index]!.id,
+                    uri: batch[index]!.uri,
+                    name: batch[index]!.name,
+                    path,
+                }))]);
             } catch (error) {
                 setFailed((previous) => [...previous, ...batch.filter((image) => !previous.some((kept) => kept.id === image.id))]);
                 onFailureRef.current(error);
@@ -55,5 +62,5 @@ export function useAttachmentUploads(sessionId: string, onFailure: (message: unk
     }, [addImages]);
     const discardFailed = React.useCallback(() => setFailed([]), []);
 
-    return { attaching, attachedPaths, setAttachedPaths, failed, retryFailed, discardFailed, pickImages, addImages };
+    return { attaching, selectedImages, attachedImages, setAttachedImages, attachedPaths, failed, retryFailed, discardFailed, pickImages, addImages };
 }

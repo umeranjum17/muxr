@@ -1,0 +1,296 @@
+{
+  "startedAt": "2026-09-03T12:33:24.843Z",
+  "phases": [
+    {
+      "name": "idle on the herd",
+      "seconds": 120.1,
+      "sampledSeconds": 115.5,
+      "jsBusyPercent": 36.4,
+      "fps": 30.4,
+      "frameStallSeconds": 10,
+      "pssFirstKb": 417022,
+      "pssLastKb": 407167,
+      "pssMaxKb": 434442,
+      "pssDriftKb": -9855,
+      "restarts": 0,
+      "gaps": 0
+    },
+    {
+      "name": "herd strip and tree soak",
+      "seconds": 120.1,
+      "flow": "herdSoak.yaml",
+      "sampledSeconds": 115.5,
+      "jsBusyPercent": 43.2,
+      "fps": 38.9,
+      "frameStallSeconds": 5,
+      "pssFirstKb": 424265,
+      "pssLastKb": 362834,
+      "pssMaxKb": 424265,
+      "pssDriftKb": -61431,
+      "restarts": 0,
+      "gaps": 0,
+      "flowExit": 0
+    },
+    {
+      "name": "agent terminal and plugin navigation",
+      "seconds": 120.1,
+      "flow": "herdNavigate.yaml",
+      "sampledSeconds": 100.4,
+      "jsBusyPercent": 29.4,
+      "frameStallSeconds": 15,
+      "pssFirstKb": 387907,
+      "pssLastKb": 319735,
+      "pssMaxKb": 387907,
+      "pssDriftKb": -68172,
+      "restarts": 2,
+      "gaps": 1,
+      "flowExit": 0
+    }
+  ],
+  "limits": {
+    "jsBusyPercent": 60,
+    "pssDriftKb": 102400,
+    "frameStallSeconds": 30,
+    "updateDepthErrors": 0,
+    "tourGrowthKb": 153600,
+    "herdVisibleMs": 90000,
+    "hostRequestMs": 5000
+  },
+  "load": {
+    "panes": 100,
+    "agents": 30,
+    "titleChurnHz": 2,
+    "terminalBytesPerSecond": 4096,
+    "graphicsFrameHz": 4
+  },
+  "avd": "muxr_sandbox",
+  "maestro": "2.7.0",
+  "apk": "/tmp/muxr-target-x86_64.apk",
+  "herdVisibleMs": 35804,
+  "tour": {
+    "panes": 40,
+    "opened": 40,
+    "missed": 0,
+    "visits": [
+      {
+        "paneId": "w1:p31",
+        "opened": true,
+        "pssKb": 345192
+      },
+      {
+        "paneId": "w1:p32",
+        "opened": true,
+        "pssKb": 359593
+      },
+      {
+        "paneId": "w1:p33",
+        "opened": true,
+        "pssKb": 344986
+      },
+      {
+        "paneId": "w1:p34",
+        "opened": true,
+        "pssKb": 344149
+      },
+      {
+        "paneId": "w1:p35",
+        "opened": true,
+        "pssKb": 341575
+      },
+      {
+        "paneId": "w1:p36",
+        "opened": true,
+        "pssKb": 349416
+      },
+      {
+        "paneId": "w1:p37",
+        "opened": true,
+        "pssKb": 349701
+      },
+      {
+        "paneId": "w1:p38",
+        "opened": true,
+        "pssKb": 362254
+      },
+      {
+        "paneId": "w1:p39",
+        "opened": true,
+        "pssKb": 356349
+      },
+      {
+        "paneId": "w1:p40",
+        "opened": true,
+        "pssKb": 355041
+      },
+      {
+        "paneId": "w1:p41",
+        "opened": true,
+        "pssKb": 372076
+      },
+      {
+        "paneId": "w1:p42",
+        "opened": true,
+        "pssKb": 358307
+      },
+      {
+        "paneId": "w1:p43",
+        "opened": true,
+        "pssKb": 352302
+      },
+      {
+        "paneId": "w1:p44",
+        "opened": true,
+        "pssKb": 353777
+      },
+      {
+        "paneId": "w1:p45",
+        "opened": true,
+        "pssKb": 374029
+      },
+      {
+        "paneId": "w1:p46",
+        "opened": true,
+        "pssKb": 361621
+      },
+      {
+        "paneId": "w1:p47",
+        "opened": true,
+        "pssKb": 373395
+      },
+      {
+        "paneId": "w1:p48",
+        "opened": true,
+        "pssKb": 353820
+      },
+      {
+        "paneId": "w1:p49",
+        "opened": true,
+        "pssKb": 371852
+      },
+      {
+        "paneId": "w1:p50",
+        "opened": true,
+        "pssKb": 361551
+      },
+      {
+        "paneId": "w1:p51",
+        "opened": true,
+        "pssKb": 355494
+      },
+      {
+        "paneId": "w1:p52",
+        "opened": true,
+        "pssKb": 353011
+      },
+      {
+        "paneId": "w1:p53",
+        "opened": true,
+        "pssKb": 370921
+      },
+      {
+        "paneId": "w1:p54",
+        "opened": true,
+        "pssKb": 361673
+      },
+      {
+        "paneId": "w1:p55",
+        "opened": true,
+        "pssKb": 373067
+      },
+      {
+        "paneId": "w1:p56",
+        "opened": true,
+        "pssKb": 358182
+      },
+      {
+        "paneId": "w1:p57",
+        "opened": true,
+        "pssKb": 375439
+      },
+      {
+        "paneId": "w1:p58",
+        "opened": true,
+        "pssKb": 366323
+      },
+      {
+        "paneId": "w1:p59",
+        "opened": true,
+        "pssKb": 357457
+      },
+      {
+        "paneId": "w1:p60",
+        "opened": true,
+        "pssKb": 357515
+      },
+      {
+        "paneId": "w1:p61",
+        "opened": true,
+        "pssKb": 375223
+      },
+      {
+        "paneId": "w1:p62",
+        "opened": true,
+        "pssKb": 364116
+      },
+      {
+        "paneId": "w1:p63",
+        "opened": true,
+        "pssKb": 357555
+      },
+      {
+        "paneId": "w1:p64",
+        "opened": true,
+        "pssKb": 358895
+      },
+      {
+        "paneId": "w1:p65",
+        "opened": true,
+        "pssKb": 375951
+      },
+      {
+        "paneId": "w1:p66",
+        "opened": true,
+        "pssKb": 365366
+      },
+      {
+        "paneId": "w1:p67",
+        "opened": true,
+        "pssKb": 380563
+      },
+      {
+        "paneId": "w1:p68",
+        "opened": true,
+        "pssKb": 360306
+      },
+      {
+        "paneId": "w1:p69",
+        "opened": true,
+        "pssKb": 374580
+      },
+      {
+        "paneId": "w1:p70",
+        "opened": true,
+        "pssKb": 364118
+      }
+    ],
+    "pssFirstKb": 345192,
+    "pssLastKb": 364118,
+    "pssMaxKb": 380563,
+    "pssGrowthKb": 18926,
+    "framesRendered": 11357
+  },
+  "updateDepthErrors": 0,
+  "hostRequests": {
+    "total": 62,
+    "attaches": 41,
+    "rejected": [],
+    "slowestMs": 10
+  },
+  "runtimeAlive": true,
+  "framesRendered": 11365,
+  "screenshot": "docs/perf/0.1.25-target-100-30.png",
+  "commit": "5914ce11736c1cc49d4ee18ada92dd3f9fccc949",
+  "finishedAt": "2026-09-03T12:51:42.665Z",
+  "failures": [],
+  "passed": true
+}

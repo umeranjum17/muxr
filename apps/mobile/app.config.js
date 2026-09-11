@@ -79,6 +79,13 @@ function loadBuildMetadata() {
 }
 
 const buildMetadata = loadBuildMetadata();
+// Android's numeric versionName cannot carry beta/dev suffixes. Keep the exact
+// candidate identity in its signed embedded app configuration as well.
+const releaseIdentity = process.env.MUXR_RELEASE_VERSION || process.env.APP_VERSION || require('../../package.json').version;
+if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(releaseIdentity)
+    || releaseIdentity.split('-')[0] !== (process.env.APP_VERSION || require('../../package.json').version).split('-')[0]) {
+    throw new Error('Release identity must match the native app version');
+}
 
 // Cleartext stays on for every variant: self-host relays use ws:// on LAN/
 // Tailscale/SSH-forward addresses that no network-security-config can enumerate.
@@ -115,7 +122,7 @@ export default {
         runtimeVersion: "2",
         orientation: "default",
         icon: "./sources/assets/images/icon.png",
-        scheme: "muxr",
+        scheme: variant === 'production' ? 'muxr' : `muxr-${variant === 'development' ? 'dev' : 'preview'}`,
         userInterfaceStyle: "automatic",
         ios: {
             supportsTablet: true,
@@ -125,7 +132,7 @@ export default {
                 usesNonExemptEncryption: false
             },
             infoPlist: {
-                NSMicrophoneUsageDescription: "Allow $(PRODUCT_NAME) to access your microphone for voice conversations with AI.",
+                NSMicrophoneUsageDescription: "Allow $(PRODUCT_NAME) to use your microphone for on-device dictation and, when you choose realtime voice, send audio to the provider configured on your computer.",
                 NSLocalNetworkUsageDescription: "Allow $(PRODUCT_NAME) to find and connect to local devices on your network.",
                 NSBonjourServices: ["_http._tcp", "_https._tcp"],
                 UIBackgroundModes: ["audio"],
@@ -196,6 +203,7 @@ export default {
             require("./plugins/withEinkCompatibility.js"),
             require("./plugins/withZeroconf.js"),
             require("./plugins/withAppActions.js"),
+            require("./plugins/withLiveActivities.js"),
             [
                 "expo-router",
                 {
@@ -212,7 +220,7 @@ export default {
             [
                 "expo-audio",
                 {
-                    microphonePermission: "Allow $(PRODUCT_NAME) to access your microphone for voice conversations."
+                    microphonePermission: "Allow $(PRODUCT_NAME) to use your microphone for on-device dictation and, when you choose realtime voice, send audio to the provider configured on your computer."
                 }
             ],
             [
@@ -262,6 +270,7 @@ export default {
                 publicBaseUrl,
                 directDistribution: distribution === 'direct',
                 consoleLoggingDefault,
+                releaseVersion: releaseIdentity,
                 buildCommitSha: buildMetadata.commitSha,
                 buildCommitTimestamp: buildMetadata.commitTimestamp,
             }

@@ -3,6 +3,7 @@ export interface SessionFileCacheEntry {
     diff: string | null;
     isBinary: boolean;
     cachedAt: number;
+    deleted?: boolean;
 }
 
 export const MAX_SESSION_FILE_CACHE_ENTRIES = 12;

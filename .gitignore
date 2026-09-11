@@ -3,6 +3,7 @@ dist/
 *.tsbuildinfo
 .expo/
 .pi-subagents/
+/.cache/muxr-dev/
 
 # secrets / signing — never commit
 .env
@@ -41,3 +42,10 @@ dist-npm/
 # git worktrees for parallel sessions
 .dev/
 .firecrawl/
+
+# ruby/setup-ruby local Bundler configuration and downloaded gems
+/.bundle/
+/vendor/bundle/
+
+# Offline attachment renderer generated from pinned dependencies by yarn build
+apps/mobile/sources/components/attachment/preview.bundle.bin

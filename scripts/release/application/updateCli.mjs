@@ -4,6 +4,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runBootstrap, daemonIsRunning, daemonMode, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from '../../setup/index.mjs';
+import { compareVersions, channelTags, releaseVersion, resolveChannel } from '../domain/channel.mjs';
 
 const PACKAGE = '@trymuxr/cli';
 
@@ -57,46 +58,36 @@ function activePackageUsesCurrentNpmPrefix() {
     return false;
 }
 
-export function compareVersions(left, right) {
-    const parse = (value) => {
-        const match = value.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/);
-        return match && { numbers: match.slice(1, 4).map(Number), prerelease: match[4]?.split('.') };
-    };
-    const a = parse(left);
-    const b = parse(right);
-    if (!a || !b) return undefined;
-    for (let index = 0; index < 3; index += 1) {
-        if (a.numbers[index] !== b.numbers[index]) return a.numbers[index] - b.numbers[index];
-    }
-    if (a.prerelease === undefined && b.prerelease === undefined) return 0;
-    if (a.prerelease === undefined) return 1;
-    if (b.prerelease === undefined) return -1;
-    const length = Math.max(a.prerelease.length, b.prerelease.length);
-    for (let index = 0; index < length; index += 1) {
-        const leftIdentifier = a.prerelease[index];
-        const rightIdentifier = b.prerelease[index];
-        if (leftIdentifier === rightIdentifier) continue;
-        if (leftIdentifier === undefined) return -1;
-        if (rightIdentifier === undefined) return 1;
-        const leftNumeric = /^\d+$/.test(leftIdentifier);
-        const rightNumeric = /^\d+$/.test(rightIdentifier);
-        if (leftNumeric && rightNumeric) return Number(leftIdentifier) - Number(rightIdentifier);
-        if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
-        return leftIdentifier < rightIdentifier ? -1 : 1;
-    }
-    return 0;
-}
-
 export async function updateCli(command = {}) {
     const current = currentVersion();
-    // Rollback uses the same trusted install path as updates: one owner
-    // (`muxr update`), explicit version, contract checks fail closed on skew.
-    const pinned = typeof command.to === 'string' && command.to.trim() !== '' ? command.to.trim() : undefined;
-    if (pinned !== undefined && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(pinned)) {
-        process.stderr.write(`invalid version for --to: ${pinned}\n`);
+    let channel;
+    let installedChannel;
+    let targetVersion;
+    let retired;
+    try {
+        const installed = releaseVersion(current);
+        installedChannel = installed.channel;
+        // A beta or dev install is a nightly install now; the name changed, the
+        // work continues there. Nothing is downgraded to make that true.
+        retired = installed.legacy === true;
+        const requestedChannel = command.channel === undefined ? { channel: installedChannel } : resolveChannel(command.channel);
+        channel = requestedChannel.channel;
+        if (requestedChannel.from !== undefined) {
+            process.stdout.write(`The ${requestedChannel.from} channel is retired; its work continues on nightly.\n`);
+        }
+        if (command.targetVersion !== undefined) {
+            const requested = releaseVersion(command.targetVersion);
+            if (requested.channel !== channel) throw new Error('Exact version belongs to a different channel; pass --channel explicitly to switch.');
+            targetVersion = requested.version;
+        }
+    } catch (cause) {
+        process.stderr.write(`${cause.message}\n`);
         return 1;
     }
-    const lookup = npm(['view', PACKAGE, 'dist-tags.latest', '--json']);
+    const tag = channelTags[channel];
+    const lookup = npm(targetVersion === undefined
+        ? ['view', PACKAGE, `dist-tags.${tag}`, '--json']
+        : ['view', `${PACKAGE}@${targetVersion}`, 'version', '--json']);
     if (lookup.status !== 0) {
         process.stderr.write(`Could not check npm: ${(lookup.stderr || lookup.stdout || 'npm failed').trim()}\n`);
         return 1;
@@ -105,32 +96,39 @@ export async function updateCli(command = {}) {
     let latest;
     try { latest = JSON.parse(lookup.stdout.trim()); }
     catch { latest = lookup.stdout.trim(); }
-    if (typeof latest !== 'string' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(latest)) {
-        process.stderr.write('npm returned an invalid muxr version\n');
+    try {
+        if (targetVersion !== undefined && latest !== targetVersion) throw new Error('exact version mismatch');
+        const offered = releaseVersion(latest);
+        if (offered.channel !== channel) throw new Error('channel mismatch');
+        // A retired name must not arrive as the current nightly. Installing one
+        // stays possible, but only when the user pins it with --to.
+        if (targetVersion === undefined && offered.legacy === true) throw new Error('retired version on an active channel');
+    } catch {
+        process.stderr.write('npm returned an invalid version for the requested muxr channel or exact target\n');
         return 1;
     }
-    const target = pinned ?? latest;
+    const target = latest;
     const comparison = compareVersions(target, current);
     if (comparison === undefined) {
         process.stderr.write('installed muxr version is invalid\n');
         return 1;
     }
-    if (pinned === undefined && comparison <= 0) {
+    if (comparison === 0 || comparison < 0 && !command.allowDowngrade) {
         process.stdout.write(comparison === 0
-            ? `muxr ${current} is current.\n`
-            : `muxr ${current} is newer than npm latest (${latest}); nothing changed.\n`);
+            ? `muxr ${current} is current on ${channel}.\n`
+            : `muxr ${current} is newer than ${channel} (${latest}); nothing changed. Use --allow-downgrade only after checking state compatibility.\n`);
         return 0;
     }
 
-    process.stdout.write(pinned !== undefined
-        ? `muxr ${target} was requested (installed: ${current}).\n`
-        : `muxr ${latest} is available (installed: ${current}).\n`);
+    process.stdout.write(`muxr ${latest} is available on ${channel} (installed: ${current}, ${installedChannel}).\n`);
+    if (retired) process.stdout.write(`${current} came from a retired channel; nightly continues it, and its published packages stay available.\n`);
+    if (channel !== installedChannel) process.stdout.write('This explicitly switches the current installation and its managed services; it does not create a second isolated host.\n');
     if (command.checkOnly) return 0;
     const installedMode = daemonMode();
     let approved = command.yes === true;
     if (!approved && command.confirm) {
         process.stdout.write([
-            pinned !== undefined ? 'Rollback plan:' : 'Update plan:',
+            targetVersion !== undefined && comparison < 0 ? 'Rollback plan:' : 'Update plan:',
             `  • install ${PACKAGE}@${target}`,
             installedMode === 'relay'
                 ? '  • leave Herdr and agent integrations unchanged on this relay-only server'
@@ -141,7 +139,7 @@ export async function updateCli(command = {}) {
         approved = await command.confirm({ latest: target, current }) === true;
     }
     if (!approved) {
-        process.stdout.write(`Nothing changed. Run \`muxr update --yes\` when ready.\n`);
+        process.stdout.write(`Nothing changed. Run \`muxr update --channel ${channel}${targetVersion === undefined ? '' : ` --to ${targetVersion}`}${command.allowDowngrade ? ' --allow-downgrade' : ''} --yes\` when ready.\n`);
         return 0;
     }
 
@@ -181,8 +179,10 @@ export async function updateCli(command = {}) {
     if (relayRestarted) parts.push('relay');
     if (restart) parts.push('host');
     const restarted = parts.join(' and ');
-    const action = pinned !== undefined ? 'Rolled back' : 'Updated';
+    const action = targetVersion !== undefined && comparison < 0 ? 'Rolled back' : 'Updated';
     const restartedNote = restarted === '' ? '' : ` and restarted the ${restarted}`;
     process.stdout.write(`${action} muxr to ${target}${restartedNote}.\n`);
     return 0;
 }
+
+export { compareVersions };

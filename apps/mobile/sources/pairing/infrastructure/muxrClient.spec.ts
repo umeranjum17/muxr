@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { encodePayload } from '@muxr/contract';
 import type { AppStateLike } from '../application/deliverScannedPairing';
+import { formatConnectionDiagnosticsForReport, resetConnectionDiagnostics } from '../../catalog/infrastructure/connectionDiagnostics';
 
 vi.mock('react-native', () => ({
     AppState: { currentState: 'active', addEventListener: vi.fn() },
@@ -20,7 +21,7 @@ class FakeWebSocket {
     onopen?: () => void;
     onmessage?: (message: { data: string }) => void;
     onerror?: () => void;
-    onclose?: () => void;
+    onclose?: (event: { code: number; reason: string }) => void;
 
     constructor(_url: string) {
         FakeWebSocket.current = this;
@@ -31,7 +32,11 @@ class FakeWebSocket {
     }
 
     send(_payload: string): void {}
-    close(): void { this.readyState = 0; this.onclose?.(); }
+    close(): void { this.readyState = 0; this.onclose?.({ code: 1000, reason: '' }); }
+    failClose(code: number, reason: string): void {
+        this.readyState = 3;
+        this.onclose?.({ code, reason });
+    }
 }
 
 describe('mobile plugin invalidation dispatch', () => {
@@ -99,27 +104,74 @@ describe('mobile relay liveness', () => {
     afterEach(() => {
         vi.unstubAllGlobals();
         FakeWebSocket.current = undefined;
+        vi.useRealTimers();
     });
 
-    it('isLive is false until a host frame arrives, then a dead socket can reconnect', async () => {
+    it('recovers a silent initial hello, proves host liveness, and replaces closed or half-open routes', async () => {
+        vi.useFakeTimers();
         vi.stubGlobal('WebSocket', FakeWebSocket);
-        const client = new MuxrClient({ mode: 'local', relayUrl: 'ws://relay.test', machineId: 'machine-1' });
+        resetConnectionDiagnostics();
+        const client = new MuxrClient({
+            mode: 'local',
+            relayUrl: 'ws://relay.test',
+            machineId: 'machine-1',
+            reconnectDelayMs: 10,
+            requestTimeoutMs: 25,
+        });
         client.connect();
-        await new Promise<void>((resolve) => queueMicrotask(resolve));
-        const first = FakeWebSocket.current!;
+        await Promise.resolve();
+        const silent = FakeWebSocket.current!;
         expect(client.isLive()).toBe(false);
         await expect(client.request('herdr.tree', {})).rejects.toThrow('not connected');
+        await vi.advanceTimersByTimeAsync(24);
+        expect(client.state).toBe('connecting');
+        expect(silent.readyState).toBe(FakeWebSocket.OPEN);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(client.state).toBe('closed');
+        expect(silent.readyState).not.toBe(FakeWebSocket.OPEN);
+        expect(formatConnectionDiagnosticsForReport()).toMatch(/socket\.fail liveness no-host-frame/);
+
+        await vi.advanceTimersByTimeAsync(10);
+        const first = FakeWebSocket.current!;
+        expect(first).not.toBe(silent);
+        expect(client.isLive()).toBe(false);
         first.onmessage?.({ data: JSON.stringify({
             header: { machineId: 'machine-1', seq: 1, at: Date.now() },
             payload: encodePayload({ type: 'plugins.invalidated', reason: 'changed', pluginIds: ['example.ui'] } as never),
         }) });
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        await Promise.resolve();
         expect(client.state).toBe('open');
         expect(client.isLive()).toBe(true);
-        first.readyState = 3;
-        client.connect();
-        await new Promise<void>((resolve) => queueMicrotask(resolve));
-        expect(FakeWebSocket.current).not.toBe(first);
+        // A frame already decoding must not revive a socket retired meanwhile.
+        first.onmessage?.({ data: JSON.stringify({
+            header: { machineId: 'machine-1', seq: 2, at: Date.now() },
+            payload: encodePayload({ type: 'plugins.invalidated', reason: 'changed', pluginIds: ['example.ui'] } as never),
+        }) });
+        first.failClose(1012, 'raw relay restart with internal details');
+        await Promise.resolve();
+        expect(client.state).toBe('closed');
+        const report = formatConnectionDiagnosticsForReport();
+        expect(report).toMatch(/socket\.fail close socket-closed 1012 service-restart/);
+        expect(report).not.toContain('raw relay restart');
+
+        await vi.advanceTimersByTimeAsync(10);
+        const second = FakeWebSocket.current!;
+        expect(second).not.toBe(first);
+        second.onmessage?.({ data: JSON.stringify({
+            header: { machineId: 'machine-1', seq: 2, at: Date.now() },
+            payload: encodePayload({ type: 'plugins.invalidated', reason: 'changed', pluginIds: ['example.ui'] } as never),
+        }) });
+        await Promise.resolve();
+        expect(client.isLive()).toBe(true);
+
+        const rejection = expect(client.request('herdr.tree', {})).rejects.toThrow(
+            'request timed out: herdr.tree (connection reset; try again after muxr reconnects)',
+        );
+        await vi.advanceTimersByTimeAsync(25);
+        await rejection;
+        expect(client.state).toBe('closed');
+        await vi.advanceTimersByTimeAsync(10);
+        expect(FakeWebSocket.current).not.toBe(second);
         expect(client.isLive()).toBe(false);
         client.close();
     });
@@ -129,7 +181,7 @@ describe('mobile relay liveness', () => {
         // device key; the dropped hello must not pin the client to connecting.
         vi.useFakeTimers();
         vi.stubGlobal('WebSocket', FakeWebSocket);
-        const client = new MuxrClient({ mode: 'local', relayUrl: 'ws://relay.test', machineId: 'machine-1', helloTimeoutMs: 100, reconnectDelayMs: 10 });
+        const client = new MuxrClient({ mode: 'local', relayUrl: 'ws://relay.test', machineId: 'machine-1', requestTimeoutMs: 100, reconnectDelayMs: 10 });
         client.connect();
         await vi.advanceTimersByTimeAsync(0);
         const first = FakeWebSocket.current!;
@@ -182,6 +234,8 @@ describe('connection diagnostic codes', () => {
             recordTrackedRpc,
             recordTerminalChannel,
             recordAgentGate,
+            recordTerminalScrollTimeout,
+            recordTerminalGraphicsFrame,
             readConnectionDiagnostics,
             formatConnectionDiagnosticsForReport,
             connectionDiagnosticCode,
@@ -213,11 +267,50 @@ describe('connection diagnostic codes', () => {
             expect.objectContaining({ event: 'agent.gate', lifecycle: 'idle', promptable: false, gate: 'missing' }),
         ]));
         expect(readConnectionDiagnostics().some((event) => event.event === 'agent.gate' && 'kind' in event && event.kind === 'w1ew:ph')).toBe(false);
+        recordTerminalScrollTimeout();
+        recordTerminalGraphicsFrame(2048);
         const report = formatConnectionDiagnosticsForReport();
         expect(report).toMatch(/socket\.reconnect dead-socket/);
         expect(report).toMatch(/rpc session\.prompt rejected agent-not-ready/);
         expect(report).toMatch(/rpc session\.start rejected start-launch-failed/);
         expect(report).toMatch(/agent\.gate omp idle promptable=false not-interactive/);
+        expect(report).toMatch(/graphics frames=1 p95=2048B/);
         expect(report).not.toMatch(/pp_|pwt-|devtok_|machine-|session-|w1EW:pH/);
     });
+
+    it('keeps the gesture and zoom events it validates, and drops malformed ones', async () => {
+        const {
+            resetConnectionDiagnostics,
+            recordTerminalScrollRows,
+            recordTerminalScrollClamped,
+            recordTerminalResize,
+            recordConnectionDiagnostic,
+            readConnectionDiagnostics,
+            formatConnectionDiagnosticsForReport,
+        } = await import('../../catalog/infrastructure/connectionDiagnostics');
+        resetConnectionDiagnostics();
+        recordTerminalScrollRows(12);
+        recordTerminalScrollRows(8);
+        recordTerminalScrollClamped(3);
+        recordTerminalResize(80, 24, 8, 16);
+        recordTerminalResize(66, 20, 10, 20);
+        // Same shapes, out of bounds: the recorder must not let them through.
+        recordConnectionDiagnostic({ event: 'terminal.scroll-rows', rows: Number.NaN } as never);
+        recordConnectionDiagnostic({ event: 'terminal.scroll-clamped', rows: -1 } as never);
+        recordConnectionDiagnostic({ event: 'terminal.resize', cols: 80 } as never);
+        recordConnectionDiagnostic({ event: 'terminal.resize', cols: 80, rows: 24, cellWidthPx: 'wide' } as never);
+        expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.scroll-rows')).toHaveLength(2);
+        expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.scroll-clamped')).toHaveLength(1);
+        expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.resize')).toHaveLength(2);
+        const report = formatConnectionDiagnosticsForReport();
+        // Totals and per-event numbers, so a reader can count only what came
+        // after its own mark instead of differencing a ring that evicts.
+        // `timedOut` is a scroll the pane never answered. There is no
+        // scroll-to-write latency here: terminal history has no host response a
+        // repaint can be attributed to, so none is reported.
+        expect(report).toMatch(/terminal\.scroll seq=\d+ requests=2 rows=20 clamped=3 timedOut=0/);
+        expect(report).not.toMatch(/latency|scroll->frame|terminal\.resize count=/);
+        expect(report).not.toMatch(/NaN|undefined|wide/);
+    });
+
 });

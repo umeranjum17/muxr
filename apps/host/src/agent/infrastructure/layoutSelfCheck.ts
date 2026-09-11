@@ -605,7 +605,9 @@ async function demo(): Promise<void> {
     const missingTarget = await ask(socketPath, access.capability, { method: 'prompt', text: 'missing target', operationId: 'op-missing' });
     const wrongPane = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'wrong pane', operationId: 'op-wrong-pane' });
     const malformed = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'malformed receipt', operationId: 'op-malformed' });
-    assert(missingTarget.ok === false && wrongPane.ok === false && malformed.ok === false && prompts.length === 1,
+    assert(missingTarget.ok === true && missingTarget.data?.startsWith('No prompt sent.') === true
+        && missingTarget.data.includes('John, Harden audio') && !missingTarget.data.includes('pp_john')
+        && wrongPane.ok === false && malformed.ok === false && prompts.length === 1,
         'missing targets and malformed or wrong-pane Herdr receipts cannot produce a queued confirmation');
     const taskStatus = await ask(socketPath, access.capability, { method: 'status', agent: 'Harden audio' });
     assert(taskStatus.data === 'John is idle.', 'a unique Task Title resolves to its Agent Name');

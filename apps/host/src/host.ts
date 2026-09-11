@@ -7,7 +7,7 @@
  */
 
 import type { ClientFrame, ClientRequest, SessionEvent, SessionEventBody } from '@muxr/contract';
-import { connectToRelay, deviceTableCanMutate, type RelayLink, type HostedMachineKeys } from './machine/index.js';
+import { connectToRelay, deviceTableCanMutate, type RelayLink, type RelayStateCode, type HostedMachineKeys } from './machine/index.js';
 import { createRequestDispatcher } from './requests/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
 import type { PeerRuntime } from './peer/index.js';
@@ -43,7 +43,7 @@ export interface HostOptions {
     domain: AgentWatchStores;
     terminals?: TerminalManager;
     hostVersion?: string;
-    onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced') => void;
+    onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced', code?: RelayStateCode) => void;
     /** Mandatory strict v2 endpoint keys for hosted mode. */
     hostedE2ee?: HostedMachineKeys;
     token?: string;
@@ -102,10 +102,14 @@ export function startHost(options: HostOptions): Host {
     async function handleClientFrame(frame: ClientFrame, authenticatedSenderId?: string): Promise<void> {
         const clientKind = diagnosticClientKind(authenticatedSenderId, options.hostedE2ee);
         options.diagnostics?.client(authenticatedSenderId ?? 'local', clientKind, frame.type === 'client.hello');
+        const startedAt = Date.now();
         const peerRecipient = peerRecipientFor(authenticatedSenderId, options.hostedE2ee);
         if (options.hostedE2ee !== undefined && frame.type === 'terminal.attach'
             && frame.params.deviceId !== authenticatedSenderId) {
-            throw new Error('terminal: device grant does not match the authenticated client');
+            const error = new Error('terminal: device grant does not match the authenticated client') as Error & { code: string };
+            error.code = 'e2ee-required';
+            options.diagnostics?.request(frame.type, clientKind, 'rejected', Date.now() - startedAt, error.code);
+            throw error;
         }
         if (frame.type === 'client.hello') {
             const peerMayList = peerRecipient === undefined
@@ -119,12 +123,13 @@ export function startHost(options: HostOptions): Host {
             if (peerRecipient === undefined) source.resendCumulativeState?.();
             return;
         }
-        const startedAt = Date.now();
+
         let response;
         try {
             response = await dispatcher.dispatch(frame as ClientRequest, authenticatedSenderId);
         } catch (error) {
-            options.diagnostics?.request(frame.type, clientKind, 'unavailable', Date.now() - startedAt);
+            const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
+            options.diagnostics?.request(frame.type, clientKind, 'unavailable', Date.now() - startedAt, code);
             throw error;
         }
         const outcome = response.ok ? 'ok' : 'rejected';
@@ -141,9 +146,10 @@ export function startHost(options: HostOptions): Host {
         ...(options.hostedE2ee === undefined ? {} : { hostedE2ee: options.hostedE2ee }),
         ...(options.token === undefined ? {} : { token: options.token }),
         onPeerIngress: (outcome) => options.diagnostics?.peerIngress(outcome),
-        onStateChange: (state) => {
-            options.diagnostics?.relay(state);
-            options.onStateChange?.(state);
+        onClientReject: (clientKey, kind, outcome) => options.diagnostics?.clientReject(clientKey, kind, outcome),
+        onStateChange: (state, code) => {
+            options.diagnostics?.relay(state, code);
+            options.onStateChange?.(state, code);
             if (state === 'open') {
                 link?.send({
                     type: 'machine.hello',
@@ -163,10 +169,11 @@ export function startHost(options: HostOptions): Host {
         onClientFrame: (frame, authenticatedSenderId) => {
             void handleClientFrame(frame, authenticatedSenderId).catch((error: unknown) => {
                 const message = error instanceof Error ? error.message : String(error);
+                const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
                 const sessionId = sessionIdFrom(frame);
                 if (typeof frame === 'object' && frame !== null && 'requestId' in frame && typeof frame.requestId === 'string') {
                     link?.send(
-                        { type: 'result', requestId: frame.requestId, ok: false, error: message },
+                        { type: 'result', requestId: frame.requestId, ok: false, error: message, ...(code === undefined ? {} : { code }) },
                         sessionId,
                         responseChannel(frame.type),
                         peerRecipientFor(authenticatedSenderId, options.hostedE2ee),

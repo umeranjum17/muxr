@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="muxr.voice.jarvis"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/muxr_shortcut_muxr_voice_jarvis_short"
+        android:shortcutLongLabel="@string/muxr_shortcut_muxr_voice_jarvis_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="app.muxr.local.dev"
+            android:targetClass="com.trymuxr.app.MainActivity"
+            android:data="muxr-dev://shortcut/muxr.voice.jarvis" />
+    </shortcut>
+</shortcuts>

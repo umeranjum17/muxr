@@ -42,6 +42,7 @@ export interface PluginItemListModel {
     badge?: PluginItemListBadge;
     /** Real count when the plugin bounded `items`; absent means complete. */
     total?: number;
+    summary?: PluginItemMetadata[];
 }
 
 const TONES = new Set<PluginScreenTone>(['primary', 'secondary', 'positive', 'warning', 'danger']);
@@ -148,5 +149,6 @@ export function asPluginItemList(value: unknown, validateAction: (value: unknown
     const total = typeof record.total === 'number' && Number.isSafeInteger(record.total) && record.total > items.length
         ? Math.min(record.total, 99_999)
         : undefined;
-    return { items, actions, ...(modelBadge === undefined ? {} : { badge: modelBadge }), ...(total === undefined ? {} : { total }) };
+    const summary = metadata(record.summary);
+    return { items, actions, ...(modelBadge === undefined ? {} : { badge: modelBadge }), ...(total === undefined ? {} : { total }), ...(summary.length === 0 ? {} : { summary }) };
 }

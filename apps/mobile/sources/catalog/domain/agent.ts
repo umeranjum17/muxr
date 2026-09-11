@@ -133,6 +133,8 @@ export function mergeCatalogAgent(
         ...previous,
         ...session,
         ...liveStatus,
+        // The host omits `created`; the first value this device saw is the creation time.
+        ...(previous === undefined ? {} : { createdAt: previous.createdAt }),
         metadata,
         presence: session.presence ?? onlineState(session),
     };
@@ -142,9 +144,14 @@ export function mergeCatalogAgent(
 export function applyHostInfoToAgent(existing: Session, fresh: Session): Session {
     const known = withoutCopiedHerdrIdentity(existing.metadata);
     const incoming = withoutCopiedHerdrIdentity(fresh.metadata);
+    // The host omits `created`, so every mapping stamps a fresh `createdAt`.
+    // Keeping the known value is what lets the equality check below recognise
+    // an unchanged session; without it every info frame was a store write, and
+    // the herd re-rendered every card several times a second.
     const merged: Session = {
         ...existing,
         ...fresh,
+        createdAt: existing.createdAt,
         thinking: existing.thinking,
         thinkingAt: existing.thinkingAt,
         agentState: existing.agentState,

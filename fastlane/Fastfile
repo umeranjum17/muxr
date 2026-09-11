@@ -1,5 +1,13 @@
 opt_out_usage
+require "digest"
 require "shellwords"
+require "xcodeproj"
+
+# The Live Activity extension ships inside the app as a second signed target.
+# It is named here so the lane can tell "no extension yet" from "extension
+# without a profile", which are very different failures.
+IOS_EXTENSION_TARGET = "HerdLiveActivity"
+IOS_EXTENSION_BUNDLE_ID = "com.trymuxr.app.activity"
 
 
 def app_store_key
@@ -14,20 +22,76 @@ end
 platform :ios do
   desc "Build a signed App Store archive"
   lane :build_internal do
-    build_app(
-      workspace: "apps/mobile/ios/muxr.xcworkspace",
-      scheme: "muxr",
-      configuration: "Release",
-      export_method: "app-store",
-      output_directory: File.dirname(ENV.fetch("IOS_IPA_OUTPUT")),
-      output_name: File.basename(ENV.fetch("IOS_IPA_OUTPUT")),
-      export_options: {
-        signingStyle: "manual",
-        teamID: ENV.fetch("APPLE_TEAM_ID"),
-        provisioningProfiles: { "com.trymuxr.app" => ENV.fetch("IOS_PROFILE_NAME") }
-      },
-      xcargs: "MARKETING_VERSION=#{Shellwords.escape(ENV.fetch('APP_VERSION'))} CURRENT_PROJECT_VERSION=#{Shellwords.escape(ENV.fetch('IOS_BUILD_NUMBER'))} DEVELOPMENT_TEAM=#{Shellwords.escape(ENV.fetch('APPLE_TEAM_ID'))} CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER=#{Shellwords.escape(ENV.fetch('IOS_PROFILE_NAME'))}"
-    )
+    # Signing belongs to the app target alone. Passing it through xcargs hands
+    # the distribution profile to every Pods target as well; those are static
+    # libraries that must not be signed, and they fail before the app is built.
+    # The project file is a generated input, so it is restored afterwards.
+    # fastlane runs a lane's own code inside the fastlane folder and each action
+    # one level up at the repository root, so paths an action resolves on its
+    # own have to be anchored before plain Ruby can read the same file.
+    project = "apps/mobile/ios/muxr.xcodeproj"
+    project_path = File.expand_path(File.join("..", project), FastlaneCore::FastlaneFolder.path)
+    pbxproj = File.join(project_path, "project.pbxproj")
+    generated = File.read(pbxproj)
+    # An extension inherits the project-level development identity Expo writes,
+    # so it has to be configured as deliberately as the app. Asking the project
+    # itself avoids guessing from a file that is regenerated on every prebuild.
+    extension_present = Xcodeproj::Project.open(project_path).targets.map(&:name).include?(IOS_EXTENSION_TARGET)
+    extension_profile = ENV["IOS_EXTENSION_PROFILE_NAME"].to_s
+    if extension_present && extension_profile.empty?
+      UI.user_error!("#{IOS_EXTENSION_TARGET} is in the project but IOS_EXTENSION_PROFILE_NAME is unset")
+    end
+    begin
+      # Expo generates the project with CODE_SIGN_IDENTITY[sdk=iphoneos*] set to
+      # a development identity, so the overrides are written in the same
+      # conditional form to be sure they win rather than sit beside it.
+      update_code_signing_settings(
+        path: project,
+        use_automatic_signing: false,
+        targets: ["muxr"],
+        build_configurations: ["Release"],
+        sdk: "iphoneos*",
+        team_id: ENV.fetch("APPLE_TEAM_ID"),
+        code_sign_identity: ENV.fetch("IOS_CODE_SIGN_IDENTITY", "Apple Distribution"),
+        profile_name: ENV.fetch("IOS_PROFILE_NAME")
+      )
+      # Its own target, its own profile. Pods are a separate project and are
+      # deliberately never named here, so they stay unsigned static libraries.
+      if extension_present
+        update_code_signing_settings(
+          path: project,
+          use_automatic_signing: false,
+          targets: [IOS_EXTENSION_TARGET],
+          build_configurations: ["Release"],
+          sdk: "iphoneos*",
+          team_id: ENV.fetch("APPLE_TEAM_ID"),
+          code_sign_identity: ENV.fetch("IOS_CODE_SIGN_IDENTITY", "Apple Distribution"),
+          profile_name: extension_profile
+        )
+      end
+      profiles = { "com.trymuxr.app" => ENV.fetch("IOS_PROFILE_NAME") }
+      profiles[IOS_EXTENSION_BUNDLE_ID] = extension_profile if extension_present
+      # The project file is restored below, so the only place the archive's real
+      # input can be recorded is here, before it is handed to xcodebuild.
+      UI.message("pbxproj_generated_sha256: #{Digest::SHA256.hexdigest(generated)}")
+      UI.message("pbxproj_signed_sha256: #{Digest::SHA256.hexdigest(File.read(pbxproj))}")
+      build_app(
+        workspace: "apps/mobile/ios/muxr.xcworkspace",
+        scheme: "muxr",
+        configuration: "Release",
+        export_method: "app-store",
+        output_directory: File.dirname(ENV.fetch("IOS_IPA_OUTPUT")),
+        output_name: File.basename(ENV.fetch("IOS_IPA_OUTPUT")),
+        export_options: {
+          signingStyle: "manual",
+          teamID: ENV.fetch("APPLE_TEAM_ID"),
+          provisioningProfiles: profiles
+        },
+        xcargs: "MARKETING_VERSION=#{Shellwords.escape(ENV.fetch('APP_VERSION'))} CURRENT_PROJECT_VERSION=#{Shellwords.escape(ENV.fetch('IOS_BUILD_NUMBER'))}"
+      )
+    ensure
+      File.write(pbxproj, generated)
+    end
   end
 
   desc "Upload an internal build directly to TestFlight"

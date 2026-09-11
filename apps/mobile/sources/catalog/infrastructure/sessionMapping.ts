@@ -78,7 +78,6 @@ function sessionMetadataFromInfo(
         promptable: fields.status?.promptable ?? info.promptable,
         ...(info.agentKind === undefined || info.agentKind === '' ? {} : { agentKind: info.agentKind }),
         ...(info.paneId === undefined || info.paneId === '' ? {} : { paneId: info.paneId }),
-        ...(info.terminalTitle === undefined || info.terminalTitle === '' ? {} : { terminalTitle: info.terminalTitle }),
         ...(info.worktree === undefined
             ? {}
             : {

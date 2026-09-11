@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { spokenMatches, type SessionInfo } from '@muxr/contract';
 
 const DESTINATIONS = {
     home: '/',
@@ -11,8 +12,6 @@ const DESTINATIONS = {
     preferences: '/settings/features',
     connection: '/settings/connection',
 } as const;
-
-const key = (value: string): string => value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
 
 function screenName(pathname: string): string {
     const fixed = Object.entries(DESTINATIONS).find(([, path]) => path === pathname)?.[0];
@@ -32,7 +31,11 @@ interface RegisteredControl {
 
 export class RealtimeAppController {
     private pathname = '/';
+    private agents: (() => Promise<SessionInfo[]>) | undefined;
+
+    setAgents(agents: () => Promise<SessionInfo[]>): void { this.agents = agents; }
     private navigate: ((path: string) => void | Promise<void>) | undefined;
+    private readonly visits = new Map<string, number>();
     private readonly controls = new Map<symbol, RegisteredControl>();
 
     setNavigation(navigate: (path: string) => void | Promise<void>): void {
@@ -41,6 +44,12 @@ export class RealtimeAppController {
 
     setScreen(pathname: string): void {
         this.pathname = pathname;
+        const route = /^\/session\/([^/]+)/.exec(pathname)?.[1];
+        if (route) {
+            this.visits.delete(route);
+            this.visits.set(route, Date.now());
+            if (this.visits.size > 20) this.visits.delete(this.visits.keys().next().value!);
+        }
     }
 
     registerControl(screen: string, label: string, activate: () => void | Promise<void>): () => void {
@@ -49,16 +58,42 @@ export class RealtimeAppController {
         return () => { this.controls.delete(token); };
     }
 
-    inspect(): string {
+    async inspect(): Promise<string> {
+        const inspectedPath = this.pathname;
         const controls = [...this.controls.values()]
             .filter((control) => control.screen === this.pathname)
             .map((control) => control.label);
         const visible = controls.length === 0 ? 'none registered' : controls.join(', ');
-        return `Screen: ${screenName(this.pathname)}. Visible controls: ${visible}. Destinations: ${Object.keys(DESTINATIONS).join(', ')}.`;
+        let context = '';
+        if (this.agents) {
+            try {
+                const agents = await this.agents();
+                const label = (agent: SessionInfo): string => [agent.agentName, agent.taskTitle, agent.agentStatus].filter(Boolean).join(' — ').replace(/[\x00-\x1f<>]/g, ' ').slice(0, 220);
+                const current = /^\/session\/([^/]+)/.exec(this.pathname)?.[1];
+                const focused = agents.find((agent) => encodeURIComponent(agent.id) === current);
+                const recent = [...this.visits.entries()].reverse().flatMap(([route, at]) => {
+                    const agent = agents.find((candidate) => encodeURIComponent(candidate.id) === route);
+                    return agent ? [`${label(agent)} (viewed ${Math.max(0, Math.floor((Date.now() - at) / 1000))} seconds ago)`] : [];
+                }).slice(0, 5);
+                context = ` Phone focus: ${focused ? label(focused) : 'no agent screen open'}. Recently viewed on this phone: ${recent.join('; ') || 'none recorded in this app session'}.`;
+            } catch { context = ' Live phone agent context is unavailable; do not infer a target from stale history.'; }
+        }
+        if (this.pathname !== inspectedPath) return 'The screen changed while reading context. Inspect the app again before acting.';
+        return `Screen: ${screenName(this.pathname)}. Visible controls: ${visible}. Destinations: ${Object.keys(DESTINATIONS).join(', ')}. To open an agent, navigate to agent followed by its name or task title.${context}`;
     }
 
     async navigateTo(target: string): Promise<string> {
-        const matches = Object.entries(DESTINATIONS).filter(([label]) => key(label) === key(target));
+        if (/^agent\s+/i.test(target) && this.agents) {
+            const agents = await this.agents();
+            const matches = spokenMatches(target.replace(/^agent\s+/i, ''), agents, (agent) =>
+                [agent.agentName, agent.taskTitle, agent.agentName && agent.taskTitle ? `${agent.agentName}, ${agent.taskTitle}` : undefined]
+                    .filter((label): label is string => Boolean(label)));
+            if (matches.length !== 1) return 'No unique live agent matches that description. Search agents by task before navigating.';
+            if (!this.navigate) return 'App navigation is unavailable.';
+            await this.navigate(`/session/${encodeURIComponent(matches[0]!.id)}`);
+            return 'Opened the selected agent on your phone.';
+        }
+        const matches = spokenMatches(target, Object.entries(DESTINATIONS), ([label]) => [label]);
         if (matches.length !== 1) return 'I could not find one app destination with that name. Ask me to inspect the app.';
         if (this.navigate === undefined) return 'App navigation is unavailable.';
         const [label, path] = matches[0]!;
@@ -67,7 +102,7 @@ export class RealtimeAppController {
     }
 
     async activate(target: string): Promise<string> {
-        const matches = [...this.controls.values()].filter((control) => control.screen === this.pathname && key(control.label) === key(target));
+        const matches = spokenMatches(target, [...this.controls.values()].filter((control) => control.screen === this.pathname), (control) => [control.label]);
         if (matches.length !== 1) return 'I could not find one visible control with that name. Ask me to inspect the app.';
         await matches[0]!.activate();
         return `Activated ${matches[0]!.label}.`;

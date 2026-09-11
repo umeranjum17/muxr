@@ -48,13 +48,15 @@ export function agentKindLabel(kind?: string): string | undefined {
 
 
 /** One-to-one live Herdr DTO presentation. Only absent-value placeholders are local. */
-export function agentLabels(pane?: AgentInfo): AgentLabels {
+export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'label' | 'terminalTitle' | 'cwd'>>): AgentLabels {
     const named = pane?.agentName?.trim();
     const kind = pane?.agentKind?.trim();
     const hasAgent = named !== undefined && named !== '' || kind !== undefined && kind !== '';
     const agentName = named || (hasAgent ? 'Unnamed agent' : 'Shell');
+    const shellTitle = pane?.label?.trim() || pane?.terminalTitle?.trim() || pane?.taskTitle?.trim()
+        || pane?.cwd?.replace(/\/+$/, '').split('/').pop() || 'Shell';
     return {
-        taskTitle: pane?.taskTitle?.trim() || (hasAgent ? agentName : 'Untitled task'),
+        taskTitle: hasAgent ? pane?.taskTitle?.trim() || agentName : shellTitle,
         agentName,
         ...(pane?.agentKind === undefined ? {} : { agentKind: pane.agentKind }),
         ...(pane?.displayAgent === undefined ? {} : { displayAgent: pane.displayAgent }),
@@ -92,6 +94,7 @@ function agentKindSlug(kind?: string): string | undefined {
 
 /** Kind and animal name as one token, e.g. `pi/fox`. */
 export function agentNameLine(labels: AgentLabels): string {
+    if (isShellLabels(labels)) return 'Shell';
     const kind = agentKindSlug(labels.agentKind);
     const name = distinctAgentName(labels);
     const identity = kind !== undefined && name !== undefined ? `${kind}/${name}` : kind ?? name;

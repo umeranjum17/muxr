@@ -70,6 +70,8 @@ vi.mock('react-native-mmkv', () => ({
     },
 }));
 vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
+const installedVersion = vi.hoisted(() => ({ value: '0.1.27' }));
+vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => installedVersion.value }));
 vi.mock('@/utils/sessionUtils', () => ({
     getSessionName: (session: Session, pane?: HerdrTreePane) =>
         pane?.taskTitle ?? pane?.agentName ?? session.metadata?.summary?.text ?? session.id,
@@ -78,6 +80,7 @@ vi.mock('@/utils/sessionUtils', () => ({
 }));
 import { applyStatusToSession, sessionInfoToSession } from '../infrastructure/sessionMapping';
 import { applyHostInfoToAgent } from '../domain/agent';
+import { reconcileLiveTerminalCards } from '@/herd/application/liveTerminalOrder';
 import { storage } from './storage';
 
 async function spawn(options: { modelMode?: string; effortLevel?: string }) {
@@ -87,6 +90,7 @@ async function spawn(options: { modelMode?: string; effortLevel?: string }) {
 
 describe('session sync flow', () => {
     beforeEach(() => {
+        vi.useRealTimers();
         vi.restoreAllMocks();
         refreshSessions.mockReset();
         request.mockReset();
@@ -210,7 +214,6 @@ describe('session sync flow', () => {
             ...mapped,
             metadata: {
                 ...metadata,
-                terminalTitle: 'stable terminal title',
                 agentName: 'Stale Badger',
                 taskTitle: 'Stale generation task',
                 summary: { text: 'Stale generation task', updatedAt: 1 },
@@ -227,12 +230,11 @@ describe('session sync flow', () => {
             firstMessage: '',
             agentName: 'Maria',
             taskTitle: 'Stabilizing realtime voice',
-            terminalTitle: 'volatile terminal output',
             promptable: true,
             agentStatus: 'working',
         });
+        // A host info frame never overwrites the local agent's own naming.
         const applied = applyHostInfoToAgent(stableExisting, outputOnlyUpdate);
-        expect(applied.metadata?.terminalTitle).toBe('volatile terminal output');
         expect(applied.metadata).not.toHaveProperty('agentName');
         expect(applied.metadata).not.toHaveProperty('taskTitle');
         expect(applied.metadata).not.toHaveProperty('summary');
@@ -705,6 +707,8 @@ describe('session sync flow', () => {
             };
         }
         mmkvValues.set('lifecycle-voice-reports-v1', JSON.stringify(persistedVoice));
+        expect(state.localSettings.terminalKeyboardDisabled).toBe(false);
+        state.applyLocalSettings({ terminalKeyboardDisabled: true });
         state.applyLocalSettings({ vadStandbyEnabled: true });
 
         // Module re-evaluation simulates the store/app restarting while MMKV remains.
@@ -712,6 +716,7 @@ describe('session sync flow', () => {
         const restarted = (await import('./storage')).storage;
         restarted.getState().setLifecycleScope('test-authority:machine');
         expect(restarted.getState().localSettings.vadStandbyEnabled).toBe(true);
+        expect(restarted.getState().localSettings.terminalKeyboardDisabled).toBe(true);
         restarted.getState().applyLocalSettings({ vadStandbyEnabled: false });
         expect(JSON.parse(mmkvValues.get('local-settings')!).vadStandbyEnabled).toBe(false);
         expect(restarted.getState().voicePendingReports).toEqual([durableReport]);
@@ -786,5 +791,79 @@ describe('session sync flow', () => {
         await Promise.resolve();
         expect(voiceMocks.callPlugin).toHaveBeenCalledTimes(deliveredCallCount);
         expect(voiceMocks.speakReport).toHaveBeenCalledOnce();
+    });
+
+    it('keeps unchanged sessions and cards identical across host info frames', () => {
+        vi.useFakeTimers({ now: 1_000 });
+        const info = (id: string, taskTitle = id) => ({
+            id,
+            paneId: `pane-${id}`,
+            cwd: '/work/muxr',
+            path: '/work/muxr',
+            messageCount: 0,
+            firstMessage: '',
+            agentName: 'Maria',
+            taskTitle,
+            promptable: true,
+            agentStatus: 'working' as const,
+        });
+        const panes = ['a', 'b'].map((id) => ({
+            id,
+            agentStatus: 'working' as const,
+            promptable: true,
+            doing: '',
+        }));
+
+        storage.getState().applySessions([
+            sessionInfoToSession(info('a')),
+            sessionInfoToSession(info('b')),
+        ]);
+        const before = storage.getState().sessions;
+        const cards = selectLiveTerminalCards(Object.values(before), panes);
+
+        // A repeated frame must not look like a changed session, or every live
+        // card re-renders for every frame the herd sends.
+        vi.setSystemTime(5_000);
+        storage.getState().applySessions([
+            applyHostInfoToAgent(before.a!, sessionInfoToSession(info('a'))),
+        ]);
+        expect(storage.getState().sessions).toBe(before);
+        expect(reconcileLiveTerminalCards(cards, selectLiveTerminalCards(Object.values(before), panes))).toBe(cards);
+
+        // A card changes when its status does, which is what the tree publishes.
+        const movedPanes = panes.map((pane) => pane.id === 'a' ? { ...pane, agentStatus: 'blocked' as const } : pane);
+        const next = reconcileLiveTerminalCards(cards, selectLiveTerminalCards(Object.values(before), movedPanes));
+        expect(next[0]).not.toBe(cards[0]);
+        expect(next[0]!.agentStatus).toBe('blocked');
+        expect(next[1]).toBe(cards[1]);
+
+        vi.useRealTimers();
+    });
+
+    it('carries changelog unread state across the release-keyed storage change', async () => {
+        const { getLastViewedRelease, olderReleases, currentRelease } = await import('@/changelog');
+        installedVersion.value = '0.1.27';
+        expect(currentRelease()?.appVersion).toBe('0.1.27');
+
+        // An install that read notes under the old title key is not fresh. It
+        // migrates to the last title-keyed release, so 0.1.27 stays unread.
+        mmkvValues.clear();
+        mmkvValues.set('changelog-last-viewed-title', 'Pairing that stays paired');
+        expect(getLastViewedRelease()).toBe('0.1.26');
+        expect(mmkvValues.get('changelog-last-viewed-release')).toBe('0.1.26');
+
+        // A truly fresh install keeps its first-install behaviour: nothing stored,
+        // nothing migrated, and the current entry is marked read on first open.
+        mmkvValues.clear();
+        expect(getLastViewedRelease()).toBe('');
+        expect(mmkvValues.get('changelog-last-viewed-release')).toBeUndefined();
+
+        // History is what shipped before this binary; a newer entry is never
+        // rendered, and never stands in for the installed one.
+        expect(olderReleases('0.1.27').map((entry) => entry.appVersion)).toEqual(['0.1.26']);
+        expect(olderReleases('0.1.26')).toEqual([]);
+        // The installed binary is 0.1.26: 0.1.27 is neither history nor current.
+        installedVersion.value = '0.1.26';
+        expect(currentRelease()?.appVersion).toBe('0.1.26');
     });
 });

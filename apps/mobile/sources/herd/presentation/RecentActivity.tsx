@@ -68,7 +68,7 @@ export const RecentActivity = React.memo((props: {
                         ...(row.agentKind === undefined ? {} : { agentKind: row.agentKind }),
                     };
                     const shell = isShellLabels(labels);
-                    const identity = shell ? 'Terminal' : agentNameLine(labels);
+                    const identity = agentNameLine(labels);
                     const meta = [identity || undefined, recentActivityStatus(row), compactAge(Date.now() - row.at)].filter(Boolean).join(' · ');
                     return (
                         <Pressable
@@ -81,7 +81,7 @@ export const RecentActivity = React.memo((props: {
                             <Ionicons name={icon(row)} size={16} color={color} />
                             <AgentGlyph name={shell ? 'shell' : row.agentKind ?? row.agentName ?? row.taskTitle} size={16} />
                             <View style={styles.copy}>
-                                <Text numberOfLines={1} style={styles.task}>{shell ? 'Shell' : row.taskTitle}</Text>
+                                <Text numberOfLines={1} style={styles.task}>{row.taskTitle}</Text>
                                 <Text numberOfLines={1} style={styles.meta}>{meta}</Text>
                             </View>
                             <Ionicons name="arrow-forward" size={14} color={theme.colors.groupped.chevron} />

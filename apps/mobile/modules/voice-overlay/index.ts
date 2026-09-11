@@ -42,9 +42,10 @@ interface VoiceNative {
     openPromotedNotificationSettings: () => boolean;
     openBackgroundActivitySettings: () => boolean;
     clearNotification: () => boolean;
+    setVoiceGeneration?: (token: string) => void;
     addListener: (
         event: 'onNotificationActionRequested',
-        listener: (payload: { action: NotificationAction }) => void,
+        listener: (payload: { action: NotificationAction; desiredMuted?: boolean; generation?: string }) => void,
     ) => { remove: () => void };
 }
 
@@ -206,8 +207,46 @@ export function clearVoiceNotification(): void {
     native?.clearNotification();
 }
 
+/**
+ * Names the call a live control belongs to. A fresh non-empty token per call and
+ * an empty string at teardown, so native can tell a real teardown from a
+ * replacement. A build whose native module has no such method has no widget to
+ * gate, and the call is a no-op there.
+ */
+export function setVoiceGeneration(token: string): void {
+    try {
+        native?.setVoiceGeneration?.(token);
+    } catch {
+        // Generation gating is native-side defence; never fail a call over it.
+    }
+}
+
+/** A supplied but malformed generation fails closed rather than reading as legacy. */
+function suppliedGeneration(value: unknown): string | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value === 'string') return value;
+    return '';
+}
+
+/**
+ * `desiredMuted` is the state the pressed control was showing, so a repeated
+ * request settles on that state instead of flipping an already-muted session
+ * back on. The legacy Android action omits it and stays a toggle; anything but
+ * a boolean is treated as absent so a malformed payload cannot mute silently.
+ *
+ * `generation` names the call the control was shown for. Legacy Android events
+ * omit it and keep their behaviour; when it is present the handler must match it
+ * against the running call before acting on anything.
+ */
 export function addVoiceNotificationActionListener(
-    listener: (action: NotificationAction) => void,
+    listener: (action: NotificationAction, desiredMuted?: boolean, generation?: string) => void,
 ): { remove: () => void } | null {
-    return native?.addListener('onNotificationActionRequested', ({ action }) => listener(action)) ?? null;
+    return native?.addListener(
+        'onNotificationActionRequested',
+        ({ action, desiredMuted, generation }) => listener(
+            action,
+            typeof desiredMuted === 'boolean' ? desiredMuted : undefined,
+            suppliedGeneration(generation),
+        ),
+    ) ?? null;
 }

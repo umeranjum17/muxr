@@ -59,8 +59,10 @@ const checks = [
     ['e2e: herdr backend loop (live server)', 'node', ['scripts/diagnostics/application/checkHerdrE2E.mjs'], 'herdr', 180000],
     ['e2e: worktree session (live stack)', 'node', ['scripts/diagnostics/application/checkWorktreeE2E.mjs'], 'herdr'],
     ['package: curl installer wrapper', 'node', ['scripts/diagnostics/application/checkInstallScript.mjs']],
-    ['package: host-only install/setup smoke', 'node', ['scripts/diagnostics/application/checkPackageSmoke.mjs'], undefined, 300000],
-    ['package: full lifecycle smoke', 'node', ['scripts/diagnostics/application/packageLifecycleSmoke.mjs'], undefined, 300000],
+    // The lifecycle flow needs a packed tree, so the package smoke drives it
+    // against its own snapshot instead of a second entry against the root.
+    ['package: install/setup + full lifecycle smoke', 'node', ['scripts/diagnostics/application/checkPackageSmoke.mjs'], undefined, 300000],
+    ['release: public channel catalog flow', 'node', ['scripts/diagnostics/application/checkReleaseCatalog.mjs']],
     ['policy: core purity (no cloud refs in OSS)', 'node', ['scripts/diagnostics/application/checkCorePurity.mjs']],
     ['policy: tooling architecture (named use cases, layers, no nested ternaries)', 'node', ['scripts/diagnostics/application/checkArchitecture.mjs']],
     ['package: web export (manifest, MIME, cache, secrets, budget)', 'node', ['scripts/diagnostics/application/checkWebExport.mjs']],

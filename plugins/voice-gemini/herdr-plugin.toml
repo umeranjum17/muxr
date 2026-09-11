@@ -1,6 +1,0 @@
-id = "muxr.voice-gemini"
-name = "Gemini Live"
-version = "0.1.0"
-min_herdr_version = "0.8.0"
-description = "Gemini Live speech-to-speech behind muxr's provider-neutral stream"
-platforms = ["linux", "macos"]

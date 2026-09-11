@@ -1,0 +1,381 @@
+/**
+ * Flow-level check: handshake like the host bridge, then the HERDR_BIN argv
+ * the host actually spawns. No test framework.
+ */
+import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createConnection } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { startGraphics, frame, uint, DEFAULT_WORLD } from './graphics.mjs';
+import { writeBinShim } from './bin.mjs';
+import { startFakeHerdr } from './server.mjs';
+
+const PROTOCOL_VERSION = 20;
+const BIN = fileURLToPath(new URL('./bin.mjs', import.meta.url));
+
+function clientHello(geometry) {
+    return Buffer.concat([
+        uint(0), uint(PROTOCOL_VERSION), uint(geometry.cols), uint(geometry.rows),
+        uint(geometry.cellWidthPx), uint(geometry.cellHeightPx), uint(1), uint(0), uint(1),
+    ]);
+}
+
+class Reader {
+    offset = 0;
+    constructor(value) { this.value = value; }
+    uint() {
+        const prefix = this.value[this.offset++];
+        if (prefix === undefined) throw new Error('truncated bincode integer');
+        if (prefix <= 250) return BigInt(prefix);
+        if (prefix === 251) {
+            const result = this.value.readUInt16LE(this.offset);
+            this.offset += 2;
+            return BigInt(result);
+        }
+        if (prefix === 252) {
+            const result = this.value.readUInt32LE(this.offset);
+            this.offset += 4;
+            return BigInt(result);
+        }
+        if (prefix === 253) {
+            const result = this.value.readBigUInt64LE(this.offset);
+            this.offset += 8;
+            return result;
+        }
+        throw new Error('unsupported bincode integer');
+    }
+    number() { return Number(this.uint()); }
+    boolean() { return this.byte() !== 0; }
+    byte() {
+        const result = this.value[this.offset++];
+        if (result === undefined) throw new Error('truncated bincode byte');
+        return result;
+    }
+    bytes() {
+        const length = this.number();
+        const result = this.value.subarray(this.offset, this.offset + length);
+        if (result.length !== length) throw new Error('truncated bincode bytes');
+        this.offset += length;
+        return result;
+    }
+    string() { return this.bytes().toString('utf8'); }
+    option(read) { return this.byte() === 0 ? undefined : read(); }
+}
+
+function decodeServerMessage(payload) {
+    const reader = new Reader(payload);
+    switch (reader.number()) {
+        case 0: {
+            const version = reader.number();
+            reader.number();
+            const error = reader.option(() => reader.string());
+            return { type: 'welcome', version, ...(error === undefined ? {} : { error }) };
+        }
+        case 2: {
+            reader.uint();
+            reader.number();
+            reader.number();
+            reader.boolean();
+            return { type: 'output', bytes: reader.bytes() };
+        }
+        default:
+            return { type: 'other' };
+    }
+}
+
+function readFrames(socket, onMessage) {
+    let input = Buffer.alloc(0);
+    socket.on('data', (data) => {
+        input = Buffer.concat([input, data]);
+        while (input.length >= 4) {
+            const length = input.readUInt32LE(0);
+            if (input.length < length + 4) return;
+            const payload = input.subarray(4, length + 4);
+            input = input.subarray(length + 4);
+            onMessage(decodeServerMessage(payload));
+        }
+    });
+}
+
+function fail(message) {
+    throw new Error(message);
+}
+
+async function handshake(socketPath) {
+    const socket = createConnection(socketPath);
+    await new Promise((resolve, reject) => {
+        socket.once('connect', resolve);
+        socket.once('error', reject);
+    });
+    const messages = [];
+    readFrames(socket, (message) => messages.push(message));
+    socket.write(frame(clientHello({ cols: 80, rows: 24, cellWidthPx: 8, cellHeightPx: 16 })));
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+        const welcome = messages.find((message) => message.type === 'welcome');
+        const images = messages.filter((message) =>
+            message.type === 'output'
+            && message.bytes?.includes(0x1b)
+            && message.bytes.toString('latin1').includes('\u001b_G'));
+        if (welcome !== undefined && images.length >= 2) {
+            socket.end();
+            return { welcome, images };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    socket.destroy();
+    fail(`handshake incomplete: ${JSON.stringify(messages.map((message) => message.type))}`);
+}
+
+function collectLines(child, { min, timeoutMs, env }) {
+    return new Promise((resolve, reject) => {
+        let stdout = '';
+        const timer = setTimeout(() => {
+            child.kill();
+            reject(new Error(`timed out waiting for ${min} NDJSON lines`));
+        }, timeoutMs);
+        child.stdout?.setEncoding('utf8');
+        child.stdout?.on('data', (chunk) => {
+            stdout += chunk;
+            const lines = stdout.split('\n').filter((line) => line.trim() !== '');
+            if (lines.length >= min) {
+                clearTimeout(timer);
+                resolve({ child, lines, stdout });
+            }
+        });
+        child.stderr?.setEncoding('utf8');
+        child.on('error', (error) => {
+            clearTimeout(timer);
+            reject(error);
+        });
+        child.on('exit', (code) => {
+            if (child.killed) return;
+            clearTimeout(timer);
+            if (linesOr(stdout).length >= min) resolve({ child, lines: linesOr(stdout), stdout });
+            else reject(new Error(`exited ${code} before ${min} lines: ${stdout}`));
+        });
+        void env;
+    });
+}
+
+function linesOr(stdout) {
+    return stdout.split('\n').filter((line) => line.trim() !== '');
+}
+
+async function runBin(args, { env, waitLines, timeoutMs = 2000 } = {}) {
+    const child = spawn(process.execPath, [BIN, ...args], {
+        env: { ...process.env, ...env },
+        stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (waitLines === undefined) {
+        const stdout = await new Promise((resolve, reject) => {
+            let out = '';
+            child.stdout.setEncoding('utf8');
+            child.stdout.on('data', (chunk) => { out += chunk; });
+            child.on('error', reject);
+            child.on('close', () => resolve(out));
+        });
+        return { stdout, child };
+    }
+    return collectLines(child, { min: waitLines, timeoutMs, env });
+}
+
+const dir = mkdtempSync(join(tmpdir(), 'fake-herdr-g-'));
+const socketPath = join(dir, 'herdr-client.sock');
+const graphics = await startGraphics({ socketPath, world: DEFAULT_WORLD, frameHz: 4 });
+try {
+    const { welcome, images } = await handshake(socketPath);
+    if (welcome.version !== PROTOCOL_VERSION) fail(`welcome version ${welcome.version}`);
+    if (welcome.error !== undefined) fail(`welcome error ${welcome.error}`);
+    if (images.length < 2) fail(`expected two image frames, got ${images.length}`);
+
+    writeBinShim({ dir, socketPath: join(dir, 'missing.sock') });
+
+    const list = await runBin(['pane', 'list']);
+    const parsed = JSON.parse(list.stdout);
+    if (!Array.isArray(parsed.result?.panes)) fail(`pane list not parseable: ${list.stdout}`);
+
+    const session = await runBin(
+        ['terminal', 'session', 'control', 'p1', '--takeover', '--cols', '80', '--rows', '24'],
+        { env: { FAKE_HERDR_TERMINAL_BPS: '4096' }, waitLines: 3, timeoutMs: 2000 },
+    );
+    const records = session.lines.map((line) => JSON.parse(line));
+    if (records[0]?.type !== 'terminal.ready') fail(`missing terminal.ready: ${session.lines[0]}`);
+    const frames = records.filter((record) => record.type === 'terminal.frame');
+    if (frames.length < 2) fail(`expected terminal.frame stream, got ${JSON.stringify(records.map((r) => r.type))}`);
+    for (const record of frames) {
+        if (typeof record.bytes !== 'string' || Buffer.from(record.bytes, 'base64').length === 0) {
+            fail('terminal.frame bytes missing');
+        }
+    }
+    session.child.stdin.end();
+    await new Promise((resolve) => session.child.once('close', resolve));
+} finally {
+    graphics.close();
+    rmSync(dir, { recursive: true, force: true });
+}
+
+/** The RGBA of the first kitty transmit in a chunk of terminal output. */
+function kittyPixels(text) {
+    const match = /\u001b_Ga=t,[^;]*;([A-Za-z0-9+/=]+)\u001b\\/.exec(text);
+    return match === null ? undefined : Buffer.from(match[1], 'base64');
+}
+
+// The shim runs in its own process, so a wheel notch reaches the producer only
+// if it travels the control socket. It must carry the pane it happened on and
+// where that pane has scrolled to, and the board the phone sees must move.
+const wheelDir = mkdtempSync(join(tmpdir(), 'fake-herdr-wheel-'));
+const enableFile = join(wheelDir, 'graphics-enabled');
+writeFileSync(enableFile, 'enabled');
+const herd = await startFakeHerdr({ dir: wheelDir, panes: 2, agents: 0, titleChurnHz: 0, graphicsFrameHz: 0, graphicsEnableFile: enableFile });
+try {
+    const client = createConnection(herd.clientSocketPath);
+    await new Promise((resolve, reject) => {
+        client.once('connect', resolve);
+        client.once('error', reject);
+    });
+    const output = [];
+    readFrames(client, (message) => {
+        if (message.type === 'output') output.push(message.bytes.toString('latin1'));
+    });
+    client.write(frame(clientHello({ cols: 80, rows: 24, cellWidthPx: 8, cellHeightPx: 16 })));
+
+    const paneId = herd.world.panes[0].pane_id;
+    const shim = spawn(herd.binPath, ['terminal', 'session', 'control', paneId, '--takeover', '--cols', '80', '--rows', '24'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const wheel = (button) => shim.stdin.write(`${JSON.stringify({
+        type: 'terminal.input',
+        bytes: Buffer.from(`\u001b[<${button};10;10M`, 'latin1').toString('base64'),
+    })}\n`);
+
+    const settle = async (want) => {
+        const deadline = Date.now() + 4000;
+        while (Date.now() < deadline) {
+            if (output.filter((chunk) => kittyPixels(chunk) !== undefined).length >= want) return;
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        fail(`the wheel produced ${output.length} frame(s), wanted ${want} with pixels`);
+    };
+
+    wheel(65);
+    await settle(1);
+    const first = kittyPixels(output.find((chunk) => kittyPixels(chunk) !== undefined));
+    // Another notch down is 96 px, three checker blocks: the band under any
+    // given row has to have flipped colour.
+    wheel(65);
+    await settle(2);
+    const last = kittyPixels(output.filter((chunk) => kittyPixels(chunk) !== undefined).at(-1));
+    if (first === undefined || last === undefined) fail('the wheel produced no decodable frame');
+    // Row 0 of the board, past the identity stamp the producer writes into the
+    // first eight bytes.
+    if (first.subarray(64, 128).equals(last.subarray(64, 128))) fail('the checkerboard did not move under the wheel');
+
+    // An even number of notches is 192 px. A board whose vertical repeat
+    // divided that landed on exactly the phase it started from, so a pane that
+    // really travelled was indistinguishable from one that never moved.
+    wheel(65);
+    wheel(65);
+    await settle(4);
+    const evenBurst = kittyPixels(output.filter((chunk) => kittyPixels(chunk) !== undefined).at(-1));
+    if (evenBurst === undefined) fail('the even-notch burst produced no decodable frame');
+    // The whole board, not one row: a single row of a periodic pattern is one
+    // bit and aliases on its own, which is the reason the position marker is
+    // painted at all.
+    if (first.subarray(64).equals(evenBurst.subarray(64))) {
+        fail('the checkerboard aliased across an even-notch burst');
+    }
+
+    // Pane identity travelled too: a wheel on a different pane repaints that
+    // pane, at its own place on the grid, not the one the last request named.
+    const placement = (chunk) => /\u001b\[(\d+);(\d+)H/.exec(chunk)?.[0];
+    const firstPlacement = placement(output.find((chunk) => kittyPixels(chunk) !== undefined));
+    const otherPane = herd.world.panes[1].pane_id;
+    const otherShim = spawn(herd.binPath, ['terminal', 'session', 'control', otherPane, '--takeover', '--cols', '80', '--rows', '24'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const seen = output.length;
+    otherShim.stdin.write(`${JSON.stringify({
+        type: 'terminal.input',
+        bytes: Buffer.from('[<65;10;10M', 'latin1').toString('base64'),
+    })}\n`);
+    await settle(seen + 1);
+    const otherPlacement = placement(output.at(-1));
+    if (firstPlacement === undefined || otherPlacement === undefined || firstPlacement === otherPlacement) {
+        fail(`the wheel repainted the same place for both panes (${firstPlacement} / ${otherPlacement})`);
+    }
+
+    otherShim.stdin.end();
+    await new Promise((resolve) => otherShim.once('close', resolve));
+    shim.stdin.end();
+    await new Promise((resolve) => shim.once('close', resolve));
+    client.destroy();
+} finally {
+    await herd.close();
+    rmSync(wheelDir, { recursive: true, force: true });
+}
+
+// A pinned run serves one named pane and no other. Without the pin, the first
+// wheel notch on any pane pulls the producer onto it, and a phase measuring a
+// text terminal makes a graphics surface out of it mid-bout.
+const pinDir = mkdtempSync(join(tmpdir(), 'fake-herdr-pin-'));
+const pinEnable = join(pinDir, 'graphics-enabled');
+writeFileSync(pinEnable, 'enabled');
+const pinned = await startFakeHerdr({
+    dir: pinDir, panes: 2, agents: 0, titleChurnHz: 0, graphicsFrameHz: 0,
+    graphicsEnableFile: pinEnable, pinGraphicsPane: true,
+});
+try {
+    const client = createConnection(pinned.clientSocketPath);
+    await new Promise((resolve, reject) => {
+        client.once('connect', resolve);
+        client.once('error', reject);
+    });
+    const output = [];
+    readFrames(client, (message) => {
+        if (message.type === 'output') output.push(message.bytes.toString('latin1'));
+    });
+    client.write(frame(clientHello({ cols: 80, rows: 24, cellWidthPx: 8, cellHeightPx: 16 })));
+
+    if (pinned.fixturePanes.graphics !== pinned.world.panes[0].pane_id) {
+        fail('the herd did not publish its first pane as the graphics fixture');
+    }
+    if (pinned.fixturePanes.text === pinned.fixturePanes.graphics) {
+        fail('the text fixture pane is the pinned graphics pane');
+    }
+
+    const painted = () => output.some((chunk) => kittyPixels(chunk) !== undefined);
+    const wheelOn = (paneId) => {
+        const shim = spawn(pinned.binPath, ['terminal', 'session', 'control', paneId, '--takeover', '--cols', '80', '--rows', '24'], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        shim.stdin.write(`${JSON.stringify({
+            type: 'terminal.input',
+            bytes: Buffer.from('\u001b[<65;10;10M', 'latin1').toString('base64'),
+        })}\n`);
+        return shim;
+    };
+
+    const unpinned = wheelOn(pinned.fixturePanes.text);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    if (painted()) fail('a wheel on the text fixture pane painted the pinned checkerboard');
+    const target = wheelOn(pinned.fixturePanes.graphics);
+    const deadline = Date.now() + 4000;
+    while (Date.now() < deadline && !painted()) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    if (!painted()) fail('a wheel on the pinned pane produced no frame');
+
+    for (const shim of [unpinned, target]) {
+        shim.stdin.end();
+        await new Promise((resolve) => shim.once('close', resolve));
+    }
+    client.destroy();
+} finally {
+    await pinned.close();
+    rmSync(pinDir, { recursive: true, force: true });
+}
+
+console.log('fake-herdr graphics smoke ok');

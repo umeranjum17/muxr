@@ -8,19 +8,14 @@ import { t } from '@/text';
 // Tall diagrams scroll inside a capped container instead of taking over the chat
 const MAX_DIAGRAM_HEIGHT = 600;
 
-// Style for Web platform
-const webStyle: any = {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 8,
-    padding: 16,
-    overflow: 'auto',
-};
-
 // Mermaid render component that works on all platforms
 export const MermaidRenderer = React.memo((props: {
     content: string;
 }) => {
     const { theme } = useUnistyles();
+    // Mermaid draws its own ink, so it needs the app's mode, not just a
+    // background: 'default' is its light palette, 'dark' its dark one.
+    const mermaidTheme = theme.dark ? 'dark' : 'default';
     const [dimensions, setDimensions] = React.useState({ width: 0, height: 200 });
     const [svgContent, setSvgContent] = React.useState<string | null>(null);
 
@@ -45,7 +40,7 @@ export const MermaidRenderer = React.memo((props: {
                     if (mermaid.initialize) {
                         mermaid.initialize({
                             startOnLoad: false,
-                            theme: 'dark'
+                            theme: mermaidTheme
                         });
                     }
 
@@ -72,7 +67,7 @@ export const MermaidRenderer = React.memo((props: {
             return () => {
                 isMounted = false;
             };
-        }, [props.content]);
+        }, [props.content, mermaidTheme]);
 
         if (hasError) {
             return (
@@ -99,7 +94,7 @@ export const MermaidRenderer = React.memo((props: {
             <View style={style.container}>
                 {/* @ts-ignore - Web only */}
                 <div
-                    style={webStyle}
+                    style={{ backgroundColor: theme.colors.surfaceHighest, borderRadius: 8, padding: 16, overflow: 'auto' } as any}
                     dangerouslySetInnerHTML={{ __html: svgContent }}
                 />
             </View>
@@ -133,7 +128,7 @@ export const MermaidRenderer = React.memo((props: {
                     height: auto;
                 }
                 .error {
-                    color: #ff6b6b;
+                    color: ${theme.colors.textDestructive};
                     font-family: monospace;
                     white-space: pre-wrap;
                 }
@@ -159,7 +154,7 @@ export const MermaidRenderer = React.memo((props: {
                     try {
                         mermaid.initialize({
                             startOnLoad: false,
-                            theme: 'dark'
+                            theme: '${mermaidTheme}'
                         });
 
                         const { svg } = await mermaid.render('mermaid-diagram', content);
@@ -186,7 +181,7 @@ export const MermaidRenderer = React.memo((props: {
             <View style={[style.innerContainer, { height: Math.min(dimensions.height, MAX_DIAGRAM_HEIGHT) }]}>
                 <WebView
                     source={{ html }}
-                    style={{ flex: 1 }}
+                    style={{ flex: 1, backgroundColor: theme.colors.surfaceHighest }}
                     scrollEnabled={true}
                     onMessage={(event) => {
                         const data = JSON.parse(event.nativeEvent.data);

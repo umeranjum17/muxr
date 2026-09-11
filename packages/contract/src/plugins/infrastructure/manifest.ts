@@ -222,6 +222,11 @@ function parseScreenNodes(value: unknown, depth: number, budget: { nodes: number
 }
 
 /** Returns undefined for unknown node types; known types with bad fields throw. */
+function codeViewport(value: unknown): 'fill' {
+    if (value !== 'fill') throw new Error('invalid plugin screen code viewport');
+    return 'fill';
+}
+
 function parseScreenNode(item: Record<string, unknown>, depth: number, budget: { nodes: number }): PluginScreenNode | undefined {
     switch (item.type) {
         case 'text':
@@ -235,6 +240,7 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
                 type: 'code', path: bindingPath(item.path),
                 ...(item.language === undefined ? {} : { language: text(item.language, 32) }),
                 ...(item.fileNamePath === undefined ? {} : { fileNamePath: bindingPath(item.fileNamePath) }),
+                ...(item.viewport === undefined ? {} : { viewport: codeViewport(item.viewport) }),
             };
         case 'metric':
             return { type: 'metric', label: pluginText(item.label, 80), value: pluginText(item.value, MAX_TEXT) };
@@ -391,12 +397,6 @@ export function parsePluginAction(value: unknown): PluginAction {
             return { type: 'kernel.navigate', target: 'file', path };
         }
         if (value.target === 'web-view') return { type: 'kernel.navigate', target: 'web-view', url: httpsUrl(value.url) };
-        if (value.target === 'preview') {
-            if (typeof value.port !== 'number' || !Number.isSafeInteger(value.port) || value.port < 1 || value.port > 65_535) {
-                throw new Error('invalid plugin preview port');
-            }
-            return { type: 'kernel.navigate', target: 'preview', port: value.port };
-        }
         throw new Error('unknown plugin navigation target');
     }
     if (value.type === 'open-url') return { type: 'open-url', url: httpsUrl(value.url) };
@@ -563,6 +563,10 @@ function parseNativeContribution(item: Record<string, unknown>): PluginContribut
     if (item.source !== undefined || item.capability !== undefined || item.title !== undefined) {
         throw new Error(`plugin primitive ${primitive} parameters must be under params`);
     }
+    if (item.quickAction !== undefined && typeof item.quickAction !== 'boolean') throw new Error('invalid quickAction');
+    if (item.quickAction === true && item.slot !== 'session.header.trailing' && item.slot !== 'session.pills') {
+        throw new Error('quick actions require a session action slot');
+    }
     const params = item.params === undefined ? {} : item.params;
     if (!isRecord(params)) throw new Error(`invalid params for plugin primitive ${primitive}`);
     for (const name of Object.keys(params)) {
@@ -615,6 +619,7 @@ function parseNativeContribution(item: Record<string, unknown>): PluginContribut
         id: id(item.id),
         type: 'native',
         primitive: primitive as typeof PRIMITIVES[number],
+        ...(item.quickAction === undefined ? {} : { quickAction: item.quickAction }),
         ...(title === undefined ? {} : { title }),
         ...(emptyTitle === undefined ? {} : { emptyTitle }),
         ...(emptyMessage === undefined ? {} : { emptyMessage }),
@@ -673,7 +678,8 @@ function parseContribution(item: Record<string, unknown>): PluginContribution | 
         };
     }
     if (item.slot === 'session.header.trailing' && item.type === 'screen-button') {
-        return { slot: 'session.header.trailing', id: id(item.id), type: 'screen-button', title: pluginText(item.title, 40), icon: id(item.icon), contentContributionId: id(item.contentContributionId) };
+        if (item.quickAction !== undefined && typeof item.quickAction !== 'boolean') throw new Error('invalid quickAction');
+        return { slot: 'session.header.trailing', id: id(item.id), type: 'screen-button', title: pluginText(item.title, 40), icon: id(item.icon), contentContributionId: id(item.contentContributionId), ...(item.quickAction === undefined ? {} : { quickAction: item.quickAction }) };
     }
     if (item.slot === 'shortcuts') return parseShortcut(item);
     if (item.slot === 'events') return parseEventTrigger(item);

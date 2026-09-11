@@ -205,6 +205,7 @@ export const DEMO_PLUGIN_SUMMARY: PluginSummary = {
     approved: true,
     capabilities: {},
     hasBackend: false,
+    herdrBackend: false,
     warnings: [],
 };
 
@@ -248,6 +249,7 @@ export const DEMO_CODE_SUMMARY: PluginSummary = {
     approved: true,
     capabilities: {},
     hasBackend: true,
+    herdrBackend: false,
     warnings: [],
 };
 
@@ -368,6 +370,7 @@ export const DEMO_INBOX_SUMMARY: PluginSummary = {
     approved: true,
     capabilities: {},
     hasBackend: true,
+    herdrBackend: false,
     warnings: [],
 };
 
@@ -411,6 +414,7 @@ export const DEMO_STATUS_SUMMARY: PluginSummary = {
     approved: true,
     capabilities: {},
     hasBackend: true,
+    herdrBackend: false,
     warnings: [],
 };
 
@@ -539,6 +543,7 @@ export const DEMO_PORTS_SUMMARY: PluginSummary = {
     approved: true,
     capabilities: {},
     hasBackend: true,
+    herdrBackend: false,
     warnings: [],
 };
 

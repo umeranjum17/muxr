@@ -1,29 +1,38 @@
 import { useState, useCallback } from 'react';
-import { getLastViewedTitle, setLastViewedTitle } from '../infrastructure/storage';
-import { getLatestTitle } from '../domain/parser';
+import { getLastViewedRelease, setLastViewedRelease } from '../infrastructure/storage';
+import { selectRelease } from '../domain/parser';
+import { getAppVersion } from '@/utils/appVersion';
+
+/** Unread state follows the installed app version, not a title that can be reworded. */
+export function currentRelease() {
+    const appVersion = getAppVersion();
+    try {
+        return selectRelease(appVersion);
+    } catch (error) {
+        console.warn('Changelog entry is unusable', error);
+        return undefined;
+    }
+}
 
 export function useChangelog() {
-    const latestTitle = getLatestTitle();
+    const release = currentRelease();
+    const identity = release?.appVersion ?? '';
 
     const [hasUnread, setHasUnread] = useState(() => {
-        const lastViewed = getLastViewedTitle();
-        if (!lastViewed && latestTitle) {
-            setLastViewedTitle(latestTitle);
+        const lastViewed = getLastViewedRelease();
+        if (!lastViewed && identity) {
+            setLastViewedRelease(identity);
             return false;
         }
-        return latestTitle !== lastViewed;
+        return identity !== '' && identity !== lastViewed;
     });
 
     const markAsRead = useCallback(() => {
-        if (latestTitle) {
-            setLastViewedTitle(latestTitle);
+        if (identity) {
+            setLastViewedRelease(identity);
             setHasUnread(false);
         }
-    }, [latestTitle]);
+    }, [identity]);
 
-    return {
-        hasUnread,
-        latestTitle,
-        markAsRead
-    };
+    return { hasUnread, release, markAsRead };
 }

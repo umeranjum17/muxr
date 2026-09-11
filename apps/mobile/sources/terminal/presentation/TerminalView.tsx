@@ -5,18 +5,43 @@
  * Same contract as the old WebView path: base64 frames from herdr go in,
  * keystrokes come out. No ANSI parsing on the RN side.
  *
- * Scroll is Ghostty's alone. herdr's scroll re-renders the screen, which this
- * view would draw as fresh output at the bottom — so instead of forwarding
- * drags, we seed Ghostty with herdr's scrollback at attach and let its own
- * buffer hold the past. One scrollback, not two fighting.
+ * herdr owns the history, so a drag has to move herdr's viewport and be
+ * repainted back. Ghostty's buffer holds only repaint diffs.
+ *
+ * Pointer mode (both platforms): tap emits a pointer click; drag scrolls the
+ * pane. One gesture never emits pointer-drag and pane-scroll together.
  */
 
 import * as React from 'react';
-import { View } from 'react-native';
+import type { TerminalCommand } from './FloatingTerminalControls';
+import { AppState, PixelRatio, Platform, Pressable, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import { useFocusEffect } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
+
+/**
+ * The terminal surface's name in the accessibility tree, and the only handle
+ * anything outside the app has on it: this app's views publish no resource ids,
+ * and the native surface does not publish its own class name. It names the
+ * region, never an internal identifier.
+ */
+export const TERMINAL_SURFACE_LABEL = 'Terminal surface';
+import { useLocalSetting } from '@/catalog/store';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
+import {
+    recordTerminalGraphicsFrame,
+    recordTerminalResize,
+    recordTerminalScrollClamped,
+    recordTerminalScrollRows,
+    recordTerminalScrollTimeout,
+} from '@/catalog/infrastructure/connectionDiagnostics';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
-import { beginViewportCapture, recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
+import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
+import { createTerminalWritePump, type TerminalWritePump } from '../application/terminalWritePump';
+import type { TerminalGraphicsReason } from '@muxr/contract';
 
 /**
  * One scroll message costs herdr one full-screen repaint whatever the line
@@ -26,6 +51,10 @@ import { beginViewportCapture, recordTerminalOutput, setTerminalColumns } from '
 const MAX_SCROLL_LINES = 400;
 /** A scroll whose repaint never came back must not gate scrolling forever. */
 const SCROLL_ACK_TIMEOUT_MS = 250;
+/** Text zoom reflows the terminal; graphics zoom magnifies its existing surface. */
+const FONT_STEPS = [8, 10, 12, 14, 17, 20] as const;
+const DEFAULT_FONT_INDEX = 2;
+const GRAPHICS_ZOOM_STEPS = [1, 1.25, 1.5, 2] as const;
 
 export interface TerminalViewProps {
     sessionId: string;
@@ -33,72 +62,120 @@ export interface TerminalViewProps {
     onChannel?: (channel: TerminalChannel | undefined) => void;
     /** Bump to reopen after a failed first attach; a live channel reconnects itself. */
     attempt?: number;
+    /** The pane hosts the control, so the panel can cover the accessory row. */
+    onViewControls?: (controls: TerminalViewControls) => void;
 }
 
-/** Backgrounded rAF never fires; past this the queue is cut and a snapshot requested instead. */
-const PENDING_FRAME_BYTES_MAX = 4 * 1024 * 1024;
+export type TerminalViewControls = {
+    commands: TerminalCommand[];
+    /** Take the IME down on the terminal's window. It does not drop the
+     *  composer's focus, so callers dismiss that keyboard as well. */
+    dismissKeyboard: () => void;
+};
+
 
 /** KeyboardAvoidingView animates through many intermediate sizes; wait for settle. */
 const RESIZE_DEBOUNCE_MS = 120;
 
+function combineTextFrames(frames: readonly string[]): string {
+    if (frames.length <= 1) return frames[0] ?? '';
+    const decoded = frames.map((chunk) => decodeBase64(chunk));
+    let total = 0;
+    for (const chunk of decoded) total += chunk.length;
+    const all = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of decoded) {
+        all.set(chunk, offset);
+        offset += chunk.length;
+    }
+    return encodeBase64(all);
+}
+
 export const TerminalView = React.memo((props: TerminalViewProps) => {
     const { sessionId, onStatus, onChannel, attempt = 0 } = props;
+    const focused = useIsFocused();
+    const [viewport, setViewport] = React.useState({ width: 0, height: 0 });
+    const terminalKeyboardDisabled = useLocalSetting('terminalKeyboardDisabled');
     const termRef = React.useRef<TerminalViewRef>(null);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
+    const openAbortRef = React.useRef<AbortController | undefined>(undefined);
     const openedRef = React.useRef(false);
-    const lastSizeRef = React.useRef<{ cols: number; rows: number } | null>(null);
+    const lastSizeRef = React.useRef<{ cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number } | null>(null);
+    const [graphicsActive, setGraphicsActive] = React.useState(false);
+    const [graphicsReason, setGraphicsReason] = React.useState<TerminalGraphicsReason | undefined>();
+    const pointerTouchesRef = React.useRef(0);
+    const suppressPointerRef = React.useRef(false);
     const resizeTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    const pendingWritesRef = React.useRef<string[]>([]);
-    const pendingBytesRef = React.useRef(0);
-    const overflowedRef = React.useRef(false);
-    const writeRafRef = React.useRef<number | undefined>(undefined);
+    const writePumpRef = React.useRef<TerminalWritePump | undefined>(undefined);
+    const writeGenerationRef = React.useRef(0);
     const pendingScrollRef = React.useRef(0);
+    const scrollOriginRef = React.useRef<{ x: number; y: number; width: number; height: number } | undefined>(undefined);
     const scrollRafRef = React.useRef<number | undefined>(undefined);
     const scrollInFlightRef = React.useRef(false);
     const scrollAckTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const graphicsActiveRef = React.useRef(false);
+    const [fontIndex, setFontIndex] = React.useState(DEFAULT_FONT_INDEX);
+    const [scaleIndex, setScaleIndex] = React.useState(0);
+    const scaleIndexRef = React.useRef(0);
+
+    const zoomScale = useSharedValue(1), panX = useSharedValue(0), panY = useSharedValue(0);
+    const panStartX = useSharedValue(0), panStartY = useSharedValue(0);
+    React.useEffect(() => {
+        const scale = graphicsActive ? GRAPHICS_ZOOM_STEPS[scaleIndex] : 1;
+        zoomScale.value = scale;
+        const boundX = viewport.width * (scale - 1) / 2, boundY = viewport.height * (scale - 1) / 2;
+        panX.value = Math.max(-boundX, Math.min(boundX, panX.value));
+        panY.value = Math.max(-boundY, Math.min(boundY, panY.value));
+    }, [graphicsActive, scaleIndex, viewport.width, viewport.height, zoomScale, panX, panY]);
+    // One finger still targets the program. Two fingers move the magnified
+    // viewport, without resizing the remote app or reopening its connection.
+    const pan = Gesture.Pan().minPointers(2).enabled(graphicsActive && scaleIndex > 0)
+        .onStart(() => { panStartX.value = panX.value; panStartY.value = panY.value; })
+        .onUpdate((event) => {
+            const boundX = viewport.width * (zoomScale.value - 1) / 2;
+            const boundY = viewport.height * (zoomScale.value - 1) / 2;
+            panX.value = Math.max(-boundX, Math.min(boundX, panStartX.value + event.translationX));
+            panY.value = Math.max(-boundY, Math.min(boundY, panStartY.value + event.translationY));
+        });
+    const surfaceStyle = useAnimatedStyle(() => ({ transform: [{ translateX: panX.value }, { translateY: panY.value }, { scale: zoomScale.value }] }));
+    const cellFor = (size: { cellWidthPx?: number; cellHeightPx?: number }): { width: number; height: number } | undefined =>
+        size.cellWidthPx === undefined || size.cellHeightPx === undefined ? undefined : { width: size.cellWidthPx, height: size.cellHeightPx };
+    const applyGraphicsZoom = (index: number): void => {
+        scaleIndexRef.current = index;
+        setScaleIndex(index);
+    };
+
+    const zoom = (direction: 1 | -1): void => {
+        if (graphicsActiveRef.current) {
+            const next = Math.max(0, Math.min(GRAPHICS_ZOOM_STEPS.length - 1, scaleIndexRef.current + direction));
+            if (next !== scaleIndexRef.current) applyGraphicsZoom(next);
+            return;
+        }
+        setFontIndex((current) => Math.max(0, Math.min(FONT_STEPS.length - 1, current + direction)));
+    };
+
+    const resetZoom = (): void => {
+        if (graphicsActiveRef.current) {
+            if (scaleIndexRef.current !== 0) applyGraphicsZoom(0);
+            return;
+        }
+        setFontIndex(DEFAULT_FONT_INDEX);
+    };
+
+    const atMaxZoom = graphicsActive ? scaleIndex >= GRAPHICS_ZOOM_STEPS.length - 1 : fontIndex >= FONT_STEPS.length - 1;
+    const atMinZoom = graphicsActive ? scaleIndex <= 0 : fontIndex <= 0;
+    const atDefaultZoom = graphicsActive ? scaleIndex === 0 : fontIndex === DEFAULT_FONT_INDEX;
 
     const cancelCoalesce = (): void => {
-        if (writeRafRef.current !== undefined) cancelAnimationFrame(writeRafRef.current);
+        writeGenerationRef.current += 1;
+        void writePumpRef.current?.cancel();
+        writePumpRef.current = undefined;
         if (scrollRafRef.current !== undefined) cancelAnimationFrame(scrollRafRef.current);
         if (scrollAckTimerRef.current !== undefined) clearTimeout(scrollAckTimerRef.current);
-        writeRafRef.current = undefined;
         scrollRafRef.current = undefined;
         scrollAckTimerRef.current = undefined;
         scrollInFlightRef.current = false;
-        pendingWritesRef.current = [];
-        pendingBytesRef.current = 0;
-        overflowedRef.current = false;
         pendingScrollRef.current = 0;
-    };
-
-    const flushWrites = (): void => {
-        writeRafRef.current = undefined;
-        const chunks = pendingWritesRef.current;
-        pendingWritesRef.current = [];
-        pendingBytesRef.current = 0;
-        if (overflowedRef.current) {
-            // Cut queue is not a valid ANSI stream: ask for the whole screen.
-            overflowedRef.current = false;
-            beginViewportCapture(sessionId);
-            channelRef.current?.repaint();
-            return;
-        }
-        const view = termRef.current;
-        if (view === null || chunks.length === 0) return;
-        if (chunks.length === 1) {
-            void view.write(chunks[0]!);
-            return;
-        }
-        const decoded = chunks.map((chunk) => decodeBase64(chunk));
-        let total = 0;
-        for (const chunk of decoded) total += chunk.length;
-        const all = new Uint8Array(total);
-        let offset = 0;
-        for (const chunk of decoded) {
-            all.set(chunk, offset);
-            offset += chunk.length;
-        }
-        void view.write(encodeBase64(all));
     };
 
     /**
@@ -113,14 +190,29 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         const lines = Math.trunc(pendingScrollRef.current);
         pendingScrollRef.current = 0;
         if (lines === 0) return;
+        // The clamp is a runaway guard, and a guard that discards a gesture in
+        // silence is how a scroll comes to feel arbitrary. Count what it eats.
         const clamped = Math.max(-MAX_SCROLL_LINES, Math.min(MAX_SCROLL_LINES, lines));
+        if (clamped !== lines) recordTerminalScrollClamped(Math.abs(lines - clamped));
+        recordTerminalScrollRows(Math.abs(clamped));
         scrollInFlightRef.current = true;
-        scrollAckTimerRef.current = setTimeout(settleScroll, SCROLL_ACK_TIMEOUT_MS);
-        channelRef.current?.scroll(clamped);
+        scrollAckTimerRef.current = setTimeout(dropScroll, SCROLL_ACK_TIMEOUT_MS);
+        const size = lastSizeRef.current;
+        const origin = scrollOriginRef.current;
+        channelRef.current?.scroll(clamped, size === null ? undefined : {
+            column: Math.min(size.cols - 1, Math.floor((origin ? origin.x / origin.width : .5) * size.cols)),
+            row: Math.min(size.rows - 1, Math.floor((origin ? origin.y / origin.height : .5) * size.rows)),
+            ...origin,
+        });
     };
 
-    /** The repaint (or the timeout) releases the gate and drains what piled up. */
-    const settleScroll = (): void => {
+    /**
+     * Output came back, so the next scroll may go. A terminal stream repaints
+     * itself whether or not anything was scrolled, so this is flow control and
+     * nothing more: which frame answered which scroll is not knowable here, and
+     * a duration measured against a frame we cannot attribute is not a latency.
+     */
+    const releaseScroll = (): void => {
         if (!scrollInFlightRef.current) return;
         if (scrollAckTimerRef.current !== undefined) clearTimeout(scrollAckTimerRef.current);
         scrollAckTimerRef.current = undefined;
@@ -130,33 +222,50 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         }
     };
 
-    // Attach generation: every open belongs to one owner (this mount, this
-    // session, this attempt). Unmount, a session change or a retry bump it,
-    // and a channel that resolves for an older generation is closed before
-    // any listener or parent callback sees it.
-    const generationRef = React.useRef(0);
-    React.useEffect(
-        () => () => {
-            generationRef.current += 1;
-            cancelCoalesce();
-            if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
-            onChannel?.(undefined);
-            channelRef.current?.close();
-            channelRef.current = undefined;
-            openedRef.current = false;
-            lastSizeRef.current = null;
-        },
-        [onChannel, sessionId],
-    );
+    /**
+     * Nothing came back inside the budget. The gate opens anyway so a lost
+     * repaint cannot wedge scrolling, and the phone records that it happened:
+     * a pane that keeps timing out is not keeping up with the finger.
+     */
+    const dropScroll = (): void => {
+        if (!scrollInFlightRef.current) return;
+        recordTerminalScrollTimeout();
+        releaseScroll();
+    };
+
+    React.useEffect(() => {
+        if (!focused) return;
+        const subscription = AppState.addEventListener('change', (state) => {
+            const size = lastSizeRef.current;
+            const channel = channelRef.current;
+            if (size === null || channel === undefined) return;
+            if (state !== 'active') {
+                suppressPointerRef.current = true;
+                pointerTouchesRef.current = 0;
+                scaleIndexRef.current = 0;
+                setScaleIndex(0);
+                setGraphicsActive(false);
+                channel.resize(size.cols, size.rows);
+                return;
+            }
+            suppressPointerRef.current = false;
+            channel.resize(size.cols, size.rows, cellFor(size));
+            channel.repaint();
+        });
+        return () => subscription.remove();
+    }, [focused]);
 
     const knownSizeRef = React.useRef<{ cols: number; rows: number } | null>(null);
     const attach = React.useCallback(
-        (cols: number, rows: number) => {
+        (cols: number, rows: number, cellWidthPx?: number, cellHeightPx?: number) => {
+            recordTerminalResize(cols, rows, cellWidthPx, cellHeightPx);
             setTerminalColumns(sessionId, cols);
             knownSizeRef.current = { cols, rows };
             const last = lastSizeRef.current;
-            if (last !== null && last.cols === cols && last.rows === rows) return;
-            lastSizeRef.current = { cols, rows };
+            lastSizeRef.current = { cols, rows, ...(cellWidthPx === undefined ? {} : { cellWidthPx }), ...(cellHeightPx === undefined ? {} : { cellHeightPx }) };
+            if (!focused) return;
+            if (openedRef.current && last !== null && last.cols === cols && last.rows === rows
+                && last.cellWidthPx === cellWidthPx && last.cellHeightPx === cellHeightPx) return;
 
             if (openedRef.current) {
                 if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
@@ -166,51 +275,78 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // draw the whole screen again. Ghostty reflows its grid on
                     // its own for a keyboard or a pinch, and herdr would keep
                     // sending diffs for a screen that no longer matches.
-                    channelRef.current?.resize(cols, rows);
-                    beginViewportCapture(sessionId);
+                    channelRef.current?.resize(cols, rows, cellFor({ cellWidthPx, cellHeightPx }));
                     channelRef.current?.repaint();
                 }, RESIZE_DEBOUNCE_MS);
                 return;
             }
             openedRef.current = true;
-            const generation = ++generationRef.current;
             onStatus?.('connecting');
+            const attachGen = writeGenerationRef.current;
+            const controller = new AbortController();
+            openAbortRef.current = controller;
             // Nothing may be written to this terminal but herdr's own frames.
             // herdr paints cells at absolute coordinates and then sends diffs
             // against the screen it believes we are showing, so any byte we add
             // -- seeded history, a repaint, a cleared screen -- lands those
             // diffs on the wrong cells and quietly eats lines.
             void Promise.resolve()
-                .then(() => openTerminal({ agentRoute: sessionId, size: { cols, rows } }))
+                .then(() => openTerminal({
+                    agentRoute: sessionId,
+                    signal: controller.signal,
+                    size: { cols, rows, ...(cellWidthPx === undefined ? {} : { cellWidthPx }), ...(cellHeightPx === undefined ? {} : { cellHeightPx }) },
+                }))
                 .then((channel) => {
-                    if (generation !== generationRef.current) {
-                        // Late result for an owner that is gone: never installed.
+                    if (writeGenerationRef.current !== attachGen) {
                         channel.close();
                         return;
                     }
                     channelRef.current = channel;
-                    // The first thing herdr sends is the whole screen, so this
-                    // attach is a viewport capture. Without it the chip has no
-                    // viewport until the first scroll.
-                    beginViewportCapture(sessionId);
-                    // Same discipline as the web view: herdr repaint bursts
-                    // arrive as many socket messages; one Ghostty write per
-                    // frame instead of one per message.
-                    channel.onData((base64) => {
-                        recordTerminalOutput(sessionId, base64);
-                        settleScroll();
-                        if (overflowedRef.current) return;
-                        pendingBytesRef.current += base64.length;
-                        if (pendingBytesRef.current > PENDING_FRAME_BYTES_MAX) {
-                            overflowedRef.current = true;
-                            pendingWritesRef.current = [];
-                            pendingBytesRef.current = 0;
-                        } else {
-                            pendingWritesRef.current.push(base64);
+                    void writePumpRef.current?.cancel();
+                    let recoveryRequested = false;
+                    writePumpRef.current = createTerminalWritePump({
+                        write: async (bytes, graphics) => {
+                            const view = termRef.current;
+                            if (view === null) return;
+                            await view.write(bytes);
+                            recoveryRequested = false;
+                            channel.recordFrameWritten();
+                            if (graphics !== true) return;
+                            recordTerminalGraphicsFrame(bytes.length);
+                        },
+                        combineText: combineTextFrames,
+                        schedule: (run) => requestAnimationFrame(() => run()),
+                        cancelSchedule: (handle) => cancelAnimationFrame(handle as number),
+                        onRejected: () => {
+                            if (writeGenerationRef.current !== attachGen) return;
+                            onStatus?.('terminal write failed');
+                            if (recoveryRequested) return;
+                            recoveryRequested = true;
+                            channel.repaint();
+                        },
+                    });
+                    // Pointer takeover belongs to an image that really is the
+                    // pane. For a program's small image above its own prompt the
+                    // pane still owns scrolling and taps.
+                    channel.onGraphics((active, reason, surface) => {
+                        const live = suppressPointerRef.current ? false : active && surface !== 'inline';
+                        graphicsActiveRef.current = live;
+                        if (!live) {
+                            scaleIndexRef.current = 0;
+                            setScaleIndex(0);
                         }
-                        if (writeRafRef.current === undefined) {
-                            writeRafRef.current = requestAnimationFrame(flushWrites);
-                        }
+                        setGraphicsActive(live);
+                        setGraphicsReason(active ? undefined : reason);
+                    });
+                    // One Ghostty write at a time, in wire order. Graphics can
+                    // update independent placements or delete an earlier image;
+                    // they cannot be coalesced merely because graphics is true.
+                    channel.onData((base64, graphics) => {
+                        if (graphics !== true) recordTerminalOutput(sessionId, base64);
+                        releaseScroll();
+                        writePumpRef.current?.push(
+                            typeof graphics === 'boolean' ? { bytes: base64, graphics } : { bytes: base64 },
+                        );
                     });
                     channel.onState((state) => onStatus?.(state));
                     channel.onClose((reason) => onStatus?.(reason ?? 'closed'));
@@ -220,46 +356,124 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // replay the latest size now or the prompt is painted below
                     // the visible grid until this screen is reopened.
                     const latest = lastSizeRef.current;
-                    if (latest !== null && (latest.cols !== cols || latest.rows !== rows)) {
+                    if (latest !== null && (latest.cols !== cols || latest.rows !== rows
+                        || latest.cellWidthPx !== cellWidthPx || latest.cellHeightPx !== cellHeightPx)) {
                         if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
                         resizeTimerRef.current = undefined;
-                        channel.resize(latest.cols, latest.rows);
-                        beginViewportCapture(sessionId);
+                        channel.resize(latest.cols, latest.rows, cellFor(latest));
                         channel.repaint();
                     }
                 })
                 .catch((error: unknown) => {
-                    if (generation !== generationRef.current) return;
+                    if (writeGenerationRef.current !== attachGen) return;
                     openedRef.current = false;
                     lastSizeRef.current = null;
                     const message = error instanceof Error ? error.message : String(error);
                     onStatus?.(message.includes('explicit takeover required') ? 'Controlled on another device — tap to take control' : message);
                 });
         },
-        [sessionId, onStatus, onChannel],
+        [focused, sessionId, onStatus, onChannel],
     );
 
+    // Only the visible route controls a pane. Keep its measured grid and native
+    // pixels while away, but reacquire a fresh stream when returning.
+    useFocusEffect(React.useCallback(() => {
+        const size = lastSizeRef.current;
+        if (size !== null) attach(size.cols, size.rows, size.cellWidthPx, size.cellHeightPx);
+        return () => {
+            cancelCoalesce();
+            clearTimeout(resizeTimerRef.current);
+            const channel = channelRef.current;
+            onChannel?.(undefined);
+            channel?.close();
+            openAbortRef.current?.abort();
+            openAbortRef.current = undefined;
+            channelRef.current = undefined;
+            openedRef.current = false;
+            setGraphicsActive(false);
+        };
+    }, [attach, onChannel]));
+
+    // The commands stay owned here — zoom steps, the graphics scale and the
+    // terminal IME never leave this view; only their descriptions travel up.
+    const latest = React.useRef({ zoom, resetZoom, onStatus });
+    latest.current = { zoom, resetZoom, onStatus };
+    const { onViewControls } = props;
+    // Only this view holds the terminal handle, so closing its IME stays here
+    // and the pane is handed a callback instead of the ref.
+    const dismissKeyboard = React.useCallback(() => {
+        // Android hides the IME through this view's window token whichever view
+        // raised it, and clears focus only when the terminal holds it; iOS
+        // resigns first responder, which is what a tap on the grid already does.
+        if (termRef.current === null) return;
+        void termRef.current.hideKeyboard().catch(() => {});
+    }, []);
+    const viewControls = React.useMemo<TerminalViewControls>(() => ({
+        dismissKeyboard,
+        commands: [
+            { label: 'Open terminal keyboard', icon: 'keyboard' as const, dismiss: true,
+                run: () => { void termRef.current?.showKeyboard().catch(() => latest.current.onStatus?.('Could not open keyboard')); } },
+            { label: 'Zoom out', icon: 'minus' as const, run: () => latest.current.zoom(-1), disabled: atMinZoom },
+            { label: 'Zoom in', icon: 'plus' as const, run: () => latest.current.zoom(1), disabled: atMaxZoom },
+            { label: 'Reset zoom', icon: 'reset' as const, run: () => latest.current.resetZoom(), disabled: atDefaultZoom },
+        ],
+    }), [atDefaultZoom, atMaxZoom, atMinZoom, dismissKeyboard]);
+    React.useEffect(() => { onViewControls?.(viewControls); }, [onViewControls, viewControls]);
+    React.useEffect(() => () => onViewControls?.({ commands: [], dismissKeyboard: () => {} }), [onViewControls]);
+
     // Retry after a failed first open: nothing was attached, so open again at
-    // the size Ghostty last reported.
+    // the size last reported.
     React.useEffect(() => {
-        const size = knownSizeRef.current;
+        const size = lastSizeRef.current;
         if (attempt === 0 || openedRef.current || size === null) return;
-        attach(size.cols, size.rows);
+        attach(size.cols, size.rows, size.cellWidthPx, size.cellHeightPx);
     }, [attach, attempt]);
 
     return (
-        <View style={{ flex: 1, backgroundColor: '#0c0c0b' }}>
+        <View onLayout={(event) => setViewport({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
+            onTouchStart={({ nativeEvent }) => {
+                // Ghostty fills this surface. Remember the gesture's origin,
+                // not the last tapped control or the center of the whole pane.
+                if (viewport.width <= 0 || viewport.height <= 0) return;
+                // A new touch stops the old gesture; never deliver its queued
+                // travel to the newly touched editor/sidebar.
+                if (pendingScrollRef.current !== 0) recordTerminalScrollClamped(Math.abs(pendingScrollRef.current));
+                pendingScrollRef.current = 0;
+                scrollOriginRef.current = { x: Math.max(0, nativeEvent.locationX), y: Math.max(0, nativeEvent.locationY), ...viewport };
+            }}
+            style={{ flex: 1, backgroundColor: '#0c0c0b', overflow: 'hidden' }}>
+            <GestureDetector gesture={pan}>
+            {/* The native surface renders as a plain android.view.View and does
+                not publish its own class name, so this wrapper -- which is
+                exactly the terminal's box -- carries the surface's name. */}
+            <Animated.View accessible accessibilityLabel={TERMINAL_SURFACE_LABEL} style={[{ flex: 1 }, surfaceStyle]}>
             <GhosttyView
                 ref={termRef}
                 style={{ flex: 1 }}
-                fontSize={12}
+                pointerMode={graphicsActive}
+                autoShowKeyboard={!terminalKeyboardDisabled}
+                fontSize={FONT_STEPS[fontIndex]}
                 theme={{ background: '#0c0c0b' }}
                 onInput={({ nativeEvent }) => {
                     if (nativeEvent.data) channelRef.current?.sendBytes(nativeEvent.data);
                     else if (nativeEvent.text) channelRef.current?.sendText(nativeEvent.text);
                 }}
                 onResize={({ nativeEvent }) => {
-                    attach(nativeEvent.cols, nativeEvent.rows);
+                    attach(nativeEvent.cols, nativeEvent.rows, nativeEvent.cellWidthPx, nativeEvent.cellHeightPx);
+                }}
+                onTerminalPointer={({ nativeEvent }) => {
+                    if (!graphicsActive || suppressPointerRef.current) return;
+                    if (nativeEvent.phase === 'down') pointerTouchesRef.current += 1;
+                    if (nativeEvent.phase === 'up') pointerTouchesRef.current = Math.max(0, pointerTouchesRef.current - 1);
+                    if (nativeEvent.phase === 'move' && pointerTouchesRef.current > 1) return;
+                    const scale = Platform.OS === 'ios' ? PixelRatio.get() : 1;
+                    channelRef.current?.pointer(
+                        nativeEvent.phase,
+                        nativeEvent.x * scale,
+                        nativeEvent.y * scale,
+                        nativeEvent.width * scale,
+                        nativeEvent.height * scale,
+                    );
                 }}
                 // herdr owns the history, so a drag has to move herdr's
                 // viewport and be repainted back to us. Ghostty's own buffer
@@ -267,15 +481,50 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // Ghostty counts rows the way the finger moved, herdr counts
                 // them the way the text does, hence the negation.
                 onScroll={({ nativeEvent }) => {
-                    // The repaint herdr sends back is the new viewport; capture
-                    // it for the link chip (see recentOutput.ts).
-                    beginViewportCapture(sessionId);
                     pendingScrollRef.current -= nativeEvent.rows;
                     if (scrollRafRef.current === undefined) {
                         scrollRafRef.current = requestAnimationFrame(flushScroll);
                     }
                 }}
             />
+            </Animated.View>
+            </GestureDetector>
+            {graphicsReason !== undefined && (
+                <View style={{
+                    position: 'absolute',
+                    left: 10,
+                    right: 10,
+                    bottom: 10,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 10,
+                    borderRadius: 10,
+                    paddingVertical: 9,
+                    paddingLeft: 12,
+                    paddingRight: 8,
+                    backgroundColor: 'rgba(28, 28, 27, 0.96)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255,255,255,0.12)',
+                }}>
+                    <Text style={{ flex: 1, color: '#d8d8d4', fontSize: 12, lineHeight: 16 }}>
+                        Graphics stopped. Retry brings them back to this phone and resizes Herdr on the desktop.
+                    </Text>
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Retry terminal graphics"
+                        onPress={() => channelRef.current?.repaint(true)}
+                        style={({ pressed }) => ({
+                            minHeight: 36,
+                            justifyContent: 'center',
+                            borderRadius: 8,
+                            paddingHorizontal: 12,
+                            backgroundColor: pressed ? '#d7d7d2' : '#f2f2ed',
+                        })}
+                    >
+                        <Text style={{ color: '#11110f', fontSize: 12, fontWeight: '600' }}>Retry</Text>
+                    </Pressable>
+                </View>
+            )}
         </View>
     );
 });

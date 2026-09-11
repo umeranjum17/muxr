@@ -1,6 +1,6 @@
 # muxr
 
-**Every coding agent, on your phone.** [Website](https://trymuxr.com) · [GitHub](https://github.com/umeranjum17/muxr) · [Quickstart](https://trymuxr.com/docs/quickstart) · [Android APK](https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk) · [iOS TestFlight](https://testflight.apple.com/join/aJSbs8pN)
+**Every coding agent, on your phone.** [Website](https://trymuxr.com) · [GitHub](https://github.com/umeranjum17/muxr) · [Quickstart](https://trymuxr.com/docs/quickstart) · [Android APK](https://trymuxr.com/downloads/stable/android) · [iOS TestFlight](https://testflight.apple.com/join/aJSbs8pN)
 
 The `@trymuxr/cli` package installs the complete self-hosted CLI, relay, host bridge, plugin runtime, and web client.
 
@@ -9,9 +9,11 @@ The `@trymuxr/cli` package installs the complete self-hosted CLI, relay, host br
 Requires Node 22+. If [Herdr](https://herdr.dev) is missing, setup installs and verifies it automatically.
 
 ```bash
-npm install -g --ignore-scripts @trymuxr/cli
+npm install -g --ignore-scripts @trymuxr/cli@latest
 muxr
 ```
+
+`@latest` is the stable CLI and `@nightly` is the newest build. On your computer the two tags are the same CLI, so switching tags replaces the host you already run rather than adding a second one. The Android app is the exception: a nightly installs alongside a stable one, so a phone can carry both.
 
 The convenience installer at `https://raw.githubusercontent.com/umeranjum17/muxr/main/install.sh` performs that same npm install without `sudo`; it requires Node 22+ and does not install Node itself.
 
@@ -19,7 +21,7 @@ First run:
 
 1. Run `muxr`. It checks the computer and proposes one ready route: the healthy current route, Tailscale, an existing private network such as NetBird or WireGuard, an installed temporary tunnel, or same Wi-Fi. **Choose another way** reveals every available alternative.
 2. Review the short plan and choose **Apply setup**. Setup pairs the browser you are using first: a control grant that expires after eight hours (`--browser-view` for view-only, `--browser-personal` for 30 days on a browser only you use). Pair again when it expires.
-3. Optional native apps, which stay paired until revoked: Android from Google Play testing or the [signed APK](https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk), verified by [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest/download/SHA256SUMS); iOS via the [public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) for 0.1.24 (build 45); Apple is not accepting new testers right now. Scan the one-use QR from `muxr pair`.
+3. Optional native apps, which stay paired until revoked: Android from the [stable APK](https://trymuxr.com/downloads/stable/android), verified against the [stable checksum](https://trymuxr.com/downloads/stable/checksums) (save it beside the APK as `SHA256SUMS` and run `sha256sum --ignore-missing -c SHA256SUMS`), or the [nightly channel](https://trymuxr.com/downloads/nightly) with its own checksum; [Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) availability depends on Google review; iOS [TestFlight](https://testflight.apple.com/join/aJSbs8pN) availability depends on Apple review and tester capacity. Scan the one-use QR from `muxr pair`.
 
 Nothing changes before **Apply setup**. Setup then verifies the connection and managed services without printing credentials. Run `muxr pair` anytime for a fresh QR or browser link.
 

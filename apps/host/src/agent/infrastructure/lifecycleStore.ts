@@ -98,8 +98,10 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
                     current.set(sessionId, updated);
                     events = events.map((event) => event.eventId === updated.eventId ? updated : event);
                     save();
-                    return updated;
                 }
+                // The lifecycle did not move. Returning the record here made a
+                // working agent republish the same eventId at the rate its task
+                // title animates, which tells a client nothing it can show.
                 return undefined;
             }
             const event: LifecycleEvent = {

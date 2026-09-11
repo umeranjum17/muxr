@@ -14,13 +14,22 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
+import { execFileSync } from 'node:child_process';
 import { packageInfoFromPath, packagePathFromInput } from '../infrastructure/audit.mjs';
+import { releaseCompatibility } from './repairHost.mjs';
+import { distribution } from '../domain/channel.mjs';
 
 const require = createRequire(import.meta.url);
 const root = process.cwd();
 const out = join(root, 'dist-npm');
 const rootPackage = require(join(root, 'package.json'));
-const version = rootPackage.version ?? '0.1.0';
+const release = distribution(process.env.MUXR_RELEASE_VERSION?.trim() || rootPackage.version,
+    process.env.MUXR_RELEASE_CHANNEL?.trim() || undefined);
+const version = release.version;
+const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+const sourceTree = execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim();
+const sourceDirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=normal'], { encoding: 'utf8' }).trim() !== '';
+const releaseMetadata = { ...release, commit, sourceTree, sourceDirty };
 const runtimeDependencies = { ccusage: rootPackage.dependencies.ccusage, ws: '^8.18.0', tweetnacl: '^1.0.3', qrcode: '^1.5.4', 'web-push': '^3.6.7', 'bonjour-service': '^1.4.4' };
 const external = Object.keys(runtimeDependencies);
 rmSync(out, { recursive: true, force: true });
@@ -207,6 +216,8 @@ cpSync(join(root, 'LICENSES'), join(out, 'LICENSES'), { recursive: true });
 const pkg = {
     name: '@trymuxr/cli',
     version,
+    muxrRelease: releaseMetadata,
+    muxrCompatibility: releaseCompatibility,
     description: 'Control every Herdr coding agent from your phone with a self-hosted encrypted relay.',
     license: 'Apache-2.0',
     type: 'module',
@@ -214,6 +225,7 @@ const pkg = {
     engines: { node: '>=22' },
     files: [
         '*.mjs',
+        'release.json',
         'setup/',
         'plugin/',
         'release/',
@@ -236,4 +248,5 @@ const pkg = {
     homepage: 'https://trymuxr.com',
 };
 writeFileSync(join(out, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`);
+writeFileSync(join(out, 'release.json'), `${JSON.stringify(releaseMetadata, null, 2)}\n`);
 process.stdout.write(`packed self-hostable @trymuxr/cli@${version} -> dist-npm/ (${dependencies.length} audited dependencies)\n`);

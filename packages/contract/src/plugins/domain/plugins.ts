@@ -275,6 +275,8 @@ export interface PluginNativeContribution {
     type: 'native';
     /** Widget compiled into the app. Not a plugin id. */
     primitive: PluginPrimitive;
+    /** Surface this session action directly in the floating quick controls. */
+    quickAction?: boolean;
     title?: PluginText;
     emptyTitle?: PluginText;
     emptyMessage?: PluginText;
@@ -357,6 +359,12 @@ export interface PluginScreenCodeNode {
     language?: string;
     /** Optional data path used to infer the language and label the source. */
     fileNamePath?: string;
+    /**
+     * `fill` makes this node the screen's single vertical scroll owner, for a
+     * screen whose whole point is one file. The default stays an excerpt card
+     * inside the screen's own scroller.
+     */
+    viewport?: 'fill';
 }
 /** Closed action vocabulary. Downloaded manifests never supply executable code. */
 export type PluginAction =
@@ -369,7 +377,6 @@ export type PluginAction =
     | { type: 'kernel.navigate'; target: 'session'; sessionId: string }
     | { type: 'kernel.navigate'; target: 'file'; path: string }
     | { type: 'kernel.navigate'; target: 'web-view'; url: string }
-    | { type: 'kernel.navigate'; target: 'preview'; port: number }
     | { type: 'open-url'; url: string }
     | { type: 'attachment'; id: string; name: string; mimeType?: string; size: number }
     | { type: 'capability'; name: string }
@@ -616,6 +623,7 @@ export interface PluginScreenButton {
     title: PluginText;
     icon: string;
     contentContributionId: string;
+    quickAction?: boolean;
 }
 
 export type PluginContribution = PluginShortcut | PluginEventTrigger | PluginScreenButton | PluginSettingsSection | PluginToolbarButton | PluginRpcCapability | PluginStreamCapability | PluginNativeContribution | PluginTerminalKeyRow | PluginDataCard | PluginNavigationItem | PluginSettingsItem | PluginScreenContribution;
@@ -737,5 +745,12 @@ export interface PluginSummary {
     approved: boolean;
     capabilities: Record<string, string>;
     hasBackend: boolean;
+    /**
+     * The Herdr manifest declares executable behaviour of its own (actions,
+     * events, panes, startup, build, link handlers) rather than only naming the
+     * package. Distinguishes a real Herdr plugin from a muxr UI package that
+     * Herdr merely registers.
+     */
+    herdrBackend: boolean;
     warnings: string[];
 }

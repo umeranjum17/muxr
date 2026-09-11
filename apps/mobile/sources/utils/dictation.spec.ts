@@ -6,7 +6,7 @@ import { pcm16ChunksToArrayBuffer } from '@/utils/transcription';
 import { wakeAndReport } from '@/watch/application/wakeAndReport';
 import { usePluginEvents } from '@/plugins/events';
 import { useRealtimeTurns } from '@/conversation/session';
-import { cancelRealtimeReportWait, configureVadStandby, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, retryVadStandby, startRealtimeSession, stopRealtimeSession } from '@/conversation/session';
+import { cancelRealtimeReportWait, configureVadStandby, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, retryVadStandby, startRealtimeSession, stopRealtimeSession, useRealtimeMuted } from '@/conversation/session';
 
 const mocks = vi.hoisted(() => ({
     sessions: {} as Record<string, { id: string; activeAt: number; updatedAt: number }>,
@@ -21,8 +21,9 @@ const mocks = vi.hoisted(() => ({
     startVoiceService: vi.fn(),
     setVoiceNetworkActive: vi.fn(),
     stopVoiceService: vi.fn(),
-    notificationAction: null as ((action: 'start' | 'stop' | 'mute') => void) | null,
-    addVoiceNotificationActionListener: vi.fn((listener: (action: 'start' | 'stop' | 'mute') => void) => {
+    setVoiceGeneration: vi.fn(),
+    notificationAction: null as ((action: 'start' | 'stop' | 'mute', desiredMuted?: boolean, generation?: string) => void) | null,
+    addVoiceNotificationActionListener: vi.fn((listener: (action: 'start' | 'stop' | 'mute', desiredMuted?: boolean, generation?: string) => void) => {
         mocks.notificationAction = listener;
         return { remove: () => undefined };
     }),
@@ -101,9 +102,12 @@ vi.mock('@/../modules/voice-overlay', () => ({
     routeVoiceAudio: vi.fn(() => true),
     releaseVoiceAudio: vi.fn(),
     stopVoiceService: mocks.stopVoiceService,
+    setVoiceGeneration: mocks.setVoiceGeneration,
     addVoiceNotificationActionListener: mocks.addVoiceNotificationActionListener,
 }));
+vi.mock('expo-crypto', () => ({ randomUUID: () => `token-${++uuidSeed}` }));
 
+let uuidSeed = 0;
 const act = TestRenderer.act;
 let api: ReturnType<typeof useDictation> | null = null;
 let renderer: ReturnType<typeof TestRenderer.create> | null = null;
@@ -118,6 +122,13 @@ function Harness() {
 
 function PluginHarness() {
     usePluginEvents();
+    return null;
+}
+
+/** What the mic button and the Live Activity both read. */
+let mutedNow = false;
+function MutedHarness() {
+    mutedNow = useRealtimeMuted();
     return null;
 }
 
@@ -158,6 +169,7 @@ beforeEach(() => {
     mocks.lifecycleCatalogInitialized = true;
     mocks.lifecycleCatalogAvailable = true;
     mocks.pluginSnapshot = [];
+    mutedNow = false;
     mocks.capability.mockReset();
     vi.clearAllMocks();
 });
@@ -199,13 +211,16 @@ describe('on-device dictation flow', () => {
     });
 
     it('starts notification Talk on the pane last used on the phone, not a stale desk focus', async () => {
-        mocks.syncRequest.mockResolvedValue({
+        const tree = {
             workspaces: [
                 // A focused plain shell is never a voice target: it has no agent to talk to.
                 { focused: true, tabs: [{ focused: true, panes: [{ sessionId: 'shell:pane-x', focused: true, agentStatus: 'unknown' }, { sessionId: 'session-a', focused: false, agentKind: 'claude', agentStatus: 'idle' }] }] },
                 { focused: false, tabs: [{ focused: true, panes: [{ sessionId: 'session-b', focused: true, agentKind: 'claude', agentStatus: 'working' }] }] },
             ],
-        });
+        };
+        mocks.syncRequest.mockImplementation(async (method: string) => method === 'herdr.tree'
+            ? tree
+            : method === 'session.list' ? [{ id: 'session-a' }, { id: 'session-b' }] : { text: 'unused' });
         const setMuted = vi.fn();
         mocks.startRealtimeSession.mockReturnValue({ stop: vi.fn(), setMuted, speak: vi.fn() });
         await expect(resolveRealtimeTarget()).resolves.toEqual({ machineId: '', sessionId: 'session-b' });
@@ -215,8 +230,106 @@ describe('on-device dictation flow', () => {
         expect(mocks.startVoiceService).toHaveBeenCalledOnce();
         expect(mocks.startRealtimeSession).toHaveBeenCalledOnce();
 
-        mocks.notificationAction?.('mute');
-        expect(setMuted).toHaveBeenCalledWith(true);
+        act(() => { renderer = TestRenderer.create(React.createElement(MutedHarness)); });
+
+        // Android's legacy action carries no state, so it stays a toggle.
+        act(() => { mocks.notificationAction?.('mute'); });
+        expect(setMuted).toHaveBeenLastCalledWith(true);
+        expect(mutedNow).toBe(true);
+        act(() => { mocks.notificationAction?.('mute'); });
+        expect(setMuted).toHaveBeenLastCalledWith(false);
+        expect(mutedNow).toBe(false);
+
+        // The Live Activity sends the state its control was showing. Pressing a
+        // stale mute twice must settle on muted, never flip back to an open mic.
+        act(() => { mocks.notificationAction?.('mute', true); });
+        act(() => { mocks.notificationAction?.('mute', true); });
+        expect(setMuted.mock.calls).toEqual([[true], [false], [true]]);
+        expect(mutedNow).toBe(true);
+
+        act(() => { mocks.notificationAction?.('mute', false); });
+        act(() => { mocks.notificationAction?.('mute', false); });
+        expect(setMuted.mock.calls).toEqual([[true], [false], [true], [false]]);
+        expect(mutedNow).toBe(false);
+
+        // A supplied generation names the call the control was shown for. The
+        // running call's token acts; an empty or foreign one is rejected before
+        // any action, and a legacy event without the field still acts.
+        const token = mocks.setVoiceGeneration.mock.calls.at(-1)?.[0] as string;
+        expect(token).not.toBe('');
+        act(() => { mocks.notificationAction?.('mute', true, token); });
+        expect(setMuted.mock.calls).toEqual([[true], [false], [true], [false], [true]]);
+        act(() => { mocks.notificationAction?.('mute', false, 'a-foreign-token'); });
+        act(() => { mocks.notificationAction?.('mute', false, ''); });
+        expect(setMuted.mock.calls).toEqual([[true], [false], [true], [false], [true]]);
+        act(() => { mocks.notificationAction?.('mute', false, token); });
+        expect(setMuted.mock.calls).toEqual([[true], [false], [true], [false], [true], [false]]);
+
+        // After teardown the control is stale: neither form may reopen the
+        // microphone or leave a mute flag armed for the next call.
+        act(() => { mocks.notificationAction?.('stop'); });
+        act(() => { mocks.notificationAction?.('stop'); });
+        expect(micOwners()).toEqual([]);
+        act(() => { mocks.notificationAction?.('mute', true); });
+        expect(mutedNow).toBe(false);
+        act(() => { mocks.notificationAction?.('mute'); });
+        expect(mutedNow).toBe(false);
+        expect(setMuted).toHaveBeenCalledTimes(6);
+
+        // No call is running, so the current token is empty. A control still
+        // showing the ended call must not be able to start a new one.
+        act(() => { mocks.notificationAction?.('start', undefined, ''); });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.startRealtimeSession).toHaveBeenCalledOnce();
+
+        // Only an explicit start talks; an action this build does not know must
+        // not fall through and open a session.
+        const raw = mocks.notificationAction as ((action: string) => void) | null;
+        act(() => { raw?.('snooze'); });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.startVoiceService).toHaveBeenCalledOnce();
+        expect(mocks.startRealtimeSession).toHaveBeenCalledOnce();
+        expect(micOwners()).toEqual([]);
+
+        // A stop and a start that React coalesces into one render still rotate
+        // the token, so an event queued against the ended call cannot act on the
+        // one now running.
+        mocks.setVoiceGeneration.mockClear();
+        expect(startRealtimeSession('session-a')).toBe(true);
+        const older = mocks.setVoiceGeneration.mock.calls.at(-1)?.[0] as string;
+        act(() => {
+            stopRealtimeSession();
+            expect(startRealtimeSession('session-b')).toBe(true);
+        });
+        const newer = mocks.setVoiceGeneration.mock.calls.at(-1)?.[0] as string;
+        expect(mocks.setVoiceGeneration.mock.calls.map((call) => call[0])).toEqual([older, '', newer]);
+        expect(newer).not.toBe(older);
+
+        const settled = setMuted.mock.calls.length;
+        act(() => { mocks.notificationAction?.('mute', true, older); });
+        act(() => { mocks.notificationAction?.('stop', undefined, older); });
+        expect(setMuted).toHaveBeenCalledTimes(settled);
+        expect(micOwners()).toEqual(['realtime']);
+        act(() => { mocks.notificationAction?.('mute', true, newer); });
+        expect(setMuted).toHaveBeenCalledTimes(settled + 1);
+    });
+
+    it('keeps a newer historical route out of notification voice targeting', async () => {
+        mocks.sessions = {
+            'live-session': { id: 'live-session', activeAt: 1, updatedAt: 1 },
+            'historical-session': { id: 'historical-session', activeAt: 99, updatedAt: 99 },
+        };
+        mocks.syncRequest.mockImplementation(async (method: string) => method === 'herdr.tree'
+            ? { workspaces: [{ focused: true, tabs: [{ focused: true, panes: [{ sessionId: 'live-session', focused: true, agentStatus: 'idle' }] }] }] }
+            : method === 'session.list' ? [{ id: 'live-session' }] : { text: 'unused' });
+
+        await expect(resolveRealtimeTarget()).resolves.toEqual({ machineId: '', sessionId: 'live-session' });
+        mocks.syncRequest.mockRejectedValue(new Error('fresh route unavailable'));
+        await expect(resolveRealtimeTarget()).resolves.toBeNull();
+        mocks.syncRequest.mockImplementation(async (method: string) => method === 'herdr.tree'
+            ? { workspaces: [{ tabs: [{ panes: [null] }] }] }
+            : [{ id: 'live-session' }]);
+        await expect(resolveRealtimeTarget()).resolves.toBeNull();
     });
 
     it('replaces a cumulative interim user transcript instead of stacking corrections', async () => {
@@ -258,6 +371,17 @@ describe('on-device dictation flow', () => {
         await vi.waitFor(() => expect(mocks.liveAudio.start).toHaveBeenCalledOnce());
         expect(mocks.vadStandbyEnabled).toBe(true);
         expect(mocks.setVoiceNetworkActive).toHaveBeenLastCalledWith(false);
+
+        // A mute requested while VAD arming still gates the start must reach the
+        // transport that opens afterwards, not stop at the JS flag.
+        const arming = retryVadStandby();
+        expect(startRealtimeSession('session-a')).toBe(true);
+        mocks.notificationAction?.('mute', true);
+        expect(live.setMuted).not.toHaveBeenCalled();
+        await arming;
+        await vi.advanceTimersByTimeAsync(0);
+        expect(live.setMuted).toHaveBeenCalledWith(true);
+        stopRealtimeSession();
 
         await expect(configureVadStandby(false)).resolves.toBe(true);
         expect(mocks.vadStandbyEnabled).toBe(false);

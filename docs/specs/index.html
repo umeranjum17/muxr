@@ -7,19 +7,22 @@
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Hanken+Grotesk:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
   <style>
     :root{--paper:#f4efe4;--card:#faf7ef;--ink:#211c15;--muted:#6b6253;--accent:#d14523;--sage:#5f7a5a;--amber:#b8791f;--line:#ddd3bf}
-    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.5 'Hanken Grotesk',sans-serif}main{max-width:900px;margin:auto;padding:64px 24px}h1,h2{font-family:Fraunces,serif}h1{font-size:clamp(42px,7vw,70px);margin:.15em 0}.kicker,.legend,.date{font:500 12px 'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}.legend{display:flex;flex-wrap:wrap;gap:12px;margin:28px 0 50px}.legend span{border:1px solid var(--line);border-radius:999px;padding:7px 10px}.group{margin:36px 0}.group h2{font-size:28px}.row{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin:12px 0;color:var(--ink);text-decoration:none;box-shadow:0 7px 20px #6b625310}.row:hover{border-color:var(--sage)}.pip{width:11px;height:11px;border-radius:50%;background:var(--accent);flex:none}.pip.implemented{background:var(--amber)}.pip.tested{background:var(--sage)}.title{font-weight:600;flex:1}.empty{color:var(--muted);font-style:italic}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.5 'Hanken Grotesk',sans-serif}main{max-width:900px;margin:auto;padding:64px 24px}h1,h2{font-family:Fraunces,serif}h1{font-size:clamp(42px,7vw,70px);margin:.15em 0}.kicker,.legend,.date{font:500 12px 'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}.legend{display:flex;flex-wrap:wrap;gap:12px;margin:28px 0 50px}.legend span{border:1px solid var(--line);border-radius:999px;padding:7px 10px}.group{margin:36px 0}.group h2{font-size:28px}.row{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin:12px 0;color:var(--ink);text-decoration:none;box-shadow:0 7px 20px #6b625310}.row:hover{border-color:var(--sage)}.pip{width:11px;height:11px;border-radius:50%;background:var(--accent);flex:none}.pip.implemented{background:var(--amber)}.pip.planned{background:var(--muted)}.pip.archived{background:#b8ad98}.pip.tested{background:var(--sage)}.title{font-weight:600;flex:1}.empty{color:var(--muted);font-style:italic}
   </style>
 </head>
 <body><main>
   <div class="kicker">muxr engineering</div>
   <h1>Specification board</h1>
   <p>Durable plans, implementation status, and verification evidence.</p>
-  <div class="legend"><span>◐ In progress 2</span><span>◑ Implemented 1</span><span>● Tested 4</span><span>○ Planned 0</span><span>⊘ Archived 0</span></div>
+  <div class="legend"><span>◐ In progress 4</span><span>◑ Implemented 2</span><span>● Tested 4</span><span>○ Planned 0</span><span>⊘ Archived 0</span></div>
   <section class="group"><h2>In progress</h2>
     <a class="row" href="pwa-primary-channel.html"><span class="pip"></span><span class="title">PWA-primary final execution contract</span><span class="date">2026-09-11</span></a>
+    <a class="row" href="release-polish-todo.html"><span class="pip"></span><span class="title">Release and polish task tracker</span><span class="date">2026-09-06</span></a>
+    <a class="row" href="release-channels.html"><span class="pip"></span><span class="title">Development, beta and stable release channels</span><span class="date">2026-09-05</span></a>
     <a class="row" href="cross-machine-collaboration.html"><span class="pip"></span><span class="title">Cross-machine agent collaboration</span><span class="date">2026-08-28</span></a>
   </section>
   <section class="group"><h2>Implemented</h2>
+    <a class="row" href="ios-feature-parity.html"><span class="pip implemented"></span><span class="title">iOS feature parity</span><span class="date">2026-09-07</span></a>
     <a class="row" href="remote-relay-enrollment.html"><span class="pip implemented"></span><span class="title">Shared Remote Relay Enrollment</span><span class="date">2026-08-20</span></a>
   </section>
   <section class="group"><h2>Tested</h2>

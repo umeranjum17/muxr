@@ -24,7 +24,6 @@ Release work updates every dependency with an available security fix and runs th
 muxr has a deliberate trust model. Read [docs/PLUGINS.md](docs/PLUGINS.md), section "Trust", before reporting.
 
 - A paired phone or browser-with-shell-grants is equivalent to sitting at the host user's shell. `session.shell`, `machine.shell`, and `herdr.cli` are the product. "A paired device can run commands as me" is not a vulnerability.
-- The bundled Runbook plugin is a remote shell for saved commands. Same trust model: installing and approving it is equivalent to trusting that code as the host user.
 - Herdr backend plugins run unsandboxed as the host user by design. "A malicious plugin can run code on the host" is not a vulnerability; installing a plugin is equivalent to trusting local code.
 - muxr's declarative UI limits what reaches the phone. It does not sandbox the backend, and it is not a defense against a plugin you chose to install and enable.
 - The CLI management metadata (manifest hashes, provenance) is not a trust boundary against the same host user, who can modify it.

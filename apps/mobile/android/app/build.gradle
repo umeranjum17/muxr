@@ -64,6 +64,18 @@ react {
 }
 
 /**
+ * `sources/components/attachment/preview.bundle.bin` is generated, gitignored, and
+ * packaged verbatim by Metro. Gradle sees no source for it, so a build that did not
+ * run `yarn build` first shipped a preview renderer older than the revision its
+ * provenance names -- which is how a committed Mermaid label fix never reached the
+ * packaged app. Rebuild it with every Android build instead.
+ */
+def buildAttachmentPreview = tasks.register("buildAttachmentPreview", Exec) {
+    commandLine "node", "${projectRoot}/scripts/buildAttachmentPreview.mjs"
+}
+tasks.named("preBuild").configure { dependsOn(buildAttachmentPreview) }
+
+/**
  * Set this to true in release builds to optimize the app using [R8](https://developer.android.com/topic/performance/app-optimization/enable-app-optimization).
  */
 def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()
@@ -80,6 +92,10 @@ def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBu
  * this variant is about 6MiB larger per architecture than default.
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+def developmentDistribution = (findProperty('muxrDevelopmentApp') ?: 'false').toBoolean()
+if (developmentDistribution && System.getenv('APP_ENV') != 'development') {
+    throw new GradleException('The development APK requires APP_ENV=development')
+}
 def releaseRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
 def releaseVersionName = findProperty('appVersion')
 def releaseVersionCode = findProperty('androidVersionCode')
@@ -108,7 +124,7 @@ def releaseConfigured = releaseVersionName ==~ /\d+\.\d+\.\d+/ &&
     releaseVersionCode ==~ /[1-9]\d*/ && releaseSigningValues.every { it }
 
 gradle.taskGraph.whenReady { graph ->
-    if (graph.allTasks.any { it.name.toLowerCase().contains('release') }) validateReleaseConfiguration()
+    if (graph.allTasks.any { it.project == project && it.name.toLowerCase().contains('release') }) validateReleaseConfiguration()
 }
 
 android {
@@ -120,7 +136,14 @@ android {
     namespace 'com.trymuxr.app'
     defaultConfig {
         applicationId 'com.trymuxr.app'
+        if (developmentDistribution) applicationId 'app.muxr.local.dev'
+        manifestPlaceholders = [muxrScheme: developmentDistribution ? 'muxr-dev' : 'muxr',
+            muxrExpoScheme: developmentDistribution ? 'exp+muxr-dev' : 'exp+muxr',
+            muxrPairHost: developmentDistribution ? 'dev.invalid' : 'trymuxr.com',
+            muxrAppLabel: developmentDistribution ? 'muxr Nightly' : 'muxr',
+            muxrShortcuts: developmentDistribution ? '@xml/dev_shortcuts' : '@xml/shortcuts']
         resValue 'string', 'muxr_application_id', applicationId
+        resValue 'string', 'muxr_link_scheme', developmentDistribution ? 'muxr-dev' : 'muxr'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode releaseConfigured ? releaseVersionCode.toInteger() : 12
@@ -129,12 +152,6 @@ android {
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
     signingConfigs {
-        debug {
-            storeFile file('debug.keystore')
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
-        }
         if (releaseConfigured) {
             release {
                 storeFile file(releaseStoreFile)
@@ -147,6 +164,9 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            // The local development launcher and its messages still say Dev;
+            // only the signed nightly distribution carries the Nightly label.
+            if (developmentDistribution) manifestPlaceholders.muxrAppLabel = 'muxr Dev'
         }
         release {
             signingConfig signingConfigs.findByName('release')

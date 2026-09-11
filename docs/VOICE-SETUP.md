@@ -4,18 +4,18 @@ Realtime voice is ordinary plugin composition: generic capability buttons, a pro
 
 ## Setup
 
-All four adapters ship with `@trymuxr/cli`:
+All four adapters ship inside `muxr.voice` with `@trymuxr/cli`:
 
-| Plugin | Provider | Transport | Default | Credential |
+| Adapter | Provider | Transport | Default | Credential |
 |---|---|---|---|---|
-| `muxr.voice` | xAI Grok | host-relayed PCM | enabled | `~/.muxr/xai.key` |
-| `muxr.voice-gemini` | Gemini Live | host-relayed PCM | disabled | `~/.muxr/gemini.key` |
-| `muxr.voice-openai` | OpenAI Realtime | host-relayed PCM | disabled | `~/.muxr/openai.key` |
-| `muxr.voice-codex` | Codex Voice (experimental) | mobile WebRTC | disabled | owner-only local Codex ChatGPT OAuth |
+| `xai` | xAI Grok | host-relayed PCM | selected | `~/.muxr/xai.key` |
+| `gemini` | Gemini Live | host-relayed PCM | | `~/.muxr/gemini.key` |
+| `openai` | OpenAI Realtime | host-relayed PCM | | `~/.muxr/openai.key` |
+| `codex` | Codex Voice (experimental) | mobile WebRTC | | owner-only local Codex ChatGPT OAuth |
 
-Exactly one provider may be enabled because all four claim `voice.session`. In the app, open **Settings → Realtime voice** to switch providers. Grok, Gemini Live, and OpenAI Realtime collect their API key through Configure. Codex Voice shows an explicit experimental OAuth/identity warning and uses the existing local `codex login`.
+Exactly one adapter runs at a time. The selection is the plugin's own state under `MUXR_PLUGIN_STATE_DIR`, read by its `voice.provider.list` and `voice.provider.set` capabilities, so switching providers is not an enable/disable of separate packages. In the app, open **Settings → Realtime voice** to switch. Grok, Gemini Live, and OpenAI Realtime collect their API key through Configure. Codex Voice uses the existing local `codex login`.
 
-Provider keys use attributed secure prompts sent once through authenticated E2EE. Codex OAuth never enters a muxr frame, phone, process argument, log, or muxr storage. Provider choices survive `npm` upgrades and subsequent `muxr setup` runs.
+Provider keys use attributed secure prompts sent once through authenticated E2EE. Codex OAuth never enters a muxr frame, phone, process argument, log, or muxr storage. Provider choices survive `npm` upgrades and subsequent `muxr setup` runs. The one-time upgrade from the former separate Gemini, OpenAI, or Codex plugin preserves the enabled provider, writes it into `muxr.voice` state, and enables the merged plugin.
 
 `MUXR_HOME` relocates the key directory. It is owner-only (`0700`); each key is owner-only (`0600`), written through a unique temporary file and atomic rename. Reads reject symlinks, non-regular files, and unsafe permissions.
 

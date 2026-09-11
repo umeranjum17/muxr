@@ -1,0 +1,64 @@
+appId: com.trymuxr.app
+tags:
+  - perf
+---
+# Pair the app with the throwaway host the gate spawned. The code rotates every
+# two minutes, so the runner passes the live one in and this flow must not wait
+# on anything slow before submitting it.
+- launchApp:
+    appId: com.trymuxr.app
+    clearState: false
+# The hosted build opens on its welcome screen, whose entry point is the exact
+# button "Enter pairing string". A rerun can instead land on the form itself or
+# on the error state of a failed attempt. Anything else is the wrong build.
+- extendedWaitUntil:
+    visible:
+      text: 'Enter pairing string|Pairing string|Enter another code'
+    timeout: 40000
+# A failed attempt leaves the error state, which shows no input at all.
+- tapOn:
+    text: 'Enter another code'
+    optional: true
+# Off the error state the welcome button is the only way to the form.
+- runFlow:
+    when:
+      notVisible:
+        text: 'Pairing string'
+    commands:
+      - assertVisible: '^Enter pairing string$'
+      - tapOn:
+          text: '^Enter pairing string$'
+- extendedWaitUntil:
+    visible:
+      text: 'Pairing string'
+    timeout: 40000
+# The code goes into the input itself, never a label that happens to match.
+- assertVisible: 'Pairing string'
+- tapOn: 'Pairing string'
+- eraseText: 120
+- inputText: '${PAIR_CODE}'
+# The focused keyboard covers Connect; the input submits on the IME action.
+- pressKey: Enter
+- extendedWaitUntil:
+    visible:
+      text: 'THIS PHONE WILL BE ABLE TO'
+    timeout: 20000
+- scrollUntilVisible:
+    element:
+      text: '^(Pair|Continue|Allow|Approve|Trust).*'
+    direction: DOWN
+- tapOn:
+    text: '^(Pair|Continue|Allow|Approve|Trust).*'
+# Android's background-activity prompt can land on top of the herd, and more
+# than one prompt can queue behind it.
+- tapOn:
+    text: 'CANCEL|Not now|Deny|Later'
+    optional: true
+- tapOn:
+    text: 'CANCEL|Not now|Deny|Later'
+    optional: true
+# The first connect fetches the whole herd before anything is on screen.
+- extendedWaitUntil:
+    visible:
+      text: 'connected'
+    timeout: 60000

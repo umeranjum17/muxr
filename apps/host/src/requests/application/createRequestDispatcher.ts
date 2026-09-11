@@ -30,6 +30,7 @@ import { grantMayAdministerPeers, hostPlatformLabel, listMachines, observerGrant
 import { attachPreview, probePreviewPort } from '../infrastructure/preview.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
+import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { runHerdrCli } from '../infrastructure/runHerdrCli.js';
 import { openPreview, probePreview } from './openPreview.js';
@@ -61,7 +62,7 @@ type PluginExecutionRequest = Extract<ClientRequest, {
 
 const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'session.list', 'session.open', 'session.status',
-    'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest', 'voice.provider.list',
+    'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest',
     'attachment.fetch', 'attachment.read', 'unread.catalog',
     'attention.catalog', 'lifecycle.catalog', 'machines.list', 'terminal.attach',
 ]);
@@ -138,8 +139,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'plugin.invoke': () => { throw new Error('authenticated device context required'); },
         'plugin.call': () => { throw new Error('authenticated device context required'); },
         'plugin.stream': () => { throw new Error('authenticated device context required'); },
-        'voice.provider.list': () => source.voiceProviderList(),
-        'voice.provider.select': (params) => source.voiceProviderSelect(params.providerId),
+        'host.update': (params, context) => repairHost(params, context.deviceId),
         'herdr.cli': async (params) => {
             const result = await runHerdrCli(params.args, params.timeoutMs);
             await source.refreshHerdr();

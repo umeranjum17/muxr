@@ -1,3 +1,4 @@
+import type { PeerMessageSender } from '@muxr/contract';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
@@ -35,6 +36,18 @@ import { revokePeerAuthority } from './revokePeerAuthority.js';
 const PEER_CREDENTIAL_EXPIRES_AT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
 
 export type { PeerDeviceContext };
+
+/** Where a peer request came from locally. Ids only; names are resolved here. */
+export interface PeerCallerContext {
+    sessionId?: string;
+    paneId?: string;
+}
+
+/** What the host knows about that caller's agent, collisions included. */
+export interface LocalAgentIdentity {
+    agent?: string;
+    ambiguous?: boolean;
+}
 
 export interface PeerRuntimeOptions {
     dataDir: string;
@@ -87,6 +100,35 @@ function publicRelationship(entry: StoredPeerRelationship): PeerRelationship {
 }
 
 export class PeerRuntime {
+    /** Resolves a local session to its agent name. Set once the host's session
+     *  source exists; without it a sender is reported as machine-only. */
+    private localAgentName: ((caller: PeerCallerContext) => Promise<LocalAgentIdentity>) | undefined;
+
+    setLocalAgentResolver(resolve: (caller: PeerCallerContext) => Promise<LocalAgentIdentity>): void {
+        this.localAgentName = resolve;
+    }
+
+    /**
+     * Who is sending. The name is looked up here and never taken from the
+     * request, so a caller cannot invent one: an attributed name is always a
+     * real local agent, and an unresolvable caller stays unnamed. It is not an
+     * authenticity claim — anything holding the broker capability chooses which
+     * local pane to name — so this identifies, it does not authenticate.
+     */
+    async describeSender(caller: PeerCallerContext): Promise<PeerMessageSender> {
+        const machine = this.options.machineName;
+        if (this.localAgentName === undefined) return { machine };
+        if (caller.sessionId === undefined && caller.paneId === undefined) return { machine };
+        try {
+            const found = await this.localAgentName(caller);
+            const agent = found.agent?.trim();
+            if (agent === undefined || agent === '') return { machine };
+            return { machine, agent, ...(found.ambiguous === true ? { agentAmbiguous: true } : {}) };
+        } catch {
+            return { machine };
+        }
+    }
+
     readonly store: PeerStore;
     private readonly outboundService: OutboundPeerService;
     private readonly receipts: PeerReceiptExecutor;

@@ -64,7 +64,7 @@ Likely files:
 - `apps/mobile/sources/extensions/DeclarativeScreen.tsx`
 - `apps/mobile/sources/extensions/ExtensionSlot.tsx`
 - `apps/mobile/sources/extensions/useSlotContributions.ts`
-- `plugins/example-ui/`
+- `plugins/voice/muxr-ui.json`
 - `scripts/plugin/application/checkPlugin.mjs`
 
 ## Milestone 2: Package Management

@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import {
     chmodSync,
+    cpSync,
     existsSync,
+    lstatSync,
     mkdirSync,
     mkdtempSync,
     readFileSync,
@@ -15,7 +17,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { packageInfoFromPath, packagePathFromInput } from '../../release/index.mjs';
+import { packageInfoFromPath, packagePathFromInput, prepareChangelog, reportFiles, sealRelease, verifyRelease } from '../../release/index.mjs';
 
 const root = process.cwd();
 const scratchBase = process.platform === 'darwin' ? '/tmp' : tmpdir();
@@ -53,7 +55,9 @@ case "$*" in
     if [ -n "$FAKE_PLUGIN_LIST" ]; then printf '%s\n' "$FAKE_PLUGIN_LIST";
     else echo '{"result":{"plugins":[]}}'; fi ;;
   "plugin link "*) printf '%s\n' "$*" >> "$FAKE_HERDR_LOG" ;;
-  "plugin unlink "*) echo plugin-unlink >> "$FAKE_HERDR_LOG" ;;
+  "plugin unlink "*)
+    printf '%s\n' "$*" >> "$FAKE_HERDR_LOG"
+    if [ "$FAKE_UNLINK_FAIL" = 1 ]; then echo "unlink failed: permission denied" >&2; exit 1; fi ;;
   "agent list") echo '{"result":{"agents":[]}}' ;;
   "integration status")
     if [ -f "$FAKE_HERDR_STATE" ]; then echo "pi: current (v8) ($HOME/.pi/agent/extensions/herdr-agent-state.ts)";
@@ -350,11 +354,11 @@ try {
     });
     assert.deepEqual(
         [development.name, development.scheme, development.android.package, development.ios.bundleIdentifier],
-        ['muxr (dev)', 'muxr', 'app.muxr.local.dev', 'app.muxr.local.dev'],
+        ['muxr (dev)', 'muxr-dev', 'app.muxr.local.dev', 'app.muxr.local.dev'],
     );
     assert.deepEqual(
         [preview.name, preview.scheme, preview.android.package, preview.ios.bundleIdentifier],
-        ['muxr (preview)', 'muxr', 'app.muxr.local.preview', 'app.muxr.local.preview'],
+        ['muxr (preview)', 'muxr-preview', 'app.muxr.local.preview', 'app.muxr.local.preview'],
     );
     assert.deepEqual(
         [production.name, production.scheme, production.android.package, production.ios.bundleIdentifier, production.extra.app.publicBaseUrl],
@@ -371,10 +375,48 @@ try {
     assert.equal(unconfiguredProduction.ios.associatedDomains, undefined, 'self-host production config emitted app links');
     assert.equal(unconfiguredProduction.android.intentFilters, undefined, 'self-host production config emitted intent filters');
 
+    // The release flow demands a clean source checkout, so mirror the exact
+    // working-tree source (existing tracked + nonignored untracked files) plus
+    // only the generated build outputs pack.mjs actually consumes into the
+    // scratch dir, and record the mirror as its own clean git commit. The real
+    // checkout and index stay untouched while pack, sealing, verification and
+    // tamper rejection exercise the true production path.
+    const snapshot = join(scratch, 'clean-src');
+    mkdirSync(snapshot, { recursive: true });
+    const listNull = (args) => {
+        const result = spawnSync('git', ['ls-files', '-z', ...args], { cwd: root, maxBuffer: 256 * 1024 * 1024 });
+        if (result.status !== 0) throw new Error(`git ls-files ${args.join(' ')} failed (${result.status})`);
+        return result.stdout.toString('utf8').split('\0').filter((entry) => entry !== '');
+    };
+    const sourceFiles = [...new Set(listNull(['--cached', '--others', '--exclude-standard']))]
+        .map((entry) => ({ entry, info: lstatSync(join(root, entry), { throwIfNoEntry: false }) }))
+        .filter((item) => item.info?.isFile() || item.info?.isSymbolicLink());
+    const listFile = join(scratch, 'snapshot-files.txt');
+    writeFileSync(listFile, sourceFiles.map((item) => `${item.entry}\0`).join(''));
+    const snapshotArchive = join(scratch, 'snapshot-files.tar');
+    run('tar', ['--create', `--file=${snapshotArchive}`, `--directory=${root}`, '--null', `--files-from=${listFile}`]);
+    run('tar', ['--extract', `--file=${snapshotArchive}`, `--directory=${snapshot}`]);
+    for (const output of ['apps/host/dist', 'apps/relay/dist', 'packages/crypto/dist', 'packages/contract/dist',
+        'scripts/setup/domain/dist', 'scripts/plugin/domain/dist', 'apps/mobile/dist']) {
+        if (existsSync(join(root, output))) cpSync(join(root, output), join(snapshot, output), { recursive: true });
+    }
+    symlinkSync(join(root, 'node_modules'), join(snapshot, 'node_modules'), 'dir');
+    run('git', ['init', '-q', snapshot]);
+    const gitInSnapshot = (...args) => run('git', ['-c', 'user.name=muxr package smoke', '-c', 'user.email=package-smoke@muxr.invalid', ...args], { cwd: snapshot });
+    gitInSnapshot('add', '-A');
+    gitInSnapshot('commit', '-q', '-m', 'package smoke source snapshot');
+    assert.equal(run('git', ['status', '--porcelain', '--untracked-files=normal'], { cwd: snapshot }).stdout, '', 'smoke source snapshot is not a clean checkout');
+
     run(process.execPath, ['scripts/release/application/pack.mjs'], {
+        cwd: snapshot,
         env: { ...process.env, MUXR_PACKAGE_CONTROL_URL: 'https://package-smoke.invalid' },
     });
-    const packed = JSON.parse(run('npm', ['pack', '--json', '--pack-destination', tarDir], { cwd: join(root, 'dist-npm') }).stdout);
+    // The lifecycle flow resolves only one thing from its working directory:
+    // the packed plugin runtime. Run this repository's script against the
+    // snapshot just built here, rather than from a repository root that has no
+    // dist-npm on a clean checkout.
+    run(process.execPath, [join(root, 'scripts', 'diagnostics', 'application', 'packageLifecycleSmoke.mjs')], { cwd: snapshot });
+    const packed = JSON.parse(run('npm', ['pack', '--json', '--pack-destination', tarDir], { cwd: join(snapshot, 'dist-npm') }).stdout);
     const packedInfo = Array.isArray(packed) ? packed[0] : Object.values(packed)[0];
     const tarball = join(tarDir, packedInfo.filename);
     const listing = run('tar', ['-tf', tarball]).stdout.split('\n');
@@ -391,11 +433,15 @@ try {
     assert.ok(listing.includes('package/setup/application/promptPeerAgent.mjs'), 'peer CLI client missing from npm artifact');
     assert.ok(listing.includes('package/diagnostics/application/dumpDiagnostics.mjs'), 'host diagnostics CLI missing from npm artifact');
     assert.ok(listing.includes('package/plugins/control/run.mjs'), 'control plugin missing from npm artifact');
-    assert.ok(listing.includes('package/plugins/servers/serve.mjs'), 'Preview discovery plugin missing from npm artifact');
-    assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'xAI Voice plugin missing from npm artifact');
-    assert.ok(listing.includes('package/plugins/voice-gemini/rpc.mjs') && listing.includes('package/plugins/voice-gemini/stream.mjs'), 'Gemini Live plugin missing from npm artifact');
-    assert.ok(listing.includes('package/plugins/voice-openai/rpc.mjs') && listing.includes('package/plugins/voice-openai/stream.mjs'), 'OpenAI Realtime plugin missing from npm artifact');
-    assert.ok(listing.includes('package/plugins/voice-codex/rpc.mjs') && listing.includes('package/plugins/voice-codex/stream.mjs'), 'Codex Voice plugin missing from npm artifact');
+    assert.ok(listing.includes('package/plugins/code/muxr-ui.json'), 'Code plugin missing from npm artifact');
+    assert.ok(!listing.includes('package/plugins/code/runbook.mjs'), 'retired Code Runbook file shipped in npm artifact');
+    const packedCodeManifest = JSON.parse(run('tar', ['-xOf', tarball, 'package/plugins/code/muxr-ui.json']).stdout);
+    assert.equal(packedCodeManifest.contributions.some((entry) => entry.id?.startsWith('runbook') || entry.entry === 'runbook.mjs'), false, 'retired Code Runbook contribution shipped in npm artifact');
+    assert.equal(packedCodeManifest.contributions.filter((entry) => entry.slot === 'host.rpc').every((entry) => entry.mode !== 'write'), true, 'Code plugin is not read-only');
+    assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'Voice plugin missing from npm artifact');
+    for (const provider of ['xai', 'gemini', 'openai', 'codex']) {
+        assert.ok(listing.includes(`package/plugins/voice/providers/${provider}.mjs`), `${provider} voice adapter missing from npm artifact`);
+    }
     assert.ok(listing.includes('package/skills/muxr/SKILL.md'), 'muxr skill missing from npm artifact');
     assert.deepEqual(listing.filter((file) => /^package\/skills\/.*\/SKILL\.md$/.test(file)), ['package/skills/muxr/SKILL.md'], 'npm artifact must ship exactly one public skill');
     assert.ok(listing.includes('package/skills/muxr/references/plugins.md'), 'muxr skill references missing from npm artifact');
@@ -403,12 +449,90 @@ try {
     assert.ok(listing.includes('package/web/index.html'), 'secure browser client missing from npm artifact');
     assert.ok(listing.includes('package/web/install.sh'), 'hosted npm installer wrapper missing from web artifact');
     assert.ok(!listing.some((file) => /apps\/relay|commerce|stripe|website|betaCodeAdmin|controlPlane|controlRepository/i.test(file)), 'private control-plane source shipped in npm artifact');
-    run(process.execPath, ['scripts/diagnostics/application/checkNoSecrets.mjs']);
+    run(process.execPath, ['scripts/diagnostics/application/checkNoSecrets.mjs'], { cwd: snapshot });
     const hostBundle = run('tar', ['-xOf', tarball, 'package/host.js']).stdout;
     const cryptoBundle = run('tar', ['-xOf', tarball, 'package/crypto.js']).stdout;
     assert.doesNotMatch(`${hostBundle}\n${cryptoBundle}`, /(?:apps|packages)\/(?:host|wire|contract|crypto)\/(?:src|dist)\//, 'bundle leaked proprietary source paths');
     const licenseInventory = JSON.parse(run('tar', ['-xOf', tarball, 'package/THIRD_PARTY_LICENSES.json']).stdout);
     const packageJson = JSON.parse(run('tar', ['-xOf', tarball, 'package/package.json']).stdout);
+    // Render this candidate's release report from its own frozen source, then
+    // carry it through sealing and tamper rejection with the artifact it describes.
+    const reportRequest = { version: packageJson.version, channel: packageJson.muxrRelease.channel,
+        commit: run('git', ['rev-parse', 'HEAD'], { cwd: snapshot }).stdout.trim(), directory: tarDir, sourceRoot: snapshot };
+    const { entry, files: rendered } = prepareChangelog({ mode: 'generate', ...reportRequest });
+    const html = rendered[reportFiles.html];
+    for (const heading of ['Added', 'Fixed', 'Verification', 'Known limits']) assert.match(html, new RegExp(`<h2>${heading}</h2>`), `${heading} missing from the release report`);
+    assert.match(html, new RegExp(entry.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.doesNotMatch(html, /<script|https?:\/\//, 'release report must stay offline and script-free');
+    prepareChangelog({ mode: 'check', ...reportRequest });
+
+    // Hostile authored text is escaped, never interpolated as markup.
+    const hostileRoot = join(scratch, 'hostile-source');
+    const hostilePath = join(hostileRoot, 'apps', 'mobile', 'sources', 'changelog', 'changelog.json');
+    mkdirSync(dirname(hostilePath), { recursive: true });
+    const authored = JSON.parse(readFileSync(join(snapshot, 'apps/mobile/sources/changelog/changelog.json'), 'utf8'));
+    const hostileEntry = authored.releases.find((release) => release.appVersion === entry.appVersion);
+    hostileEntry.title = `Quote " & apostrophe ' release`;
+    // Authored fields are data in both renderings: HTML must not interpolate
+    // markup, and Markdown must not activate a heading, link, image or code.
+    hostileEntry.summary = 'break\n# Injected heading\n[link](https://evil.example) ![img](https://evil.example/x.png) `code` **bold**';
+    // Block syntax that needs no leading whitespace to fire: the summary is
+    // rendered on a line of its own, so a bullet, a plus, a rule or an ordered
+    // marker there would open a list or a thematic break in the release notes.
+    // An entity reference is markup too: Markdown resolves it, so authored
+    // "&amp;" has to survive into the notes as those five characters.
+    hostileEntry.fixes = [{ title: '- bullet title', detail: '1. ordered detail &amp; &#38; &copy;' }];
+    hostileEntry.knownLimits = ['- nested\n## limit heading [x](https://evil.example)', '+ plus item', '--- rule', '1) ordered item'];
+    writeFileSync(hostilePath, JSON.stringify(authored));
+    const hostileOut = join(scratch, 'hostile-out');
+    mkdirSync(hostileOut, { recursive: true });
+    const hostileFiles = prepareChangelog({ mode: 'generate', ...reportRequest, sourceRoot: hostileRoot, directory: hostileOut }).files;
+    const hostile = hostileFiles[reportFiles.html];
+    assert.match(hostile, /Quote &quot; &amp; apostrophe &#39; release/, 'authored text was not escaped');
+    const hostileMarkdown = hostileFiles[reportFiles.markdown];
+    // Strip the template's own bullet so what remains is authored text only.
+    const authoredLines = hostileMarkdown.split('\n')
+        .filter((line) => !/^(#{1,6} muxr |## (Added|Fixed|Verification|Known limits)$)/.test(line))
+        .map((line) => line.replace(/^- (\*\*)?/, ''));
+    assert.ok(!authoredLines.some((line) => /^\s{0,3}#/.test(line)), 'authored text activated a Markdown heading');
+    assert.ok(
+        !authoredLines.some((line) => /^\s{0,3}(?:[-+*][ \t]|\d+[.)][ \t]|-{3,}|_{3,})/.test(line)),
+        'authored text activated a Markdown list or thematic break',
+    );
+    assert.doesNotMatch(hostileMarkdown, /(^|[^\\])!?\[[^\]]*\]\(/, 'authored text activated a Markdown link or image');
+    assert.doesNotMatch(hostileMarkdown, /(^|[^\\])`/, 'authored text activated Markdown code');
+    assert.doesNotMatch(hostileMarkdown, /<[a-zA-Z/]/, 'authored text activated inline HTML');
+    assert.doesNotMatch(hostileMarkdown, /(^|[^\\])&[a-zA-Z#]/, 'authored text activated a Markdown entity reference');
+    assert.match(hostileMarkdown, /ordered detail \\&amp;/, 'authored entity text was not preserved literally');
+
+    // A version nobody wrote notes for cannot be released, and stale bytes fail.
+    assert.throws(() => prepareChangelog({ mode: 'validate', ...reportRequest, version: '9.9.9', channel: 'stable' }), /no entry for app version 9\.9\.9/);
+    const reportPath = join(tarDir, reportFiles.html);
+    const originalReport = readFileSync(reportPath);
+    try {
+        writeFileSync(reportPath, `${originalReport}<!-- edited after preparation -->`);
+        assert.throws(() => prepareChangelog({ mode: 'check', ...reportRequest }), /stale/);
+    } finally { writeFileSync(reportPath, originalReport); }
+    prepareChangelog({ mode: 'check', ...reportRequest });
+
+    // Follow the actual packaged artifact through sealing, verification and tamper rejection.
+    const sealed = await sealRelease({ directory: tarDir, version: packageJson.version,
+        channel: packageJson.muxrRelease.channel, files: [packedInfo.filename, reportFiles.html, reportFiles.markdown], runId: '1', sourceRoot: snapshot });
+    const verifyRequest = { directory: tarDir, version: packageJson.version,
+        channel: packageJson.muxrRelease.channel, commit: sealed.source.commit, runId: '1' };
+    await verifyRelease(verifyRequest);
+    const originalTarball = readFileSync(tarball);
+    try {
+        writeFileSync(tarball, Buffer.concat([originalTarball, Buffer.from('altered')]));
+        await assert.rejects(verifyRelease(verifyRequest), /digest mismatch/);
+    } finally { writeFileSync(tarball, originalTarball); }
+    const sealedReport = readFileSync(reportPath);
+    try {
+        writeFileSync(reportPath, `${sealedReport}<!-- edited after sealing -->`);
+        await assert.rejects(verifyRelease(verifyRequest), /digest mismatch/);
+    } finally { writeFileSync(reportPath, sealedReport); }
+    await verifyRelease(verifyRequest);
+    await assert.rejects(verifyRelease({ ...verifyRequest, commit: '0'.repeat(40) }), /identity/);
     assert.equal(packageJson.dependencies.zod, undefined, 'packed CLI must not depend on Zod');
     assert.equal(packageJson.dependencies['@agentclientprotocol/sdk'], undefined, 'packed CLI must not require a separately installed ACP SDK');
     assert.equal(packageJson.dependencies['@agentclientprotocol/claude-agent-acp'], undefined, 'packed Claude bridge must invoke the installed CLI directly');
@@ -441,6 +565,7 @@ try {
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
     const installedPlugins = join(installedPackage, 'plugins');
+    assert.equal(existsSync(join(installedPlugins, 'code', 'runbook.mjs')), false, 'installed Code plugin retained the retired Runbook file');
     assert.match(readFileSync(join(installedPackage, 'README.md'), 'utf8'), /muxr --skill\s+# print the compact agent skill/);
     const rootHelp = run(cli, ['--help'], { cwd: installDir }).stdout;
     assert.match(rootHelp, /muxr --skill \| muxr skill\s+print the compact muxr agent skill/);
@@ -532,23 +657,30 @@ try {
     assert.equal(existsSync(join(installedPackage, 'alias-create')), false);
     const providerHome = join(scratch, 'provider-home');
     const providerRoot = join(providerHome, '.muxr');
-    for (const [directory, keyFile] of [['voice-gemini', 'gemini.key'], ['voice-openai', 'openai.key']]) {
-        const plugin = join(installedPlugins, directory);
-        run(cli, ['plugin', 'call', plugin, 'key-set', '--input', '{"key":"smoke-key"}'], { cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: providerRoot } });
-        assert.equal(statSync(providerRoot).mode & 0o777, 0o700);
-        assert.equal(statSync(join(providerRoot, keyFile)).mode & 0o777, 0o600);
-        assert.match(run(cli, ['plugin', 'call', plugin, 'status'], { cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: providerRoot } }).stdout, /"configured": true/);
-        run(cli, ['plugin', 'call', plugin, 'key-clear', '--input', 'null'], { cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: providerRoot } });
-    }
+    const voicePlugin = join(installedPlugins, 'voice');
+    const providerEnv = { ...cliEnv(providerHome), MUXR_HOME: providerRoot };
+    const packagedProviders = JSON.parse(run(cli, ['plugin', 'call', voicePlugin, 'provider-list'], { cwd: installDir, env: providerEnv }).stdout);
+    assert.equal(packagedProviders.selected, 'codex', 'packaged voice must default to Codex');
+    assert.equal(packagedProviders.providers.find((provider) => provider.id === 'codex').selected, true);
+    // The diagnostic CLI gives each call a fresh state directory. Select the
+    // API-key adapter inside that boundary, then run the installed RPC unchanged.
+    const keyFixture = join(scratch, 'voice-key-fixture');
+    cpSync(voicePlugin, keyFixture, { recursive: true });
+    writeFileSync(join(keyFixture, 'rpc.mjs'), `const { selectProvider } = await import(${JSON.stringify(join(voicePlugin, 'provider.mjs'))});\nselectProvider('xai');\nawait import(${JSON.stringify(join(voicePlugin, 'rpc.mjs'))});\n`);
+    run(cli, ['plugin', 'call', keyFixture, 'key-set', '--input', '{"key":"smoke-key"}'], { cwd: installDir, env: providerEnv });
+    assert.equal(statSync(providerRoot).mode & 0o777, 0o700);
+    assert.equal(statSync(join(providerRoot, 'xai.key')).mode & 0o777, 0o600);
+    assert.match(run(cli, ['plugin', 'call', keyFixture, 'status'], { cwd: installDir, env: providerEnv }).stdout, /"configured": true/);
+    run(cli, ['plugin', 'call', keyFixture, 'key-clear', '--input', 'null'], { cwd: installDir, env: providerEnv });
     const symlinkTarget = join(scratch, 'provider-symlink-target');
     const symlinkRoot = join(scratch, 'provider-symlink-root');
     mkdirSync(symlinkTarget);
     symlinkSync(symlinkTarget, symlinkRoot, 'dir');
-    const symlinkWrite = run(cli, ['plugin', 'call', join(installedPlugins, 'voice-openai'), 'key-set', '--input', '{"key":"must-not-write"}'], {
+    const symlinkWrite = run(cli, ['plugin', 'call', keyFixture, 'key-set', '--input', '{"key":"must-not-write"}'], {
         cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: symlinkRoot }, allowFailure: true,
     });
     assert.notEqual(symlinkWrite.status, 0, 'provider key write followed a symlinked MUXR_HOME');
-    assert.equal(existsSync(join(symlinkTarget, 'openai.key')), false);
+    assert.equal(existsSync(join(symlinkTarget, 'xai.key')), false);
     assert.ok(existsSync(join(installDir, 'node_modules', 'ccusage', 'src', 'cli.js')), 'ccusage wrapper missing from installed package');
     const ccusageTarget = ['linux', 'darwin'].includes(process.platform) && ['x64', 'arm64'].includes(process.arch)
         ? join(installDir, 'node_modules', '@ccusage', `ccusage-${process.platform}-${process.arch}`, 'bin', 'ccusage')
@@ -663,6 +795,12 @@ try {
         allowFailure: true,
     });
     assert.notEqual(malformedEntry.status, 0, 'setup accepted a plugin without an enabled state');
+    const malformedRoot = run(cli, ['setup', ...setupArgs], {
+        cwd: installDir,
+        env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify({ result: { plugins: [{ plugin_id: 'muxr.voice', plugin_root: 7, version: '0.1.0', enabled: true }] } }) },
+        allowFailure: true,
+    });
+    assert.notEqual(malformedRoot.status, 0, 'setup accepted a non-string plugin root');
     assert.equal(existsSync(fakeLog) ? readFileSync(fakeLog, 'utf8') : '', beforeInvalidList, 'setup mutated plugins after a malformed entry');
 
     const configBefore = readFileSync(join(home, '.config', 'herdr', 'config.toml'), 'utf8');
@@ -675,24 +813,54 @@ try {
     assert.equal(readdirSync(join(home, '.pi', 'agent')).some((name) => name.startsWith('AGENTS.md.muxr-backup-')), false, 'fresh setup backed up an instruction file it should not touch');
     const pluginRoot = join(installDir, 'node_modules', '@trymuxr', 'cli', 'plugins');
     const firstSetupLinks = readFileSync(fakeLog, 'utf8');
+    // One voice plugin ships now; the adapters live inside it.
     assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --enabled`));
-    assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-codex').replaceAll('\\', '\\\\')} --disabled`));
-    assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-gemini').replaceAll('\\', '\\\\')} --disabled`));
-    assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-openai').replaceAll('\\', '\\\\')} --disabled`));
+    assert.doesNotMatch(firstSetupLinks, /plugins[/\\]voice-(?:codex|gemini|openai)/, 'setup linked a merged voice adapter as its own plugin');
+    const voiceState = join(home, '.muxr', 'plugin-state', 'muxr.voice');
+    for (const provider of ['gemini', 'openai', 'codex']) {
+        rmSync(voiceState, { recursive: true, force: true });
+        const logBeforeMigration = readFileSync(fakeLog, 'utf8');
+        run(cli, ['setup', ...setupArgs], {
+            cwd: installDir,
+            env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify({ result: { plugins: [
+                { plugin_id: 'muxr.voice', plugin_root: join(pluginRoot, 'voice'), version: '0.1.0', enabled: false },
+                { plugin_id: `muxr.voice-${provider}`, plugin_root: join(pluginRoot, `voice-${provider}`), version: '0.1.0', enabled: true },
+            ] } }) },
+        });
+        const migrationLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeMigration.length);
+        assert.match(migrationLinks, new RegExp(`plugin unlink muxr\\.voice-${provider}`));
+        assert.match(migrationLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --enabled`));
+        assert.equal(statSync(voiceState).mode & 0o777, 0o700);
+        assert.equal(statSync(join(voiceState, 'provider')).mode & 0o777, 0o600);
+        assert.equal(readFileSync(join(voiceState, 'provider'), 'utf8'), `${provider}\n`, `setup reset the selected ${provider} voice provider`);
+    }
+    rmSync(voiceState, { recursive: true, force: true });
     const existingProviders = {
         result: {
             plugins: [
+                { plugin_id: 'muxr.code', plugin_root: join(pluginRoot, 'code'), version: '0.1.0', enabled: true },
                 { plugin_id: 'muxr.voice', plugin_root: join(pluginRoot, 'voice'), version: '0.1.0', enabled: false },
-                { plugin_id: 'muxr.voice-codex', plugin_root: join(pluginRoot, 'voice-codex'), version: '0.1.0', enabled: false },
-                { plugin_id: 'muxr.voice-gemini', plugin_root: join(pluginRoot, 'voice-gemini'), version: '0.1.0', enabled: false },
-                { plugin_id: 'muxr.voice-openai', plugin_root: join(pluginRoot, 'voice-openai'), version: '0.1.0', enabled: true },
+                // Any stale direct child of our bundle directory must be retracted;
+                // this deliberately names no historical plugin or retirement map.
+                { plugin_id: 'muxr.removed-package-smoke', plugin_root: join(pluginRoot, 'removed-package-smoke'), version: '0.1.0', enabled: true },
             ],
         },
     };
+    const staleRunbook = join(pluginRoot, 'code', 'runbook.mjs');
+    writeFileSync(staleRunbook, '# retired\n');
     const logBeforeSecondSetup = readFileSync(fakeLog, 'utf8');
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(existingProviders) } });
     const secondSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeSecondSetup.length);
-    assert.doesNotMatch(secondSetupLinks, /plugins[/\\]voice(?:-codex|-gemini|-openai)?(?:\s|[/\\])/, 'setup relinked an existing provider and changed its enabled state');
+    assert.equal(existsSync(staleRunbook), false, 'setup did not remove the retired Code Runbook file');
+    assert.doesNotMatch(secondSetupLinks, /plugin link .*plugins[/\\]voice(?:\s|[/\\])/, 'setup relinked an existing provider and changed its enabled state');
+    assert.match(secondSetupLinks, /plugin unlink muxr\.removed-package-smoke/, 'setup kept a bundled plugin it no longer ships');
+    const failedUnlink = run(cli, ['setup', ...setupArgs], {
+        cwd: installDir,
+        env: { ...env, FAKE_UNLINK_FAIL: '1', FAKE_PLUGIN_LIST: JSON.stringify(existingProviders) },
+        allowFailure: true,
+    });
+    assert.notEqual(failedUnlink.status, 0, 'setup treated a failed retired-plugin unlink as success');
+    assert.match(`${failedUnlink.stdout}${failedUnlink.stderr}`, /permission denied|failed to unlink/);
     const movedProviders = {
         result: {
             plugins: existingProviders.result.plugins.map((plugin) => ({ ...plugin, plugin_root: join(scratch, 'old-package', plugin.plugin_id) })),
@@ -702,9 +870,7 @@ try {
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(movedProviders) } });
     const movedSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeMovedSetup.length);
     assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --disabled`));
-    assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-codex').replaceAll('\\', '\\\\')} --disabled`));
-    assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-gemini').replaceAll('\\', '\\\\')} --disabled`));
-    assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice-openai').replaceAll('\\', '\\\\')} --enabled`));
+    assert.doesNotMatch(movedSetupLinks, /plugin unlink/, 'setup unlinked a plugin outside its own bundle directory');
     assert.equal(readFileSync(join(home, '.muxr', 'setup-manifest.json'), 'utf8'), manifestAfterFirst);
     if (process.platform === 'darwin') {
         stopRelayFor(join(home, '.muxr', 'relay'));
@@ -735,9 +901,43 @@ try {
     const cancelledUpdate = await runTty(`${cli} update`, updateEnv, '\r', 20_000, undefined, 'never', 'Apply this update?');
     assert.equal(cancelledUpdate.code, 0, cancelledUpdate.output);
     assert.ok(!existsSync(updateLog), 'pressing Enter applied the update');
-    assert.match(run(cli, ['update', '--yes'], { cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '0.0.1' } }).stdout, /newer than npm latest/);
+    assert.match(run(cli, ['update', '--yes'], { cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '0.0.1' } }).stdout, /newer than stable/);
     assert.ok(!existsSync(updateLog), 'updater installed a registry downgrade');
     assert.match(run(cli, ['update', '--check'], { cwd: installDir, env: updateEnv }).stdout, /9\.9\.9 is available/);
+    const nightlyCheck = run(cli, ['update', '--channel', 'nightly', '--check'], {
+        cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '9.9.9-nightly.2' },
+    });
+    assert.match(nightlyCheck.stdout, /available on nightly/);
+    assert.ok(!existsSync(updateLog), 'channel check changed the installation');
+    // A retired channel name resolves to nightly, and a retired version cannot
+    // arrive as the current nightly.
+    const retiredAlias = run(cli, ['update', '--channel', 'beta', '--check'], {
+        cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '9.9.9-nightly.2' },
+    });
+    assert.match(retiredAlias.stdout, /beta channel is retired/);
+    assert.match(retiredAlias.stdout, /available on nightly/);
+    const retiredOffer = run(cli, ['update', '--channel', 'nightly', '--check'], {
+        cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '9.9.9-beta.2' }, allowFailure: true,
+    });
+    assert.notEqual(retiredOffer.status, 0, 'a retired version was accepted as the current nightly');
+    assert.ok(!existsSync(updateLog), 'channel check changed the installation');
+    const exactCheck = run(cli, ['update', '--to', '9.9.8', '--check'], {
+        cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '9.9.8' },
+    });
+    assert.match(exactCheck.stdout, /9\.9\.8 is available/);
+    const substituted = run(cli, ['update', '--to', '9.9.8', '--yes'], { cwd: installDir, env: updateEnv, allowFailure: true });
+    assert.notEqual(substituted.status, 0, 'exact target accepted a different registry version');
+    const exactDowngrade = run(cli, ['update', '--to', '0.0.1', '--allow-downgrade', '--check'], {
+        cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_LATEST: '0.0.1' },
+    });
+    assert.match(exactDowngrade.stdout, /0\.0\.1 is available/);
+    assert.ok(!existsSync(updateLog), 'exact-version checks changed the installation');
+
+    const wrongChannel = run(cli, ['update', '--channel', 'nightly', '--yes'], {
+        cwd: installDir, env: updateEnv, allowFailure: true,
+    });
+    assert.notEqual(wrongChannel.status, 0, 'nightly tag accepted a stable version');
+    assert.ok(!existsSync(updateLog), 'wrong channel reached installation');
     const prefixMismatch = run(cli, ['update', '--yes'], {
         cwd: installDir, env: { ...updateEnv, MUXR_UPDATE_NPM_ROOT: join(scratch, 'different-node', 'node_modules') }, allowFailure: true,
     });
@@ -745,7 +945,7 @@ try {
     assert.match(`${prefixMismatch.stdout}${prefixMismatch.stderr}`, /different npm prefix/);
     assert.ok(!existsSync(updateLog), 'prefix mismatch reached npm install');
 
-    run(cli, ['update', '--yes'], { cwd: installDir, env: updateEnv });
+    run(cli, ['update', '--to', '9.9.9', '--yes'], { cwd: installDir, env: updateEnv });
     assert.match(readFileSync(updateLog, 'utf8'), /install --global --ignore-scripts @trymuxr\/cli@9\.9\.9/);
     const linuxUnit = readFileSync(join(home, '.config', 'systemd', 'user', 'muxr.service'), 'utf8');
     assert.match(linuxUnit, /MUXR_MODE=.*selfhost/, 'update removed the daemon mode');
@@ -829,6 +1029,83 @@ try {
 
     const lingerLog = join(scratch, 'linger.log');
     writeFileSync(join(binDir, 'systemctl'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    if (process.platform === 'linux') {
+        // Drive the installed repair CLI and worker. Only npm/systemd are fake,
+        // and every installation, journal and state file lives in this scratch.
+        const repairNpm = join(binDir, 'repair-npm');
+        const repairUnit = join(scratch, 'repair-unit.json');
+        const installedRoot = join(installDir, 'node_modules/@trymuxr/cli');
+        const installedManifestPath = join(installedRoot, 'package.json');
+        const originalPackage = readFileSync(installedManifestPath, 'utf8');
+        const originalVersion = JSON.parse(originalPackage).version;
+        writeFileSync(repairNpm, `#!${process.execPath}
+const fs=require('node:fs'),path=require('node:path'),a=process.argv.slice(2);
+if(a[0]==='root') console.log(process.env.MUXR_UPDATE_NPM_ROOT);
+else if(a[0]==='view') {
+ const version=a[1].slice(a[1].lastIndexOf('@')+1);
+ console.log(JSON.stringify(a.includes('muxrCompatibility')?{version,muxrCompatibility:{protocol:1,state:process.env.REPAIR_BAD_STATE?'99':1},'dist.integrity':'sha512-fixture'}:version));
+} else if(a[0]==='install') {
+ const version=a.at(-1).slice(a.at(-1).lastIndexOf('@')+1);
+ if(process.env.REPAIR_INSTALL_FAIL===version) process.exit(1);
+ const file=path.join(process.env.MUXR_UPDATE_NPM_ROOT,'@trymuxr/cli/package.json');
+ const pkg=JSON.parse(fs.readFileSync(file));pkg.version=version;fs.writeFileSync(file,JSON.stringify(pkg));
+ const dir=process.env.MUXR_DATA_DIR||path.join(process.env.HOME,'.muxr/host');fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'diagnostics.json'),JSON.stringify({current:{hostVersion:version,relayState:'open',startedAt:new Date().toISOString()}}));
+} else process.exit(1);
+`, { mode: 0o755 });
+        writeFileSync(join(binDir, 'systemd-run'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(repairUnit)},JSON.stringify(process.argv.slice(2)));\n`, { mode: 0o755 });
+        const repairEnv = { ...updateEnv, MUXR_NPM_BIN: repairNpm, MUXR_DATA_DIR: join(scratch, 'custom-host-data') };
+        const repair = (request, extra = {}) => JSON.parse(run(cli, ['host-repair', JSON.stringify({ owner: 'fixture-device', ...request })], {
+            cwd: installDir, env: { ...repairEnv, ...extra }, allowFailure: true,
+        }).stdout);
+        assert.equal(repair({ action: 'plan', appVersion: originalVersion, protocol: 1 }).status, 'compatible');
+        assert.equal(repair({ action: 'plan', appVersion: '9.9.8', protocol: 1 }, { REPAIR_BAD_STATE: '1' }).canApply, false);
+        assert.equal(repair({ action: 'plan', appVersion: '9.9.8-beta.1', protocol: 1 }).compatible, true);
+        assert.equal(repair({ action: 'plan', appVersion: 'unknown', protocol: 1 }).canApply, false);
+        writeFileSync(installedManifestPath, JSON.stringify({ ...JSON.parse(originalPackage), version: '9.9.8-beta.1' }));
+        assert.equal(repair({ action: 'plan', appVersion: '9.9.8-beta.1', protocol: 1 }).status, 'compatible');
+        assert.equal(repair({ action: 'plan', appVersion: '9.9.8-beta.2', protocol: 1 }).canApply, true);
+        writeFileSync(installedManifestPath, originalPackage);
+        for (const fail of [false, true]) {
+            const plan = repair({ action: 'plan', appVersion: '9.9.8', protocol: 1 });
+            assert.equal(plan.canApply, true);
+            assert.match(repair({ action: 'apply', planId: plan.planId, owner: 'other-device' }).error, /another paired device/);
+            assert.equal(existsSync(repairUnit), false, 'planning or another device started an installer');
+            const queued = repair({ action: 'apply', planId: plan.planId });
+            assert.equal(queued.status, 'queued');
+            assert.equal(repair({ action: 'apply', planId: plan.planId }).status, 'queued', 'duplicate apply was not idempotent');
+            const unit = JSON.parse(readFileSync(repairUnit, 'utf8'));
+            assert.ok(unit.includes('--user') && unit.includes('--collect'));
+            assert.ok(unit.includes(`--setenv=MUXR_DATA_DIR=${repairEnv.MUXR_DATA_DIR}`));
+            assert.equal(unit.at(-2), '--worker');
+            const job = unit.at(-1);
+            assert.ok(job.startsWith(join(home, '.muxr/updates/active/')));
+            const stateBefore = readFileSync(join(home, '.muxr/selfhost.json'), 'utf8');
+            run(process.execPath, [join(installedRoot, 'release/application/repairHost.mjs'), '--worker', job], {
+                cwd: installDir, env: { ...repairEnv, ...(fail ? { REPAIR_INSTALL_FAIL: '9.9.8' } : {}) }, timeout: 90000,
+            });
+            const result = repair({ action: 'status', planId: plan.planId });
+            assert.equal(result.status, fail ? 'rolled-back' : 'complete');
+            assert.equal(readFileSync(join(home, '.muxr/selfhost.json'), 'utf8'), stateBefore, 'repair rewrote enrollment');
+            const snapshot = join(home, '.muxr/updates', `${plan.planId}-snapshot`, 'selfhost.json');
+            assert.equal(statSync(snapshot).mode & 0o777, 0o600);
+            assert.equal(existsSync(join(home, '.muxr/updates/active')), false);
+            writeFileSync(installedManifestPath, originalPackage);
+            rmSync(repairUnit);
+        }
+        // Simulate a reboot between queueing and worker execution. The installed
+        // prior host is healthy; status reconciles it and permits a fresh plan.
+        const interrupted = repair({ action: 'plan', appVersion: '9.9.8', protocol: 1 });
+        repair({ action: 'apply', planId: interrupted.planId });
+        const record = join(home, '.muxr/updates', `${interrupted.planId}.json`);
+        const savedPlan = JSON.parse(readFileSync(record)); savedPlan.queuedAt -= 60_000;
+        writeFileSync(record, JSON.stringify(savedPlan));
+        mkdirSync(repairEnv.MUXR_DATA_DIR, { recursive: true });
+        writeFileSync(join(repairEnv.MUXR_DATA_DIR, 'diagnostics.json'), JSON.stringify({current:{hostVersion:originalVersion,relayState:'open',startedAt:new Date().toISOString()}}));
+        assert.equal(repair({ action: 'status', planId: interrupted.planId }).status, 'interrupted');
+        assert.equal(existsSync(join(home, '.muxr/updates/active')), false);
+        assert.equal(repair({ action: 'plan', appVersion: '9.9.8', protocol: 1 }).canApply, true);
+        rmSync(repairUnit);
+    }
     writeFileSync(join(binDir, 'loginctl'), `#!/bin/sh\nif [ "$1" = show-user ]; then echo no; exit 0; fi\necho "$*" >> "${lingerLog}"\nexit 0\n`, { mode: 0o755 });
     const lingerHome = join(scratch, 'linger-home');
     mkdirSync(lingerHome, { recursive: true });

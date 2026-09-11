@@ -1,16 +1,16 @@
 import * as React from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type StyleProp, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, type LayoutChangeEvent, type RefreshControlProps, type NativeScrollEvent, type NativeSyntheticEvent, type StyleProp, type ViewStyle } from 'react-native';
 import { randomUUID } from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { FadeInDown, cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
+import Animated, { cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import type { PluginManifestV1, PluginScreenButtonNode, PluginScreenContribution, PluginScreenNode, PluginScreenRowAction, PluginScreenRowNode, PluginScreenTreeNode, PluginSource, PluginText, RequestParams } from '@muxr/contract';
 import { MAX_SCREEN_LIST_ROWS, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, defaultPluginText, sanitizeDisplayText } from '@muxr/contract';
 import { Switch } from '@/components/Switch';
 import { hapticsError, hapticsSelection, hapticsSuccess } from '@/components/haptics';
 import { NavigableDiff } from '@/components/diff/NavigableDiff';
-import { SyntaxHighlightedCode } from '@/components/code/SyntaxHighlightedCode';
+import { CodeCore, PLUGIN_CODE_MAX_CHARS, PLUGIN_CODE_MAX_LINES } from '@/components/code/CodeCore';
 import { sync } from '@/catalog/sync';
 import { pluginSnapshot } from '../application/pluginStore';
 import { dispatchPluginAction } from '../application/pluginActions';
@@ -28,7 +28,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenWidthProvider, useScreenContentWidth } from './pluginScreenLayout';
 import { ScreenChart } from './screenCharts';
 import { ScreenTree } from './screenTree';
-import { MOTION, houseEasing, pressEasing, staggerDelay, timing } from '@/constants/motion';
+import { MOTION, pressEasing, timing } from '@/constants/motion';
 import { LoadingHairline } from '@/components/LoadingHairline';
 import { humanError } from '@/utils/errors';
 
@@ -168,27 +168,48 @@ function ScreenNode(props: {
     tabOverrides?: Record<string, string>;
     /** Inside a section, which already owns the card around this node. */
     nested?: boolean;
+    /**
+     * Handed to a `viewport: 'fill'` code node, which is the screen's only
+     * scroller once the screen has stopped being one.
+     */
+    refreshControl?: React.ReactElement<RefreshControlProps>;
 }) {
     const { theme } = useUnistyles();
     const width = useScreenContentWidth();
     const { node, data, fields } = props;
     const bind = (value: PluginText) => bindText(resolvePluginText(value), data);
     switch (node.type) {
-        case 'text':
-            return <Text style={{ color: node.tone === undefined ? theme.colors.text : toneColor(theme, node.tone), fontSize: 15, lineHeight: 21, marginBottom: 8 }}>{bind(node.text)}</Text>;
+        case 'text': {
+            const text = bind(node.text);
+            return text === '' ? null : <Text style={{ color: node.tone === undefined ? theme.colors.text : toneColor(theme, node.tone), fontSize: 15, lineHeight: 21, marginBottom: 8 }}>{text}</Text>;
+        }
         case 'row':
             return <ScreenRow row={node} data={data} onRowAction={props.onRowAction} insideCard={props.nested === true} style={{ paddingVertical: 10 }} />;
         case 'diff': {
             const patch = resolvePath(data, node.path);
             if (typeof patch !== 'string' || patch === '') return null;
-            return <View style={{ marginBottom: 10 }}><NavigableDiff patch={boundText(patch, 600, 64 * 1024).text} /></View>;
+            return <View style={{ marginBottom: 10 }}><NavigableDiff patch={boundText(patch, PLUGIN_CODE_MAX_LINES, PLUGIN_CODE_MAX_CHARS).text} /></View>;
         }
         case 'code': {
             const source = resolvePath(data, node.path);
-            if (typeof source !== 'string' || source === '') return null;
-            const fileName = node.fileNamePath === undefined ? undefined : resolvePath(data, node.fileNamePath);
-            return <SyntaxHighlightedCode code={sanitizeDisplayText(source).replace(/\r\n/g, '\n')} language={node.language}
-                {...(typeof fileName === 'string' ? { fileName: capUtf8Bytes(sanitizeDisplayText(fileName), 160) } : {})} />;
+            const fill = node.viewport === 'fill';
+            const named = node.fileNamePath === undefined ? undefined : resolvePath(data, node.fileNamePath);
+            const titled = typeof named === 'string' ? { fileName: capUtf8Bytes(sanitizeDisplayText(named), 160) } : {};
+            // An empty excerpt is nothing to show. An empty file still owns the
+            // screen's only scroller, and rendering nothing would take the pull
+            // that reloads it away with it.
+            if (typeof source !== 'string' || source === '') {
+                if (!fill) return null;
+                return <CodeCore code="" language={node.language} header fill
+                    maxLines={PLUGIN_CODE_MAX_LINES} maxChars={PLUGIN_CODE_MAX_CHARS}
+                    {...titled}
+                    {...(props.refreshControl === undefined ? {} : { refreshControl: props.refreshControl })} />;
+            }
+            return <CodeCore code={sanitizeDisplayText(source).replace(/\r\n/g, '\n')} language={node.language} header
+                maxLines={PLUGIN_CODE_MAX_LINES} maxChars={PLUGIN_CODE_MAX_CHARS}
+                {...(fill ? { fill: true } : {})}
+                {...(fill && props.refreshControl !== undefined ? { refreshControl: props.refreshControl } : {})}
+                {...titled} />;
         }
         case 'metric':
             return (
@@ -391,7 +412,11 @@ function ScreenBody(props: {
         ? undefined
         : `${props.pluginId}:${props.manifestHash}:${dataContributionId}:${paramsKey(callParams)}`,
     [callParams, dataContributionId, props.manifestHash, props.pluginId]);
-    const [data, setData] = React.useState<unknown>(() => cacheKey === undefined ? undefined : screenCache.get(cacheKey));
+    // The payload carries the key it was fetched for. A tab tap changes the key
+    // during render, so pairing them is what keeps the previous provider's
+    // totals from being committed for a frame under the new provider's name.
+    const [fetched, setFetched] = React.useState<{ key: string | undefined; value: unknown }>(() => ({ key: cacheKey, value: cacheKey === undefined ? undefined : screenCache.get(cacheKey) }));
+    const data = fetched.key === cacheKey ? fetched.value : cacheKey === undefined ? undefined : screenCache.get(cacheKey);
     const [dataError, setDataError] = React.useState<string>();
     const [fields, setFields] = React.useState<ScreenFieldValues>(() => initialFieldValues(screen));
     const [running, setRunning] = React.useState(false);
@@ -417,15 +442,15 @@ function ScreenBody(props: {
         if (dataContributionId === undefined || cacheKey === undefined) return;
         let cancelled = false;
         // Stale first, fresh behind it: a reopened screen never starts blank.
-        const cached = screenCache.get(cacheKey);
-        if (cached !== undefined) setData(cached);
+        // Another tab's payload is not stale data for this one, though: keeping
+        // it on screen would label one provider's totals with another's name.
         setLoading(true);
         setDataError(undefined);
         void loadScreenData(dataContributionId, props.manifest, props.pluginId, props.manifestHash, request, callParams)
             .then((value) => {
                 if (cancelled) return;
                 screenCache.set(cacheKey, value);
-                setData(value);
+                setFetched({ key: cacheKey, value });
                 const defaults = initialFieldValues(screen, value);
                 setFields((current) => Object.fromEntries(Object.entries(defaults).map(([id, initial]) =>
                     [id, dirtyFields.current.has(id) ? current[id] ?? initial : initial])));
@@ -498,27 +523,37 @@ function ScreenBody(props: {
     }, [props.manifest, props.manifestHash, callParams, props.pluginId, request]);
 
     const { theme } = useUnistyles();
-    const reduceMotion = useReducedMotion();
     // A reload keeps the last payload on screen: blanking to a spinner costs the
     // reader their place and re-runs the entrance on every tab tap.
     const hasContent = dataContributionId === undefined || data !== undefined || dataError !== undefined;
+    const refreshControl = dataContributionId === undefined ? undefined : (
+        <RefreshControl refreshing={refreshing} tintColor={theme.colors.textSecondary}
+            onRefresh={() => { setRefreshing(true); setRefreshNonce((value) => value + 1); }} />
+    );
+    // A node that fills the screen brings its own scroller, and two scrollers on
+    // one axis mount every row of the inner one. The screen keeps its chrome and
+    // stops scrolling; the node takes the height that is left.
+    const filled = screen.children.some((node) => node.type === 'code' && node.viewport === 'fill');
+    const Page = filled ? View : ScrollView;
     return (
-        <ScrollView
+        <Page
             style={{ flex: 1, backgroundColor: theme.colors.surface }}
-            contentContainerStyle={{
-                paddingTop: props.topContentInset ?? 0,
-                paddingBottom: safeArea.bottom + (props.bottomContentInset ?? 0),
-            }}
-            onScroll={props.onScroll}
-            scrollEventThrottle={16}
-            refreshControl={dataContributionId === undefined ? undefined : (
-                <RefreshControl refreshing={refreshing} tintColor={theme.colors.textSecondary}
-                    onRefresh={() => { setRefreshing(true); setRefreshNonce((value) => value + 1); }} />
-            )}
+            {...(filled ? {} : {
+                contentContainerStyle: {
+                    paddingTop: props.topContentInset ?? 0,
+                    paddingBottom: safeArea.bottom + (props.bottomContentInset ?? 0),
+                },
+                onScroll: props.onScroll,
+                scrollEventThrottle: 16,
+                refreshControl,
+            })}
         >
             <View
                 onLayout={handleContentLayout}
-                style={{ width: '100%', maxWidth: layout.maxWidth, alignSelf: 'center', padding: 14, paddingTop: 10, paddingBottom: 40 }}
+                style={[
+                    { width: '100%', maxWidth: layout.maxWidth, alignSelf: 'center', padding: 14, paddingTop: 10, paddingBottom: 40 },
+                    filled ? { flex: 1, paddingTop: (props.topContentInset ?? 0) + 10, paddingBottom: safeArea.bottom + (props.bottomContentInset ?? 0) + 14 } : {},
+                ]}
             >
                 <ScreenWidthProvider width={contentWidth}>
                     <LoadingHairline active={loading} />
@@ -528,14 +563,13 @@ function ScreenBody(props: {
                         <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4 }}>{t('plugins.retry')}</Text>
                     </Pressable>}
                     {hasContent
-                        ? <View style={{ opacity: loading ? 0.55 : 1 }}>
+                        ? <View style={[{ opacity: loading ? 0.55 : 1 }, filled ? { flex: 1 } : {}]}>
                             {screen.children.map((node, index) => (
-                                <Animated.View key={index} entering={reduceMotion ? undefined : FadeInDown.duration(MOTION.slow).delay(staggerDelay(index)).easing(houseEasing.factory())}>
-                                    <ScreenNode node={node} data={data} fields={fields} setField={setField} running={running} onButton={onButton} onRowAction={onRowAction} onTreeLoad={onTreeLoad}
-                                        tabOverrides={tabParams}
-                                        onSelectTab={(param, value) => setTabParams((current) => ({ ...current, [param]: value }))}
-                                        onTreeError={(error) => setStatus({ ok: false, text: humanError(error).message })} />
-                                </Animated.View>
+                                <ScreenNode key={index} node={node} data={data} fields={fields} setField={setField} running={running} onButton={onButton} onRowAction={onRowAction} onTreeLoad={onTreeLoad}
+                                    {...(refreshControl === undefined ? {} : { refreshControl })}
+                                    tabOverrides={tabParams}
+                                    onSelectTab={(param, value) => setTabParams((current) => ({ ...current, [param]: value }))}
+                                    onTreeError={(error) => setStatus({ ok: false, text: humanError(error).message })} />
                             ))}
                         </View>
                         : <ScreenSkeleton />}
@@ -552,7 +586,7 @@ function ScreenBody(props: {
                     )}
                 </ScreenWidthProvider>
             </View>
-        </ScrollView>
+        </Page>
     );
 }
 
