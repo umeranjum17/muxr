@@ -3,4 +3,4 @@ name = "Code"
 version = "0.1.0"
 min_herdr_version = "0.8.0"
 platforms = ["linux", "macos"]
-description = "Browse files, review changes, and read git history for the repository you are working in"
+description = "Installed by muxr — do not install directly. Browse files, review changes, and read git history for the repository you are working in"

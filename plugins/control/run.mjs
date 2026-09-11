@@ -115,11 +115,16 @@ persistHerdrInstance();
 
 const commands = new Map([
     ['setup', ['setup', '--from-plugin']],
-    ['pair', ['pair']],
+    // Browser Control is the default grant; the rest are explicit choices.
+    ['pair', ['pair', '--browser']],
+    ['pair-view', ['pair', '--browser-view']],
+    ['pair-personal', ['pair', '--browser-personal']],
+    ['pair-native', ['pair']],
     ['devices', ['devices', 'list']],
     ['doctor', ['doctor']],
     ['service', ['daemon', 'status']],
-    ['selfhost', ['self-host', '--web']],
+    ['shared-relay', ['shared-relay']],
+    ['voice', ['voice']],
 ]);
 
 if (command === 'start-if-configured') {

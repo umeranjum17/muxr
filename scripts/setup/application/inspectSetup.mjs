@@ -98,6 +98,10 @@ const FULL_UNINSTALL_ENTRIES = [
     'xai.key',
     'gemini.key',
     'openai.key',
+    // Herdr plugin runtime identity and invoking-instance record; the plugin
+    // checkout itself belongs to Herdr and stays until `herdr plugin uninstall`.
+    'herdr-plugin.runtime',
+    'herdr-plugin.env',
 ];
 
 export function validateUninstallRoot() {

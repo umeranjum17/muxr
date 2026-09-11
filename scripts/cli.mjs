@@ -9,6 +9,7 @@ import {
     BACK,
     applyMachineSetup,
     browserHostingCanEnable,
+    configureVoice,
     browserHostingReady,
     connectEnrollment,
     connectRemoteRelay,
@@ -74,6 +75,7 @@ Run and maintain
   muxr self-host [options]       run the relay, host, and pairing flow
   muxr daemon <command>          install, start, stop, restart, or inspect muxr services
   muxr devices list|revoke       list or revoke paired devices
+  muxr voice [status|select|key] choose and configure the realtime voice provider on this computer
   muxr machines enroll|list|revoke manage machines on a shared relay
   muxr peers list|read|status|watch|prompt use established computer collaboration
   muxr integrations sync|uninstall
@@ -93,6 +95,7 @@ const COMMAND_HELP = {
     'self-host': `muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]\n               [--port <n>] [--relay-only|--host-only] [--web] [--yes]\n               [--apply-config] [--dry-run]\n\n--apply-config reads ~/.muxr/config.env (flag > env > file > default) and applies it non-interactively; exits non-zero listing any missing decision.\n`,
     daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n\n\`install\` writes or updates the background-service definition without starting it. Normal \`muxr setup\` installs, starts, and verifies the service for you.\n`,
     devices: `muxr devices list\nmuxr devices revoke <number|name>\n`,
+    voice: `muxr voice\nmuxr voice status [--json]\nmuxr voice select <provider>\nmuxr voice key set [--stdin]\nmuxr voice key clear\n\nRealtime voice provider policy and credentials live on this computer only. Clients see configured/unavailable, never the provider or key. Keys are entered hidden or piped on stdin, never passed as arguments.\n`,
     integrations: `muxr integrations sync [--all] [--dry-run]\nmuxr integrations uninstall [--dry-run]\n\nSync Herdr lifecycle integrations only. Agent skills and prompt files are never changed.\n`,
     plugin: `muxr plugin docs\nmuxr plugin create <name>\nmuxr plugin clone <bundled-plugin-id> [destination]\nmuxr plugin check|dev <path> [--web]\nmuxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\nmuxr plugin list\nmuxr plugin install|update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\nmuxr plugin remove <plugin-id> [--yes]\n`,
     'plugin docs': `muxr plugin docs\n\nPrint absolute paths to the installed authoring guide and agent skill.\n`,
@@ -431,6 +434,7 @@ async function dispatch(command, args = []) {
     if (command === 'machines-menu') return manageMachines();
     if (command === 'connect') return connectEnrollment(args);
     if (command === 'self-host') return startSelfHost(args);
+    if (command === 'voice') return configureVoice(args);
     if (command === 'devices') {
         const [deviceCommand = 'list', ...deviceArgs] = args;
         if (deviceCommand === 'list') return listDevices();

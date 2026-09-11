@@ -8,20 +8,20 @@
  *   ~/.muxr/herdr-plugin.runtime — owner-only JSON: { bin, version }
  *
  * Resolution order: explicit MUXR_BIN (dev override, always wins and is
- * always reported) > `muxr` on PATH verified at the pinned version >
- * fresh pinned npm install. The runtime is never vendored into the plugin
+ * always reported) > `muxr` on PATH already at the resolved version >
+ * fresh exact npm install. The version is resolved from the registry once
+ * (`latest`, or the exact MUXR_CLI_PIN candidate/test override) together
+ * with its integrity, and both are recorded. The runtime is never vendored into the plugin
  * dir (herdr git installs have no integrity verification), never uses sudo,
  * and `muxr update` remains the single update owner afterwards. Daemon
  * ownership stays with the systemd/launchd unit muxr already writes; the
  * [[startup]] hook only kicks a configured service.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { installCommand, muxrVersion, writeRuntimeRecord } from './runtimeRecord.mjs';
 
-const root = dirname(fileURLToPath(import.meta.url));
 const fail = (message) => {
     process.stderr.write(`muxr plugin build: ${message}\n`);
     process.exit(1);
@@ -39,44 +39,60 @@ function whichMuxr() {
     return found === '' ? undefined : found;
 }
 
-// Pin to one exact version: an explicit MUXR_CLI_PIN, else the version of
-// the muxr checkout this plugin ships in (anchored by scripts/cli.mjs, so a
-// bare repo/subdir checkout without a built tree still resolves). `latest`
-// and tags are rejected: the payload must be reproducible.
-let pin = process.env.MUXR_CLI_PIN?.trim() || undefined;
-if (pin !== undefined && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(pin)) {
-    fail(`MUXR_CLI_PIN must be an exact version like 0.1.25 (got ${pin})`);
+// Resolve ONE exact version from the registry: an explicit MUXR_CLI_PIN
+// (candidate/test override), else whatever `latest` names right now. Tags
+// never reach the install line; the exact version and its integrity do, so
+// the payload is reproducible and reportable.
+const PACKAGE = '@trymuxr/cli';
+const EXACT = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+const requested = process.env.MUXR_CLI_PIN?.trim() || undefined;
+if (requested !== undefined && !EXACT.test(requested)) {
+    fail(`MUXR_CLI_PIN must be an exact version like 0.1.28 (got ${requested})`);
 }
-if (pin === undefined) {
-    let directory = root;
-    for (let depth = 0; depth < 6; depth += 1) {
-        if (existsSync(join(directory, 'scripts', 'cli.mjs')) && existsSync(join(directory, 'package.json'))) {
-            try {
-                const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'));
-                if (typeof manifest.version === 'string' && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(manifest.version)) {
-                    pin = manifest.version;
-                }
-            } catch {
-                // Unreadable manifest: fall through to the clear failure below.
-            }
-            break;
-        }
-        const parent = dirname(directory);
-        if (parent === directory) break;
-        directory = parent;
+if (process.env.SUDO_USER || process.env.SUDO_UID) {
+    fail('refusing to run under sudo; rerun as your user');
+}
+const lookup = spawnSync('npm', ['view', `${PACKAGE}@${requested ?? 'latest'}`, 'version', 'dist.integrity', '--json'], { encoding: 'utf8', timeout: 60_000 });
+if (lookup.status !== 0) fail(`could not resolve ${PACKAGE}@${requested ?? 'latest'} from the npm registry: ${(lookup.stderr || lookup.stdout || 'npm failed').trim().slice(0, 300)}`);
+let resolved;
+try {
+    const parsed = JSON.parse(lookup.stdout.trim());
+    const entry = Array.isArray(parsed) ? parsed[0] : parsed;
+    resolved = { version: entry?.version, integrity: entry?.['dist.integrity'] };
+} catch {
+    resolved = undefined;
+}
+if (resolved === undefined || !EXACT.test(String(resolved.version)) || typeof resolved.integrity !== 'string' || !resolved.integrity.startsWith('sha')) {
+    fail(`the npm registry answered without an exact version and integrity for ${PACKAGE}@${requested ?? 'latest'}`);
+}
+if (requested !== undefined && resolved.version !== requested) fail(`registry offered ${resolved.version} for the pinned ${requested}`);
+const pin = resolved.version;
+const integrity = resolved.integrity;
+
+/** Integrity npm recorded for the installed global copy, when it recorded one. */
+function installedIntegrity() {
+    const rootProbe = spawnSync('npm', ['root', '--global'], { encoding: 'utf8', timeout: 30_000 });
+    if (rootProbe.status !== 0) return undefined;
+    try {
+        const lock = JSON.parse(readFileSync(join(rootProbe.stdout.trim(), '.package-lock.json'), 'utf8'));
+        return lock?.packages?.[`node_modules/${PACKAGE}`]?.integrity;
+    } catch {
+        return undefined;
     }
 }
-if (pin === undefined) {
-    fail('cannot determine the pinned CLI version (no muxr checkout package.json, no MUXR_CLI_PIN); set MUXR_CLI_PIN=<exact version>');
-}
 
-function recordRuntime(bin, source) {
+function recordRuntime(bin, source, verifiedIntegrity) {
     try {
-        writeRuntimeRecord({ bin, version: pin, source });
+        writeRuntimeRecord({ bin, version: pin, source, ...(verifiedIntegrity === undefined ? {} : { integrity: verifiedIntegrity }) });
     } catch (cause) {
         fail(cause instanceof Error ? cause.message : String(cause));
     }
-    process.stdout.write(`muxr plugin build: plugin actions will execute ${bin} @ ${pin} (source: ${source}).\n`);
+    process.stdout.write([
+        `muxr plugin build: plugin actions will execute ${bin} @ ${pin} (source: ${source}${verifiedIntegrity === undefined ? '' : `, integrity ${verifiedIntegrity}`}).`,
+        'Next: open the Setup pane and follow it:',
+        '  herdr plugin pane open --plugin muxr.control --entrypoint setup',
+        '',
+    ].join('\n'));
 }
 
 // Explicit dev override: obvious, reported, and re-verified (not trusted blind).
@@ -88,15 +104,16 @@ if (devBin) {
 
 const onPath = whichMuxr();
 if (onPath !== undefined && muxrVersion(onPath) === pin) {
-    recordRuntime(onPath, '`muxr` on PATH at the pinned version');
+    recordRuntime(onPath, '`muxr` on PATH at the resolved version', installedIntegrity());
     process.exit(0);
 }
 
-if (process.env.SUDO_USER || process.env.SUDO_UID) {
-    fail('refusing to run under sudo; rerun as your user');
-}
-const install = spawnSync('npm', ['install', '--global', '--ignore-scripts', `@trymuxr/cli@${pin}`], { stdio: 'inherit' });
-if (install.status !== 0) fail(`npm install -g @trymuxr/cli@${pin} failed; install it manually, then rerun`);
+const install = spawnSync('npm', ['install', '--global', '--ignore-scripts', `${PACKAGE}@${pin}`], { stdio: 'inherit' });
+if (install.status !== 0) fail(`npm install -g ${PACKAGE}@${pin} failed; fix the npm error above, then rerun \`${installCommand(pin)}\``);
 const after = whichMuxr();
-if (after === undefined) fail(`installed @trymuxr/cli@${pin} but no \`muxr\` is on PATH afterwards`);
-recordRuntime(after, `npm install -g @trymuxr/cli@${pin}`);
+if (after === undefined) fail(`installed ${PACKAGE}@${pin} but no \`muxr\` is on PATH afterwards; add npm's global bin directory to PATH, then rerun`);
+const recordedIntegrity = installedIntegrity();
+if (recordedIntegrity !== undefined && recordedIntegrity !== integrity) {
+    fail(`installed ${PACKAGE}@${pin} has integrity ${recordedIntegrity}, but the registry lists ${integrity}; refusing to record it`);
+}
+recordRuntime(after, `npm install -g ${PACKAGE}@${pin}`, integrity);

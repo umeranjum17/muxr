@@ -1,8 +1,8 @@
 id = "muxr.control"
-name = "muxr"
+name = "muxr — Start here"
 version = "0.1.0"
 min_herdr_version = "0.8.0"
-description = "Set up and pair muxr from Herdr, and drive Herdr layout from your phone"
+description = "Start here: installs the muxr CLI from npm as your user (exact version, verified, no sudo) and opens Setup, Pair, Devices, Doctor, Service, shared relay and host voice as Herdr panes"
 platforms = ["linux", "macos"]
 
 # Thin bootstrap: install the pinned CLI payload on plugin install. The real
@@ -34,6 +34,10 @@ description = "Open a new pane below this one"
 contexts = ["pane"]
 command = ["herdr", "pane", "split", "--current", "--direction", "down"]
 
+# Every pane runs one declared muxr operation through run.mjs, which
+# executes the recorded runtime (~/.muxr/herdr-plugin.runtime) and carries
+# the invoking Herdr instance. Pairing defaults to browser Control; the
+# other grants and native pairing stay explicit alternatives.
 [[panes]]
 id = "setup"
 title = "muxr setup"
@@ -42,9 +46,27 @@ command = ["node", "./run.mjs", "setup"]
 
 [[panes]]
 id = "pair"
-title = "Pair muxr"
+title = "Pair this browser (Control, 8 hours)"
 placement = "overlay"
 command = ["node", "./run.mjs", "pair"]
+
+[[panes]]
+id = "pair-view"
+title = "Pair a View-only browser (8 hours)"
+placement = "overlay"
+command = ["node", "./run.mjs", "pair-view"]
+
+[[panes]]
+id = "pair-personal"
+title = "Pair a personal browser (Control, 30 days)"
+placement = "overlay"
+command = ["node", "./run.mjs", "pair-personal"]
+
+[[panes]]
+id = "pair-native"
+title = "Pair the native app (QR)"
+placement = "overlay"
+command = ["node", "./run.mjs", "pair-native"]
 
 [[panes]]
 id = "devices"
@@ -65,7 +87,13 @@ placement = "overlay"
 command = ["node", "./run.mjs", "service"]
 
 [[panes]]
-id = "selfhost"
-title = "muxr self-host relay"
+id = "shared-relay"
+title = "muxr shared relay"
 placement = "overlay"
-command = ["node", "./run.mjs", "selfhost"]
+command = ["node", "./run.mjs", "shared-relay"]
+
+[[panes]]
+id = "voice"
+title = "muxr host voice"
+placement = "overlay"
+command = ["node", "./run.mjs", "voice"]

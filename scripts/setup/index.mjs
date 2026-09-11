@@ -128,7 +128,8 @@ export {
     validateSetupPlan,
     writeOperatorConfig,
 } from './infrastructure/operatorConfig.mjs';
-export { BACK, heading, prompt, select, status } from './presentation/ui.mjs';
+export { BACK, heading, prompt, promptSecret, select, status } from './presentation/ui.mjs';
+export { configureVoice } from './application/voiceHost.mjs';
 export { hostEntry, relayEntry } from './infrastructure/paths.mjs';
 
 export { stateDir } from './infrastructure/runtime.mjs';

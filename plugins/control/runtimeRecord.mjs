@@ -1,6 +1,6 @@
 /**
  * The one Herdr-plugin runtime record: `~/.muxr/herdr-plugin.runtime`,
- * owner-only JSON `{ bin, version, source, recordedAt }` naming the exact
+ * owner-only JSON `{ bin, version, source, integrity?, recordedAt }` naming the exact
  * muxr executable every plugin action runs.
  *
  * Written by the plugin build (install) and refreshed by `muxr update`, the
@@ -46,7 +46,7 @@ export function readRuntimeRecord() {
  * Verify, then replace the record in one rename. Throws without touching the
  * existing record when `bin` does not report `version`.
  */
-export function writeRuntimeRecord({ bin, version, source }) {
+export function writeRuntimeRecord({ bin, version, source, integrity }) {
     const reported = muxrVersion(bin);
     if (reported !== version) {
         throw new Error(`runtime ${bin} reports ${reported ?? 'nothing'}; expected ${version} (source: ${source})`);
@@ -55,7 +55,7 @@ export function writeRuntimeRecord({ bin, version, source }) {
     const path = runtimePath();
     const temporary = `${path}.tmp-${process.pid}`;
     try {
-        writeFileSync(temporary, `${JSON.stringify({ bin, version, source, recordedAt: new Date().toISOString() })}\n`, { mode: 0o600, flag: 'wx' });
+        writeFileSync(temporary, `${JSON.stringify({ bin, version, source, ...(integrity === undefined ? {} : { integrity }), recordedAt: new Date().toISOString() })}\n`, { mode: 0o600, flag: 'wx' });
         chmodSync(temporary, 0o600);
         renameSync(temporary, path);
     } finally {

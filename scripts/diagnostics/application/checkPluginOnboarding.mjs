@@ -6,21 +6,29 @@
  * server, real PTYs, real systemd user supervision) — never by invoking
  * plugin scripts directly:
  *
- *   install from source @ pinned ref -> build hook pins the exact CLI
- *   (no sudo) -> missing payload errors -> unconfigured startup is a no-op
- *   -> setup pane opens -> review+cancel changes nothing -> apply LAN
- *   config -> real user service supervises relay+host -> health, pairing
- *   material, socket persistence -> unchanged reapply -> failure matrix
- *   (malformed config, occupied port, dead service must never say complete)
- *   -> browser-loopback gating -> update-check/unlink ownership.
+ *   install from source @ pinned ref -> build hook resolves `latest` from a
+ *   DISPOSABLE registry serving the real candidate tarball (exact version +
+ *   integrity, no sudo, no MUXR_BIN, no local link) -> missing payload
+ *   errors -> unconfigured startup is a no-op -> setup pane opens ->
+ *   review+cancel changes nothing -> apply LAN config -> real user service
+ *   supervises relay+host -> Doctor pane passes through the plugin -> health,
+ *   pairing material, socket persistence -> unchanged reapply -> failure
+ *   matrix (malformed config, occupied port, dead service must never say
+ *   complete) -> browser-loopback gating -> update to the second package
+ *   version (panes still operate) -> rollback (panes still operate) ->
+ *   Herdr uninstall keeps state -> `muxr uninstall` bounded teardown.
  *
  * What this gate does NOT claim: browser client hosting (the product gates
  * it on Tailscale Serve / External WSS / Cloudflare, none of which exist in
- * a clean room — the gate proves the refusal instead), macOS launchd, or a
- * phone completing pairing.
+ * a clean room — the gate proves the exact prerequisite instead), macOS
+ * launchd, or a device completing pairing.
  *
  * Usage:
- *   node scripts/diagnostics/application/checkPluginOnboarding.mjs [--only=a,b] [--keep] [--ref=<sha>]
+ *   node scripts/diagnostics/application/checkPluginOnboarding.mjs [--only=a,b] [--keep] [--ref=<sha>] [--tarball=<candidate.tgz>]
+ *
+ * The candidate tarball defaults to `npm pack` of dist-npm/ (run `yarn pack`
+ * first). Its identity (version, integrity) is printed and written to the
+ * report so the gate names exactly what it installed.
  *
  * Requires: docker, a systemd-capable image (GATE_IMAGE, default
  * muxr-gate-systemd:1 — build it from the sibling
@@ -34,7 +42,8 @@
  * pane attachments directory.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +56,7 @@ const KEEP = process.argv.includes('--keep');
 const ONLY = (process.argv.find((arg) => arg.startsWith('--only='))?.slice('--only='.length) ?? '')
     .split(',').map((stage) => stage.trim()).filter((stage) => stage !== '');
 const REF_ARG = process.argv.find((arg) => arg.startsWith('--ref='))?.slice('--ref='.length);
+const TARBALL_ARG = process.argv.find((arg) => arg.startsWith('--tarball='))?.slice('--tarball='.length);
 
 function gitHead() {
     const check = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' });
@@ -82,7 +92,7 @@ const dock = (args, options) => {
 const csh = (script, options) => dock(['sh', '-c', script], options);
 const cherdr = (args, options) => dock(['herdr', ...args], options);
 
-const state = { uid: undefined, pin: undefined, setupPane: undefined, workspace: undefined, rootPane: undefined, pluginCwd: undefined };
+const state = { uid: undefined, pin: undefined, setupPane: undefined, workspace: undefined, rootPane: undefined, pluginCwd: undefined, registry: undefined, tarball: undefined };
 
 /**
  * Is the pinned plugin ref fetchable from GitHub? Names resolve through
@@ -134,6 +144,63 @@ if (fetchable === false) {
 }
 if (fetchable === null) {
     process.stdout.write(`gate preflight: could not verify plugin ref ${REF} (network/tooling); continuing, install remains the backstop\n`);
+}
+try {
+    state.tarball = candidateTarball();
+    // A separate process: this gate blocks on spawnSync, which would freeze
+    // an in-process server mid-install. 0.0.0.0 so the container's
+    // host-gateway route reaches it; it lives for this run only.
+    state.registry = await startRegistryProcess(state.tarball);
+    process.stdout.write(`gate registry: ${state.registry.name} ${state.registry.versions.join(' / ')} from ${state.tarball} at ${state.registry.url}\n`);
+} catch (error) {
+    process.stderr.write(`gate preflight: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+}
+
+/** The real candidate package: the given tarball, else `npm pack` of dist-npm/. */
+function candidateTarball() {
+    if (TARBALL_ARG !== undefined) {
+        const given = resolve(TARBALL_ARG);
+        if (!existsSync(given)) throw new Error(`candidate tarball not found: ${given}`);
+        return given;
+    }
+    const distNpm = join(ROOT, 'dist-npm');
+    if (!existsSync(join(distNpm, 'package.json'))) throw new Error('no candidate: pass --tarball=<@trymuxr-cli-x.y.z.tgz> or run `yarn pack` first');
+    const dest = mkdtempSync(join(tmpdir(), 'muxr-gate-candidate-'));
+    const packed = sh(['npm', 'pack', '--json', '--pack-destination', dest], { spawn: { cwd: distNpm }, timeout: 120_000 });
+    if (packed.status !== 0) throw new Error(`npm pack failed: ${packed.stderr.slice(0, 300)}`);
+    const info = JSON.parse(packed.stdout);
+    const entry = Array.isArray(info) ? info[0] : Object.values(info)[0];
+    return join(dest, entry.filename);
+}
+
+function startRegistryProcess(tarball) {
+    return new Promise((resolvePromise, reject) => {
+        const child = spawn(process.execPath, [join(ROOT, 'scripts/diagnostics/application/disposableRegistry.mjs'), `--tarball=${tarball}`, '--host=0.0.0.0'], { stdio: ['ignore', 'pipe', 'pipe'] });
+        let out = '';
+        let err = '';
+        child.stdout.on('data', (chunk) => {
+            out += chunk;
+            const line = out.split('\n')[0];
+            if (!out.includes('\n')) return;
+            try {
+                const info = JSON.parse(line);
+                resolvePromise({
+                    ...info,
+                    integrity: (version) => info.integrity[version],
+                    setLatest: (version) => {
+                        const flip = sh(['curl', '-s', '-X', 'POST', `${info.url}__gate/latest/${version}`], { timeout: 15_000 });
+                        if (!flip.stdout.includes(version)) throw new Error(`could not move latest to ${version}: ${flip.stdout} ${flip.stderr}`);
+                    },
+                    close: () => { child.kill('SIGTERM'); return Promise.resolve(); },
+                });
+            } catch (cause) {
+                reject(cause);
+            }
+        });
+        child.stderr.on('data', (chunk) => { err += chunk; });
+        child.on('exit', (code) => reject(new Error(`registry exited (${code}): ${err.slice(0, 300)}`)));
+    });
 }
 
 /** Start the container herdr server headless (real mechanism, not the TUI). */
@@ -257,11 +324,39 @@ function waitForPrompt(paneId, pattern, timeoutMs = 90_000) {
 }
 
 function cleanup() {
+    void state.registry?.close();
     if (KEEP) {
         process.stdout.write(`gate cleanup: keeping container ${CONTAINER} (--keep)\n`);
         return;
     }
     sh(['docker', 'rm', '-f', CONTAINER], { timeout: 60_000 });
+}
+
+/**
+ * Run a declared plugin pane's command (`node ./run.mjs <entrypoint>` in the
+ * installed plugin checkout, exactly what Herdr executes for that pane) in
+ * the persistent workspace root pane: same PTY machinery, durable output. A
+ * `--placement overlay` pane closes with its process before it can be read.
+ */
+function runPluginPane(entrypoint, timeoutMs = 180_000) {
+    assert(state.rootPane !== undefined && state.pluginCwd !== undefined, 'workspace root pane or plugin cwd unknown');
+    const marker = `PANE-${entrypoint.toUpperCase()}-RC=`;
+    cherdr(['pane', 'run', state.rootPane, 'clear'], { timeout: 30_000 });
+    cherdr(['pane', 'run', state.rootPane, `cd ${state.pluginCwd} && node ./run.mjs ${entrypoint}; echo ${marker}$?`], { timeout: 30_000 });
+    const start = Date.now();
+    for (;;) {
+        const text = paneText(state.rootPane);
+        const match = new RegExp(`${marker}(\\d+)`).exec(text);
+        if (match !== null) return { text, code: Number(match[1]) };
+        if (Date.now() - start > timeoutMs) throw new Error(`${entrypoint} pane did not finish: ${text.slice(-600)}`);
+        sleep(3);
+    }
+}
+
+function runtimeRecord() {
+    const read = csh('cat .muxr/herdr-plugin.runtime');
+    assert(read.stdout.trim() !== '', 'no runtime record');
+    return JSON.parse(read.stdout);
 }
 
 let failed = false;
@@ -325,6 +420,7 @@ stage('container', () => {
     // instead makes systemd bail silently on cgroup2 hosts).
     const run = sh([
         'docker', 'run', '-d', '--name', CONTAINER, '--hostname', 'muxr-gate',
+        '--add-host=host.docker.internal:host-gateway',
         '--privileged', '--cgroupns=host', IMAGE,
     ], { timeout: 60_000 });
     assert(run.status === 0, `docker run failed: ${run.stderr.slice(0, 200)}`);
@@ -341,7 +437,13 @@ stage('container', () => {
     assert(pid1.stdout.trim() === 'systemd', `PID 1 is ${pid1.stdout.trim()}, not systemd`);
     const clean = csh('test -e .muxr && echo DIRTY || echo CLEAN');
     assert(clean.stdout.includes('CLEAN'), 'container HOME is not clean');
-    return `privileged systemd container, non-root, server up, HOME clean`;
+    // The only npm the container knows is the disposable registry: the
+    // candidate is served from here, every dependency proxied upstream.
+    assert(state.registry !== undefined, 'disposable registry not started');
+    csh(`printf 'registry=http://host.docker.internal:${state.registry.port}/\n' > .npmrc`);
+    const view = csh(`npm view ${state.registry.name}@latest version 2>&1`, { timeout: 60_000 });
+    assert(view.stdout.trim().endsWith(state.registry.versions[0]), `container cannot resolve the candidate from the disposable registry: ${view.stdout.slice(-200)}`);
+    return `privileged systemd container, non-root, server up, HOME clean, registry latest=${state.registry.versions[0]}`;
 });
 
 stage('install', () => {
@@ -350,25 +452,28 @@ stage('install', () => {
     assert(install.status === 0 && output.includes('Installed muxr.control'), `plugin install failed: ${output.slice(-500)}`);
     const list = cherdr(['plugin', 'list'], { timeout: 30_000 });
     assert(list.stdout.includes('muxr.control'), 'muxr.control missing from plugin list');
+    const logs = cherdr(['plugin', 'log', 'list'], { timeout: 30_000 });
+    assert(/build\.mjs/.test(logs.stdout) || output.includes('plugin actions will execute'), 'build hook left no record');
     return `muxr.control installed @ ${REF.slice(0, 12)}`;
 });
 
 stage('build-pin', () => {
-    // The pin is whatever checkout the installed plugin ships in.
-    const root = csh('ls -d .config/herdr/plugins/github/*/ | head -1');
-    const checkout = root.stdout.trim();
-    assert(checkout !== '', 'installed plugin checkout not found');
-    const manifest = csh(`node -e "console.log(JSON.parse(require('fs').readFileSync('${checkout}package.json','utf8')).version)"`);
-    const pin = manifest.stdout.trim();
-    assert(/^\d+\.\d+\.\d+/.test(pin), `unreadable pin in ${checkout}package.json`);
-    state.pin = pin;
+    // The pin is what the disposable registry called `latest`: the candidate.
+    const expected = state.registry.versions[0];
     const runtime = csh('stat -c "%a %U" .muxr/herdr-plugin.runtime; cat .muxr/herdr-plugin.runtime');
     assert(runtime.stdout.startsWith('600 gate'), `runtime not owner-only: ${runtime.stdout.split('\n')[0]}`);
     const recorded = JSON.parse(runtime.stdout.split('\n').slice(1).join('\n'));
-    assert(recorded.version === pin, `recorded ${recorded.version} != pin ${pin}`);
+    assert(recorded.version === expected, `recorded ${recorded.version} != candidate ${expected}`);
+    assert(recorded.integrity === state.registry.integrity(expected), `recorded integrity ${recorded.integrity} != candidate ${state.registry.integrity(expected)}`);
+    assert(/npm install -g/.test(recorded.source), `runtime was not installed from the registry: ${recorded.source}`);
+    state.pin = expected;
     const version = dock(['muxr', 'version'], { timeout: 30_000 });
-    assert(version.stdout.trim().split('\n').pop() === pin, `muxr on PATH is not ${pin}`);
-    return `exact pin ${pin}, runtime 0600, no sudo`;
+    assert(version.stdout.trim().split('\n').pop() === expected, `muxr on PATH is not ${expected}`);
+    const which = csh('command -v muxr');
+    assert(which.stdout.trim() === recorded.bin, `recorded bin ${recorded.bin} is not the PATH muxr ${which.stdout.trim()}`);
+    const lock = csh(`node -e "const l=JSON.parse(require('fs').readFileSync(require('child_process').execSync('npm root -g').toString().trim()+'/.package-lock.json','utf8'));console.log(l.packages['node_modules/@trymuxr/cli'].integrity)"`);
+    assert(lock.stdout.trim() === state.registry.integrity(expected), `installed integrity ${lock.stdout.trim()} != candidate`);
+    return `exact ${expected} from the disposable registry, integrity verified, runtime 0600, no sudo`;
 });
 
 stage('fail-payload', () => {
@@ -461,10 +566,21 @@ stage('service-supervised', () => {
     return 'real user unit active, relay healthy, doctor confirms';
 });
 
+stage('doctor-pane', () => {
+    const doctor = runPluginPane('doctor');
+    assert(doctor.code === 0 && /checks passed/i.test(doctor.text), `Doctor pane did not pass: ${doctor.text.slice(-600)}`);
+    return 'Doctor passes through the declared plugin pane';
+});
+
 stage('pairing', () => {
     const browser = dock(['muxr', 'pair', '--browser'], { timeout: 60_000 });
     const browserOut = `${browser.stdout}\n${browser.stderr}`;
     assert(/browser hosting is off/i.test(browserOut), `unexpected browser pairing output: ${browserOut.slice(-300)}`);
+    assert(/https|wss|tailscale|cloudflare|external/i.test(browserOut), `browser pairing refusal names no prerequisite: ${browserOut.slice(-300)}`);
+    assert(!/complete/i.test(browserOut.replace(/incomplete/gi, '')), 'browser pairing refusal reads as success');
+    // The declared pane runs the same operation and shows the same prerequisite.
+    const pane = runPluginPane('pair', 60_000);
+    assert(/browser hosting is off/i.test(pane.text), `Pair pane differs from the CLI: ${pane.text.slice(-300)}`);
     const phone = dock(['timeout', '25', 'muxr', 'pair'], { timeout: 60_000 });
     const phoneOut = `${phone.stdout}\n${phone.stderr}`;
     assert(/expir|scan|muxr:\/\//i.test(phoneOut), `phone pairing shows no material: ${phoneOut.slice(-300)}`);
@@ -563,22 +679,67 @@ stage('browser-loopback', () => {
     return 'browser hosting refused without wss; no silent exposure';
 });
 
-stage('update-check', () => {
-    const check = dock(['muxr', 'update', '--check'], { timeout: 120_000 });
-    assert(check.status === 0, `update --check failed: ${check.stderr.slice(0, 200)}`);
+stage('update', () => {
+    const [first, second] = state.registry.versions;
     const actions = cherdr(['plugin', 'action', 'list'], { timeout: 30_000 });
     assert(!/"plugin_id":"muxr.control"[^}]*update/i.test(actions.stdout), 'control plugin owns an update action');
-    return 'update --check clean; CLI owns updates, plugin does not';
+    const before = dock(['muxr', 'update', '--check'], { timeout: 120_000 });
+    assert(before.status === 0 && /is current/.test(before.stdout), `update --check before the second version: ${before.stdout.slice(-200)}`);
+    state.registry.setLatest(second);
+    const check = dock(['muxr', 'update', '--check'], { timeout: 120_000 });
+    assert(/available/.test(check.stdout) && check.stdout.includes(second), `second version not offered: ${check.stdout.slice(-200)}`);
+    const update = dock(['muxr', 'update', '--yes'], { timeout: 420_000 });
+    const output = `${update.stdout}\n${update.stderr}`;
+    assert(update.status === 0, `update failed (exit ${update.status}): ${output.slice(-800)}`);
+    assert(/Herdr plugin actions now execute .* @ /.test(output) && output.includes(second), `update did not move the plugin runtime record: ${output.slice(-400)}`);
+    const version = dock(['muxr', 'version'], { timeout: 30_000 });
+    assert(version.stdout.trim().split('\n').pop() === second, `muxr on PATH is not ${second} after update`);
+    const record = runtimeRecord();
+    assert(record.version === second, `runtime record is ${record.version}, not ${second}`);
+    const health = csh('curl -s --max-time 3 http://127.0.0.1:8792/health; echo');
+    assert(health.stdout.includes('"ok":true'), 'relay unhealthy after update');
+    const doctor = runPluginPane('doctor');
+    assert(doctor.code === 0 && /checks passed/i.test(doctor.text), `Doctor pane failed after update: ${doctor.text.slice(-600)}`);
+    return `${first} -> ${second}: package, runtime record and panes moved together`;
 });
 
-stage('unlink', () => {
-    const unlink = cherdr(['plugin', 'unlink', 'muxr.control'], { timeout: 60_000 });
-    assert(unlink.status === 0, `unlink failed: ${unlink.stderr.slice(0, 200)}`);
+stage('rollback', () => {
+    const [first, second] = state.registry.versions;
+    const rollback = dock(['muxr', 'update', '--to', first, '--allow-downgrade', '--yes'], { timeout: 420_000 });
+    const output = `${rollback.stdout}\n${rollback.stderr}`;
+    assert(rollback.status === 0, `rollback failed (exit ${rollback.status}): ${output.slice(-800)}`);
+    assert(/Rollback plan|Rolled back|Herdr plugin actions now execute/.test(output) && output.includes(first), `rollback did not report the record move: ${output.slice(-400)}`);
+    const version = dock(['muxr', 'version'], { timeout: 30_000 });
+    assert(version.stdout.trim().split('\n').pop() === first, `muxr on PATH is not ${first} after rollback`);
+    assert(runtimeRecord().version === first, 'runtime record did not roll back');
+    const doctor = runPluginPane('doctor');
+    assert(doctor.code === 0 && /checks passed/i.test(doctor.text), `Doctor pane failed after rollback: ${doctor.text.slice(-600)}`);
+    return `${second} -> ${first}: rollback keeps panes operable`;
+});
+
+stage('uninstall', () => {
+    // Herdr's uninstall removes the plugin checkout/shim only.
+    csh('mkdir -p .muxr/attachments && echo keep > .muxr/attachments/keep.txt');
+    const unlink = cherdr(['plugin', 'uninstall', 'muxr.control'], { timeout: 60_000 });
+    assert(unlink.status === 0, `herdr plugin uninstall failed: ${unlink.stderr.slice(0, 200)} ${unlink.stdout.slice(0, 200)}`);
     const list = cherdr(['plugin', 'list'], { timeout: 30_000 });
-    assert(!list.stdout.includes('muxr.control'), 'muxr.control still listed after unlink');
-    const kept = csh('test -f .muxr/selfhost.json && test -f .config/systemd/user/muxr.service && echo KEPT || echo LOST');
-    assert(kept.stdout.includes('KEPT'), 'unlink removed daemon or state');
-    return 'shim unlinked; daemon unit and ~/.muxr intact';
+    assert(!list.stdout.includes('muxr.control'), 'muxr.control still listed after uninstall');
+    const kept = csh('test -f .muxr/selfhost.json && test -f .config/systemd/user/muxr.service && command -v muxr >/dev/null && echo KEPT || echo LOST');
+    assert(kept.stdout.includes('KEPT'), 'herdr plugin uninstall removed the daemon, state or CLI');
+    const health = csh('curl -s --max-time 3 http://127.0.0.1:8792/health; echo');
+    assert(health.stdout.includes('"ok":true'), 'service stopped when the plugin checkout was removed');
+    // muxr's own uninstall is the bounded operational teardown.
+    const uninstall = dock(['muxr', 'uninstall', '--yes'], { timeout: 180_000 });
+    const output = `${uninstall.stdout}\n${uninstall.stderr}`;
+    assert(uninstall.status === 0, `muxr uninstall failed (exit ${uninstall.status}): ${output.slice(-600)}`);
+    const after = csh('test -e .muxr/selfhost.json && echo STATE; test -e .muxr/herdr-plugin.runtime && echo RUNTIME; test -e .config/systemd/user/muxr.service && echo UNIT; test -f .muxr/attachments/keep.txt && echo ATTACHMENTS-KEPT; echo END');
+    assert(!after.stdout.includes('STATE') && !after.stdout.includes('RUNTIME') && !after.stdout.includes('UNIT'), `uninstall left operational state: ${after.stdout}`);
+    assert(after.stdout.includes('ATTACHMENTS-KEPT'), 'uninstall deleted received attachments');
+    const workspaces = cherdr(['workspace', 'list'], { timeout: 30_000 });
+    assert(workspaces.stdout.includes(state.workspace), 'uninstall removed the Herdr workspace');
+    const active = sysctl(['is-active', 'muxr.service'], { timeout: 30_000 });
+    assert(active.stdout.trim() !== 'active', 'service still active after uninstall');
+    return 'Herdr uninstall keeps state and service; muxr uninstall removes runtime, keeps Herdr sessions and attachments';
 });
 
 // --- report ---------------------------------------------------------------
@@ -589,7 +750,14 @@ process.stdout.write(`\ngate summary: ${results.length - failures.length}/${resu
 if (failures.length > 0) process.stdout.write(`; failed: ${failures.join(', ')}`);
 process.stdout.write('\n');
 
-const report = { ref: REF, pin: state.pin, container: CONTAINER, image: IMAGE, results };
+const report = {
+    ref: REF,
+    pin: state.pin,
+    candidate: state.registry === undefined ? undefined : { tarball: state.tarball, versions: state.registry.versions, integrity: Object.fromEntries(state.registry.versions.map((version) => [version, state.registry.integrity(version)])) },
+    container: CONTAINER,
+    image: IMAGE,
+    results,
+};
 const reportJson = `${JSON.stringify(report, undefined, 2)}\n`;
 const paneId = process.env.HERDR_PANE_ID?.trim();
 if (paneId !== undefined && paneId !== '') {
