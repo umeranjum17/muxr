@@ -16,14 +16,12 @@
  * [[startup]] hook only kicks a configured service.
  */
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { installCommand, muxrVersion, writeRuntimeRecord } from './runtimeRecord.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
-const stateDir = () => process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
-const runtimePath = () => join(stateDir(), 'herdr-plugin.runtime');
 const fail = (message) => {
     process.stderr.write(`muxr plugin build: ${message}\n`);
     process.exit(1);
@@ -31,16 +29,7 @@ const fail = (message) => {
 
 const nodeMajor = Number(process.versions.node.split('.')[0] ?? 0);
 if (!Number.isInteger(nodeMajor) || nodeMajor < 22) {
-    fail(`node 22+ is required (found ${process.version}); install it, then rerun \`herdr plugin install muxr\``);
-}
-
-function muxrVersion(bin, args = ['version']) {
-    try {
-        const check = spawnSync(bin, args, { encoding: 'utf8', timeout: 15_000 });
-        return check.status === 0 ? check.stdout.trim().split('\n').pop() : undefined;
-    } catch {
-        return undefined;
-    }
+    fail(`node 22+ is required (found ${process.version}); install it, then rerun \`${installCommand()}\``);
 }
 
 function whichMuxr() {
@@ -82,11 +71,11 @@ if (pin === undefined) {
 }
 
 function recordRuntime(bin, source) {
-    const version = muxrVersion(bin);
-    if (version !== pin) fail(`resolved runtime ${bin} reports ${version ?? 'nothing'}; expected ${pin} (source: ${source})`);
-    mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
-    writeFileSync(runtimePath(), `${JSON.stringify({ bin, version, source, recordedAt: new Date().toISOString() })}\n`, { mode: 0o600 });
-    chmodSync(runtimePath(), 0o600);
+    try {
+        writeRuntimeRecord({ bin, version: pin, source });
+    } catch (cause) {
+        fail(cause instanceof Error ? cause.message : String(cause));
+    }
     process.stdout.write(`muxr plugin build: plugin actions will execute ${bin} @ ${pin} (source: ${source}).\n`);
 }
 

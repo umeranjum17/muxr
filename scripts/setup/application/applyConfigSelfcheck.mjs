@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { startSelfHost } from './startSelfHost.mjs';
 import { continueWithDirectTailscale, finalizeSetupPlan, selfhostArgsFromSetupPlan } from './finalizeSetupPlan.mjs';
-import { resolveSetupPlan, writeOperatorConfig } from '../infrastructure/operatorConfig.mjs';
+import { printOperatorConfig, resolveSetupPlan, writeOperatorConfig } from '../infrastructure/operatorConfig.mjs';
 
 const HOME = mkdtempSync(join(tmpdir(), 'muxr-apply-config-check-'));
 const INTENT_KEYS = ['MUXR_CONNECTION', 'MUXR_RELAY_PORT', 'MUXR_WEB', 'MUXR_ADVERTISE_URL', 'MUXR_INTEGRATIONS_SYNC', 'MUXR_NOTIFY_EMAIL'];
@@ -65,6 +65,20 @@ async function runApplyConfig(argv) {
     }
 }
 
+async function captureConfig(argv) {
+    let out = '';
+    const stdoutWrite = process.stdout.write.bind(process.stdout);
+    const stderrWrite = process.stderr.write.bind(process.stderr);
+    process.stdout.write = (chunk) => { out += String(chunk); return true; };
+    process.stderr.write = (chunk) => { out += String(chunk); return true; };
+    try {
+        return { code: printOperatorConfig(argv), out };
+    } finally {
+        process.stdout.write = stdoutWrite;
+        process.stderr.write = stderrWrite;
+    }
+}
+
 export async function applyConfigSelfcheck() {
     try {
         // Complete config applies (dry run) and reapply is idempotent.
@@ -103,6 +117,49 @@ export async function applyConfigSelfcheck() {
     const malformed = await runApplyConfig(['--apply-config', '--dry-run']);
     assert.equal(malformed.code, 1);
     assert.equal(snapshotHome(), before);
+
+    // Secret canary: a credential/query/fragment-bearing advertise URL and a
+    // mistyped secret-bearing line are refused before any output path, and
+    // no text or JSON receipt (config, plan, apply) ever repeats the value.
+    const CANARY = 'FAKE_SECRET_CANARY_7f3a';
+    const canaryConfigs = [
+        `MUXR_CONNECTION=external\nMUXR_ADVERTISE_URL=wss://audit:${CANARY}@example.invalid/?token=${CANARY}#${CANARY}\n`,
+        `MUXR_CONNECTION=external\nMUXR_ADVERTISE_URL=wss://example.invalid/${CANARY}\n`,
+        `MUXR_CONNECTION=lan\nMUXR_ADVERTISE_URL wss://audit:${CANARY}@example.invalid\n`,
+        `MUXR_CONNECTION=${CANARY}\n`,
+        `MUXR_CONNECTION=lan\nMUXR_RELAY_PORT=${CANARY}\n`,
+        `MUXR_CONNECTION=lan\nMUXR_WEB=${CANARY}\n`,
+        `MUXR_CONNECTION=lan\nMUXR_INTEGRATIONS_SYNC=${CANARY}\n`,
+    ];
+    for (const text of canaryConfigs) {
+        writeConfig(text);
+        before = snapshotHome();
+        const receipts = [];
+        for (const argv of [['--apply-config', '--dry-run'], ['--apply-config', '--dry-run', '--json'], ['--apply-config', '--json']]) {
+            const run = await runApplyConfig(argv);
+            assert.equal(run.code, 1, `canary config must be refused: ${argv.join(' ')}`);
+            receipts.push(run.out);
+        }
+        const config = await captureConfig([]);
+        assert.equal(config.code, 1);
+        receipts.push(config.out);
+        const configJson = await captureConfig(['--json']);
+        assert.equal(configJson.code, 1);
+        receipts.push(configJson.out);
+        for (const receipt of receipts) assert.doesNotMatch(receipt, new RegExp(CANARY), 'secret canary echoed');
+        assert.equal(snapshotHome(), before);
+    }
+    // The same canary is also refused when it arrives as env or flag.
+    writeConfig('MUXR_CONNECTION=lan\n');
+    process.env.MUXR_ADVERTISE_URL = `wss://audit:${CANARY}@example.invalid/`;
+    const envCanary = await captureConfig([]);
+    assert.equal(envCanary.code, 1);
+    assert.doesNotMatch(envCanary.out, new RegExp(CANARY));
+    delete process.env.MUXR_ADVERTISE_URL;
+    const flagCanary = await captureConfig(['--advertise', `wss://example.invalid/?k=${CANARY}`]);
+    assert.equal(flagCanary.code, 1);
+    assert.doesNotMatch(flagCanary.out, new RegExp(CANARY));
+    cleanEnv();
 
     // First-apply ordering (the wizard applies before writing config.env):
     // with no config file, finalize → apply argv → resolve must preserve a

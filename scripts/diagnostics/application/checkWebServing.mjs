@@ -74,6 +74,8 @@ try {
     check('relay index.html revalidates', cacheControl(index) === 'no-store', cacheControl(index));
     const csp = index.headers.get('content-security-policy') || '';
     check('relay web carries strict CSP', csp.includes("default-src 'self'") && csp.includes('wasm-unsafe-eval'), csp.slice(0, 60));
+    // The sandboxed same-origin preview frame must be embeddable; frames from any other origin stay blocked.
+    check('relay web CSP frames only itself', csp.includes("frame-src 'self'") && csp.includes("frame-ancestors 'none'"), csp);
     check('relay web allows self camera/mic', (index.headers.get('permissions-policy') || '').includes('camera=(self)'), index.headers.get('permissions-policy'));
 
     const worker = await get(relayBase, '/sw.js');

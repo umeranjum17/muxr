@@ -15,6 +15,14 @@
 const SCOPE = '/muxr-preview/';
 const ROUND_TRIP_TIMEOUT_MS = 25_000;
 const STRIPPED_HEADERS = new Set(['cookie', 'authorization', 'proxy-authorization', 'proxy-authenticate']);
+// Isolation is a property of the response, not of the button that opened it.
+// Every document this worker serves is sandboxed without allow-same-origin,
+// so a previewed app runs in an opaque origin whichever way it was reached:
+// it never sees this origin's storage, cookies, service workers or opener.
+// Popups stay inside the sandbox (no allow-popups-to-escape-sandbox), and a
+// top-level navigation is refused outright below.
+const DOCUMENT_SANDBOX = 'sandbox allow-scripts allow-forms allow-modals allow-popups allow-pointer-lock allow-downloads';
+const OVERRIDDEN_RESPONSE_HEADERS = new Set(['content-security-policy', 'content-security-policy-report-only', 'set-cookie', 'clear-site-data', 'service-worker-allowed']);
 
 let nextId = 0;
 const waiting = new Map();
@@ -46,6 +54,14 @@ function roundTrip(payload) {
 }
 
 async function handle(request, url) {
+    // A top-level document would be a first-class page on the PWA origin.
+    // Only frames may navigate here; the owning page embeds them.
+    if (request.mode === 'navigate' && request.destination !== 'iframe' && request.destination !== 'frame') {
+        return new Response('This preview only opens inside muxr. Go back to the muxr tab and use Preview there.', {
+            status: 403,
+            headers: { 'content-type': 'text/plain; charset=utf-8', 'content-security-policy': 'sandbox', 'cache-control': 'no-store' },
+        });
+    }
     const rest = url.pathname.slice(SCOPE.length);
     const slash = rest.indexOf('/');
     if (slash <= 0) return new Response('No preview channel.', { status: 404 });
@@ -71,9 +87,14 @@ async function handle(request, url) {
     }
     const out = new Headers();
     for (const [name, value] of answer.headers ?? []) {
-        // The app's session cookies stay on the host loopback: never stored here.
-        if (name.toLowerCase() === 'set-cookie') continue;
+        // The app's session cookies stay on the host loopback: never stored
+        // here, and the app cannot loosen or replace the sandbox below.
+        if (OVERRIDDEN_RESPONSE_HEADERS.has(name.toLowerCase())) continue;
         try { out.append(name, value); } catch { /* a bad app header must not break the page */ }
+    }
+    if (request.mode === 'navigate') {
+        out.set('content-security-policy', DOCUMENT_SANDBOX);
+        out.set('cache-control', 'no-store');
     }
     return new Response(answer.body ?? new Uint8Array(0), { status: answer.status, headers: out });
 }

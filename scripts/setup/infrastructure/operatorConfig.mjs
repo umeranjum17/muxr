@@ -63,11 +63,14 @@ function readConfigFile() {
     try {
         // parseEnv silently drops lines without `=` (the classic typo), so
         // validate the shape first: a malformed file must fail, never default.
+        // Never echo the line: a mistyped `MUXR_ADVERTISE_URL wss://u:p@…`
+        // is still secret-bearing. Name the position and the rule only.
         raw.split('\n').forEach((line, index) => {
             const trimmed = line.trim();
             if (trimmed === '' || trimmed.startsWith('#')) return;
             if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(trimmed)) {
-                throw new Error(`malformed ${path} line ${index + 1}: ${JSON.stringify(trimmed)} — expected KEY=value`);
+                const key = /^([A-Za-z_][A-Za-z0-9_]*)/.exec(trimmed)?.[1];
+                throw new Error(`malformed ${path} line ${index + 1}${key === undefined ? '' : ` (${key})`}: expected KEY=value`);
             }
         });
         parsed = parseEnv(raw);
@@ -97,29 +100,43 @@ function pick({ flag, envName, file, fallback, parse }) {
     return { value: fallback.value, provenance: fallback.provenance };
 }
 
-function parsePort(raw, _from) {
+// Validation errors name the key, its source and the rule. They never repeat
+// the submitted value: it reaches `muxr config`, JSON receipts, logs and
+// screenshots, and an advertise URL or a mistyped line can carry a secret.
+function parsePort(raw, from) {
     const port = Number(raw);
-    if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error(`relay port must be an integer from 1024 to 65535 (got ${raw})`);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error(`MUXR_RELAY_PORT (${from}) must be an integer from 1024 to 65535`);
     return port;
 }
 
 function parseConnection(raw, from) {
     const mode = raw.trim();
-    if (!CONNECTION_MODES.includes(mode)) throw new Error(`unknown connection ${mode} from ${from}; choose ${CONNECTION_MODES.join(', ')}`);
+    if (!CONNECTION_MODES.includes(mode)) throw new Error(`MUXR_CONNECTION (${from}) must be one of ${CONNECTION_MODES.join(', ')}`);
     return mode;
 }
 
 function parseWeb(raw, from) {
     if (truthy(raw)) return true;
     if (falsy(raw)) return false;
-    throw new Error(`MUXR_WEB must be true/false (got ${raw} from ${from})`);
+    throw new Error(`MUXR_WEB (${from}) must be true or false`);
 }
 
-function parseAdvertise(raw) {
+/** Root ws(s)://host[:port] only: userinfo, path, query and fragment are rejected before the value can be reported anywhere. */
+function parseAdvertise(raw, from) {
     const url = raw.trim().replace(/\/$/, '');
     if (url === '') return undefined;
-    const parsed = new URL(url);
-    if ((parsed.protocol !== 'wss:' && parsed.protocol !== 'ws:') || !parsed.hostname) throw new Error(`advertise URL must be a ws(s):// URL (got ${raw})`);
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch {
+        parsed = undefined;
+    }
+    if (
+        parsed === undefined || (parsed.protocol !== 'wss:' && parsed.protocol !== 'ws:') || !parsed.hostname
+        || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash
+    ) {
+        throw new Error(`MUXR_ADVERTISE_URL (${from}) must be a root ws(s)://host[:port] URL without credentials, path, query, or fragment`);
+    }
     return url;
 }
 
@@ -141,7 +158,7 @@ export function parseExternalAdvertiseUrl(raw, from = 'operator config') {
         parsed === undefined || parsed.protocol !== 'wss:' || !parsed.hostname
         || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash
     ) {
-        throw new Error(`external advertise URL must be a root wss://host URL without credentials, query, or fragment (got ${raw} from ${from})`);
+        throw new Error(`MUXR_ADVERTISE_URL (${from}) must be a root wss://host URL without credentials, query, or fragment for an external connection`);
     }
     return parsed.toString().replace(/\/$/, '');
 }
@@ -192,7 +209,7 @@ export function resolveOperatorConfig({ args = [], probed = {} } = {}) {
         fallback: { value: probed.integrationsSync ?? 'auto', provenance: 'default' },
         parse: (raw, from) => {
             const value = raw.trim().toLowerCase();
-            if (!['auto', 'on', 'off'].includes(value)) throw new Error(`integrations sync must be auto/on/off (got ${raw} from ${from})`);
+            if (!['auto', 'on', 'off'].includes(value)) throw new Error(`MUXR_INTEGRATIONS_SYNC (${from}) must be auto, on, or off`);
             return value;
         },
     });

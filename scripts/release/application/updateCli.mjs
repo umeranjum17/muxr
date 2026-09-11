@@ -2,9 +2,10 @@ import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runBootstrap, daemonIsRunning, daemonMode, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from '../../setup/index.mjs';
 import { compareVersions, channelTags, releaseVersion, resolveChannel } from '../domain/channel.mjs';
+import { pluginFolder } from '../../setup/infrastructure/paths.mjs';
 
 const PACKAGE = '@trymuxr/cli';
 
@@ -149,6 +150,13 @@ export async function updateCli(command = {}) {
     const install = npm(['install', '--global', '--ignore-scripts', `${PACKAGE}@${target}`], 'inherit');
     if (install.status !== 0) return install.status ?? 1;
 
+    // The Herdr plugin runs whatever executable its runtime record names, at
+    // exactly the recorded version. Move that record to the installed target
+    // now, verified, or every plugin action would refuse the new version. A
+    // record that cannot be verified is left as it was and reported.
+    const runtimeRefresh = await refreshHerdrPluginRuntime(target);
+    if (runtimeRefresh !== undefined) process.stdout.write(`${runtimeRefresh}\n`);
+
     if (restartMode !== 'relay' && (await runBootstrap(['--no-install-herdr'])) !== 0) {
         process.stderr.write('The package updated, but the Herdr/plugin refresh failed. Run `muxr doctor`.\n');
         return 1;
@@ -183,6 +191,35 @@ export async function updateCli(command = {}) {
     const restartedNote = restarted === '' ? '' : ` and restarted the ${restarted}`;
     process.stdout.write(`${action} muxr to ${target}${restartedNote}.\n`);
     return 0;
+}
+
+/**
+ * Refresh `~/.muxr/herdr-plugin.runtime` to the installed target through the
+ * plugin's own record module (the record format has one owner). Returns a
+ * line to print, or undefined when no plugin record exists.
+ */
+async function refreshHerdrPluginRuntime(target) {
+    let record;
+    try {
+        record = await import(pathToFileURL(join(pluginFolder('control'), 'runtimeRecord.mjs')).href);
+    } catch {
+        return undefined;
+    }
+    const existing = record.readRuntimeRecord();
+    if (existing === undefined) return undefined;
+    // The recorded executable normally is the npm global shim and now reports
+    // the target; otherwise the `muxr` on PATH may. Whichever verifies wins,
+    // and nothing is written when neither does.
+    const probe = spawnSync('sh', ['-c', 'command -v muxr'], { encoding: 'utf8', timeout: 10_000 });
+    const onPath = probe.status === 0 ? probe.stdout.trim().split('\n').pop()?.trim() : undefined;
+    const candidates = [existing.bin, ...(onPath && onPath !== existing.bin ? [onPath] : [])];
+    const bin = candidates.find((candidate) => record.muxrVersion(candidate) === target);
+    if (bin === undefined) {
+        process.stderr.write(`warn: Herdr plugin runtime record kept at ${existing.version}: no muxr executable reports ${target}. Run \`muxr doctor\`.\n`);
+        return undefined;
+    }
+    record.writeRuntimeRecord({ bin, version: target, source: `muxr update to ${PACKAGE}@${target}` });
+    return `Herdr plugin actions now execute ${bin} @ ${target}.`;
 }
 
 export { compareVersions };

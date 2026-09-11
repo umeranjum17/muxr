@@ -54,6 +54,7 @@ const checks = [
     ['e2e: second host retires the first', 'node', ['scripts/diagnostics/application/checkHostTakeover.mjs']],
     ['e2e: wire + RPC (all event types)', 'node', ['scripts/diagnostics/application/runSkeletonCheck.mjs']],
     ['e2e: browser preview tunnel', 'node', ['scripts/diagnostics/application/checkPreviewTunnel.mjs']],
+    ['e2e: browser wrapping-key race + preview response isolation (headless Chromium)', 'node', ['scripts/diagnostics/application/checkBrowserSecurity.mjs'], undefined, 240000],
     ['gate: herdr plugin onboarding (clean systemd container)', 'node', ['scripts/diagnostics/application/checkPluginOnboarding.mjs'], 'docker', 1500000],
     ['unit: takeover control arbitration (control, observe, release)', 'node', ['apps/host/dist/requests/infrastructure/previewArbitration.selfCheck.js']],
     ['e2e: herdr backend loop (live server)', 'node', ['scripts/diagnostics/application/checkHerdrE2E.mjs'], 'herdr', 180000],

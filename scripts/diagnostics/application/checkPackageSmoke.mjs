@@ -945,8 +945,41 @@ try {
     assert.match(`${prefixMismatch.stdout}${prefixMismatch.stderr}`, /different npm prefix/);
     assert.ok(!existsSync(updateLog), 'prefix mismatch reached npm install');
 
-    run(cli, ['update', '--to', '9.9.9', '--yes'], { cwd: installDir, env: updateEnv });
+    // The Herdr plugin runtime record moves with a verified update and stays
+    // put through a failed one: a shim standing in for the npm global `muxr`
+    // reports whatever version the (fake) install last wrote.
+    const runtimeShimDir = join(scratch, 'runtime-shim');
+    mkdirSync(runtimeShimDir, { recursive: true });
+    const runtimeVersionFile = join(runtimeShimDir, 'version');
+    const runtimeShim = join(runtimeShimDir, 'muxr');
+    writeFileSync(runtimeVersionFile, `${packageJson.version}\n`);
+    writeFileSync(runtimeShim, `#!/bin/sh\nif [ "$1" = version ]; then cat ${JSON.stringify(runtimeVersionFile)}; exit 0; fi\nexit 1\n`, { mode: 0o755 });
+    const runtimeRecordPath = join(home, '.muxr', 'herdr-plugin.runtime');
+    writeFileSync(runtimeRecordPath, `${JSON.stringify({ bin: runtimeShim, version: packageJson.version, source: 'smoke', recordedAt: new Date().toISOString() })}\n`, { mode: 0o600 });
+    writeFileSync(updateNpm, '#!/bin/sh\nif [ "$1" = view ]; then printf \'"%s"\\n\' "${MUXR_UPDATE_LATEST:-9.9.9}"; exit 0; fi\nif [ "$1 $2" = "root --global" ]; then printf "%s\\n" "$MUXR_UPDATE_NPM_ROOT"; exit 0; fi\nif [ "$1" = install ]; then printf "%s\\n" "$*" >> "$MUXR_UPDATE_LOG"; if [ -n "$MUXR_UPDATE_FAIL" ]; then exit 1; fi; printf "%s\\n" "${MUXR_UPDATE_LATEST:-9.9.9}" > "$MUXR_UPDATE_VERSION_FILE"; exit 0; fi\nexit 1\n', { mode: 0o755 });
+    const runtimeEnv = { ...updateEnv, MUXR_UPDATE_VERSION_FILE: runtimeVersionFile };
+    const failedUpdate = run(cli, ['update', '--to', '9.9.7', '--yes'], { cwd: installDir, env: { ...runtimeEnv, MUXR_UPDATE_LATEST: '9.9.7', MUXR_UPDATE_FAIL: '1' }, allowFailure: true });
+    assert.notEqual(failedUpdate.status, 0, 'a failed npm install reported success');
+    assert.equal(JSON.parse(readFileSync(runtimeRecordPath, 'utf8')).version, packageJson.version, 'a failed update moved the Herdr plugin runtime record');
+    assert.equal(readFileSync(runtimeVersionFile, 'utf8').trim(), packageJson.version);
+
+    const upgraded = run(cli, ['update', '--to', '9.9.9', '--yes'], { cwd: installDir, env: runtimeEnv });
     assert.match(readFileSync(updateLog, 'utf8'), /install --global --ignore-scripts @trymuxr\/cli@9\.9\.9/);
+    assert.match(upgraded.stdout, /Herdr plugin actions now execute .* @ 9\.9\.9/);
+    const movedRecord = JSON.parse(readFileSync(runtimeRecordPath, 'utf8'));
+    assert.deepEqual([movedRecord.bin, movedRecord.version], [runtimeShim, '9.9.9'], 'update did not refresh the Herdr plugin runtime record');
+    assert.equal(statSync(runtimeRecordPath).mode & 0o777, 0o600);
+    // The plugin entrypoint executes exactly the recorded runtime afterwards.
+    const controlRun = run(process.execPath, [join(installDir, 'node_modules', '@trymuxr', 'cli', 'plugins', 'control', 'run.mjs'), 'doctor'], {
+        cwd: installDir, env: { ...env, MUXR_HOME: join(home, '.muxr') }, allowFailure: true,
+    });
+    assert.doesNotMatch(`${controlRun.stdout}${controlRun.stderr}`, /recorded runtime .* falling back|is not the recorded/, 'plugin actions refused the updated runtime');
+    // Rollback is the same owner and the same record transition, downward.
+    const rolledBack = run(cli, ['update', '--to', '9.9.8', '--allow-downgrade', '--yes'], { cwd: installDir, env: { ...runtimeEnv, MUXR_UPDATE_LATEST: '9.9.8' } });
+    assert.match(rolledBack.stdout, /Herdr plugin actions now execute .* @ 9\.9\.8/);
+    assert.equal(JSON.parse(readFileSync(runtimeRecordPath, 'utf8')).version, '9.9.8');
+    run(cli, ['update', '--to', '9.9.9', '--yes'], { cwd: installDir, env: runtimeEnv });
+    rmSync(runtimeRecordPath, { force: true });
     const linuxUnit = readFileSync(join(home, '.config', 'systemd', 'user', 'muxr.service'), 'utf8');
     assert.match(linuxUnit, /MUXR_MODE=.*selfhost/, 'update removed the daemon mode');
     assert.ok(linuxUnit.includes(`Environment=PATH="${env.PATH}:`), 'Linux daemon dropped the interactive executable path');

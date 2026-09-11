@@ -13,32 +13,11 @@
  */
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+import { installCommand, muxrVersion, readRuntimeRecord, runtimePath, stateDir } from './runtimeRecord.mjs';
 
-const root = dirname(fileURLToPath(import.meta.url));
-const stateDir = () => process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
-const runtimePath = () => join(stateDir(), 'herdr-plugin.runtime');
 const instancePath = () => join(stateDir(), 'herdr-plugin.env');
 const command = process.argv[2];
-
-function readJson(path) {
-    try {
-        return JSON.parse(readFileSync(path, 'utf8'));
-    } catch {
-        return undefined;
-    }
-}
-
-function muxrVersion(bin) {
-    try {
-        const check = spawnSync(bin, ['version'], { encoding: 'utf8', timeout: 15_000 });
-        return check.status === 0 ? check.stdout.trim().split('\n').pop() : undefined;
-    } catch {
-        return undefined;
-    }
-}
 
 /** Durable record of the invoking Herdr instance (state stays in ~/.muxr). */
 function persistHerdrInstance() {
@@ -84,17 +63,17 @@ function resolveRuntime() {
         process.stderr.write(`muxr control: using MUXR_BIN dev override ${devBin}\n`);
         return devBin;
     }
-    const recorded = readJson(runtimePath());
-    if (typeof recorded?.bin === 'string' && recorded.bin !== '') {
+    const recorded = readRuntimeRecord();
+    if (recorded !== undefined) {
         const version = muxrVersion(recorded.bin);
         if (version === recorded.version) return recorded.bin;
         process.stderr.write(`muxr control: recorded runtime ${recorded.bin} reports ${version ?? 'nothing'} (expected ${recorded.version}); falling back to PATH\n`);
     }
     const probe = spawnSync('sh', ['-c', 'command -v muxr'], { encoding: 'utf8', timeout: 10_000 });
     const onPath = probe.status === 0 ? probe.stdout.trim().split('\n').pop()?.trim() : undefined;
-    if (onPath === undefined || onPath === '') throw new Error('no muxr runtime: rerun `herdr plugin install muxr` (or set MUXR_BIN to a dev checkout CLI)');
+    if (onPath === undefined || onPath === '') throw new Error(`no muxr runtime: rerun \`${installCommand(recorded?.version)}\` (or set MUXR_BIN to a dev checkout CLI)`);
     if (typeof recorded?.version === 'string' && muxrVersion(onPath) !== recorded.version) {
-        throw new Error(`muxr on PATH is not the pinned ${recorded.version}; rerun \`herdr plugin install muxr\` to repair (or set MUXR_BIN)`);
+        throw new Error(`muxr on PATH is not the recorded ${recorded.version}; run \`muxr update\` to move the record, or rerun \`${installCommand(recorded.version)}\` to repair (or set MUXR_BIN)`);
     }
     return onPath;
 }

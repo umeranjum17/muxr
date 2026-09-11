@@ -53,7 +53,7 @@ createServer(async (req, res) => {
         const entry = path === '/index.html' || path === '/sw.js' || path === '/manifest.webmanifest';
         res.writeHead(200, {
             'content-type': mime[extname(path)] ?? 'application/octet-stream',
-            'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+            'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
             'x-content-type-options': 'nosniff',
             'referrer-policy': 'no-referrer',
             ...(entry ? { 'cache-control': 'no-store' } : {}),
@@ -65,7 +65,7 @@ createServer(async (req, res) => {
             res.writeHead(200, {
                 'content-type': 'text/html',
                 'cache-control': 'no-store',
-                'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+                'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
                 'x-content-type-options': 'nosniff',
                 'referrer-policy': 'no-referrer',
             });

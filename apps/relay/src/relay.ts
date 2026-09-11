@@ -338,7 +338,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             res.writeHead(200, {
                 'content-type': webMime[extname(path).toLowerCase()] ?? 'application/octet-stream',
                 'cache-control': webEntryFile(path) || entryFallback ? 'no-store' : 'public, max-age=31536000, immutable',
-                'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+                'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
                 // The web client is a same-origin installed app surface, not an
                 // API response: camera/mic stay usable for future foreground
                 // voice and QR flows. The global API policy remains deny-by-default.
