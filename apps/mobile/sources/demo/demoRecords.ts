@@ -103,16 +103,16 @@ export const DEMO_ATTENTION: AttentionEntry[] = [
     },
 ];
 
-function lifecycleEvent(eventId: string, sessionId: string, agentName: string, state: AgentLifecycle, reasonCode: LifecycleEvent['reasonCode'], minutesAgo: number): LifecycleEvent {
-    return { eventId, sessionId, agentName, state, reasonCode, reason: reasonCode, at: at(minutesAgo) };
+function lifecycleEvent(eventId: string, sessionId: string, agentName: string, agentKind: string, state: AgentLifecycle, reasonCode: LifecycleEvent['reasonCode'], minutesAgo: number): LifecycleEvent {
+    return { eventId, sessionId, agentName, agentKind, state, reasonCode, reason: reasonCode, at: at(minutesAgo) };
 }
 
 export const DEMO_LIFECYCLE = {
     revision: 1,
     events: [
-        lifecycleEvent('demo-ev-working', DEMO_SESSION_WORKING, 'Atlas', 'working', 'agent-working', 9),
-        lifecycleEvent('demo-ev-blocked', DEMO_SESSION_BLOCKED, 'Bex', 'blocked', 'agent-blocked', 4),
-        lifecycleEvent('demo-ev-done', DEMO_SESSION_DONE, 'Cy', 'done', 'agent-done', 11),
+        lifecycleEvent('demo-ev-working', DEMO_SESSION_WORKING, 'Atlas', 'claude', 'working', 'agent-working', 9),
+        lifecycleEvent('demo-ev-blocked', DEMO_SESSION_BLOCKED, 'Bex', 'codex', 'blocked', 'agent-blocked', 4),
+        lifecycleEvent('demo-ev-done', DEMO_SESSION_DONE, 'Cy', 'pi', 'done', 'agent-done', 11),
     ],
 };
 

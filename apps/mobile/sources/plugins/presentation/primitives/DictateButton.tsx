@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator } from 'react-native';
+import { ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { BubblePressable } from '@/components/BubblePressable';
@@ -14,14 +14,19 @@ export function DictateButton({ context }: PrimitiveProps) {
     const setText = ready ? context.setText : () => {};
     const dictation = useDictation(getText, setText);
     if (!ready) return null;
+    // On-device dictation lives in the native apps. A control that cannot act
+    // here is disabled with its reason, never a post-tap alert.
+    const unavailable = Platform.OS === 'web';
     return (
         <BubblePressable
-            onPress={dictation.toggle}
-            style={{ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' }}
+            onPress={unavailable ? undefined : dictation.toggle}
+            disabled={unavailable}
+            style={{ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', opacity: unavailable ? 0.4 : 1 }}
             pressedStyle={{ backgroundColor: theme.colors.glass.backgroundSubtle }}
             accessibilityRole="button"
             accessibilityLabel={t('plugins.dictate')}
-            accessibilityState={{ busy: dictation.transcribing, selected: dictation.recording }}
+            accessibilityHint={unavailable ? 'Dictation is in the Android and iOS apps' : undefined}
+            accessibilityState={{ busy: dictation.transcribing, selected: dictation.recording, disabled: unavailable }}
         >
             {dictation.transcribing
                 ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />

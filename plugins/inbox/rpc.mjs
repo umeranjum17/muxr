@@ -92,14 +92,21 @@ if (process.argv[2] === 'count') {
 }
 
 const grouped = new Map();
-for (const bucket of ['needsYou', 'working', 'done']) {
+// A workspace ranks by its most urgent row, so an approval in "Z project"
+// never sits below finished work in "A project".
+const urgency = new Map();
+const BUCKETS = ['needsYou', 'working', 'done'];
+for (const [rank, bucket] of BUCKETS.entries()) {
     for (const entry of columns[bucket]) {
         const group = grouped.get(entry.workspace) ?? [];
         group.push(entry.row);
         grouped.set(entry.workspace, group);
+        if (!urgency.has(entry.workspace)) urgency.set(entry.workspace, rank);
     }
 }
 function workspaceOrder(left, right) {
+    const byUrgency = urgency.get(left) - urgency.get(right);
+    if (byUrgency !== 0) return byUrgency;
     if (left === 'Other') return 1;
     if (right === 'Other') return -1;
     return left.localeCompare(right);

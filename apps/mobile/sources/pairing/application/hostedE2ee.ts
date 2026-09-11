@@ -32,7 +32,7 @@ import {
 import { acceptVerifiedGrant, grantRejectsDowngrade, type DeviceAuthority } from '../domain/hostedGrant';
 import { restoreConnection } from './restoreConnection';
 
-export { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '../domain/pairingString';
+export { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingLifetime, prepareHostedPairingInput } from '../domain/pairingString';
 
 const DEVICE_KEY = 'muxr.hosted-e2ee.device.v2';
 const REPLAY_KEY = 'muxr.hosted-e2ee.replay.v2';

@@ -38,7 +38,7 @@ function onlyPairQuery(parsed: URL): boolean {
 function wellFormedBrowserPairQuery(parsed: URL): boolean {
     const codes = parsed.searchParams.getAll('pair');
     const role = parsed.searchParams.get('role');
-    const knownKeys = [...parsed.searchParams.keys()].every((key) => key === 'pair' || key === 'role');
+    const knownKeys = [...parsed.searchParams.keys()].every((key) => key === 'pair' || key === 'role' || key === 'personal');
     return codes.length === 1
         && codes[0] !== ''
         && (role === 'control' || role === 'observe')
@@ -89,7 +89,7 @@ function pairingUrlOrReject(value: string): PairingStringParse {
     // Ordinary ASCII whitespace is wrapping from terminals; strip it while
     // still rejecting control and bidi spoofing characters.
     const input = value.trim().replace(/[ \t\r\n]+/g, '');
-    if (input.length === 0) return { ok: false, error: 'Enter a pairing string from `muxr setup` or `muxr pair`.' };
+    if (input.length === 0) return { ok: false, error: 'Enter a pairing string from muxr setup or muxr pair.' };
     if (input.length > 65_536) return { ok: false, error: 'This pairing string is too large. Create a fresh one on the computer.' };
     if (UNSAFE_PAIRING_TEXT.test(input)) {
         return { ok: false, error: 'This pairing string contains hidden control characters. Create a fresh one and scan or paste it exactly.' };
@@ -118,9 +118,9 @@ function pairingUrlOrReject(value: string): PairingStringParse {
             return acceptPairing(input);
         }
         if (hasPairingPayload(parsed)) return acceptPairing(input);
-        return { ok: false, error: 'This browser pairing link has no pairing code. Create a fresh one with `muxr pair --browser`.' };
+        return { ok: false, error: 'This browser pairing link has no pairing code. Create a fresh one with muxr pair --browser.' };
     }
-    return { ok: false, error: 'This is not a muxr pairing string. Create a fresh one with `muxr setup` or `muxr pair`.' };
+    return { ok: false, error: 'This is not a muxr pairing string. Create a fresh one with muxr setup or muxr pair.' };
 }
 
 function acceptPairing(url: string): PairingStringParse {
@@ -165,4 +165,16 @@ export function hostedPairingAuthority(url: string): PairingAuthority {
 
 export function hostedPairingDisplayName(url: string): string {
     return pairingDisplayNameOf(url);
+}
+
+/**
+ * The lifetime the link asks for. Personal browser grants (`--browser-personal`)
+ * last 30 days; every other browser grant eight hours. The host mints the
+ * real expiry, so confirmed copy reads the grant, not this.
+ */
+export function hostedPairingLifetime(url: string): 'eight hours' | '30 days' {
+    const fragment = pairingSearchParams(url);
+    if (fragment.get('personal') === '1') return '30 days';
+    const decoded = compactPairingRecord(fragment.get('payload'));
+    return decoded?.personal === true ? '30 days' : 'eight hours';
 }

@@ -105,6 +105,8 @@ export function pairingIntent(input: { kind?: unknown; authority?: unknown; pers
             locator.protocol = 'https:';
             locator.pathname = '/pair';
             locator.searchParams.set('role', authority);
+            // Consent copy reads the lifetime from here; the host still decides it.
+            if (personal) locator.searchParams.set('personal', '1');
             return locator.toString();
         },
         promptLine() {

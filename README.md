@@ -131,14 +131,19 @@ npm install -g --ignore-scripts @trymuxr/cli@0.1.25
 muxr
 ```
 
-Then install the mobile companion:
+Setup explains one recommended route—the healthy current route, Tailscale, an existing private network, an installed temporary tunnel, or same Wi-Fi—and changes nothing until **Apply setup**. It then pairs **this browser** first: no phone or app store required. Try the in-app **interactive demo** before installing anything (see `docs/decisions/0006-pwa-primary-acquisition.md`).
 
-- **Web (fastest first contact):** open the in-app **Try interactive demo** replay, then run the install command below and `muxr` — first setup pairs your browser first, no phone required; see `docs/decisions/0006-pwa-primary-acquisition.md`
-- **Android:** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the latest signed APK](https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest/download/SHA256SUMS)
+Browser access is a grant you choose, and it expires:
+
+- `muxr pair --browser` — full terminal and agent control for eight hours (the default).
+- `muxr pair --browser-view` — view-only for eight hours.
+- `muxr pair --browser-personal` — control for 30 days, for a browser only you use. Installing the web app does not extend a grant on its own; only this flag does.
+
+Pair again when a grant expires; the app tells you where. The native apps are optional and keep their pairing until you revoke it:
+
+- **Android:** [join Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [download the latest signed APK](https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk) · [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest/download/SHA256SUMS) — verify with `sha256sum --ignore-missing -c SHA256SUMS`, then scan the one-use QR from `muxr pair`.
 - **iOS:** [open the public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) — 0.1.24 (build 45); Apple is not accepting new testers right now
 - **All builds:** [muxr 0.1.25 release](https://github.com/umeranjum17/muxr/releases/tag/v0.1.25)
-
-Verify a downloaded APK with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`. Setup explains one recommended route—the healthy current route, Tailscale, an existing private network, an installed temporary tunnel, or same Wi-Fi—and changes nothing until **Apply setup**. Scan the one-use QR from the phone when it is ready.
 
 [Read the step-by-step quickstart →](https://trymuxr.com/docs/quickstart)
 

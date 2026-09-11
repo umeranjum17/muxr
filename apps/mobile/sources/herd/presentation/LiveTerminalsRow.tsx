@@ -39,7 +39,6 @@ const stylesheet = StyleSheet.create((theme) => ({
     heading: { color: theme.colors.groupped.sectionTitle, fontSize: 11, fontWeight: '700', letterSpacing: 1.2 },
     attentionIndicator: { width: 18, height: 28, alignItems: 'center', justifyContent: 'center' },
     attentionDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: theme.colors.status.error },
-    reconnecting: { marginLeft: 'auto', color: theme.colors.textSecondary, fontSize: 10 },
     zeroState: {
         height: 96,
         marginHorizontal: STRIP_GUTTER,
@@ -63,18 +62,18 @@ const stylesheet = StyleSheet.create((theme) => ({
         borderColor: theme.colors.divider,
     },
     attentionCard: { borderWidth: 1.5, borderColor: theme.colors.status.error },
-    cardBody: { flex: 1, backgroundColor: '#0c0c0b' },
+    cardBody: { flex: 1, backgroundColor: theme.colors.terminal.background },
     endedBody: { opacity: 0.48 },
     cardFooter: { minHeight: 48, paddingHorizontal: 10, paddingVertical: 6 },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     footerCopy: { flex: 1, minWidth: 0, gap: 2 },
     title: { color: theme.colors.text, fontSize: 12, lineHeight: 15, fontWeight: '600' },
-    identity: { color: theme.colors.textSecondary, fontSize: 10, lineHeight: 13 },
+    identity: { color: theme.colors.textSecondary, fontSize: 11, lineHeight: 14 },
     status: {
         flexShrink: 0,
         marginLeft: 8,
     },
-    statusText: { fontSize: 10, lineHeight: 13, fontVariant: ['tabular-nums'] },
+    statusText: { fontSize: 11, lineHeight: 14, fontVariant: ['tabular-nums'] },
 }));
 
 interface CardProps {
@@ -241,7 +240,7 @@ export const LiveTerminalsRow = React.memo(({
     return (
         <View style={stylesheet.strip} onLayout={handleLayout}>
             <View style={stylesheet.header}>
-                <Text style={stylesheet.heading}>{t('liveTerminals.title')}</Text>
+                <Text accessibilityRole="header" style={stylesheet.heading}>{t('liveTerminals.title')}</Text>
                 {attentionIndex === -1 ? null : (
                     <Pressable
                         accessibilityRole="button"
@@ -252,7 +251,6 @@ export const LiveTerminalsRow = React.memo(({
                         <View style={stylesheet.attentionDot} />
                     </Pressable>
                 )}
-                {socketStatus === 'connected' ? null : <Text style={stylesheet.reconnecting}>Reconnecting…</Text>}
             </View>
             {cards.length === 0 ? (
                 showZeroState ? (

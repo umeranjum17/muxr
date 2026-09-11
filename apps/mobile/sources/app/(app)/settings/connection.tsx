@@ -198,7 +198,7 @@ export default function ConnectionSettingsScreen() {
 
                 <ItemGroup title="Advanced">
                     <Item title="Reconnect now" subtitle="Drops the socket and dials again" onPress={() => void syncReconnect()} />
-                    <Item title="Pair another machine" subtitle="Scan the QR or enter the short string from `muxr pair`" onPress={() => router.push('/pair?source=settings')} />
+                    <Item title="Pair another machine" subtitle="Scan the QR or enter the short string from muxr pair" onPress={() => router.push('/pair?source=settings')} />
                     <Text style={styles.hint}>
                         To stop this device reaching a machine, revoke it from the interactive muxr menu.
                     </Text>
@@ -249,7 +249,7 @@ export default function ConnectionSettingsScreen() {
                     loading={status === 'connecting'}
                 />
             </ItemGroup>
-            <ItemGroup title="Development relay" footer="Printed by `muxr up` on the machine running the agents. A phone must use that machine's LAN address, not 127.0.0.1.">
+            <ItemGroup title="Development relay" footer="Printed by muxr up on the machine running the agents. A phone must use that machine's LAN address, not 127.0.0.1.">
                 <Field label="Relay URL" value={relayUrl} onChange={setRelayUrl} placeholder="ws://192.168.1.20:8792" />
                 <Field label="Machine name" value={machineId} onChange={setMachineId} placeholder="devbox" />
                 <Field label="Token" value={token} onChange={setToken} placeholder="required off loopback" secure />

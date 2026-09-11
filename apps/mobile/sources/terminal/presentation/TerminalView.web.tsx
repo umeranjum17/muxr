@@ -18,6 +18,8 @@ export interface TerminalViewProps {
     onStatus?: (status: string) => void;
     /** Set once the channel is live, so a parent toolbar can send keys. */
     onChannel?: (channel: TerminalChannel | undefined) => void;
+    /** Bump to reopen after a failed first attach; a live channel reconnects itself. */
+    attempt?: number;
 }
 
 function decodeBase64(value: string): Uint8Array {
@@ -43,7 +45,7 @@ function visibleTerminalText(term: Terminal): string {
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
     const hostRef = React.useRef<View | null>(null);
-    const { sessionId, onStatus, onChannel } = props;
+    const { sessionId, onStatus, onChannel, attempt = 0 } = props;
 
     React.useEffect(() => {
         const element = hostRef.current as unknown as HTMLElement | null;
@@ -100,7 +102,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 }
                 channel = opened;
                 onChannel?.(opened);
-                onStatus?.('live');
                 // Frame batching (Moshi's "write batching" discipline): herdr
                 // repaints whole screens, so during scroll/redraw bursts frames
                 // arrive back-to-back -- one term.write per rAF instead of one
@@ -266,7 +267,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             channel?.close();
             term.dispose();
         };
-    }, [sessionId, onStatus, onChannel]);
+    // `attempt` reopens from scratch: a failed first attach left no channel to
+    // reconnect, and nothing on screen worth keeping.
+    }, [sessionId, onStatus, onChannel, attempt]);
 
     return <View ref={hostRef} style={{ flex: 1, backgroundColor: '#0c0c0b' }} />;
 });

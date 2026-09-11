@@ -40,6 +40,8 @@ export interface PluginItemListModel {
     items: PluginItemListItem[];
     actions: PluginItemListAction[];
     badge?: PluginItemListBadge;
+    /** Real count when the plugin bounded `items`; absent means complete. */
+    total?: number;
 }
 
 const TONES = new Set<PluginScreenTone>(['primary', 'secondary', 'positive', 'warning', 'danger']);
@@ -143,5 +145,8 @@ export function asPluginItemList(value: unknown, validateAction: (value: unknown
         }
     });
     const modelBadge = badge(record.badge);
-    return { items, actions, ...(modelBadge === undefined ? {} : { badge: modelBadge }) };
+    const total = typeof record.total === 'number' && Number.isSafeInteger(record.total) && record.total > items.length
+        ? Math.min(record.total, 99_999)
+        : undefined;
+    return { items, actions, ...(modelBadge === undefined ? {} : { badge: modelBadge }), ...(total === undefined ? {} : { total }) };
 }

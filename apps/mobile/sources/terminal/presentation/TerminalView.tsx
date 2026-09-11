@@ -31,13 +31,15 @@ export interface TerminalViewProps {
     sessionId: string;
     onStatus?: (status: string) => void;
     onChannel?: (channel: TerminalChannel | undefined) => void;
+    /** Bump to reopen after a failed first attach; a live channel reconnects itself. */
+    attempt?: number;
 }
 
 /** KeyboardAvoidingView animates through many intermediate sizes; wait for settle. */
 const RESIZE_DEBOUNCE_MS = 120;
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
-    const { sessionId, onStatus, onChannel } = props;
+    const { sessionId, onStatus, onChannel, attempt = 0 } = props;
     const termRef = React.useRef<TerminalViewRef>(null);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
     const openedRef = React.useRef(false);
@@ -126,9 +128,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         [onChannel, sessionId],
     );
 
+    const knownSizeRef = React.useRef<{ cols: number; rows: number } | null>(null);
     const attach = React.useCallback(
         (cols: number, rows: number) => {
             setTerminalColumns(sessionId, cols);
+            knownSizeRef.current = { cols, rows };
             const last = lastSizeRef.current;
             if (last !== null && last.cols === cols && last.rows === rows) return;
             lastSizeRef.current = { cols, rows };
@@ -176,7 +180,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     channel.onState((state) => onStatus?.(state));
                     channel.onClose((reason) => onStatus?.(reason ?? 'closed'));
                     onChannel?.(channel);
-                    onStatus?.('live');
                     // The keyboard can resize Ghostty while hosted attach is
                     // still waiting. Its debounce then has no channel to call;
                     // replay the latest size now or the prompt is painted below
@@ -199,6 +202,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         },
         [sessionId, onStatus, onChannel],
     );
+
+    // Retry after a failed first open: nothing was attached, so open again at
+    // the size Ghostty last reported.
+    React.useEffect(() => {
+        const size = knownSizeRef.current;
+        if (attempt === 0 || openedRef.current || size === null) return;
+        attach(size.cols, size.rows);
+    }, [attach, attempt]);
 
     return (
         <View style={{ flex: 1, backgroundColor: '#0c0c0b' }}>

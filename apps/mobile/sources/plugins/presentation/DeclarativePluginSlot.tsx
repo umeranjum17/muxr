@@ -19,6 +19,7 @@ import { resolvePluginText } from '../domain/pluginText';
 import { t } from '@/text';
 import { ItemList } from './primitives/ItemList';
 import { CapabilityButton } from './primitives/CapabilityButton';
+import { humanError } from '@/utils/errors';
 
 function keyRowSend(key: PluginTerminalKeyRow['keys'][number], ctrl: boolean, shift: boolean): string {
     if (ctrl && shift) return key.ctrlShift ?? key.ctrl ?? key.shift ?? key.send;
@@ -27,13 +28,23 @@ function keyRowSend(key: PluginTerminalKeyRow['keys'][number], ctrl: boolean, sh
     return key.send;
 }
 
+// The count sits beside the icon, never on it: a surface ring keeps it legible
+// against whatever it lands next to.
+const badgeStyle = (theme: { colors: { accent: string; surface: string } }) => ({
+    minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 9, alignItems: 'center' as const, justifyContent: 'center' as const,
+    backgroundColor: theme.colors.accent, borderWidth: 2, borderColor: theme.colors.surface,
+});
+const badgeTextStyle = (theme: { colors: { button: { primary: { tint: string } } } }) => ({
+    color: theme.colors.button.primary.tint, fontSize: 11, fontWeight: '700' as const, lineHeight: 13,
+});
+
 function KeyRow({ contribution, channel }: { contribution: PluginTerminalKeyRow; channel?: PluginTerminalChannel }) {
     const { theme } = useUnistyles();
     const [ctrl, setCtrl] = React.useState(false);
     const [shift, setShift] = React.useState(false);
     const style = (selected = false) => ({
         minWidth: 44,
-        minHeight: 40,
+        minHeight: 44,
         justifyContent: 'center' as const,
         alignItems: 'center' as const,
         paddingHorizontal: 10,
@@ -162,11 +173,14 @@ function NavigationItemButton({ contribution, pluginId, manifestHash, active, on
         style={compact ? compactStyle : tabStyle}>
         <View>
             <Ionicons name={contribution.icon as any} size={compact ? 15 : 24} color={active ? theme.colors.accent : theme.colors.textSecondary} />
-            {badge !== undefined && <View accessibilityElementsHidden style={{ position: 'absolute', right: -13, top: -8, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accent }}>
-                <Text style={{ color: theme.colors.button.primary.tint, fontSize: 9, fontWeight: '700' }}>{badge}</Text>
+            {badge !== undefined && !compact && <View accessibilityElementsHidden style={[badgeStyle(theme), { position: 'absolute', right: -18, top: -6 }]}>
+                <Text style={badgeTextStyle(theme)}>{badge}</Text>
             </View>}
         </View>
-        <Text style={{ color: labelColor, fontSize: compact ? 13 : 10, fontWeight: compact ? '600' : '400' }}>{label}</Text>
+        <Text style={{ color: labelColor, fontSize: compact ? 13 : 11, fontWeight: compact ? '600' : '400' }}>{label}</Text>
+        {badge !== undefined && compact && <View accessibilityElementsHidden style={badgeStyle(theme)}>
+            <Text style={badgeTextStyle(theme)}>{badge}</Text>
+        </View>}
     </Pressable>;
 }
 
@@ -336,9 +350,10 @@ export function DeclarativePhoneNavRow({ onSelect }: { onSelect: (pluginId: stri
 
 export function DeclarativeSettingsItems() {
     const router = useRouter();
+    const { theme } = useUnistyles();
     useSlotContributions('settings.items');
-    return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'settings-item' ? [<Item key={`${summary.pluginId}:${contribution.id}`} title={resolvePluginText(contribution.label)} subtitle={contribution.subtitle === undefined ? undefined : resolvePluginText(contribution.subtitle)} icon={<Ionicons name={contribution.icon as any} size={29} color="#666" />} onPress={() => {
+    return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'settings-item' ? [<Item key={`${summary.pluginId}:${contribution.id}`} title={resolvePluginText(contribution.label)} subtitle={contribution.subtitle === undefined ? undefined : resolvePluginText(contribution.subtitle)} icon={<Ionicons name={contribution.icon as any} size={29} color={theme.colors.textSecondary} />} onPress={() => {
         void dispatchPluginAction(contribution.action, { router, pluginId: summary.pluginId, manifestHash: summary.manifestHash, manifest })
-            .catch((error: unknown) => Modal.alert('Plugin action unavailable', error instanceof Error ? error.message : String(error)));
+            .catch((error: unknown) => Modal.alert('Plugin action unavailable', humanError(error).message));
     }} />] : []))}</>;
 }

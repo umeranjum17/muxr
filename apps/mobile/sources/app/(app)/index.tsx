@@ -72,7 +72,7 @@ function NotAuthenticated() {
     const promptForPairingString = async (title: string) => {
         const pasted = await Modal.prompt(
             title,
-            'Paste the pairing string shown by `muxr pair` on that machine. It pairs this phone end-to-end encrypted.',
+            'Paste the pairing string shown by muxr pair on that machine. It pairs this phone end-to-end encrypted.',
             { placeholder: 'wss://your-relay?pair=7KDM4-QXP7N' },
         );
         if (!pasted?.trim()) return;

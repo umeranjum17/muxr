@@ -10,7 +10,7 @@ export type PairMachineCommand = {
 };
 
 export type PairMachineResult =
-    | { ok: true; credential: string; secretKey: string }
+    | { ok: true; credential: string; secretKey: string; expiresAt: number }
     | { ok: false; reason: 'voice-pinned'; grant: StoredHostedGrant }
     | { ok: false; reason: 'failed'; message?: string };
 
@@ -28,7 +28,7 @@ async function activateGrant(grant: StoredHostedGrant, endVoiceIfPinned: boolean
         token: '',
         selfhost: grant.source === 'selfhost' ? true : undefined,
     });
-    return { ok: true, credential: grant.credential, secretKey: grant.deviceKey.secretKey };
+    return { ok: true, credential: grant.credential, secretKey: grant.deviceKey.secretKey, expiresAt: grant.expiresAt };
 }
 
 /** Claim a pairing link and make that Machine the active connection. */

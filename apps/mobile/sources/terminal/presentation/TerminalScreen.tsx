@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
-import { storage, useHerdrTree, useSession, useSessionGitStatus, useSessions } from '@/catalog/store';
+import { storage, useHerdrTree, usePairingFailure, useSession, useSessionGitStatus, useSessions } from '@/catalog/store';
 import { sessionStop } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
 import { resolveMessageModeMeta } from '@/catalog/infrastructure/messageMeta';
@@ -37,6 +37,8 @@ import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, a
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
+import { useUndeliveredSubmission } from '@/catalog/application/undeliveredSubmission';
+import { humanError } from '@/utils/errors';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
 import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
@@ -133,6 +135,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     }, []);
     const swipeIds = React.useMemo(() => workingAgentSwipeIds(sessions, swipeNow), [sessions, swipeNow]);
     const [status, setStatus] = React.useState('connecting');
+    const [openAttempt, setOpenAttempt] = React.useState(0);
     const [draft, setDraft] = React.useState('');
     const [attaching, setAttaching] = React.useState(false);
     const [stopping, setStopping] = React.useState(false);
@@ -165,7 +168,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const draftRef = React.useRef(draft);
     draftRef.current = draft;
 
-    const { selectedImages, pickImages, clearImages } = useImagePicker();
+    const { selectedImages, pickImages, clearImages, addImages } = useImagePicker();
     const composerRef = React.useRef<TextInput>(null);
     // Same IME hazard as the home dock: Enter confirms composition on web.
     // The composer mounts only under control and hosted authority resolves
@@ -345,6 +348,27 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         return () => subscription.remove();
     }, [actionsOpen, menu]);
 
+    // A message that came back from the host after the composer was cleared
+    // is put back only while the composer is still empty; otherwise the user
+    // has typed something newer and chooses what to keep. Delivery status is
+    // unknown on a failure, so nothing is ever resent on its own.
+    const recoverSubmission = React.useCallback((text: string, paths: string[], reason: string) => {
+        const restore = () => {
+            draftRef.current = [text, draftRef.current].filter((part) => part !== '').join('\n');
+            setDraft(draftRef.current);
+            setAttachedPaths((previous) => [...paths, ...previous]);
+        };
+        if (draftRef.current === '') {
+            restore();
+            Modal.alert('Message not sent', reason);
+            return;
+        }
+        Modal.alert('Message not sent', `${reason} Your earlier message is kept.`, [
+            { text: 'Discard it', style: 'cancel' },
+            { text: 'Put it back', onPress: restore },
+        ]);
+    }, []);
+
     // The agent is a TUI: it can only reach a file by having the path in its
     // prompt. But splicing that path into the draft the moment you attach
     // lands it in the middle of whatever you were typing, so paths ride as
@@ -360,12 +384,20 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         setDraft('');
         setAttachedPaths([]);
         void sync.sendMessage(props.id, text).catch((error: unknown) => {
-            draftRef.current = previousDraft;
-            setDraft(previousDraft);
-            setAttachedPaths(previousPaths);
-            Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
+            recoverSubmission(previousDraft, previousPaths, humanError(error).message);
         });
-    }, [attachedPaths, panePromptable, props.id]);
+    }, [attachedPaths, panePromptable, props.id, recoverSubmission]);
+
+    // The Dock hands a first message that failed after the agent already
+    // started to this composer, so nothing starts twice.
+    const undelivered = useUndeliveredSubmission((state) => state.bySession[props.id]);
+    React.useEffect(() => {
+        if (!undelivered) return;
+        const submission = useUndeliveredSubmission.getState().take(props.id);
+        if (!submission) return;
+        if (submission.attachments.length > 0) addImages(submission.attachments);
+        recoverSubmission(submission.text, [], "The agent started, but your first message didn't reach it.");
+    }, [addImages, props.id, recoverSubmission, undelivered]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);
 
@@ -396,7 +428,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     setAttachedPaths((previous) => [...previous, ...result.savedPaths]);
                 }
             } catch (error) {
-                Modal.alert('Attachment failed', error instanceof Error ? error.message : 'Could not send the file to the host.');
+                Modal.alert('Attachment failed', humanError(error).message);
             } finally {
                 // In finally, not after the request: a failed upload with the
                 // images still queued would re-fire this effect forever.
@@ -460,6 +492,26 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const paneIndex = siblings.indexOf(props.id);
     const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
     const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting';
+    // A dead grant cannot be retried into life: the pill routes to re-pairing
+    // instead. Everything else keeps the transport vocabulary, and raw open
+    // failures read as a sentence.
+    const pairingFailure = usePairingFailure();
+    const grantFailure = pairingFailure === 'device-revoked' ? 'revoked'
+        : pairingFailure === 'grant-expired' || /grant expired/i.test(status) ? 'expired'
+            : undefined;
+    const statusText = grantFailure === 'expired' ? 'Access expired · Pair again'
+        : grantFailure === 'revoked' ? 'Access removed · Pair again'
+            : /^(connecting|reconnecting|live|closed|disconnected)$/.test(status) || status.includes('another device') ? status
+                : `${humanError(status).message} Tap to retry.`;
+    const retryTerminal = React.useCallback(() => {
+        if (grantFailure !== undefined) {
+            router.push(`/pair?source=settings&reason=${grantFailure}` as never);
+            return;
+        }
+        // No channel means the first open failed; only a fresh open can help.
+        if (channelRef.current === undefined) setOpenAttempt((attempt) => attempt + 1);
+        else channelRef.current.reconnect(true);
+    }, [grantFailure]);
 
     // Vertical drag only, clamped on the UI thread, so the trigger can be walked
     // off whatever output it covers without ever landing on the composer or
@@ -540,7 +592,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             {Platform.OS === 'web' && !canControl && (
                 <View style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
                     <Text style={{ color: theme.colors.textSecondary, fontSize: 12, textAlign: 'center' }}>
-                        View-only browser · terminal input and agent controls are disabled · access expires eight hours after pairing
+                        View-only browser · terminal input and agent controls are disabled · expiry is shown in Settings › Connection
                     </Text>
                 </View>
             )}
@@ -566,7 +618,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 style={{ flex: 1 }}
             >
                 <React.Suspense fallback={<TerminalViewFallback />}>
-                    <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} />
+                    <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} attempt={openAttempt} />
                 </React.Suspense>
                 {gestureHint !== null && (
                     <View
@@ -610,10 +662,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 )}
                 {showRetryStatus && (
                         <Pressable
-                            onPress={() => channelRef.current?.reconnect(true)}
+                            onPress={retryTerminal}
                             hitSlop={8}
                             accessibilityRole="button"
-                            accessibilityLabel={status.includes('another device') ? 'Take control from another device' : `Reconnect terminal. ${status}`}
+                            accessibilityLabel={grantFailure !== undefined ? statusText : status.includes('another device') ? 'Take control from another device' : `Reconnect terminal. ${statusText}`}
                             style={({ pressed }) => ({
                                 position: 'absolute',
                                 top: 12,
@@ -630,7 +682,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 opacity: pressed ? 0.7 : 1,
                             })}
                         >
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{status}</Text>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{statusText}</Text>
                             <Ionicons name="refresh-outline" size={12} color={theme.colors.textSecondary} />
                         </Pressable>
                 )}
@@ -897,7 +949,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         contributionId: button.id,
                                         sessionId: props.id,
                                         idempotencyKey: randomUUID(),
-                                    }).catch((error) => Modal.alert(`${button.name} failed`, error instanceof Error ? error.message : String(error)))
+                                    }).catch((error) => Modal.alert(`${button.name} failed`, humanError(error).message))
                                         .finally(() => setExtensionActionBusy(undefined));
                                 }} disabled={pluginActionBusy !== undefined} accessibilityRole="button" accessibilityLabel={resolvePluginText(button.label)} accessibilityState={{ busy: pluginActionBusy === key, disabled: pluginActionBusy !== undefined }}
                                     style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>

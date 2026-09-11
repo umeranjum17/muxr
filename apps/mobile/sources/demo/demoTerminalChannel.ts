@@ -55,6 +55,8 @@ export function openDemoTerminalChannel(command: OpenTerminalCommand): Promise<T
         },
         onState: (listener) => {
             stateListeners.add(listener);
+            // In-memory replay has no socket to wait for.
+            if (!closed) listener('live');
             return () => {
                 stateListeners.delete(listener);
             };

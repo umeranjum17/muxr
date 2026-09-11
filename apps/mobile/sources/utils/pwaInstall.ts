@@ -84,6 +84,8 @@ export async function promptInstall(): Promise<boolean> {
     const prompt = deferredPrompt;
     if (!prompt) return false;
     deferredPrompt = undefined;
+    // The prompt is one-shot: whoever offers it must learn it is spent.
+    notifyAvailability();
     try {
         await prompt.prompt();
         const choice = await prompt.userChoice;

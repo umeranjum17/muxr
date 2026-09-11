@@ -9,6 +9,7 @@ import { Typography } from '@/constants/Typography';
 import { useSession, useSocketStatus } from '@/catalog/store';
 import * as Device from 'expo-device';
 import { openPreview, type OpenPreview } from '@/preview';
+import { humanError } from '@/utils/errors';
 
 function selectedPort(value: string | undefined): number | undefined {
     if (value === undefined || !/^\d{1,5}$/.test(value)) return undefined;
@@ -83,7 +84,7 @@ export default function PreviewScreen() {
             setPreview(opened);
         } catch (cause: unknown) {
             tab?.close();
-            setError(cause instanceof Error ? cause.message : String(cause));
+            setError(humanError(cause).message);
         } finally {
             setOpening(false);
         }

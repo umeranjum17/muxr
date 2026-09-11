@@ -24,7 +24,11 @@ export interface TerminalChannel {
     /** base64 ANSI chunks from the pane. */
     onData: (listener: (base64: string) => void) => () => void;
     onClose: (listener: (reason?: string) => void) => () => void;
-    /** 'reconnecting' while a dropped socket is being re-attached, 'live' after. */
+    /**
+     * 'reconnecting' while a dropped socket is being re-attached, 'live' once
+     * the transport is open. The current state is replayed on subscribe, so a
+     * view never reports live before the socket does.
+     */
     onState: (listener: (state: TerminalChannelState) => void) => () => void;
     sendText: (text: string) => void;
     sendBytes: (base64: string) => void;
@@ -129,8 +133,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     let attachInFlight: Promise<void> | undefined;
     let attachRequested = false;
     let takeoverRequested = false;
+    let lastState: TerminalChannelState | undefined;
 
     const emitState = (state: TerminalChannelState): void => {
+        lastState = state;
         recordTerminalChannel(state, { ok: true });
         for (const listener of stateListeners) listener(state);
     };
@@ -330,6 +336,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         },
         onState: (listener) => {
             stateListeners.add(listener);
+            if (lastState !== undefined) listener(lastState);
             return () => stateListeners.delete(listener);
         },
         sendText: (text) => send({ type: 'terminal.input', text }),

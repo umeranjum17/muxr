@@ -86,7 +86,7 @@ export default function AppearanceSettingsScreen() {
             <ItemGroup title={t('settingsLanguage.title')} footer={t('settingsLanguage.description')}>
                 <Item
                     title={t('settingsLanguage.currentLanguage')}
-                    icon={<Ionicons name="language-outline" size={29} color="#007AFF" />}
+                    icon={<Ionicons name="language-outline" size={29} color={theme.colors.textSecondary} />}
                     detail={getLanguageDisplayText()}
                     onPress={() => router.push('/settings/language')}
                 />
@@ -97,7 +97,7 @@ export default function AppearanceSettingsScreen() {
                 <Item
                     title={t('settingsAppearance.avatarStyle')}
                     subtitle={t('settingsAppearance.avatarStyleDescription')}
-                    icon={<Ionicons name="person-circle-outline" size={29} color="#5856D6" />}
+                    icon={<Ionicons name="person-circle-outline" size={29} color={theme.colors.textSecondary} />}
                     detail={displayStyle === 'pixelated' ? t('settingsAppearance.avatarOptions.pixelated') : displayStyle === 'brutalist' ? t('settingsAppearance.avatarOptions.brutalist') : t('settingsAppearance.avatarOptions.gradient')}
                     onPress={() => {
                         const currentIndex = displayStyle === 'pixelated' ? 0 : displayStyle === 'gradient' ? 1 : 2;
@@ -109,7 +109,7 @@ export default function AppearanceSettingsScreen() {
                 <Item
                     title={t('settingsAppearance.showFlavorIcons')}
                     subtitle={t('settingsAppearance.showFlavorIconsDescription')}
-                    icon={<Ionicons name="apps-outline" size={29} color="#5856D6" />}
+                    icon={<Ionicons name="apps-outline" size={29} color={theme.colors.textSecondary} />}
                     rightElement={
                         <Switch
                             value={showFlavorIcons}

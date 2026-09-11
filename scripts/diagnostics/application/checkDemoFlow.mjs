@@ -177,7 +177,7 @@ try {
     check('demo shows the blocked agent', herdText.includes('Rebase release branch onto main') && herdText.includes('Needs you'));
     check('demo shows the done agent', herdText.includes('Add retry with backoff to sync'));
     check('demo shows inbox attention', herdText.includes('Needs you'));
-    check('demo bar marks the replay', herdText.includes('Demo replay'));
+    check('demo bar says nothing is real', herdText.includes('nothing is real') && !/deterministic|backend/i.test(herdText));
     check('demo never shows the unpaired pairing root', !herdText.includes('Enter pairing string'));
     check('demo boots without init errors', !herdText.includes('Error initializing'));
 
@@ -296,10 +296,10 @@ try {
     await journey.waitFor('back to session', (text) => text.includes('^C'));
     check('back from file lands on the session', (await journey.evaluate('window.location.pathname')).startsWith('/session/'));
     await clickControl('Back');
-    const herdAgain = await journey.waitFor('back to herd', (text) => text.includes('Demo replay') && text.includes('Add retry with backoff to sync'));
+    const herdAgain = await journey.waitFor('back to herd', (text) => text.includes('nothing is real') && text.includes('Add retry with backoff to sync'));
     check('back from session lands on the herd', herdAgain.includes('Migrate billing to usage-based plans'));
     // Restart restores the whole journey: Bex blocked again, replay intact.
-    await clickControl('Restart demo replay');
+    await clickControl('Restart the demo');
     const restarted = await journey.waitFor('restart', (text) => text.includes('Needs you'), 30000);
     check('restart restores the blocked agent', restarted.includes('Needs you'));
     check('no page errors during the journey', journey.pageErrors.length === 0, journey.pageErrors.slice(0, 3).join(' | '));
@@ -369,6 +369,13 @@ try {
     check('fresh load shows inbox attention', freshHerd.includes('Needs you'));
     check('fresh load never shows the pairing root', !freshHerd.includes('Enter pairing string'));
     check('no page errors on fresh load', fresh.pageErrors.length === 0, fresh.pageErrors.slice(0, 3).join(' | '));
+
+    // /pair with no link is a neutral manual form: no alert role, no backticks.
+    await fresh.send('Page.navigate', { url: `http://127.0.0.1:${port}/pair` });
+    const pairText = await fresh.waitFor('pair first paint', (text) => text.includes('Pairing string') || text.includes('pairing'));
+    check('pair first paint has no alert', !(await fresh.evaluate(`!!document.querySelector('[role="alert"]')`)));
+    check('pair first paint has no backticks', !pairText.includes('`'));
+    check('pair first paint names the command in a chip', pairText.includes('muxr pair --browser'));
     fresh.close();
 
     // Phase C: compact parity — the phone composition at phone widths, the
@@ -511,6 +518,16 @@ try {
         await parityWaitFor('back to herd', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('SPACES'));
     }
     check('browser back leaves every plugin destination', (await pathname()) === '/demo');
+    // Inbox rows carry the agent mark and a state word, never a letter tile.
+    await parityClickText('Inbox');
+    await waitPath('/plugin');
+    await parityWaitFor('inbox content', (text) => text.includes('Needs approval'), 20000);
+    check('inbox rows render agent glyph images', await parityEval(`document.querySelectorAll('img').length >= 3`));
+    check('inbox rows announce a state word', await parityEval(`[...document.querySelectorAll('[aria-label]')].some((el) => /Needs you$/.test(el.getAttribute('aria-label')))`));
+    await parityEval('window.history.back()');
+    await parityWaitFor('back to herd', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('SPACES'));
+    check('demo journey shows no raw RPC text', !/unsupported in demo replay|machine\.|plugin\.|rpc/i.test(await parityText()));
+    check('herd exposes headings', await parityEval(`document.querySelectorAll('[role="heading"]').length >= 1`));
 
     // Focus reveals the progressive config; a typed prompt sends. The rows
     // show icon + value (labels live in accessibility names, as on native).

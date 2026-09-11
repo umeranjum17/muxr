@@ -537,16 +537,7 @@ export const HomeDock = React.memo(({
         }
     }, [connectionMachineId, setMachineId, socketStatus.status]);
 
-    React.useEffect(() => {
-        const path = selectedPath?.trim();
-        const homeDir = selectedMachine?.metadata?.homeDir;
-        if (!path || path === '~' || !homeDir) return;
-        if (!path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path)) return;
-        const home = homeDir.replace(/[/\\]+$/, '');
-        if (path !== home && !path.startsWith(`${home}/`) && !path.startsWith(`${home}\\`)) {
-            setPath(null);
-        }
-    }, [selectedMachine, selectedPath, setPath]);
+
 
     const projectOptions = React.useMemo(() => projectDockOptions({
         selectedPath,

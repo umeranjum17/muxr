@@ -24,11 +24,12 @@ export function DemoBar() {
     return (
         <View style={styles.bar}>
             <Ionicons name="play-circle-outline" size={14} color={theme.colors.textSecondary} />
-            <Text style={styles.label}>Demo replay — deterministic, no backend</Text>
+            <Text style={styles.label}>Demo · three scripted agents, nothing is real. Pair your computer to see yours.</Text>
             <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Restart demo replay"
+                accessibilityLabel="Restart the demo"
                 onPress={() => resetDemoRuntime()}
+                hitSlop={10}
                 style={styles.action}
             >
                 <Ionicons name="refresh-outline" size={14} color={theme.colors.textSecondary} />
@@ -37,6 +38,7 @@ export function DemoBar() {
                 accessibilityRole="button"
                 accessibilityLabel={copied ? 'Install command copied' : 'Copy install command'}
                 onPress={() => void copyInstall()}
+                hitSlop={10}
                 style={styles.action}
             >
                 <Ionicons name="copy-outline" size={14} color={theme.colors.textSecondary} />
@@ -63,11 +65,15 @@ const stylesheet = StyleSheet.create((theme) => ({
         fontSize: 12,
         color: theme.colors.textSecondary,
     },
+    // 24px box + 10px hitSlop = the 44px target.
     action: {
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'center',
         gap: 4,
-        padding: 6,
+        minWidth: 24,
+        minHeight: 24,
+        padding: 5,
     },
     copied: {
         ...Typography.default('semiBold'),

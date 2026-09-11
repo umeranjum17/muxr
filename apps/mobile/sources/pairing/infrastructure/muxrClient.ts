@@ -179,8 +179,8 @@ export class MuxrClient {
             if (rejected) this.options.onTicketRejected?.();
             if (permanent) {
                 this.options.onPermanentError?.(expired
-                    ? { kind: 'grant-expired', message: 'This browser grant expired. Pair again from `muxr pair --browser`.' }
-                    : { kind: 'device-revoked', message: 'This device was revoked. Run `muxr pair` on the machine, then re-pair from Settings → Pair another machine on this device.' });
+                    ? { kind: 'grant-expired', message: 'This browser grant expired. Pair again from muxr pair --browser.' }
+                    : { kind: 'device-revoked', message: 'This device was revoked. Run muxr pair on the machine, then re-pair from Settings → Pair another machine on this device.' });
                 return;
             }
             if (!this.closed) {

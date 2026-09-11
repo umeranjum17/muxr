@@ -40,6 +40,7 @@ import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Modal } from '@/modal';
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
 import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
+import { humanError } from '@/utils/errors';
 
 
 const styles = StyleSheet.create((theme) => ({
@@ -244,7 +245,7 @@ const HeaderTitle = React.memo(({ large = false }: { large?: boolean }) => {
             setActiveMachineId(getCachedConnectionSettings().machineId);
             setMachinePickerOpen(true);
         } catch (cause) {
-            Modal.alert('Could not load machines', cause instanceof Error ? cause.message : String(cause));
+            Modal.alert('Could not load machines', humanError(cause).message);
         }
     }, []);
 
@@ -273,7 +274,7 @@ const HeaderTitle = React.memo(({ large = false }: { large?: boolean }) => {
             await auth.login(grant.credential, grant.deviceKey.secretKey);
             setActiveMachineId(grant.machineId);
         } catch (cause) {
-            Modal.alert('Could not switch machine', cause instanceof Error ? cause.message : String(cause));
+            Modal.alert('Could not switch machine', humanError(cause).message);
         }
     }, [activeMachineId, auth, pairedGrants]);
 

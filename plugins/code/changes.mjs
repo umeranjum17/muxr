@@ -64,20 +64,28 @@ try {
     porcelain = git(['status', '--porcelain=v1', '-z', '-uall']);
     addNumstat(stats, git(['diff', '--numstat', '-z']));
     addNumstat(stats, git(['diff', '--cached', '--numstat', '-z']));
-} catch {
-    process.stdout.write(JSON.stringify({ items: [] }));
-    process.exit(0);
+} catch (error) {
+    // A non-repository or unreadable cwd is a failure the phone must show as
+    // one; an empty list would read as a clean tree.
+    const stderr = error && typeof error.stderr === 'string' ? error.stderr.trim() : '';
+    process.stderr.write(stderr !== '' ? stderr : `git failed in ${cwd}`);
+    process.exit(1);
 }
 
 const records = porcelain.split('\0');
 const items = [];
-for (let index = 0; index < records.length && items.length < 50; index += 1) {
+// Bounded to 50 rows; `total` reports the real count so the phone can say
+// the list is partial instead of presenting the first 50 as everything.
+let total = 0;
+for (let index = 0; index < records.length; index += 1) {
     const record = records[index];
     if (!record || record.length < 4) continue;
     const status = record.slice(0, 2);
     const path = record.slice(3);
     // Porcelain -z appends the source path after a rename/copy destination.
     if (status.includes('R') || status.includes('C')) index += 1;
+    total += 1;
+    if (items.length >= 50) continue;
     const name = path.split('/').pop() ?? path;
     const stat = stats.get(path);
     const untracked = status === '??' ? untrackedStat(path) : undefined;
@@ -97,4 +105,4 @@ for (let index = 0; index < records.length && items.length < 50; index += 1) {
         action: { type: 'kernel.navigate', target: 'file', path },
     });
 }
-process.stdout.write(JSON.stringify({ items, total: items.length }));
+process.stdout.write(JSON.stringify({ items, total }));

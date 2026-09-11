@@ -10,7 +10,7 @@ export const lightTheme = {
 
         text: '#000000',
         textDestructive: Platform.select({ ios: '#FF3B30', default: '#F44336' }),
-        textSecondary: Platform.select({ ios: '#8E8E93', default: '#49454F' }),
+        textSecondary: Platform.select({ ios: '#6E6E73', default: '#49454F' }),
         textLink: '#007AFF',
         accent: '#17171a',
         accentSubtle: 'rgba(23, 23, 26, 0.10)',
@@ -55,7 +55,7 @@ export const lightTheme = {
         groupped: {
             background: Platform.select({ ios: '#F2F2F7', default: '#F5F5F5' }),
             chevron: Platform.select({ ios: '#C7C7CC', default: '#49454F' }),
-            sectionTitle: Platform.select({ ios: '#8E8E93', default: '#49454F' }),
+            sectionTitle: Platform.select({ ios: '#6E6E73', default: '#49454F' }),
         },
         header: {
             background: '#ffffff',
@@ -123,7 +123,8 @@ export const lightTheme = {
             error: '#FF3B30',
             default: '#8E8E93',
             working: '#007AFF',
-            done: '#34C759',
+            // 3:1 against white; Apple's #34C759 is 2.2:1 on a light surface.
+            done: '#1F9D45',
             unread: '#007AFF',
         },
 
@@ -211,7 +212,7 @@ export const lightTheme = {
 
         // Terminal/Command colors
         terminal: {
-            background: '#1E1E1E',
+            background: '#0c0c0b', // what xterm/Ghostty actually paint; thumbnails must match
             prompt: '#34C759',
             command: '#E0E0E0',
             stdout: '#E0E0E0',
@@ -438,7 +439,7 @@ export const darkTheme = {
 
         // Terminal/Command colors
         terminal: {
-            background: '#1E1E1E',
+            background: '#0c0c0b', // what xterm/Ghostty actually paint; thumbnails must match
             prompt: '#32D74B',
             command: '#E0E0E0',
             stdout: '#E0E0E0',

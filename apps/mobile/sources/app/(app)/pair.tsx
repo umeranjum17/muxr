@@ -1,13 +1,13 @@
 import * as React from 'react';
 import * as Linking from 'expo-linking';
 import * as Clipboard from 'expo-clipboard';
-import { ActivityIndicator, Platform, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
-import { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '@/pairing/e2ee';
+import { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingLifetime, prepareHostedPairingInput } from '@/pairing/e2ee';
 import { pairMachine, usePairQrScanner } from '@/pairing';
 import { getCachedConnectionSettings } from '@/connection';
 import { storage } from '@/catalog/store';
@@ -15,6 +15,7 @@ import { canPromptInstall, isIOSBrowser, isStandaloneDisplay, onInstallPromptAva
 import { ActionButton } from '@/components/ActionButton';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
+import { humanError } from '@/utils/errors';
 
 /**
  * What pairing actually authorises. The previous copy described only the
@@ -27,17 +28,37 @@ const PHONE_PAIRING_GRANTS = [
     'Start, stop and restart agents — running as the user who launched muxr.',
 ] as const;
 
-const BROWSER_CONTROL_GRANTS = [
+// The lifetime comes from the link's intent (standard or personal browser
+// grant); the host mints the real expiry and the success step shows it.
+const browserControlGrants = (lifetime: string) => [
     'Read and type into every agent terminal on that computer.',
     'Answer approvals and start or stop agents as the user running muxr.',
-    'Keep machine keys end-to-end encrypted in this browser for eight hours.',
-] as const;
+    `Keep machine keys end-to-end encrypted in this browser for ${lifetime}.`,
+];
 
-const BROWSER_OBSERVE_GRANTS = [
+const browserObserveGrants = (lifetime: string) => [
     'Read agent status and terminal output from this browser.',
     'Keep the machine keys end-to-end encrypted in this browser.',
-    'Use this view-only grant for eight hours, then pair again.',
-] as const;
+    `Use this view-only grant for ${lifetime}, then pair again.`,
+];
+
+/** Commands never appear in prose; they get a mono chip with a copy control. */
+function CommandChip({ command }: { command: string }) {
+    return (
+        <View style={styles.commandRow}>
+            <Text style={styles.commandText} selectable>{command}</Text>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Copy ${command}`}
+                hitSlop={10}
+                style={styles.copyButton}
+                onPress={() => void Clipboard.setStringAsync(command)}
+            >
+                <Ionicons name="copy-outline" size={17} color={styles.securityText.color} />
+            </Pressable>
+        </View>
+    );
+}
 
 const PAIRING_STEPS = [
     'This phone claims the one-time code from the QR or pairing string.',
@@ -48,8 +69,24 @@ const PAIRING_STEPS = [
 type PairState =
     | { phase: 'confirm'; url: string; machineName: string }
     | { phase: 'working'; url: string; machineName: string }
-    | { phase: 'success'; machineName: string }
+    | { phase: 'success'; machineName: string; expiresAt: number }
     | { phase: 'error'; message: string; url?: string; machineName?: string };
+
+/**
+ * Pairing failures are mostly written for people already (the pairing domain
+ * names the exact fix); only unknown shapes and transport failures need the
+ * shared mapping.
+ */
+function pairingFailureText(cause: unknown): string {
+    const human = humanError(cause);
+    return human.title === 'Something went wrong' && human.details ? human.details.replace(/`/g, '') : human.message;
+}
+
+/** "until 14 Sept, 09:12" for browser grants; durable native grants say so. */
+function accessUntil(expiresAt: number): string {
+    if (expiresAt - Date.now() > 365 * 24 * 60 * 60 * 1000) return 'until you revoke it';
+    return `until ${new Date(expiresAt).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`;
+}
 
 export default function PairScreen() {
     const auth = useAuth();
@@ -71,7 +108,7 @@ export default function PairScreen() {
             const url = prepareHostedPairingInput(raw);
             setState({ phase: 'confirm', url, machineName: hostedPairingDisplayName(url) });
         } catch (cause) {
-            setState({ phase: 'error', message: cause instanceof Error ? cause.message : String(cause) });
+            setState({ phase: 'error', message: pairingFailureText(cause) });
         }
     }, []);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
@@ -94,9 +131,13 @@ export default function PairScreen() {
         await Clipboard.setStringAsync(url);
         await Modal.alert('Link copied', 'Open the installed muxr app and paste it there.');
     }, []);
+    const lifetime = stateUrl ? hostedPairingLifetime(stateUrl) : 'eight hours';
     const grants = browser
-        ? browserAuthority === 'control' ? BROWSER_CONTROL_GRANTS : BROWSER_OBSERVE_GRANTS
+        ? browserAuthority === 'control' ? browserControlGrants(lifetime) : browserObserveGrants(lifetime)
         : PHONE_PAIRING_GRANTS;
+    // With no link yet, name the default (control) browser command.
+    let pairCommand = 'muxr pair';
+    if (browser) pairCommand = stateUrl !== undefined && browserAuthority === 'observe' ? 'muxr pair --browser-view' : 'muxr pair --browser';
     const pairingSteps = browser
         ? ['This browser claims the one-time code from the link.', ...PAIRING_STEPS.slice(1)]
         : PAIRING_STEPS;
@@ -141,13 +182,9 @@ export default function PairScreen() {
         }
         void Linking.getInitialURL().then((url) => {
             if (cancelled) return;
-            if (!receive(url)) {
-                setState({ phase: 'error', message: browser
-                    ? 'Paste a fresh browser pairing string from `muxr pair --browser`.'
-                    : 'Enter the short pairing string shown by `muxr pair`.' });
-            };
+            // No link is not a failure: the manual form below is the next step.
         }).catch((cause) => {
-            if (!cancelled) setState({ phase: 'error', message: cause instanceof Error ? cause.message : String(cause) });
+            if (!cancelled) setState({ phase: 'error', message: pairingFailureText(cause) });
         });
         // Warm start: the app was already open when the link arrived.
         const subscription = Linking.addEventListener('url', (event) => receive(event.url));
@@ -157,9 +194,9 @@ export default function PairScreen() {
     const pair = React.useCallback(async (url: string, machineName: string) => {
         // On web the pairing lands on a paired-success phase (install offer)
         // instead of routing away immediately; phones route home as before.
-        const finishPair = browser
-            ? () => setState({ phase: 'success', machineName })
-            : () => router.replace('/');
+        const finishPair = (expiresAt: number) => browser
+            ? setState({ phase: 'success', machineName, expiresAt })
+            : router.replace('/');
         const paired = await pairMachine({ url });
         if (!paired.ok && paired.reason === 'voice-pinned') {
             const switchApproved = await Modal.confirm(
@@ -176,7 +213,7 @@ export default function PairScreen() {
                 throw new Error(retried.reason === 'failed' ? retried.message ?? 'Pairing failed' : 'Pairing failed');
             }
             await auth.login(retried.credential, retried.secretKey);
-            finishPair();
+            finishPair(retried.expiresAt);
             return;
         }
         if (!paired.ok) {
@@ -186,7 +223,7 @@ export default function PairScreen() {
         // A fresh grant supersedes the dead one: clear the recorded failure
         // so connection UI stops offering re-pairing.
         storage.getState().setPairingFailure(null);
-        finishPair();
+        finishPair(paired.expiresAt);
     }, [auth, browser, router]);
 
     const confirm = React.useCallback(() => {
@@ -197,7 +234,7 @@ export default function PairScreen() {
         void pair(url, machineName ?? 'this machine').catch((cause) => {
             setState({
                 phase: 'error',
-                message: cause instanceof Error ? cause.message : String(cause),
+                message: pairingFailureText(cause),
                 url,
                 machineName,
             });
@@ -212,7 +249,11 @@ export default function PairScreen() {
     }, [openedFromSettings, router]);
 
     return (
-        <View style={[styles.screen, { paddingBottom: insets.bottom + 24 }]}>
+        <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={[styles.screen, { paddingBottom: insets.bottom + 24, paddingTop: insets.top + 24 }]}
+            keyboardShouldPersistTaps="handled"
+        >
             <View style={styles.hero}>
                 <View style={styles.iconBadge}>
                     <Ionicons name="desktop-outline" size={30} color={styles.icon.color} />
@@ -297,9 +338,10 @@ export default function PairScreen() {
                         <View style={styles.securityRow}>
                             <Ionicons name="lock-closed-outline" size={16} color={styles.securityText.color} />
                             <Text style={styles.securityText}>
-                                Only continue if you just ran `muxr setup` or `muxr pair` on that computer.
+                                Only continue if you just ran this on that computer.
                             </Text>
                         </View>
+                        <CommandChip command={pairCommand} />
                         {switching && (
                             <View style={styles.securityRow}>
                                 <Ionicons name="swap-horizontal-outline" size={16} color={styles.securityText.color} />
@@ -326,8 +368,13 @@ export default function PairScreen() {
                         <View style={styles.stepGroup}>
                             <Text style={styles.stepHeading}>Paired with {state.machineName}</Text>
                             <Text style={styles.grantText}>
-                                This browser is paired and ready. Your grant carries into the installed app on Android and desktop.
+                                This browser is paired and ready {accessUntil(state.expiresAt)}. Your grant carries into the installed app on Android and desktop.
                             </Text>
+                            {!installAvailable && !isStandaloneDisplay() && (
+                                <Text style={styles.securityText}>
+                                    To keep muxr on this device, use your browser’s menu and choose Install app or Add to Home Screen.
+                                </Text>
+                            )}
                         </View>
                         {installAvailable && (
                             <ActionButton
@@ -362,9 +409,14 @@ export default function PairScreen() {
                     )
                 ) : (
                     <>
-                        {state?.phase === 'error' && (
+                        {state?.phase === 'error' ? (
                             <Text accessibilityRole="alert" style={styles.errorText}>{state.message}</Text>
+                        ) : (
+                            <Text style={styles.securityText}>
+                                {browser ? 'Paste the pairing link printed by this command on your computer.' : 'Enter the short pairing string printed by this command on your computer.'}
+                            </Text>
                         )}
+                        <CommandChip command={pairCommand} />
                         {!browser && openedFromSettings && (
                             <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
                         )}
@@ -387,16 +439,43 @@ export default function PairScreen() {
                     </>
                 )}
             </View>
-        </View>
+        </ScrollView>
     );
 }
 
 const styles = StyleSheet.create((theme) => ({
-    screen: {
+    scroll: {
         flex: 1,
+    },
+    screen: {
+        flexGrow: 1,
         paddingHorizontal: 24,
         justifyContent: 'center',
         gap: 24,
+    },
+    commandRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderRadius: 10,
+        backgroundColor: theme.colors.surface,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        paddingLeft: 12,
+        paddingRight: 6,
+        paddingVertical: 6,
+    },
+    commandText: {
+        ...Typography.mono(),
+        flex: 1,
+        fontSize: 14,
+        color: theme.colors.text,
+    },
+    copyButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     hero: {
         alignItems: 'center',

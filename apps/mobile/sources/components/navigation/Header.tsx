@@ -188,7 +188,7 @@ const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((
     if (options.headerTitle) {
         if (typeof options.headerTitle === 'string') {
             title = (
-                <Text style={[
+                <Text accessibilityRole="header" style={[
                     {
                         fontSize: isDesktop ? 17 : 16,
                         fontWeight: '600',
@@ -207,7 +207,7 @@ const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((
         }
     } else if (typeof options.title === 'string') {
         title = (
-            <Text style={[
+            <Text accessibilityRole="header" style={[
                 { fontSize: 17, fontWeight: '600', textAlign: Platform.OS === 'ios' ? 'center' : 'left', color: options.headerTintColor || '#000' },
                 Typography.default('semiBold'),
                 options.headerTitleStyle

@@ -17,11 +17,11 @@ The convenience installer at `https://raw.githubusercontent.com/umeranjum17/muxr
 
 First run:
 
-1. Install muxr on Android from Google Play testing or the [signed APK](https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk), verified by [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest/download/SHA256SUMS). On iOS, open the [public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) for 0.1.24 (build 45); Apple is not accepting new testers right now.
-2. Run `muxr`. It checks the computer and proposes one ready route: the healthy current route, Tailscale, an existing private network such as NetBird or WireGuard, an installed temporary tunnel, or same Wi-Fi. **Choose another way** reveals every available alternative.
-3. Review the short plan, choose **Apply setup**, then scan the one-use QR from the phone app.
+1. Run `muxr`. It checks the computer and proposes one ready route: the healthy current route, Tailscale, an existing private network such as NetBird or WireGuard, an installed temporary tunnel, or same Wi-Fi. **Choose another way** reveals every available alternative.
+2. Review the short plan and choose **Apply setup**. Setup pairs the browser you are using first: a control grant that expires after eight hours (`--browser-view` for view-only, `--browser-personal` for 30 days on a browser only you use). Pair again when it expires.
+3. Optional native apps, which stay paired until revoked: Android from Google Play testing or the [signed APK](https://github.com/umeranjum17/muxr/releases/latest/download/muxr-android.apk), verified by [SHA256SUMS](https://github.com/umeranjum17/muxr/releases/latest/download/SHA256SUMS); iOS via the [public TestFlight link](https://testflight.apple.com/join/aJSbs8pN) for 0.1.24 (build 45); Apple is not accepting new testers right now. Scan the one-use QR from `muxr pair`.
 
-Nothing changes before **Apply setup**. Setup then verifies the connection and managed services without printing credentials. Run `muxr pair` anytime for a fresh QR.
+Nothing changes before **Apply setup**. Setup then verifies the connection and managed services without printing credentials. Run `muxr pair` anytime for a fresh QR or browser link.
 
 Run `muxr` with no arguments for the interactive setup and maintenance menu. The same menu can host a supervised shared relay on a VPS, create one-use machine enrollments, or connect a local Herdr host using only a machine-scoped credential.
 
@@ -35,9 +35,10 @@ muxr skill collaboration       # load one focused reference on demand
 muxr doctor                    # current setup health and checked repairs
 muxr diagnostics               # bounded redacted host/client history for agents
 muxr report > muxr-report.md   # local redacted issue draft; never submits
-muxr pair                      # pair another phone
-muxr pair --browser            # pair an 8-hour control browser
-muxr pair --browser-view       # pair an 8-hour view-only browser
+muxr pair                      # pair another phone (lasts until revoked)
+muxr pair --browser            # control browser, expires after eight hours
+muxr pair --browser-view       # view-only browser, expires after eight hours
+muxr pair --browser-personal   # control for 30 days, for a browser only you use
 muxr devices list
 muxr devices revoke <number>
 ```
