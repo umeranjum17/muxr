@@ -671,7 +671,7 @@ try {
     // hands the Voice plugin its persistent one, so call the packaged RPC the
     // way the host does.
     const packagedStatus = run(process.execPath, [join(voicePlugin, 'rpc.mjs'), 'status'], { cwd: installDir, env: { ...providerEnv, MUXR_PLUGIN_STATE_DIR: join(providerRoot, 'plugin-state', 'muxr.voice') }, input: 'null' }).stdout;
-    assert.match(packagedStatus, /"configured": true/);
+    assert.match(packagedStatus, /"configured":\s*true/);
     assert.doesNotMatch(packagedStatus, /xai|grok|key/i, 'client-visible voice status leaked provider vocabulary');
     run(cli, ['voice', 'key', 'clear'], { cwd: installDir, env: providerEnv });
     const symlinkTarget = join(scratch, 'provider-symlink-target');
@@ -955,7 +955,8 @@ try {
     const runtimeVersionFile = join(runtimeShimDir, 'version');
     const runtimeShim = join(runtimeShimDir, 'muxr');
     writeFileSync(runtimeVersionFile, `${packageJson.version}\n`);
-    writeFileSync(runtimeShim, `#!/bin/sh\nif [ "$1" = version ]; then cat ${JSON.stringify(runtimeVersionFile)}; exit 0; fi\nexit 1\n`, { mode: 0o755 });
+    // Builtins only: the CLI's PATH here carries no coreutils.
+    writeFileSync(runtimeShim, `#!/bin/sh\nif [ "$1" = version ]; then read -r v < ${JSON.stringify(runtimeVersionFile)}; echo "$v"; exit 0; fi\nexit 1\n`, { mode: 0o755 });
     const runtimeRecordPath = join(home, '.muxr', 'herdr-plugin.runtime');
     writeFileSync(runtimeRecordPath, `${JSON.stringify({ bin: runtimeShim, version: packageJson.version, source: 'smoke', recordedAt: new Date().toISOString() })}\n`, { mode: 0o600 });
     writeFileSync(updateNpm, '#!/bin/sh\nif [ "$1" = view ]; then printf \'"%s"\\n\' "${MUXR_UPDATE_LATEST:-9.9.9}"; exit 0; fi\nif [ "$1 $2" = "root --global" ]; then printf "%s\\n" "$MUXR_UPDATE_NPM_ROOT"; exit 0; fi\nif [ "$1" = install ]; then printf "%s\\n" "$*" >> "$MUXR_UPDATE_LOG"; if [ -n "$MUXR_UPDATE_FAIL" ]; then exit 1; fi; printf "%s\\n" "${MUXR_UPDATE_LATEST:-9.9.9}" > "$MUXR_UPDATE_VERSION_FILE"; exit 0; fi\nexit 1\n', { mode: 0o755 });
@@ -967,7 +968,7 @@ try {
 
     const upgraded = run(cli, ['update', '--to', '9.9.9', '--yes'], { cwd: installDir, env: runtimeEnv });
     assert.match(readFileSync(updateLog, 'utf8'), /install --global --ignore-scripts @trymuxr\/cli@9\.9\.9/);
-    assert.match(upgraded.stdout, /Herdr plugin actions now execute .* @ 9\.9\.9/);
+    assert.match(upgraded.stdout, /Herdr plugin actions now execute .* @ 9\.9\.9/, upgraded.stderr);
     const movedRecord = JSON.parse(readFileSync(runtimeRecordPath, 'utf8'));
     assert.deepEqual([movedRecord.bin, movedRecord.version], [runtimeShim, '9.9.9'], 'update did not refresh the Herdr plugin runtime record');
     assert.equal(statSync(runtimeRecordPath).mode & 0o777, 0o600);
