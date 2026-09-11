@@ -87,6 +87,30 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // inset while it is up double-pads the composer.
     const keyboardVisible = useKeyboardState().isVisible;
     const keyboardHeight = useKeyboardState().height;
+    // The keyboard controller has no native module on web, so the session
+    // follows the visual viewport there instead — same shape as the home
+    // dock. Applied only while the composer holds focus, so desktop
+    // zoom/pinch never shifts the session. This is the one geometry system
+    // on web: exactly one of the two sources below ever moves the layout.
+    const [viewportOffset, setViewportOffset] = React.useState(0);
+    const [composerFocused, setComposerFocused] = React.useState(false);
+    React.useEffect(() => {
+        if (Platform.OS !== 'web' || typeof window === 'undefined' || window.visualViewport == null) return;
+        const viewport = window.visualViewport;
+        const update = () => {
+            setViewportOffset(Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop));
+        };
+        update();
+        viewport.addEventListener('resize', update);
+        viewport.addEventListener('scroll', update);
+        return () => {
+            viewport.removeEventListener('resize', update);
+            viewport.removeEventListener('scroll', update);
+        };
+    }, []);
+    const keyboardPad = Platform.OS === 'web'
+        ? (composerFocused ? viewportOffset : 0)
+        : (keyboardVisible ? keyboardHeight : 0);
     const session = useSession(props.id);
     const sessions = useSessions();
     const { workspaces } = useHerdrTree();
@@ -451,7 +475,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // above the IME, and it measures the gap below itself to do it, so a bar
     // that floats over it gets counted as empty space and lands on the output.
     return (
-        <View style={{ flex: 1, backgroundColor: theme.colors.terminal.background, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
+        <View style={{ flex: 1, backgroundColor: theme.colors.terminal.background, paddingTop: insets.top, paddingBottom: keyboardPad }}>
 
             <View
                 style={{
@@ -762,7 +786,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     gap: 8,
                     paddingHorizontal: 12,
                     paddingVertical: 8,
-                    paddingBottom: (keyboardVisible ? 0 : insets.bottom) + 8,
+                    paddingBottom: (keyboardPad > 0 ? 0 : insets.bottom) + 8,
                     backgroundColor: theme.colors.surface,
                     borderTopWidth: StyleSheet.hairlineWidth,
                     borderTopColor: theme.colors.divider,
@@ -775,6 +799,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     ref={composerRef}
                     value={draft}
                     onChangeText={handleDraftChange}
+                    onFocus={() => setComposerFocused(true)}
+                    onBlur={() => setComposerFocused(false)}
                     onSubmitEditing={() => {
                         if (!isComposingRef.current) sendPrompt();
                     }}
