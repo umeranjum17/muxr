@@ -16,7 +16,7 @@ import { useRouter } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
 import { configureVadStandby } from '@/conversation/session';
 import { ensureRealtimeProviderConfigured, requestRealtimePermission } from '@/conversation';
-import { humanError } from '@/utils/errors';
+import { failureText } from '@/utils/errors';
 
 export default function VoiceProviderScreen() {
     const router = useRouter();
@@ -36,7 +36,7 @@ export default function VoiceProviderScreen() {
             setProviders(await sync.request('voice.provider.list', {}));
             setError(undefined);
         } catch (cause) {
-            setError(humanError(cause).message);
+            setError(failureText(cause));
         } finally {
             setLoaded(true);
         }
@@ -71,7 +71,7 @@ export default function VoiceProviderScreen() {
             await approveProvider(provider.id);
             setError(undefined);
         } catch (cause) {
-            const message = humanError(cause).message;
+            const message = failureText(cause);
             setError(message);
             Modal.alert(switched ? 'Provider selected, but setup failed' : 'Could not switch voice provider', message);
             await load();
@@ -92,7 +92,7 @@ export default function VoiceProviderScreen() {
             if (settings?.action.type !== 'screen') throw new Error('This provider has no configuration screen.');
             router.push(pluginHref(selected.id, settings.action.contributionId) as any);
         } catch (cause) {
-            Modal.alert('Provider settings unavailable', humanError(cause).message);
+            Modal.alert('Provider settings unavailable', failureText(cause));
         } finally {
             busyRef.current = false;
             setBusy(undefined);

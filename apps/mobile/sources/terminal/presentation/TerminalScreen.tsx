@@ -40,7 +40,7 @@ import type { TerminalChannel } from '../application/OpenTerminal';
 import { useAttachmentUploads } from '../application/useAttachmentUploads';
 import { Typography } from '@/constants/Typography';
 import { useUndeliveredSubmission } from '@/catalog/application/undeliveredSubmission';
-import { humanError } from '@/utils/errors';
+import { failureText, humanError } from '@/utils/errors';
 import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
@@ -442,7 +442,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             })
             .catch((error: unknown) => {
                 setStopping(false);
-                Modal.alert('Could not stop agent', humanError(error).message, [
+                Modal.alert('Could not stop agent', failureText(error), [
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Retry', onPress: () => stopSession() },
                 ]);
@@ -480,7 +480,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const statusText = grantFailure === 'expired' ? 'Access expired · Pair again'
         : grantFailure === 'revoked' ? 'Access removed · Pair again'
             : /^(connecting|reconnecting|live|closed|disconnected)$/.test(status) || status.includes('another device') ? status
-                : `${humanError(status).message} Tap to retry.`;
+                : `${failureText(status)} Tap to retry.`;
     const retryTerminal = React.useCallback(() => {
         if (grantFailure !== undefined) {
             router.push(`/pair?source=settings&reason=${grantFailure}` as never);
