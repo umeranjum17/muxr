@@ -282,9 +282,17 @@ try {
     check('browser back closes the session menu without leaving', (await journey.evaluate('window.location.pathname')).startsWith('/session/'));
     await clickControl('Session actions');
     await journey.waitFor('menu reopened', (text) => text.includes('Stop agent'));
-    await journey.evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`);
+    // Dispatched at the body like a real key press (window-targeted events
+    // skip the capture phase the sheet relies on).
+    await journey.evaluate(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`);
     await journey.waitFor('menu closed by escape', (text) => !text.includes('Stop agent'));
     check('escape closes the session menu and stays', (await journey.evaluate('window.location.pathname')).startsWith('/session/'));
+    // The entry an Escape-closed menu leaves behind must not cost a press.
+    await journey.evaluate('window.history.back()');
+    await journey.waitFor('one back leaves the session', (text) => text.includes('nothing is real') && text.includes('Add retry with backoff to sync'));
+    check('one back after escape leaves the session', (await journey.evaluate('window.location.pathname')) === '/demo');
+    await clickText('Add retry with backoff to sync');
+    await journey.waitFor('done session again', (text) => text.includes('Add retry with backoff to sync') && text.includes('^C'));
     await clickControl('Session actions');
     await journey.waitFor('menu open again', (text) => text.includes('Stop agent') && text.includes('Changes'));
     await clickControl('Open changed files');

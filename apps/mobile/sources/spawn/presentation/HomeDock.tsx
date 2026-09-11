@@ -815,6 +815,9 @@ export const HomeDock = React.memo(({
         if (Platform.OS !== 'web' || typeof window === 'undefined') return;
         const onPopState = () => {
             if (!focusOpenRef.current) return;
+            // A sheet opened inside focus mode owns the entry above this one;
+            // popping that lands back on the focus entry, which stays open.
+            if ((window.history.state as { muxrDockFocus?: boolean } | null)?.muxrDockFocus === true) return;
             focusHistoryPushedRef.current = false;
             closeFocusMode();
         };
