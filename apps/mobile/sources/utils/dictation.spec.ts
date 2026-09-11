@@ -5,6 +5,7 @@ import { useDictation } from '@/utils/dictation';
 import { pcm16ChunksToArrayBuffer } from '@/utils/transcription';
 import { wakeAndReport } from '@/watch/application/wakeAndReport';
 import { usePluginEvents } from '@/plugins/events';
+import { useRealtimeTurns } from '@/conversation/session';
 import { cancelRealtimeReportWait, configureVadStandby, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, retryVadStandby, startRealtimeSession, stopRealtimeSession } from '@/conversation/session';
 
 const mocks = vi.hoisted(() => ({
@@ -215,6 +216,27 @@ describe('on-device dictation flow', () => {
 
         mocks.notificationAction?.('mute');
         expect(setMuted).toHaveBeenCalledWith(true);
+    });
+
+    it('replaces a cumulative interim user transcript instead of stacking corrections', async () => {
+        const live = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
+        mocks.startRealtimeSession.mockReturnValue(live);
+        startRealtimeSession('session-a');
+        const provider = mocks.startRealtimeSession.mock.calls[0]![0] as {
+            onTurn: (role: 'user' | 'agent', text: string, final: boolean) => void;
+        };
+        let seen: Array<[string, string, boolean]> = [];
+        function Probe() { seen = useRealtimeTurns().map((turn) => [turn.role, turn.text, turn.final]); return null; }
+        await act(async () => { TestRenderer.create(React.createElement(Probe)); });
+        await act(async () => {
+            provider.onTurn('user', 'ship the', false);
+            provider.onTurn('user', 'ship the build', false);
+            provider.onTurn('user', 'Ship the build.', true);
+            provider.onTurn('agent', 'Shipping now.', true);
+            provider.onTurn('user', 'and', false);
+        });
+        expect(seen).toEqual([['user', 'Ship the build.', true], ['agent', 'Shipping now.', true], ['user', 'and', false]]);
+        stopRealtimeSession();
     });
 
     it('keeps live-session standby enabled and arms it once realtime ends', async () => {

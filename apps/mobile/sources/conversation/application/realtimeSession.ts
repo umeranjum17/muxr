@@ -29,7 +29,7 @@ type StablePluginStream = Omit<PluginStream, 'send'> & {
 export function startRealtimeSession(options: {
     target: { machineId: string; sessionId: string };
     onStatus: (status: RealtimeStatus, detail?: string) => void;
-    onTurn: (role: 'user' | 'agent', text: string) => void;
+    onTurn: (role: 'user' | 'agent', text: string, final: boolean) => void;
     onActivity?: () => void;
 }): RealtimeHandle {
     const { target, onStatus, onTurn, onActivity } = options;
@@ -312,7 +312,7 @@ export function startRealtimeSession(options: {
                         onStatus(frame.state, frame.detail);
                         return;
                     case 'realtime.transcript':
-                        onTurn(frame.role, frame.text);
+                        onTurn(frame.role, frame.text, frame.final);
                         return;
                     case 'realtime.app.request':
                         void (async () => {

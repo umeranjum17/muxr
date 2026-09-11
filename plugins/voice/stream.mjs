@@ -303,9 +303,8 @@ function handleXaiEvent(raw, current, epoch) {
             outputFenced = false;
             state('thinking');
             break;
-        case 'response.output_audio.delta':
-        case 'response.audio.delta': {
-            const audio = typeof message.delta === 'string' ? message.delta : typeof message.audio === 'string' ? message.audio : '';
+        case 'response.output_audio.delta': {
+            const audio = typeof message.delta === 'string' ? message.delta : '';
             if (audio && !outputFenced && emitAudio(audio)) playbackGenerations.add(responseGeneration);
             break;
         }
@@ -321,15 +320,23 @@ function handleXaiEvent(raw, current, epoch) {
                 finishGracefulEndIfDrained();
             }
             break;
+        // User transcription is cumulative: each `updated` carries the whole
+        // utterance so far (corrections included), `completed` the final
+        // text. The device replaces its interim turn rather than appending.
+        case 'conversation.item.input_audio_transcription.updated':
+            if (typeof message.transcript === 'string' && message.transcript.trim() !== '') {
+                emit({ type: 'realtime.transcript', role: 'user', text: message.transcript, final: false });
+            }
+            break;
         case 'conversation.item.input_audio_transcription.completed':
             if (typeof message.transcript === 'string' && message.transcript.trim() !== '') {
                 if (isExplicitHangup(message.transcript)) endAfterResponse = true;
-                emit({ type: 'realtime.transcript', role: 'user', text: message.transcript });
+                emit({ type: 'realtime.transcript', role: 'user', text: message.transcript, final: true });
             }
             break;
         case 'response.output_audio_transcript.done':
             if (typeof message.transcript === 'string' && message.transcript.trim() !== '') {
-                emit({ type: 'realtime.transcript', role: 'agent', text: message.transcript });
+                emit({ type: 'realtime.transcript', role: 'agent', text: message.transcript, final: true });
             }
             break;
         case 'response.function_call_arguments.done': {
@@ -504,7 +511,11 @@ function connectProvider(key) {
                 reasoning: { effort: 'none' },
                 turn_detection: { type: 'server_vad', threshold: 0.9, silence_duration_ms: 700, prefix_padding_ms: 300 },
                 audio: {
-                    input: { format: { type: 'audio/pcm', rate: RATE }, transport: 'json' },
+                    // The user transcript the app shows (and the spoken
+                    // hang-up it detects) only exists when input
+                    // transcription is configured; xAI emits cumulative
+                    // `updated` events, then `completed`.
+                    input: { format: { type: 'audio/pcm', rate: RATE }, transport: 'json', transcription: { model: 'grok-transcribe' } },
                     output: { format: { type: 'audio/pcm', rate: RATE }, transport: 'json' },
                 },
                 tools: providerTools,

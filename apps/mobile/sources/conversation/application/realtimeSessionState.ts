@@ -36,6 +36,8 @@ export interface RealtimeTurn {
     id: number;
     role: 'user' | 'agent';
     text: string;
+    /** false while the provider is still refining this utterance. */
+    final: boolean;
 }
 const MAX_TURNS = 60;
 
@@ -249,11 +251,18 @@ function rejectReportSpeech(error: Error): void {
     report.reject(error);
 }
 
-function recordTurn(epoch: number, role: 'user' | 'agent', text: string): void {
+function recordTurn(epoch: number, role: 'user' | 'agent', text: string, final = true): void {
     if (epoch !== realtimeEpoch) return;
     const trimmed = text.trim();
     if (trimmed === '') return;
-    turns = [...turns, { id: turnId++, role, text: trimmed }].slice(-MAX_TURNS);
+    // A cumulative interim replaces the open turn of the same role; only a
+    // final transcript closes it, so corrections never stack as duplicates.
+    const last = turns[turns.length - 1];
+    if (last !== undefined && last.role === role && !last.final) {
+        turns = [...turns.slice(0, -1), { ...last, text: trimmed, final }];
+    } else {
+        turns = [...turns, { id: turnId++, role, text: trimmed, final }].slice(-MAX_TURNS);
+    }
     if (role === 'agent' && reportSpeech?.sent === true) reportSpeech.responseStarted = true;
     keepAwake(epoch);
     notify();
@@ -404,7 +413,7 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
                 if (liveEpoch !== realtimeEpoch || session !== handle) return;
                 applyTransportStatus(handle, liveEpoch, next, why);
             },
-            onTurn: (role, text) => recordTurn(liveEpoch, role, text),
+            onTurn: (role, text, final) => recordTurn(liveEpoch, role, text, final),
             onActivity: () => {
                 if (liveEpoch === realtimeEpoch && session === handle) keepAwake(liveEpoch);
             },
