@@ -282,7 +282,7 @@ try {
     check('browser back closes the session menu without leaving', (await journey.evaluate('window.location.pathname')).startsWith('/session/'));
     await clickControl('Session actions');
     await journey.waitFor('menu reopened', (text) => text.includes('Stop agent'));
-    await journey.evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await journey.evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`);
     await journey.waitFor('menu closed by escape', (text) => !text.includes('Stop agent'));
     check('escape closes the session menu and stays', (await journey.evaluate('window.location.pathname')).startsWith('/session/'));
     await clickControl('Session actions');
