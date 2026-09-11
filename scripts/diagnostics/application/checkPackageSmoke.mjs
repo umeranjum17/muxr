@@ -108,7 +108,7 @@ function assertUnifiedSkillOutput(output, { liveHerdr = true } = {}) {
         previous = index;
     }
     for (const heading of [
-        '# Onboarding: install, pair, self-host, maintain',
+        '# Onboarding: install, configure, pair, maintain',
         '# Herdr orchestration',
         '# Cross-machine agent collaboration',
         '# Browser takeover for login, 2FA, and CAPTCHA',
@@ -566,7 +566,7 @@ try {
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
     const installedPlugins = join(installedPackage, 'plugins');
     assert.equal(existsSync(join(installedPlugins, 'code', 'runbook.mjs')), false, 'installed Code plugin retained the retired Runbook file');
-    assert.match(readFileSync(join(installedPackage, 'README.md'), 'utf8'), /muxr --skill\s+# print the compact agent skill/);
+    assert.match(readFileSync(join(installedPackage, 'README.md'), 'utf8'), /muxr --skill\s+# compact agent skill/);
     const rootHelp = run(cli, ['--help'], { cwd: installDir }).stdout;
     assert.match(rootHelp, /muxr --skill \| muxr skill\s+print the compact muxr agent skill/);
     assert.match(rootHelp, /muxr peers list\|read\|status\|watch\|prompt/);
@@ -582,7 +582,7 @@ try {
     assertCompactSkillOutput(installedSkill);
     assert.equal(run(cli, ['skill'], { cwd: installDir, env: cliEnv() }).stdout, installedSkill, 'packed skill alias diverged from --skill');
     const onboardingSkill = run(cli, ['skill', 'onboarding'], { cwd: installDir, env: cliEnv() }).stdout;
-    assert.match(onboardingSkill, /proposes one route[\s\S]*NetBird[\s\S]*WireGuard/);
+    assert.match(onboardingSkill, /one recommended browser-capable\s+route[\s\S]*`MUXR_CONNECTION`[\s\S]*tailscale-direct, private and lan are native-only/);
     assert.match(onboardingSkill, /## Diagnose[\s\S]*muxr doctor[\s\S]*muxr diagnostics/);
     assert.match(run(cli, ['skill', 'collaboration'], { cwd: installDir, env: cliEnv() }).stdout, /muxr peers prompt/);
     assertUnifiedSkillOutput(run(cli, ['skill', 'all'], { cwd: installDir, env: cliEnv() }).stdout);
@@ -591,7 +591,7 @@ try {
     assert.match(unavailablePeers.stderr, /Peer access is not ready/);
     const wizardSource = readFileSync(join(installedPackage, 'setup/presentation/setupWizard.mjs'), 'utf8');
     assert.match(wizardSource, /Recommended route[\s\S]*Use this route and continue[\s\S]*Choose another way/);
-    assert.match(wizardSource, /if \(recovered === undefined\) return stoppedAfterApply\(\)/, 'post-Apply stop falsely claimed nothing changed');
+    assert.match(wizardSource, /if \(recovered === undefined\) \{\s*writeOperatorConfig\(reviewedPlan\);\s*return stoppedAfterApply\(true\);/, 'post-Apply stop falsely claimed nothing changed');
     const applyGuard = wizardSource.indexOf("if (apply !== true) return cancelSetup();");
     const tailscaleMutation = wizardSource.indexOf('await applyTailscaleConnect(found)', applyGuard);
     assert.ok(applyGuard >= 0 && tailscaleMutation > applyGuard, 'interactive setup may mutate Tailscale before Apply setup');

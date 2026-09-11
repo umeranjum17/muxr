@@ -264,11 +264,6 @@ try {
     // component, no DemoBar shortcut.
     const clickText = async (text) => journey.evaluate(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === ${JSON.stringify(text)})?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
     const clickControl = async (label) => journey.evaluate(`[...document.querySelectorAll('*')].find((el) => el.getAttribute && el.getAttribute('aria-label') === ${JSON.stringify(label)})?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
-    const shadowText = () => journey.evaluate(`(() => {
-        const host = document.querySelector('diffs-container');
-        if (!host || !host.shadowRoot) return null;
-        return host.shadowRoot.textContent || '';
-    })()`);
     await clickText('Add retry with backoff to sync');
     await journey.waitFor('done session', (text) => text.includes('Add retry with backoff to sync') && text.includes('^C'));
     await clickControl('Pane actions');
@@ -298,19 +293,11 @@ try {
     await clickControl('Open changed files');
     await journey.waitFor('changed file', (text) => text.includes('sync.ts'));
     await clickText('sync.ts');
-    // Pierre renders into shadow DOM (invisible to innerText): pierce it.
-    // The deterministic diff lands with the file content; poll both.
-    const diffVisible = await (async () => {
-        const started = Date.now();
-        for (;;) {
-            const shadow = await shadowText();
-            if (typeof shadow === 'string' && shadow.includes('resetReconnectBackoff')) return shadow;
-            if (Date.now() - started > 30000) return shadow;
-            await new Promise((r) => setTimeout(r, 500));
-        }
-    })();
-    check('production file view renders the recorded artifact', typeof diffVisible === 'string' && diffVisible.includes('resetReconnectBackoff'));
-    check('production diff view renders the recorded patch', typeof diffVisible === 'string' && diffVisible.includes('connect(): void'));
+    // The document viewer renders the file and its patch as plain text rows;
+    // the deterministic diff lands with the file content, so wait for both.
+    const diffVisible = await journey.waitFor('file and patch rendered', (text) => text.includes('resetReconnectBackoff'), 30000).catch(() => '');
+    check('production file view renders the recorded artifact', diffVisible.includes('resetReconnectBackoff'));
+    check('production diff view renders the recorded patch', diffVisible.includes('connect(): void'));
     // Back correctly: file → session → herd, through the real controls.
     await clickControl('Back');
     await journey.waitFor('back to session', (text) => text.includes('^C'));
@@ -543,7 +530,7 @@ try {
     check('connect card names the Setup pane command', connectCard.includes('herdr plugin pane open --plugin muxr.control --entrypoint setup'));
     check('connect card hides npm behind Without Herdr', connectCard.includes('Without Herdr') && !connectCard.includes('npm install -g'));
     check('connect card says the app is installed after pairing from your computer', connectCard.includes('served from your own computer'));
-    await parityEval(`[...document.querySelectorAll('[role="button"]')].find((el) => el.innerText && el.innerText.trim() === 'Without Herdr')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await parityEval(`[...document.querySelectorAll('[role="button"]')].find((el) => el.innerText && el.innerText.includes('Without Herdr'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
     const withoutHerdr = await parityWaitFor('npm fallback', (text) => text.includes('npm install -g'), 10000);
     check('Without Herdr reveals the npm fallback', withoutHerdr.includes('npm install -g --ignore-scripts @trymuxr/cli@latest'));
     await parityEval(`[...document.querySelectorAll('[aria-label]')].find((el) => (el.getAttribute('aria-label') || '').startsWith('Copy npm install'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);

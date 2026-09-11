@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { AppState, Pressable, ScrollView, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { AppState, Platform, Pressable, ScrollView, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useIsFocused } from '@react-navigation/native';
 import { Text } from '@/components/StyledText';
@@ -277,6 +277,10 @@ export const LiveTerminalsRow = React.memo(({
                     showsHorizontalScrollIndicator={false}
                     onMomentumScrollEnd={commitVisibleIndex}
                     onScrollEndDrag={commitVisibleIndex}
+                    // react-native-web never emits drag/momentum end, so the
+                    // browser tracks the visible index from the throttled
+                    // scroll stream; the setter is already change-guarded.
+                    {...(Platform.OS === 'web' ? { onScroll: commitVisibleIndex, scrollEventThrottle: 100 } : {})}
                     snapToInterval={cardWidth + CARD_GAP}
                     decelerationRate="fast"
                     contentContainerStyle={{ gap: CARD_GAP, paddingHorizontal: STRIP_GUTTER }}
