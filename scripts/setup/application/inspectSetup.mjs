@@ -538,7 +538,46 @@ function managedSetupReport(states, drifted) {
     return { level: 'ok', detail: `${states.length} entries current` };
 }
 
-export async function inspectSetup() {
+/**
+ * Exact runtime identity for `muxr doctor --json`: what is installed, what
+ * the Herdr plugin executes, which bundled plugins Herdr loads and from where.
+ * Non-secret by construction (versions, paths, integrity, ids).
+ */
+function runtimeIdentity() {
+    const cliDir = dirname(realpathSync(process.argv[1]));
+    let release;
+    try { release = JSON.parse(readFileSync(join(cliDir, 'release.json'), 'utf8')); } catch { release = undefined; }
+    let pluginRuntime;
+    try { pluginRuntime = JSON.parse(readFileSync(join(stateDir(), 'herdr-plugin.runtime'), 'utf8')); } catch { pluginRuntime = undefined; }
+    let plugins;
+    try {
+        const listed = herdrPluginList();
+        plugins = listed.map((plugin) => ({ id: plugin.plugin_id, enabled: plugin.enabled === true, root: plugin.plugin_root, source: plugin.source?.kind ?? 'local', ...(plugin.source?.resolved_commit ? { commit: plugin.source.resolved_commit } : {}) }));
+    } catch { plugins = undefined; }
+    return {
+        cli: { version: cliVersion(), path: cliDir, ...(release === undefined ? {} : { sourceCommit: release.commit, channel: release.channel, sourceTree: release.sourceTree }) },
+        hostService: { version: hostServiceVersion() ?? null, mode: daemonMode() ?? null },
+        herdrPlugin: pluginRuntime === undefined ? null : { bin: pluginRuntime.bin, version: pluginRuntime.version, source: pluginRuntime.source, integrity: pluginRuntime.integrity ?? null },
+        webExport: existsSync(join(cliDir, 'web', 'index.html')) ? { path: join(cliDir, 'web'), metadata: readWebMetadata(join(cliDir, 'web')) } : null,
+        plugins: plugins ?? null,
+    };
+}
+function readWebMetadata(root) {
+    try { return JSON.parse(readFileSync(join(root, 'metadata.json'), 'utf8')); } catch { return null; }
+}
+function herdrPluginList() {
+    const binary = process.env.HERDR_BIN?.trim() || 'herdr';
+    const result = run(binary, ['plugin', 'list', '--json']);
+    if (!result.ok) throw new Error('herdr unavailable');
+    const text = result.stdout;
+    const parsed = JSON.parse(text.slice(text.search(/[\[{]/)));
+    const inner = parsed?.result ?? parsed;
+    const list = Array.isArray(inner) ? inner : inner?.plugins;
+    return Array.isArray(list) ? list.filter((plugin) => plugin && typeof plugin.plugin_id === 'string') : [];
+}
+
+export async function inspectSetup(args = []) {
+    const json = args.includes('--json');
     const checks = [];
     // repair: { label, run } — offered interactively when the check fails.
     const add = (level, name, detail, repair) => checks.push({ level, name, detail, repair });
@@ -772,10 +811,18 @@ export async function inspectSetup() {
         ready ? undefined : { label: 'restart muxr to restore local peer access', run: () => runDaemon(['restart']) });
     }
     if (hasPendingRemoteConnect()) add('fail', 'pending enrollment', 'run `muxr` and choose Resume remote connection');
+    const failures = checks.filter((check) => check.level === 'fail');
+    if (json) {
+        process.stdout.write(`${JSON.stringify({
+            ok: failures.length === 0,
+            checks: checks.map(({ level, name, detail }) => ({ level, name, detail })),
+            identity: runtimeIdentity(),
+        }, null, 2)}\n`);
+        return failures.length ? 1 : 0;
+    }
     const width = Math.max(...checks.map((check) => check.name.length));
     print();
     for (const check of checks) print(`  ${{ ok: 'ok  ', warn: 'warn', fail: 'FAIL' }[check.level]}  ${check.name.padEnd(width)}  ${check.detail}`);
-    const failures = checks.filter((check) => check.level === 'fail');
     print(failures.length ? `\n${failures.length} blocking problem${failures.length === 1 ? '' : 's'} above.` : '\nmuxr setup checks passed.');
     // Interactive repair: offer only what failed and has a known-safe action;
     // anything else stays a printed remedy. Non-interactive runs report only.

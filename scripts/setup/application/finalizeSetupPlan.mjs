@@ -1,4 +1,5 @@
 import { planToArgs, validateSetupPlan } from '../infrastructure/operatorConfig.mjs';
+import { configDefaults } from '../infrastructure/configSchema.mjs';
 
 /**
  * Occupied or disabled Tailscale Serve falls back to direct tailnet
@@ -45,8 +46,13 @@ function intentValues({ mode, port, web, endpoint, found, notifyEmail }) {
  * integrations choice) survive recovery unchanged; pairing stays a
  * per-invocation action, not plan intent.
  */
-export function finalizeSetupPlan({ plan, found, syncIntegrations, notifyEmail }) {
+export function finalizeSetupPlan({ plan, found, syncIntegrations, notifyEmail, operator = {} }) {
+    // Schema defaults underneath, the operator's resolved intent (role,
+    // service mode, pairing default, plugins, voice) over them, the wizard's
+    // decisions on top: one complete desired state.
     const values = {
+        ...configDefaults(),
+        ...operator,
         ...intentValues({ mode: plan.mode, port: plan.port, web: plan.web, endpoint: plan.endpoint, found, notifyEmail }),
         integrationsSync: syncIntegrations ? 'on' : 'off',
     };

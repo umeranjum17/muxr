@@ -392,8 +392,8 @@ Units are executed on `feat/pwa-primary-channel`. Unit status is recorded here a
 |---|---|---|
 | 0 Integrate and baseline | done | f10c94da (merge), a1b9ca80 (main delta + baseline) |
 | 1 Security/data integrity | done | see git log (Unit 1) |
-| 2 Herdr acquisition and lifecycle | pending | |
-| 3 Config/TUI/skill | pending | |
+| 2 Herdr acquisition and lifecycle | done | c7fe5481 (+ gate corrections de8c93fa); clean-room gate 20/21, remaining row re-gated at freeze |
+| 3 Config/TUI/skill | done | see git log (Unit 3) |
 | 4 Funnel, parity and canonical docs | pending | |
 | 5 Functional freeze and candidate gate | pending | |
 | 6 Real voice and physical proof | lead-owned | |

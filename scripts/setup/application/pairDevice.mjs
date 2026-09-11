@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import nacl from 'tweetnacl';
+import { resolveOperatorConfig } from '../infrastructure/operatorConfig.mjs';
 import {
     pairingIntent,
     pairingIntentFromHostedFlags,
@@ -259,14 +260,29 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
     }
 }
 
-export async function pairDevice(args = []) {
+/** No explicit grant flag: MUXR_PAIRING_DEFAULT (config.env, default browser Control) decides. `--native` is the explicit QR. */
+function withPairingDefault(args) {
+    const explicit = ['--browser', '--browser-view', '--browser-personal', '--native', '--phone'];
+    if (args.some((arg) => explicit.includes(arg))) return args.filter((arg) => arg !== '--native' && arg !== '--phone');
+    let preferred = 'browser';
+    try { preferred = resolveOperatorConfig({ args: [] }).values.pairingDefault ?? 'browser'; } catch { /* invalid config: the setup path reports it; pairing keeps the default */ }
+    const flag = { browser: '--browser', 'browser-view': '--browser-view', 'browser-personal': '--browser-personal', native: undefined, none: null }[preferred];
+    if (flag === null) throw new Error('MUXR_PAIRING_DEFAULT=none: pass --browser, --browser-view, --browser-personal or --native to pair explicitly');
+    return flag === undefined ? args : [...args, flag];
+}
+
+export async function pairDevice(rawArgs = []) {
     try {
+        const args = withPairingDefault(rawArgs);
         const state = readSelfhostState();
         if (state?.machine?.crypto === undefined || typeof selfhostCredential(state) !== 'string') {
             throw new Error('muxr is not set up yet; run `muxr setup` first');
         }
         const pair = pairingIntentFromHostedFlags(args);
-        if (pair.requiresWebHosting && !browserHostingReady()) throw new Error('browser hosting is off. Run `muxr`, choose Pair or manage devices, then Pair a control browser — muxr can enable browser access on your current secure connection.');
+        if (pair.requiresWebHosting && !browserHostingReady()) {
+            const route = typeof state.connectionMode === 'string' ? state.connectionMode : 'unknown';
+            throw new Error(`browser hosting is off: the browser app needs an HTTPS route — MUXR_CONNECTION=tailscale (Serve), cloudflare, or external (your own wss:// origin) with MUXR_WEB=true; this computer is set up with ${route}. Run \`muxr\` and choose Set up, or set those keys in ~/.muxr/config.env and run \`muxr setup --apply-config\`; the native app (\`muxr pair --native\`) works on any route.`);
+        }
         let healthy = await selfhostRelayHealthy(state);
         if (!healthy) {
             const definition = daemonDefinition('selfhost');

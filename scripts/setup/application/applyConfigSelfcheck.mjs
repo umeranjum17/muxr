@@ -12,6 +12,9 @@ import { basename, join } from 'node:path';
 import { startSelfHost } from './startSelfHost.mjs';
 import { continueWithDirectTailscale, finalizeSetupPlan, selfhostArgsFromSetupPlan } from './finalizeSetupPlan.mjs';
 import { printOperatorConfig, resolveSetupPlan, writeOperatorConfig } from '../infrastructure/operatorConfig.mjs';
+import { desiredState, planDesiredState } from './applyDesiredState.mjs';
+import { CONFIG_ATTRIBUTES } from '../infrastructure/configSchema.mjs';
+import { checkConfigDocs } from '../../release/application/generateConfigDocs.mjs';
 
 const HOME = mkdtempSync(join(tmpdir(), 'muxr-apply-config-check-'));
 const INTENT_KEYS = ['MUXR_CONNECTION', 'MUXR_RELAY_PORT', 'MUXR_WEB', 'MUXR_ADVERTISE_URL', 'MUXR_INTEGRATIONS_SYNC', 'MUXR_NOTIFY_EMAIL'];
@@ -85,13 +88,25 @@ export async function applyConfigSelfcheck() {
         cleanEnv();
         writeConfig('MUXR_CONNECTION=lan\nMUXR_RELAY_PORT=8792\nMUXR_WEB=false\n');
         let before = snapshotHome();
+        // A fresh computer: the dry-run plan has changes (exit 2), mutates
+        // nothing, and is identical on a second run.
         const applied = await runApplyConfig(['--apply-config', '--dry-run']);
-        assert.equal(applied.code, 0);
-        assert.match(applied.out, /applying operator config/);
+        assert.equal(applied.code, 2);
+        assert.match(applied.out, /would apply/);
+        assert.match(applied.out, /MUXR_CONNECTION=lan/);
         assert.equal(snapshotHome(), before);
         const reapplied = await runApplyConfig(['--apply-config', '--dry-run']);
-        assert.equal(reapplied.code, 0);
+        assert.equal(reapplied.code, 2);
         assert.equal(reapplied.out, applied.out);
+        // The JSON plan carries the same attributes and steps as the text plan.
+        const planJson = await runApplyConfig(['--apply-config', '--dry-run', '--json']);
+        assert.equal(planJson.code, 2);
+        const plan = JSON.parse(planJson.out.slice(planJson.out.indexOf('{')));
+        assert.equal(plan.ok, true);
+        assert.equal(plan.dryRun, true);
+        assert.deepEqual(plan.attributes.filter((entry) => entry.changed).map((entry) => entry.key), ['MUXR_SETUP_ROLE', 'MUXR_CONNECTION', 'MUXR_RELAY_PORT', 'MUXR_WEB']);
+        assert.ok(plan.steps.some((step) => step.id === 'relay-host'));
+        assert.equal(snapshotHome(), before);
         assert.equal(snapshotHome(), before);
 
         // Missing connection fails clearly before any mutation.
@@ -161,6 +176,60 @@ export async function applyConfigSelfcheck() {
     assert.doesNotMatch(flagCanary.out, new RegExp(CANARY));
     cleanEnv();
 
+    // Desired-state matrix, planned against fixed machine snapshots: what a
+    // fresh and an already-configured computer would do for each role and
+    // option. The planner is the same object the TUI Review and --json print.
+    const fresh = { configured: false, bundledPlugins: { code: true, status: true, voice: true }, extraPlugins: [], voiceProvider: 'codex', serviceRunning: false };
+    const configuredLan = { ...fresh, configured: true, setupRole: 'single-machine', connection: 'lan', relayPort: 8792, web: false, advertiseUrl: 'ws://192.168.1.5:8792', serviceMode: 'managed', serviceRunning: true, relayHealthy: true };
+    const stepIds = (text, current, extra = []) => { writeConfig(text); const plan = planDesiredState(desiredState(extra), current); return { ids: plan.steps.map((step) => step.id), missing: plan.missing, plan }; };
+    cleanEnv();
+    // single-machine HTTPS: browser app defaults on, service managed
+    let row = stepIds('MUXR_CONNECTION=tailscale\n', fresh);
+    assert.deepEqual(row.ids, ['relay-host', 'integrations']);
+    assert.equal(row.plan.attributes.find((entry) => entry.key === 'MUXR_WEB').to, true);
+    // explicit LAN/native, foreground
+    row = stepIds('MUXR_CONNECTION=lan\nMUXR_WEB=false\nMUXR_SERVICE_MODE=foreground\n', fresh);
+    assert.match(row.plan.steps[0].detail, /browser app off, service foreground/);
+    // browser app on a native-only route is a named prerequisite, never a silent demotion
+    writeConfig('MUXR_CONNECTION=lan\nMUXR_WEB=true\n');
+    assert.throws(() => desiredState([]), /browser-capable MUXR_CONNECTION .* lan is a native-only route/);
+    // shared relay and remote host roles
+    row = stepIds('MUXR_SETUP_ROLE=shared-relay\nMUXR_CONNECTION=tailscale\nMUXR_WEB=false\n', fresh);
+    assert.deepEqual(row.ids, ['relay-host', 'integrations']);
+    row = stepIds('MUXR_SETUP_ROLE=remote-host\n', fresh);
+    assert.ok(row.missing.some((item) => /enrollment/.test(item)), 'remote host without an enrollment must name the action');
+    row = stepIds('MUXR_SETUP_ROLE=remote-host\n', { ...configuredLan, setupRole: 'remote-host', connection: undefined });
+    assert.deepEqual(row.ids, ['integrations']);
+    // integrations auto/on/off
+    for (const [value, expected] of [['auto', ['integrations']], ['on', ['integrations']], ['off', []]]) {
+        row = stepIds(`MUXR_CONNECTION=lan\nMUXR_WEB=false\nMUXR_INTEGRATIONS_SYNC=${value}\n`, configuredLan);
+        assert.deepEqual(row.ids, expected, `integrations ${value}`);
+    }
+    // bundled plugin enable/disable, unknown name refused
+    row = stepIds('MUXR_CONNECTION=lan\nMUXR_WEB=false\nMUXR_INTEGRATIONS_SYNC=off\nMUXR_BUNDLED_PLUGINS=status=off,code=on\n', configuredLan);
+    assert.deepEqual(row.ids, ['plugin:status']);
+    row = stepIds('MUXR_CONNECTION=lan\nMUXR_WEB=false\nMUXR_BUNDLED_PLUGINS=nosuch=off\n', configuredLan);
+    assert.ok(row.missing.some((item) => /unknown bundled plugins: nosuch/.test(item)));
+    // one pinned add-on (exact sha), tags refused at parse time
+    const sha = '0123456789abcdef0123456789abcdef01234567';
+    row = stepIds(`MUXR_CONNECTION=lan\nMUXR_WEB=false\nMUXR_INTEGRATIONS_SYNC=off\nMUXR_EXTRA_PLUGINS=owner/repo/plugins/thing@${sha}\n`, configuredLan);
+    assert.deepEqual(row.ids, ['addon:owner/repo/plugins/thing']);
+    row = stepIds(`MUXR_CONNECTION=lan\nMUXR_WEB=false\nMUXR_INTEGRATIONS_SYNC=off\nMUXR_EXTRA_PLUGINS=owner/repo/plugins/thing@${sha}\n`, { ...configuredLan, extraPlugins: [{ kind: 'github', source: 'owner/repo/plugins/thing', ref: sha }] });
+    assert.deepEqual(row.ids, [], 'an installed add-on at the same commit is not reinstalled');
+    writeConfig('MUXR_CONNECTION=lan\nMUXR_EXTRA_PLUGINS=owner/repo@main\n');
+    assert.throws(() => desiredState([]), /MUXR_EXTRA_PLUGINS \(config\)/);
+    // voice configured/unconfigured
+    row = stepIds('MUXR_CONNECTION=lan\nMUXR_WEB=false\nMUXR_INTEGRATIONS_SYNC=off\nMUXR_VOICE_PROVIDER=xai\n', configuredLan);
+    assert.deepEqual(row.ids, ['voice']);
+    row = stepIds('MUXR_CONNECTION=lan\nMUXR_WEB=false\nMUXR_INTEGRATIONS_SYNC=off\n', configuredLan);
+    assert.deepEqual(row.ids, [], 'an unchanged configured computer plans nothing');
+    // The skill and the configuration page carry every attribute, from the schema.
+    assert.deepEqual(checkConfigDocs(), []);
+    const skill = readFileSync(new URL('../../../skills/muxr/references/onboarding.md', import.meta.url), 'utf8');
+    for (const attribute of CONFIG_ATTRIBUTES) assert.ok(skill.includes(`\`${attribute.key}\``), `skill lacks ${attribute.key}`);
+    for (const phrase of ['--apply-config --dry-run', 'Secret boundary', 'Pairing handoff', '--allow-downgrade', 'herdr plugin install umeranjum17/muxr/plugins/control']) assert.ok(skill.includes(phrase), `skill lacks ${phrase}`);
+    cleanEnv();
+
     // First-apply ordering (the wizard applies before writing config.env):
     // with no config file, finalize → apply argv → resolve must preserve a
     // CLI-provided notification address with flag precedence — and a flag
@@ -213,11 +282,16 @@ export async function applyConfigSelfcheck() {
         notifyEmail: 'owner@example.com',
     });
     assert.deepEqual(lanFinal, {
+        setupRole: 'single-machine',
         connection: 'lan',
         relayPort: 8792,
         web: false,
         advertiseUrl: 'ws://192.168.1.5:8792',
         integrationsSync: 'on',
+        serviceMode: 'managed',
+        pairingDefault: 'browser',
+        bundledPlugins: {},
+        extraPlugins: [],
         tunnel: false,
         tailscaleDirect: false,
         notifyEmail: 'owner@example.com',

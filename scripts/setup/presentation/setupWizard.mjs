@@ -566,6 +566,11 @@ async function applyTailscaleConnect(found) {
 }
 
 export async function applyMachineSetup(args = []) {
+    // Desired-state path: plan, apply, verify against config.env; no wizard.
+    if (args.includes('--apply-config')) {
+        const { applyDesiredState } = await import('../application/applyDesiredState.mjs');
+        return applyDesiredState(args);
+    }
     // Existing automation stays stable: flags used by scripts keep the historical
     // non-wizard flow. Plain `muxr setup` is the high-touch interactive path.
     const requestedMode = value(args, '--mode');
@@ -644,8 +649,12 @@ export async function applyMachineSetup(args = []) {
     // same values from the plan-derived argv, so apply cannot diverge from
     // review. Supported operator fields (notification address, integrations
     // choice) are part of the plan and survive recovery.
-    const reviewedPlan = finalizeSetupPlan({ plan, found, syncIntegrations, notifyEmail: operator.values.notifyEmail });
+    const reviewedPlan = finalizeSetupPlan({ plan, found, syncIntegrations, notifyEmail: operator.values.notifyEmail, operator: operator.values });
     const operatorPreview = formatOperatorConfig(reviewedPlan);
+    // The same plan `muxr setup --apply-config --dry-run` prints: current vs
+    // desired per key, then the steps. One planner, two presentations.
+    const { currentDesiredState, planDesiredState, planLines } = await import('../application/applyDesiredState.mjs');
+    const desiredPlan = planDesiredState({ values: reviewedPlan, provenance: operator.provenance }, await currentDesiredState());
     note([
         `Connection: ${connectionLabel(plan.mode, plan.endpoint, plan.port)}`,
         `Herdr: ${found.herdr.installed ? 'adopt existing installation and ensure its server is running' : 'download, install, and start during setup'}`,
@@ -657,7 +666,8 @@ export async function applyMachineSetup(args = []) {
         `Ingress: ${ingressPlan(plan.mode, tailscalePlanned)}`,
         'Services: register or restart the relay and host with systemd/launchd',
         `Existing connections: ${connectionChanged ? 'stored grants stay authoritative and adopt the advertised endpoint automatically' : 'keep working; restart only if a reviewed runtime setting changed'}`,
-        `Operator config to write (~/.muxr/config.env):\n${operatorPreview.trimEnd()}`,
+        `Plan (same as muxr setup --apply-config --dry-run):\n${planLines(desiredPlan, { values: reviewedPlan }, { dryRun: true }).join('\n')}`,
+        `Desired state to write (~/.muxr/config.env):\n${operatorPreview.trimEnd()}`,
         'No change is made until you choose Apply setup.',
     ]);
     const apply = await select('Apply this setup?', [
@@ -695,7 +705,7 @@ export async function applyMachineSetup(args = []) {
     // plan would describe a setup that does not exist, so re-derive from
     // the actually applied working plan and require explicit acceptance of
     // any change before anything is saved.
-    const finalPlan = finalizeSetupPlan({ plan, found, syncIntegrations, notifyEmail: operator.values.notifyEmail });
+    const finalPlan = finalizeSetupPlan({ plan, found, syncIntegrations, notifyEmail: operator.values.notifyEmail, operator: operator.values });
     if (JSON.stringify(finalPlan) !== JSON.stringify(reviewedPlan)) {
         const changed = Object.keys(finalPlan).filter((key) => JSON.stringify(finalPlan[key]) !== JSON.stringify(reviewedPlan[key]));
         note([

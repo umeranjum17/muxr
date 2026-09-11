@@ -33,6 +33,12 @@ import {
 import { mintDeviceGrant } from './pairDevice.mjs';
 
 export async function startSelfHost(args = []) {
+    // `--apply-config` is one plan everywhere: the desired-state module
+    // plans, applies (through this function with derived flags) and verifies.
+    if (args.includes('--apply-config') && !args.includes('--from-desired-state')) {
+        const { applyDesiredState } = await import('./applyDesiredState.mjs');
+        return applyDesiredState(args);
+    }
     let pendingIngress;
     let plan;
     try {
@@ -53,6 +59,7 @@ export async function startSelfHost(args = []) {
     const intentArgs = planToArgs(plan.values);
     const effectiveArgs = [...args, ...intentArgs];
     const applyConfig = args.includes('--apply-config');
+    const foreground = args.includes('--foreground');
     if (applyConfig) {
         const missing = [];
         if (plan.values.connection === undefined) missing.push('MUXR_CONNECTION (tailscale|tailscale-direct|private|lan|cloudflare|external)');
@@ -190,6 +197,12 @@ export async function startSelfHost(args = []) {
             } else {
                 print('Relay ready. Run `muxr self-host --host-only` on the machine holding this state.');
             }
+            return 0;
+        }
+        if (foreground) {
+            // MUXR_SERVICE_MODE=foreground: no OS service. The relay started
+            // above stays up for this session; the host runs under `muxr up`.
+            print('  ✓ foreground mode: no background service registered — run `muxr up` to start the host in this terminal');
             return 0;
         }
         print('  … registering and starting the background host service');

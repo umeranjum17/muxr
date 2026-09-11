@@ -58,11 +58,11 @@ Run muxr with no arguments for the interactive menu.
 
 Get started
   muxr setup                     install, connect, and pair this machine
-  muxr doctor                    check the complete local setup
+  muxr doctor [--json]           check the complete local setup (JSON: checks + exact runtime identity)
   muxr diagnostics               show bounded redacted host history for agents
   muxr report                    prepare a local redacted bug report draft
-  muxr pair [--browser|--browser-view|--browser-personal] pair a phone, a control/view-only browser, or your installed browser
-  muxr config                    show effective operator intent and where each value came from
+  muxr pair [--browser|--browser-view|--browser-personal|--native] pair this browser (Control, default), a view-only or personal browser, or the native app
+  muxr config [--json|--schema]  show effective desired state and where each value came from
   muxr connect --enrollment ...  connect this agent machine to a shared relay
   muxr shared-relay              host an always-on relay for other machines
 
@@ -91,7 +91,7 @@ Use “muxr help <command>” for command options.
 `;
 
 const COMMAND_HELP = {
-    setup: `muxr setup [--inspect] [--dry-run] [--no-install-herdr] [--port <n>]\n\nInteractive setup installs Herdr when missing, lets you choose networking, lifecycle integrations, plugins, and services, shows a final plan, then applies it and displays a short-lived pairing QR. It never installs agent skills or edits prompt files.\n`,
+    setup: `muxr setup [--inspect] [--dry-run] [--no-install-herdr] [--port <n>]\nmuxr setup --apply-config [--dry-run] [--json]\n\n--apply-config plans this computer against ~/.muxr/config.env (flag > env > file > default): --dry-run prints the plan and exits 2 when it has changes; without it the plan is applied and verified (exit 0), never minting grants or invitations.\n\nInteractive setup installs Herdr when missing, lets you choose networking, lifecycle integrations, plugins, and services, shows a final plan, then applies it and displays a short-lived pairing QR. It never installs agent skills or edits prompt files.\n`,
     'self-host': `muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]\n               [--port <n>] [--relay-only|--host-only] [--web] [--yes]\n               [--apply-config] [--dry-run]\n\n--apply-config reads ~/.muxr/config.env (flag > env > file > default) and applies it non-interactively; exits non-zero listing any missing decision.\n`,
     daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n\n\`install\` writes or updates the background-service definition without starting it. Normal \`muxr setup\` installs, starts, and verifies the service for you.\n`,
     devices: `muxr devices list\nmuxr devices revoke <number|name>\n`,
@@ -108,7 +108,7 @@ const COMMAND_HELP = {
     'plugin install': `muxr plugin install <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nMaterialize, validate, confirm, and enable a plugin.\n`,
     'plugin update': `muxr plugin update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nReplace plugin files transactionally while preserving its enabled state.\n`,
     'plugin remove': `muxr plugin remove <plugin-id> [--yes]\n\nDisable, unlink, and remove muxr-managed plugin files.\n`,
-    pair: `muxr pair [--browser|--browser-view|--browser-personal]\n\nCreate a two-minute native QR/string, an eight-hour control-browser link (--browser), an eight-hour view-only browser link (--browser-view), or a 30-day personal-browser link for your own installed browser (--browser-personal).\n`,
+    pair: `muxr pair [--browser|--browser-view|--browser-personal|--native]\n\nWith no flag, MUXR_PAIRING_DEFAULT decides (default: --browser). --browser: an eight-hour Control link for this browser; --browser-view: eight-hour View-only; --browser-personal: 30-day Control for a browser only you use; --native: a two-minute one-use QR/string for the native app. Every link is one-use and expires in two minutes.\n`,
     config: `muxr config\n\nPrint the effective operator intent (~/.muxr/config.env values overlaid by MUXR_* env and CLI flags) with provenance per value. Read-only; the setup wizard writes the file when you Apply.\n`,
     doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
     diagnostics: `muxr diagnostics\n\nPrint seven days of bounded redacted host, client, relay, collaboration, and broker history as JSON. No prompts, terminal output, paths, secrets, or internal ids are recorded.\n`,
@@ -459,7 +459,7 @@ async function dispatch(command, args = []) {
             return 1;
         }
     }
-    if (command === 'doctor' || command === 'status') return inspectSetup();
+    if (command === 'doctor' || command === 'status') return inspectSetup(args);
     if (command === 'diagnostics') {
         try { dumpDiagnostics(); return 0; }
         catch (error) { process.stderr.write(`muxr diagnostics: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
@@ -527,10 +527,10 @@ async function advancedMenu() {
 async function devicesMenu() {
     for (;;) {
         const choice = await select('Phones and browsers', [
-            { value: 'pair', title: 'Pair a phone', description: 'show a two-minute QR and short pairing string' },
-            { value: 'pair-browser', title: 'Pair a control browser', description: 'full terminal and agent control for eight hours' },
+            { value: 'pair-browser', title: 'Pair this browser (Control)', description: 'full terminal and agent control for eight hours' },
             { value: 'pair-browser-view', title: 'Pair a view-only browser', description: 'observe agents without control for eight hours' },
             { value: 'pair-browser-personal', title: 'Pair your installed browser', description: 'control from your own installed PWA for 30 days; revoke anytime' },
+            { value: 'pair', title: 'Pair the native app', description: 'show a two-minute QR and short pairing string' },
             { value: 'list', title: 'List paired devices', description: 'names and pairing dates' },
             { value: 'revoke', title: 'Revoke a device', description: 'disconnect a phone or browser' },
             { value: 'back', title: 'Back', description: 'return to the main menu' },
@@ -538,7 +538,7 @@ async function devicesMenu() {
         if (choice === undefined) return 'quit';
         if (choice === BACK || choice === 'back') return;
         let code = 0;
-        if (choice === 'pair') code = await pairDevice([]);
+        if (choice === 'pair') code = await pairDevice(['--native']);
         else if (choice === 'pair-browser' || choice === 'pair-browser-view' || choice === 'pair-browser-personal') {
             let flag = '--browser';
             if (choice === 'pair-browser-view') flag = '--browser-view';

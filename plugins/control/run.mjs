@@ -119,7 +119,7 @@ const commands = new Map([
     ['pair', ['pair', '--browser']],
     ['pair-view', ['pair', '--browser-view']],
     ['pair-personal', ['pair', '--browser-personal']],
-    ['pair-native', ['pair']],
+    ['pair-native', ['pair', '--native']],
     ['devices', ['devices', 'list']],
     ['doctor', ['doctor']],
     ['service', ['daemon', 'status']],

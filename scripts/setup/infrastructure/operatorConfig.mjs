@@ -11,6 +11,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, wri
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { BROWSER_CAPABLE_CONNECTIONS, CONFIG_ATTRIBUTES, CONFIG_KEYS, attributeByKey, attributeByName, configSchema, formatAttribute, validateCrossAttributes } from './configSchema.mjs';
 
 // Dependency-free on purpose: operator intent must resolve without the
 // crypto/QR stack (runtime.mjs) so `muxr config` and --apply-config stay light.
@@ -38,17 +39,8 @@ function atomicWrite(path, text, mode = 0o600) {
 
 export const operatorConfigPath = () => join(stateDir(), 'config.env');
 
-/** Intent keys. File keys ARE the MUXR_* env names: one namespace, no mapping table. */
-export const OPERATOR_KEYS = [
-    'MUXR_CONNECTION',
-    'MUXR_RELAY_PORT',
-    'MUXR_WEB',
-    'MUXR_ADVERTISE_URL',
-    'MUXR_INTEGRATIONS_SYNC',
-    'MUXR_NOTIFY_EMAIL',
-];
-
-const CONNECTION_MODES = ['tailscale', 'tailscale-direct', 'private', 'lan', 'cloudflare', 'external'];
+/** Intent keys, from the one schema. File keys ARE the MUXR_* env names: one namespace, no mapping table. */
+export const OPERATOR_KEYS = CONFIG_KEYS;
 
 function readConfigFile() {
     const path = operatorConfigPath();
@@ -89,9 +81,6 @@ function readConfigFile() {
     };
 }
 
-const truthy = (value) => ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
-const falsy = (value) => ['0', 'false', 'no', 'off'].includes(value.trim().toLowerCase());
-
 function pick({ flag, envName, file, fallback, parse }) {
     if (flag !== undefined) return { value: parse(flag, 'flag'), provenance: 'flag' };
     const fromEnv = env(envName);
@@ -100,51 +89,10 @@ function pick({ flag, envName, file, fallback, parse }) {
     return { value: fallback.value, provenance: fallback.provenance };
 }
 
-// Validation errors name the key, its source and the rule. They never repeat
-// the submitted value: it reaches `muxr config`, JSON receipts, logs and
-// screenshots, and an advertise URL or a mistyped line can carry a secret.
-function parsePort(raw, from) {
-    const port = Number(raw);
-    if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error(`MUXR_RELAY_PORT (${from}) must be an integer from 1024 to 65535`);
-    return port;
-}
-
-function parseConnection(raw, from) {
-    const mode = raw.trim();
-    if (!CONNECTION_MODES.includes(mode)) throw new Error(`MUXR_CONNECTION (${from}) must be one of ${CONNECTION_MODES.join(', ')}`);
-    return mode;
-}
-
-function parseWeb(raw, from) {
-    if (truthy(raw)) return true;
-    if (falsy(raw)) return false;
-    throw new Error(`MUXR_WEB (${from}) must be true or false`);
-}
-
-/** Root ws(s)://host[:port] only: userinfo, path, query and fragment are rejected before the value can be reported anywhere. */
-function parseAdvertise(raw, from) {
-    const url = raw.trim().replace(/\/$/, '');
-    if (url === '') return undefined;
-    let parsed;
-    try {
-        parsed = new URL(url);
-    } catch {
-        parsed = undefined;
-    }
-    if (
-        parsed === undefined || (parsed.protocol !== 'wss:' && parsed.protocol !== 'ws:') || !parsed.hostname
-        || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash
-    ) {
-        throw new Error(`MUXR_ADVERTISE_URL (${from}) must be a root ws(s)://host[:port] URL without credentials, path, query, or fragment`);
-    }
-    return url;
-}
-
 /**
  * External relay endpoint, one rule for config and wizard alike: a root
- * wss://host URL without credentials, query, or fragment. Plain ws:// and
- * credential/query/fragment-bearing URLs are rejected rather than
- * serialized into the advertised safe config.
+ * wss://host URL without credentials, query, or fragment. Errors never
+ * repeat the value.
  */
 export function parseExternalAdvertiseUrl(raw, from = 'operator config') {
     const entered = String(raw).trim();
@@ -172,91 +120,61 @@ export function resolveOperatorConfig({ args = [], probed = {} } = {}) {
     const file = readConfigFile();
     if (file.error !== undefined) throw new Error(file.error);
     const fileValues = file.values;
+    // Per-attribute flag spellings that are not `--<flag> value`.
     let webFlag;
     if (args.includes('--web')) webFlag = 'true';
     else if (args.includes('--no-web')) webFlag = 'false';
-    const integrationsFlag = args.includes('--no-integrations') ? 'off' : undefined;
-
-    const connection = pick({
-        // NOTE: `--mode` is intentionally not an alias here. `muxr setup
-        // --mode selfhost` is setup operation mode, not a connection route.
-        flag: flagValue(args, '--connection-mode'),
-        envName: 'MUXR_CONNECTION', file: fileValues.MUXR_CONNECTION,
-        fallback: { value: probed.connection, provenance: probed.connection === undefined ? 'default' : 'probed' },
-        parse: parseConnection,
-    });
-    const relayPort = pick({
-        flag: flagValue(args, '--port'),
-        envName: 'MUXR_RELAY_PORT', file: fileValues.MUXR_RELAY_PORT,
-        fallback: { value: probed.relayPort ?? 8792, provenance: probed.relayPort === undefined ? 'default' : 'probed' },
-        parse: parsePort,
-    });
-    const web = pick({
-        flag: webFlag,
-        envName: 'MUXR_WEB', file: fileValues.MUXR_WEB,
-        fallback: { value: probed.web, provenance: probed.web === undefined ? 'default' : 'probed' },
-        parse: parseWeb,
-    });
-    const advertiseUrl = pick({
-        flag: flagValue(args, '--advertise'),
-        envName: 'MUXR_ADVERTISE_URL', file: fileValues.MUXR_ADVERTISE_URL,
-        fallback: { value: probed.advertiseUrl, provenance: probed.advertiseUrl === undefined ? 'default' : 'probed' },
-        parse: parseAdvertise,
-    });
-    const integrationsSync = pick({
-        flag: integrationsFlag,
-        envName: 'MUXR_INTEGRATIONS_SYNC', file: fileValues.MUXR_INTEGRATIONS_SYNC,
-        fallback: { value: probed.integrationsSync ?? 'auto', provenance: 'default' },
-        parse: (raw, from) => {
-            const value = raw.trim().toLowerCase();
-            if (!['auto', 'on', 'off'].includes(value)) throw new Error(`MUXR_INTEGRATIONS_SYNC (${from}) must be auto, on, or off`);
-            return value;
-        },
-    });
-    const notifyEmail = pick({
-        flag: flagValue(args, '--notify-email'),
-        envName: 'MUXR_NOTIFY_EMAIL', file: fileValues.MUXR_NOTIFY_EMAIL,
-        fallback: { value: undefined, provenance: 'default' },
-        parse: (raw) => raw.trim(),
-    });
-
-    const values = {
-        ...(connection.value === undefined ? {} : { connection: connection.value }),
-        relayPort: relayPort.value,
-        ...(web.value === undefined ? {} : { web: web.value }),
-        ...(advertiseUrl.value === undefined ? {} : { advertiseUrl: advertiseUrl.value }),
-        integrationsSync: integrationsSync.value,
-        ...(notifyEmail.value === undefined ? {} : { notifyEmail: notifyEmail.value }),
+    const flagFor = (attribute) => {
+        if (attribute.key === 'MUXR_WEB') return webFlag;
+        if (attribute.key === 'MUXR_INTEGRATIONS_SYNC') return args.includes('--no-integrations') ? 'off' : undefined;
+        if (attribute.flag === undefined) return undefined;
+        // NOTE: `--mode` is intentionally not an alias for --connection-mode:
+        // `muxr setup --mode selfhost` is setup operation mode, not a route.
+        return flagValue(args, attribute.flag.split(' ')[0]);
     };
-    const provenance = {
-        connection: connection.provenance,
-        relayPort: relayPort.provenance,
-        web: web.provenance,
-        ...(advertiseUrl.value === undefined ? {} : { advertiseUrl: advertiseUrl.provenance }),
-        integrationsSync: integrationsSync.provenance,
-        ...(notifyEmail.value === undefined ? {} : { notifyEmail: notifyEmail.provenance }),
-    };
+    const values = {};
+    const provenance = {};
+    for (const attribute of CONFIG_ATTRIBUTES) {
+        const probedValue = probed[attribute.name];
+        const fallback = probedValue !== undefined
+            ? { value: probedValue, provenance: 'probed' }
+            : { value: attribute.default, provenance: 'default' };
+        const picked = pick({
+            flag: flagFor(attribute),
+            envName: attribute.key,
+            file: fileValues[attribute.key],
+            fallback,
+            parse: (raw, from) => attribute.parse(raw, from),
+        });
+        if (picked.value !== undefined) values[attribute.name] = picked.value;
+        // Defaults for optional attributes are recorded once they resolve to
+        // something; an unset optional stays absent rather than "(default)".
+        if (picked.value !== undefined || attribute.default !== undefined) provenance[attribute.name] = picked.provenance;
+    }
     return { values, provenance };
 }
 
-const CONFIG_COMMENTS = `# muxr operator intent — human-editable, safe to keep in dotfiles.
-# One rule everywhere: CLI flag > MUXR_* env > this file > probed/default.
-# No secrets here: credentials and machine state live in selfhost.json.
-# Values: MUXR_CONNECTION=tailscale|tailscale-direct|private|lan|cloudflare|external
-#         MUXR_RELAY_PORT=8792  MUXR_WEB=true|false
-#         MUXR_ADVERTISE_URL=wss://... (external only)
-#         MUXR_INTEGRATIONS_SYNC=auto|on|off  MUXR_NOTIFY_EMAIL=you@example.com
-`;
+const CONFIG_COMMENTS = [
+    '# muxr desired state — human-editable, safe to keep in dotfiles.',
+    '# One rule everywhere: CLI flag > MUXR_* env > this file > probed/default.',
+    '# No secrets here: credentials and machine state live in selfhost.json.',
+    '# Plan and apply it with: muxr setup --apply-config --dry-run --json',
+    ...CONFIG_ATTRIBUTES.map((attribute) => `#   ${attribute.key}=${Array.isArray(attribute.values) ? attribute.values.join('|') : attribute.values}${attribute.default === undefined || typeof attribute.default === 'object' ? '' : ` (default ${formatAttribute(attribute, attribute.default)})`}`),
+].join('\n');
 
-/** Serialize intent only — never credentials or machine state. */
+/** Serialize intent only — never credentials or machine state. Defaults that were never chosen stay out. */
 export function formatOperatorConfig(values) {
-    const lines = [CONFIG_COMMENTS.trimEnd()];
-    if (values.connection !== undefined) lines.push(`MUXR_CONNECTION=${values.connection}`);
-    lines.push(`MUXR_RELAY_PORT=${values.relayPort ?? 8792}`);
-    if (values.web !== undefined) lines.push(`MUXR_WEB=${values.web ? 'true' : 'false'}`);
-    if (values.advertiseUrl !== undefined) lines.push(`MUXR_ADVERTISE_URL=${values.advertiseUrl}`);
-    if (values.integrationsSync !== undefined && values.integrationsSync !== 'auto') lines.push(`MUXR_INTEGRATIONS_SYNC=${values.integrationsSync}`);
-    if (values.notifyEmail !== undefined) lines.push(`MUXR_NOTIFY_EMAIL=${values.notifyEmail}`);
+    const lines = [CONFIG_COMMENTS];
+    for (const attribute of CONFIG_ATTRIBUTES) {
+        const value = values[attribute.name];
+        if (value === undefined) continue;
+        if (attribute.key === 'MUXR_RELAY_PORT') { lines.push(`${attribute.key}=${value}`); continue; }
+        if (attribute.type === 'map' && Object.keys(value).length === 0) continue;
+        if (attribute.type === 'list' && value.length === 0) continue;
+        if (attribute.default !== undefined && typeof attribute.default !== 'object' && value === attribute.default && !['MUXR_SETUP_ROLE', 'MUXR_SERVICE_MODE', 'MUXR_PAIRING_DEFAULT'].includes(attribute.key)) continue;
+        lines.push(`${attribute.key}=${formatAttribute(attribute, value)}`);
+    }
+    if (!lines.some((line) => line.startsWith('MUXR_RELAY_PORT='))) lines.push('MUXR_RELAY_PORT=8792');
     return `${lines.join('\n')}\n`;
 }
 
@@ -266,19 +184,17 @@ export function writeOperatorConfig(values) {
     atomicWrite(operatorConfigPath(), formatOperatorConfig(values));
 }
 
-/** `key=value (provenance)` lines for `muxr config` and the Review screen. */
+/** `KEY=value (provenance)` lines for `muxr config` and the Review screen. */
 export function operatorReportLines(resolved) {
-    return Object.keys(resolved.values).map((key) => `${key}=${resolved.values[key]} (${resolved.provenance[key]})`);
+    return Object.keys(resolved.values).map((name) => {
+        const attribute = attributeByName(name);
+        return `${attribute?.key ?? name}=${attribute === undefined ? resolved.values[name] : formatAttribute(attribute, resolved.values[name])} (${resolved.provenance[name]})`;
+    });
 }
 
-/** Completeness rule for an applicable plan: external names its own URL, and a named external URL always passes the strict external rule (root wss://host, no credentials/query/fragment, never plain ws://) — whether it arrived via config or the wizard prompt. */
+/** Cross-attribute completeness for an applicable plan (one rule set, in the schema). */
 export function validateSetupPlan(values) {
-    if (values.connection === 'external') {
-        if (values.advertiseUrl === undefined) {
-            throw new Error('MUXR_CONNECTION=external needs MUXR_ADVERTISE_URL (or --advertise <wss://...>)');
-        }
-        parseExternalAdvertiseUrl(values.advertiseUrl);
-    }
+    validateCrossAttributes(values);
 }
 
 /**
@@ -319,24 +235,47 @@ export function planToArgs(plan, { reconfigure = true } = {}) {
     return argv;
 }
 
-function snakeToEnv(key) {
-    return { connection: 'MUXR_CONNECTION', relayPort: 'MUXR_RELAY_PORT', web: 'MUXR_WEB', advertiseUrl: 'MUXR_ADVERTISE_URL', integrationsSync: 'MUXR_INTEGRATIONS_SYNC', notifyEmail: 'MUXR_NOTIFY_EMAIL' }[key] ?? key;
+/** Non-secret effective values with provenance, as `muxr config --json` prints them. */
+export function operatorConfigJson(resolved) {
+    const values = {};
+    const provenance = {};
+    for (const attribute of CONFIG_ATTRIBUTES) {
+        const value = resolved.values[attribute.name];
+        values[attribute.key] = value === undefined ? null : value;
+        if (resolved.provenance[attribute.name] !== undefined) provenance[attribute.key] = resolved.provenance[attribute.name];
+    }
+    return { schemaVersion: configSchema().version, file: operatorConfigPath(), present: existsSync(operatorConfigPath()), values, provenance };
 }
 
-/** `muxr config`: effective operator intent with provenance. Read-only. */
+/** `muxr config [--json|--schema]`: effective desired state with provenance. Read-only. */
 export function printOperatorConfig(args = []) {
     const print = (text = '') => process.stdout.write(`${text}\n`);
+    if (args.includes('--schema')) {
+        print(JSON.stringify(configSchema(), null, 2));
+        return 0;
+    }
     let resolved;
     try {
         resolved = resolveOperatorConfig({ args });
     } catch (cause) {
-        process.stderr.write(`muxr config: ${cause instanceof Error ? cause.message : String(cause)}\n`);
+        const message = cause instanceof Error ? cause.message : String(cause);
+        if (args.includes('--json')) print(JSON.stringify({ ok: false, error: message }, null, 2));
+        else process.stderr.write(`muxr config: ${message}\n`);
         return 1;
     }
-    print(`operator intent: ${operatorConfigPath()}${existsSync(operatorConfigPath()) ? '' : ' (missing — defaults and probes apply)'}`);
-    for (const key of Object.keys(resolved.values)) {
-        print(`  ${snakeToEnv(key)}=${resolved.values[key]} (${resolved.provenance[key]})`);
+    if (args.includes('--json')) {
+        print(JSON.stringify({ ok: true, ...operatorConfigJson(resolved) }, null, 2));
+        return 0;
+    }
+    print(`desired state: ${operatorConfigPath()}${existsSync(operatorConfigPath()) ? '' : ' (missing — defaults and probes apply)'}`);
+    for (const attribute of CONFIG_ATTRIBUTES) {
+        const value = resolved.values[attribute.name];
+        if (value === undefined) continue;
+        print(`  ${attribute.key}=${formatAttribute(attribute, value)} (${resolved.provenance[attribute.name]})`);
     }
     print('precedence: CLI flag > MUXR_* env > config.env > probed/default · secrets live in selfhost.json, never here');
+    print('plan it: muxr setup --apply-config --dry-run --json · schema: muxr config --schema');
     return 0;
 }
+
+export { BROWSER_CAPABLE_CONNECTIONS, attributeByKey };
