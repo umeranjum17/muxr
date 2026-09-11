@@ -395,7 +395,7 @@ Units are executed on `feat/pwa-primary-channel`. Unit status is recorded here a
 | 2 Herdr acquisition and lifecycle | done | c7fe5481 (+ gate corrections de8c93fa); clean-room gate 20/21, remaining row re-gated at freeze |
 | 3 Config/TUI/skill | done | see git log (Unit 3) |
 | 4 Funnel, parity and canonical docs | done | see git log (Unit 4) |
-| 5 Functional freeze and candidate gate | pending | |
+| 5 Functional freeze and candidate gate | done | frozen tuple at 319a80c0 (tarball `sha512-0tJ5zq…`, web export tree `bd1c5f17…`); full suite 44/46 at freeze, the two non-product rows (unpushed-ref gate preflight, smoke shim) re-run green after 1a453a6e; see task25-pwa-final-execution.md |
 | 6 Real voice and physical proof | lead-owned | |
 | 7 Sync website once | separate repository | |
 | 8 Contract review and PRs | pending | |
