@@ -372,7 +372,7 @@ describe('generic realtime stream session', () => {
             onStatus: (status) => statuses.push(status),
             onTurn: (_role, text) => turns.push(text),
         });
-        await vi.waitFor(() => expect(mocks.webRtc.start).toHaveBeenCalledWith('events-channel', expect.any(Object)));
+        await vi.waitFor(() => expect(mocks.webRtc.start).toHaveBeenCalledWith('events-channel', expect.any(Object), expect.any(AbortSignal)));
         const callbacks = mocks.webRtc.callbacks;
         if (callbacks === undefined) throw new Error('WebRTC callbacks were not installed');
         callbacks.onOffer('v=0\r\na=offer');

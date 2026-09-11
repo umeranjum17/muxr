@@ -424,8 +424,16 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
     starting = false;
 }
 
+/** A hidden browser tab never holds the microphone, for standby either. */
+function tabHidden(): boolean {
+    return typeof document !== 'undefined' && document.hidden === true;
+}
+
 async function armVadStandby(): Promise<VadArmResult> {
-    if (storage.getState().localSettings?.vadStandbyEnabled !== true || dictating || session !== null || starting) return 'retry';
+    // Standby is the other way the browser acquires the microphone, so the
+    // hidden-tab release registers here too, not only on the first call.
+    watchBackgroundOnWeb();
+    if (storage.getState().localSettings?.vadStandbyEnabled !== true || dictating || session !== null || starting || tabHidden()) return 'retry';
     if (vadArming !== null) return vadArming;
     const epoch = vadEpoch;
     const task = (async (): Promise<VadArmResult> => {
@@ -433,14 +441,14 @@ async function armVadStandby(): Promise<VadArmResult> {
             ? realtimeTarget
             : await resolveRealtimeTarget();
         if (target === null || epoch !== vadEpoch || storage.getState().localSettings?.vadStandbyEnabled !== true
-            || dictating || session !== null || starting) return 'retry';
+            || dictating || session !== null || starting || tabHidden()) return 'retry';
         realtimeTarget = target;
         activateWatching();
         const armed = await startVadStandby(() => {
             const wakeTarget = realtimeTarget;
             if (wakeTarget !== null && session === null && !starting && !dictating) startRealtimeSession(wakeTarget);
         });
-        if (epoch !== vadEpoch) {
+        if (epoch !== vadEpoch || tabHidden()) {
             stopVadStandby();
             return 'retry';
         }

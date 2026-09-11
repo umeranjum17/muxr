@@ -299,11 +299,11 @@ const HeaderTitle = React.memo(({ large = false }: { large?: boolean }) => {
                     onPress={() => { void openMachinePicker(); }}
                     style={styles.machineTitleButton}
                 >
-                    <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1}>{title}</Text>
+                    <Text accessibilityRole="header" aria-level={1} style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1}>{title}</Text>
                     <Ionicons name="chevron-down" size={13} color={theme.colors.header.tint} />
                 </Pressable>
             ) : (
-                <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1}>{title}</Text>
+                <Text accessibilityRole="header" aria-level={1} style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1}>{title}</Text>
             )}
             {connectionStatus.text && (
                 <View style={styles.statusContainer}>
@@ -413,7 +413,10 @@ export const MainView = React.memo(() => {
     const [searchActive, setSearchActive] = React.useState(false);
     const [homePrompt, setHomePrompt] = React.useState(() => useNewSessionDraft.getState().input);
     // The draft store (not this component state) owns the prompt, so text
-    // survives the compact/split remount across the 900px breakpoint.
+    // survives the compact/split remount across the 900px breakpoint, and a
+    // submission releasing its own version from the store empties this too.
+    const storeInput = useNewSessionDraft((state) => state.input);
+    React.useEffect(() => { setHomePrompt(storeInput); }, [storeInput]);
     const handleHomePromptChange = React.useCallback((value: string) => {
         setHomePrompt(value);
         useNewSessionDraft.getState().setInput(value);
@@ -433,9 +436,7 @@ export const MainView = React.memo(() => {
         }
         useNewSessionDraft.getState().setInput(prompt);
         Keyboard.dismiss();
-        const sessionId = await startHomeSession();
-        if (sessionId) setHomePrompt('');
-        return sessionId !== null;
+        return await startHomeSession() !== null;
     }, [homePrompt, startHomeSession]);
 
     // Opening a session with no prompt is a deliberate choice: pick the agent,

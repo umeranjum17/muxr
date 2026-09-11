@@ -66,6 +66,7 @@ check('app.config web themeColor', appConfig.includes('themeColor'));
 const packageJson = read(join(root, 'package.json'));
 check('web:export installs canvaskit before exporting', packageJson.includes('setup-canvaskit') && packageJson.includes('npx expo export'));
 check('web:export installs the pdf worker before exporting', packageJson.includes('setup-pdfjs'));
+check('web:export installs the mermaid script before exporting', packageJson.includes('setup-mermaid'));
 
 // 4. Secret hygiene: the exportable surface must not carry credentials.
 const secretPattern = /(acctok_|EXPO_PUBLIC_MUXR_TOKEN\s*=\s*['"][^'"]+['"]|mint-secret|BEGIN (?:OPENSSH|EC|RSA) PRIVATE KEY)/;
@@ -85,12 +86,12 @@ check('deploy prunes only aged orphans', deploy.includes('-mtime') && deploy.inc
 
 // 5. Unhashed entry payload: icons + manifest + worker stay small. This is
 // NOT the initial bundle budget — hashed JS/CSS is measured against dist
-// below. The known lazy payload (canvaskit.wasm, pdf.worker) is excluded:
-// it loads on demand, never as startup transfer.
+// below. The known lazy payload (canvaskit.wasm, pdf.worker, mermaid) is
+// excluded: it loads on demand, never as startup transfer.
 const BUDGET_BYTES = 512 * 1024;
 let rootBytes = 0;
 for (const name of readdirSync(join(mobile, 'public'))) {
-    if (name.endsWith('.wasm') || name === 'pdf.worker.min.mjs') continue;
+    if (name.endsWith('.wasm') || name === 'pdf.worker.min.mjs' || name === 'mermaid.min.js') continue;
     const info = statSync(join(mobile, 'public', name));
     if (info.isFile()) rootBytes += info.size;
 }
@@ -165,6 +166,8 @@ if (!existsSync(distIndex)) {
         return existsSync(file) ? readFileSync(file, 'utf8') : '';
     })].join('\n');
     check('dist initial payload has no marketing origin', !distText.includes('https://trymuxr.com'));
+    check('dist initial payload carries no mermaid engine', !distText.includes('__esbuild_esm_mermaid_nm'));
+    check('dist ships mermaid.min.js for on-demand diagrams', existsSync(join(mobile, 'dist', 'mermaid.min.js')));
     // CanvasKit is fetched lazily by Skia at runtime; without it the app
     // dies in Error initializing. Observed ~8.0 MB; anything under 1 MB is
     // a stub or a truncation, not the engine.

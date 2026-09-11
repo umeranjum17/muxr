@@ -96,6 +96,15 @@ export function openRealtimeRecorder(): RealtimeRecorder {
                 if (message === undefined) throw cause instanceof Error ? cause : new Error(String(cause));
                 throw Object.assign(new Error(message), { name });
             }
+            if (closed) {
+                // Stopped while permission was pending: the granted tracks
+                // must not outlive the owner that asked for them.
+                for (const track of stream.getTracks()) {
+                    try { track.stop(); } catch { /* released already */ }
+                }
+                stream = undefined;
+                throw new Error('Realtime web recorder is closed.');
+            }
             try {
                 context = new AudioContext({ sampleRate, latencyHint: 'interactive' });
             } catch (cause) {
@@ -141,13 +150,19 @@ export function openRealtimeRecorder(): RealtimeRecorder {
             }
             // "Listening" must mean frames are flowing: a context the browser
             // keeps suspended (no user activation, autoplay policy) produces
-            // silence, so give it a moment to resume and otherwise say so.
-            await context.resume().catch(() => undefined);
-            for (let waited = 0; context.state !== 'running' && waited < 1500; waited += 100) {
+            // silence. resume() may never settle while the context is not
+            // allowed to start, so it is never awaited: the deadline runs on
+            // its own clock and stop() ends the wait at once.
+            const started = context;
+            const running = (): boolean => (started.state as string) === 'running';
+            void started.resume().catch(() => undefined);
+            const deadline = Date.now() + 1500;
+            while (!running() && !closed && Date.now() < deadline) {
                 await new Promise((resolve) => setTimeout(resolve, 100));
-                await context.resume().catch(() => undefined);
+                if (!running() && !closed) void started.resume().catch(() => undefined);
             }
-            if (context.state !== 'running') throw new Error('Audio is suspended by the browser until you tap the page.');
+            if (closed) throw new Error('Realtime web recorder is closed.');
+            if (!running()) throw new Error('Audio is suspended by the browser until you tap the page.');
         },
         stop: async (): Promise<void> => {
             closed = true;

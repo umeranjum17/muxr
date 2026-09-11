@@ -21,6 +21,7 @@ import { AgentGlyph } from '@/components/AgentGlyph';
 import { TerminalPreview } from '@/terminal/ui';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { RecentActivity } from './RecentActivity';
+import { Typography } from '@/constants/Typography';
 
 const CARD_WIDTH = 300;
 const CARD_HEIGHT = 200;
@@ -38,8 +39,10 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     heading: { color: theme.colors.groupped.sectionTitle, fontSize: 11, fontWeight: '700', letterSpacing: 1.2 },
     // 44px box inside a shorter caption row: the negative margin keeps the row height.
-    attentionIndicator: { width: 44, height: 44, marginVertical: -8, marginHorizontal: -13, alignItems: 'center', justifyContent: 'center' },
+    // A word beside the dot: colour never carries the state alone.
+    attentionIndicator: { minWidth: 44, height: 44, marginVertical: -8, marginLeft: -6, paddingHorizontal: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
     attentionDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: theme.colors.status.error },
+    attentionText: { ...Typography.default('semiBold'), fontSize: 11, color: theme.colors.status.error },
     zeroState: {
         height: 96,
         marginHorizontal: STRIP_GUTTER,
@@ -183,6 +186,7 @@ export const LiveTerminalsRow = React.memo(({
         return () => subscription.remove();
     }, []);
     const attentionIndex = cards.findIndex((card) => liveTerminalBucket(card.agentStatus) === 'attention');
+    const attentionCount = cards.filter((card) => liveTerminalBucket(card.agentStatus) === 'attention').length;
     const firstVisible = Math.max(0, Math.floor(scrollX / (cardWidth + CARD_GAP)));
     const onScroll = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
         setScrollX(event.nativeEvent.contentOffset.x);
@@ -241,15 +245,16 @@ export const LiveTerminalsRow = React.memo(({
     return (
         <View style={stylesheet.strip} onLayout={handleLayout}>
             <View style={stylesheet.header}>
-                <Text accessibilityRole="header" style={stylesheet.heading}>{t('liveTerminals.title')}</Text>
+                <Text accessibilityRole="header" aria-level={2} style={stylesheet.heading}>{t('liveTerminals.title')}</Text>
                 {attentionIndex === -1 ? null : (
                     <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel="Show the first agent needing attention"
+                        accessibilityLabel={`${attentionCount} need${attentionCount === 1 ? 's' : ''} you. Show the first agent needing attention`}
                         onPress={() => scrollToCard(cards[attentionIndex]!.id)}
                         style={stylesheet.attentionIndicator}
                     >
                         <View style={stylesheet.attentionDot} />
+                        <Text style={stylesheet.attentionText}>{`${attentionCount} need${attentionCount === 1 ? 's' : ''} you`}</Text>
                     </Pressable>
                 )}
             </View>

@@ -18,6 +18,7 @@ import { Modal } from '@/modal';
 import { resumePendingHostedPairing } from '@/pairing/e2ee';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
 import { useHostedPairing, usePairQrScanner } from '@/pairing';
+import { humanError } from '@/utils/errors';
 
 export default function Home() {
     const auth = useAuth();
@@ -50,7 +51,7 @@ function NotAuthenticated() {
             });
             await auth.login(grant.credential, grant.deviceKey.secretKey);
         }).catch((error) => {
-            Modal.alert('Pairing paused', error instanceof Error ? error.message : String(error));
+            Modal.alert('Pairing paused', humanError(error).message);
         }).finally(() => { pairing.current = false; });
     }, [auth, hosted]);
 
@@ -84,7 +85,7 @@ function NotAuthenticated() {
                 <View style={styles.hero}>
                     {heroMark}
                     <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : 'Run your agents from your phone.'}</Text>
-                    <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
+                    <Text style={styles.subtitle}>{Platform.OS === 'web' ? 'Pair this browser for eight hours at a time. Every agent session on your computer, end-to-end encrypted.' : 'Pair once. Every agent session on your computer, end-to-end encrypted.'}</Text>
                 </View>
                 <View style={[styles.actions, { paddingBottom: insets.bottom + 24 }]}>
                     {Platform.OS === 'web' ? (

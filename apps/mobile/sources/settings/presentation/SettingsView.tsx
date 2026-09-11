@@ -411,7 +411,7 @@ export const SettingsView = React.memo(function SettingsView({
                 )}
                 <Item
                     title="Pair another machine"
-                    subtitle="Scan the QR or enter the short string from muxr pair"
+                    subtitle={Platform.OS === 'web' ? 'Paste the link printed by muxr pair --browser' : 'Scan the QR or enter the short string from muxr pair'}
                     icon={<Ionicons name="qr-code-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={() => router.push('/pair?source=settings')}
                 />

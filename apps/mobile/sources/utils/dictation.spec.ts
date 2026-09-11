@@ -243,6 +243,31 @@ describe('on-device dictation flow', () => {
         expect(mocks.vadStandbyEnabled).toBe(false);
     });
 
+    it('releases standby-only capture when the tab hides and refuses to arm while hidden', async () => {
+        const listeners: Array<() => void> = [];
+        const fakeDocument = { hidden: false, addEventListener: vi.fn((_type: string, listener: () => void) => { listeners.push(listener); }) };
+        vi.stubGlobal('document', fakeDocument);
+        try {
+            // Standby armed with no realtime call ever started.
+            await expect(configureVadStandby(true)).resolves.toBe(true);
+            await vi.waitFor(() => expect(mocks.liveAudio.start).toHaveBeenCalledOnce());
+            expect(micOwners()).toEqual(['vad']);
+            expect(fakeDocument.addEventListener).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+            fakeDocument.hidden = true;
+            for (const listener of listeners) listener();
+            await vi.waitFor(() => expect(micOwners()).toEqual([]));
+            // Hidden: a retry must not reacquire the microphone.
+            await expect(retryVadStandby()).resolves.toBe(false);
+            expect(micOwners()).toEqual([]);
+            fakeDocument.hidden = false;
+            for (const listener of listeners) listener();
+            await vi.waitFor(() => expect(micOwners()).toEqual(['vad']));
+            await expect(configureVadStandby(false)).resolves.toBe(true);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
     it('retains and serializes prioritized reports until delivery, then sleeps after drain', async () => {
         const first = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
         const failed = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };

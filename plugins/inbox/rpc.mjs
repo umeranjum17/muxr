@@ -91,29 +91,26 @@ if (process.argv[2] === 'count') {
     process.exit(0);
 }
 
-const grouped = new Map();
-// A workspace ranks by its most urgent row, so an approval in "Z project"
-// never sits below finished work in "A project".
-const urgency = new Map();
-const BUCKETS = ['needsYou', 'working', 'done'];
-for (const [rank, bucket] of BUCKETS.entries()) {
-    for (const entry of columns[bucket]) {
-        const group = grouped.get(entry.workspace) ?? [];
-        group.push(entry.row);
-        grouped.set(entry.workspace, group);
-        if (!urgency.has(entry.workspace)) urgency.set(entry.workspace, rank);
-    }
-}
+// Attention first, globally: every Needs you row precedes every Working row,
+// which precedes every Done row, whatever project they belong to. Within a
+// bucket, rows group by workspace, alphabetically with Other last.
+const BUCKETS = [['needsYou', 'needs you'], ['working', 'working'], ['done', 'done']];
 function workspaceOrder(left, right) {
-    const byUrgency = urgency.get(left) - urgency.get(right);
-    if (byUrgency !== 0) return byUrgency;
     if (left === 'Other') return 1;
     if (right === 'Other') return -1;
     return left.localeCompare(right);
 }
-
-const groups = [...grouped.entries()]
-    .sort(([a], [b]) => workspaceOrder(a, b))
-    .map(([title, items], index) => ({ id: `group-${index + 1}`, title, items }));
+const groups = [];
+for (const [bucket, word] of BUCKETS) {
+    const byWorkspace = new Map();
+    for (const entry of columns[bucket]) {
+        const group = byWorkspace.get(entry.workspace) ?? [];
+        group.push(entry.row);
+        byWorkspace.set(entry.workspace, group);
+    }
+    for (const [workspace, items] of [...byWorkspace.entries()].sort(([a], [b]) => workspaceOrder(a, b))) {
+        groups.push({ id: `group-${groups.length + 1}`, title: `${workspace} · ${word}`, items });
+    }
+}
 
 process.stdout.write(JSON.stringify({ title: 'Inbox', groups }));

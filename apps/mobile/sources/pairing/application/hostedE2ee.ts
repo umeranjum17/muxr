@@ -268,7 +268,7 @@ async function json(base: string, path: string, options: RequestInit = {}): Prom
         const message = String(body.error ?? `request failed (${response.status})`);
         throw new Error(friendlyRelayError(message));
     } catch (cause) {
-        if (cause instanceof Error && cause.name === 'AbortError') throw new Error('The relay did not respond. Check the network, then run `muxr doctor` on the machine.');
+        if (cause instanceof Error && cause.name === 'AbortError') throw new Error('The relay did not respond. Check the network, then run muxr doctor on the machine.');
         throw cause;
     } finally {
         if (timeout !== undefined) clearTimeout(timeout);

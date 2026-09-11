@@ -443,7 +443,7 @@ export const SpacesTree = React.memo(({
                 renderItem={renderItem}
                 renderSectionHeader={({ section }) => (
                     <View style={[styles.sectionHeader, compact && styles.sectionHeaderCompact]}>
-                        <Text accessibilityRole="header" style={styles.sectionTitle}>{section.title}</Text>
+                        <Text accessibilityRole="header" aria-level={2} style={styles.sectionTitle}>{section.title}</Text>
                     </View>
                 )}
                 stickySectionHeadersEnabled={false}

@@ -109,4 +109,5 @@ subscriptions, and serves an unregistering service worker if one was deployed.
   `checkWebExport`. It was met by keeping Metro's eager `__common` chunk a
   stub: the diff viewer's grammars and mermaid's diagram core were shared
   between lazy chunks and had been loading before first paint (~1.0 MiB
-  gzip). Route-level splitting remains available if the index bundle grows.
+  gzip). Mermaid is now served on demand from `public/mermaid.min.js`
+  (`setup-mermaid`), like CanvasKit and the pdf worker. Route-level splitting remains available if the index bundle grows.

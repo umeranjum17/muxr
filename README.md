@@ -31,7 +31,7 @@
 
 Coding agents made programming asynchronous: they work for minutes or hours, then stop and wait for you. Your phone is where you already are during those waits — but a terminal squeezed into a phone browser is unusable, and a notification app cannot actually answer.
 
-muxr is the control surface built natively for the phone: the full agent lifecycle on one screen, the exact terminal when you tap in, and a prompt box that talks to the same session. Execution, code, credentials, and model subscriptions stay on your computers.
+muxr is the control surface built natively for the phone: the full agent lifecycle on one screen, the exact terminal when you tap in, and a prompt box that talks to the same session. Execution, code, coding-agent credentials, and model subscriptions stay on your computers.
 
 ## See it in action
 
@@ -118,7 +118,7 @@ Parallel agents work like a party: each has a job, a state, and moments when it 
 
 Your phone and computer stay connected over Wi-Fi, Tailscale, or a VPS you run. Nobody else runs your agents.
 
-Terminal text, prompts, responses, keystrokes, files, pairing secrets, and credentials remain end-to-end encrypted. Agents, repositories, model subscriptions, and encryption keys stay on your computer.
+Terminal text, prompts, responses, keystrokes, files, and pairing secrets remain end-to-end encrypted between your computer and each paired device. Agents, repositories, model subscriptions, and the coding agents' own API keys and credentials stay on your computer. Each paired phone or browser holds its own scoped device credential and the encryption keys for its pairing, so a compromised paired device can reach what that device was granted (its sessions, for the grant's role and lifetime) and nothing on your computer beyond that; revoke it from the machine to end that access.
 
 [Privacy and trust →](https://trymuxr.com/docs/privacy) · [Self-hosting →](docs/SELF-HOSTING.md)
 

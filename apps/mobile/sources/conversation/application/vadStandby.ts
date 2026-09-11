@@ -167,6 +167,13 @@ export function acquireRealtimeCapture(sampleRate: number, onData: (data: string
         release: () => {
             if (!isOwner(candidate)) return;
             owner = undefined;
+            // Stop the recorder this owner acquired right now, ahead of the
+            // serialized queue: a start blocked on a suspended context would
+            // otherwise hold the microphone until it settled. stop() is
+            // idempotent, so the queued stop is a harmless second pass.
+            const acquired = recorder;
+            recorder = undefined;
+            void acquired?.stop().catch(() => undefined);
             void enqueue(async () => {
                 if (owner === undefined) await stopRecorder();
             });

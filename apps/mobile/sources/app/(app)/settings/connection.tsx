@@ -198,7 +198,7 @@ export default function ConnectionSettingsScreen() {
 
                 <ItemGroup title="Advanced">
                     <Item title="Reconnect now" subtitle="Drops the socket and dials again" onPress={() => void syncReconnect()} />
-                    <Item title="Pair another machine" subtitle="Scan the QR or enter the short string from muxr pair" onPress={() => router.push('/pair?source=settings')} />
+                    <Item title="Pair another machine" subtitle={Platform.OS === 'web' ? 'Paste the link printed by muxr pair --browser' : 'Scan the QR or enter the short string from muxr pair'} onPress={() => router.push('/pair?source=settings')} />
                     <Text style={styles.hint}>
                         To stop this device reaching a machine, revoke it from the interactive muxr menu.
                     </Text>

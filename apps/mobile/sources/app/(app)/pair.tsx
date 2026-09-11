@@ -417,6 +417,11 @@ export default function PairScreen() {
                             </Text>
                         )}
                         <CommandChip command={pairCommand} />
+                        {browser && (
+                            <Text style={styles.securityText}>
+                                Browser access lasts eight hours at a time, then you pair again. For a browser only you use, muxr pair --browser-personal keeps it for 30 days.
+                            </Text>
+                        )}
                         {!browser && openedFromSettings && (
                             <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
                         )}

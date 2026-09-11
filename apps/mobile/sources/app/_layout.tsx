@@ -43,6 +43,7 @@ import { KernelNotifications } from '@/herd/ui';
 import { acknowledgeLifecyclePush } from '@/utils/nativePushNotifications';
 import { realtimeAppController } from '@/conversation/application/realtimeAppControl';
 import { MOTION } from '@/constants/motion';
+import { humanError } from '@/utils/errors';
 
 // Configure notification handler — suppress push display when app is in foreground
 Notifications.setNotificationHandler({
@@ -268,7 +269,7 @@ export default function RootLayout() {
                     } catch (error) {
                         setInitState({
                             credentials,
-                            error: error instanceof Error ? error.message : String(error),
+                            error: humanError(error).message,
                         });
                         return;
                     }

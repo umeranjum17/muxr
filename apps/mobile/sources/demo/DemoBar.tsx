@@ -19,13 +19,28 @@ export function DemoBar({ topInset = 0 }: { topInset?: number }) {
     // Phones keep the actions to their icons; wider frames spell them out.
     const spellOut = width >= 600;
     const [copied, setCopied] = React.useState(false);
+    // Clipboard access can be refused (false) or throw; "Copied" is said
+    // only on a true result, and otherwise the exact command is shown to
+    // select by hand.
+    const [fallback, setFallback] = React.useState(false);
     const copyInstall = React.useCallback(async () => {
-        await Clipboard.setStringAsync(DEMO_INSTALL_COMMAND);
+        let ok = false;
+        try {
+            ok = await Clipboard.setStringAsync(DEMO_INSTALL_COMMAND);
+        } catch {
+            ok = false;
+        }
+        if (!ok) {
+            setFallback(true);
+            return;
+        }
+        setFallback(false);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     }, []);
     return (
-        <View style={[styles.bar, { paddingTop: topInset + 2 }]} accessibilityRole="header">
+        <View style={[styles.frame, { paddingTop: topInset }]}>
+        <View style={styles.bar} accessibilityRole="header" aria-level={2}>
             <Ionicons name="play-circle-outline" size={14} color={theme.colors.textSecondary} />
             <Text style={styles.label}>Demo · three scripted agents, nothing is real. Pair your computer to see yours.</Text>
             <Pressable
@@ -43,23 +58,47 @@ export function DemoBar({ topInset = 0 }: { topInset?: number }) {
                 onPress={() => void copyInstall()}
                 style={styles.action}
             >
-                <Ionicons name={copied ? 'checkmark-outline' : 'download-outline'} size={14} color={theme.colors.textSecondary} />
+                <Ionicons name={copied ? 'checkmark-outline' : 'copy-outline'} size={14} color={theme.colors.textSecondary} />
                 {(spellOut || copied) && <Text style={styles.actionLabel}>{copied ? 'Copied' : 'Connect'}</Text>}
             </Pressable>
+        </View>
+        {fallback && (
+            <View style={styles.fallback} accessibilityLiveRegion="polite">
+                <Text style={styles.fallbackHint}>Copy didn't work here. Select the command and copy it yourself:</Text>
+                <Text selectable style={styles.command} accessibilityLabel={`Install command: ${DEMO_INSTALL_COMMAND}`}>{DEMO_INSTALL_COMMAND}</Text>
+            </View>
+        )}
         </View>
     );
 }
 
 const stylesheet = StyleSheet.create((theme) => ({
+    frame: {
+        backgroundColor: theme.colors.surfaceHigh,
+        borderBottomWidth: 1,
+        borderBottomColor: theme.colors.divider,
+    },
     bar: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
         paddingHorizontal: 16,
         paddingVertical: 2,
-        backgroundColor: theme.colors.surfaceHigh,
-        borderBottomWidth: 1,
-        borderBottomColor: theme.colors.divider,
+    },
+    fallback: {
+        paddingHorizontal: 16,
+        paddingBottom: 10,
+        gap: 4,
+    },
+    fallbackHint: {
+        ...Typography.default(),
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+    },
+    command: {
+        ...Typography.mono(),
+        fontSize: 12,
+        color: theme.colors.text,
     },
     label: {
         ...Typography.default(),

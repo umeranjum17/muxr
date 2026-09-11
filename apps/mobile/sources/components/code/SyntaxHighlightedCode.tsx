@@ -23,7 +23,7 @@ export const SyntaxHighlightedCode = React.memo(function SyntaxHighlightedCode(p
             <View style={{ minHeight: 40, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider }}>
                 <Ionicons name="code-slash-outline" size={15} color={theme.colors.textSecondary} />
                 <Text numberOfLines={1} ellipsizeMode="middle" style={{ color: theme.colors.text, fontSize: 11.5, flex: 1, ...Typography.mono('semiBold') }}>{props.fileName ?? 'Source'}</Text>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 10.5, ...Typography.mono() }}>{language ?? 'plain text'}</Text>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 11, ...Typography.mono() }}>{language ?? 'plain text'}</Text>
             </View>
             <View style={{ flexDirection: 'row', paddingVertical: 8 }}>
                 {/* The gutter stays put while long code moves underneath it. A

@@ -57,7 +57,7 @@ export const RecentActivity = React.memo((props: {
     return (
         <View style={styles.section}>
             <View style={styles.header}>
-                <Text accessibilityRole="header" style={styles.title}>While you were away</Text>
+                <Text accessibilityRole="header" aria-level={2} style={styles.title}>While you were away</Text>
             </View>
             <View style={styles.card}>
                 {visible.map((row) => {

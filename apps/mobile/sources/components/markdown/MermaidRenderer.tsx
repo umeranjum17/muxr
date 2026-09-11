@@ -39,8 +39,8 @@ export const MermaidRenderer = React.memo((props: {
 
             const renderMermaid = async () => {
                 try {
-                    const mermaidModule: any = await import('./mermaidBundle');
-                    const mermaid = mermaidModule.default || mermaidModule;
+                    const { loadMermaid } = await import('./mermaidBundle');
+                    const mermaid = await loadMermaid();
 
                     if (mermaid.initialize) {
                         mermaid.initialize({

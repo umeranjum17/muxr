@@ -110,7 +110,7 @@ export function usePairQrScanner(onScanned: (url: string) => void, enabled: bool
         // context reads as suspicious on a security product.
         const primed = await Modal.confirm(
             'Scan your machine QR',
-            'Point the camera at the QR code shown by `muxr setup` or `muxr pair` on your computer. The scan completes an end-to-end encrypted pairing — the image never leaves this phone.',
+            'Point the camera at the QR code shown by muxr setup or muxr pair on your computer. The scan completes an end-to-end encrypted pairing — the image never leaves this phone.',
             { confirmText: 'Open camera' },
         );
         if (!primed) return;

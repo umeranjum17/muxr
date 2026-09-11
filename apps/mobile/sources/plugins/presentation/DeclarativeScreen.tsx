@@ -30,6 +30,7 @@ import { ScreenChart } from './screenCharts';
 import { ScreenTree } from './screenTree';
 import { MOTION, houseEasing, pressEasing, staggerDelay, timing } from '@/constants/motion';
 import { LoadingHairline } from '@/components/LoadingHairline';
+import { humanError } from '@/utils/errors';
 
 /** Screen payloads survive a close: reopening renders at once, then refreshes. */
 const screenCache = new Map<string, unknown>();
@@ -429,7 +430,7 @@ function ScreenBody(props: {
                 setFields((current) => Object.fromEntries(Object.entries(defaults).map(([id, initial]) =>
                     [id, dirtyFields.current.has(id) ? current[id] ?? initial : initial])));
             })
-            .catch((error: unknown) => { if (!cancelled) setDataError(error instanceof Error ? error.message : String(error)); })
+            .catch((error: unknown) => { if (!cancelled) setDataError(humanError(error).message); })
             .finally(() => { if (!cancelled) { setLoading(false); setRefreshing(false); } });
         return () => { cancelled = true; };
     }, [cacheKey, dataContributionId, props.manifest, props.pluginId, props.manifestHash, callParams, request, refreshNonce]);
@@ -440,7 +441,7 @@ function ScreenBody(props: {
             : action;
         void dispatchPluginAction(bound, {
             router, pluginId: props.pluginId, manifestHash: props.manifestHash, manifest: props.manifest,
-        }).catch((error: unknown) => setStatus({ ok: false, text: error instanceof Error ? error.message : String(error) }));
+        }).catch((error: unknown) => setStatus({ ok: false, text: humanError(error).message }));
     }, [router, data, props.pluginId, props.manifestHash, props.manifest, props.params]);
 
     const onButton = React.useCallback((button: PluginScreenButtonNode) => {
@@ -458,7 +459,7 @@ function ScreenBody(props: {
             }).catch((error: unknown) => {
                 if (version !== operationVersion.current) return;
                 hapticsError();
-                setStatus({ ok: false, text: error instanceof Error ? error.message : String(error) });
+                setStatus({ ok: false, text: humanError(error).message });
             }).finally(() => setRunning(false));
             return;
         }
@@ -533,7 +534,7 @@ function ScreenBody(props: {
                                     <ScreenNode node={node} data={data} fields={fields} setField={setField} running={running} onButton={onButton} onRowAction={onRowAction} onTreeLoad={onTreeLoad}
                                         tabOverrides={tabParams}
                                         onSelectTab={(param, value) => setTabParams((current) => ({ ...current, [param]: value }))}
-                                        onTreeError={(error) => setStatus({ ok: false, text: error instanceof Error ? error.message : String(error) })} />
+                                        onTreeError={(error) => setStatus({ ok: false, text: humanError(error).message })} />
                                 </Animated.View>
                             ))}
                         </View>

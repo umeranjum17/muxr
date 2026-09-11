@@ -968,9 +968,11 @@ export const HomeDock = React.memo(({
 
     const submit = async () => {
         if (!canSubmit) return false;
-        useNewSessionDraft.getState().setAttachments(selectedImages);
+        const batch = selectedImages;
+        useNewSessionDraft.getState().setAttachments(batch);
         const started = await onSubmit();
-        if (started) clearImages();
+        // Only the submitted batch leaves the picker; images added since stay.
+        if (started) for (const image of batch) removeImage(image.id);
         return started;
     };
 

@@ -256,6 +256,8 @@ export default function NewAgentScreen() {
     // flow as the home composer, on every density. Squad and workspace-join
     // stay below as explicit advanced options.
     const [flowPrompt, setFlowPrompt] = React.useState(() => useNewSessionDraft.getState().input);
+    const storeInput = useNewSessionDraft((state) => state.input);
+    React.useEffect(() => { setFlowPrompt(storeInput); }, [storeInput]);
     const { isStarting: isStartingFlowSession, startSession: startFlowSession } = useStartSessionFromDraft();
 
     React.useEffect(() => {
@@ -324,9 +326,7 @@ export default function NewAgentScreen() {
         }
         useNewSessionDraft.getState().setInput(prompt);
         Keyboard.dismiss();
-        const sessionId = await startFlowSession();
-        if (sessionId) setFlowPrompt('');
-        return sessionId !== null;
+        return await startFlowSession() !== null;
     }, [flowPrompt, startFlowSession]);
 
     const handleFlowStartBlank = React.useCallback(async (): Promise<boolean> => {

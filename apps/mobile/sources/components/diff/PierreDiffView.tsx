@@ -407,7 +407,7 @@ function PlainPatchView({
                     return <View key={`${row.raw}:${index}`} style={{ minHeight: 36, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: theme.colors.surfaceHigh, borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.outline }}>
                         <Ionicons name="document-text-outline" size={15} color={theme.colors.textSecondary} />
                         <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 11.5, ...Typography.mono('semiBold') }}>{name}</Text>
-                        {folder !== '' && <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 10.5, ...Typography.mono() }}>{folder}</Text>}
+                        {folder !== '' && <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 11, ...Typography.mono() }}>{folder}</Text>}
                     </View>;
                 }
                 if (row.kind === 'meta') {

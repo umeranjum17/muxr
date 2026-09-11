@@ -422,7 +422,7 @@ try {
         browserWs.send(JSON.stringify({ id: cur, method, params, sessionId: paritySessionId }));
     });
     const parityEval = async (expression) => {
-        const res = await paritySend('Runtime.evaluate', { expression, returnByValue: true });
+        const res = await paritySend('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
         if (res.result?.exceptionDetails) throw new Error(`parity js error: ${JSON.stringify(res.result.exceptionDetails).slice(0, 200)}`);
         return res.result?.result?.value;
     };
@@ -532,6 +532,28 @@ try {
     // the demo route, only the hairline under the header.
     check('demo route shows no full-screen spinner', !await parityEval(`!!document.querySelector('[role="progressbar"]:not([aria-label="Loading"])')`));
     await checkCraft('390 demo');
+    // A refused clipboard never reads as Copied: the exact install command is
+    // shown to select instead.
+    await parityEval(`(() => { navigator.clipboard.writeText = () => Promise.reject(new Error('denied')); document.execCommand = () => { throw new Error('denied'); }; })()`);
+    await parityEval(`[...document.querySelectorAll('[aria-label]')].find((el) => (el.getAttribute('aria-label') || '').startsWith('Connect your computer'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const afterCopy = await parityWaitFor('copy fallback', (text) => text.includes('@trymuxr/cli'), 10000);
+    check('denied clipboard shows the install command instead of Copied', afterCopy.includes('npm install -g --ignore-scripts @trymuxr/cli@latest') && !afterCopy.includes('Copied'));
+    // Mermaid is served on demand from public/, never from the entry: the
+    // real loader runs here and renders a diagram in the exported page.
+    const mermaidResult = await parityEval(`(async () => {
+        const html = await (await fetch('/')).text();
+        const scripts = [...html.matchAll(/src="(\\/_expo\\/static\\/js\\/web\\/index-[^"]+)"/g)];
+        if (scripts.length === 0) return 'no-index';
+        const index = await (await fetch(scripts[0][1])).text();
+        if (index.includes('__esbuild_esm_mermaid_nm')) return 'mermaid-in-entry';
+        await new Promise((resolve, reject) => { const tag = document.createElement('script'); tag.src = '/mermaid.min.js'; tag.onload = resolve; tag.onerror = () => reject(new Error('script failed')); document.head.appendChild(tag); });
+        const mermaid = globalThis.mermaid;
+        if (!mermaid || !mermaid.render) return 'no-global';
+        mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+        const { svg } = await mermaid.render('muxr-check', 'graph TD; a-->b');
+        return svg.includes('<svg') ? 'rendered' : 'no-svg';
+    })().catch((error) => 'error: ' + (error && error.message))`);
+    check('mermaid loads on demand and renders a diagram', mermaidResult === 'rendered', String(mermaidResult));
     const herd390 = await parityWaitFor('compact herd', (text) => text.includes('Migrate billing to usage-based plans'));
     check('compact herd renders dark phone composition', herd390.includes('WHILE YOU WERE AWAY') && herd390.includes('SPACES'));
     check('compact has no bottom tab bar', !await parityEval('!!document.querySelector(\'[role="tablist"], [role="tab"]\')'));

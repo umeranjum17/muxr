@@ -37,11 +37,10 @@ import { AnimatedPopup } from '@/components/AnimatedOverlay';
 import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, agentStatusColor, herdrPaneForSession, isShellLabels } from '@/herd';
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
-import { useImagePicker } from '@/hooks/useImagePicker';
+import { useAttachmentUploads } from '../application/useAttachmentUploads';
+import { Typography } from '@/constants/Typography';
 import { useUndeliveredSubmission } from '@/catalog/application/undeliveredSubmission';
 import { humanError } from '@/utils/errors';
-import { readFileBytes } from '@/utils/readFileBytes';
-import { encodeBase64 } from '@/encryption/base64';
 import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
@@ -139,7 +138,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const [status, setStatus] = React.useState('connecting');
     const [openAttempt, setOpenAttempt] = React.useState(0);
     const [draft, setDraft] = React.useState('');
-    const [attaching, setAttaching] = React.useState(false);
     const [stopping, setStopping] = React.useState(false);
     // Latching modifiers apply to one toolbar key or typed character, then clear.
     // Modal.alert lays buttons out in a row: past three it collapses into
@@ -160,7 +158,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // The menu reads that offset once, when it opens: nothing can drag the
     // trigger while the menu covering the screen is up.
     const [openLift, setOpenLift] = React.useState(0);
-    const [attachedPaths, setAttachedPaths] = React.useState<string[]>([]);
+    const { attaching, attachedPaths, setAttachedPaths, failed: failedImages, retryFailed, discardFailed, pickImages, addImages } = useAttachmentUploads(
+        props.id,
+        (error) => Modal.alert('Attachment failed', `${humanError(error).message} The files are kept below; retry when the connection is back.`),
+    );
     // Other openable panes in this session's tab, in layout order. A pane only
     // gets a sessionId once herdr detects an agent in it, so bare shells are
     // absent -- they have nothing for the app to attach to.
@@ -170,7 +171,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const draftRef = React.useRef(draft);
     draftRef.current = draft;
 
-    const { selectedImages, pickImages, clearImages, addImages } = useImagePicker();
     const composerRef = React.useRef<TextInput>(null);
     // Same IME hazard as the home dock: Enter confirms composition on web.
     // The composer mounts only under control and hosted authority resolves
@@ -415,36 +415,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         await pickImages();
     }, [pickImages]);
 
-    React.useEffect(() => {
-        if (selectedImages.length === 0 || attaching) return;
-        setAttaching(true);
-        void (async () => {
-            try {
-                const attachments = [];
-                for (const image of selectedImages) {
-                    attachments.push({
-                        name: image.name,
-                        mimeType: image.mimeType,
-                        data: encodeBase64(await readFileBytes(image.uri)),
-                    });
-                }
-                const result = await sync.request('session.saveAttachments', {
-                    sessionId: props.id,
-                    attachments,
-                });
-                if (result.savedPaths.length > 0) {
-                    setAttachedPaths((previous) => [...previous, ...result.savedPaths]);
-                }
-            } catch (error) {
-                Modal.alert('Attachment failed', humanError(error).message);
-            } finally {
-                // In finally, not after the request: a failed upload with the
-                // images still queued would re-fire this effect forever.
-                clearImages();
-                setAttaching(false);
-            }
-        })();
-    }, [selectedImages, attaching, clearImages, props.id]);
 
     const stopSession = React.useCallback(() => {
         setStopping(true);
@@ -472,7 +442,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             })
             .catch((error: unknown) => {
                 setStopping(false);
-                Modal.alert('Could not stop agent', error instanceof Error ? error.message : String(error), [
+                Modal.alert('Could not stop agent', humanError(error).message, [
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Retry', onPress: () => stopSession() },
                 ]);
@@ -494,9 +464,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const contextTitle = shell ? 'Shell' : labels.taskTitle;
     const headerLifecycle = terminalPaneStatus(currentPane);
     const headerStatus = agentStatusColor(headerLifecycle, theme);
-    // Working and done carry their lifecycle colour. Idle shares the
-    // disconnected grey, which reads as dead on a ready agent.
-    const sendColor = headerLifecycle === 'idle' ? theme.colors.accent : headerStatus.color;
+    // "Go" is the accent, never a lifecycle or destructive colour: red on
+    // this screen means needs-you or stop, and the send button is neither.
+    const sendColor = canSend ? theme.colors.accent : theme.colors.textSecondary;
     const paneIndex = siblings.indexOf(props.id);
     const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
     const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting';
@@ -819,6 +789,20 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 </ScrollView>
             </View>
 
+            {failedImages.length > 0 && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
+                    <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />
+                    <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 12 }}>
+                        {failedImages.length === 1 ? `${failedImages[0]!.name} didn't upload` : `${failedImages.length} files didn't upload`}
+                    </Text>
+                    <Pressable onPress={retryFailed} accessibilityRole="button" accessibilityLabel="Retry the failed uploads" hitSlop={8} style={{ minHeight: 32, justifyContent: 'center', paddingHorizontal: 8 }}>
+                        <Text style={{ color: theme.colors.textLink, fontSize: 13, ...Typography.default('semiBold') }}>Retry</Text>
+                    </Pressable>
+                    <Pressable onPress={discardFailed} accessibilityRole="button" accessibilityLabel="Discard the failed uploads" hitSlop={8} style={{ minHeight: 32, justifyContent: 'center', paddingHorizontal: 8 }}>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Discard</Text>
+                    </Pressable>
+                </View>
+            )}
             {attachedPaths.length > 0 && (
                 <ScrollView
                     horizontal

@@ -80,6 +80,42 @@ describe('web realtime capture', () => {
         await refused.stop();
     });
 
+    it('bounds a resume() that never settles and releases the microphone on stop at once', async () => {
+        vi.useFakeTimers();
+        try {
+            const suspended = fakeAudioStack();
+            suspended.context.state = 'suspended';
+            suspended.context.resume = vi.fn(() => new Promise<void>(() => undefined));
+            const recorder = openRealtimeRecorder();
+            await recorder.init(24000);
+            const start = recorder.start();
+            let settled = false;
+            void start.catch(() => undefined).finally(() => { settled = true; });
+            // Owner gives up mid-startup: tracks stop immediately, not behind resume().
+            await recorder.stop();
+            expect(suspended.track.stop).toHaveBeenCalledOnce();
+            expect(suspended.context.close).toHaveBeenCalledOnce();
+            await vi.advanceTimersByTimeAsync(200);
+            expect(settled).toBe(true);
+            await expect(start).rejects.toThrow(/closed/);
+
+            // Without a stop, the deadline alone ends the wait with the suspended reason.
+            const stuck = fakeAudioStack();
+            stuck.context.state = 'suspended';
+            stuck.context.resume = vi.fn(() => new Promise<void>(() => undefined));
+            const waiting = openRealtimeRecorder();
+            await waiting.init(24000);
+            const pending = waiting.start();
+            let outcome: unknown;
+            pending.catch((error: unknown) => { outcome = error; });
+            await vi.advanceTimersByTimeAsync(1700);
+            expect(outcome).toBeInstanceOf(Error);
+            expect(String((outcome as Error).message)).toMatch(/suspended/);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('encodes silence and full-scale edges without drift', () => {
         expect(encodePcm16Chunk(new Float32Array([0, 0, 0]))).toBe('AAAAAAAA');
         const full = Uint8Array.from(atob(encodePcm16Chunk(new Float32Array([1, -1]))), (char) => char.charCodeAt(0));

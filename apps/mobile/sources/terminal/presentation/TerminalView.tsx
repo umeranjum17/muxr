@@ -130,8 +130,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         }
     };
 
+    // Attach generation: every open belongs to one owner (this mount, this
+    // session, this attempt). Unmount, a session change or a retry bump it,
+    // and a channel that resolves for an older generation is closed before
+    // any listener or parent callback sees it.
+    const generationRef = React.useRef(0);
     React.useEffect(
         () => () => {
+            generationRef.current += 1;
             cancelCoalesce();
             if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
             onChannel?.(undefined);
@@ -167,6 +173,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 return;
             }
             openedRef.current = true;
+            const generation = ++generationRef.current;
             onStatus?.('connecting');
             // Nothing may be written to this terminal but herdr's own frames.
             // herdr paints cells at absolute coordinates and then sends diffs
@@ -176,6 +183,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             void Promise.resolve()
                 .then(() => openTerminal({ agentRoute: sessionId, size: { cols, rows } }))
                 .then((channel) => {
+                    if (generation !== generationRef.current) {
+                        // Late result for an owner that is gone: never installed.
+                        channel.close();
+                        return;
+                    }
                     channelRef.current = channel;
                     // The first thing herdr sends is the whole screen, so this
                     // attach is a viewport capture. Without it the chip has no
@@ -217,6 +229,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     }
                 })
                 .catch((error: unknown) => {
+                    if (generation !== generationRef.current) return;
                     openedRef.current = false;
                     lastSizeRef.current = null;
                     const message = error instanceof Error ? error.message : String(error);

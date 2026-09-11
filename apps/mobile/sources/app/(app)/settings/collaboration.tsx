@@ -23,9 +23,10 @@ import {
     type PeerRequester,
 } from '@/collaboration';
 import { requestPairedMachine } from '@/collaboration';
+import { humanError } from '@/utils/errors';
 
 function showCollaborationError(cause: unknown) {
-    Modal.alert('Collaboration unavailable', cause instanceof Error ? cause.message : String(cause));
+    Modal.alert('Collaboration unavailable', humanError(cause).message);
 }
 
 function issueLabel(kind: CollaborationReport['issues'][string]['kind']): string {

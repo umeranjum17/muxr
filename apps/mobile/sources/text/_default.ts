@@ -584,7 +584,7 @@ export const en = {
         // Language settings screen
         title: 'Language',
         description: 'Choose your preferred language for the app interface. This will sync across all your devices.',
-        currentLanguage: 'Current Language',
+        currentLanguage: 'Language',
         automatic: 'Automatic',
         automaticSubtitle: 'Detect from device settings',
         needsRestart: 'Language Changed',

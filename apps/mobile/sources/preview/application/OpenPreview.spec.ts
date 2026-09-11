@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { previewMayOpenTopLevel } from '../domain/previewOrigin';
 
 const harness = vi.hoisted(() => ({
     request: vi.fn(),
@@ -257,5 +258,15 @@ describe('attachPreviewTunnel hosted grant', () => {
         expect(String((harness.fetch.mock.calls[0] as unknown[])[0])).toBe(
             'http://127.0.0.1:8892/v1/ws-tickets',
         );
+    });
+});
+
+describe('preview top-level opening', () => {
+    it('never lets a same-origin bridge page leave the opaque sandbox', () => {
+        const page = 'https://muxr.example/session/abc/preview?port=3000';
+        expect(previewMayOpenTopLevel('https://muxr.example/muxr-preview/ch1/', page)).toBe(false);
+        expect(previewMayOpenTopLevel('/muxr-preview/ch1/', page)).toBe(false);
+        expect(previewMayOpenTopLevel('http://relay.example:45123/', page)).toBe(true);
+        expect(previewMayOpenTopLevel('http://127.0.0.1:3000/', page)).toBe(true);
     });
 });

@@ -13,6 +13,7 @@ import { resolvePluginText } from '@/plugins';
 import { pluginCatalogLoaded, pluginCatalogSnapshot, refreshPlugins, subscribePlugins } from '@/plugins';
 import { sourceLabel } from '@/plugins';
 import { t } from '@/text';
+import { humanError } from '@/utils/errors';
 
 export default function PluginsScreen() {
     const { status } = useSocketStatus();
@@ -22,7 +23,7 @@ export default function PluginsScreen() {
     React.useEffect(() => subscribePlugins(redraw), []);
     React.useEffect(() => {
         if (status !== 'connected') return;
-        void refreshPlugins().then(() => setLoadError(undefined)).catch((error: unknown) => setLoadError(error instanceof Error ? error.message : String(error)));
+        void refreshPlugins().then(() => setLoadError(undefined)).catch((error: unknown) => setLoadError(humanError(error).message));
     }, [status]);
 
     const entries = pluginCatalogSnapshot();
@@ -41,7 +42,7 @@ export default function PluginsScreen() {
                 try {
                     await sync.request('plugin.approve', { pluginId: plugin.pluginId, manifestHash: plugin.manifestHash!, approved });
                 } catch (error) {
-                    failures.push(`${plugin.name}: ${error instanceof Error ? error.message : String(error)}`);
+                    failures.push(`${plugin.name}: ${humanError(error).message}`);
                     setOptimistic((current) => ({ ...current, [plugin.pluginId]: plugin.approved }));
                 }
             }

@@ -135,5 +135,25 @@ if (/VoiceBubble|VoiceOrb|VoiceConversation|voiceState/.test(realtimeStateSource
     process.stderr.write(`FAIL primitive dependency guard: realtime singleton imports product Voice presentation\n`);
     failed += 1;
 }
+// Inbox ordering is a promise, not a layout detail: every Needs you row
+// comes before any Working or Done row, whatever project it belongs to.
+{
+    const now = new Date().toISOString();
+    const context = JSON.stringify({
+        sessions: [
+            { sessionId: 'a1', label: 'A approval', workspaceLabel: 'A project', agentKind: 'claude', agentStatus: 'blocked', activeAt: now },
+            { sessionId: 'a2', label: 'A finished', workspaceLabel: 'A project', agentKind: 'claude', agentStatus: 'done', activeAt: now },
+            { sessionId: 'z1', label: 'Z approval', workspaceLabel: 'Z project', agentKind: 'codex', agentStatus: 'blocked', activeAt: now },
+        ],
+        attention: [],
+    });
+    const inbox = spawnSync(process.execPath, [join(root, 'plugins', 'inbox', 'rpc.mjs')], { encoding: 'utf8', env: { ...process.env, MUXR_PLUGIN_CONTEXT_JSON: context } });
+    const rows = JSON.parse(inbox.stdout).groups.flatMap((group) => group.items.map((item) => `${item.title}:${item.status}`));
+    const expected = ['A approval:danger', 'Z approval:danger', 'A finished:positive'];
+    if (JSON.stringify(rows) !== JSON.stringify(expected)) {
+        process.stderr.write(`FAIL inbox order: ${JSON.stringify(rows)} (expected ${JSON.stringify(expected)})\n`);
+        failed += 1;
+    }
+}
 if (failed > 0) process.exit(1);
-process.stdout.write(`${plugins.length} bundled plugins ok; ${guardedFiles.length} primitive files guarded\n`);
+process.stdout.write(`${plugins.length} bundled plugins ok; ${guardedFiles.length} primitive files guarded; inbox buckets attention first\n`);

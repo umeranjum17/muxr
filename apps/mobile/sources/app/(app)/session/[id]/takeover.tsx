@@ -63,6 +63,10 @@ export default function TakeoverScreen() {
     // Every async startup stage checks this: a retry or navigation away bumps
     // it, and whatever a late stage produced is closed instead of adopted.
     const attemptRef = React.useRef(0);
+    // Which connect() owns the screen: a newer connect or unmount supersedes
+    // the older one, so a conflict dialog answered late cannot reconnect and
+    // a failure of the old operation cannot touch the new one's state.
+    const operationRef = React.useRef(0);
     const firstFrameTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const surfaceRef = React.useRef<View>(null);
     const dragRef = React.useRef<{ active: boolean; pending: { x: number; y: number } | null; raf: number | undefined }>({ active: false, pending: null, raf: undefined });
@@ -107,14 +111,21 @@ export default function TakeoverScreen() {
     const connect = React.useCallback(async (streamPort: number, mode: 'observe' | 'control' = 'control') => {
         disconnect();
         const attempt = attemptRef.current;
+        const operation = ++operationRef.current;
         const stale = () => attempt !== attemptRef.current;
+        const superseded = () => operation !== operationRef.current;
         setConnecting(true);
         setError(null);
         setWatching(mode === 'observe');
         try {
             await machineBash('', `${agentBrowser} stream enable --port ${streamPort}`, cwd);
+            if (stale()) {
+                // The screen left (or retried) while enable was in flight:
+                // balance this acquisition instead of leaving a screencast on.
+                void machineBash('', `${agentBrowser} stream disable`, cwd);
+                return;
+            }
             streamRef.current = { command: agentBrowser, cwd };
-            if (stale()) return;
             const opened = await openTakeover({ port: streamPort, mode });
             if (stale()) {
                 // Late result after retry or leaving the screen: never adopt it.
@@ -161,6 +172,8 @@ export default function TakeoverScreen() {
             };
         } catch (cause: unknown) {
             if (stale()) return;
+            // This attempt failed on its own; disconnect() bumps the attempt,
+            // so the failure state is settled here, not in finally.
             disconnect();
             if (mode === 'control' && isTakeoverConflict(cause)) {
                 const watch = await Modal.confirm(
@@ -168,12 +181,15 @@ export default function TakeoverScreen() {
                     'Only one device drives the stream. Watch read-only instead?',
                     { confirmText: 'Watch' },
                 );
+                if (superseded()) return;
                 if (watch) {
                     await connect(streamPort, 'observe');
                     return;
                 }
             }
+            if (superseded()) return;
             setError(humanError(cause).message);
+            setConnecting(false);
         } finally {
             if (!stale()) setConnecting(false);
         }
@@ -193,6 +209,7 @@ export default function TakeoverScreen() {
     // stream was actually enabled by this screen.
     const cleanupRef = React.useRef<() => void>(() => {});
     cleanupRef.current = () => {
+        operationRef.current = -1;
         disconnect();
         if (streamRef.current !== null) {
             void machineBash('', `${streamRef.current.command} stream disable`, streamRef.current.cwd);

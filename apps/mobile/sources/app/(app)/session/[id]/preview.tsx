@@ -8,7 +8,7 @@ import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { useSession, useSocketStatus } from '@/catalog/store';
 import * as Device from 'expo-device';
-import { openPreview, type OpenPreview } from '@/preview';
+import { openPreview, previewIsSameOrigin, previewMayOpenTopLevel, type OpenPreview } from '@/preview';
 import { humanError } from '@/utils/errors';
 
 /** A tunnel that never delivers a first paint is a failure with a retry, not a blank frame. */
@@ -20,7 +20,7 @@ const FIRST_PAINT_TIMEOUT_MS = 15_000;
  * opaque), so web gets reload and open-in-tab; the native WebView also goes
  * back and forward.
  */
-function PreviewBar(props: { label: string; canGoBack?: boolean; canGoForward?: boolean; onBack?: () => void; onForward?: () => void; onReload: () => void; onOpen: () => void }) {
+function PreviewBar(props: { label: string; canGoBack?: boolean; canGoForward?: boolean; onBack?: () => void; onForward?: () => void; onReload: () => void; onOpen?: () => void }) {
     const { theme } = useUnistyles();
     const control = (name: React.ComponentProps<typeof Ionicons>['name'], label: string, onPress: (() => void) | undefined, enabled: boolean) => (
         <Pressable onPress={onPress} disabled={!enabled} hitSlop={10} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !enabled }} style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', opacity: enabled ? 1 : 0.35 }}>
@@ -33,7 +33,7 @@ function PreviewBar(props: { label: string; canGoBack?: boolean; canGoForward?: 
             {props.onForward !== undefined && control('chevron-forward', 'Forward', props.onForward, props.canGoForward === true)}
             <Text numberOfLines={1} style={{ ...Typography.mono(), flex: 1, fontSize: 12, color: theme.colors.textSecondary, paddingHorizontal: 6 }}>{props.label}</Text>
             {control('refresh-outline', 'Reload preview', props.onReload, true)}
-            {control('open-outline', 'Open in browser', props.onOpen, true)}
+            {props.onOpen !== undefined && control('open-outline', 'Open in browser', props.onOpen, true)}
         </View>
     );
 }
@@ -71,11 +71,7 @@ const PREVIEW_SANDBOX = 'allow-scripts allow-forms allow-modals allow-popups all
 
 function previewUrlIsSandboxed(url: string): boolean {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
-    try {
-        return new URL(url, window.location.href).origin === window.location.origin;
-    } catch {
-        return false;
-    }
+    return previewIsSameOrigin(url, window.location.href);
 }
 
 export default function PreviewScreen() {
@@ -176,7 +172,11 @@ export default function PreviewScreen() {
             }
             return (
                 <View style={{ flex: 1 }}>
-                    <PreviewBar label={`localhost:${directPort ?? ''}`} onReload={reload} onOpen={() => window.open(preview.url, '_blank')} />
+                    {/* A same-origin bridge page may only ever live inside the
+                        opaque sandbox: opened top-level it would run with the
+                        PWA origin and its stored device secrets. Only an
+                        independently isolated origin gets an Open control. */}
+                    <PreviewBar label={`localhost:${directPort ?? ''}`} onReload={reload} onOpen={previewMayOpenTopLevel(preview.url, window.location.href) ? () => window.open(preview.url, '_blank') : undefined} />
                     {!painted && <ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ position: 'absolute', top: 52, alignSelf: 'center' }} />}
                     <iframe key={generation} src={preview.url} onLoad={() => setPainted(true)} sandbox={previewUrlIsSandboxed(preview.url) ? PREVIEW_SANDBOX : undefined} style={{ flex: 1, border: 'none' }} title="preview" />
                 </View>

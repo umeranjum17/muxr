@@ -22,6 +22,7 @@ import { resolvePluginText } from '../../domain/pluginText';
 import { t } from '@/text';
 import { AttachmentGallery, AttachmentThumbnail, type GalleryImage } from '@/components/AttachmentGallery';
 import type { AttachmentAction } from '@/utils/attachmentPreview';
+import { humanError } from '@/utils/errors';
 
 const EMPTY_MODEL: PluginItemListModel = { items: [], actions: [] };
 const MAX_ACTIVE_THUMBNAILS = 4;
@@ -210,7 +211,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
             setOpen(false);
         } catch (error) {
             hapticsError();
-            Modal.alert(t('plugins.openFailed'), error instanceof Error ? error.message : String(error));
+            Modal.alert(t('plugins.openFailed'), humanError(error).message);
         } finally {
             setBusyId(null);
         }

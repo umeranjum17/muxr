@@ -8,8 +8,34 @@ import { WorktreeSelection } from '../domain/WorktreeSelection';
 import { startAgentFromDock } from './StartAgentFromDock';
 import { useUndeliveredSubmission } from '@/catalog/application/undeliveredSubmission';
 
+/**
+ * One submission at a time, app-wide. The Dock, focus mode, the sidebar's
+ * New session and the New Agent screen all submit the same draft; a second
+ * Send while the first is in flight must not start a second agent for the
+ * same intent, whichever surface it came from.
+ */
+let inFlight: Promise<string | null> | null = null;
+
+/** The draft exactly as it was submitted, so only that version is cleared. */
+function submittedDraftUnchanged(text: string, attachmentIds: string[]): boolean {
+    const current = useNewSessionDraft.getState();
+    return current.input.trim() === text
+        && current.attachments.length === attachmentIds.length
+        && current.attachments.every((item, index) => item.id === attachmentIds[index]);
+}
+
 /** Adapter: Dock draft + confirmations around StartAgentFromDock. */
-export async function startSessionFromDraft(options: {
+export function startSessionFromDraft(options: {
+    machines: Machine[];
+    navigateToSession: (sessionId: string) => void;
+    blank?: boolean;
+}): Promise<string | null> {
+    if (inFlight !== null) return inFlight;
+    inFlight = submitDraft(options).finally(() => { inFlight = null; });
+    return inFlight;
+}
+
+async function submitDraft(options: {
     machines: Machine[];
     navigateToSession: (sessionId: string) => void;
     blank?: boolean;
@@ -32,6 +58,7 @@ export async function startSessionFromDraft(options: {
     const routed = { sessionId: null as string | null };
     const prompt = blank ? '' : draft.input.trim();
     const attachments = blank ? [] : draft.attachments;
+    const attachmentIds = attachments.map((item) => item.id);
     for (;;) {
         const result = await startAgentFromDock({
             machine,
@@ -41,20 +68,22 @@ export async function startSessionFromDraft(options: {
             prompt,
             attachments,
             createCwd,
-            // Open the session while the first prompt is still in flight.
+            // The session exists: the submitted draft now belongs to it, so
+            // the Dock releases exactly that version -- never text or images
+            // typed since -- and the route opens while delivery continues.
             onRouteReady: (sessionId) => {
                 routed.sessionId = sessionId;
+                if (!blank && submittedDraftUnchanged(prompt, attachmentIds)) {
+                    const current = useNewSessionDraft.getState();
+                    current.setInput('');
+                    current.setAttachments([]);
+                }
                 options.navigateToSession(sessionId);
             },
         });
         if (result.ok) {
-            // The session exists either way; a draft left in the Dock would
-            // start a second agent. A failed first message waits on the
-            // session's own composer instead.
-            if (!blank) {
-                draft.setInput('');
-                draft.setAttachments([]);
-            }
+            // A failed first message waits on the session's own composer;
+            // nothing is cleared here, since the draft may already be B.
             if (result.promptFailed) {
                 useUndeliveredSubmission.getState().keep({ sessionId: result.agentRoute, text: prompt, attachments });
             }
