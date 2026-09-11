@@ -58,8 +58,13 @@ export async function startPreviewBridge(socket: WebSocket, key: string, channel
     };
     socket.onclose = () => bridge.close();
 
+    // getRegistration matches by scope prefix, so a root push worker would
+    // shadow this scope forever and the bridge would silently serve the app
+    // shell. Match the exact scope instead.
+    const scopeUrl = new URL(SW_SCOPE, window.location.origin).href;
+    const registrations = await navigator.serviceWorker.getRegistrations();
     const registration =
-        (await navigator.serviceWorker.getRegistration(SW_SCOPE))
+        registrations.find((entry) => entry.scope === scopeUrl)
         ?? (await navigator.serviceWorker.register(SW_URL, { scope: SW_SCOPE }));
     await ensureWorkerActive(registration);
 

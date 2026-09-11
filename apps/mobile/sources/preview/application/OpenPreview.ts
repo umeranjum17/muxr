@@ -12,6 +12,7 @@
 import { newPreviewKey } from '@muxr/crypto';
 import { issueWsTicket, newPreviewChannel, ticketSocketUrl } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
+import { getCachedHostedGrant } from '@/pairing/e2ee';
 import { sync } from '@/catalog/sync';
 import type { PreviewChannel } from '../infrastructure/previewChannel';
 
@@ -95,6 +96,34 @@ export async function attachPreviewTunnel(port: number, options?: { rawTcp?: boo
 
     const channel = newPreviewChannel();
     const key = bridgeAvailable ? newPreviewKey() : undefined;
+    // Hosted browser grants carry no settings.token (always ''), so resolve
+    // the exact-machine device grant first — same shape as the terminal — and
+    // fail before attach: a takeover attach registers the controller, and a
+    // ticket failure after it would strand the port. Tickets live 60s; mint,
+    // attach, and connect back-to-back.
+    const grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
+    if (settings.mode === 'hosted' && grant === undefined) {
+        throw new Error('preview: hosted machine grant is missing; pair this browser again');
+    }
+    if (grant !== undefined && grant.expiresAt <= Date.now()) {
+        throw new Error('preview: device grant expired; pair this browser again');
+    }
+    const ticketInput = grant !== undefined
+        ? { relayUrl: grant.relayUrl, credential: grant.credential }
+        : settings.token !== '' && !settings.token.startsWith('acctok_')
+            ? { relayUrl: settings.relayUrl, credential: settings.token }
+            : undefined;
+    if (ticketInput === undefined) {
+        throw new Error('preview: relay ticket required');
+    }
+    const ticket = await issueWsTicket({
+        relayUrl: ticketInput.relayUrl,
+        credential: ticketInput.credential,
+        machineId: settings.machineId,
+        role: 'client',
+        transport: 'preview',
+        channel,
+    });
     // The per-preview key crosses inside the existing E2EE request. The relay
     // sees connection ids for multiplexing, never the frontend bytes.
     // Takeover callers claim a mode so the host arbitrates control.
@@ -105,17 +134,7 @@ export async function attachPreviewTunnel(port: number, options?: { rawTcp?: boo
         ...(options?.mode === undefined ? {} : { mode: options.mode }),
     });
 
-    if (settings.token === '' || settings.token.startsWith('acctok_')) {
-        throw new Error('preview: relay ticket required');
-    }
-    const socketUrl = ticketSocketUrl(settings.relayUrl, await issueWsTicket({
-        relayUrl: settings.relayUrl,
-        credential: settings.token,
-        machineId: settings.machineId,
-        role: 'client',
-        transport: 'preview',
-        channel,
-    }), 'preview', previewBridgeAvailable);
+    const socketUrl = ticketSocketUrl(ticketInput.relayUrl, ticket, 'preview', previewBridgeAvailable);
     const socket = new WebSocket(socketUrl);
 
     if (bridgeAvailable) {
