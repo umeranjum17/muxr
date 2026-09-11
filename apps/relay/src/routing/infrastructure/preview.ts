@@ -22,6 +22,14 @@ import { decodePreviewFrame, encodePreviewFrame, PREVIEW_CLOSE, PREVIEW_DATA } f
 
 const UPSTREAM_POLL_MS = 50;
 const UPSTREAM_WAIT_ATTEMPTS = 40;
+/**
+ * A machine socket with no client is a dial to nowhere: without this bound a
+ * control attach to an empty port holds the host controller forever, because
+ * the lazy dial only happens on the first tunneled connection. Close it so
+ * the host releases control; a client that joins in time consumes the
+ * channel normally. Matches the ticket lifetime that summoned it.
+ */
+const PENDING_TTL_MS = 60_000;
 
 /** `::ffff:192.168.1.5` and `192.168.1.5` are the same peer. */
 function normalizeAddress(address: string | undefined): string {
@@ -32,13 +40,34 @@ function normalizeAddress(address: string | undefined): string {
 export class PreviewChannels {
     /** Channel -> host socket waiting for a client to open a listener for it. */
     private readonly upstreams = new Map<string, WebSocket>();
+    private readonly pendingTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private readonly listeners = new Set<Server>();
 
+    constructor(private readonly pendingTtlMs: number = PENDING_TTL_MS) {}
+
+    private clearPending(channel: string): void {
+        const timer = this.pendingTimers.get(channel);
+        if (timer !== undefined) {
+            clearTimeout(timer);
+            this.pendingTimers.delete(channel);
+        }
+    }
+
     joinMachine(channel: string, socket: WebSocket): void {
+        this.clearPending(channel);
         this.upstreams.get(channel)?.close();
         this.upstreams.set(channel, socket);
+        const timer = setTimeout(() => {
+            this.pendingTimers.delete(channel);
+            if (this.upstreams.get(channel) === socket) {
+                this.upstreams.delete(channel);
+                if (socket.readyState === socket.OPEN) socket.close(1008, 'preview: no client joined');
+            }
+        }, this.pendingTtlMs);
+        this.pendingTimers.set(channel, timer);
         socket.on('close', () => {
             if (this.upstreams.get(channel) === socket) this.upstreams.delete(channel);
+            this.clearPending(channel);
         });
     }
 
@@ -54,6 +83,7 @@ export class PreviewChannels {
             return;
         }
         this.upstreams.delete(channel);
+        this.clearPending(channel);
 
         const copy = (from: WebSocket, to: WebSocket) => (data: RawData) => {
             // Decoded, not relayed blind: a malformed frame is dropped here
@@ -96,6 +126,7 @@ export class PreviewChannels {
             return;
         }
         this.upstreams.delete(channel);
+        this.clearPending(channel);
 
         // Only the device that asked for this preview may connect. When the
         // websocket peer is loopback the client came through the local TLS
@@ -196,6 +227,8 @@ export class PreviewChannels {
     closeAll(): void {
         for (const server of this.listeners) server.close();
         this.listeners.clear();
+        for (const timer of this.pendingTimers.values()) clearTimeout(timer);
+        this.pendingTimers.clear();
         for (const socket of this.upstreams.values()) socket.terminate();
         this.upstreams.clear();
     }

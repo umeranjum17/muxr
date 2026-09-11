@@ -4,6 +4,7 @@
  */
 
 import { isValidPublicKey, PairingRequests } from './admission/index.js';
+import { PreviewChannels } from './routing/index.js';
 
 function assert(condition: boolean, message: string): void {
     if (!condition) throw new Error(message);
@@ -55,4 +56,38 @@ function demo(): void {
     process.stdout.write(`PASS: relay selfCheck (pairing rendezvous, expiry, cap)\n`);
 }
 
-demo();
+async function previewPending(): Promise<void> {
+    // An unmatched machine socket must self-close so the host releases its
+    // control claim; a consumed channel must be left alone. Real class, real
+    // timers, minimal socket doubles (readyState/close/on only).
+    const channels = new PreviewChannels(30);
+    const closed: string[] = [];
+    const fake = (name: string) => ({
+        OPEN: 1,
+        readyState: 1,
+        close: (code?: number, reason?: unknown) => {
+            closed.push(`${name}:${code}:${String(reason ?? '')}`);
+        },
+        terminate: () => {},
+        on: () => {},
+        send: () => {},
+    });
+    channels.joinMachine('ch-live', fake('machine-live') as never);
+    await channels.bridgeClient('ch-live', fake('client-live') as never);
+    channels.joinMachine('ch-dead', fake('machine-dead') as never);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert(
+        closed.some((entry) => entry.startsWith('machine-dead:1008:preview: no client joined')),
+        `unmatched channel must close, got ${JSON.stringify(closed)}`,
+    );
+    assert(!closed.some((entry) => entry.startsWith('machine-live:')), 'consumed channel must not close');
+    channels.closeAll();
+    process.stdout.write(`PASS: relay selfCheck (preview pending-channel TTL)\n`);
+}
+
+async function main(): Promise<void> {
+    demo();
+    await previewPending();
+}
+
+void main();

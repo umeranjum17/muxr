@@ -206,6 +206,14 @@ describe('attachPreviewTunnel hosted grant', () => {
         expect(socketUrl).not.toContain('devcred_test');
     });
 
+    it('closes the socket instead of leaking the pair when the bridge fails', async () => {
+        grant();
+        harness.startBridge.mockRejectedValueOnce(new Error('sw down'));
+        await expect(openBridged()).rejects.toThrow('sw down');
+        expect(FakeWebSocket.instances).toHaveLength(1);
+        expect(FakeWebSocket.instances[0]!.readyState).toBe(FakeWebSocket.CLOSED);
+    });
+
     it('hands the takeover stream the same granted ticket', async () => {
         grant();
         const tunnel = await openBridged(8099, 'control', true);
@@ -220,41 +228,29 @@ describe('attachPreviewTunnel hosted grant', () => {
         );
     });
 
-    it('fails before attach when the hosted grant is missing', async () => {
+    it('fails before attach when the hosted grant is missing or expired', async () => {
         harness.bridgeAvailable = true;
+        await expect(attachPreviewTunnel(8099)).rejects.toThrow('pair this browser again');
+        grant();
+        if (harness.grant !== undefined) harness.grant.expiresAt = Date.now() - 1;
         await expect(attachPreviewTunnel(8099)).rejects.toThrow('pair this browser again');
         expect(harness.request).not.toHaveBeenCalled();
         expect(harness.fetch).not.toHaveBeenCalled();
         expect(FakeWebSocket.instances).toHaveLength(0);
     });
 
-    it('fails before attach when the hosted grant expired', async () => {
-        harness.bridgeAvailable = true;
-        grant();
-        harness.grant!.expiresAt = Date.now() - 1;
-        await expect(attachPreviewTunnel(8099)).rejects.toThrow('pair this browser again');
-        expect(harness.request).not.toHaveBeenCalled();
-        expect(harness.fetch).not.toHaveBeenCalled();
-    });
-
-    it('still requires a real credential in local mode', async () => {
+    it('keeps the local credential rule: empty and account tokens fail, machine tokens pass', async () => {
         harness.bridgeAvailable = false;
         harness.connection.mode = 'local';
         harness.connection.relayUrl = 'ws://127.0.0.1:8892';
-        harness.connection.token = '';
-        await expect(attachPreviewTunnel(8099, { rawTcp: true })).rejects.toThrow(
-            'preview: relay ticket required',
-        );
+        for (const token of ['', 'acctok_stale']) {
+            harness.connection.token = token;
+            await expect(attachPreviewTunnel(8099, { rawTcp: true })).rejects.toThrow(
+                'preview: relay ticket required',
+            );
+        }
         expect(harness.request).not.toHaveBeenCalled();
 
-        harness.connection.token = 'acctok_stale';
-        await expect(attachPreviewTunnel(8099, { rawTcp: true })).rejects.toThrow(
-            'preview: relay ticket required',
-        );
-        expect(harness.request).not.toHaveBeenCalled();
-    });
-
-    it('keeps the local token path unchanged', async () => {
         harness.connection.token = 'machtok_local';
         const tunnel = await openRawTcp();
         expect(tunnel.port).toBe(44123);

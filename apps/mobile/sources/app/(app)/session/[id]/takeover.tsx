@@ -104,6 +104,10 @@ export default function TakeoverScreen() {
                     setFrame(null);
                     // Deliberate teardown nulls the sender first, as with the socket.
                     if (streamSendRef.current !== null) setError('The takeover stream closed.');
+                    // An upstream death leaves the outer tunnel open but useless:
+                    // close it so the relay and host reap the pair and free the
+                    // port for the next device. A no-op after deliberate teardown.
+                    disconnect();
                 });
                 return;
             }

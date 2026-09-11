@@ -55,7 +55,17 @@ export function touchMessage(eventType: 'touchStart' | 'touchEnd', point?: Point
 }
 
 export function keyMessage(eventType: 'keyDown' | 'keyUp', key: string, code: string): string {
-    return JSON.stringify({ type: 'input_keyboard', eventType, key, code });
+    // The stream server inserts text only from the `text` field: a keyDown
+    // without it dispatches a dead keypress. Printable characters carry
+    // their text; editing and control keys keep dispatch-only shape.
+    const printable = key.length === 1 && key >= ' ' && key !== '\x7f';
+    return JSON.stringify({
+        type: 'input_keyboard',
+        eventType,
+        key,
+        code,
+        ...(eventType === 'keyDown' && printable ? { text: key } : {}),
+    });
 }
 
 /** Best-effort `code` for a printable character; the protocol dispatches on `key`. */
@@ -104,7 +114,14 @@ export async function openTakeover(command: OpenTakeoverCommand): Promise<OpenTa
         const tunnel = await attachPreviewTunnel(command.port, { wsStream: true, mode });
         if (tunnel.wsChannel === undefined) throw new Error('The takeover stream is unavailable in this browser.');
         const ws = createTakeoverWs(tunnel.wsChannel);
-        await ws.connect();
+        try {
+            await ws.connect();
+        } catch (error) {
+            // A failed upgrade must not leave the tunnel open and unreferenced:
+            // the relay would hold the pair and the host the port forever.
+            tunnel.close();
+            throw error;
+        }
         let messageHandler: ((data: string) => void) | undefined;
         let closeHandler: (() => void) | undefined;
         ws.onText((text) => messageHandler?.(text));

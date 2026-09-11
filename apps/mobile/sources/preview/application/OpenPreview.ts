@@ -137,51 +137,63 @@ export async function attachPreviewTunnel(port: number, options?: { rawTcp?: boo
     const socketUrl = ticketSocketUrl(ticketInput.relayUrl, ticket, 'preview', previewBridgeAvailable);
     const socket = new WebSocket(socketUrl);
 
-    if (bridgeAvailable) {
-        socket.binaryType = 'arraybuffer';
-        await waitForRelay(socket, 'preview.bridge');
-        if (key === undefined) throw new Error('Encrypted preview key unavailable.');
-        if (options?.wsStream === true) {
-            // The takeover stream speaks WebSocket itself over sealed frames;
-            // hand over the socket untouched instead of starting the HTTP bridge.
-            const { createPreviewChannel } = await import('../infrastructure/previewChannel');
-            return { hostname: '', port: 0, close: () => socket.close(), wsChannel: createPreviewChannel(socket, key) };
-        }
-        const bridge = await startPreviewBridge(socket, key, channel);
-        if (bridge.url !== undefined) {
-            return { hostname: '', port: 0, url: bridge.url, close: bridge.close };
-        }
-        return { hostname: '127.0.0.1', port: bridge.port, close: bridge.close };
-    }
-
-    const previewPort = await new Promise<number>((resolve, reject) => {
-        const timer = setTimeout(() => {
-            socket.close();
-            reject(new Error('The relay did not open a preview port in time.'));
-        }, READY_TIMEOUT_MS);
-
-        socket.onmessage = (event) => {
-            try {
-                const message = JSON.parse(String(event.data)) as { type?: string; port?: number };
-                if (message.type !== 'preview.ready' || typeof message.port !== 'number') return;
-                clearTimeout(timer);
-                resolve(message.port);
-            } catch {
-                /* not the frame we are waiting for */
+    // A failure after this point must not leave the socket open and
+    // unreferenced: the relay would hold the pair and, for takeover, the
+    // host would hold the port forever.
+    try {
+        if (bridgeAvailable) {
+            socket.binaryType = 'arraybuffer';
+            await waitForRelay(socket, 'preview.bridge');
+            if (key === undefined) throw new Error('Encrypted preview key unavailable.');
+            if (options?.wsStream === true) {
+                // The takeover stream speaks WebSocket itself over sealed frames;
+                // hand over the socket untouched instead of starting the HTTP bridge.
+                const { createPreviewChannel } = await import('../infrastructure/previewChannel');
+                return { hostname: '', port: 0, close: () => socket.close(), wsChannel: createPreviewChannel(socket, key) };
             }
-        };
-        socket.onclose = () => {
-            clearTimeout(timer);
-            reject(new Error('The relay closed the preview before it was ready.'));
-        };
-        socket.onerror = () => {
-            clearTimeout(timer);
-            reject(new Error('Could not reach the relay to open a preview.'));
-        };
-    });
+            const bridge = await startPreviewBridge(socket, key, channel);
+            if (bridge.url !== undefined) {
+                return { hostname: '', port: 0, url: bridge.url, close: bridge.close };
+            }
+            return { hostname: '127.0.0.1', port: bridge.port, close: bridge.close };
+        }
 
-    // Always http: the preview port carries raw TCP with no TLS in front of it.
-    return { hostname, port: previewPort, close: () => socket.close() };
+        const previewPort = await new Promise<number>((resolve, reject) => {
+            const timer = setTimeout(() => {
+                socket.close();
+                reject(new Error('The relay did not open a preview port in time.'));
+            }, READY_TIMEOUT_MS);
+
+            socket.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(String(event.data)) as { type?: string; port?: number };
+                    if (message.type !== 'preview.ready' || typeof message.port !== 'number') return;
+                    clearTimeout(timer);
+                    resolve(message.port);
+                } catch {
+                    /* not the frame we are waiting for */
+                }
+            };
+            socket.onclose = () => {
+                clearTimeout(timer);
+                reject(new Error('The relay closed the preview before it was ready.'));
+            };
+            socket.onerror = () => {
+                clearTimeout(timer);
+                reject(new Error('Could not reach the relay to open a preview.'));
+            };
+        });
+
+        // Always http: the preview port carries raw TCP with no TLS in front of it.
+        return { hostname, port: previewPort, close: () => socket.close() };
+    } catch (error) {
+        try {
+            socket.close();
+        } catch {
+            // The original failure already explains the outcome.
+        }
+        throw error;
+    }
 }
 
 export async function openPreview(command: OpenPreviewCommand): Promise<OpenPreview> {
