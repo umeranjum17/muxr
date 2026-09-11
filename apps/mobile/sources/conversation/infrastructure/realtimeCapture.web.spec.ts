@@ -27,7 +27,7 @@ function fakeAudioStack() {
         createGain: vi.fn(() => gain),
         close: vi.fn(async () => undefined),
     };
-    const AudioContext = vi.fn(() => context);
+    const AudioContext = vi.fn(function AudioContext() { return context; });
     vi.stubGlobal('navigator', { mediaDevices: { getUserMedia }, userAgent: 'test' });
     vi.stubGlobal('AudioContext', AudioContext);
     return { track, getUserMedia, processor, context, AudioContext };
@@ -85,7 +85,7 @@ describe('web realtime capture', () => {
         try {
             const suspended = fakeAudioStack();
             suspended.context.state = 'suspended';
-            suspended.context.resume = vi.fn(() => new Promise<void>(() => undefined));
+            suspended.context.resume = vi.fn(() => new Promise<undefined>(() => undefined));
             const recorder = openRealtimeRecorder();
             await recorder.init(24000);
             const start = recorder.start();
@@ -102,7 +102,7 @@ describe('web realtime capture', () => {
             // Without a stop, the deadline alone ends the wait with the suspended reason.
             const stuck = fakeAudioStack();
             stuck.context.state = 'suspended';
-            stuck.context.resume = vi.fn(() => new Promise<void>(() => undefined));
+            stuck.context.resume = vi.fn(() => new Promise<undefined>(() => undefined));
             const waiting = openRealtimeRecorder();
             await waiting.init(24000);
             const pending = waiting.start();

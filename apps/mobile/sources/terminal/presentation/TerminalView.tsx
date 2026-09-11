@@ -490,7 +490,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             </Animated.View>
             </GestureDetector>
             {graphicsReason !== undefined && (
-                <View style={{
+                <View
+                    // A pane Herdr is not rendering is not broken, and the user
+                    // may well keep typing into it, so this variant is a label
+                    // rather than a control and never takes a touch.
+                    pointerEvents={graphicsReason === 'pane-off-surface' ? 'none' : 'auto'}
+                    style={{
                     position: 'absolute',
                     left: 10,
                     right: 10,
@@ -507,8 +512,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     borderColor: 'rgba(255,255,255,0.12)',
                 }}>
                     <Text style={{ flex: 1, color: '#d8d8d4', fontSize: 12, lineHeight: 16 }}>
-                        Graphics stopped. Retry brings them back to this phone and resizes Herdr on the desktop.
+                        {graphicsReason === 'pane-off-surface'
+                            ? 'No picture: this pane is not on the active workspace, tab, or zoomed pane on the desktop. Text still works. Open it there and the picture returns.'
+                            : 'Graphics stopped. Retry brings them back to this phone and resizes Herdr on the desktop.'}
                     </Text>
+                    {graphicsReason !== 'pane-off-surface' && (
                     <Pressable
                         accessibilityRole="button"
                         accessibilityLabel="Retry terminal graphics"
@@ -523,6 +531,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     >
                         <Text style={{ color: '#11110f', fontSize: 12, fontWeight: '600' }}>Retry</Text>
                     </Pressable>
+                    )}
                 </View>
             )}
         </View>

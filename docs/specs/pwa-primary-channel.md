@@ -390,7 +390,7 @@ Units are executed on `feat/pwa-primary-channel`. Unit status is recorded here a
 
 | Unit | Status | Commit |
 |---|---|---|
-| 0 Integrate and baseline | in progress | |
+| 0 Integrate and baseline | done | f10c94da (merge), a1b9ca80 (main delta + baseline) |
 | 1 Security/data integrity | pending | |
 | 2 Herdr acquisition and lifecycle | pending | |
 | 3 Config/TUI/skill | pending | |

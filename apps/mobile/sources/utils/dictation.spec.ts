@@ -320,7 +320,7 @@ describe('on-device dictation flow', () => {
             'historical-session': { id: 'historical-session', activeAt: 99, updatedAt: 99 },
         };
         mocks.syncRequest.mockImplementation(async (method: string) => method === 'herdr.tree'
-            ? { workspaces: [{ focused: true, tabs: [{ focused: true, panes: [{ sessionId: 'live-session', focused: true, agentStatus: 'idle' }] }] }] }
+            ? { workspaces: [{ focused: true, tabs: [{ focused: true, panes: [{ sessionId: 'live-session', focused: true, agentKind: 'claude', agentStatus: 'idle' }] }] }] }
             : method === 'session.list' ? [{ id: 'live-session' }] : { text: 'unused' });
 
         await expect(resolveRealtimeTarget()).resolves.toEqual({ machineId: '', sessionId: 'live-session' });

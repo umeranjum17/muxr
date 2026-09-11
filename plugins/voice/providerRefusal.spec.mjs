@@ -736,7 +736,7 @@ describe('providerRefusal', () => {
         });
         const child = spawn(process.execPath, [fileURLToPath(new URL('./stream.mjs', import.meta.url))], {
             cwd: fileURLToPath(new URL('../..', import.meta.url)),
-            env: { ...process.env, NODE_ENV: 'test', MUXR_HOME: muxrHome, MUXR_TEST_XAI_REALTIME_URL: `ws://127.0.0.1:${address.port}` },
+            env: { ...process.env, NODE_ENV: 'test', MUXR_HOME: muxrHome, MUXR_PLUGIN_STATE_DIR: await providerStateDir('xai'), MUXR_TEST_XAI_REALTIME_URL: `ws://127.0.0.1:${address.port}` },
             stdio: ['pipe', 'pipe', 'pipe'],
         });
         // Every host frame goes through the shared contract parser: this is

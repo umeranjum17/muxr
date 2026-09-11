@@ -334,7 +334,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     const bytes = frame.bytes;
                     const graphics = 'graphics' in frame && typeof frame.graphics === 'boolean' ? frame.graphics : undefined;
                     const rawReason = 'graphicsReason' in frame ? frame.graphicsReason : undefined;
-                    const reason = rawReason === 'retired' || rawReason === 'bridge-closed'
+                    const reason = rawReason === 'retired' || rawReason === 'bridge-closed' || rawReason === 'pane-off-surface'
                         ? rawReason
                         : undefined;
                     const rawSurface = 'graphicsSurface' in frame ? frame.graphicsSurface : undefined;

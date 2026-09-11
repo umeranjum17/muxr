@@ -150,5 +150,9 @@ export function asPluginItemList(value: unknown, validateAction: (value: unknown
         ? Math.min(record.total, 99_999)
         : undefined;
     const summary = metadata(record.summary);
-    return { items, actions, ...(modelBadge === undefined ? {} : { badge: modelBadge }), ...(total === undefined ? {} : { total }), ...(summary.length === 0 ? {} : { summary }) };
+    const model: PluginItemListModel = { items, actions };
+    if (modelBadge !== undefined) model.badge = modelBadge;
+    if (total !== undefined) model.total = total;
+    if (summary.length > 0) model.summary = summary;
+    return model;
 }
