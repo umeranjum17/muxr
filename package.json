@@ -21,7 +21,7 @@
         "doctor": "node scripts/diagnostics/presentation/doctor.mjs",
         "worktrees:clean": "node scripts/diagnostics/application/cleanWorktrees.mjs",
         "web:deploy": "bash scripts/deployWebExport.sh",
-        "web:export": "cd apps/mobile && env -u MUXR_PUBLIC_BASE_URL -u EXPO_PUBLIC_MUXR_TOKEN -u EXPO_PUBLIC_MUXR_MACHINE_ID -u EXPO_PUBLIC_MUXR_MODE APP_ENV=production sh -c 'npm run setup-canvaskit && npm run setup-pdfjs && npm run setup-mermaid && npx expo export --platform web && node ../../scripts/release/application/finalizeWebExport.mjs'",
+        "web:export": "cd apps/mobile && env -u MUXR_PUBLIC_BASE_URL -u EXPO_PUBLIC_MUXR_TOKEN -u EXPO_PUBLIC_MUXR_MACHINE_ID -u EXPO_PUBLIC_MUXR_MODE APP_ENV=production sh -c 'npm run setup-canvaskit && npm run setup-pdfjs && npm run setup-mermaid && npx expo export --platform web --clear && node ../../scripts/release/application/finalizeWebExport.mjs'",
         "web:export:selfhost": "npm run web:export",
         "pack": "yarn build && yarn web:export && node scripts/release/application/pack.mjs",
         "pack:smoke": "yarn build && yarn web:export && node scripts/diagnostics/application/checkPackageSmoke.mjs && node scripts/diagnostics/application/packageLifecycleSmoke.mjs"
