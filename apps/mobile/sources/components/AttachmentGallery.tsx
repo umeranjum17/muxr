@@ -46,7 +46,7 @@ export function AttachmentThumbnail({ sessionId, image, onPress, enabled = true,
                   : preview === null || failed
                   ? <Ionicons name="image-outline" size={22} color="rgba(255,255,255,0.38)" />
                   : <>
-                      <Image source={{ uri: preview.uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} recyclingKey={image.id} onLoad={() => { setLoaded(true); settle(); }} onError={() => { setFailed(true); settle(); }} />
+                      <Image source={{ uri: preview.uri }} accessibilityLabel={image.title} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} recyclingKey={image.id} onLoad={() => { setLoaded(true); settle(); }} onError={() => { setFailed(true); settle(); }} />
                       {!loaded && <ActivityIndicator style={StyleSheet.absoluteFill} color="rgba(255,255,255,0.45)" />}
                   </>}
             <LinearGradient pointerEvents="none" colors={['transparent', 'rgba(0,0,0,0.8)']} locations={[0.25, 1]} style={styles.thumbnailShade} />
@@ -147,7 +147,7 @@ function GalleryPage({ sessionId, image, width, height, active }: { sessionId: s
                       <Text style={styles.retryText}>Retry</Text>
                   </Pressable>
               </View>
-              : <Image source={{ uri: preview.uri }} style={{ width: '100%', height: '100%' }} contentFit="contain" transition={160} recyclingKey={image.id} onError={() => setFailed(true)} />}
+              : <Image source={{ uri: preview.uri }} accessibilityLabel={image.title} style={{ width: '100%', height: '100%' }} contentFit="contain" transition={160} recyclingKey={image.id} onError={() => setFailed(true)} />}
     </View>;
 }
 
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
     thumbnailShade: { ...StyleSheet.absoluteFillObject, top: '30%' },
     thumbnailCaption: { position: 'absolute', left: 10, right: 10, bottom: 9 },
     thumbnailName: { color: '#fff', fontSize: 12, lineHeight: 15, ...Typography.default('semiBold') },
-    thumbnailMeta: { color: 'rgba(255,255,255,0.62)', fontSize: 10, marginTop: 1, ...Typography.mono() },
+    thumbnailMeta: { color: 'rgba(255,255,255,0.62)', fontSize: 11, marginTop: 1, ...Typography.mono() },
     pressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
     gallery: { flex: 1, backgroundColor: '#050506' },
     galleryHeader: { position: 'absolute', zIndex: 2, left: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 8 },

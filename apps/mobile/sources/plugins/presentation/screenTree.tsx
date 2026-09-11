@@ -2,7 +2,7 @@ import * as React from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { Easing, FadeIn, SlideInLeft, SlideInRight, runOnJS, useReducedMotion } from 'react-native-reanimated';
+import Animated, { FadeIn, SlideInLeft, SlideInRight, runOnJS, useReducedMotion } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import type { PluginScreenRowAction, PluginScreenTreeNode, PluginText } from '@muxr/contract';
 import { bindText, resolvePath } from '../domain/screenModel';
@@ -13,6 +13,7 @@ import { t } from '@/text';
 import { Typography } from '@/constants/Typography';
 import { cardStyle, SectionLabel, ui, withAlpha } from '@/components/ui';
 import type { ScreenFieldValues } from '../domain/screenModel';
+import { MOTION, houseEasing, reduceMotion as systemReduceMotion } from '@/constants/motion';
 
 function treeIcon(item: RuntimeTreeItem, expanded: boolean): FileIcon {
     return item.kind === 'folder' ? folderIcon(expanded) : fileIcon(item.name);
@@ -78,8 +79,8 @@ export function ScreenTree(props: {
     const bind = (value: PluginText) => bindText(resolvePluginText(value), props.data);
     const title = props.node.title === undefined ? undefined : bind(props.node.title);
     const enter = reduceMotion
-        ? FadeIn.duration(120)
-        : (descending ? SlideInRight : SlideInLeft).duration(200).easing(Easing.bezier(0.23, 1, 0.32, 1).factory());
+        ? FadeIn.duration(MOTION.fast).reduceMotion(systemReduceMotion)
+        : (descending ? SlideInRight : SlideInLeft).duration(MOTION.base).easing(houseEasing.factory()).reduceMotion(systemReduceMotion);
 
     const open = (item: RuntimeTreeItem) => {
         if (props.node.selectionField !== undefined) props.setField(props.node.selectionField, item.path);

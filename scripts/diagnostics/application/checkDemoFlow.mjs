@@ -427,9 +427,9 @@ try {
         return res.result?.result?.value;
     };
     await paritySend('Runtime.enable');
-    const parityShot = async (name, width, height, path) => {
+    const parityShot = async (name, width, height, path, scheme = 'dark') => {
         await paritySend('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 2, mobile: width < 900 });
-        await paritySend('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
+        await paritySend('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: scheme }] });
         await paritySend('Page.navigate', { url: `http://127.0.0.1:${port}${path}` });
         await new Promise((r) => setTimeout(r, 9000));
         const shot = await paritySend('Page.captureScreenshot', { format: 'jpeg', quality: 70 });
@@ -509,6 +509,9 @@ try {
 
     // 390: native phone composition, no tab bar, no primary +.
     await parityShot('parity-390-demo', 390, 844, '/demo');
+    // The shell is the loading state: no full-screen spinner ever mounts on
+    // the demo route, only the hairline under the header.
+    check('demo route shows no full-screen spinner', !await parityEval(`!!document.querySelector('[role="progressbar"]:not([aria-label="Loading"])')`));
     const herd390 = await parityWaitFor('compact herd', (text) => text.includes('Migrate billing to usage-based plans'));
     check('compact herd renders dark phone composition', herd390.includes('WHILE YOU WERE AWAY') && herd390.includes('SPACES'));
     check('compact has no bottom tab bar', !await parityEval('!!document.querySelector(\'[role="tablist"], [role="tab"]\')'));
@@ -808,6 +811,8 @@ try {
     check('escape closes focus mode', !(await parityText()).includes('No worktree'));
 
     // Width matrix screenshots + overflow checks + wide shell assertions.
+    await parityShot('parity-390-light', 390, 844, '/demo', 'light');
+    check('light theme keeps the demo legible', (await parityText()).includes('Migrate billing to usage-based plans'));
     await parityShot('parity-768-demo', 768, 1024, '/demo');
     await parityWaitFor('tablet herd', (text) => text.includes('Migrate billing to usage-based plans'));
     check('768 has no horizontal overflow', await noOverflow());

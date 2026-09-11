@@ -54,6 +54,7 @@ import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
 import { displayLink } from '../domain/TerminalLink';
 import { useTerminalChipLink } from '../application/useTerminalChipLink';
+import { MOTION } from '@/constants/motion';
 
 /**
  * The floating tools trigger: a small icon inside a target big enough to hit and
@@ -724,8 +725,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 )}
                 {canControl && chipLink !== undefined && chipKind !== undefined && (
                     <Animated.View
-                        entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
-                        exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}
+                        entering={FadeIn.duration(MOTION.base).reduceMotion(ReduceMotion.System)}
+                        exiting={FadeOut.duration(MOTION.exit).reduceMotion(ReduceMotion.System)}
                         style={{ position: 'absolute', left: 12, right: showJump ? 64 : 12, bottom: 8, alignItems: 'flex-start' }}
                     >
                         <Pressable
@@ -909,11 +910,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 sat halfway up the screen would belong to nothing. */}
             {actionsOpen && (
                 <Animated.View
-                    exiting={FadeOut.duration(160).reduceMotion(ReduceMotion.System)}
+                    exiting={FadeOut.duration(MOTION.exit).reduceMotion(ReduceMotion.System)}
                     accessibilityViewIsModal
                     style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, alignItems: 'flex-end', justifyContent: 'flex-end' }}
                 >
-                    <Animated.View pointerEvents="none" entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.28)' }} />
+                    <Animated.View pointerEvents="none" entering={FadeIn.duration(MOTION.fast).reduceMotion(ReduceMotion.System)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.28)' }} />
                     <Pressable onPress={() => setActionsOpen(false)} accessibilityLabel="Close session actions" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
                     <AnimatedPopup style={{
                         flexShrink: 1,

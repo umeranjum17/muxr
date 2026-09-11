@@ -246,6 +246,7 @@ export const LiveTerminalsRow = React.memo(({
                         accessibilityRole="button"
                         accessibilityLabel="Show the first agent needing attention"
                         onPress={() => scrollToCard(cards[attentionIndex]!.id)}
+                        hitSlop={{ top: 8, bottom: 8, left: 13, right: 13 }}
                         style={stylesheet.attentionIndicator}
                     >
                         <View style={stylesheet.attentionDot} />

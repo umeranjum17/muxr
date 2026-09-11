@@ -130,7 +130,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     agentAvailability: {
         color: theme.colors.textSecondary,
-        fontSize: 10,
+        fontSize: 11,
         fontWeight: '600',
     },
     squadHint: {

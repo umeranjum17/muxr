@@ -259,7 +259,7 @@ export default function ComputerCollaborationScreen() {
                             title={row.name}
                             subtitle={`${[row.platform, availability, row.issue === undefined ? state : undefined].filter(Boolean).join(' • ')}${detail ? `\n${detail}` : ''}`}
                             subtitleLines={2}
-                            icon={<Ionicons name="desktop-outline" size={28} color={row.online ? theme.colors.status.connected : row.issue ? '#FF9F0A' : theme.colors.textSecondary} />}
+                            icon={<Ionicons name="desktop-outline" size={28} color={row.online ? theme.colors.status.connected : row.issue ? theme.colors.status.error : theme.colors.textSecondary} />}
                             rightElement={busy && checked ? undefined : (
                                 <Ionicons
                                     name={checked ? 'checkmark-circle' : 'ellipse-outline'}
@@ -288,7 +288,7 @@ export default function ComputerCollaborationScreen() {
                 <Item
                     title="Agent collaboration"
                     subtitle="Read agent output, watch completion, and send prompts"
-                    icon={<Ionicons name="shield-checkmark-outline" size={28} color="#5856D6" />}
+                    icon={<Ionicons name="shield-checkmark-outline" size={28} color={theme.colors.textSecondary} />}
                     rightElement={(
                         <Switch
                             value={collaborationEnabled}
@@ -308,7 +308,7 @@ export default function ComputerCollaborationScreen() {
                         subtitle={selectionChanged && selected.length < 2
                             ? 'Select at least two computers, or turn off Agent collaboration'
                             : disconnecting ? 'Finish revoking access when the computers are reachable' : 'Try again when every selected computer is reachable'}
-                        icon={<Ionicons name={disconnecting ? 'unlink-outline' : 'refresh-outline'} size={28} color="#007AFF" />}
+                        icon={<Ionicons name={disconnecting ? 'unlink-outline' : 'refresh-outline'} size={28} color={theme.colors.textSecondary} />}
                         loading={busy}
                         disabled={busy || selectionChanged && selected.length < 2}
                         showChevron={false}

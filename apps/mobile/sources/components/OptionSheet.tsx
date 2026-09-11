@@ -324,7 +324,7 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.text,
     },
     railCount: {
-        fontSize: 10,
+        fontSize: 11,
         color: theme.colors.textSecondary,
         ...Typography.default(),
     },

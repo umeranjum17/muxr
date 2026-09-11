@@ -123,7 +123,7 @@ export default React.memo(function WorkspaceScreen() {
                                                     <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 11, fontWeight: '600' }}>
                                                         {shell ? 'Shell' : labels.taskTitle}
                                                     </Text>
-                                                    <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10 }}>
+                                                    <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11 }}>
                                                         {paneIdentity}
                                                     </Text>
                                                 </View>

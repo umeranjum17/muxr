@@ -31,8 +31,16 @@ const preactHooksCjsPath = require.resolve('preact/hooks');
 const contractEntry = path.resolve(workspaceRoot, "packages/contract/dist/index.js");
 const cryptoEntry = path.resolve(workspaceRoot, "packages/crypto/dist/index.js");
 
+// The diff viewer's `shiki` is the slim static bundle on every platform:
+// the stock entry lazy-imports every grammar and their shared subtrees end
+// up in the eager __common chunk (see shikiSlim.ts).
+const shikiSlimPath = path.resolve(__dirname, 'sources/components/diff/shikiSlim.ts');
+
 const baseResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === 'shiki' && !context.originModulePath.includes('shikiSlim')) {
+    return { filePath: shikiSlimPath, type: 'sourceFile' };
+  }
   if (moduleName === 'preact') {
     return { filePath: preactCjsPath, type: 'sourceFile' };
   }

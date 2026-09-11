@@ -15,6 +15,8 @@ import {
     MOBILE_GLASS_CONTROL_SIZE,
     MOBILE_GLASS_HEADER_HEIGHT,
 } from '@/components/navigation/headerMetrics';
+import { MOTION } from '@/constants/motion';
+import { useReducedMotion } from 'react-native-reanimated';
 
 interface HeaderProps {
     title?: React.ReactNode;
@@ -70,6 +72,7 @@ export const Header = React.memo((props: HeaderProps) => {
     const headerRightUsesGlass = headerRightGlass && !isDesktop;
     const contentHeight = floatingControlsEnabled ? Math.max(headerHeight, MOBILE_GLASS_HEADER_HEIGHT) : headerHeight;
     const backdropOpacity = React.useRef(new Animated.Value(headerBackdropVisible ? 1 : 0)).current;
+    const reducedMotion = useReducedMotion();
     const [backdropMounted, setBackdropMounted] = React.useState(headerBackdropVisible);
 
     React.useEffect(() => {
@@ -78,7 +81,7 @@ export const Header = React.memo((props: HeaderProps) => {
         }
         Animated.timing(backdropOpacity, {
             toValue: headerBackdropVisible ? 1 : 0,
-            duration: 160,
+            duration: reducedMotion ? 0 : (headerBackdropVisible ? MOTION.base : MOTION.exit),
             useNativeDriver: true,
         }).start(({ finished }) => {
             if (finished && !headerBackdropVisible) {

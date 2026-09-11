@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
-import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import type { PluginScreenChartNode, PluginScreenTone } from '@muxr/contract';
 import type { Theme } from '@/theme';
@@ -12,6 +12,7 @@ import { t } from '@/text';
 import { Typography } from '@/constants/Typography';
 import { cardStyle, Meter, SectionLabel, withAlpha } from '@/components/ui';
 import { useScreenContentWidth } from './pluginScreenLayout';
+import { MOTION, timing } from '@/constants/motion';
 
 // victory-native and the Skia canvas stay out of the initial load graph:
 // they render wide-screen-only chart pictures, loaded on demand.
@@ -78,7 +79,7 @@ function AnimatedColumn({ ratio, color, delay }: { ratio: number; color: string;
     const reduceMotion = useReducedMotion();
     const height = useSharedValue(reduceMotion ? ratio : 0);
     React.useEffect(() => {
-        height.value = reduceMotion ? ratio : withDelay(delay, withTiming(ratio, { duration: 480, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
+        height.value = reduceMotion ? ratio : withDelay(delay, withTiming(ratio, timing(MOTION.slow)));
     }, [delay, ratio, reduceMotion, height]);
     // Floored so an idle day stays a visible baseline instead of disappearing.
     const animated = useAnimatedStyle(() => ({ height: `${Math.max(2, Math.min(1, height.value) * 100)}%` }));

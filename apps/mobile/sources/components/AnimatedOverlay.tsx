@@ -3,7 +3,6 @@ import { Platform, Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'rea
 import { BlurView } from 'expo-blur';
 import MaskedView from '@react-native-masked-view/masked-view';
 import Animated, {
-    Easing,
     FadeIn,
     FadeInDown,
     FadeOut,
@@ -12,22 +11,22 @@ import Animated, {
     ReduceMotion,
 } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
+import { MOTION, exitEasing, houseEasing } from '@/constants/motion';
 
-const enterEasing = Easing.out(Easing.cubic);
-const exitEasing = Easing.in(Easing.cubic);
+const enterEasing = houseEasing;
 
 const backdropEntering = FadeIn
-    .duration(180)
+    .duration(MOTION.base)
     .easing(enterEasing)
     .reduceMotion(ReduceMotion.System);
 
 const backdropExiting = FadeOut
-    .duration(140)
+    .duration(MOTION.exit)
     .easing(exitEasing)
     .reduceMotion(ReduceMotion.System);
 
 const popupEntering = FadeIn
-    .duration(190)
+    .duration(MOTION.base)
     .easing(enterEasing)
     .withInitialValues({
         opacity: 0,
@@ -36,7 +35,7 @@ const popupEntering = FadeIn
     .reduceMotion(ReduceMotion.System);
 
 const popupExiting = FadeOut
-    .duration(140)
+    .duration(MOTION.exit)
     .easing(exitEasing)
     .reduceMotion(ReduceMotion.System);
 

@@ -125,10 +125,9 @@ check('no model binaries in public/', publicModels.length === 0, publicModels.sl
 // Usable load is the gzip of JS/CSS dist/index.html references directly:
 // CanvasKit is lazy (never root-awaited, loaded on first Canvas use), so it
 // is excluded by construction, and lazy chunks (mermaid languages, pdf
-// worker) load on demand. The enforced ceiling is a regression ratchet at
-// the measured value, NOT the target: the 2.0 MB compressed usable-screen
-// target stays open (needs route-level splitting; see ADR-0006 gates) and
-// must not be faked by relabeling today's number as success.
+// worker) load on demand. The 2.0 MiB compressed usable-screen target is
+// enforced directly: it was met once Metro's eager __common chunk stopped
+// carrying the diff/mermaid subtrees (shikiSlim.ts, mermaidBundle.ts).
 const distIndex = join(mobile, 'dist', 'index.html');
 if (!existsSync(distIndex)) {
     process.stdout.write('..  dist export absent — skipping dist budget/origin checks (CI exports first)\n');
@@ -148,8 +147,13 @@ if (!existsSync(distIndex)) {
         }
         initialGzip += gzipSync(readFileSync(file)).length;
     }
-    const USABLE_GZIP_CEILING = Math.round(3.0 * 1024 * 1024);
-    check(`dist usable gzip ≤ 3.0 MB regression ceiling (2.0 MB target open)`, initialGzip <= USABLE_GZIP_CEILING, `${(initialGzip / 1024 / 1024).toFixed(2)} MB`);
+    const USABLE_GZIP_CEILING = Math.round(2.0 * 1024 * 1024);
+    check(`dist usable gzip ≤ 2.0 MiB usable-screen target`, initialGzip <= USABLE_GZIP_CEILING, `${(initialGzip / 1024 / 1024).toFixed(2)} MiB`);
+    // The eager common chunk must stay a stub: anything shared between two
+    // lazy chunks lands here and loads before the first paint.
+    const commonRef = refs.find((ref) => ref.includes('__common'));
+    const commonGzip = commonRef === undefined ? 0 : gzipSync(readFileSync(join(mobile, 'dist', commonRef.replace(/^\//, '')))).length;
+    check('dist __common chunk stays under 64 KiB gzip', commonGzip <= 64 * 1024, `${(commonGzip / 1024).toFixed(1)} KiB`);
     const distText = [distHtml, ...refs.map((ref) => {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
         return existsSync(file) ? readFileSync(file, 'utf8') : '';

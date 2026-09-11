@@ -191,7 +191,7 @@ const PaneTile = React.memo((props: { pane: HerdrTreePane; style: object; router
                         </Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                             <StatusDot color={color} isPulsing={status === 'working' || status === 'blocked'} size={7} />
-                            <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 10 }}>
+                            <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 11 }}>
                                 {shell ? 'Terminal' : agentNameLine(labels)}
                             </Text>
                         </View>

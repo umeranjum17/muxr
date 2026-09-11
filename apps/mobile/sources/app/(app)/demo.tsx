@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { View } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
 import { MainView } from '@/herd/ui';
@@ -10,6 +10,7 @@ import { useNewSessionDraft } from '@/spawn';
 import { storage } from '@/catalog/store';
 import { onDemoTransitionComplete } from '@/demo/demoTransport';
 import { sync } from '@/catalog/sync';
+import { LoadingHairline } from '@/components/LoadingHairline';
 
 export const unstable_settings = {
     headerShown: false,
@@ -77,18 +78,13 @@ export default function DemoRoute() {
             live = false;
         };
     }, [router]);
-    if (!allowed) {
-        return (
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface }}>
-                <ActivityIndicator color={theme.colors.textSecondary} />
-            </View>
-        );
-    }
+    // The shell paints at once: the demo bar is the frame, and the herd
+    // below carries its own hairline until the fixture has bootstrapped.
     return (
         <View style={{ flex: 1 }}>
             <Stack.Screen options={{ headerShown: false, headerTitle: 'Demo replay' }} />
             <DemoBar />
-            <MainView />
+            {allowed ? <MainView /> : <View style={{ flex: 1, backgroundColor: theme.colors.groupped.background }}><LoadingHairline active /></View>}
         </View>
     );
 }

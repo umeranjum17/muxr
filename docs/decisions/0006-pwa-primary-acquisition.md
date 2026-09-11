@@ -104,8 +104,9 @@ subscriptions, and serves an unregistering service worker if one was deployed.
 - G1: whether the *default* browser TTL or control-by-default may move.
 - G4: install reliability matrix across iOS point releases.
 - G5: executed XSS verification under the shipped CSP.
-- Usable-screen budget: enforced as a regression ceiling at the measured
-  value (initial JS/CSS gzip, CanvasKit lazy and excluded by construction).
-  The 2.0 MB compressed target stays open — reaching it needs route-level
-  splitting, and the number must not be faked by relabeling. `checkWebExport`
-  names both the ceiling and the target.
+- Usable-screen budget: the 2.0 MiB compressed target (initial JS/CSS gzip,
+  CanvasKit lazy and excluded by construction) is enforced directly by
+  `checkWebExport`. It was met by keeping Metro's eager `__common` chunk a
+  stub: the diff viewer's grammars and mermaid's diagram core were shared
+  between lazy chunks and had been loading before first paint (~1.0 MiB
+  gzip). Route-level splitting remains available if the index bundle grows.

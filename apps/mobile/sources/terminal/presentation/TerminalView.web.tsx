@@ -51,15 +51,26 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const hostRef = React.useRef<View | null>(null);
     const { sessionId, onStatus, onChannel, attempt = 0 } = props;
     // Opt-in: xterm's screen-reader DOM costs on busy output, so it is a
-    // persisted preference, never the default. Changing it rebuilds the view.
+    // persisted preference, never the default. Both preferences apply to the
+    // live terminal in place: the channel, cwd and buffer are untouched.
     const screenReaderMode = useLocalSetting('terminalScreenReader');
+    const fontSize = useLocalSetting('terminalFontSize');
+    const termRef = React.useRef<Terminal | null>(null);
+    const resizeRef = React.useRef<() => void>(() => undefined);
+    React.useEffect(() => {
+        const term = termRef.current;
+        if (term === null) return;
+        term.options.screenReaderMode = screenReaderMode;
+        term.options.fontSize = fontSize;
+        resizeRef.current();
+    }, [fontSize, screenReaderMode]);
 
     React.useEffect(() => {
         const element = hostRef.current as unknown as HTMLElement | null;
         if (element === null) return;
 
         const term = new Terminal({
-            fontSize: 13,
+            fontSize,
             fontFamily: 'Menlo, Monaco, "Courier New", monospace',
             theme: { background: '#0c0c0b' },
             convertEol: false,
@@ -71,6 +82,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         term.loadAddon(fit);
         term.loadAddon(new WebLinksAddon());
         term.open(element);
+        termRef.current = term;
         fit.fit();
         setTerminalColumns(sessionId, term.cols);
         // WebGL renderer: xterm.js rates it ~900% faster frame rendering than
@@ -186,6 +198,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 channel?.resize(term.cols, term.rows);
             });
         };
+        resizeRef.current = resize;
         const resizeObserver = new ResizeObserver(resize);
         resizeObserver.observe(element);
         window.addEventListener('resize', resize);
@@ -298,11 +311,15 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             element.removeEventListener('touchend', onTouchEnd, { capture: true });
             onChannel?.(undefined);
             channel?.close();
+            termRef.current = null;
+            resizeRef.current = () => undefined;
             term.dispose();
         };
     // `attempt` reopens from scratch: a failed first attach left no channel to
-    // reconnect, and nothing on screen worth keeping.
-    }, [sessionId, onStatus, onChannel, attempt, screenReaderMode]);
+    // reconnect, and nothing on screen worth keeping. Preferences are applied
+    // above without re-running this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sessionId, onStatus, onChannel, attempt]);
 
     return <View ref={hostRef} style={{ flex: 1, backgroundColor: '#0c0c0b' }} />;
 });

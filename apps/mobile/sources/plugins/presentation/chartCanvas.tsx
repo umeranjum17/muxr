@@ -2,12 +2,13 @@ import * as React from 'react';
 import { Text, View } from 'react-native';
 import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import { PolarChart, Pie } from 'victory-native';
-import { Easing, useDerivedValue, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
+import { useDerivedValue, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { toneColor } from '../domain/pluginTone';
 import { useSkiaWebReady } from '@/utils/skiaWeb';
 import type { PluginChartItem } from '../domain/chartModel';
+import { MOTION, houseEasing, timing } from '@/constants/motion';
 
 /**
  * Wide-screen-only chart visuals, split out of screenCharts so victory-native
@@ -34,7 +35,7 @@ export function GaugeArc({ ratio, size, color, track, label }: {
     const reduceMotion = useReducedMotion();
     const sweep = useSharedValue(reduceMotion ? ratio : 0);
     React.useEffect(() => {
-        sweep.value = reduceMotion ? ratio : withTiming(ratio, { duration: 620, easing: Easing.bezier(0.23, 1, 0.32, 1) });
+        sweep.value = reduceMotion ? ratio : withTiming(ratio, timing(MOTION.slow));
     }, [ratio, reduceMotion, sweep]);
     const stroke = size * 0.085;
     const radius = (size - stroke) / 2;
@@ -103,7 +104,7 @@ export function WideRingChart({ slices, heroLabel, heroValue, title, reduceMotio
             <View style={{ width: 132, height: 132 }}>
                 <PolarChart data={slices} labelKey="label" valueKey="value" colorKey="color" containerStyle={{ width: 132, height: 132 }}>
                     <Pie.Chart innerRadius="74%" startAngle={-90}>
-                        {() => <Pie.Slice {...(reduceMotion ? {} : { animate: { type: 'timing', duration: 500, easing: Easing.bezier(0.23, 1, 0.32, 1) } })} />}
+                        {() => <Pie.Slice {...(reduceMotion ? {} : { animate: { type: 'timing', duration: MOTION.slow, easing: houseEasing } })} />}
                     </Pie.Chart>
                 </PolarChart>
                 <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>

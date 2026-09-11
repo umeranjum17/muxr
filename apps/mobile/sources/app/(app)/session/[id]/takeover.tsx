@@ -384,7 +384,7 @@ export default function TakeoverScreen() {
                     onResponderRelease={(event) => releaseTap(event.nativeEvent.locationX, event.nativeEvent.locationY)}
                     onResponderTerminate={() => { tapRef.current = null; endTouch(); }}
                 >
-                    <Image source={{ uri: frame.uri }} style={{ flex: 1 }} resizeMode="contain" />
+                    <Image source={{ uri: frame.uri }} accessibilityLabel="Live view of the agent's browser" style={{ flex: 1 }} resizeMode="contain" />
                 </View>
                 {toolbar}
                 {hiddenInput}

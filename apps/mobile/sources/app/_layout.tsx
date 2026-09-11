@@ -42,6 +42,7 @@ import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcut
 import { KernelNotifications } from '@/herd/ui';
 import { acknowledgeLifecyclePush } from '@/utils/nativePushNotifications';
 import { realtimeAppController } from '@/conversation/application/realtimeAppControl';
+import { MOTION } from '@/constants/motion';
 
 // Configure notification handler — suppress push display when app is in foreground
 Notifications.setNotificationHandler({
@@ -81,7 +82,7 @@ export {
 // Configure splash screen
 SplashScreen.setOptions({
     fade: true,
-    duration: 300,
+    duration: MOTION.slow,
 })
 SplashScreen.preventAutoHideAsync();
 

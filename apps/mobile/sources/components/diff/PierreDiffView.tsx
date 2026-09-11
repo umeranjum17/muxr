@@ -60,8 +60,7 @@ function loadPierre(): Promise<PierreBundle> {
     if (!pierreBundlePromise) {
         pierreBundlePromise = (async () => {
             // Side-effect import registers the <diffs-container> custom element.
-            const main = await import('@pierre/diffs');
-            const react = await import('@pierre/diffs/react');
+            const { main, react } = await import('./pierreBundle');
             return { main, react };
         })();
     }

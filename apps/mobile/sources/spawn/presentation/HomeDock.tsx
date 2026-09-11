@@ -5,7 +5,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import Animated, {
-    Easing,
     Extrapolation,
     interpolate,
     runOnJS,
@@ -46,6 +45,7 @@ import {
     worktreeDockOptions,
     type DockOption,
 } from '../application/homeDockEnvironment';
+import { MOTION, exitEasing, timing } from '@/constants/motion';
 
 export const MOBILE_HOME_DOCK_CONTENT_INSET = 108;
 
@@ -762,10 +762,7 @@ export const HomeDock = React.memo(({
         setIsFocused(true);
         setFocusModeVisible(true);
         focusAnimationTimerRef.current = setTimeout(() => {
-            focusPresentation.value = withTiming(1, {
-                duration: 340,
-                easing: Easing.out(Easing.cubic),
-            });
+            focusPresentation.value = withTiming(1, timing(MOTION.slow));
             focusAnimationTimerRef.current = null;
         }, 16);
     }, [focusPresentation]);
@@ -799,10 +796,7 @@ export const HomeDock = React.memo(({
         focusedInputRef.current?.blur();
         inputRef.current?.blur();
         Keyboard.dismiss();
-        focusPresentation.value = withTiming(0, {
-            duration: 180,
-            easing: Easing.in(Easing.cubic),
-        }, (finished) => {
+        focusPresentation.value = withTiming(0, timing(MOTION.exit, exitEasing), (finished) => {
             if (finished) {
                 runOnJS(finishCloseFocusMode)();
             }

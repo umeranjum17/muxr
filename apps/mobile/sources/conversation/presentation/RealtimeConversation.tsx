@@ -20,6 +20,7 @@ import {
     useRealtimeWatching,
 } from '../application/realtimeSessionState';
 import { realtimeCallLabel, voiceStopReason } from '../domain/micOwnership';
+import { MOTION, reduceMotion } from '@/constants/motion';
 
 export const RealtimeConversation = React.memo(function RealtimeConversation({
     visible,
@@ -76,8 +77,8 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
 
     return (
         <Animated.View
-            entering={FadeIn.duration(180)}
-            exiting={FadeOut.duration(140)}
+            entering={FadeIn.duration(MOTION.base).reduceMotion(reduceMotion)}
+            exiting={FadeOut.duration(MOTION.exit).reduceMotion(reduceMotion)}
             accessibilityViewIsModal
             style={{
                 position: 'absolute',

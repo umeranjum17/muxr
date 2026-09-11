@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, AppState, Pressable, ScrollView, Text, View } from 'react-native';
+import { AppState, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
@@ -24,6 +24,7 @@ import { toneColor } from '../../domain/pluginTone';
 import { resolvePluginText } from '../../domain/pluginText';
 import { t } from '@/text';
 import { humanError } from '@/utils/errors';
+import { LoadingHairline } from '@/components/LoadingHairline';
 
 const REFRESH_MS = 15_000;
 const cache = new Map<string, PluginCollectionGroup[]>();
@@ -169,8 +170,8 @@ export function CollectionView({ context, pluginId, manifestHash, contribution }
 
     return <View style={{ flex: 1, backgroundColor: theme.colors.groupped.background }}>
         {showingSpinner && (
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: topInset }}>
-                <ActivityIndicator size="large" color={theme.colors.textSecondary} />
+            <View style={{ flex: 1, paddingTop: topInset, paddingHorizontal: 16 }}>
+                <LoadingHairline active />
             </View>
         )}
         {!showingSpinner && showingEmpty && (

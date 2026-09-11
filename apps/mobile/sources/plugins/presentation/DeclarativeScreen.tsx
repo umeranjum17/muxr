@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, T
 import { randomUUID } from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { Easing, FadeInDown, cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { FadeInDown, cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import type { PluginManifestV1, PluginScreenButtonNode, PluginScreenContribution, PluginScreenNode, PluginScreenRowAction, PluginScreenRowNode, PluginScreenTreeNode, PluginSource, PluginText, RequestParams } from '@muxr/contract';
 import { MAX_SCREEN_LIST_ROWS, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, defaultPluginText, sanitizeDisplayText } from '@muxr/contract';
@@ -28,6 +28,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenWidthProvider, useScreenContentWidth } from './pluginScreenLayout';
 import { ScreenChart } from './screenCharts';
 import { ScreenTree } from './screenTree';
+import { MOTION, houseEasing, pressEasing, staggerDelay, timing } from '@/constants/motion';
+import { LoadingHairline } from '@/components/LoadingHairline';
 
 /** Screen payloads survive a close: reopening renders at once, then refreshes. */
 const screenCache = new Map<string, unknown>();
@@ -35,33 +37,6 @@ registerPluginDataCacheInvalidator((pluginIds) => {
     if (pluginIds === undefined) screenCache.clear();
     else for (const pluginId of pluginIds) clearPluginCache(screenCache, pluginId);
 });
-
-/** Indeterminate 2px bar: says "working" without taking the content's place. */
-function LoadingHairline({ active }: { active: boolean }) {
-    const { theme } = useUnistyles();
-    const reduceMotion = useReducedMotion();
-    const width = useScreenContentWidth();
-    const progress = useSharedValue(0);
-    React.useEffect(() => {
-        if (!active || reduceMotion) {
-            cancelAnimation(progress);
-            progress.value = 0;
-            return;
-        }
-        progress.value = withRepeat(withTiming(1, { duration: 900, easing: Easing.inOut(Easing.ease) }), -1, false);
-        return () => cancelAnimation(progress);
-    }, [active, reduceMotion, progress]);
-    const animated = useAnimatedStyle(() => ({ transform: [{ translateX: (progress.value * 1.35 - 0.35) * width }] }));
-    // The track keeps its 2px even when idle, so content never jumps on load.
-    if (!active) return <View style={{ height: 2, marginBottom: 8 }} />;
-    return (
-        <View style={{ height: 2, marginBottom: 8, borderRadius: 1, overflow: 'hidden', backgroundColor: withAlpha(theme.colors.accent, 0.16) }}>
-            {reduceMotion
-                ? <View style={{ height: 2, width: '100%', backgroundColor: withAlpha(theme.colors.accent, 0.5) }} />
-                : <Animated.View style={[{ height: 2, width: '35%', borderRadius: 1, backgroundColor: theme.colors.accent }, animated]} />}
-        </View>
-    );
-}
 
 function ScreenSkeleton() {
     const { theme } = useUnistyles();
@@ -144,7 +119,7 @@ function ScreenButton(props: { node: PluginScreenButtonNode; label: string; runn
     const animated = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
     const press = (to: number) => {
         if (reduceMotion) return;
-        scale.value = withSpring(to, { damping: 20, stiffness: 380, mass: 0.5 });
+        scale.value = withTiming(to, timing(MOTION.press, pressEasing));
     };
     // Danger uses the theme's error surface: a solid red fill with a white
     // label instead of the old red-on-red text-on-text.
@@ -554,7 +529,7 @@ function ScreenBody(props: {
                     {hasContent
                         ? <View style={{ opacity: loading ? 0.55 : 1 }}>
                             {screen.children.map((node, index) => (
-                                <Animated.View key={index} entering={reduceMotion ? undefined : FadeInDown.duration(280).delay(Math.min(index, 8) * 40).easing(Easing.bezier(0.23, 1, 0.32, 1))}>
+                                <Animated.View key={index} entering={reduceMotion ? undefined : FadeInDown.duration(MOTION.slow).delay(staggerDelay(index)).easing(houseEasing.factory())}>
                                     <ScreenNode node={node} data={data} fields={fields} setField={setField} running={running} onButton={onButton} onRowAction={onRowAction} onTreeLoad={onTreeLoad}
                                         tabOverrides={tabParams}
                                         onSelectTab={(param, value) => setTabParams((current) => ({ ...current, [param]: value }))}

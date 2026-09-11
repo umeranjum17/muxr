@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -7,6 +8,8 @@ import { useRouter } from 'expo-router';
 import * as Localization from 'expo-localization';
 import { useUnistyles, UnistylesRuntime } from 'react-native-unistyles';
 import { Switch } from '@/components/Switch';
+import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
+import { TERMINAL_FONT_SIZES } from '@/catalog/application/localSettings';
 import { Appearance } from 'react-native';
 import * as SystemUI from 'expo-system-ui';
 import { darkTheme, lightTheme } from '@/theme';
@@ -26,6 +29,37 @@ export default function AppearanceSettingsScreen() {
     const [showFlavorIcons, setShowFlavorIcons] = useSettingMutable('showFlavorIcons');
     const [themePreference, setThemePreference] = useLocalSettingMutable('themePreference');
     const [terminalScreenReader, setTerminalScreenReader] = useLocalSettingMutable('terminalScreenReader');
+    const [terminalFontSize, setTerminalFontSize] = useLocalSettingMutable('terminalFontSize');
+    // Three-way choices open a sheet with every option and the current one
+    // marked, instead of advancing on tap with no visible alternatives.
+    const [sheet, setSheet] = React.useState<'theme' | 'avatar' | 'terminalFont' | null>(null);
+    const themeOptions: ModelMode[] = [
+        { key: 'adaptive', name: t('settingsAppearance.themeOptions.adaptive'), description: t('settingsAppearance.themeDescriptions.adaptive') },
+        { key: 'light', name: t('settingsAppearance.themeOptions.light'), description: t('settingsAppearance.themeDescriptions.light') },
+        { key: 'dark', name: t('settingsAppearance.themeOptions.dark'), description: t('settingsAppearance.themeDescriptions.dark') },
+    ];
+    const avatarOptions: ModelMode[] = [
+        { key: 'gradient', name: t('settingsAppearance.avatarOptions.gradient') },
+        { key: 'pixelated', name: t('settingsAppearance.avatarOptions.pixelated') },
+        { key: 'brutalist', name: t('settingsAppearance.avatarOptions.brutalist') },
+    ];
+    const fontOptions: ModelMode[] = TERMINAL_FONT_SIZES.map((size) => ({ key: String(size), name: `${size} px` }));
+    const applyTheme = (nextTheme: 'adaptive' | 'light' | 'dark') => {
+        setThemePreference(nextTheme);
+        if (nextTheme === 'adaptive') {
+            UnistylesRuntime.setAdaptiveThemes(true);
+            const systemTheme = Appearance.getColorScheme();
+            const color = systemTheme === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
+            UnistylesRuntime.setRootViewBackgroundColor(color);
+            SystemUI.setBackgroundColorAsync(color);
+        } else {
+            UnistylesRuntime.setAdaptiveThemes(false);
+            UnistylesRuntime.setTheme(nextTheme);
+            const color = nextTheme === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
+            UnistylesRuntime.setRootViewBackgroundColor(color);
+            SystemUI.setBackgroundColorAsync(color);
+        }
+    };
     const [preferredLanguage] = useSettingMutable('preferredLanguage');
 
     // Ensure we have a valid style for display, defaulting to gradient for unknown values
@@ -55,31 +89,7 @@ export default function AppearanceSettingsScreen() {
                     subtitle={themePreference === 'adaptive' ? t('settingsAppearance.themeDescriptions.adaptive') : themePreference === 'light' ? t('settingsAppearance.themeDescriptions.light') : t('settingsAppearance.themeDescriptions.dark')}
                     icon={<Ionicons name="contrast-outline" size={29} color={theme.colors.status.connecting} />}
                     detail={themePreference === 'adaptive' ? t('settingsAppearance.themeOptions.adaptive') : themePreference === 'light' ? t('settingsAppearance.themeOptions.light') : t('settingsAppearance.themeOptions.dark')}
-                    onPress={() => {
-                        const currentIndex = themePreference === 'adaptive' ? 0 : themePreference === 'light' ? 1 : 2;
-                        const nextIndex = (currentIndex + 1) % 3;
-                        const nextTheme = nextIndex === 0 ? 'adaptive' : nextIndex === 1 ? 'light' : 'dark';
-
-                        // Update the setting
-                        setThemePreference(nextTheme);
-
-                        // Apply the theme change immediately
-                        if (nextTheme === 'adaptive') {
-                            // Enable adaptive themes and set to system theme
-                            UnistylesRuntime.setAdaptiveThemes(true);
-                            const systemTheme = Appearance.getColorScheme();
-                            const color = systemTheme === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
-                            UnistylesRuntime.setRootViewBackgroundColor(color);
-                            SystemUI.setBackgroundColorAsync(color);
-                        } else {
-                            // Disable adaptive themes and set explicit theme
-                            UnistylesRuntime.setAdaptiveThemes(false);
-                            UnistylesRuntime.setTheme(nextTheme);
-                            const color = nextTheme === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
-                            UnistylesRuntime.setRootViewBackgroundColor(color);
-                            SystemUI.setBackgroundColorAsync(color);
-                        }
-                    }}
+                    onPress={() => setSheet('theme')}
                 />
             </ItemGroup>
 
@@ -100,12 +110,14 @@ export default function AppearanceSettingsScreen() {
                     subtitle={t('settingsAppearance.avatarStyleDescription')}
                     icon={<Ionicons name="person-circle-outline" size={29} color={theme.colors.textSecondary} />}
                     detail={displayStyle === 'pixelated' ? t('settingsAppearance.avatarOptions.pixelated') : displayStyle === 'brutalist' ? t('settingsAppearance.avatarOptions.brutalist') : t('settingsAppearance.avatarOptions.gradient')}
-                    onPress={() => {
-                        const currentIndex = displayStyle === 'pixelated' ? 0 : displayStyle === 'gradient' ? 1 : 2;
-                        const nextIndex = (currentIndex + 1) % 3;
-                        const nextStyle = nextIndex === 0 ? 'pixelated' : nextIndex === 1 ? 'gradient' : 'brutalist';
-                        setAvatarStyle(nextStyle);
-                    }}
+                    onPress={() => setSheet('avatar')}
+                />
+                <Item
+                    title="Terminal text size"
+                    subtitle="Browser terminal only. Changing it keeps the session connected."
+                    icon={<Ionicons name="text-outline" size={29} color={theme.colors.textSecondary} />}
+                    detail={`${terminalFontSize} px`}
+                    onPress={() => setSheet('terminalFont')}
                 />
                 <Item
                     title="Accessible terminal"
@@ -131,6 +143,30 @@ export default function AppearanceSettingsScreen() {
                     }
                 />
             </ItemGroup>
+            <OptionSheet
+                visible={sheet === 'theme'}
+                title={t('settings.appearance')}
+                options={themeOptions}
+                selectedKey={themePreference}
+                onSelect={(option) => { applyTheme(option.key as 'adaptive' | 'light' | 'dark'); setSheet(null); }}
+                onClose={() => setSheet(null)}
+            />
+            <OptionSheet
+                visible={sheet === 'avatar'}
+                title={t('settingsAppearance.avatarStyle')}
+                options={avatarOptions}
+                selectedKey={displayStyle}
+                onSelect={(option) => { setAvatarStyle(option.key as KnownAvatarStyle); setSheet(null); }}
+                onClose={() => setSheet(null)}
+            />
+            <OptionSheet
+                visible={sheet === 'terminalFont'}
+                title="Terminal text size"
+                options={fontOptions}
+                selectedKey={String(terminalFontSize)}
+                onSelect={(option) => { setTerminalFontSize(Number(option.key) as typeof terminalFontSize); setSheet(null); }}
+                onClose={() => setSheet(null)}
+            />
         </ItemList>
     );
 }
