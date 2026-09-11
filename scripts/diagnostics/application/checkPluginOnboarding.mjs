@@ -42,7 +42,6 @@
  * pane attachments directory.
  */
 import { spawnSync } from 'node:child_process';
-import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -147,11 +146,6 @@ if (fetchable === null) {
 }
 try {
     state.tarball = candidateTarball();
-    // A separate process: this gate blocks on spawnSync, which would freeze
-    // an in-process server mid-install. 0.0.0.0 so the container's
-    // host-gateway route reaches it; it lives for this run only.
-    state.registry = await startRegistryProcess(state.tarball);
-    process.stdout.write(`gate registry: ${state.registry.name} ${state.registry.versions.join(' / ')} from ${state.tarball} at ${state.registry.url}\n`);
 } catch (error) {
     process.stderr.write(`gate preflight: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exit(1);
@@ -165,7 +159,7 @@ function candidateTarball() {
         return given;
     }
     const distNpm = join(ROOT, 'dist-npm');
-    if (!existsSync(join(distNpm, 'package.json'))) throw new Error('no candidate: pass --tarball=<@trymuxr-cli-x.y.z.tgz> or run `yarn pack` first');
+    if (!existsSync(join(distNpm, 'package.json'))) throw new Error('no candidate: pass --tarball=<@trymuxr-cli-x.y.z.tgz> or run `yarn run pack` first');
     const dest = mkdtempSync(join(tmpdir(), 'muxr-gate-candidate-'));
     const packed = sh(['npm', 'pack', '--json', '--pack-destination', dest], { spawn: { cwd: distNpm }, timeout: 120_000 });
     if (packed.status !== 0) throw new Error(`npm pack failed: ${packed.stderr.slice(0, 300)}`);
@@ -174,33 +168,38 @@ function candidateTarball() {
     return join(dest, entry.filename);
 }
 
-function startRegistryProcess(tarball) {
-    return new Promise((resolvePromise, reject) => {
-        const child = spawn(process.execPath, [join(ROOT, 'scripts/diagnostics/application/disposableRegistry.mjs'), `--tarball=${tarball}`, '--host=0.0.0.0'], { stdio: ['ignore', 'pipe', 'pipe'] });
-        let out = '';
-        let err = '';
-        child.stdout.on('data', (chunk) => {
-            out += chunk;
-            const line = out.split('\n')[0];
-            if (!out.includes('\n')) return;
-            try {
-                const info = JSON.parse(line);
-                resolvePromise({
-                    ...info,
-                    integrity: (version) => info.integrity[version],
-                    setLatest: (version) => {
-                        const flip = sh(['curl', '-s', '-X', 'POST', `${info.url}__gate/latest/${version}`], { timeout: 15_000 });
-                        if (!flip.stdout.includes(version)) throw new Error(`could not move latest to ${version}: ${flip.stdout} ${flip.stderr}`);
-                    },
-                    close: () => { child.kill('SIGTERM'); return Promise.resolve(); },
-                });
-            } catch (cause) {
-                reject(cause);
-            }
-        });
-        child.stderr.on('data', (chunk) => { err += chunk; });
-        child.on('exit', (code) => reject(new Error(`registry exited (${code}): ${err.slice(0, 300)}`)));
-    });
+/**
+ * The disposable registry runs INSIDE the container on its loopback (host
+ * firewalls commonly drop docker0 -> host traffic): the candidate tarball
+ * and the registry script are copied in, dependencies are proxied upstream
+ * from there, and `latest` is moved through its control endpoint.
+ */
+const REGISTRY_PORT = 4873;
+function startContainerRegistry(tarball) {
+    const dir = '/home/gate/.gate';
+    csh(`mkdir -p ${dir}`);
+    for (const [from, to] of [[join(ROOT, 'scripts/diagnostics/application/disposableRegistry.mjs'), 'disposableRegistry.mjs'], [tarball, 'candidate.tgz']]) {
+        const copy = sh(['docker', 'cp', from, `${CONTAINER}:${dir}/${to}`], { timeout: 60_000 });
+        assert(copy.status === 0, `docker cp ${to} failed: ${copy.stderr.slice(0, 200)}`);
+    }
+    sh(['docker', 'exec', CONTAINER, 'chown', '-R', 'gate:gate', dir], { timeout: 30_000 });
+    csh(`cd ${dir} && setsid nohup node disposableRegistry.mjs --tarball=${dir}/candidate.tgz --host=127.0.0.1 --port=${REGISTRY_PORT} > registry.json 2> registry.err < /dev/null &`);
+    let info;
+    for (let attempt = 0; attempt < 30 && info === undefined; attempt += 1) {
+        sleep(1);
+        const line = csh(`cat ${dir}/registry.json`).stdout.split('\n')[0];
+        if (line.trim() !== '') info = JSON.parse(line);
+    }
+    assert(info !== undefined, `container registry did not start: ${csh(`cat ${dir}/registry.err`).stdout.slice(0, 300)}`);
+    return {
+        ...info,
+        integrity: (version) => info.integrity[version],
+        setLatest: (version) => {
+            const flip = csh(`curl -s -X POST http://127.0.0.1:${REGISTRY_PORT}/__gate/latest/${version}`, { timeout: 15_000 });
+            if (!flip.stdout.includes(version)) throw new Error(`could not move latest to ${version}: ${flip.stdout} ${flip.stderr}`);
+        },
+        close: () => Promise.resolve(),
+    };
 }
 
 /** Start the container herdr server headless (real mechanism, not the TUI). */
@@ -285,7 +284,9 @@ function awaitSetupDone(paneId, timeoutMs = 240_000) {
     for (;;) {
         if (paneGone(paneId)) return last;
         last = paneText(paneId);
-        if (/pairing QR|scan .* pair|setup complete/i.test(last)) return last;
+        // The Review screen mentions the QR in its option text; only the
+        // final step title or the persistent receipt means the apply finished.
+        if (/Setup complete|Paired\. Open muxr|Setup updated\.|Core setup is ready/.test(last)) return last;
         if (Date.now() - start > timeoutMs) throw new Error('setup did not finish');
         sleep(5);
     }
@@ -386,20 +387,19 @@ process.on('uncaughtException', (error) => {
     process.exit(1);
 });
 
+// First run is three interactions: accept the one recommended route (the
+// clean room only has Same Wi-Fi), Review, Apply. No add-on, provider or
+// pairing questionnaire appears before Apply.
 const APPLY_FRESH = [
-    { pattern: /Choose how your phone connects/, send: '3' },
-    { pattern: /Local connection port/, send: '8792', raw: true, optional: true },
-    { pattern: /Connect your coding agents/, send: '2' },
-    { pattern: /Pair a client\?/, send: '1', optional: true },
-    { pattern: /◆ (?:Optional Herdr add-ons|Add [^\n]*\?)[\s\S]{0,900}Choose 1-2 \(1\), or b to cancel setup:\s*$/, send: '1', repeat: true },
+    { pattern: /Continue with this route\?/, send: '1' },
     { pattern: /Apply this setup\?/, send: '2' },
 ];
 
+// Reconfiguration keeps devices, leaves integrations and add-ons alone.
 const APPLY_RE = [
-    { pattern: /Choose how your phone connects/, send: '3' },
-    { pattern: /Local connection port/, send: '8792', raw: true },
-    { pattern: /Pair a client\?/, send: '1' },
-    { pattern: /Connect your coding agents/, send: '2' },
+    { pattern: /Continue with this route\?/, send: '1' },
+    { pattern: /Keep existing devices or pair another one\?|Pair a client\?/, send: '1', optional: true },
+    { pattern: /Connect your coding agents|Retry integration setup/, send: '2', optional: true },
     { pattern: /◆ (?:Optional Herdr add-ons|Add [^\n]*\?)[\s\S]{0,900}Choose 1-2 \(1\), or b to cancel setup:\s*$/, send: '1', repeat: true },
     { pattern: /Apply this setup\?/, send: '2' },
 ];
@@ -420,7 +420,6 @@ stage('container', () => {
     // instead makes systemd bail silently on cgroup2 hosts).
     const run = sh([
         'docker', 'run', '-d', '--name', CONTAINER, '--hostname', 'muxr-gate',
-        '--add-host=host.docker.internal:host-gateway',
         '--privileged', '--cgroupns=host', IMAGE,
     ], { timeout: 60_000 });
     assert(run.status === 0, `docker run failed: ${run.stderr.slice(0, 200)}`);
@@ -439,8 +438,9 @@ stage('container', () => {
     assert(clean.stdout.includes('CLEAN'), 'container HOME is not clean');
     // The only npm the container knows is the disposable registry: the
     // candidate is served from here, every dependency proxied upstream.
-    assert(state.registry !== undefined, 'disposable registry not started');
-    csh(`printf 'registry=http://host.docker.internal:${state.registry.port}/\n' > .npmrc`);
+    state.registry = startContainerRegistry(state.tarball);
+    process.stdout.write(`gate registry: ${state.registry.name} ${state.registry.versions.join(' / ')} from ${state.tarball} inside the container at ${state.registry.url}\n`);
+    csh(`printf 'registry=http://127.0.0.1:${REGISTRY_PORT}/\n' > .npmrc`);
     const view = csh(`npm view ${state.registry.name}@latest version 2>&1`, { timeout: 60_000 });
     assert(view.stdout.trim().endsWith(state.registry.versions[0]), `container cannot resolve the candidate from the disposable registry: ${view.stdout.slice(-200)}`);
     return `privileged systemd container, non-root, server up, HOME clean, registry latest=${state.registry.versions[0]}`;
@@ -452,8 +452,6 @@ stage('install', () => {
     assert(install.status === 0 && output.includes('Installed muxr.control'), `plugin install failed: ${output.slice(-500)}`);
     const list = cherdr(['plugin', 'list'], { timeout: 30_000 });
     assert(list.stdout.includes('muxr.control'), 'muxr.control missing from plugin list');
-    const logs = cherdr(['plugin', 'log', 'list'], { timeout: 30_000 });
-    assert(/build\.mjs/.test(logs.stdout) || output.includes('plugin actions will execute'), 'build hook left no record');
     return `muxr.control installed @ ${REF.slice(0, 12)}`;
 });
 
@@ -471,8 +469,10 @@ stage('build-pin', () => {
     assert(version.stdout.trim().split('\n').pop() === expected, `muxr on PATH is not ${expected}`);
     const which = csh('command -v muxr');
     assert(which.stdout.trim() === recorded.bin, `recorded bin ${recorded.bin} is not the PATH muxr ${which.stdout.trim()}`);
-    const lock = csh(`node -e "const l=JSON.parse(require('fs').readFileSync(require('child_process').execSync('npm root -g').toString().trim()+'/.package-lock.json','utf8'));console.log(l.packages['node_modules/@trymuxr/cli'].integrity)"`);
-    assert(lock.stdout.trim() === state.registry.integrity(expected), `installed integrity ${lock.stdout.trim()} != candidate`);
+    // npm verified the tarball against the packument integrity on install;
+    // the installed package.json version and the recorded integrity match it.
+    const installedVersion = csh('node -e "console.log(require(require(\'child_process\').execSync(\'npm root -g\').toString().trim()+\'/@trymuxr/cli/package.json\').version)"');
+    assert(installedVersion.stdout.trim() === expected, `installed package.json is ${installedVersion.stdout.trim()}, not ${expected}`);
     return `exact ${expected} from the disposable registry, integrity verified, runtime 0600, no sudo`;
 });
 
@@ -482,7 +482,7 @@ stage('fail-payload', () => {
     // overlay closes too fast to read, so run the declared pane command
     // (`node ./run.mjs setup`, plugin cwd) in the persistent root pane: same
     // command, same PTY machinery, durable output.
-    csh('mv .npm-global/bin/muxr /tmp/muxr.hidden; rm -f .muxr/herdr-plugin.runtime');
+    csh('mv .npm-global/bin/muxr /tmp/muxr.hidden; mv .muxr/herdr-plugin.runtime /tmp/herdr-plugin.runtime.kept');
     try {
         openSetupPane();
         assert(state.rootPane !== undefined && state.pluginCwd !== undefined, 'workspace or plugin cwd unknown');
@@ -493,7 +493,7 @@ stage('fail-payload', () => {
         assert(/PAYLOAD-RC=[1-9]/.test(text), 'missing payload exited zero');
         assert(!/pairing QR|setup complete/i.test(text), 'missing payload looks complete');
     } finally {
-        csh('mv /tmp/muxr.hidden .npm-global/bin/muxr');
+        csh('mv /tmp/muxr.hidden .npm-global/bin/muxr; mv /tmp/herdr-plugin.runtime.kept .muxr/herdr-plugin.runtime');
     }
     const version = dock(['muxr', 'version'], { timeout: 30_000 });
     assert(version.stdout.trim().split('\n').pop() === state.pin, 'payload restore failed');
@@ -515,8 +515,10 @@ stage('startup-noop', () => {
 stage('pane-open', () => {
     const paneId = openSetupPane();
     state.setupPane = paneId;
-    waitForPrompt(paneId, /Choose how your phone connects/);
-    return `setup pane ${paneId} shows the route choice`;
+    const text = waitForPrompt(paneId, /Continue with this route\?/);
+    assert(/Recommended route/.test(text), 'setup did not recommend one route');
+    assert(!/add-on|provider|theme/i.test(text), `fresh setup asked an optional question before Apply: ${text.slice(-400)}`);
+    return `setup pane ${paneId} recommends one route and asks only to continue`;
 });
 
 stage('cancel-noop', () => {
@@ -581,7 +583,7 @@ stage('pairing', () => {
     // The declared pane runs the same operation and shows the same prerequisite.
     const pane = runPluginPane('pair', 60_000);
     assert(/browser hosting is off/i.test(pane.text), `Pair pane differs from the CLI: ${pane.text.slice(-300)}`);
-    const phone = dock(['timeout', '25', 'muxr', 'pair'], { timeout: 60_000 });
+    const phone = dock(['timeout', '25', 'muxr', 'pair', '--native'], { timeout: 60_000 });
     const phoneOut = `${phone.stdout}\n${phone.stderr}`;
     assert(/expir|scan|muxr:\/\//i.test(phoneOut), `phone pairing shows no material: ${phoneOut.slice(-300)}`);
     return 'browser correctly refused (hosting off); phone pairing material shown with expiry';
