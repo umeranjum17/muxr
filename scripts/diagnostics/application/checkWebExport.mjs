@@ -48,10 +48,10 @@ if (manifest !== undefined) {
 }
 
 // 2. Install metadata in the web shell + Expo config.
-const html = read(join(mobile, 'sources', 'app', '+html.tsx'));
-check('+html links manifest', html.includes('rel="manifest"') && html.includes('/manifest.webmanifest'));
-check('+html theme-color', html.includes('name="theme-color"'));
-check('+html iOS web-app metadata', html.includes('apple-mobile-web-app-capable') && html.includes('apple-touch-icon'));
+// The shell metadata is written into the built index.html by
+// finalizeWebExport (expo's "single" output ignores any +html.tsx), so it
+// is asserted on the artifact below, never on source.
+check('web:export finalizes index.html', read(join(root, 'package.json')).includes('finalizeWebExport.mjs'));
 const appConfig = read(join(mobile, 'app.config.js'));
 check('app.config web display standalone', appConfig.includes('display: "standalone"') || appConfig.includes("display: 'standalone'"));
 check('app.config web themeColor', appConfig.includes('themeColor'));
@@ -69,7 +69,7 @@ check('web:export installs the pdf worker before exporting', packageJson.include
 
 // 4. Secret hygiene: the exportable surface must not carry credentials.
 const secretPattern = /(acctok_|EXPO_PUBLIC_MUXR_TOKEN\s*=\s*['"][^'"]+['"]|mint-secret|BEGIN (?:OPENSSH|EC|RSA) PRIVATE KEY)/;
-for (const file of ['public/sw.js', 'public/manifest.webmanifest', 'sources/app/+html.tsx']) {
+for (const file of ['public/sw.js', 'public/manifest.webmanifest']) {
     const body = read(join(mobile, file));
     check(`no secrets in mobile/${file}`, !secretPattern.test(body));
 }
@@ -133,6 +133,12 @@ if (!existsSync(distIndex)) {
     process.stdout.write('..  dist export absent — skipping dist budget/origin checks (CI exports first)\n');
 } else {
     const distHtml = read(distIndex);
+    check('dist index links the manifest', distHtml.includes('<link rel="manifest" href="/manifest.webmanifest">'));
+    check('dist index theme-color', distHtml.includes('name="theme-color"'));
+    check('dist index iOS web-app metadata', distHtml.includes('apple-mobile-web-app-capable') && distHtml.includes('rel="apple-touch-icon" href="/icon-192.png"'));
+    check('dist index viewport resizes content for the keyboard', /<meta name="viewport" content="[^"]*interactive-widget=resizes-content[^"]*"/.test(distHtml));
+    check('dist index has exactly one viewport meta', (distHtml.match(/<meta name="viewport"/g) ?? []).length === 1);
+    check('dist index carries no inline scripts (CSP script-src self)', !/<script(?![^>]*\bsrc=)[^>]*>[^<]/.test(distHtml));
     const refs = [...new Set(
         [...distHtml.matchAll(/(?:src|href)="(\/[^"]+\.(?:js|css))"/g)].map((match) => match[1]),
     )];

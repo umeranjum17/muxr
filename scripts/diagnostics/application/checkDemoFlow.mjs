@@ -427,6 +427,25 @@ try {
         return res.result?.result?.value;
     };
     await paritySend('Runtime.enable');
+    // The website's demo QA measures these on the exported DOM: every
+    // visible <img> carries alt, no visible text under 11px, every control's
+    // own box (hitSlop is invisible to the DOM) is at least 44px.
+    const craftAudit = () => parityEval(`(() => {
+        const vis = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none' && r.bottom > 0 && r.top < innerHeight; };
+        const name = (el) => el.tagName + '[' + (el.getAttribute('aria-label') || (el.innerText || '').trim().slice(0, 24)) + ']';
+        const imgs = [...document.querySelectorAll('img')].filter((el) => vis(el) && !el.hasAttribute('alt')).map((el) => el.src.split('/').pop().slice(0, 30));
+        const small = [];
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) { const n = walker.currentNode; if (!n.textContent.trim()) continue; const el = n.parentElement; if (!el || !vis(el)) continue; const fs = parseFloat(getComputedStyle(el).fontSize); if (fs < 11) small.push(fs + 'px ' + name(el)); }
+        const targets = [...document.querySelectorAll('button,a[href],[role="button"],[role="tab"],[role="link"],input,textarea,[role="switch"]')].filter((el) => vis(el) && !el.classList.contains('xterm-helper-textarea')).map((el) => { const r = el.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), d: name(el) }; }).filter((t) => t.w < 44 || t.h < 44).map((t) => t.d + ' ' + t.w + 'x' + t.h);
+        return JSON.stringify({ imgs, small, targets });
+    })()`);
+    const checkCraft = async (label) => {
+        const audit = JSON.parse(await craftAudit());
+        check(`${label}: every visible image has alt`, audit.imgs.length === 0, audit.imgs.join(', '));
+        check(`${label}: no visible text under 11px`, audit.small.length === 0, audit.small.slice(0, 5).join(', '));
+        check(`${label}: every control box is at least 44px`, audit.targets.length === 0, audit.targets.slice(0, 8).join(', '));
+    };
     const parityShot = async (name, width, height, path, scheme = 'dark') => {
         await paritySend('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 2, mobile: width < 900 });
         await paritySend('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: scheme }] });
@@ -512,6 +531,7 @@ try {
     // The shell is the loading state: no full-screen spinner ever mounts on
     // the demo route, only the hairline under the header.
     check('demo route shows no full-screen spinner', !await parityEval(`!!document.querySelector('[role="progressbar"]:not([aria-label="Loading"])')`));
+    await checkCraft('390 demo');
     const herd390 = await parityWaitFor('compact herd', (text) => text.includes('Migrate billing to usage-based plans'));
     check('compact herd renders dark phone composition', herd390.includes('WHILE YOU WERE AWAY') && herd390.includes('SPACES'));
     check('compact has no bottom tab bar', !await parityEval('!!document.querySelector(\'[role="tablist"], [role="tab"]\')'));
@@ -755,6 +775,9 @@ try {
     await parityClickText('Rebase release branch onto main');
     await parityWaitFor('demo session', (text) => text.includes('^C'));
     check('session keeps production chrome', (await pathname()).startsWith('/session/'));
+    // The demo frame follows into the session: identity plus the handoff.
+    check('390 session keeps the demo bar', (await parityText()).includes('nothing is real') && await parityEval(`!![...document.querySelectorAll('[aria-label]')].find((el) => (el.getAttribute('aria-label') || '').startsWith('Connect your computer'))`));
+    await checkCraft('390 session');
     const terminalBufferText = () => parityEval(`document.querySelector('[data-demo-terminal-text]')?.getAttribute('data-demo-terminal-text') ?? ''`);
     const bufferText = await (async () => {
         const started = Date.now();
@@ -840,6 +863,15 @@ try {
         check('1280 sidebar carries destinations', desktop.includes('New session') && desktop.includes('Usage') && desktop.includes('Inbox') && desktop.includes('Files') && desktop.includes('Ports') && desktop.includes('Settings'));
     }
     check('1280 has no horizontal overflow', await noOverflow());
+    await checkCraft('1280 demo');
+    await parityClickText('Rebase release branch onto main');
+    await waitPath('/session');
+    await parityWaitFor('desktop demo session', (text) => text.includes('^C'));
+    check('1280 session keeps the demo bar', (await parityText()).includes('nothing is real'));
+    await checkCraft('1280 session');
+    check('1280 session has no horizontal overflow', await noOverflow());
+    await parityEval('window.history.back()');
+    await parityWaitFor('back to desktop herd', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('SPACES'));
     // Desktop New Agent reuses the progressive flow with advanced options.
     await parityClickLabel('New session');
     await waitPath('/new-agent');

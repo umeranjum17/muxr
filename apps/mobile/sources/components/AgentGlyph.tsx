@@ -70,6 +70,7 @@ export const AgentGlyph = React.memo(
                 ) : (
                     <Image
                         source={image}
+                        accessibilityLabel={name}
                         contentFit="contain"
                         tintColor={color}
                         style={{ width: size, height: size }}

@@ -163,14 +163,14 @@ function NavigationItemButton({ contribution, pluginId, manifestHash, active, on
     const label = resolvePluginText(contribution.label);
     const count = useBadgeCount(pluginId, manifestHash, contribution.badge);
     const badge = count > 0 ? `${count > 99 ? '99+' : count}` : undefined;
-    const compactStyle = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: active ? theme.colors.surfaceHigh : 'transparent' };
-    const tabStyle = { flex: 1, alignItems: 'center' as const, paddingTop: 8, paddingBottom: 4 };
+    // The compact pill keeps its 32px look; the pressable around it is 44px.
+    const compactStyle = { minHeight: 44, justifyContent: 'center' as const };
+    const pillStyle = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: active ? theme.colors.surfaceHigh : 'transparent' };
+    const tabStyle = { flex: 1, alignItems: 'center' as const, minHeight: 44, justifyContent: 'center' as const, paddingTop: 8, paddingBottom: 4 };
     let labelColor = theme.colors.text;
     if (active) labelColor = theme.colors.accent;
     else if (compact) labelColor = theme.colors.textSecondary;
-    return <Pressable onPress={onPress} accessibilityRole={compact ? 'button' : 'tab'} accessibilityLabel={`${label}${badge === undefined ? '' : `, ${badge}`}`} hitSlop={compact ? 9 : undefined}
-        accessibilityState={compact ? undefined : { selected: active === true }}
-        style={compact ? compactStyle : tabStyle}>
+    const content = <>
         <View>
             <Ionicons name={contribution.icon as any} size={compact ? 15 : 24} color={active ? theme.colors.accent : theme.colors.textSecondary} />
             {badge !== undefined && !compact && <View accessibilityElementsHidden style={[badgeStyle(theme), { position: 'absolute', right: -18, top: -6 }]}>
@@ -181,6 +181,11 @@ function NavigationItemButton({ contribution, pluginId, manifestHash, active, on
         {badge !== undefined && compact && <View accessibilityElementsHidden style={badgeStyle(theme)}>
             <Text style={badgeTextStyle(theme)}>{badge}</Text>
         </View>}
+    </>;
+    return <Pressable onPress={onPress} accessibilityRole={compact ? 'button' : 'tab'} accessibilityLabel={`${label}${badge === undefined ? '' : `, ${badge}`}`}
+        accessibilityState={compact ? undefined : { selected: active === true }}
+        style={compact ? compactStyle : tabStyle}>
+        {compact ? <View style={pillStyle}>{content}</View> : content}
     </Pressable>;
 }
 
@@ -194,10 +199,12 @@ function DataCard({ contribution, pluginId, manifestHash, pluginName }: { contri
     const body = <><Text style={{ color: theme.colors.textSecondary, fontSize: 11 }}>{pluginName}</Text><View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>{data.failed && <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />}<Text style={{ flex: 1, color: data.failed ? theme.colors.textDestructive : theme.colors.textSecondary }}>{shown}</Text></View></>;
     if (contribution.presentation === 'sheet') {
         return <View>
-            <Pressable hitSlop={8} onPress={() => { if (data.failed) data.retry(); setOpen(true); }} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : resolvePluginText(contribution.title)}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh }}>
+            <Pressable onPress={() => { if (data.failed) data.retry(); setOpen(true); }} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : resolvePluginText(contribution.title)}
+                style={{ minHeight: 44, justifyContent: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh }}>
                 <Ionicons name="stats-chart-outline" size={15} color={theme.colors.text} />
                 <Text style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>{resolvePluginText(contribution.title)}</Text>
+                </View>
             </Pressable>
             <OptionSheet visible={open} title={resolvePluginText(contribution.title)} options={[]} onSelect={() => {}} onClose={() => setOpen(false)}
                 body={<View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>{body}</View>} />

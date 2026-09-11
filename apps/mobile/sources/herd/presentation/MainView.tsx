@@ -169,10 +169,11 @@ const styles = StyleSheet.create((theme) => ({
         alignItems: 'center',
         gap: 8,
     },
+    // 46 with the hairline border leaves a 44px control inside.
     headerActionGlass: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 46,
+        height: 46,
+        borderRadius: 23,
         overflow: 'hidden',
         // Glass blur does not composite on web: the native surface falls
         // back to a plain view, so compact web paints the solid control

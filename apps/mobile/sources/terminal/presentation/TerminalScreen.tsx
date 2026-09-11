@@ -560,7 +560,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 }}
             >
                 <HeaderBackButton onPress={() => router.back()} style={{ marginLeft: -6 }} />
-                <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} hitSlop={6} accessibilityRole="button" accessibilityLabel={overlayLabel} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, paddingVertical: 4 }}>
+                <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} accessibilityRole="button" accessibilityLabel={overlayLabel} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 44, paddingVertical: 4 }}>
                     <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={18} />
                     <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
                         <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
@@ -865,7 +865,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     borderTopColor: theme.colors.divider,
                 }}
             >
-                <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ opacity: attaching ? 0.4 : 1 }}>
+                <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ opacity: attaching ? 0.4 : 1, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
                     <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={24} color={theme.colors.textSecondary} />
                 </Pressable>
                 <TextInput
@@ -882,6 +882,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     placeholderTextColor={theme.colors.textSecondary}
                     style={{
                         flex: 1,
+                        minHeight: 44,
                         color: theme.colors.text,
                         backgroundColor: theme.colors.surfaceHigh,
                         borderRadius: 8,
@@ -892,7 +893,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
                 </View>
-                <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
+                <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
                     <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
                 </Pressable>
             </View>

@@ -3,7 +3,6 @@ import { View } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
 import { MainView } from '@/herd/ui';
-import { DemoBar } from '@/demo/DemoBar';
 import { activateDemoTransport, ensureDemoRuntime } from '@/demo/demoRuntime';
 import { DEMO_MACHINE_ID } from '@/demo/demoRecords';
 import { useNewSessionDraft } from '@/spawn';
@@ -83,7 +82,6 @@ export default function DemoRoute() {
     return (
         <View style={{ flex: 1 }}>
             <Stack.Screen options={{ headerShown: false, headerTitle: 'Demo replay' }} />
-            <DemoBar />
             {allowed ? <MainView /> : <View style={{ flex: 1, backgroundColor: theme.colors.groupped.background }}><LoadingHairline active /></View>}
         </View>
     );

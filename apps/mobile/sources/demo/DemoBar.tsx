@@ -1,6 +1,6 @@
 import * as React from 'react';
 import * as Clipboard from 'expo-clipboard';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
@@ -12,9 +12,12 @@ import { resetDemoRuntime } from './demoRuntime';
  * action, and the install handoff. No prompt, no mock approve card — the
  * blocked agent is answered in its real terminal and composer.
  */
-export function DemoBar() {
+export function DemoBar({ topInset = 0 }: { topInset?: number }) {
     const { theme } = useUnistyles();
     const styles = stylesheet;
+    const { width } = useWindowDimensions();
+    // Phones keep the actions to their icons; wider frames spell them out.
+    const spellOut = width >= 600;
     const [copied, setCopied] = React.useState(false);
     const copyInstall = React.useCallback(async () => {
         await Clipboard.setStringAsync(DEMO_INSTALL_COMMAND);
@@ -22,27 +25,26 @@ export function DemoBar() {
         setTimeout(() => setCopied(false), 2000);
     }, []);
     return (
-        <View style={styles.bar}>
+        <View style={[styles.bar, { paddingTop: topInset + 2 }]} accessibilityRole="header">
             <Ionicons name="play-circle-outline" size={14} color={theme.colors.textSecondary} />
             <Text style={styles.label}>Demo · three scripted agents, nothing is real. Pair your computer to see yours.</Text>
             <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Restart the demo"
                 onPress={() => resetDemoRuntime()}
-                hitSlop={10}
                 style={styles.action}
             >
                 <Ionicons name="refresh-outline" size={14} color={theme.colors.textSecondary} />
+                {spellOut && <Text style={styles.actionLabel}>Restart</Text>}
             </Pressable>
             <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={copied ? 'Install command copied' : 'Copy install command'}
+                accessibilityLabel={copied ? 'Install command copied' : 'Connect your computer: copy the install command'}
                 onPress={() => void copyInstall()}
-                hitSlop={10}
                 style={styles.action}
             >
-                <Ionicons name="copy-outline" size={14} color={theme.colors.textSecondary} />
-                {copied && <Text style={styles.copied}>Copied</Text>}
+                <Ionicons name={copied ? 'checkmark-outline' : 'download-outline'} size={14} color={theme.colors.textSecondary} />
+                {(spellOut || copied) && <Text style={styles.actionLabel}>{copied ? 'Copied' : 'Connect'}</Text>}
             </Pressable>
         </View>
     );
@@ -54,7 +56,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         alignItems: 'center',
         gap: 8,
         paddingHorizontal: 16,
-        paddingVertical: 8,
+        paddingVertical: 2,
         backgroundColor: theme.colors.surfaceHigh,
         borderBottomWidth: 1,
         borderBottomColor: theme.colors.divider,
@@ -65,17 +67,16 @@ const stylesheet = StyleSheet.create((theme) => ({
         fontSize: 12,
         color: theme.colors.textSecondary,
     },
-    // 24px box + 10px hitSlop = the 44px target.
     action: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         gap: 4,
-        minWidth: 24,
-        minHeight: 24,
-        padding: 5,
+        minWidth: 44,
+        minHeight: 44,
+        paddingHorizontal: 6,
     },
-    copied: {
+    actionLabel: {
         ...Typography.default('semiBold'),
         fontSize: 12,
         color: theme.colors.textSecondary,

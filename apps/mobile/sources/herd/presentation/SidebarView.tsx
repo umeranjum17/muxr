@@ -26,6 +26,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
+        minHeight: 44,
         paddingVertical: 10,
         paddingHorizontal: 14,
         borderRadius: 10,

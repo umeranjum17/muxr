@@ -37,7 +37,8 @@ const stylesheet = StyleSheet.create((theme) => ({
         gap: 8,
     },
     heading: { color: theme.colors.groupped.sectionTitle, fontSize: 11, fontWeight: '700', letterSpacing: 1.2 },
-    attentionIndicator: { width: 18, height: 28, alignItems: 'center', justifyContent: 'center' },
+    // 44px box inside a shorter caption row: the negative margin keeps the row height.
+    attentionIndicator: { width: 44, height: 44, marginVertical: -8, marginHorizontal: -13, alignItems: 'center', justifyContent: 'center' },
     attentionDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: theme.colors.status.error },
     zeroState: {
         height: 96,
@@ -246,7 +247,6 @@ export const LiveTerminalsRow = React.memo(({
                         accessibilityRole="button"
                         accessibilityLabel="Show the first agent needing attention"
                         onPress={() => scrollToCard(cards[attentionIndex]!.id)}
-                        hitSlop={{ top: 8, bottom: 8, left: 13, right: 13 }}
                         style={stylesheet.attentionIndicator}
                     >
                         <View style={stylesheet.attentionDot} />
