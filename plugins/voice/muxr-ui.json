@@ -4,11 +4,8 @@
   "minMuxrVersion": 6,
   "capabilities": {
     "voice.status": "status",
-    "voice.key.set": "key-set",
     "voice.session": "session",
-    "voice.report": "report",
-    "voice.provider.list": "provider-list",
-    "voice.provider.set": "provider-set"
+    "voice.report": "report"
   },
   "contributions": [
     {
@@ -18,38 +15,6 @@
       "method": "status",
       "entry": "rpc.mjs",
       "mode": "read"
-    },
-    {
-      "slot": "host.rpc",
-      "id": "key-set",
-      "type": "rpc",
-      "method": "key.set",
-      "entry": "rpc.mjs",
-      "mode": "write"
-    },
-    {
-      "slot": "host.rpc",
-      "id": "key-clear",
-      "type": "rpc",
-      "method": "key.clear",
-      "entry": "rpc.mjs",
-      "mode": "write"
-    },
-    {
-      "slot": "host.rpc",
-      "id": "provider-list",
-      "type": "rpc",
-      "method": "provider.list",
-      "entry": "rpc.mjs",
-      "mode": "read"
-    },
-    {
-      "slot": "host.rpc",
-      "id": "provider-set",
-      "type": "rpc",
-      "method": "provider.set",
-      "entry": "rpc.mjs",
-      "mode": "write"
     },
     {
       "slot": "host.stream",
@@ -96,63 +61,6 @@
       }
     },
     {
-      "slot": "navigation.content",
-      "id": "settings-screen",
-      "type": "screen",
-      "title": "Realtime voice",
-      "data": {
-        "type": "plugin.call",
-        "contributionId": "status"
-      },
-      "children": [
-        {
-          "type": "text",
-          "text": "The key is sent directly to the connected machine and is never stored or displayed by the phone."
-        },
-        {
-          "type": "row",
-          "title": "Provider",
-          "value": "{{data.providerName}}"
-        },
-        {
-          "type": "row",
-          "title": "Key",
-          "value": "{{data.statusLabel}}"
-        },
-        {
-          "type": "button",
-          "label": "Set or replace key",
-          "variant": "primary",
-          "action": {
-            "type": "secure-prompt",
-            "title": "Realtime voice API key",
-            "message": "Sent once to this machine and stored only there.",
-            "inputKey": "key",
-            "submit": {
-              "type": "plugin.call",
-              "contributionId": "key-set"
-            }
-          }
-        },
-        {
-          "type": "button",
-          "label": "Clear key",
-          "variant": "danger",
-          "action": {
-            "type": "confirm",
-            "title": "Clear the stored key?",
-            "message": "Realtime voice will stop until a new key is configured.",
-            "confirmLabel": "Clear",
-            "destructive": true,
-            "action": {
-              "type": "plugin.call",
-              "contributionId": "key-clear"
-            }
-          }
-        }
-      ]
-    },
-    {
       "slot": "events",
       "id": "report-when-agent-stops",
       "on": "agent.status",
@@ -184,32 +92,6 @@
         "type": "capability",
         "name": "voice.start"
       }
-    },
-    {
-      "slot": "navigation.content",
-      "id": "login-screen",
-      "type": "screen",
-      "title": "Codex Voice setup",
-      "data": {
-        "type": "plugin.call",
-        "contributionId": "status"
-      },
-      "children": [
-        {
-          "type": "row",
-          "title": "Provider",
-          "value": "{{data.providerName}}"
-        },
-        {
-          "type": "row",
-          "title": "Login",
-          "value": "{{data.statusLabel}}"
-        },
-        {
-          "type": "text",
-          "text": "Run codex login with ChatGPT on this machine. No API key needed. Experimental realtime access depends on your account."
-        }
-      ]
     }
   ]
 }

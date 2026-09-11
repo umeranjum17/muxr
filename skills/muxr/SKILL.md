@@ -31,9 +31,9 @@ renders state the host reports.
   machines. The relay routes ciphertext it cannot read.
 - Enabling a Herdr plugin means trusting local code: plugin backends run
   unsandboxed as your user.
-- Native phone pairing is single-use and expires in two minutes. Browser grants
-  (`muxr pair --browser` control, `--browser-view` view-only) expire after
-  eight hours.
+- Native phone pairing is single-use and short-lived. Browser grants
+  (`muxr pair --browser` control, `--browser-view` view-only) expire on a
+  fixed lifetime; `muxr skill onboarding` carries the exact numbers.
 - Computer-to-computer collaboration grants are capability-scoped: peers may
   list, read, inspect status, watch, and prompt — never shell, raw Herdr CLI, terminal
   takeover, destructive pane/workspace actions, or arbitrary plugin calls.

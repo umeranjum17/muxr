@@ -39,11 +39,11 @@ export async function ensureRealtimeProviderConfigured(): Promise<boolean> {
     try {
         configured = ((await callPlugin('voice.status')) as { configured: boolean }).configured;
     } catch (error) {
-        Modal.alert('Realtime conversation', `Could not reach the provider plugin: ${error instanceof Error ? error.message : String(error)}`);
+        Modal.alert('Realtime voice', `Could not check voice on this computer: ${error instanceof Error ? error.message : String(error)}`);
         return false;
     }
     if (configured) return true;
-    Modal.alert('Realtime conversation', 'Configure the provider plugin from Settings to continue.');
+    Modal.alert('Realtime voice', 'Voice is not set up on this computer yet. On it, run muxr voice (or open the muxr host voice pane in Herdr), then try again.');
     return false;
 }
 

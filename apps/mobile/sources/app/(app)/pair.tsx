@@ -104,10 +104,11 @@ export default function PairScreen() {
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
     const stateUrl = state !== undefined && 'url' in state ? state.url : undefined;
     const browserAuthority = browser && stateUrl ? hostedPairingAuthority(stateUrl) : 'observe';
-    // iOS Safari tabs and installed web apps do not share IndexedDB: claiming
-    // here would pair a storage partition the install then abandons. Install
-    // first; the one-use code stays valid until claimed inside the app.
-    const installFirst = browser && isIOSBrowser() && !isStandaloneDisplay();
+    // iOS Safari tabs and installed web apps do not share IndexedDB. Pairing
+    // here works in this tab; a later install is a separate storage partition
+    // that needs its own grant. Both paths are explicit choices.
+    const iosTab = browser && isIOSBrowser() && !isStandaloneDisplay();
+    const [installFirst, setInstallFirst] = React.useState(false);
     const [installBusy, setInstallBusy] = React.useState(false);
     // Install is offered only after a successful pairing (Android/desktop);
     // the deferred prompt is captured unconditionally at layout mount.
@@ -312,6 +313,7 @@ export default function PairScreen() {
                                 </Text>
                             </View>
                             <ActionButton title="Copy pairing link" icon="copy-outline" onPress={() => void copyLink(state.url)} />
+                            <ActionButton title="Pair in this tab instead" variant="secondary" onPress={() => setInstallFirst(false)} />
                             <ActionButton title="Back" variant="secondary" onPress={cancel} />
                         </>
                     ) : (
@@ -349,7 +351,16 @@ export default function PairScreen() {
                                 </View>
                             ))}
                         </View>
-                        <ActionButton title="Pair" icon="link-outline" onPress={confirm} />
+                        {iosTab && (
+                            <View style={styles.securityRow}>
+                                <Ionicons name="phone-portrait-outline" size={16} color={styles.securityText.color} />
+                                <Text style={styles.securityText}>
+                                    Pairing here keeps muxr in this Safari tab. If you add muxr to your Home Screen later, the installed app has its own storage and needs a fresh pairing link from your computer.
+                                </Text>
+                            </View>
+                        )}
+                        <ActionButton title={iosTab ? 'Pair in this tab' : 'Pair'} icon="link-outline" onPress={confirm} />
+                        {iosTab && <ActionButton title="Install the app first, then pair inside it" variant="secondary" onPress={() => setInstallFirst(true)} />}
                         <ActionButton title="Cancel" variant="secondary" onPress={cancel} />
                     </>
                     )
@@ -362,7 +373,9 @@ export default function PairScreen() {
                             </Text>
                             {!installAvailable && !isStandaloneDisplay() && (
                                 <Text style={styles.securityText}>
-                                    To keep muxr on this device, use your browser’s menu and choose Install app or Add to Home Screen.
+                                    {isIOSBrowser()
+                                        ? 'To keep muxr on this iPhone, tap Share, then Add to Home Screen. The installed app has its own storage: open it and pair again with a fresh link from your computer.'
+                                        : 'To keep muxr on this device, use your browser’s menu and choose Install app or Add to Home Screen.'}
                                 </Text>
                             )}
                         </View>

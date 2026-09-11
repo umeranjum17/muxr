@@ -9,7 +9,7 @@ import { readPrivateFile, writeJsonFileAtomic } from '../../platform/persist.js'
  * The self-host analog of the cloud pairSessions/credentials collections.
  */
 
-const PAIR_TTL_MS = 2 * 60_000;
+export const PAIR_TTL_MS = 2 * 60_000;
 const MAX_SESSIONS = 100;
 /** Shared temporary browser grant. Only an explicit owner-authorized personal intent extends it. */
 export const BROWSER_GRANT_TTL_MS = 8 * 60 * 60_000;

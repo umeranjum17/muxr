@@ -50,9 +50,12 @@ const shellFiles = [];
 // the recorded manifests/snapshots); it sits behind the demo transport and
 // never branches production shell on identity. Exempt only these two
 // explicit fixture files — the scan stays strict for all normal source.
+// installCommands.ts carries the public Herdr install/pane commands, which
+// name the control plugin id as a user-facing string, not as a shell branch.
 const fixtureExempt = new Set([
     join(root, 'apps/mobile/sources/demo/demoClient.ts'),
     join(root, 'apps/mobile/sources/demo/demoRecords.ts'),
+    join(root, 'apps/mobile/sources/demo/installCommands.ts'),
 ]);
 function collectShell(directory) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {

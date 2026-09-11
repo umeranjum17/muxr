@@ -3,9 +3,9 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { runBootstrap, daemonIsRunning, daemonMode, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from '../../setup/index.mjs';
+import { pluginFolder, runBootstrap, daemonIsRunning, daemonMode, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from '../../setup/index.mjs';
 import { compareVersions, channelTags, releaseVersion, resolveChannel } from '../domain/channel.mjs';
-import { pluginFolder } from '../../setup/infrastructure/paths.mjs';
+
 
 const PACKAGE = '@trymuxr/cli';
 

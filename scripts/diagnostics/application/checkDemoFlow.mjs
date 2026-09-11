@@ -532,12 +532,23 @@ try {
     // the demo route, only the hairline under the header.
     check('demo route shows no full-screen spinner', !await parityEval(`!!document.querySelector('[role="progressbar"]:not([aria-label="Loading"])')`));
     await checkCraft('390 demo');
-    // A refused clipboard never reads as Copied: the exact install command is
-    // shown to select instead.
+    // The connect handoff: Herdr first (exact source, pinned ref, then the
+    // Setup pane), npm only behind "Without Herdr", and the note that the app
+    // is installed after pairing from the user's own computer. A refused
+    // clipboard never reads as Copied: the commands stay selectable.
     await parityEval(`(() => { navigator.clipboard.writeText = () => Promise.reject(new Error('denied')); document.execCommand = () => { throw new Error('denied'); }; })()`);
     await parityEval(`[...document.querySelectorAll('[aria-label]')].find((el) => (el.getAttribute('aria-label') || '').startsWith('Connect your computer'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
-    const afterCopy = await parityWaitFor('copy fallback', (text) => text.includes('@trymuxr/cli'), 10000);
-    check('denied clipboard shows the install command instead of Copied', afterCopy.includes('npm install -g --ignore-scripts @trymuxr/cli@latest') && !afterCopy.includes('Copied'));
+    const connectCard = await parityWaitFor('connect card', (text) => text.includes('herdr plugin install'), 10000);
+    check('connect card leads with the exact Herdr source and a pinned ref', /herdr plugin install umeranjum17\/muxr\/plugins\/control --ref v\d+\.\d+\.\d+/.test(connectCard));
+    check('connect card names the Setup pane command', connectCard.includes('herdr plugin pane open --plugin muxr.control --entrypoint setup'));
+    check('connect card hides npm behind Without Herdr', connectCard.includes('Without Herdr') && !connectCard.includes('npm install -g'));
+    check('connect card says the app is installed after pairing from your computer', connectCard.includes('served from your own computer'));
+    await parityEval(`[...document.querySelectorAll('[role="button"]')].find((el) => el.innerText && el.innerText.trim() === 'Without Herdr')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const withoutHerdr = await parityWaitFor('npm fallback', (text) => text.includes('npm install -g'), 10000);
+    check('Without Herdr reveals the npm fallback', withoutHerdr.includes('npm install -g --ignore-scripts @trymuxr/cli@latest'));
+    await parityEval(`[...document.querySelectorAll('[aria-label]')].find((el) => (el.getAttribute('aria-label') || '').startsWith('Copy npm install'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const afterCopy = await parityWaitFor('copy refusal', (text) => text.includes('Select it'), 10000);
+    check('denied clipboard shows the command to select instead of Copied', afterCopy.includes('npm install -g --ignore-scripts @trymuxr/cli@latest') && !afterCopy.includes('Copied'));
     // Mermaid is served on demand from public/, never from the entry: the
     // real loader runs here and renders a diagram in the exported page.
     const mermaidResult = await parityEval(`(async () => {

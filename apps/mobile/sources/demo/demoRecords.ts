@@ -19,7 +19,7 @@ import type {
 
 export const DEMO_MACHINE_ID = 'demo-machine';
 
-export const DEMO_INSTALL_COMMAND = 'npm install -g --ignore-scripts @trymuxr/cli@latest';
+export { NPM_INSTALL_COMMAND as DEMO_INSTALL_COMMAND } from './installCommands';
 
 export const DEMO_SESSION_WORKING = 'demo-session-working';
 export const DEMO_SESSION_BLOCKED = 'demo-session-blocked';

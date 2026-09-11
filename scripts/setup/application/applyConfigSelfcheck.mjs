@@ -14,7 +14,7 @@ import { continueWithDirectTailscale, finalizeSetupPlan, selfhostArgsFromSetupPl
 import { printOperatorConfig, resolveSetupPlan, writeOperatorConfig } from '../infrastructure/operatorConfig.mjs';
 import { desiredState, planDesiredState } from './applyDesiredState.mjs';
 import { CONFIG_ATTRIBUTES } from '../infrastructure/configSchema.mjs';
-import { checkConfigDocs } from '../../release/application/generateConfigDocs.mjs';
+import { checkConfigDocs } from '../../release/index.mjs';
 
 const HOME = mkdtempSync(join(tmpdir(), 'muxr-apply-config-check-'));
 const INTENT_KEYS = ['MUXR_CONNECTION', 'MUXR_RELAY_PORT', 'MUXR_WEB', 'MUXR_ADVERTISE_URL', 'MUXR_INTEGRATIONS_SYNC', 'MUXR_NOTIFY_EMAIL'];
@@ -224,7 +224,7 @@ export async function applyConfigSelfcheck() {
     row = stepIds('MUXR_CONNECTION=lan\nMUXR_WEB=false\nMUXR_INTEGRATIONS_SYNC=off\n', configuredLan);
     assert.deepEqual(row.ids, [], 'an unchanged configured computer plans nothing');
     // The skill and the configuration page carry every attribute, from the schema.
-    assert.deepEqual(checkConfigDocs(), []);
+    assert.deepEqual(await checkConfigDocs(), []);
     const skill = readFileSync(new URL('../../../skills/muxr/references/onboarding.md', import.meta.url), 'utf8');
     for (const attribute of CONFIG_ATTRIBUTES) assert.ok(skill.includes(`\`${attribute.key}\``), `skill lacks ${attribute.key}`);
     for (const phrase of ['--apply-config --dry-run', 'Secret boundary', 'Pairing handoff', '--allow-downgrade', 'herdr plugin install umeranjum17/muxr/plugins/control']) assert.ok(skill.includes(phrase), `skill lacks ${phrase}`);

@@ -8,7 +8,7 @@
  * publish, no npm account, nothing leaves the machine except dependency
  * lookups the public install would make anyway.
  *
- *   const registry = await startDisposableRegistry({ tarball, host: '0.0.0.0' });
+ *   const registry = await disposableRegistry({ tarball, host: '0.0.0.0' });
  *   registry.url            // http://<host>:<port>/  (put in .npmrc)
  *   registry.versions       // [candidate, second]
  *   registry.setLatest(v)   // move the tag
@@ -52,7 +52,7 @@ export function secondVersion(version) {
     return `${match[1]}.${match[2]}.${Number(match[3]) + 1}${match[4] ?? ''}`;
 }
 
-export async function startDisposableRegistry({ tarball, host = '127.0.0.1', port = 0 }) {
+export async function disposableRegistry({ tarball, host = '127.0.0.1', port = 0 }) {
     const scratch = mkdtempSync(join(tmpdir(), 'muxr-disposable-registry-'));
     const candidateBytes = readFileSync(tarball);
     const candidate = JSON.parse(spawnSync('tar', ['-xOzf', tarball, 'package/package.json'], { encoding: 'utf8' }).stdout);
@@ -142,7 +142,7 @@ if (process.argv[1] !== undefined && /disposableRegistry\.mjs$/.test(process.arg
     const arg = (name) => process.argv.find((entry) => entry.startsWith(`--${name}=`))?.slice(name.length + 3);
     const tarball = arg('tarball');
     if (tarball === undefined) { process.stderr.write('usage: --tarball=<candidate.tgz> [--host=] [--port=]\n'); process.exit(2); }
-    const registry = await startDisposableRegistry({ tarball, host: arg('host') ?? '127.0.0.1', port: Number(arg('port') ?? 0) });
+    const registry = await disposableRegistry({ tarball, host: arg('host') ?? '127.0.0.1', port: Number(arg('port') ?? 0) });
     process.stdout.write(`${JSON.stringify({ url: registry.url, port: registry.port, name: registry.name, versions: registry.versions, integrity: Object.fromEntries(registry.versions.map((version) => [version, registry.integrity(version)])) })}\n`);
     const stop = () => { void registry.close().then(() => process.exit(0)); };
     process.on('SIGTERM', stop);

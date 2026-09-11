@@ -334,6 +334,10 @@ class DemoClient implements MuxrTransport {
             }
             default:
                 // Fail closed and visibly: no network fallback, no invented data.
+                // Live surfaces (preview, takeover, voice) need a real computer.
+                if (type.startsWith('preview.') || type.startsWith('plugin.stream') || type.startsWith('terminal.')) {
+                    throw new Error('This needs a connected computer. The demo replays three scripted agents; pair your own computer to use it for real.');
+                }
                 throw new Error(`unsupported in demo replay: ${type}`);
         }
     }

@@ -624,12 +624,11 @@ The backend reads fresh Herdr topology before every mutation. Pane close needs n
 
 A stream process receives one private `realtime.open` line followed by bounded provider-neutral NDJSON frames. A PCM provider exchanges ready/audio/state/transcript/control frames and keeps its provider socket on the host. A WebRTC signaling provider exchanges bounded offer/answer SDP plus opaque data-channel control while the mobile kernel owns the peer and direct media. The host enforces approval revocation, admission, process cleanup, frame bounds, and encrypted relay transport.
 
-The package ships one voice plugin (`plugins/voice`) with four adapters under `plugins/voice/providers/`: xAI (default), Gemini Live, OpenAI Realtime, and experimental Codex Voice. Choose one under **Settings → Realtime voice**; the selection is the plugin's own state, read by its `voice.provider.list` and `voice.provider.set` capabilities. PCM providers keep their host-relayed stream; Codex adds only the generic WebRTC transport kind.
+The package ships one voice plugin (`plugins/voice`) with four adapters under `plugins/voice/providers/`: xAI, Gemini Live, OpenAI Realtime, and experimental Codex Voice (the default). Which adapter runs, its account and its key are host matters: `muxr voice` on the computer (or the Herdr pane **muxr host voice**) selects and configures it; the selection is the plugin's own state under `MUXR_PLUGIN_STATE_DIR`. Clients never receive a provider name, model, credential or account detail. PCM providers keep their host-relayed stream; Codex adds only the generic WebRTC transport kind.
 
-Voice uses this without knowing any provider plugin id. Its one-shot semantic RPC aliases remain:
+Voice uses this without knowing any provider plugin id. Its one-shot semantic RPC aliases are:
 
-- `voice.status`: input `null`, output `{ "configured": boolean }`;
-- `voice.key.set`: input `{ "key": string }`, output `null` (write mode; reached through attributed secure prompt);
+- `voice.status`: input `null`, output `{ "configured": boolean, "statusLabel": "Ready" | "Not configured on this computer" }`;
 - `voice.report`: input `{ "status": string, "pane": string }`, output `{ "say": string }`.
 
 Names are dotted ids; values must be contribution ids that exist in the same manifest. This semantic map resolves backend RPCs and streams. It is not a phone effect. Phone effects (`speech.wake`, `voice.start`) are

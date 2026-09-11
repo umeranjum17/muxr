@@ -139,7 +139,7 @@ export const CONFIG_ATTRIBUTES = [
     },
     {
         key: 'MUXR_PAIRING_DEFAULT', name: 'pairingDefault', type: 'enum', values: ['browser', 'browser-view', 'browser-personal', 'native', 'none'], default: 'browser',
-        description: 'Which grant `muxr pair` and the Herdr Pair pane offer first: browser Control (8 hours), View-only (8 hours), personal Control (30 days), the native QR, or nothing.',
+        description: 'Which grant `muxr pair` and the Herdr Pair pane offer first: browser Control, View-only, personal Control for a browser only you use, the native QR, or nothing.',
         appliesTo: 'single-machine, remote-host', restart: 'none',
         parse(raw, from) { const v = raw.trim().toLowerCase(); if (!this.values.includes(v)) throw ruleError(this, from, `must be one of ${this.values.join(', ')}`); return v; },
     },

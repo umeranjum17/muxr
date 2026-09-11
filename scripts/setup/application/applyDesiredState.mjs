@@ -20,7 +20,7 @@ import { pluginFolder, pluginsRoot } from '../infrastructure/paths.mjs';
 import { print, run, stateDir } from '../infrastructure/runtime.mjs';
 import { readSelfhostState } from '../infrastructure/selfhost.mjs';
 import { selfhostPublicSummary } from '../infrastructure/selfhostRelay.mjs';
-import { herdrPlugins, installPlugin } from '../../plugin/application/installPlugin.mjs';
+import { herdrPlugins, installPlugin } from '../../plugin/index.mjs';
 import { startSelfHost } from './startSelfHost.mjs';
 
 const BUNDLED_PREFIX = 'muxr.';
@@ -43,14 +43,21 @@ function herdrPluginsSafe() {
     }
 }
 
+async function voiceProviderModule() {
+    process.env.MUXR_PLUGIN_STATE_DIR = join(stateDir(), 'plugin-state', 'muxr.voice');
+    return import(pathToFileURL(join(pluginFolder('voice'), 'provider.mjs')).href);
+}
 async function selectedVoiceProvider() {
     try {
-        process.env.MUXR_PLUGIN_STATE_DIR = join(stateDir(), 'plugin-state', 'muxr.voice');
-        const provider = await import(pathToFileURL(join(pluginFolder('voice'), 'provider.mjs')).href);
-        return provider.selectedProvider().id;
+        return (await voiceProviderModule()).selectedProvider().id;
     } catch {
         return undefined;
     }
+}
+async function selectVoiceProvider(id) {
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync(join(stateDir(), 'plugin-state', 'muxr.voice'), { recursive: true, mode: 0o700 });
+    (await voiceProviderModule()).selectProvider(id);
 }
 
 /** What is on this computer now, in the schema's vocabulary. */
@@ -200,7 +207,10 @@ async function verifyDesiredState(desired) {
         if (desired.values.serviceMode === 'managed' && !current.serviceRunning) failures.push('host service is not running');
     }
     for (const [name, on] of Object.entries(desired.values.bundledPlugins ?? {})) {
-        if (current.bundledPlugins[name] !== on) failures.push(`bundled plugin muxr.${name} is ${current.bundledPlugins[name] === undefined ? 'missing' : current.bundledPlugins[name] ? 'enabled' : 'disabled'}, wanted ${on ? 'enabled' : 'disabled'}`);
+        if (current.bundledPlugins[name] !== on) {
+            const state = { undefined: 'missing', true: 'enabled', false: 'disabled' }[String(current.bundledPlugins[name])];
+            failures.push(`bundled plugin muxr.${name} is ${state}, wanted ${on ? 'enabled' : 'disabled'}`);
+        }
     }
     for (const entry of desired.values.extraPlugins ?? []) {
         if (!current.extraPlugins.some((have) => same(have, entry))) failures.push(`add-on ${formatAttribute(attributeByName('extraPlugins'), [entry])} is not installed`);
@@ -267,9 +277,11 @@ export async function applyDesiredState(args = []) {
                 return failed(step.id, cause instanceof Error ? cause.message : String(cause));
             }
         } else if (step.id === 'voice') {
-            const { configureVoice } = await import('./voiceHost.mjs');
-            const code = await configureVoice(['select', desired.values.voiceProvider]);
-            if (code !== 0) return failed(step.id, 'voice provider selection failed');
+            try {
+                await selectVoiceProvider(desired.values.voiceProvider);
+            } catch (cause) {
+                return failed(step.id, cause instanceof Error ? cause.message : String(cause));
+            }
         }
         done.push(step.id);
     }

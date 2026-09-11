@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { BubblePressable } from '@/components/BubblePressable';
 import { useDictation } from '@/utils/dictation';
+import { webSpeechDictationSupported } from '@/utils/webSpeechDictation';
 import type { PrimitiveProps } from '../../domain/primitiveTypes'
 import { t } from '@/text';
 
@@ -14,9 +15,10 @@ export function DictateButton({ context }: PrimitiveProps) {
     const setText = ready ? context.setText : () => {};
     const dictation = useDictation(getText, setText);
     if (!ready) return null;
-    // On-device dictation lives in the native apps. A control that cannot act
-    // here is disabled with its reason, never a post-tap alert.
-    const unavailable = Platform.OS === 'web';
+    // Native apps transcribe on device; a browser dictates through its own
+    // speech recognition when it has one. A control that cannot act here is
+    // disabled with the exact reason, never a post-tap alert.
+    const unavailable = Platform.OS === 'web' && !webSpeechDictationSupported();
     return (
         <BubblePressable
             onPress={unavailable ? undefined : dictation.toggle}
@@ -25,7 +27,7 @@ export function DictateButton({ context }: PrimitiveProps) {
             pressedStyle={{ backgroundColor: theme.colors.glass.backgroundSubtle }}
             accessibilityRole="button"
             accessibilityLabel={t('plugins.dictate')}
-            accessibilityHint={unavailable ? 'Dictation is in the Android and iOS apps' : undefined}
+            accessibilityHint={unavailable ? 'This browser has no built-in speech recognition; dictation works in Chrome, Edge, Safari and the native apps' : Platform.OS === 'web' ? 'Uses this browser\'s speech recognition to edit the draft' : undefined}
             accessibilityState={{ busy: dictation.transcribing, selected: dictation.recording, disabled: unavailable }}
         >
             {dictation.transcribing

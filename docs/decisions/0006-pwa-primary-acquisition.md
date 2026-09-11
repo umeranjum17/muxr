@@ -17,8 +17,10 @@ longer matched production — the review's biggest governance finding.
 The approved product position is: the PWA is the primary *acquisition* surface
 (demo without install, first pairing in the browser the user already sits at,
 the only open path for new iPhone users); the installed PWA becomes co-primary
-only after the gates below; native remains for background voice, mDNS/LAN,
-preview/takeover, and other native-only features.
+only after the gates below; native remains for background voice, mDNS/LAN
+discovery, store-managed installation and other native-only OS facilities.
+(Amended 2026-09-11: preview and takeover are browser-capable through the
+sandboxed service-worker bridge and are no longer native-only.)
 
 ## Decision
 

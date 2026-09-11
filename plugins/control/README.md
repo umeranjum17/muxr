@@ -5,10 +5,12 @@ control plane only: Herdr never owns the daemon.
 
 Install from the exact GitHub source (pin the released ref), then open Setup:
 
+<!-- herdr-commands:start -->
 ```text
-herdr plugin install umeranjum17/muxr/plugins/control --ref <released-ref>
+herdr plugin install umeranjum17/muxr/plugins/control --ref v0.1.28
 herdr plugin pane open --plugin muxr.control --entrypoint setup
 ```
+<!-- herdr-commands:end -->
 
 - **What the build installs:** `[[build]]` (`build.mjs`) resolves npm
   `latest` for `@trymuxr/cli` to one exact version together with its
@@ -19,8 +21,8 @@ herdr plugin pane open --plugin muxr.control --entrypoint setup
   `MUXR_CLI_PIN=<exact version>` is the candidate/test override; `MUXR_BIN`
   is an explicit, always-reported developer override. The runtime is never
   vendored into the plugin checkout.
-- **Panes:** Setup, Pair this browser (Control, 8 hours — the default),
-  Pair a View-only browser, Pair a personal browser (Control, 30 days),
+- **Panes:** Setup, Pair this browser (Control — the default),
+  Pair a View-only browser, Pair a personal browser (Control, longer lifetime),
   Pair the native app (QR), Devices, Doctor, Service, shared relay and host
   voice. Every pane runs one declared `muxr` operation through `run.mjs`,
   which executes exactly the recorded runtime and refuses a drifted one

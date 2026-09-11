@@ -10,11 +10,11 @@
 </p>
 
 <p align="center">
-  <strong>Every agent. The real terminal. In your pocket.</strong><br/>
-  muxr is a mobile-first client for the coding agents running on your computers. See the whole herd at a glance — who's working, who needs you, who's done. Open any agent's exact live terminal, prompt it like you're at the desk, and watch it keep executing on your machine. Not a dashboard about your agents — the same session, built for a thumb.
+  <strong>Every agent. The real terminal. In your browser and your pocket.</strong><br/>
+  muxr is a browser-first, self-hosted client for the coding agents running on your computers. See the whole herd at a glance — who's working, who needs you, who's done. Open any agent's exact live terminal, prompt it like you're at the desk, and watch it keep executing on your machine. Not a dashboard about your agents — the same session, built for a thumb.
 </p>
 
-<h3 align="center"><a href="https://trymuxr.com/docs/quickstart"><ins>Get muxr</ins></a></h3>
+<h3 align="center"><a href="https://trymuxr.com/demo"><ins>Try it in your browser</ins></a> · <a href="docs/user/install.md">Connect your computer</a></h3>
 
 <p align="center">
   <a href="https://play.google.com/apps/testing/com.trymuxr.app">Google Play testing</a> ·
@@ -91,7 +91,7 @@ Open the real diff, inspect every changed line, then accept or reject it without
 
 Use native realtime speech-to-speech when typing is the slow part. Ask what changed, give a follow-up, and keep the same agent context.
 
-[Voice setup →](docs/VOICE-SETUP.md)
+[Daily use: voice →](docs/user/daily-use.md#voice)
 
 </td>
 <td width="55%">
@@ -120,35 +120,33 @@ Your phone and computer stay connected over Wi-Fi, Tailscale, or a VPS you run. 
 
 Terminal text, prompts, responses, keystrokes, files, and pairing secrets remain end-to-end encrypted between your computer and each paired device. Agents, repositories, model subscriptions, and the coding agents' own API keys and credentials stay on your computer. Each paired phone or browser holds its own scoped device credential and the encryption keys for its pairing, so a compromised paired device can reach what that device was granted (its sessions, for the grant's role and lifetime) and nothing on your computer beyond that; revoke it from the machine to end that access.
 
-[Privacy and trust →](https://trymuxr.com/docs/privacy) · [Self-hosting →](docs/SELF-HOSTING.md)
+[Trust →](docs/user/trust.md) · [Configuration →](docs/user/configuration.md)
 
 ## Install
 
-You need [Node.js 22 or newer](https://nodejs.org/) on Linux, macOS, or WSL. muxr installs [Herdr](https://herdr.dev) during setup if it is missing.
+Try it first: [trymuxr.com/demo](https://trymuxr.com/demo) runs the real app against three scripted agents, nothing to install.
 
+To use it with your own agents, install muxr on the computer that runs them. **In Herdr** (recommended), then open the Setup pane:
+
+<!-- herdr-commands:start -->
+```text
+herdr plugin install umeranjum17/muxr/plugins/control --ref v0.1.28
+herdr plugin pane open --plugin muxr.control --entrypoint setup
+```
+<!-- herdr-commands:end -->
+
+**Without Herdr**, install the CLI with npm ([Node.js 22+](https://nodejs.org/)); setup installs Herdr for you:
+
+<!-- npm-commands:start -->
 ```bash
 npm install -g --ignore-scripts @trymuxr/cli@latest
 muxr
 ```
+<!-- npm-commands:end -->
 
-Setup explains one recommended route—the healthy current route, Tailscale, an existing private network, an installed temporary tunnel, or same Wi-Fi—and changes nothing until **Apply setup**. It then pairs **this browser** first: no phone or app store required. Try the in-app **interactive demo** before installing anything (see `docs/decisions/0006-pwa-primary-acquisition.md`).
+Setup checks the computer, recommends one browser-capable route, shows the plan, and changes nothing until **Apply**. Then open the printed pairing link in the browser you want to use — the app is served from your own computer and can be installed from there. The native Android and iOS apps are optional; `muxr pair --native` pairs them with a QR.
 
-Browser access is a grant you choose, and it expires:
-
-- `muxr pair --browser` — full terminal and agent control for eight hours (the default).
-- `muxr pair --browser-view` — view-only for eight hours.
-- `muxr pair --browser-personal` — control for 30 days, for a browser only you use. Installing the web app does not extend a grant on its own; only this flag does.
-
-Pair again when a grant expires; the app tells you where. The native apps are optional and keep their pairing until you revoke it:
-
-- **Android (stable):** [download the stable APK](https://trymuxr.com/downloads/stable/android) · [stable checksum](https://trymuxr.com/downloads/stable/checksums). Save the checksum beside the APK as `SHA256SUMS`, verify with `sha256sum --ignore-missing -c SHA256SUMS`, then scan the one-use QR from `muxr pair`.
-- **Google Play testing:** [join the testing track](https://play.google.com/apps/testing/com.trymuxr.app) — availability depends on Google review and testing access
-- **iOS TestFlight:** [open the public link](https://testflight.apple.com/join/aJSbs8pN) — build availability depends on Apple review and tester capacity
-- **All builds:** [every download channel](https://trymuxr.com/downloads)
-
-Want the newest build? Install it with `npm install -g --ignore-scripts @trymuxr/cli@nightly` and take its APK from the [nightly channel](https://trymuxr.com/downloads/nightly). The Android nightly app installs alongside a stable one; on your computer both channels are the same CLI, so switching npm tags replaces the host you already run. Each channel publishes its own checksum, so verify against the channel you downloaded from.
-
-[Read the step-by-step quickstart →](https://trymuxr.com/docs/quickstart)
+[Install guide →](docs/user/install.md) · [Daily use →](docs/user/daily-use.md) · [Configuration →](docs/user/configuration.md) · [Trust →](docs/user/trust.md) · [Troubleshooting →](docs/user/troubleshooting.md)
 
 ## Use the agents you already have
 

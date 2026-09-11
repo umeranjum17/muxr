@@ -20,7 +20,7 @@ host (`yarn host`) drives a scripted agent so mobile work needs no real agents.
 Dev loop: `yarn up` (relay + host), then the app dev server with
 `cd apps/mobile && yarn start`. `yarn doctor` diagnoses a stack that will not come up.
 The unsupported local relay fixture lives in
-[docs/SELF-HOSTING.md](docs/SELF-HOSTING.md); local Android builds live in
+[docs/user/configuration.md](docs/user/configuration.md); local Android builds live in
 [docs/NATIVE-BUILD.md](docs/NATIVE-BUILD.md).
 
 ## Verify before you push

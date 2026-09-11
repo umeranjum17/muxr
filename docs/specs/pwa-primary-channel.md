@@ -394,7 +394,7 @@ Units are executed on `feat/pwa-primary-channel`. Unit status is recorded here a
 | 1 Security/data integrity | done | see git log (Unit 1) |
 | 2 Herdr acquisition and lifecycle | done | c7fe5481 (+ gate corrections de8c93fa); clean-room gate 20/21, remaining row re-gated at freeze |
 | 3 Config/TUI/skill | done | see git log (Unit 3) |
-| 4 Funnel, parity and canonical docs | pending | |
+| 4 Funnel, parity and canonical docs | done | see git log (Unit 4) |
 | 5 Functional freeze and candidate gate | pending | |
 | 6 Real voice and physical proof | lead-owned | |
 | 7 Sync website once | separate repository | |

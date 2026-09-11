@@ -372,7 +372,7 @@ export const SettingsView = React.memo(function SettingsView({
                 />
                 <Item
                     title="Realtime voice"
-                    subtitle="Choose which provider runs on this machine"
+                    subtitle="Readiness on this computer and hands-free options"
                     icon={<Ionicons name="pulse-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={openVoice}
                 />

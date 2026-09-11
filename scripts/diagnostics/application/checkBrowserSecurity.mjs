@@ -35,7 +35,8 @@ if (chromium === undefined) {
 
 const failures = [];
 const check = (name, ok, detail = '') => {
-    process.stdout.write(`${ok ? 'ok' : 'FAIL'}  ${name}${detail === '' ? '' : ` — ${detail}`}\n`);
+    const suffix = detail === '' ? '' : ` — ${detail}`;
+    process.stdout.write(`${ok ? 'ok' : 'FAIL'}  ${name}${suffix}\n`);
     if (!ok) failures.push(name);
 };
 const freePort = () => new Promise((resolve, reject) => {

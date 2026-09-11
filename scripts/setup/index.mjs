@@ -129,7 +129,9 @@ export {
     writeOperatorConfig,
 } from './infrastructure/operatorConfig.mjs';
 export { BACK, heading, prompt, promptSecret, select, status } from './presentation/ui.mjs';
-export { configureVoice } from './application/voiceHost.mjs';
+export { configureVoice } from './presentation/voiceHost.mjs';
+export { CONFIG_ATTRIBUTES, CONFIG_CONFLICTS, attributeByKey, configSchema } from './infrastructure/configSchema.mjs';
+export { pluginFolder } from './infrastructure/paths.mjs';
 export { hostEntry, relayEntry } from './infrastructure/paths.mjs';
 
 export { stateDir } from './infrastructure/runtime.mjs';

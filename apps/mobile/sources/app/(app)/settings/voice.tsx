@@ -6,7 +6,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { Switch } from '@/components/Switch';
 import { Modal } from '@/modal';
-import { callPlugin, pluginHref } from '@/plugins';
+import { callPlugin } from '@/plugins';
 import { pluginCatalogSnapshot, refreshPlugins } from '@/plugins';
 import { voicePluginFromCatalog } from '@/plugins/application/voicePluginAccess';
 import { useLocalSetting, useSocketStatus } from '@/catalog/store';
@@ -16,24 +16,26 @@ import { configureVadStandby } from '@/conversation/session';
 import { ensureRealtimeProviderConfigured, requestRealtimePermission } from '@/conversation';
 import { failureText } from '@/utils/errors';
 
-type ProviderOption = { id: string; name: string; selected: boolean; configurationContributionId: string };
-type ProviderList = { selected: string; providers: ProviderOption[] };
+/**
+ * Realtime voice readiness. Which provider answers, its account, model and
+ * credentials are decided on the computer (`muxr voice`); this screen only
+ * shows whether that computer is ready and where to set it up.
+ */
+type VoiceStatus = { configured: boolean; statusLabel: string };
 
 async function loadVoicePlugin() {
     await refreshPlugins();
     return voicePluginFromCatalog(pluginCatalogSnapshot());
 }
 
-export default function VoiceProviderScreen() {
+export default function VoiceReadinessScreen() {
     const router = useRouter();
     const { theme } = useUnistyles();
     const { status } = useSocketStatus();
-    const [providers, setProviders] = React.useState<ProviderOption[]>([]);
-    const [busy, setBusy] = React.useState<string>();
+    const [ready, setReady] = React.useState<VoiceStatus>();
     const [loaded, setLoaded] = React.useState(false);
     const [error, setError] = React.useState<string>();
     const [disabled, setDisabled] = React.useState(false);
-    const busyRef = React.useRef(false);
     const vadStandbyEnabled = useLocalSetting('vadStandbyEnabled');
 
     const load = React.useCallback(async () => {
@@ -43,12 +45,12 @@ export default function VoiceProviderScreen() {
             const access = await loadVoicePlugin();
             if (access.status !== 'ready') {
                 setDisabled(access.status === 'disabled');
-                setProviders([]);
-                setError(access.status === 'missing' ? 'No voice plugin is available on this machine.' : undefined);
+                setReady(undefined);
+                setError(access.status === 'missing' ? 'No voice plugin is available on this computer.' : undefined);
                 return;
             }
             setDisabled(false);
-            setProviders((await callPlugin<ProviderList>('voice.provider.list')).providers);
+            setReady(await callPlugin<VoiceStatus>('voice.status'));
             setError(undefined);
         } catch (cause) {
             setError(failureText(cause));
@@ -58,47 +60,6 @@ export default function VoiceProviderScreen() {
     }, [status]);
 
     React.useEffect(() => { void load(); }, [load]);
-
-    const select = React.useCallback(async (provider: ProviderOption) => {
-        if (provider.selected || busyRef.current) return;
-        busyRef.current = true;
-        setBusy(provider.id);
-        try {
-            setProviders((await callPlugin<ProviderList>('voice.provider.set', { providerId: provider.id })).providers);
-            setError(undefined);
-        } catch (cause) {
-            const message = failureText(cause);
-            setError(message);
-            Modal.alert('Could not switch voice provider', message);
-            await load();
-        } finally {
-            busyRef.current = false;
-            setBusy(undefined);
-        }
-    }, [load]);
-
-    const selected = providers.find((provider) => provider.selected);
-    const configure = React.useCallback(async () => {
-        if (selected === undefined || busyRef.current) return;
-        busyRef.current = true;
-        setBusy(selected.id);
-        try {
-            const access = await loadVoicePlugin();
-            if (access.status === 'disabled') {
-                router.push('/settings/plugins' as any);
-                return;
-            }
-            const plugin = access.plugin;
-            const settings = plugin?.manifest?.contributions.find((contribution) => contribution.slot === 'navigation.content' && contribution.type === 'screen' && contribution.id === selected.configurationContributionId);
-            if (settings === undefined) throw new Error('This provider has no configuration screen.');
-            router.push(pluginHref(plugin!.summary.pluginId, settings.id) as any);
-        } catch (cause) {
-            Modal.alert('Provider settings unavailable', failureText(cause));
-        } finally {
-            busyRef.current = false;
-            setBusy(undefined);
-        }
-    }, [router, selected]);
 
     const setVadStandby = React.useCallback(async (enabled: boolean) => {
         if (!enabled) return void configureVadStandby(false);
@@ -110,13 +71,15 @@ export default function VoiceProviderScreen() {
 
     if (status === 'connected' && !loaded) return <ActivityIndicator style={{ flex: 1 }} />;
 
-    const providerFooter = error
+    const readinessFooter = error
         ?? (disabled ? 'Realtime voice is turned off for this device. Enable it from Plugins if you want it back.' : undefined)
-        ?? (status === 'connected' ? 'One provider runs on this machine at a time.' : 'Connect to a machine to choose its voice provider.');
+        ?? (status === 'connected'
+            ? 'Voice is set up on the computer, not here: on it, run muxr voice, or open the muxr host voice pane in Herdr. This app never sees which provider answers or any key.'
+            : 'Connect to a computer to see whether its realtime voice is ready.');
 
     return (
         <ItemList>
-            <ItemGroup title="Provider" footer={providerFooter}>
+            <ItemGroup title="On this computer" footer={readinessFooter}>
                 {disabled ? (
                     <Item
                         title="Voice plugin disabled"
@@ -124,30 +87,16 @@ export default function VoiceProviderScreen() {
                         icon={<Ionicons name="settings-outline" size={28} color={theme.colors.textSecondary} />}
                         onPress={() => router.push('/settings/plugins' as any)}
                     />
-                ) : providers.map((provider) => (
+                ) : (
                     <Item
-                        key={provider.id}
-                        title={provider.name}
-                        subtitle={provider.selected ? 'Selected' : 'Tap to use on this machine'}
-                        selected={provider.selected}
-                        loading={busy === provider.id}
+                        title="Realtime voice"
+                        subtitle={ready === undefined ? 'Unavailable' : ready.statusLabel}
+                        icon={<Ionicons name={ready?.configured ? 'checkmark-circle-outline' : 'alert-circle-outline'} size={28} color={ready?.configured ? theme.colors.success : theme.colors.textSecondary} />}
                         showChevron={false}
-                        onPress={() => void select(provider)}
-                        rightElement={provider.selected ? <Ionicons name="checkmark-circle" size={24} color={theme.colors.textLink} /> : undefined}
+                        onPress={() => void load()}
                     />
-                ))}
+                )}
             </ItemGroup>
-            {selected !== undefined && (
-                <ItemGroup title="Setup">
-                    <Item
-                        title={`Configure ${selected.name}`}
-                        subtitle="Open the provider's settings on the connected machine"
-                        icon={<Ionicons name="settings-outline" size={28} color={theme.colors.textSecondary} />}
-                        loading={busy === selected.id}
-                        onPress={() => void configure()}
-                    />
-                </ItemGroup>
-            )}
             <ItemGroup
                 title="Hands-free"
                 footer={

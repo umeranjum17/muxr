@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { pluginFolder } from '../infrastructure/paths.mjs';
 import { stateDir } from '../infrastructure/runtime.mjs';
-import { heading, promptSecret, select, status } from '../presentation/ui.mjs';
+import { heading, promptSecret, select, status } from './ui.mjs';
 
 const VOICE_PLUGIN_ID = 'muxr.voice';
 

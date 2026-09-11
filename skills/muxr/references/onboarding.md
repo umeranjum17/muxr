@@ -7,10 +7,10 @@ This reference is for an agent driving that computer. Words are fixed:
 process on it), **relay** (routes encrypted traffic, cannot read it),
 **browser app** (the daily client served from the computer's own HTTPS
 origin), **native app** (optional Android/iOS client), **Herdr plugin**
-(installs and operates muxr from Herdr), **pairing link** (one-use, two
-minutes), **browser access** (Control or View-only for eight hours, or
-explicit Personal Control for 30 days), **machine enrollment** (shared-relay
-invitation, five minutes).
+(installs and operates muxr from Herdr), **pairing link** (one-use, short-lived),
+**browser access** (Control or View-only for a fixed lifetime, or explicit
+Personal Control for longer), **machine enrollment** (shared-relay invitation,
+one-use). The exact lifetimes are in the release facts below.
 
 ## Contents
 
@@ -21,12 +21,14 @@ invitation, five minutes).
 
 ## Install
 
-Herdr-first (primary). Pin the released ref you were given:
+Herdr-first (primary). The ref is the current release tag:
 
+<!-- herdr-commands:start -->
 ```text
-herdr plugin install umeranjum17/muxr/plugins/control --ref <released-ref>
+herdr plugin install umeranjum17/muxr/plugins/control --ref v0.1.28
 herdr plugin pane open --plugin muxr.control --entrypoint setup
 ```
+<!-- herdr-commands:end -->
 
 The plugin build resolves npm `latest` for `@trymuxr/cli` to one exact
 version, installs it as the current user (no sudo), verifies version and
@@ -36,10 +38,12 @@ Service, shared relay, host voice) runs exactly the recorded executable.
 
 Without Herdr (fallback):
 
+<!-- npm-commands:start -->
 ```bash
-npm install -g --ignore-scripts @trymuxr/cli
+npm install -g --ignore-scripts @trymuxr/cli@latest
 muxr
 ```
+<!-- npm-commands:end -->
 
 Node 22+ is required on the computer. Interactive `muxr setup` is three
 interactions on a fresh computer: accept the one recommended browser-capable
@@ -66,7 +70,7 @@ _Generated from the configuration schema (version 1) by `scripts/release/applica
 | `MUXR_INTEGRATIONS_SYNC` | `auto` · `on` · `off` | `auto` | single-machine, remote-host | none | Coding-agent lifecycle integrations: auto syncs detected agents, on syncs every supported agent, off leaves them alone. |
 | `MUXR_NOTIFY_EMAIL` | `one address` | unset | always | relay | Optional address the relay notifies about attention events. |
 | `MUXR_SERVICE_MODE` | `managed` · `foreground` | `managed` | always | relay and host | managed registers systemd/launchd user services that survive logout; foreground runs relay and host only while `muxr up` is running. |
-| `MUXR_PAIRING_DEFAULT` | `browser` · `browser-view` · `browser-personal` · `native` · `none` | `browser` | single-machine, remote-host | none | Which grant `muxr pair` and the Herdr Pair pane offer first: browser Control (8 hours), View-only (8 hours), personal Control (30 days), the native QR, or nothing. |
+| `MUXR_PAIRING_DEFAULT` | `browser` · `browser-view` · `browser-personal` · `native` · `none` | `browser` | single-machine, remote-host | none | Which grant `muxr pair` and the Herdr Pair pane offer first: browser Control, View-only, personal Control for a browser only you use, the native QR, or nothing. |
 | `MUXR_BUNDLED_PLUGINS` | `<name>=on|off[,...]` | none | single-machine, remote-host | none | Enable or disable bundled muxr plugins by short name (for example code=on,status=off). Unlisted plugins keep their packaged default (enabled). |
 | `MUXR_EXTRA_PLUGINS` | `owner/repo[/subdir]@<sha>[,...] | npm:<name>@<version>` | none | single-machine, remote-host | none | Add-on muxr plugins pinned to an exact GitHub commit or exact npm version. Tags, branches and latest are refused so a reapply installs the same bytes. |
 | `MUXR_VOICE_PROVIDER` | `installed host voice provider id` | unset | single-machine, remote-host | none | Realtime voice provider selected on this host (see `muxr voice status`). Unset leaves the host choice unchanged. Credentials are never configuration. |
@@ -81,6 +85,20 @@ Not configuration (never in this file, never in a receipt): provider API keys an
 
 Precedence, everywhere: `flag` > `env` > `config` > `probed` > `default`. Exit codes for `muxr setup --apply-config`: `0` verified, no unresolved failure; `1` invalid configuration or unavailable prerequisite; `2` dry run: valid plan with changes to apply.
 <!-- config-attributes:end -->
+
+<!-- release-facts:start -->
+| Fact | Value |
+|---|---|
+| Current release | `@trymuxr/cli@0.1.28` (tag `v0.1.28`) |
+| Minimum Herdr | 0.8.0 |
+| Minimum Node (npm path) | 22 |
+| Default relay port | 8792 |
+| Pairing link | one use, expires in 2 minutes |
+| Browser access (Control or View-only) | 8 hours |
+| Personal Control (installed browser you own) | 30 days |
+| Machine enrollment (shared relay) | 5 minutes |
+| Native apps | optional: [Android APK](https://trymuxr.com/downloads/stable/android) ([checksums](https://trymuxr.com/downloads/stable/checksums)), [Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app), [iOS TestFlight](https://testflight.apple.com/join/aJSbs8pN) — availability depends on store review; [all channels](https://trymuxr.com/downloads) |
+<!-- release-facts:end -->
 
 Minimal browser-first single machine (Tailscale Serve provides the HTTPS
 origin; the browser app is on by default for a browser-capable route):
@@ -141,11 +159,14 @@ the submitted value — so a mistyped URL with a token in it is not echoed.
 Apply never pairs. Pair explicitly, once the plan is verified:
 
 ```bash
-muxr pair --browser            # Control grant, eight hours: prints one two-minute HTTPS link (or QR)
-muxr pair --browser-view       # View-only, eight hours
-muxr pair --browser-personal   # Control, 30 days, for a browser only you use
-muxr pair                      # native app: one-use QR / short string, two minutes
+muxr pair --browser            # Control grant: prints one one-use HTTPS link (or QR)
+muxr pair --browser-view       # View-only
+muxr pair --browser-personal   # Control for a browser only you use, longer lifetime
+muxr pair --native             # native app: one-use QR / short string
 muxr devices list
+```
+
+```
 muxr devices revoke <number|name>
 ```
 
@@ -163,8 +184,13 @@ immediately and invalidates its tickets.
 muxr setup --apply-config --dry-run   # exit 0: nothing to do; exit 2: changes listed
 muxr update --check                   # what the channel offers, nothing changed
 muxr update --yes                     # install the exact target, move the Herdr plugin runtime record, restart services
-muxr update --to <version> --allow-downgrade --yes   # rollback through the same owner
 muxr doctor --json                    # confirm the runtime identity you expect
+```
+
+Rollback goes through the same owner:
+
+```
+muxr update --to <version> --allow-downgrade --yes
 ```
 
 `muxr update` is the only updater. After a successful install it verifies
@@ -178,13 +204,13 @@ across both because they execute whatever the record names.
 `MUXR_SETUP_ROLE=shared-relay` on the always-on server; agent computers use
 `MUXR_SETUP_ROLE=remote-host` and enroll once with an enrollment string:
 
-```bash
+```
 muxr shared-relay                          # on the server (interactive), or apply-config with the role
 muxr machines enroll|list|revoke           # on the server
 muxr connect --enrollment <string>         # on each agent computer, once
 ```
 
-Enrollment strings are single-use and expire after five minutes; they carry
+Enrollment strings are single-use and short-lived; they carry
 no relay-owner authority. A remote host has no `MUXR_CONNECTION`: the
 shared relay decides the route.
 
