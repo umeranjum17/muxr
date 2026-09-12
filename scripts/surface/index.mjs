@@ -68,8 +68,8 @@ function describeSurface(surface) {
     if (surface.kind === 'browser-direct' && typeof surface.url === 'string') {
         return `browser ${JSON.stringify(name)}${revision}${placement} -> ${surface.url}`;
     }
-    if (surface.kind === 'browser-local' && typeof surface.port === 'number') {
-        return `browser ${JSON.stringify(name)}${revision}${placement} -> local port ${surface.port}${typeof surface.path === 'string' ? surface.path : ''}`;
+    if (surface.kind === 'browser-local') {
+        return `browser ${JSON.stringify(name)}${revision}${placement} -> local app${typeof surface.path === 'string' ? ` ${surface.path}` : ''}`;
     }
     if (surface.kind === 'code-review' && typeof surface.path === 'string') {
         const anchor = typeof surface.line === 'number' ? `:${surface.line}${typeof surface.column === 'number' ? `:${surface.column}` : ''}` : '';

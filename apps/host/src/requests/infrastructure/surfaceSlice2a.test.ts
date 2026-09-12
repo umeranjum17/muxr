@@ -1183,7 +1183,10 @@ describe('slice 2A surface contract', () => {
             surface: Record<string, unknown>;
         };
         expect(https.outcome).toBe('accepted');
-        expect(https.surface).toMatchObject({ name: 'browser', kind: 'browser-direct', provider: 'muxr.browser' });
+        expect(https.surface).toMatchObject({ name: 'browser', kind: 'browser-direct' });
+        // The resolved provider stays on the host: a reply names the surface, never a plugin id.
+        expect(https.surface).not.toHaveProperty('provider');
+        expect(broker.registry.current('browser', WORKTREE, 'route-1')?.offer.provider).toBe('muxr.browser');
         expect(broker.registry.current('browser', WORKTREE, 'route-1')?.sessionId).toBe('route-1');
 
         const blank = await broker.invoke({ method: 'browser.open', target: 'about:blank', name: 'home' }, hints) as {
@@ -1197,7 +1200,10 @@ describe('slice 2A surface contract', () => {
             surface: Record<string, unknown>;
         };
         expect(local.outcome).toBe('accepted');
-        expect(local.surface).toMatchObject({ port: 4317, context: WORKTREE, provider: 'muxr.browser' });
+        expect(local.surface).toMatchObject({ path: '/app', context: WORKTREE, title: 'Local app /app' });
+        // The port the operator typed resolves on the host and never comes back in a reply.
+        expect(JSON.stringify(local.surface)).not.toMatch(/4317|muxr\.browser/);
+        expect(broker.registry.current('browser', WORKTREE, 'route-1')?.offer).toMatchObject({ port: 4317, provider: 'muxr.browser' });
 
         // Reload re-emits the same revision as accepted, never visible: no
         // device acknowledgement exists yet.
@@ -1366,7 +1372,7 @@ describe('slice 2A surface contract', () => {
             hints,
         ) as { outcome: string; surface: Record<string, unknown> };
         expect(chosen.outcome).toBe('accepted');
-        expect(chosen.surface).toMatchObject({ provider: 'a.browser' });
+        expect(chosen.surface).not.toHaveProperty('provider');
         expect(crowded.registry.current('browser', WORKTREE, 'route-1')?.offer).toMatchObject({ provider: 'a.browser' });
         const crowdedCapabilities = await crowded.invoke({ method: 'capabilities' }, hints) as {
             capabilities: { capability: string; available: boolean; ambiguous: boolean }[];
@@ -1460,9 +1466,9 @@ describe('slice 2A surface contract', () => {
                 path: '.',
                 destination: 'diff',
                 mode: 'review',
-                provider: 'muxr.code',
                 title: 'Worktree root',
             });
+            expect(first.surface).not.toHaveProperty('provider');
             expect(typeof first.surface.revision).toBe('number');
             // Repeating replaces the named offer with a newer revision.
             const second = await broker.invoke({ method: 'code.diff', name: 'code-root' }, hints) as {

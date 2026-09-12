@@ -282,7 +282,10 @@ export function findSurfaceEntry(machineId: string, sessionId: string, name: str
     for (const entry of byHandle.values()) {
         if (entry.machineId !== machineId || entry.sessionId !== sessionId || entry.name !== name) continue;
         if (dismissed.has(entry.handle)) continue;
-        if (best === undefined || entry.revision > best.revision) best = entry;
+        // Equal revisions happen when a restarted host reissues an offer: the
+        // one received later is the live one.
+        if (best === undefined || entry.revision > best.revision
+            || (entry.revision === best.revision && entry.receivedAt > best.receivedAt)) best = entry;
     }
     return best;
 }

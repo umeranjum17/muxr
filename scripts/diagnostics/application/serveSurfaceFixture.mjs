@@ -21,8 +21,10 @@ input,button{font:inherit;padding:12px;border-radius:10px;border:1px solid #3a3a
 <body><h1>muxr surface fixture</h1><span class="pill" id="state">connecting</span>
 <div id="live">waiting for the first push</div>
 <p>Type here to check the software keyboard, selection and paste:</p>
-<input id="typing" placeholder="type, select, paste, undo" autocapitalize="off" autocorrect="off">
+<form method="post" action="/echo"><input id="typing" name="text" placeholder="type, select, paste, undo" autocapitalize="off" autocorrect="off">
+<button type="submit">Send this text as an ordinary request</button></form>
 <button id="send">Send this text over the WebSocket</button>
+<p>App version <b id="version">__VERSION__</b> · <a href="/about">about page</a> · <img src="/logo.svg" alt="" width="18" height="18"></p>
 <div id="log"></div>
 <script>
 var state=document.getElementById('state'),live=document.getElementById('live'),log=document.getElementById('log');
@@ -44,14 +46,50 @@ document.getElementById('send').onclick=function(){
 
 /** Serve the fixture on `port` (0 picks a free one). Resolves with the port. */
 export async function serveSurfaceFixture(port = 0) {
+    // "Change the app" between reloads: POST /bump moves the version the
+    // page shows, so a Reload has something real to reveal.
+    let version = 1;
+    const html = (body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"></head><body>${body}</body></html>`;
     const http = createServer((request, response) => {
-        if (request.url === '/health') {
+        const url = request.url ?? '/';
+        if (url === '/health') {
             response.writeHead(200, { 'content-type': 'application/json' });
-            response.end(JSON.stringify({ ok: true, url: request.url }));
+            response.end(JSON.stringify({ ok: true, url, version }));
+            return;
+        }
+        if (url === '/style.css') {
+            response.writeHead(200, { 'content-type': 'text/css', 'cache-control': 'no-store' });
+            response.end('body{font:17px/1.5 system-ui,sans-serif;background:#101014;color:#f4efe4;padding:20px}a{color:#f4a261}');
+            return;
+        }
+        if (url === '/logo.svg') {
+            response.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'no-store' });
+            response.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18"><circle cx="9" cy="9" r="8" fill="#5f7a5a"/></svg>');
+            return;
+        }
+        if (url === '/about') {
+            response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+            response.end(html(`<h1>About</h1><p>A second page reached by ordinary navigation. Version ${version}.</p><p><a href="/">back to the fixture</a></p>`));
+            return;
+        }
+        if (request.method === 'POST' && (url === '/echo' || url === '/bump')) {
+            let body = '';
+            request.on('data', (chunk) => { body += String(chunk).slice(0, 4096); });
+            request.on('end', () => {
+                if (url === '/bump') {
+                    version += 1;
+                    response.writeHead(200, { 'content-type': 'application/json' });
+                    response.end(JSON.stringify({ version }));
+                    return;
+                }
+                const text = decodeURIComponent((/(?:^|&)text=([^&]*)/.exec(body)?.[1] ?? '').replace(/\+/g, ' '));
+                response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+                response.end(html(`<h1>Echo</h1><p>The server received: <b id="echoed">${text.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c])}</b></p><p><a href="/">back to the fixture</a></p>`));
+            });
             return;
         }
         response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-        response.end(PAGE);
+        response.end(PAGE.replace('__VERSION__', String(version)));
     });
     const sockets = new WebSocketServer({ server: http, path: '/hmr' });
     let tick = 0;
@@ -77,5 +115,5 @@ if (process.argv[1]?.endsWith('serveSurfaceFixture.mjs')) {
     const requested = Number(process.argv[2] ?? 0);
     const bound = await serveSurfaceFixture(Number.isInteger(requested) ? requested : 0);
     process.stdout.write(`surface fixture on http://127.0.0.1:${bound}/  (websocket at /hmr)\n`);
-    process.stdout.write(`open the muxr Web Surface and enter port ${bound}\n`);
+    process.stdout.write(`muxr browser open http://localhost:${bound}/  -- POST /bump changes the version the page shows\n`);
 }

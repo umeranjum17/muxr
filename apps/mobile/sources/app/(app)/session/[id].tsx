@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useRoute } from "@react-navigation/native";
-import { AgentSurfaceWorkspace } from './surfaceWorkspace';
+import { AgentSurfaceWorkspace } from '@/preview/presentation/AgentSurfaceWorkspace';
 
 
 export default React.memo(() => {
