@@ -53,7 +53,8 @@ export interface RequestDispatcherOptions {
     getDeviceContext?: (deviceId: string) => PeerDeviceContext | undefined;
 }
 
-type RequestContext = { deviceId: string; requestId: string };
+/** `peerAdmitted`: reached through the authenticated peer runtime's receipt executor, never from a request field. */
+type RequestContext = { deviceId: string; requestId: string; peerAdmitted: boolean };
 type Handler<T extends RequestType> = (params: RequestMap[T]['params'], context: RequestContext) => Promise<RequestResult<T>>;
 type NonPeerRequestType = Exclude<RequestType, PeerRequestType>;
 type PluginExecutionRequest = Extract<ClientRequest, {
@@ -211,10 +212,17 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 if (result.dispatched === true) error.promptDispatched = true;
                 throw error;
             };
-            // Peers carry their own durable receipt (peerMutation, admitted
-            // before dispatch). Every other client must identify the
+            // Admitted peers carry their own durable receipt (peerMutation,
+            // executed by the peer runtime before this handler). Trust the
+            // dispatch context, never the field: an ordinary device offering
+            // peer metadata is refused. Every other client must identify the
             // submission so a resend after a lost answer runs at most once.
-            if (peerMutation !== undefined) return run();
+            if (context.peerAdmitted) return run();
+            if (peerMutation !== undefined) {
+                const error = new Error('peer mutation metadata is not accepted from this device') as Error & { code: string };
+                error.code = 'prompt-invalid';
+                throw error;
+            }
             if (promptId === undefined && promptNotValidAfter === undefined) {
                 const error = new Error('session.prompt requires promptId and promptNotValidAfter on this host; update the app') as Error & { code: string };
                 error.code = 'prompt-id-required';
@@ -267,7 +275,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
     };
 
-    async function dispatchCore(request: ClientRequest, authenticatedSenderId?: string): Promise<RequestResponse> {
+    async function dispatchCore(request: ClientRequest, authenticatedSenderId?: string, peerAdmitted = false): Promise<RequestResponse> {
         const deviceId = authenticatedSenderId ?? 'local';
         const isViewOnlyDevice = observerGrantIsViewOnly(
             options.getDeviceContext?.(deviceId)?.kind,
@@ -329,7 +337,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             );
         }
         try {
-            const data = await handler(request.params, { deviceId, requestId: request.requestId });
+            const data = await handler(request.params, { deviceId, requestId: request.requestId, peerAdmitted });
             return ok(request.requestId, data);
         } catch (error: unknown) {
             return fromCaught(request.requestId, error);
@@ -372,7 +380,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                     context,
                     () => {
                         if (request.type === 'agent.watch') return dispatchPeerWatch(request);
-                        return dispatchCore(request, authenticatedSenderId);
+                        return dispatchCore(request, authenticatedSenderId, true);
                     },
                 );
             }

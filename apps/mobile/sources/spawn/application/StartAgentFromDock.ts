@@ -2,6 +2,7 @@ import type { Machine } from '@/catalog';
 import { machineSpawnNewSession } from '@/catalog/ops';
 import { submitPrompt } from '@/catalog/application/submissions';
 import { isMachineOnline } from '@/pairing';
+import { getCachedConnectionSettings } from '@/connection';
 import { createWorktree } from '../infrastructure/worktree';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import type { NewSessionAgentType } from '@/catalog/application/persistence';
@@ -64,7 +65,9 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
         // The submission (uploads, exact sent text, identity, outcome) is kept
         // on the session, so a failed first message waits for its composer
         // and an unchanged resend runs once without uploading again.
-        const sent = await submitPrompt({ sessionId: result.sessionId, draft: command.prompt, attachments: [], uploads: command.attachments as AttachmentPreview[], source: 'new_session' });
+        // The target is the paired connection the terminal route restores
+        // under, the same id the composer will use for this session.
+        const sent = await submitPrompt({ machineId: getCachedConnectionSettings().machineId, sessionId: result.sessionId, draft: command.prompt, attachments: [], uploads: command.attachments as AttachmentPreview[], source: 'new_session' });
         if (!sent.ok) return { ok: true, agentRoute: result.sessionId, promptFailed: sent.submission.reason };
     }
     return { ok: true, agentRoute: result.sessionId };

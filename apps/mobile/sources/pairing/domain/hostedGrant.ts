@@ -54,8 +54,12 @@ export function acceptVerifiedGrant(args: {
     if (args.expectedAuthority !== undefined && authority !== args.expectedAuthority) {
         return { ok: false, error: 'authority-substitution' };
     }
-    if (args.expiresNoLaterThan !== undefined
-        && (args.verifiedExpiresAt === undefined || !Number.isFinite(args.verifiedExpiresAt) || args.verifiedExpiresAt > args.expiresNoLaterThan)) {
+    // A browser always reviewed a finite lifetime; a claim without one, or a
+    // grant beyond it, is refused. Native reviewed "until revoked".
+    const ceiling = args.expiresNoLaterThan;
+    if (args.platform === 'web' && (ceiling === undefined || !Number.isFinite(ceiling))) return { ok: false, error: 'lifetime-substitution' };
+    if (ceiling !== undefined
+        && (args.verifiedExpiresAt === undefined || !Number.isFinite(args.verifiedExpiresAt) || args.verifiedExpiresAt > ceiling)) {
         return { ok: false, error: 'lifetime-substitution' };
     }
     return { ok: true, authority };

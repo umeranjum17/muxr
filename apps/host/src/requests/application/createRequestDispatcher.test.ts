@@ -429,7 +429,10 @@ describe('prompt resend after a lost answer', () => {
         expect(readFileSync(ledger, 'utf8')).toContain('"requestHash":"x"');
         expect(executed.filter((text) => text === 'A')).toHaveLength(1);
 
-        // Peers keep their own receipt boundary: no client identity needed.
-        expect(await dispatch({ type: 'session.prompt', requestId: 'peer', params: { sessionId: 's1', text: 'peer prompt', peerMutation: { operationId: 'op', notValidAfter: later() } } } as never, 'peer-1')).toMatchObject({ ok: true });
+        // Peer metadata from an ordinary device is not an admission path
+        // (the real admitted peer boundary is exercised in peerFlow.test.ts).
+        expect(await dispatch({ type: 'session.prompt', requestId: 'forged-peer', params: { sessionId: 's1', text: 'peer prompt', peerMutation: { operationId: 'op', notValidAfter: later() } } } as never, 'browser-1')).toMatchObject({ ok: false, code: 'prompt-invalid' });
+        expect(await dispatch({ type: 'session.prompt', requestId: 'forged-peer-empty', params: { sessionId: 's1', text: 'peer prompt', peerMutation: {} } } as never, 'browser-1')).toMatchObject({ ok: false, code: 'prompt-invalid' });
+        expect(executed).not.toContain('peer prompt');
     });
 });

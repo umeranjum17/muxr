@@ -352,6 +352,12 @@ interface PendingHostedPair {
 }
 
 async function completePendingHostedPair(pending: PendingHostedPair, wait: boolean): Promise<StoredHostedGrant | undefined> {
+    // A browser claim must carry the lifetime the person reviewed; one
+    // persisted without it (an older build) is discarded, not completed.
+    if (Platform.OS === 'web' && (pending.expiresNoLaterThan === undefined || !Number.isFinite(pending.expiresNoLaterThan))) {
+        await secretDelete(PENDING_PAIR_KEY);
+        throw new Error('This browser pairing started without a confirmed access lifetime and was discarded. Pair again with a fresh link.');
+    }
     const keys = await getOrCreateHostedDeviceKey();
     let sealed: SealedDeviceGrant | undefined;
     const deadline = wait ? Date.now() + 5 * 60_000 : Date.now();
@@ -464,7 +470,6 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
     // browser link, whether it asked for the personal 30-day lifetime.
     const reviewedName = hostedPairingDisplayName(url);
     const reviewedLifetime = hostedPairingLifetime(url);
-    const shortLink = /^wss?:\/\//i.test(url) || initial.searchParams.has('pair');
     if ((initial.protocol === 'https:' || initial.protocol === 'http:') && initial.pathname === '/pair' && initial.searchParams.has('pair')) {
         const locator = new URL(initial.origin);
         locator.protocol = initial.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -485,10 +490,9 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
     // deep-link routers may drop #-fragments — self-host links use ? instead.
     const fragment = pairingSearchParams(url);
     expandCompactPairingPayload(fragment);
-    if (shortLink) {
-        const mismatch = reviewedConsentMismatch({ name: reviewedName, lifetime: reviewedLifetime }, fragment);
-        if (mismatch !== undefined) throw new Error(mismatch);
-    }
+    // Every accepted form: what was reviewed must be what the sealed payload says.
+    const mismatch = reviewedConsentMismatch({ name: reviewedName, lifetime: reviewedLifetime }, fragment);
+    if (mismatch !== undefined) throw new Error(mismatch);
     const payloadAuthority = fragment.get('authority');
     if (expectedAuthority === null && (payloadAuthority === 'control' || payloadAuthority === 'observe')) {
         expectedAuthority = payloadAuthority;
@@ -559,7 +563,7 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
         machineName: hostedPairingDisplayName(url),
         ...((expectedAuthority === 'control' || expectedAuthority === 'observe') ? { expectedAuthority } : {}),
         // Browsers reviewed a lifetime; native pairing is until revoked.
-        ...(selfhostRelay !== null && Platform.OS === 'web' ? { expiresNoLaterThan: reviewedGrantCeiling(reviewedLifetime, Date.now()) } : {}),
+        ...(Platform.OS === 'web' ? { expiresNoLaterThan: reviewedGrantCeiling(reviewedLifetime, Date.now()) } : {}),
         ...(selfhostRelay !== null ? { source: 'selfhost' as const } : {}),
     };
     // Claim is one-shot. Persist its credential and binding before waiting so

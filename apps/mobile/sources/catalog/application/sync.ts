@@ -44,7 +44,7 @@ import { agentStatusUnchanged, applyHostInfoToAgent } from '../domain/agent';
 import type { SessionInfo } from '@muxr/contract';
 import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
 import { promptAgent } from './promptAgent';
-import { hostConfirmsPromptsRunOnce, UNSUPPORTED_HOST } from '../domain/promptSubmission';
+import { ConnectionNegotiation, hostConfirmsPromptsRunOnce, UNSUPPORTED_HOST } from '../domain/connectionNegotiation';
 import type { Settings } from './settings';
 import { lifecycleNotificationCopy } from '@/utils/herd';
 
@@ -179,6 +179,8 @@ type SendMessageOptions = {
     /** Submission identity the host runs at most once; see submissions.ts. */
     promptId: string;
     notValidAfter: number;
+    /** The computer this submission was composed for; a different active machine is refused. */
+    machineId: string;
 };
 
 /*
@@ -241,8 +243,13 @@ class MuxrSync {
     private openedSessions = new Set<string>();
     private opening = new Map<string, Promise<void>>();
     private activeMachineId: string | undefined;
-    /** What the connected host advertised on machines.list; unknown means unsupported. */
-    private hostCapabilities: readonly string[] | undefined;
+    /**
+     * What the connected host advertised on machines.list, bound to the exact
+     * transport and connection it was learned on. Any close, stale route or
+     * client replacement bumps the epoch; a prompt needs support negotiated
+     * on the connection that will carry it, or it is not sent.
+     */
+    private readonly negotiation = new ConnectionNegotiation<MuxrTransport>();
     private herdrTreeRequest = 0;
     private presentingLifecycleIds = new Set<string>();
     encryption!: Encryption;
@@ -324,6 +331,8 @@ class MuxrSync {
     private attachClient(client: MuxrTransport): void {
         client.onPluginsInvalidated?.((frame) => reconcilePluginCaches(frame));
         client.onStateChange((state) => {
+            // A connection that is not open is a new negotiation, synchronously.
+            if (state !== 'open') this.negotiation.invalidate();
             recordSocketState(state, client.isLive());
             storage.getState().setSocketStatus(socketStatusFromClient(state));
             // Events emitted while the socket was down are gone: nothing replays them.
@@ -572,6 +581,7 @@ class MuxrSync {
         }
         const client = this.ensureClient();
         if (!client.isLive()) await waitUntilClientOpen(client, 5000);
+        const epoch = this.negotiation.current;
         const [machines, sessions, attention, lifecycle, tree] = await Promise.all([
             client.request('machines.list', {}),
             client.request('session.list', {}),
@@ -583,8 +593,9 @@ class MuxrSync {
             this.refreshHerdTree().catch(() => undefined),
         ]);
         if (client !== this.client) return;
-        // One transport, one host: its advertised features gate what the app promises.
-        this.hostCapabilities = machines.find((machine) => machine.capabilities !== undefined)?.capabilities;
+        // One transport, one host: its advertised features gate what the app
+        // promises — only for the connection that answered.
+        this.negotiation.record(client, epoch, machines.find((machine) => machine.capabilities !== undefined)?.capabilities);
         storage.getState().applyMachines(machines.map((machine) =>
             machineInfoToMachine(machine, getCachedHostedGrant(machine.machineId)?.machineName)
         ), true);
@@ -675,7 +686,7 @@ class MuxrSync {
     private async bootstrap(credentials: AuthCredentials): Promise<void> {
         this.client?.close();
         this.client = undefined;
-        this.hostCapabilities = undefined;
+        this.negotiation.invalidate();
         this.credentials = credentials;
         await this.initEncryption(credentials);
         const settings = await loadConnectionSettingsAsync();
@@ -720,7 +731,7 @@ class MuxrSync {
         this.credentials = undefined;
         this.accountValidation = undefined;
         this.activeMachineId = undefined;
-        this.hostCapabilities = undefined;
+        this.negotiation.invalidate();
         this.openedSessions.clear();
         this.opening.clear();
         this.herdrTreeRequest += 1;
@@ -737,9 +748,12 @@ class MuxrSync {
     async sendMessage(sessionId: string, text: string, options: SendMessageOptions): Promise<void> {
         const previews = options.attachments ?? [];
         if (text.trim().length === 0 && previews.length === 0) return;
+        this.assertTarget(options.machineId);
         // A host without receipts would run a resend twice; refuse to send at
-        // all rather than promise what it cannot keep.
-        if (!hostConfirmsPromptsRunOnce(this.hostCapabilities)) {
+        // all rather than promise what it cannot keep. Support must come from
+        // the live connection that will carry this prompt.
+        const { client, epoch } = await this.negotiateCurrentConnection();
+        if (!hostConfirmsPromptsRunOnce(this.negotiation.capabilitiesFor(client, epoch))) {
             throw Object.assign(new Error(UNSUPPORTED_HOST), { code: 'host-unsupported' });
         }
         // Readiness is the host's call: it waits for a starting agent to accept
@@ -762,7 +776,7 @@ class MuxrSync {
                     ...(attachments === undefined || attachments.length === 0 ? {} : { attachments }),
                     promptId,
                     promptNotValidAfter: notValidAfter,
-                }),
+                }, undefined, epoch),
             },
         );
     }
@@ -804,10 +818,39 @@ class MuxrSync {
         return this.credentials;
     }
 
+    /** A submission composed for one computer never goes to another. */
+    private assertTarget(machineId: string): void {
+        if ((this.activeMachineId ?? '') !== machineId) {
+            throw Object.assign(new Error('This message was written for a different computer and was not sent.'), { code: 'wrong-machine' });
+        }
+    }
+
+    /** Upload composer attachments for a submission, pinned to its computer. */
+    async saveAttachments(machineId: string, sessionId: string, attachments: import('@muxr/contract').PromptAttachment[]): Promise<{ savedPaths: string[] }> {
+        this.assertTarget(machineId);
+        const { epoch } = await this.negotiateCurrentConnection();
+        return this.request('session.saveAttachments', { sessionId, attachments }, undefined, epoch);
+    }
+
+    /**
+     * Wait for the live connection and make sure its host's features were
+     * learned on that very connection; returns the epoch a caller may pin.
+     */
+    private async negotiateCurrentConnection(): Promise<{ client: MuxrTransport; epoch: number }> {
+        const client = this.ensureClient();
+        if (!client.isLive()) await waitUntilClientOpen(client, 10_000);
+        if (!this.negotiation.isNegotiated(client)) await this.refreshCatalog();
+        if (client !== this.client || !this.negotiation.isNegotiated(client)) {
+            throw Object.assign(new Error('not connected: the connection changed before the message was sent'), { code: 'connection-changed' });
+        }
+        return { client, epoch: this.negotiation.current };
+    }
+
     async request<T extends import('@muxr/contract').RequestType>(
         type: T,
         params: import('@muxr/contract').RequestParams<T>,
         timeoutMs?: number,
+        onConnectionEpoch?: number,
     ): Promise<import('@muxr/contract').RequestResult<T>> {
         const started = Date.now();
         try {
@@ -816,6 +859,11 @@ class MuxrSync {
                 // Cold starts and a header that still says connected while the
                 // socket is dead both used to throw 'not connected' immediately.
                 await waitUntilClientOpen(client, 10_000);
+            }
+            // Pinned to a negotiated connection: a reconnect in between is a
+            // different host contract, so nothing is sent on it.
+            if (onConnectionEpoch !== undefined && onConnectionEpoch !== this.negotiation.current) {
+                throw Object.assign(new Error('not connected: the connection changed before the message was sent'), { code: 'connection-changed' });
             }
             const request = () => client.request(type, params, timeoutMs);
             const data = type === 'plugin.call' || type === 'plugin.invoke'

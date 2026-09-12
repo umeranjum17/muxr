@@ -88,4 +88,23 @@ describe('pairing consent metadata from the printed locator', () => {
         // Native pairing reviewed "until revoked": no ceiling, durable grant accepted.
         expect(acceptVerifiedGrant({ ...base, platform: 'android', verifiedExpiresAt: Date.UTC(9999, 11, 31) })).toMatchObject({ ok: true });
     });
+
+    it('refuses an outer name on a compact link, binds every accepted form after expansion, and requires a browser ceiling', () => {
+        const compact = Buffer.from(JSON.stringify({ v: '2', generation: '1', id: 'pair-id', claim: 'c'.repeat(24), pair: 'p'.repeat(24), machine: 'machine-1'.padEnd(24, '1'), machinePk: 'k'.repeat(24), r: 'wss://relay.example.test', authority: 'control', name: 'Android-Cert' })).toString('base64url');
+        // The untouched compact link shows its sealed name.
+        expect(parsePairingString(`muxr://pair?payload=${compact}`)).toMatchObject({ ok: true, pairing: { displayName: 'Android-Cert' } });
+        // An outer name beside the payload is not a valid link at all.
+        expect(parsePairingString(`muxr://pair?payload=${compact}&name=Trusted-Laptop`)).toMatchObject({ ok: false });
+        // And even if it were reviewed, the sealed comparison refuses it before any claim.
+        const expanded = sealedPayload({ name: 'Android-Cert' });
+        expect(reviewedConsentMismatch({ name: 'Trusted-Laptop', lifetime: 'eight hours' }, expanded)).toMatch(/names a different computer/);
+        expect(reviewedConsentMismatch({ name: hostedPairingDisplayName(`muxr://pair?payload=${compact}`), lifetime: 'eight hours' }, expanded)).toBeUndefined();
+
+        // A browser claim without a reviewed ceiling is refused; native is not.
+        const base = { verifiedMachineId: 'machine-1', pendingMachineId: 'machine-1', verifiedAuthority: 'control' as const, expectedAuthority: 'control' as const, verifiedExpiresAt: Date.now() + 60_000 };
+        expect(acceptVerifiedGrant({ ...base, platform: 'web' })).toEqual({ ok: false, error: 'lifetime-substitution' });
+        expect(acceptVerifiedGrant({ ...base, platform: 'web', expiresNoLaterThan: Number.NaN })).toEqual({ ok: false, error: 'lifetime-substitution' });
+        expect(acceptVerifiedGrant({ ...base, platform: 'web', expiresNoLaterThan: reviewedGrantCeiling('eight hours', Date.now()) })).toMatchObject({ ok: true });
+        expect(acceptVerifiedGrant({ ...base, platform: 'android', verifiedExpiresAt: Date.UTC(9999, 11, 31) })).toMatchObject({ ok: true });
+    });
 });

@@ -131,7 +131,15 @@ function pairingUrlOrReject(value: string): PairingStringParse {
         }
         return acceptPairing(input);
     }
-    if (isMuxrPairScheme(parsed)) return acceptPairing(input);
+    if (isMuxrPairScheme(parsed)) {
+        // A compact payload names the computer itself; an outer name beside
+        // it could only disagree with what is sealed.
+        const params = pairingSearchParams(input);
+        if (params.has('payload') && params.has('name')) {
+            return { ok: false, error: 'This pairing string is not a valid muxr pairing link. Create a fresh one on the computer.' };
+        }
+        return acceptPairing(input);
+    }
     if (isBrowserPairPath(parsed)) {
         if (parsed.searchParams.getAll('pair').length > 0) {
             if (!wellFormedBrowserPairQuery(parsed)) {

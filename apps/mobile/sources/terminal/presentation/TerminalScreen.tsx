@@ -42,7 +42,8 @@ import { ComposerAttachments } from '@/components/ComposerAttachments';
 import { useAttachmentUploads } from '../application/useAttachmentUploads';
 import { Typography } from '@/constants/Typography';
 import { randomUUID } from 'expo-crypto';
-import { recoverable, submitPrompt, useSubmissions, type Submission } from '@/catalog/application/submissions';
+import { targetKey, useSubmissions } from '@/catalog/application/submissions';
+import { ComposerRecovery } from '@/terminal/application/composerRecovery';
 import { failureText, humanError } from '@/utils/errors';
 import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
@@ -68,7 +69,7 @@ function TerminalViewFallback() {
     );
 }
 
-export const TerminalScreen = React.memo((props: { id: string }) => {
+export const TerminalScreen = React.memo((props: { id: string; machineId: string }) => {
     const { theme } = useUnistyles();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canControl = authority === 'control' && !authorityLoading;
@@ -370,43 +371,30 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         return () => subscription.remove();
     }, [actionsOpen, menu]);
 
-    // Submissions live outside this screen (submissions.ts): the exact sent
-    // payload keeps its identity until it is resent unchanged, discarded, or
-    // replaced on purpose. This screen only restores and notices them; a
-    // late outcome for a session that is no longer open waits for its screen.
-    const submissions = useSubmissions((state) => state.bySession[props.id]);
-    const unnoticed = React.useMemo(() => (submissions ?? []).find((entry) => entry.state !== 'sending' && !entry.noticed), [submissions]);
-    const restoreSubmission = React.useCallback((submission: Submission) => {
-        draftRef.current = [submission.draft, draftRef.current].filter((part) => part !== '').join('\n');
-        setDraft(draftRef.current);
-        setAttachedImages((previous) => [...submission.attachments, ...previous]);
-        // Previews that never reached the host are uploaded afresh.
-        if (submission.pendingUploads.length > 0) addImages(submission.pendingUploads);
-    }, [addImages, setAttachedImages]);
-    React.useEffect(() => {
-        if (unnoticed === undefined) return;
-        const submission = unnoticed;
-        useSubmissions.getState().notice(props.id, submission.id);
-        const title = submission.state === 'unconfirmed' ? 'Not confirmed' : 'Message not sent';
-        if (draftRef.current === '' && attachedImages.length === 0) {
-            restoreSubmission(submission);
-            Modal.alert(title, submission.reason);
-            return;
-        }
-        Modal.alert(title, `${submission.reason} Your earlier message is kept.`, [
-            { text: 'Discard it', style: 'cancel', onPress: () => useSubmissions.getState().remove(props.id, submission.id) },
-            { text: 'Put it back', onPress: () => restoreSubmission(submission) },
-        ]);
-    }, [attachedImages.length, props.id, restoreSubmission, unnoticed]);
-    // A remounted or reopened screen starts with an empty composer while an
-    // already-noticed submission still waits: put the latest one back quietly.
-    const restoredOnMount = React.useRef(false);
-    React.useEffect(() => {
-        if (restoredOnMount.current || draftRef.current !== '') return;
-        restoredOnMount.current = true;
-        const waiting = recoverable(props.id).filter((entry) => entry.noticed);
-        if (waiting.length > 0) restoreSubmission(waiting[waiting.length - 1]!);
-    }, [props.id, restoreSubmission]);
+    // Submissions live outside this screen (submissions.ts), partitioned by
+    // computer + session; ComposerRecovery owns, for this screen opening,
+    // which one the composer holds and what a Send retries. Late outcomes
+    // for a target that is not open wait for its own screen.
+    const target = React.useMemo(() => ({ machineId: props.machineId, sessionId: props.id }), [props.machineId, props.id]);
+    const submissions = useSubmissions((state) => state.byTarget[targetKey(target)]);
+    const recovery = React.useMemo(() => new ComposerRecovery(target, {
+        restore: (submission) => {
+            draftRef.current = [submission.draft, draftRef.current].filter((part) => part !== '').join('\n');
+            setDraft(draftRef.current);
+            setAttachedImages((previous) => [...submission.attachments, ...previous]);
+            // Previews that never reached the host are uploaded afresh.
+            if (submission.pendingUploads.length > 0) addImages(submission.pendingUploads);
+        },
+        clear: () => {
+            draftRef.current = '';
+            setDraft('');
+            setAttachedImages([]);
+        },
+    }), [addImages, setAttachedImages, target]);
+    React.useEffect(() => () => recovery.dispose(), [recovery]);
+    // Attachments and previews occupy the composer as much as text does.
+    const composerEmpty = draft === '' && attachedImages.length === 0 && selectedImages.length === 0 && !attaching;
+    React.useEffect(() => { recovery.reconcile(composerEmpty); }, [composerEmpty, recovery, submissions]);
 
     // The agent is a TUI: it can only reach a file by having the path in its
     // prompt. But splicing that path into the draft the moment you attach
@@ -416,22 +404,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         // A booting agent is not a refusal: the host holds the prompt until it
         // can accept it, so let the composer stay live and let the host answer.
         if (attaching || selectedImages.length > 0) return;
-        const draft = draftRef.current;
-        const images = attachedImages;
-        if ([draft.trim(), ...attachedPaths].filter((part) => part !== '').join(' ') === '') return;
-        draftRef.current = '';
-        setDraft('');
-        setAttachedImages([]);
-        // An unchanged resend keeps its identity; anything else is a new
-        // message, and an earlier unconfirmed one may still run once.
-        const unconfirmedBefore = recoverable(props.id).filter((entry) => entry.state === 'unconfirmed');
-        void submitPrompt({ sessionId: props.id, draft, attachments: images }).then((result) => {
-            const replaced = unconfirmedBefore.filter((entry) => entry.id !== result.submission.id);
-            if (replaced.length === 0) return;
-            for (const entry of replaced) useSubmissions.getState().remove(props.id, entry.id);
-            Modal.alert('Sent as a new message', 'Your earlier unconfirmed message was different. If the computer received it, it still runs once.');
-        });
-    }, [attachedImages, attachedPaths, attaching, selectedImages.length, panePromptable, props.id, setAttachedImages]);
+        void recovery.send(draftRef.current, attachedImages);
+    }, [attachedImages, attaching, selectedImages.length, panePromptable, recovery]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);
 

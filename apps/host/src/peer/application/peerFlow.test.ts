@@ -292,7 +292,9 @@ describe('host peer collaboration flow', () => {
             machineName: 'Build Mac',
             hostVersion: 'test',
             peerRuntime: runtime,
-            canMutateDevice: () => false,
+            // One ordinary Control device beside the peers, to prove peer
+            // metadata is not an admission path for it.
+            canMutateDevice: (deviceId) => deviceId === 'control-phone',
             getDeviceContext: (deviceId) => {
                 const device = targetKeys.current().devices.find((entry) => entry.deviceId === deviceId);
                 if (device?.kind !== 'peer') return undefined;
@@ -467,6 +469,17 @@ describe('host peer collaboration flow', () => {
             type: 'session.prompt', requestId: 'target-receipt-retry',
             params: { sessionId: 'muxr-session-ios', text: LEGACY_PROMPT, peerMutation: promptMutation },
         }, authorized.peerDeviceId)).resolves.toMatchObject({ ok: true });
+        expect(prompts).toBe(1);
+        // An authorized Control device offering peer metadata gets neither
+        // the peer executor nor a bypass of its own prompt receipts.
+        await expect(targetDispatch({
+            type: 'session.prompt', requestId: 'control-forged-peer',
+            params: { sessionId: 'muxr-session-ios', text: LEGACY_PROMPT, peerMutation: fresh('forged') },
+        }, 'control-phone')).resolves.toMatchObject({ ok: false, code: 'prompt-invalid' });
+        await expect(targetDispatch({
+            type: 'session.prompt', requestId: 'control-unidentified',
+            params: { sessionId: 'muxr-session-ios', text: LEGACY_PROMPT },
+        }, 'control-phone')).resolves.toMatchObject({ ok: false, code: 'prompt-id-required' });
         expect(prompts).toBe(1);
         await call(sourceRuntime, 'peer.remote.prompt', {
             relationshipId: installed.relationshipId,

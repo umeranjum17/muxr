@@ -59,6 +59,6 @@ export async function landWorktreeBranch(command: LandWorktreeCommand): Promise<
         return { status: 'failed', message: spawn.type === 'error' ? spawn.errorMessage : 'Could not start the agent' };
     }
     // Automated handoff, never resent: a fresh identity satisfies the host.
-    await sync.sendMessage(spawn.sessionId, handoffPrompt(command.worktreePath, conflict.branch, conflict.detail), newSubmissionIdentity());
+    await sync.sendMessage(spawn.sessionId, handoffPrompt(command.worktreePath, conflict.branch, conflict.detail), { ...newSubmissionIdentity(), machineId: command.machineId });
     return { status: 'handoff-started', agentRoute: spawn.sessionId };
 }

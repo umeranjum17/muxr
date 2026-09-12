@@ -33,5 +33,5 @@ export function TerminalRoute({ id }: { id: string }): React.JSX.Element {
     // A new route needs a fresh native surface/layout callback and channel.
     // Reusing the view resets its attach refs without changing native size,
     // leaving it waiting for a size event that may never happen.
-    return <TerminalScreen key={`${machineId}:${currentId}`} id={currentId} />;
+    return <TerminalScreen key={`${machineId}:${currentId}`} id={currentId} machineId={machineId} />;
 }
