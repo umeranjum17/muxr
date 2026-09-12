@@ -100,6 +100,10 @@ const upEnv = {
     // opt-in diagnostic output path, carrying no authority, endpoint or data
     // dir, so it cannot point the harness at a real service.
     ...(process.env.MUXR_GRAPHICS_TRACE?.trim() ? { MUXR_GRAPHICS_TRACE: process.env.MUXR_GRAPHICS_TRACE.trim() } : {}),
+    // Preview gateway knobs are dev-local too: an origin base such as
+    // preview.localhost, a dev TLS pair for it, and a fixed gateway port.
+    // They name no service and carry no authority.
+    ...Object.fromEntries(Object.entries(process.env).filter(([name, value]) => /^MUXR_PREVIEW_/.test(name) && value?.trim())),
 };
 
 const metroEnv = {
