@@ -24,6 +24,7 @@ export type LayoutSnapshot =
           second: LayoutSnapshot;
       };
 
+import type { BrowserSessionStatus } from './surface.js';
 import type {
     MachineInfo,
     SessionSnapshot,
@@ -174,6 +175,14 @@ export type PeerRequestResult<T extends PeerRequestType> = PeerRequestMap[T]['re
 export type PeerClientRequest = {
     [K in PeerRequestType]: { type: K; requestId: string; params: PeerRequestParams<K> };
 }[PeerRequestType];
+
+/** A mutating ownership call: what it expects and which command it is. */
+export interface BrowserSessionTransition {
+    session: string;
+    expectedGeneration: number;
+    /** Idempotent command identity; a repeat with the same id reconciles. */
+    command: string;
+}
 
 export interface RequestMap extends PeerRequestMap {
     // --- lifecycle ----------------------------------------------------------
@@ -534,6 +543,59 @@ export interface RequestMap extends PeerRequestMap {
     'preview.renew': { params: { lease: string }; result: { expiresAt: number } };
 
     /**
+     * Turn a held product lease into a real HTTPS preview the renderer can
+     * load: the approved public origin the host allocated for that
+     * endpoint, the endpoint generation it belongs to, and a one-use POST
+     * bootstrap. The renderer submits the body to `origin + path` exactly
+     * once; the host gateway answers with a Secure, HttpOnly, host-only
+     * `__Host-` admission cookie and a redirect to the app. The body is
+     * private: it travels only inside this encrypted result, never in a
+     * URL, a log line or anything the page can read. A second submission,
+     * an expired body or one from another lease is refused. Renewal
+     * extends admission server-side; a fresh bootstrap is needed only when
+     * the cookie itself is gone.
+     */
+    'preview.bootstrap': {
+        params: { lease: string };
+        result: {
+            origin: string;
+            generation: number;
+            bootstrap: { path: string; body: string; expiresAt: number };
+            /** Relative path the app opens at after admission. */
+            path: string;
+        };
+    };
+
+    // --- agent browser sessions ---------------------------------------------
+    /**
+     * Ownership of one broker-owned browser session. The browser service is
+     * the sole authority; the host relays. `session` is the opaque handle a
+     * `browser-session` offer carries; every mutating call names the
+     * generation it expects and an idempotent command identity, so a
+     * repeat after a dropped reply is reconciled, never replayed.
+     */
+    'browser.session.status': { params: { session: string }; result: BrowserSessionStatus };
+    /** Take control: barrier the agent, then hand the seat to this device. */
+    'browser.session.take': { params: BrowserSessionTransition; result: BrowserSessionStatus };
+    /** Human pause while owning (background, visibility loss): input locks, seat stays. */
+    'browser.session.pause': { params: BrowserSessionTransition; result: BrowserSessionStatus };
+    /** Resume control after a pause, with fresh media and permits. */
+    'browser.session.resume': { params: BrowserSessionTransition; result: BrowserSessionStatus };
+    /** Give back deliberately: settle, scrub, reopen agent observation. */
+    'browser.session.return': { params: BrowserSessionTransition; result: BrowserSessionStatus };
+    /**
+     * Private signaling and control between this device and the browser
+     * service: a sealed message under the browser-service grant (SDP,
+     * ICE, input permits, field focus). Opaque to the host, which relays
+     * it; nothing here is readable with the shared session root. Expires
+     * with the device grant and the session.
+     */
+    'browser.session.signal': {
+        params: { session: string; generation: number; message: string };
+        result: { message?: string };
+    };
+
+    /**
      * Ask the host to join `channel` and forward it to an endpoint. `lease`
      * names an endpoint the host wrote down; `port` is the legacy
      * takeover/preview path. Exactly one of them is given. Native callers
@@ -621,6 +683,15 @@ const E2EE_REQUEST_TYPES = new Set([
     'plugin.stream',
     'herdr.cli',
     'host.update',
+    // The bootstrap body and every session transition/signal are private to
+    // the device: they ride only under E2EE.
+    'preview.bootstrap',
+    'browser.session.status',
+    'browser.session.take',
+    'browser.session.pause',
+    'browser.session.resume',
+    'browser.session.return',
+    'browser.session.signal',
 ]);
 
 export function requestRequiresE2ee(type: string): boolean {

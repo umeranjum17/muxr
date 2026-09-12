@@ -42,6 +42,60 @@ Deliberately not ported: v2 authenticated framing and credits, the admission
 gateway, private origins and cookie admission, the Kotlin surface chooser,
 the developer Web Surface route.
 
+## Frozen interfaces for the two Browser routes (2026-09-12, Code descoped)
+
+Browser is delivered through two explicit routes and nothing else: **Preview**
+(the app's own DOM over host-terminated HTTPS, with its WebSockets, cookies,
+Fast Refresh and overlays) and **Agent browser** (one broker-owned Chromium
+session streamed over WebRTC, with an enforceable human handover for sign-in).
+Code stays as it is and is not extended. These names are the integration
+contract between the surface lane and the PWA lane; UI text maps from them.
+
+**Preview.** `preview.lease` / `preview.renew` / `preview.release` keep their
+authority semantics. `preview.bootstrap(lease)` returns, privately inside the
+E2EE result, the approved HTTPS `origin` the host allocated for the endpoint,
+the endpoint `generation`, the app `path`, and a one-use POST `bootstrap`
+(`path`, `body`, `expiresAt`). The renderer submits the body to `origin +
+bootstrap.path` exactly once; the gateway answers a Secure, HttpOnly, host-only
+`__Host-` admission cookie and redirects into the app. A second submission, an
+expired body, or one from another lease is refused; renewal extends admission
+server-side; a fresh bootstrap is needed only when the cookie is gone. The
+renderer never receives a tunnel key or a shared machine credential. Endpoint
+identity is project + provider + process generation: a reused local address
+never silently becomes another app. `browser-local` offers stay under
+`surface.browser.open`, resolve the registered project's actual development URL
+on the host, and never take a phone-selected port.
+
+**Agent browser.** A `browser-session` offer requires
+`surface.browser.control-host-session` and carries an opaque `session`
+handle, a safe `site` hostname and the host-resolved `context` -- never a port,
+URL userinfo/query/fragment, or provider id. The browser service is the sole
+authority; the host relays. Device requests: `browser.session.status`
+(`generation`, `state`, `owner`, `site`, `navigation`, `reason?`,
+`expiresAt`), `browser.session.take`, `pause`, `resume`, `return` (each with
+`session`, `expectedGeneration`, idempotent `command`), and
+`browser.session.signal` (`session`, `generation`, sealed `message`). States:
+`agent-driving`, `waiting-for-you`, `taking-control`, `you-control`,
+`giving-back`, `paused`, `checking`, `ended`. Private signaling (SDP with
+authenticated fingerprints, ICE, input permits, field focus) is sealed under the
+separately pinned **browser-service grant** (existing signed/X25519 device-grant
+machinery, per-device roots; the PWA lane owns its storage and pairing, the
+surface lane owns its use through `packages/crypto/src/e2ee/{application,domain}/browserSession.ts`),
+so nothing private is readable with the shared session root, and it expires
+with the device grant and the session.
+
+**Agent side.** `muxr browser session {open,navigate,snapshot,click,fill,scroll,help}`
+addresses the session by logical name through the approved host-session
+capability; `help` only requests human assistance and never conveys
+credentials. `muxr browser open` remains the ordinary app-preview command.
+Agent automation uses this provider from session creation; it gets semantic
+operations only -- no raw CDP, evaluation, cookie/storage export,
+interception, init scripts, recording, extension management, file access or
+debug endpoints.
+
+Ownership of files across the two lanes is recorded in the direction brief and
+not duplicated here.
+
 ## Context
 
 Browser and Code are currently drawn as Kitty graphics inside a terminal pane. That path cannot give a phone real DOM input, selection, accessibility, scrolling, uploads, or a software keyboard that behaves. It also spends a PTY and a graphics protocol on something a WebView already does natively.

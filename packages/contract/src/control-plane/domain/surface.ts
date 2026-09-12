@@ -39,7 +39,7 @@ export function isSurfaceCapability(value: unknown): value is SurfaceCapability 
 export const SURFACE_PLACEMENTS = ['replace', 'beside', 'focus'] as const;
 export type SurfacePlacement = (typeof SURFACE_PLACEMENTS)[number];
 
-export const SURFACE_OFFER_KINDS = ['browser-direct', 'browser-local', 'code-review'] as const;
+export const SURFACE_OFFER_KINDS = ['browser-direct', 'browser-local', 'browser-session', 'code-review'] as const;
 export type SurfaceOfferKind = (typeof SURFACE_OFFER_KINDS)[number];
 
 export const MAX_SURFACE_NAME_LENGTH = 64;
@@ -58,6 +58,12 @@ export function isSurfaceOfferHandle(value: unknown): value is string {
 }
 
 const SURFACE_SESSION = /^[A-Za-z0-9._:-]{1,80}$/;
+/** Opaque handle of one broker-owned browser session. Never printed. */
+const BROWSER_SESSION_HANDLE = /^bsn_[A-Za-z0-9_-]{8,128}$/;
+
+export function isBrowserSessionHandle(value: unknown): value is string {
+    return typeof value === 'string' && BROWSER_SESSION_HANDLE.test(value);
+}
 
 /** A bounded session scope. Never displayed; never a credential. */
 export function isSurfaceSessionId(value: unknown): value is string {
@@ -134,7 +140,25 @@ export interface SurfaceCodeReviewOffer extends SurfaceOfferBase {
     mode: 'review';
 }
 
-export type SurfaceOffer = SurfaceBrowserDirectOffer | SurfaceBrowserLocalOffer | SurfaceCodeReviewOffer;
+/**
+ * The agent's own browser: one broker-owned Chromium session the owner can
+ * watch, take over for sign-in and give back. Requires the separate
+ * host-session authority; `browser-local` never grants it. The offer names
+ * the session by opaque handle and shows only a safe hostname -- never a
+ * port, a URL with userinfo/query/fragment, or the provider id.
+ */
+export interface SurfaceBrowserSessionOffer extends SurfaceOfferBase {
+    kind: 'browser-session';
+    capability: 'surface.browser.control-host-session';
+    /** Broker-owned session handle the device quotes on every session request. */
+    session: string;
+    /** Safe display target: the current site's hostname, or '' before navigation. */
+    site: string;
+    /** Worktree or working directory the session belongs to. Host-resolved. */
+    context: string;
+}
+
+export type SurfaceOffer = SurfaceBrowserDirectOffer | SurfaceBrowserLocalOffer | SurfaceBrowserSessionOffer | SurfaceCodeReviewOffer;
 
 export type SurfaceOfferInput =
     | {
@@ -155,6 +179,17 @@ export type SurfaceOfferInput =
         port: number;
         path?: string;
         label: string;
+        context: string;
+        provider: string;
+    }
+    | {
+        kind: 'browser-session';
+        capability: 'surface.browser.control-host-session';
+        name: string;
+        title?: string;
+        placement?: SurfacePlacement;
+        session: string;
+        site: string;
         context: string;
         provider: string;
     }
@@ -287,6 +322,23 @@ export function parseSurfaceOfferInput(value: unknown): SurfaceOfferInput {
             provider: cleanText(input.provider, MAX_SURFACE_NAME_LENGTH, 'provider'),
         };
     }
+    if (kind === 'browser-session') {
+        if (input.capability !== 'surface.browser.control-host-session') {
+            throw new Error('surface offer capability does not match its kind');
+        }
+        if (!isBrowserSessionHandle(input.session)) throw new Error('surface offer session is invalid');
+        return {
+            kind,
+            capability: 'surface.browser.control-host-session',
+            name: cleanName(input.name),
+            ...(input.title === undefined ? {} : { title: cleanText(input.title, MAX_SURFACE_TITLE_LENGTH, 'title') }),
+            ...(input.placement === undefined ? {} : { placement: cleanPlacement(input.placement) }),
+            session: input.session,
+            site: cleanSite(input.site),
+            context: cleanText(input.context, MAX_SURFACE_CONTEXT_LENGTH, 'context'),
+            provider: cleanText(input.provider, MAX_SURFACE_NAME_LENGTH, 'provider'),
+        };
+    }
     if (kind === 'code-review') {
         if (input.capability !== 'surface.code.open') throw new Error('surface offer capability does not match its target');
         const line = cleanLine(input.line, 'line');
@@ -322,7 +374,63 @@ export function parseSurfaceOfferInput(value: unknown): SurfaceOfferInput {
 /** Capability an offer kind needs. The kernel never names a plugin id. */
 export function surfaceCapabilityForKind(kind: SurfaceOfferKind): SurfaceCapability {
     if (kind === 'code-review') return 'surface.code.open';
+    if (kind === 'browser-session') return 'surface.browser.control-host-session';
     return 'surface.browser.open';
+}
+
+/**
+ * A site label is a bare hostname (or empty before the first navigation):
+ * no scheme, port, path, userinfo, query or fragment ever reaches chrome.
+ */
+export function cleanSite(value: unknown): string {
+    if (value === undefined || value === '') return '';
+    if (typeof value !== 'string' || value.length > 253 || !/^[A-Za-z0-9.-]+$/.test(value)) {
+        throw new Error('surface offer site is invalid');
+    }
+    return value.toLowerCase();
+}
+
+/** Safe hostname of a URL for chrome and cards; '' when it has none. */
+export function safeSiteOf(url: string): string {
+    try {
+        return new URL(url).hostname.toLowerCase();
+    } catch {
+        return '';
+    }
+}
+
+/**
+ * Ownership of one browser session as the service reports it. The words
+ * are the integration contract; UI text maps from them.
+ */
+export const BROWSER_SESSION_STATES = [
+    'agent-driving',
+    'waiting-for-you',
+    'taking-control',
+    'you-control',
+    'giving-back',
+    'paused',
+    'checking',
+    'ended',
+] as const;
+export type BrowserSessionState = (typeof BROWSER_SESSION_STATES)[number];
+
+export interface BrowserSessionStatus {
+    /** Monotonic ownership generation. Every transition and input carries the one it expects. */
+    generation: number;
+    state: BrowserSessionState;
+    /** Who holds the seat: the agent, this device, another owner device, or nobody. */
+    owner: 'agent' | 'self' | 'other' | 'none';
+    /** Safe hostname of the current page. */
+    site: string;
+    navigation: { canGoBack: boolean; canGoForward: boolean };
+    /** Human-readable, id-free reason for a paused/ended state. */
+    reason?: string;
+    expiresAt: number;
+}
+
+export function isBrowserSessionState(value: unknown): value is BrowserSessionState {
+    return typeof value === 'string' && (BROWSER_SESSION_STATES as readonly string[]).includes(value);
 }
 
 /**

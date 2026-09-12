@@ -679,6 +679,10 @@ export class SurfaceBroker {
         if (offer.kind === 'browser-local') {
             return { ...base, path: offer.path, label: offer.label, context: offer.context };
         }
+        // The session handle stays on the host; a reply names the site only.
+        if (offer.kind === 'browser-session') {
+            return { ...base, site: offer.site, context: offer.context };
+        }
         return {
             ...base,
             path: offer.path,

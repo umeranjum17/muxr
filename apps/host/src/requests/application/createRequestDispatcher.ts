@@ -612,6 +612,30 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             const lease = await previewLeases.renew(params.lease, context.deviceId);
             return { expiresAt: lease.expiresAt };
         },
+        // Frozen in the contract, implemented by the HTTPS preview and the
+        // browser-service parcels. Until those land this host answers
+        // honestly: nothing here pretends a preview or a session exists.
+        'preview.bootstrap': async () => {
+            throw new Error('preview: this computer cannot serve an HTTPS preview yet; update muxr');
+        },
+        'browser.session.status': async () => {
+            throw new Error('browser: this computer has no browser service yet; update muxr');
+        },
+        'browser.session.take': async () => {
+            throw new Error('browser: this computer has no browser service yet; update muxr');
+        },
+        'browser.session.pause': async () => {
+            throw new Error('browser: this computer has no browser service yet; update muxr');
+        },
+        'browser.session.resume': async () => {
+            throw new Error('browser: this computer has no browser service yet; update muxr');
+        },
+        'browser.session.return': async () => {
+            throw new Error('browser: this computer has no browser service yet; update muxr');
+        },
+        'browser.session.signal': async () => {
+            throw new Error('browser: this computer has no browser service yet; update muxr');
+        },
         'preview.attach': async (params, context) => {
             // Legacy path: the caller names a port (takeover streams and the
             // typed dev-server preview). The lease path below never does.
