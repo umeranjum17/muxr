@@ -111,6 +111,12 @@ function sameTarget(left: SurfaceOffer, right: SurfaceOfferInput): boolean {
             && left.label === right.label
             && left.context === right.context;
     }
+    // A session offer's identity is the session: a site change on the same
+    // session is an update of one record, never a new offer, so the handle
+    // (and every lease behind it) survives navigation.
+    if (left.kind === 'browser-session' && right.kind === 'browser-session') {
+        return left.session === right.session && left.site === right.site && left.context === right.context;
+    }
     if (left.kind === 'code-review' && right.kind === 'code-review') {
         return left.path === right.path
             && (left.line ?? 0) === (right.line ?? 0)
@@ -152,6 +158,22 @@ function materialize(input: SurfaceOfferInput, revision: number, expiresAt: numb
             port: input.port,
             path: input.path ?? '/',
             label: input.label,
+            context: input.context,
+            provider: input.provider,
+        };
+    }
+    if (input.kind === 'browser-session') {
+        return {
+            version: SURFACE_OFFER_VERSION,
+            capability: input.capability,
+            name: input.name,
+            title,
+            placement,
+            revision,
+            expiresAt,
+            kind: input.kind,
+            session: input.session,
+            site: input.site,
             context: input.context,
             provider: input.provider,
         };
