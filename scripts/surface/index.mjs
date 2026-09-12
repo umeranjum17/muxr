@@ -6,6 +6,7 @@
  * - `muxr surface capabilities --json`
  * - `muxr browser open <https-url|http://localhost:PORT/path> [--beside|--focus] [--name NAME] [--provider ID]`
  * - `muxr browser update [URL]`, `muxr browser reload`, `muxr browser close`
+ * - `muxr browser origin [--name NAME]` (the public preview hostname of a local app)
  * - `muxr code open <path[:line[:column]]>`, `muxr code diff [path]`
  * - `muxr surface list`
  *
@@ -69,7 +70,11 @@ function describeSurface(surface) {
         return `browser ${JSON.stringify(name)}${revision}${placement} -> ${surface.url}`;
     }
     if (surface.kind === 'browser-local') {
-        return `browser ${JSON.stringify(name)}${revision}${placement} -> local app${typeof surface.path === 'string' ? ` ${surface.path}` : ''}`;
+        // The public preview hostname is what the agent puts in the
+        // framework's allowed dev origins (Next allowedDevOrigins, Expo
+        // EXPO_PACKAGER_PROXY_URL). A hostname only, never the port.
+        const host = typeof surface.hostname === 'string' ? ` (preview host ${surface.hostname})` : '';
+        return `browser ${JSON.stringify(name)}${revision}${placement} -> local app${typeof surface.path === 'string' ? ` ${surface.path}` : ''}${host}`;
     }
     if (surface.kind === 'code-review' && typeof surface.path === 'string') {
         const anchor = typeof surface.line === 'number' ? `:${surface.line}${typeof surface.column === 'number' ? `:${surface.column}` : ''}` : '';
@@ -112,7 +117,8 @@ function printResult(data, json) {
         return;
     }
     if (outcome === 'visible') {
-        if (clean.surface !== undefined) process.stdout.write(`Visible ${describeSurface(clean.surface)}.\n`);
+        if (typeof clean.hostname === 'string') process.stdout.write(`${clean.hostname}\n`);
+        else if (clean.surface !== undefined) process.stdout.write(`Visible ${describeSurface(clean.surface)}.\n`);
         else process.stdout.write('Visible.\n');
         return;
     }
@@ -187,17 +193,17 @@ export async function runSurfaceCli(argv) {
                 }), json);
                 return 0;
             }
-            if (sub === 'reload' || sub === 'close') {
+            if (sub === 'reload' || sub === 'close' || sub === 'origin') {
                 const parsed = splitArgs(rest, { options: ['--name'] });
                 if (parsed.positionals.length > 1) usageError(`usage: muxr browser ${sub} [--name NAME]`);
                 const name = parsed.options['--name'] ?? parsed.positionals[0];
                 printResult(await callSurfaceBroker({
-                    method: sub === 'reload' ? 'browser.reload' : 'browser.close',
+                    method: `browser.${sub}`,
                     ...(name === undefined ? {} : { name }),
                 }), json);
                 return 0;
             }
-            usageError('usage: muxr browser open|home|update|reload|close');
+            usageError('usage: muxr browser open|home|update|reload|close|origin');
         }
         if (command === 'code') {
             const [sub, ...rest] = args;

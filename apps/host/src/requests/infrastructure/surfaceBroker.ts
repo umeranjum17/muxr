@@ -38,6 +38,7 @@ import {
 } from '@muxr/contract';
 import { createSurfaceOffers, type SurfaceOfferRegistry } from './surfaceOffers.js';
 import { openSurfaceOffer } from '../application/openSurfaceOffer.js';
+import type { PreviewEndpointRegistry } from './previewEndpoint.js';
 import type { SessionSource } from '../../agent/index.js';
 
 const MAX_REQUEST_BYTES = 32 * 1024;
@@ -98,6 +99,8 @@ export interface SurfaceBrokerPorts {
     dataDir: string;
     source: Pick<SessionSource, 'herdrTree' | 'pluginList'>;
     offers?: SurfaceOfferRegistry;
+    /** HTTPS preview endpoints. Absent means a local open publishes no preview hostname. */
+    endpoints?: PreviewEndpointRegistry;
     snapshot?(): Promise<string>;
     now?: () => number;
 }
@@ -108,6 +111,7 @@ type BrokerRequest =
     | { method: 'browser.update'; target?: string; name?: string; placement?: string; provider?: string }
     | { method: 'browser.reload'; name?: string }
     | { method: 'browser.close'; name?: string }
+    | { method: 'browser.origin'; name?: string }
     | { method: 'code.open'; target: string; name?: string; placement?: string; provider?: string }
     | { method: 'code.diff'; target?: string; name?: string; placement?: string; provider?: string }
     | { method: 'surface.list' };
@@ -143,6 +147,7 @@ const BROKER_METHODS = [
     'browser.update',
     'browser.reload',
     'browser.close',
+    'browser.origin',
     'code.open',
     'code.diff',
     'surface.list',
@@ -178,6 +183,7 @@ function parseRequest(value: unknown): BrokerRequest {
             };
         case 'browser.reload':
         case 'browser.close':
+        case 'browser.origin':
             only(request, ['method', 'name']);
             return {
                 method: request.method,
@@ -268,12 +274,14 @@ export class SurfaceBroker {
     private readonly offers: SurfaceOfferRegistry;
     private readonly source: Pick<SessionSource, 'herdrTree' | 'pluginList'>;
     private readonly snapshot: (() => Promise<string>) | undefined;
+    private readonly endpoints: PreviewEndpointRegistry | undefined;
 
     constructor(private readonly ports: SurfaceBrokerPorts) {
         this.socketPath = surfaceSocketPath(ports.dataDir);
         this.offers = ports.offers ?? createSurfaceOffers(ports.now === undefined ? {} : { now: ports.now });
         this.source = ports.source;
         this.snapshot = ports.snapshot;
+        this.endpoints = ports.endpoints;
     }
 
     get registry(): SurfaceOfferRegistry {
@@ -543,6 +551,16 @@ export class SurfaceBroker {
             this.offers.close(request.name ?? 'browser', resolved.context, resolved.sessionId);
             return { outcome: 'closed' as const, name: request.name ?? 'browser' };
         }
+        if (request.method === 'browser.origin') {
+            // Re-print the public preview hostname of an open local app so
+            // the agent can configure the framework's allowed dev origins.
+            const resolved = await this.resolveContext(hints);
+            const current = this.offers.current(request.name ?? 'browser', resolved.context, resolved.sessionId);
+            if (current === undefined) throw new Error('no open surface by that name; open one first');
+            const hostname = this.previewHostname(current.offer);
+            if (hostname === undefined) throw new Error('that surface has no HTTPS preview origin');
+            return { outcome: 'visible' as const, name: current.offer.name, hostname };
+        }
         if (request.method === 'browser.reload') {
             // Re-emitted, not visible: no device acknowledgement exists yet.
             // The frame carries the same handle and revision to the phone.
@@ -581,6 +599,10 @@ export class SurfaceBroker {
                 };
             } else {
                 const provider = await this.resolveProvider('surface.browser.open', request.provider);
+                // Register the loopback endpoint under this exact context and
+                // provider: the public origin is allocated here, on the host,
+                // and the reply names its hostname (never the port).
+                this.endpoints?.register({ context: resolved.context, provider, port: classified.port });
                 input = {
                     kind: 'browser-local',
                     capability: 'surface.browser.open',
@@ -677,7 +699,8 @@ export class SurfaceBroker {
         // Ports and provider ids stay on the host: a reply names the logical
         // surface, its path and its worktree only.
         if (offer.kind === 'browser-local') {
-            return { ...base, path: offer.path, label: offer.label, context: offer.context };
+            const hostname = this.previewHostname(offer);
+            return { ...base, path: offer.path, label: offer.label, context: offer.context, ...(hostname === undefined ? {} : { hostname }) };
         }
         // The session handle stays on the host; a reply names the site only.
         if (offer.kind === 'browser-session') {
@@ -693,6 +716,12 @@ export class SurfaceBroker {
             destination: offer.destination,
             mode: 'review',
         };
+    }
+
+    /** Public preview hostname of a local offer's registered endpoint, if the gateway runs. */
+    private previewHostname(offer: SurfaceOffer): string | undefined {
+        if (offer.kind !== 'browser-local' || this.endpoints === undefined) return undefined;
+        return this.endpoints.get(this.endpoints.idFor({ context: offer.context, provider: offer.provider, port: offer.port }))?.hostname;
     }
 
     private accept(socket: Socket): void {
