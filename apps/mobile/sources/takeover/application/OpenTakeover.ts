@@ -94,7 +94,7 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
     let inputSequence = 0;
     let closed = false;
     let status: BrowserSessionStatus | undefined;
-    let phase: 'connecting' | 'live' | 'needs-pairing' | 'checking' = 'connecting';
+    let phase: 'connecting' | 'live' | 'needs-pairing' | 'checking' | 'ended' = 'connecting';
     let field: FocusedField | null = null;
     let transition: TakeoverTransition | undefined;
     let failure: string | undefined;
@@ -131,6 +131,7 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
     const derivedState = (): TakeoverSnapshot['state'] => {
         if (phase === 'needs-pairing') return 'needs-pairing';
         if (phase === 'checking') return 'checking';
+        if (phase === 'ended') return 'ended';
         if (status === undefined) return 'connecting';
         // Private is claimed only once the barrier and a fresh private track are both acknowledged.
         if (status.state === 'you-control' && !freshMedia()) return 'taking-control';
@@ -289,16 +290,28 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
         await refresh();
     };
 
+    let rechecks = 0;
     const refresh = async (): Promise<void> => {
         if (closed) return;
         failure = undefined;
         try {
             applyStatus(await sync.request('browser.session.status', { session }));
+            rechecks = 0;
         } catch (error) {
             if (closed) return;
             if (isGrantFailure(error)) phase = 'needs-pairing';
+            // The service no longer knows this session (it restarted or the
+            // agent closed it): an ended seat, not a retry loop.
+            else if (/has ended/i.test(error instanceof Error ? error.message : String(error))) { phase = 'ended'; closePeer(); }
             else phase = 'checking';
             notify();
+            // The control plane itself may be reconnecting (foreground after
+            // a background); ask again on a short bounded cadence before
+            // leaving it to Retry.
+            if (phase === 'checking' && rechecks < 15) {
+                rechecks += 1;
+                setTimeout(() => { if (!closed && phase === 'checking') void refresh(); }, HEARTBEAT_MS);
+            }
         }
     };
 
@@ -407,6 +420,9 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
             const firstForSeat = presentedGeneration !== forMedia || presentedFor !== generation();
             presentedGeneration = forMedia;
             presentedFor = generation();
+            // A fresh frame is the service answering; the permit pulse that
+            // keeps liveness starts only after this frame is acknowledged.
+            lastServiceHeartbeat = now();
             notify();
             // The service moves the seat to you-control only once this
             // device has actually shown a frame of the private track.

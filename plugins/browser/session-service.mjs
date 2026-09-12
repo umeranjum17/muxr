@@ -76,6 +76,7 @@ export function controlSocketPath(dir = serviceDir()) {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const stamp = () => new Date().toISOString().slice(11, 23);
 const now = () => Date.now();
 
 function siteOf(url) {
@@ -459,6 +460,7 @@ class BrowserService {
     // ---- records and status
 
     record(session, entry) {
+        if (typeof entry.note === 'string') process.stderr.write(`${stamp()} browser service: ${entry.note}\n`);
         session.transitions.push({ at: now(), state: session.state, generation: session.generation, ...entry });
         if (session.transitions.length > 64) session.transitions.shift();
     }
@@ -468,7 +470,7 @@ class BrowserService {
         session.state = state;
         // Operator log only (stderr of the service): states and plain
         // reasons, never handles, ids or page content.
-        process.stderr.write(`browser service: ${from} -> ${state}${entry.reason ? ` (${entry.reason})` : ''}\n`);
+        process.stderr.write(`${stamp()} browser service: ${from} -> ${state}${entry.reason ? ` (${entry.reason})` : ''}\n`);
         session.reason = entry.reason;
         if (state === 'ended') session.endedAt = now();
         this.record(session, { from, ...entry });
@@ -829,18 +831,54 @@ class BrowserService {
         return { width: Math.round(width * fit), height: Math.round(height * fit), fps: 60 };
     }
 
-    async captureTarget(session) {
+    /**
+     * One capture at a time per session: two handshakes racing (a retry
+     * landing while the first hello is still capturing) would ask the tab
+     * for a second stream and Chrome refuses a tab with an active one.
+     */
+    captureTarget(session) {
+        if (session.capturing === undefined) {
+            session.capturing = this.captureTargetNow(session).finally(() => { session.capturing = undefined; });
+        }
+        return session.capturing;
+    }
+
+    async captureTargetNow(session) {
         const target = session.child ?? { targetId: session.targetId, tabId: session.tabId };
         const info = await this.cdp.send('Target.getTargetInfo', { targetId: target.targetId });
         const before = await this.channel.command({ cmd: 'verify', tabId: target.tabId });
         if (before.url !== info.targetInfo.url) throw new Error('the registered tab no longer matches');
         await this.cdp.send('Target.activateTarget', { targetId: target.targetId }).catch(() => undefined);
-        const captured = await this.channel.command({ cmd: 'capture', tabId: target.tabId, url: info.targetInfo.url, ...this.captureDimensions(session) });
+        let captured;
+        for (let attempt = 0; ; attempt += 1) {
+            try {
+                captured = await this.channel.command({ cmd: 'capture', tabId: target.tabId, url: info.targetInfo.url, ...this.captureDimensions(session) });
+                break;
+            } catch (error) {
+                // A stream stopped a moment ago is still being torn down; give it a beat.
+                if (attempt < 3 && /active stream/i.test(error instanceof Error ? error.message : String(error))) { await sleep(400); continue; }
+                throw error;
+            }
+        }
         const after = await this.channel.command({ cmd: 'verify', tabId: target.tabId });
         if (after.url !== info.targetInfo.url) throw new Error('the registered tab changed during capture');
         session.captured = true;
         session.targetGeneration += 1;
         return captured;
+    }
+
+    /**
+     * A captured tab with nothing to repaint hands the encoder no frame
+     * until Chrome's refresh timer fires seconds later; once the peer is
+     * up, an invisible compositor-only animation is damage enough for the
+     * first frame to leave at once.
+     */
+    async kickPaint(session) {
+        await this.cdp.send('Runtime.evaluate', {
+            // Long enough to span the encoder coming up behind a fresh peer.
+            expression: 'document.documentElement.animate([{ opacity: 0.999 }, { opacity: 1 }], { duration: 400 }); undefined',
+            returnByValue: true,
+        }, session.cdpSession).catch(() => undefined);
     }
 
     /** What the device may map taps into: the CSS viewport and the generations it must quote. */
@@ -1049,7 +1087,9 @@ class BrowserService {
                 return { type: 'status', status: await this.status(session, device.deviceId), viewport: session.viewport };
             }
             case 'offer': {
-                if (session.state !== 'taking-control' && !this.watching(session)) throw this.statusError(session);
+                // The seat holder may re-offer within its generation (a lost
+                // peer after backgrounding); the extension replaces the peer.
+                if (session.state !== 'taking-control' && session.state !== 'you-control' && !this.watching(session)) throw this.statusError(session);
                 if (!session.captured) await this.captureTarget(session);
                 if (typeof message.sdp !== 'string' || message.sdp.length > 64 * 1024) throw new Error('that offer is invalid');
                 session.heartbeatAt = now();
@@ -1097,6 +1137,8 @@ class BrowserService {
             void this.onInput(session, event.intent).catch(() => undefined);
         } else if (event.event === 'channel' && event.channel === 'control') {
             void this.sendGeometry(session).then(() => this.reportFocus(session)).catch(() => undefined);
+        } else if (event.event === 'peer' && event.connection === 'connected') {
+            void this.kickPaint(session);
         } else if (event.event === 'capture-ended' || (event.event === 'peer' && (event.connection === 'failed' || event.connection === 'closed'))) {
             if (session.state === 'you-control' || session.state === 'taking-control') void this.pause(session, event.event === 'capture-ended' ? 'the page capture stopped' : 'the private connection dropped');
         } else if (event.event === 'ice' && event.candidate) {

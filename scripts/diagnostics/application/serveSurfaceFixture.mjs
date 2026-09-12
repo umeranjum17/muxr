@@ -102,6 +102,13 @@ export async function serveSurfaceFixture(port = 0) {
             });
             return;
         }
+        // Input->visible marker for latency runs: every pointer down flips
+        // the whole page between two flat colours, nothing else on it.
+        if (url === '/marker') {
+            response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+            response.end('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;height:100%;background:#0000ff}</style></head><body><script>var on=false;addEventListener("pointerdown",function(){on=!on;document.body.style.background=on?"#ff0000":"#0000ff";});</script></body></html>');
+            return;
+        }
         if (url === '/about') {
             response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
             response.end(html(`<h1>About</h1><p>A second page reached by ordinary navigation. Version ${version}.</p><p><a href="/">back to the fixture</a></p>`));
