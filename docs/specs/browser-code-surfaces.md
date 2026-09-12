@@ -3,7 +3,7 @@ title: Browser and Code web surfaces
 slug: browser-code-surfaces
 status: in-progress
 created: 2026-09-09
-updated: 2026-09-12
+updated: 2026-09-13
 owner: umer
 links:
   - ../decisions/0005-pi-like-extension-runtime.md
@@ -12,35 +12,59 @@ links:
 
 # Browser and Code web surfaces
 
-## Status on the PWA lineage (2026-09-12)
+## Status on the PWA lineage (2026-09-13)
 
-This spec now tracks the port onto `feat/pwa-primary-channel` (base
-`8eac274c`), where the browser app is the first-class runtime. What is in:
+This spec tracks the port onto `feat/pwa-primary-channel` (base `8eac274c`)
+as branch `feat/pwa-surfaces`, where the browser app is the first-class
+runtime. Code is descoped; Browser is delivered through the two routes frozen
+below. What is in and proven on the PWA (Chromium, dev stack, loopback):
 
 - Host offers, local broker, leases (approval-snapshot identity, exact offer
   generation, live session, 1 s standing sweep, revocation closing live
-  connections), the `muxr browser|code|surface` CLI and both plugin
-  manifests -- unchanged in shape from Slice 2A.
-- Browser on web: a leased offer resolves through `preview.lease`, attaches
-  the existing encrypted v1 preview channel, and the existing preview
-  service worker serves the page into an opaque-origin sandboxed iframe under
-  the PWA's own origin. No loopback listener, no cookie install, no private
-  127/8 origin, no admission gateway: none of those exist or are needed in a
-  browser tab. Reload is the update mechanism; HMR/WebSockets do not ride the
-  request bridge.
-- Browser on native: the same lease path over the existing native loopback
-  bridge (Slice 0 posture: shared `127.0.0.1` cookie jar, no admission).
-- Direct HTTPS: an iframe on web with a labelled external-tab action for
-  sites that refuse framing; the hardened WebView on native.
-- Code stays review/navigation-first: `code open`/`code diff` route to the
-  native Files/Changes viewer.
-- Offers broadcast on the session channel (no per-recipient sealing); an
-  offer carries no credential and acting on one needs a control grant and a
-  lease issued to that exact device.
+  connections), the `muxr browser|surface` CLI and the plugin manifests.
+- **Preview** (journey 1): a leased `browser-local` offer resolves through
+  `preview.lease` -> `preview.bootstrap`, the frame posts the one-use body to
+  the host-allocated HTTPS origin, the gateway sets the `__Host-` admission
+  cookie (`Secure; HttpOnly; SameSite=None; Partitioned`) and proxies the app
+  as a stream, WebSocket upgrades included. App `Set-Cookie` without a
+  SameSite attribute is normalized to `Secure; SameSite=None; Partitioned` so
+  the app's own session cookies return inside the cross-site frame. Proven
+  against a real Next.js 15 app: assets, an HttpOnly API cookie surviving
+  Reload, Fast Refresh over the proxied HMR WebSocket with component state
+  kept, the build-error overlay appearing and clearing without Reload. The
+  service-worker iframe bridge is gone: sandboxed-origin navigations and
+  subresources bypass a worker, so it could never carry a real app.
+- **Agent browser** (journey 2): `session open/navigate/help` -> the owner
+  watches the pinned Chromium over WebRTC (H.264) -> Take control ->
+  `You control · Private` -> tap a password field (the trusted composer opens,
+  never a stored value) -> password, one-time code -> signed in; agent
+  snapshot/fill are refused status-only meanwhile; Give back scrubs secret
+  fields and reopens agent observation under a fresh generation; a second
+  take after give-back works. Background pauses the seat, foreground shows
+  Resume/Give back, Resume reconnects. A seat the service no longer knows
+  reads "Session ended".
+- Private signaling is sealed under a browser-service grant the device
+  enrolls with `browser.session.enroll` (X25519 device grant minted from the
+  service identity, scope = service, device, session, generation, key
+  version).
+- Measured (directive 9, loopback, frame-callback detection, no physical
+  display): input -> visible response through tap/CDP/capture/WebRTC/`<video>`
+  over 200 attempts, 0 missed, p50 36.9 ms, p95 54.4 ms, p99 55.7 ms, max
+  1023 ms. Open/Take/Resume -> first private frame ~0.35-0.4 s (was ~5 s: a
+  static captured tab yields no frame until Chrome's refresh timer; the
+  service now kicks a compositor-only repaint when the peer connects). A
+  static page streams at Chrome's ~1 fps refresh; damage streams at once.
 
-Deliberately not ported: v2 authenticated framing and credits, the admission
-gateway, private origins and cookie admission, the Kotlin surface chooser,
-the developer Web Surface route.
+Not done or not runnable here: the remote profile (80 ms RTT / 10 Mbit /
+loss; no netem without root), physical Android/iOS devices and camera
+recording, the Expo Web fixture, sustained-scroll gap measurement,
+HMR-ready -> visible timing. Known limits for the PWA integrator: same-UID
+isolation of the browser service is not enforced; the public Caddy/frp route
+and TURN are the PWA lane's; grant pinning at pairing is the PWA lane's and
+the in-memory grant re-enrolls on every PWA reload; a service restart leaves
+the agent's old offers published until their session closes (they show as
+ended); `Runtime.evaluate` is used for the repaint kick and secret scrub only,
+never exposed to the agent.
 
 ## Frozen interfaces for the two Browser routes (2026-09-12, Code descoped)
 
