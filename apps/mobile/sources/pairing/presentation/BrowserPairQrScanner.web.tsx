@@ -85,6 +85,9 @@ type Phase =
  */
 export function BrowserPairQrScanner({ title, onScanned }: BrowserPairQrScannerProps) {
     const [phase, setPhase] = React.useState<Phase>({ kind: 'idle' });
+    // Each opening owns its own history entry: an obsolete entry restored by
+    // browser Forward must never be mistaken for the current scan.
+    const [opening, setOpening] = React.useState(0);
     const generation = React.useRef(0);
     const stream = React.useRef<MediaStream | null>(null);
     const video = React.useRef<HTMLVideoElement | null>(null);
@@ -116,6 +119,7 @@ export function BrowserPairQrScanner({ title, onScanned }: BrowserPairQrScannerP
         stop();
         const mine = generation.current;
         const live = () => mine === generation.current;
+        setOpening((count) => count + 1);
         setPhase({ kind: 'starting' });
         let acquired: MediaStream;
         try {
@@ -180,7 +184,7 @@ export function BrowserPairQrScanner({ title, onScanned }: BrowserPairQrScannerP
     // close it (stopping the camera) instead of leaving the route, even
     // where the host frame persists across routes (the demo bar).
     const cancel = React.useCallback(() => close({ kind: 'idle' }), [close]);
-    useWebBackCloses(active, cancel, 'muxrQrScanner');
+    useWebBackCloses(active, cancel, `muxrQrScanner:${opening}`);
     React.useEffect(() => {
         if (!active) return undefined;
         const onHide = () => { if (document.visibilityState === 'hidden') close({ kind: 'error', message: BACKGROUND_STOP }); };

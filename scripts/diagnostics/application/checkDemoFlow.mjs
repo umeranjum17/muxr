@@ -530,10 +530,14 @@ try {
     // routes, so the scanner must own its own history entry. Hold the first
     // permission answer, press real Back, then release it: the late stream
     // must end at once and nothing may decode, confirm or navigate.
+    // Every call is held until released so each opening stays unfinished
+    // on demand; `__gateOff` restores pass-through for the final real scan.
     await fresh.evaluate(`(() => {
         const wrapped = navigator.mediaDevices.getUserMedia;
-        let held = new Promise((resolve) => { window.__releasePermission = resolve; });
-        navigator.mediaDevices.getUserMedia = async (c) => { const gate = held; held = null; if (gate) await gate; return wrapped(c); };
+        window.__gates = [];
+        window.__gateOff = false;
+        window.__releasePermission = () => { for (const release of window.__gates.splice(0)) release(); };
+        navigator.mediaDevices.getUserMedia = async (c) => { if (!window.__gateOff) await new Promise((resolve) => window.__gates.push(resolve)); return wrapped(c); };
         return 'gated';
     })()`);
     await fresh.evaluate(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Scan the QR from Setup' && el.offsetParent !== null)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
@@ -548,11 +552,31 @@ try {
     check('late permission after back yields a stopped stream', await fresh.evaluate(`window.__streams.length === 1 && window.__streams[0].getTracks().every((t) => t.readyState === 'ended')`));
     check('late permission after back reopens nothing', !(await fresh.evaluate(`!!document.querySelector('video')`)) && !(await fresh.bodyText()).includes('Continue to this computer'));
     check('late permission after back navigates nowhere', (await fresh.evaluate('window.location.pathname')) === '/demo' && fresh.requests.slice(demoRequestsBefore).every((entry) => entry.url.startsWith(`http://127.0.0.1:${port}/`)));
+    // Scan → Back → Forward → fresh Scan → Back: Forward restores the old
+    // scanner history entry; the fresh scan must still own Back.
+    const clickDemoScan = () => fresh.evaluate(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Scan the QR from Setup' && el.offsetParent !== null)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await clickDemoScan();
+    await fresh.waitFor('second pending permission', (text) => text.includes('Waiting for camera permission'), 10000);
+    await fresh.evaluate('window.history.back()');
+    await fresh.waitFor('second back closes', (text) => !text.includes('Waiting for camera permission'), 10000);
+    await fresh.evaluate('window.history.forward()');
+    await new Promise((r) => setTimeout(r, 1500));
+    check('forward restores an idle demo, not a scanner', !(await fresh.evaluate(`!!document.querySelector('video')`)) && (await fresh.evaluate('window.location.pathname')) === '/demo' && (await fresh.bodyText()).includes('Scan the QR from Setup'));
+    await clickDemoScan();
+    await fresh.waitFor('fresh scan after forward', (text) => text.includes('Waiting for camera permission'), 10000);
+    await fresh.evaluate('window.history.back()');
+    await fresh.waitFor('back after forward closes the fresh scan', (text) => !text.includes('Waiting for camera permission'), 10000);
+    check('back after forward closes the fresh scanner', !(await fresh.evaluate(`!!document.querySelector('video')`)) && (await fresh.evaluate('window.location.pathname')) === '/demo');
+    await fresh.evaluate('window.__releasePermission()');
+    await new Promise((r) => setTimeout(r, 2500));
+    check('late permissions after forward/back all end', await fresh.evaluate(`window.__streams.length === 3 && window.__streams.every((s) => s.getTracks().every((t) => t.readyState === 'ended'))`));
+    check('late work after forward/back revives nothing', !(await fresh.evaluate(`!!document.querySelector('video')`)) && !(await fresh.bodyText()).includes('Continue to this computer') && (await fresh.evaluate('window.location.pathname')) === '/demo' && fresh.requests.slice(demoRequestsBefore).every((entry) => entry.url.startsWith(`http://127.0.0.1:${port}/`)));
+    await fresh.evaluate('window.__gateOff = true');
     // A fresh explicit scan still works through the same launcher.
     await fresh.evaluate(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Scan the QR from Setup' && el.offsetParent !== null)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
     const handoff = await fresh.waitFor('demo handoff confirmation', (text) => text.includes('Continue to this computer'), 30000);
     check('demo shows only the destination origin', handoff.includes(QR_HOST) && !handoff.includes(QR_CODE) && handoff.includes('Scan again'));
-    check('demo camera tracks are stopped before the handoff', await fresh.evaluate(`window.__streams.length === 2 && window.__streams.every((s) => s.getTracks().every((t) => t.readyState === 'ended'))`) && await fresh.evaluate(`!document.querySelector('video')`));
+    check('demo camera tracks are stopped before the handoff', await fresh.evaluate(`window.__streams.length === 4 && window.__streams.every((s) => s.getTracks().every((t) => t.readyState === 'ended'))`) && await fresh.evaluate(`!document.querySelector('video')`));
     check('demo stores nothing from the scan', await fresh.evaluate(storageSnapshot) === storageBefore);
     check('demo contacts neither the host nor a CDN before Continue', fresh.requests.slice(demoRequestsBefore).every((entry) => entry.url.startsWith(`http://127.0.0.1:${port}/`)));
     check('no invitation code in the demo DOM', !(await fresh.evaluate(`document.documentElement.outerHTML.includes(${JSON.stringify(QR_CODE)})`)));
