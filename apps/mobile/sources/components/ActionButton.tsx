@@ -19,6 +19,8 @@ export const ActionButton = React.memo((props: {
     icon?: keyof typeof Ionicons.glyphMap;
     disabled?: boolean;
     accessibilityLabel?: string;
+    /** Focus target for callers that return focus after a dismissed flow. */
+    ref?: React.Ref<View>;
 }) => {
     const styles = stylesheet;
     const [busy, setBusy] = React.useState(false);
@@ -42,6 +44,7 @@ export const ActionButton = React.memo((props: {
     }, [props.onPress, props.action]);
     return (
         <Pressable
+            ref={props.ref}
             disabled={props.disabled || busy}
             accessibilityRole="button"
             accessibilityLabel={props.accessibilityLabel ?? props.title}

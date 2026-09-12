@@ -3,7 +3,7 @@ title: PWA-primary final execution contract
 slug: pwa-primary-channel
 status: in-progress
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 owner: umer
 links:
   - ../user/install.md
@@ -384,6 +384,12 @@ Astra outcome readiness: 41% overall; Fable branch-level readiness: about 50%, w
 - real provider/physical voice proof;
 - merge, publish, marketplace, website deploy and public smoke.
 
+## Amendment 2026-09-12 — zero-paste QR acquisition (owner-reopened)
+
+Frozen after independent Astra/Fable planning (`pwa-web-qr-amendment.md`, inputs `astra-web-qr-plan.md`, `fable-web-qr-plan.md`). It narrowly reopens the PWA acquisition contract (sections 1.6, 4's URL-or-QR choice, 6's browser-link step, 8.4–8.7 and the Unit 4/5/7/9 gates); everything else stays frozen. Required journey: Setup and every browser Pair pane print a QR of the exact existing one-use HTTPS link; a phone camera opens the host's `/pair` consent directly (cold-link regression fixed); an unpaired browser or installed PWA leads with **Scan QR to pair** with manual entry secondary; Demo → Connect adds **Scan the QR from Setup**, decodes locally, shows the destination origin and performs one explicit top-level navigation — the marketing origin never claims, resolves, stores, logs or fetches the invitation. Consent, authority, expiry, claim, WebCrypto storage, acknowledgement, revocation and E2EE remain host-owned; scanning grants nothing. Exclusions: no QR format change, fragment migration, new endpoint/authority, TLS weakening, native scanner rewrite, camera on marketing landing/docs, automatic pairing or navigation, background scanner, QR analytics, extra dependency.
+
+Implemented in pockit (this repository): shared `mintDeviceGrant` prints the browser QR and renews the same requested intent on expiry; `pairingIntent().promptLine()` says scan or open; `/pair` cold short links reach consent; `parseBrowserPairingQr` bounds scanned input; `BrowserPairQrScanner` (web-only, native inert) owns `getUserMedia`, one generation/stream/decode/latch and explicit cleanup, prefers a real `BarcodeDetector` with `qr_code` support and otherwise the installed `barcode-detector` ponyfill with `zxing_reader.wasm` served as a hashed same-origin export asset; root/pair/herd empty state lead with **Scan QR to pair**; Demo Connect card handoff; Install/Trust/Troubleshooting copy; `checkDemoFlow.mjs` gains the one browser QR flow and `checkWebExport.mjs` the asset checks. The website companion change (`/demo` gets `Permissions-Policy: camera=(self)` only) lands in the website repository at Unit 7.
+
 ## Implementation status
 
 Units are executed on `feat/pwa-primary-channel`. Unit status is recorded here as work lands.
@@ -394,8 +400,8 @@ Units are executed on `feat/pwa-primary-channel`. Unit status is recorded here a
 | 1 Security/data integrity | done | see git log (Unit 1) |
 | 2 Herdr acquisition and lifecycle | done | c7fe5481 (+ gate corrections de8c93fa); clean-room gate 20/21, remaining row re-gated at freeze |
 | 3 Config/TUI/skill | done | see git log (Unit 3) |
-| 4 Funnel, parity and canonical docs | done | see git log (Unit 4) |
-| 5 Functional freeze and candidate gate | done | frozen tuple at 319a80c0 (tarball `sha512-0tJ5zq…`, web export tree `bd1c5f17…`); full suite 44/46 at freeze, the two non-product rows (unpushed-ref gate preflight, smoke shim) re-run green after 1a453a6e; see task25-pwa-final-execution.md |
+| 4 Funnel, parity and canonical docs | reopened → done | Unit 4 at 8fb01831; reopened by the 2026-09-12 QR amendment (web QR producer, cold intake, web scanner, demo handoff, canonical copy) — see task25-web-qr-implementation.md |
+| 5 Functional freeze and candidate gate | superseded | prior tuple at 319a80c0 (tarball `sha512-0tJ5zq…`, web export tree `bd1c5f17…`) is superseded by the QR amendment; a new tarball/export identity and one complete suite are due at the next freeze (hashes recorded there, not before packing) |
 | 6 Real voice and physical proof | lead-owned | |
 | 7 Sync website once | separate repository | |
 | 8 Contract review and PRs | pending | |

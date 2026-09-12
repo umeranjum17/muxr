@@ -10,17 +10,24 @@
  * Phase B — direct fresh load in a new browser context (no shared state, no
  * clicks, no focus tricks): the herd must bootstrap deterministically, not
  * via a focus effect. This mirrors the harness that caught the bootstrap
- * race.
+ * race. The same context then proves browser QR acquisition: the cold
+ * printed link reaches consent, the in-app scanner decodes a synthetic
+ * camera feed (Chromium's fake device playing a generated Y4M of a real
+ * browser QR) through the shipped detector and same-origin WASM with the
+ * camera stopped before consent, and the demo's Connect card hands off with
+ * one top-level navigation and nothing stored or fetched on its origin.
  *
  * Page console errors and uncaught exceptions fail the run in both phases.
  * Skipped with a note when apps/mobile/dist is absent (CI exports first) or
  * no system Chromium exists.
  */
 import { createServer } from 'node:net';
-import { existsSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync as writeFixture } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import QRCode from 'qrcode';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const dist = join(root, 'apps', 'mobile', 'dist');
@@ -55,26 +62,77 @@ const freePort = () => new Promise((resolve, reject) => {
 const port = await freePort();
 const CDP_PORT = await freePort();
 
+// Synthetic camera: a browser pairing QR in the exact printed format (a
+// non-functional example host and code, never a minted invitation), written
+// as a two-frame Y4M so Chromium's fake video device loops it into the real
+// getUserMedia stream the scanner opens.
+const QR_CODE = '7KDM4-QXP7N';
+const QR_HOST_NAME = 'host.example.test';
+const HTTPS_PORT = await freePort();
+// The "computer" origin: the same export served over throwaway TLS on a
+// name Chromium resolves to loopback, because browser pairing links are
+// HTTPS-only by contract and the cold-link proof must load one for real.
+const QR_HOST = `https://${QR_HOST_NAME}:${HTTPS_PORT}`;
+const QR_LINK = `${QR_HOST}/pair?pair=${QR_CODE}&role=control`;
+const fixtureDir = mkdtempSync(join(tmpdir(), 'muxr-qr-'));
+const tlsKey = join(fixtureDir, 'key.pem');
+const tlsCert = join(fixtureDir, 'cert.pem');
+{
+    const made = spawnSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-keyout', tlsKey, '-out', tlsCert, '-days', '1', '-subj', `/CN=${QR_HOST_NAME}`, '-addext', `subjectAltName=DNS:${QR_HOST_NAME}`], { stdio: 'ignore' });
+    if (made.status !== 0) {
+        process.stderr.write('checkDemoFlow: openssl is required to mint the throwaway TLS pair for the HTTPS pairing proof\n');
+        rmSync(fixtureDir, { recursive: true, force: true });
+        process.exit(1);
+    }
+}
+const qrFixture = join(fixtureDir, 'pair-qr.y4m');
+{
+    const W = 640;
+    const H = 480;
+    const modules = QRCode.create(QR_LINK, { errorCorrectionLevel: 'M' }).modules;
+    const scale = Math.floor(Math.min(W, H) / (modules.size + 8));
+    const side = modules.size * scale;
+    const left = Math.floor((W - side) / 2);
+    const top = Math.floor((H - side) / 2);
+    const y = Buffer.alloc(W * H, 235);
+    for (let row = 0; row < side; row += 1) {
+        for (let col = 0; col < side; col += 1) {
+            if (modules.get(Math.floor(row / scale), Math.floor(col / scale))) y[(top + row) * W + left + col] = 16;
+        }
+    }
+    const chroma = Buffer.alloc((W / 2) * (H / 2), 128);
+    const frame = Buffer.concat([Buffer.from('FRAME\n'), y, chroma, chroma]);
+    writeFixture(qrFixture, Buffer.concat([Buffer.from(`YUV4MPEG2 W${W} H${H} F30:1 Ip A1:1 C420jpeg\n`), frame, frame]));
+}
+
 const serve = spawn(process.execPath, ['scripts/diagnostics/application/serveWebExport.mjs'], {
     cwd: root,
     env: { ...process.env, MUXR_WEB_EXPORT_DIR: dist, MUXR_WEB_PORT: String(port) },
+    stdio: ['ignore', 'pipe', 'pipe'],
+});
+const serveTls = spawn(process.execPath, ['scripts/diagnostics/application/serveWebExport.mjs'], {
+    cwd: root,
+    env: { ...process.env, MUXR_WEB_EXPORT_DIR: dist, MUXR_WEB_PORT: String(HTTPS_PORT), MUXR_WEB_TLS_KEY: tlsKey, MUXR_WEB_TLS_CERT: tlsCert },
     stdio: ['ignore', 'pipe', 'pipe'],
 });
 // Test browser only: software rasterizer off denies WebGL contexts, so the
 // production TerminalView falls back to its canvas renderer whose pixels
 // headless capture can read. Production keeps WebGL; nothing in the app
 // changes for this flag.
-const browser = spawn(chromium, ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-software-rasterizer', `--remote-debugging-port=${CDP_PORT}`, 'about:blank'], {
+const browser = spawn(chromium, ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-software-rasterizer', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--use-file-for-fake-video-capture=${qrFixture}`, `--host-resolver-rules=MAP ${QR_HOST_NAME} 127.0.0.1`, '--ignore-certificate-errors', `--remote-debugging-port=${CDP_PORT}`, 'about:blank'], {
     stdio: ['ignore', 'pipe', 'pipe'],
 });
 
 const killAll = async () => {
     serve.kill();
+    serveTls.kill();
     browser.kill();
     await Promise.all([
         new Promise((resolve) => serve.once('exit', resolve)),
+        new Promise((resolve) => serveTls.once('exit', resolve)),
         new Promise((resolve) => browser.once('exit', resolve)),
     ]);
+    rmSync(fixtureDir, { recursive: true, force: true });
 };
 
 /** CDP driver for one page target; collects page errors for the whole phase. */
@@ -83,6 +141,13 @@ async function drive(target) {
     let id = 0;
     const pending = new Map();
     const pageErrors = [];
+    // Every console line (any level) and every network request/response the
+    // page makes: the QR phase asserts nothing secret is logged and nothing
+    // leaves the export origin.
+    const consoleLines = [];
+    const requests = [];
+    const responses = [];
+    const listeners = new Map();
     ws.addEventListener('message', (event) => {
         try {
             const msg = JSON.parse(String(event.data));
@@ -91,9 +156,16 @@ async function drive(target) {
                 pending.delete(msg.id);
             } else if (msg.method === 'Runtime.exceptionThrown') {
                 pageErrors.push(`exception: ${JSON.stringify(msg.params?.exceptionDetails?.text ?? msg.params?.exceptionDetails).slice(0, 300)}`);
-            } else if (msg.method === 'Runtime.consoleAPICalled' && msg.params?.type === 'error') {
+            } else if (msg.method === 'Runtime.consoleAPICalled') {
                 const text = (msg.params.args ?? []).map((arg) => arg.value ?? arg.description ?? '').join(' ').slice(0, 300);
-                pageErrors.push(`console.error: ${text}`);
+                consoleLines.push(text);
+                if (msg.params?.type === 'error') pageErrors.push(`console.error: ${text}`);
+            } else if (msg.method === 'Network.requestWillBeSent') {
+                requests.push({ url: msg.params.request.url, type: msg.params.type });
+            } else if (msg.method === 'Network.responseReceived') {
+                responses.push({ url: msg.params.response.url, status: msg.params.response.status, mime: msg.params.response.mimeType });
+            } else if (msg.method !== undefined && listeners.has(msg.method)) {
+                listeners.get(msg.method)(msg.params);
             }
         } catch {}
     });
@@ -109,9 +181,11 @@ async function drive(target) {
     });
     await send('Page.enable');
     await send('Runtime.enable');
+    await send('Network.enable');
+    const on = (method, handler) => listeners.set(method, handler);
     const evaluate = async (expression) => {
-        const res = await send('Runtime.evaluate', { expression, returnByValue: true });
-        if (res.result?.exceptionDetails) throw new Error(`page js error: ${JSON.stringify(res.result.exceptionDetails).slice(0, 200)}`);
+        const res = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+        if (res.result?.exceptionDetails) throw new Error(`page js error: ${JSON.stringify(res.result.exceptionDetails.exception?.description ?? res.result.exceptionDetails).slice(0, 400)}`);
         return res.result?.result?.value;
     };
     const bodyText = () => evaluate('document.body.innerText');
@@ -143,7 +217,7 @@ async function drive(target) {
         }
     };
     const close = () => ws.close();
-    return { send, evaluate, bodyText, waitFor, hideAndShow, pageErrors, close };
+    return { send, on, evaluate, bodyText, waitFor, hideAndShow, pageErrors, consoleLines, requests, responses, close };
 }
 
 try {
@@ -159,6 +233,19 @@ try {
         }
     };
     await waitForHttp(`http://127.0.0.1:${port}/index.html`, 'static server', 10000);
+    {
+        const { connect } = await import('node:tls');
+        const started = Date.now();
+        for (;;) {
+            const up = await new Promise((resolve) => {
+                const socket = connect({ host: '127.0.0.1', port: HTTPS_PORT, rejectUnauthorized: false }, () => { socket.end(); resolve(true); });
+                socket.once('error', () => resolve(false));
+            });
+            if (up) break;
+            if (Date.now() - started > 10000) throw new Error('tls static server did not come up');
+            await new Promise((r) => setTimeout(r, 200));
+        }
+    }
     await waitForHttp(`http://127.0.0.1:${CDP_PORT}/json/version`, 'cdp endpoint', 15000);
 
     // Phase A: full interactive loop on the first tab.
@@ -178,7 +265,7 @@ try {
     check('demo shows the done agent', herdText.includes('Add retry with backoff to sync'));
     check('demo shows inbox attention', herdText.includes('Needs you'));
     check('demo bar says nothing is real', herdText.includes('nothing is real') && !/deterministic|backend/i.test(herdText));
-    check('demo never shows the unpaired pairing root', !herdText.includes('Enter pairing string'));
+    check('demo never shows the unpaired pairing root', !herdText.includes('Scan QR to pair'));
     check('demo boots without init errors', !herdText.includes('Error initializing'));
 
     // Open the blocked agent's real session terminal with one bubbled click.
@@ -374,7 +461,7 @@ try {
     );
     check('fresh load bootstraps the herd without focus tricks', freshHerd.includes('Migrate billing to usage-based plans'));
     check('fresh load shows inbox attention', freshHerd.includes('Needs you'));
-    check('fresh load never shows the pairing root', !freshHerd.includes('Enter pairing string'));
+    check('fresh load never shows the pairing root', !freshHerd.includes('Scan QR to pair'));
     check('no page errors on fresh load', fresh.pageErrors.length === 0, fresh.pageErrors.slice(0, 3).join(' | '));
 
     // /pair with no link is a neutral manual form: no alert role, no backticks.
@@ -383,6 +470,87 @@ try {
     check('pair first paint has no alert', !(await fresh.evaluate(`!!document.querySelector('[role="alert"]')`)));
     check('pair first paint has no backticks', !pairText.includes('`'));
     check('pair first paint names the command in a chip', pairText.includes('muxr pair --browser'));
+    check('pair first paint leads with the scanner', pairText.includes('Scan QR to pair') && pairText.includes('Enter pairing link manually'));
+    check('pair first paint opens no camera', await fresh.evaluate(`!document.querySelector('video')`));
+
+    // QR acquisition. (1) The cold printed link: the exact short browser
+    // link the computer prints/encodes must reach consent without paste,
+    // loaded on the HTTPS "computer" origin exactly as a phone camera would.
+    await fresh.send('Page.navigate', { url: QR_LINK });
+    const coldConsent = await fresh.waitFor('cold link consent', (text) => text.includes('wants to pair with this browser'), 20000);
+    check('cold printed link reaches consent without paste', /this control browser will be able to/i.test(coldConsent) && coldConsent.includes('Pair'));
+    check('cold link consent claims nothing before Pair', !fresh.requests.some((entry) => entry.type !== 'Document' && /pair-code|pair-sessions/.test(entry.url)));
+    check('cold link consent shows no invitation code', !(await fresh.evaluate(`document.documentElement.outerHTML.includes(${JSON.stringify(QR_CODE)})`)));
+
+    // (2) In-app scanner: the synthetic camera shows the same QR; the
+    // shipped detector/WASM decodes it on-device and consent appears with
+    // every camera track already stopped.
+    const requestsBeforeScan = fresh.requests.length;
+    await fresh.send('Page.navigate', { url: `http://127.0.0.1:${port}/pair` });
+    await fresh.waitFor('pair scanner', (text) => text.includes('Scan QR to pair'));
+    // Track every stream the page opens so "stopped" is proven on the
+    // real MediaStreamTracks, not inferred from the DOM.
+    const trackStreams = `(() => {
+        window.__streams = [];
+        const real = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+        navigator.mediaDevices.getUserMedia = async (c) => { const s = await real(c); window.__streams.push(s); return s; };
+        return 'wrapped';
+    })()`;
+    check('pair scanner wraps getUserMedia for proof', await fresh.evaluate(trackStreams) === 'wrapped');
+    check('no camera before the scan gesture', await fresh.evaluate('window.__streams.length') === 0);
+    await fresh.evaluate(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Scan QR to pair' && el.offsetParent !== null)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const scannedConsent = await fresh.waitFor('scanned consent', (text) => text.includes('wants to pair with this browser'), 30000);
+    check('browser scanner decodes the QR into consent', /this control browser will be able to/i.test(scannedConsent));
+    check('scanner opened exactly one camera stream', await fresh.evaluate('window.__streams.length') === 1);
+    check('camera tracks are stopped before consent', await fresh.evaluate(`window.__streams.every((s) => s.getTracks().every((t) => t.readyState === 'ended'))`) && await fresh.evaluate(`!document.querySelector('video')`));
+    const scanRequests = fresh.requests.slice(requestsBeforeScan);
+    const wasmResponse = fresh.responses.find((entry) => /zxing_reader.*\.wasm$/.test(entry.url));
+    check('decoder WASM is the hashed same-origin export asset', wasmResponse !== undefined && wasmResponse.status === 200 && wasmResponse.url.startsWith(`http://127.0.0.1:${port}/assets/`) && /zxing_reader\.[0-9a-f]{32}\.wasm$/.test(wasmResponse.url), wasmResponse?.url ?? 'no wasm response');
+    check('decoder WASM is served as application/wasm', wasmResponse?.mime === 'application/wasm', wasmResponse?.mime ?? '');
+    check('no jsDelivr or other third-party request', scanRequests.every((entry) => entry.url.startsWith(`http://127.0.0.1:${port}/`)), scanRequests.filter((entry) => !entry.url.startsWith(`http://127.0.0.1:${port}/`)).map((entry) => entry.url).slice(0, 3).join(', '));
+    check('scanned consent claims nothing before Pair', !scanRequests.some((entry) => /pair-code|pair-sessions|host\.example\.test/.test(entry.url)));
+    check('no invitation code in the DOM after scanning', !(await fresh.evaluate(`document.documentElement.outerHTML.includes(${JSON.stringify(QR_CODE)})`)));
+    check('no invitation code in console output', !fresh.consoleLines.some((line) => line.includes(QR_CODE)));
+
+    // (3) Demo handoff: the Connect card scans, stops the camera, shows only
+    // the destination origin, and Continue is one top-level navigation to
+    // the validated link. The demo origin stores, claims and fetches nothing.
+    await fresh.send('Page.navigate', { url: `http://127.0.0.1:${port}/demo` });
+    await fresh.hideAndShow();
+    await fresh.waitFor('demo herd for handoff', (text) => text.includes('Rebase release branch onto main') && text.includes('connected'), 45000);
+    const storageSnapshot = `(async () => JSON.stringify({ local: Object.keys(localStorage).sort(), session: Object.keys(sessionStorage).sort(), idb: (await indexedDB.databases()).map((d) => d.name).sort() }))()`;
+    const storageBefore = await fresh.evaluate(storageSnapshot);
+    check('demo scanner wraps getUserMedia for proof', await fresh.evaluate(trackStreams) === 'wrapped');
+    await fresh.evaluate(`[...document.querySelectorAll('[aria-label]')].find((el) => (el.getAttribute('aria-label') || '').startsWith('Connect your computer'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const connectCardQr = await fresh.waitFor('connect card scanner', (text) => text.includes('Scan the QR from Setup'), 10000);
+    check('connect card keeps Herdr first and offers the scanner', connectCardQr.indexOf('herdr plugin install') < connectCardQr.indexOf('Scan the QR from Setup'));
+    check('opening the connect card opens no camera', await fresh.evaluate('window.__streams.length') === 0);
+    const demoRequestsBefore = fresh.requests.length;
+    await fresh.evaluate(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Scan the QR from Setup' && el.offsetParent !== null)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const handoff = await fresh.waitFor('demo handoff confirmation', (text) => text.includes('Continue to this computer'), 30000);
+    check('demo shows only the destination origin', handoff.includes(QR_HOST) && !handoff.includes(QR_CODE) && handoff.includes('Scan again'));
+    check('demo camera tracks are stopped before the handoff', await fresh.evaluate(`window.__streams.length === 1 && window.__streams.every((s) => s.getTracks().every((t) => t.readyState === 'ended'))`) && await fresh.evaluate(`!document.querySelector('video')`));
+    check('demo stores nothing from the scan', await fresh.evaluate(storageSnapshot) === storageBefore);
+    check('demo contacts neither the host nor a CDN before Continue', fresh.requests.slice(demoRequestsBefore).every((entry) => entry.url.startsWith(`http://127.0.0.1:${port}/`)));
+    check('no invitation code in the demo DOM', !(await fresh.evaluate(`document.documentElement.outerHTML.includes(${JSON.stringify(QR_CODE)})`)));
+    // Intercept the host origin at the request stage: Continue must issue
+    // exactly one Document navigation to the validated link (and nothing
+    // else to that host), which is failed here so no real DNS/TLS happens.
+    const hostRequests = [];
+    fresh.on('Fetch.requestPaused', (params) => {
+        hostRequests.push({ url: params.request.url, type: params.resourceType });
+        void fresh.send('Fetch.failRequest', { requestId: params.requestId, errorReason: 'BlockedByClient' });
+    });
+    await fresh.send('Fetch.enable', { patterns: [{ urlPattern: `${QR_HOST}/*`, requestStage: 'Request' }] });
+    await fresh.evaluate(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Continue to this computer' && el.offsetParent !== null)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    {
+        const started = Date.now();
+        while (hostRequests.length === 0 && Date.now() - started < 15000) await new Promise((r) => setTimeout(r, 200));
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+    check('Continue performs one top-level navigation to the validated link', hostRequests.length === 1 && hostRequests[0].type === 'Document' && hostRequests[0].url === QR_LINK, JSON.stringify(hostRequests.map((entry) => entry.type)));
+    check('no invitation code in demo console output', !fresh.consoleLines.some((line) => line.includes(QR_CODE)));
+    check('no page errors during QR acquisition', fresh.pageErrors.length === 0, fresh.pageErrors.slice(0, 3).join(' | '));
     fresh.close();
 
     // Phase C: compact parity — the phone composition at phone widths, the

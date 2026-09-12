@@ -112,7 +112,7 @@ export function pairingIntent(input: { kind?: unknown; authority?: unknown; pers
         promptLine() {
             if (kind !== 'browser') return 'Scan this pairing QR with the native app within two minutes:';
             const role = authority === 'observe' ? 'view-only' : 'control';
-            return `Open this ${role} browser link within two minutes:`;
+            return `Scan this ${role} browser QR with your phone or tablet, or open the link, within two minutes:`;
         },
     });
 }

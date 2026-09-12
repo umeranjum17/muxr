@@ -1,5 +1,7 @@
 /** Static server for the Expo web export. SPA fallback so expo-router routes resolve. */
-import { createServer } from 'node:http';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, extname, normalize } from 'node:path';
 
@@ -29,6 +31,13 @@ const redirect = env('MUXR_WEB_REDIRECT');
 const isLoopback = (address) =>
     address === '::1' || (address ?? '').replace('::ffff:', '').startsWith('127.');
 
+// Diagnostics only: a throwaway TLS pair lets a browser flow exercise the
+// HTTPS-only pairing paths against the export. Production TLS is the proxy's.
+const tlsKey = env('MUXR_WEB_TLS_KEY');
+const tlsCert = env('MUXR_WEB_TLS_CERT');
+const createServer = tlsKey !== undefined && tlsCert !== undefined
+    ? (handler) => createHttpsServer({ key: readFileSync(tlsKey), cert: readFileSync(tlsCert) }, handler)
+    : createHttpServer;
 createServer(async (req, res) => {
     if (redirect !== undefined && !isLoopback(req.socket.remoteAddress)) {
         res.writeHead(302, { location: redirect + (req.url ?? '/') });
@@ -76,4 +85,4 @@ createServer(async (req, res) => {
         }
     }
 }).listen(port, env('MUXR_WEB_HOST') ?? '127.0.0.1');
-process.stdout.write(`web export on http://127.0.0.1:${port}\n`);
+process.stdout.write(`web export on ${tlsKey === undefined ? 'http' : 'https'}://127.0.0.1:${port}\n`);

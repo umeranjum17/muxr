@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
 import { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingLifetime, prepareHostedPairingInput } from '@/pairing/e2ee';
 import { pairMachine, usePairQrScanner } from '@/pairing';
+import { BrowserPairQrScanner, canScanBrowserPairQr } from '@/pairing/ui';
 import { getCachedConnectionSettings } from '@/connection';
 import { storage } from '@/catalog/store';
 import { canPromptInstall, isIOSBrowser, isStandaloneDisplay, onInstallPromptAvailable, promptInstall } from '@/utils/pwaInstall';
@@ -109,6 +110,10 @@ export default function PairScreen() {
     // that needs its own grant. Both paths are explicit choices.
     const iosTab = browser && isIOSBrowser() && !isStandaloneDisplay();
     const [installFirst, setInstallFirst] = React.useState(false);
+    // Web leads with the scanner; the link field stays behind one explicit
+    // control for accessibility, no camera, and recovery.
+    const webScanner = browser && canScanBrowserPairQr();
+    const [manualEntry, setManualEntry] = React.useState(!webScanner);
     const [installBusy, setInstallBusy] = React.useState(false);
     // Install is offered only after a successful pairing (Android/desktop);
     // the deferred prompt is captured unconditionally at layout mount.
@@ -173,7 +178,12 @@ export default function PairScreen() {
         }
         void Linking.getInitialURL().then((url) => {
             if (cancelled) return;
-            // No link is not a failure: the manual form below is the next step.
+            // Cold browser link (the printed/scanned `/pair?pair=…&role=…`)
+            // enters the same validated review; neutral `/pair`, `source`
+            // and `reason` parse to nothing and leave the scanner form.
+            // Native deep links arrive as route params above.
+            if (browser) receive(url);
+            // No link is not a failure: the scanner/manual form is the next step.
         }).catch((cause) => {
             if (!cancelled) setState({ phase: 'error', message: failureText(cause) });
         });
@@ -299,7 +309,7 @@ export default function PairScreen() {
                                 </Text>
                             </View>
                             <View style={styles.stepGroup}>
-                                {['Tap Share, then Add to Home Screen.', 'Open muxr from the Home Screen.', 'Paste the pairing link there and Pair.'].map((step, index) => (
+                                {['Tap Share, then Add to Home Screen.', 'Open muxr from the Home Screen.', 'Tap Scan QR to pair and scan the QR still showing on your computer, then Pair.'].map((step, index) => (
                                     <View key={step} style={styles.stepRow}>
                                         <Text style={styles.stepIndex}>{index + 1}</Text>
                                         <Text style={styles.stepText}>{step}</Text>
@@ -309,11 +319,11 @@ export default function PairScreen() {
                             <View style={styles.securityRow}>
                                 <Ionicons name="lock-closed-outline" size={16} color={styles.securityText.color} />
                                 <Text style={styles.securityText}>
-                                    Your link stays one-use and valid for two minutes — nothing is claimed until you Pair inside the installed app.
+                                    The QR is the same one-use link, valid for two minutes — nothing is claimed until you Pair inside the installed app. If it expired, run muxr pair --browser again for a fresh QR.
                                 </Text>
                             </View>
-                            <ActionButton title="Copy pairing link" icon="copy-outline" onPress={() => void copyLink(state.url)} />
                             <ActionButton title="Pair in this tab instead" variant="secondary" onPress={() => setInstallFirst(false)} />
+                            <ActionButton title="Copy pairing link instead" variant="secondary" icon="copy-outline" onPress={() => void copyLink(state.url)} />
                             <ActionButton title="Back" variant="secondary" onPress={cancel} />
                         </>
                     ) : (
@@ -397,9 +407,9 @@ export default function PairScreen() {
                         <>
                             <Text accessibilityRole="alert" style={styles.errorText}>{state.message}</Text>
                             <Text style={styles.securityText}>
-                                Install muxr from the Home Screen first, then claim the link inside the app — this Safari tab cannot keep the pairing.
+                                Install muxr from the Home Screen first, then scan a fresh QR inside the app — this Safari tab cannot hand its pairing to the installed app.
                             </Text>
-                            <ActionButton title="Copy pairing link" icon="copy-outline" onPress={() => void copyLink(state.url!)} />
+                            <ActionButton title="Copy pairing link instead" variant="secondary" icon="copy-outline" onPress={() => void copyLink(state.url!)} />
                             <ActionButton title="Back" variant="secondary" onPress={cancel} />
                         </>
                     ) : (
@@ -416,7 +426,7 @@ export default function PairScreen() {
                             <Text accessibilityRole="alert" style={styles.errorText}>{state.message}</Text>
                         ) : (
                             <Text style={styles.securityText}>
-                                {browser ? 'Paste the pairing link printed by this command on your computer.' : 'Enter the short pairing string printed by this command on your computer.'}
+                                {browser ? 'Scan the QR shown by this command on your computer, or open the link it prints. Your phone’s camera app works too.' : 'Enter the short pairing string printed by this command on your computer.'}
                             </Text>
                         )}
                         <CommandChip command={pairCommand} />
@@ -428,7 +438,15 @@ export default function PairScreen() {
                         {!browser && openedFromSettings && (
                             <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
                         )}
-                        <Text style={styles.inputLabel}>{browser ? 'Paste browser pairing string' : openedFromSettings ? 'Or paste the pairing string' : 'Enter pairing string manually'}</Text>
+                        {webScanner && (
+                            <BrowserPairQrScanner title="Scan QR to pair" onScanned={(qr) => reviewPairing(qr.url)} />
+                        )}
+                        {webScanner && !manualEntry && (
+                            <ActionButton title="Enter pairing link manually" variant="secondary" icon="keypad-outline" onPress={() => setManualEntry(true)} />
+                        )}
+                        {manualEntry && (
+                        <>
+                        <Text style={styles.inputLabel}>{browser ? 'Enter the browser pairing link' : openedFromSettings ? 'Or paste the pairing string' : 'Enter pairing string manually'}</Text>
                         <TextInput
                             accessibilityLabel="Pairing string"
                             autoCapitalize="none"
@@ -443,6 +461,8 @@ export default function PairScreen() {
                             onSubmitEditing={connectManual}
                         />
                         <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
+                        </>
+                        )}
                         <ActionButton title="Back" variant="quiet" onPress={cancel} />
                     </>
                 )}

@@ -49,11 +49,13 @@ No add-on, provider or theme question appears before Apply. Those live in [Confi
 
 ## Pair this browser
 
-After Apply, setup prints one pairing link (and a QR). Open it in the browser you want to use:
+After Apply, setup prints one pairing link and its QR. The QR *is* that one-use link, nothing more. Get it into the browser you want to use:
 
-- The consent screen names the computer, the access level (**Control** or **View-only**) and the exact expiry.
+- **Scan it.** On a phone or tablet, open your computer's address in the browser (or the installed app) and tap **Scan QR to pair**; the camera image is read on the device and never leaves it. Your phone's camera app also works: it opens the same pairing page.
+- **On the same computer**, open the printed link. **Enter pairing link manually** on the pairing page is the fallback when there is no camera.
+- The consent screen names the computer, the access level (**Control** or **View-only**) and the exact expiry. Scanning grants nothing by itself; only **Pair** does.
 - **Use this browser** keeps muxr as a tab. **Install** adds it to your home screen or desktop where the browser offers that.
-- On an iPhone you can pair in the Safari tab now; if you add muxr to your Home Screen later, the installed app has its own storage and needs a fresh link (`muxr pair --browser` on your computer).
+- On an iPhone you can pair in the Safari tab now; if you add muxr to your Home Screen later, the installed app has its own storage and needs its own fresh QR (`muxr pair --browser` on your computer, then **Scan QR to pair** inside the installed app).
 
 Pair another browser or the native app any time:
 
@@ -64,7 +66,7 @@ muxr pair --browser-personal   # Control for a browser only you use, longer life
 muxr pair --native             # the native app: one-use QR
 ```
 
-Links are one-use and short-lived; the exact lifetimes are in the table below.
+Each prints a QR and the link it encodes. Links are one-use and short-lived; the exact lifetimes are in the table below. If one expires while you fetch the phone, the computer prints a fresh QR for the same access level until you press Ctrl-C.
 
 ## First useful action
 

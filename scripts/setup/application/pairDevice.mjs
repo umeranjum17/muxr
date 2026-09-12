@@ -177,7 +177,12 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         }
         const pairValue = pending.pairString;
         if (typeof pairValue !== 'string') throw new Error('pairing string is unavailable');
-        if (!waiting.requiresWebHosting && process.stdout.isTTY) await printTerminalQr(pairValue);
+        // The browser QR encodes the exact one-use link below; a phone
+        // camera or the muxr pairing page scans it, the link stays as the
+        // same-device/accessibility fallback.
+        // printTerminalQr states the omission itself for non-TTY/plain/SSH
+        // or too-small terminals; it never emits a secret-bearing file.
+        await printTerminalQr(pairValue);
         print(waiting.requiresWebHosting
             ? waiting.promptLine()
             : 'Pairing string (expires in two minutes):');
@@ -206,12 +211,11 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         if (polled.body.state === 'expired') {
             delete state.machine.crypto.pendingPair;
             writeSelfhostState(state);
-            if (requestedKind === 'native') {
-                print('Pairing QR expired — creating a fresh one…');
-                // ponytail: one promise frame per renewal; use an outer loop if unattended pairing lasts hours.
-                return mintDeviceGrant(state, requestedKind, requestedAuthority, requestedPersonal);
-            }
-            throw new Error('browser pairing session expired; run `muxr pair --browser` for a fresh link');
+            // Same requested intent, same server lifetime: renewal never
+            // changes authority; Ctrl-C is the stop.
+            print('Pairing QR expired — creating a fresh one…');
+            // ponytail: one promise frame per renewal; use an outer loop if unattended pairing lasts hours.
+            return mintDeviceGrant(state, requestedKind, requestedAuthority, requestedPersonal);
         }
         if (polled.body.state !== 'claimed') throw new Error(`pairing session ${polled.body.state}`);
         const mailbox = polled.body.mailbox;

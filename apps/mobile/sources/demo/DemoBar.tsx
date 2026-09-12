@@ -7,6 +7,9 @@ import { Typography } from '@/constants/Typography';
 import { getAppVersion } from '@/utils/appVersion';
 import { CONNECT_AFTER_PAIR_NOTE, HERDR_SETUP_PANE_COMMAND, NPM_INSTALL_COMMAND, NPM_SETUP_COMMAND, herdrInstallCommand } from './installCommands';
 import { resetDemoRuntime } from './demoRuntime';
+import { BrowserPairQrScanner, canScanBrowserPairQr } from '@/pairing/ui';
+import type { BrowserPairingQr } from '@/pairing';
+import { ActionButton } from '@/components/ActionButton';
 
 /**
  * The only demo chrome around production UI: a replay indicator, a reset
@@ -21,6 +24,14 @@ export function DemoBar({ topInset = 0 }: { topInset?: number }) {
     const spellOut = width >= 600;
     const [open, setOpen] = React.useState(false);
     const [withoutHerdr, setWithoutHerdr] = React.useState(false);
+    // A scanned invitation lives only here, in memory, while the card is
+    // open. Continue is a full-document navigation to the validated host;
+    // this origin never claims, stores, logs or fetches it.
+    const [scanned, setScanned] = React.useState<BrowserPairingQr | undefined>(undefined);
+    const closeCard = React.useCallback(() => {
+        setScanned(undefined);
+        setOpen(false);
+    }, []);
     const version = getAppVersion();
     return (
         <View style={[styles.frame, { paddingTop: topInset }]}>
@@ -30,7 +41,7 @@ export function DemoBar({ topInset = 0 }: { topInset?: number }) {
             <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Restart the demo"
-                onPress={() => resetDemoRuntime()}
+                onPress={() => { closeCard(); resetDemoRuntime(); }}
                 style={styles.action}
             >
                 <Ionicons name="refresh-outline" size={14} color={theme.colors.textSecondary} />
@@ -40,7 +51,7 @@ export function DemoBar({ topInset = 0 }: { topInset?: number }) {
                 accessibilityRole="button"
                 accessibilityLabel={`Connect your computer: ${open ? 'hide' : 'show'} the install steps`}
                 accessibilityState={{ expanded: open }}
-                onPress={() => setOpen((value) => !value)}
+                onPress={() => (open ? closeCard() : setOpen(true))}
                 style={styles.action}
             >
                 <Ionicons name={open ? 'chevron-up-outline' : 'link-outline'} size={14} color={theme.colors.textSecondary} />
@@ -65,6 +76,23 @@ export function DemoBar({ topInset = 0 }: { topInset?: number }) {
                     </>
                 )}
                 <Text style={styles.hint}>{CONNECT_AFTER_PAIR_NOTE}</Text>
+                {canScanBrowserPairQr() && scanned === undefined && (
+                    <>
+                        <Text style={styles.hint}>Setup shows a QR? Scan it here. The image is read on this device and you are taken to your computer’s own address to pair — nothing is sent to or kept by this site.</Text>
+                        <BrowserPairQrScanner title="Scan the QR from Setup" onScanned={setScanned} />
+                    </>
+                )}
+                {scanned !== undefined && (
+                    <>
+                        <Text style={styles.cardTitle}>Continue to your computer</Text>
+                        <Text style={styles.hint}>This QR opens the pairing page at</Text>
+                        <Text selectable style={styles.command}>{scanned.origin}</Text>
+                        <Text style={styles.hint}>Only continue if that is the address your computer’s setup printed. You will review the grant there before anything is paired.</Text>
+                        <ActionButton title="Continue to this computer" icon="arrow-forward-outline" onPress={() => globalThis.location?.assign(scanned.url)} />
+                        <ActionButton title="Scan again" variant="secondary" icon="qr-code-outline" onPress={() => setScanned(undefined)} />
+                        <ActionButton title="Cancel" variant="quiet" onPress={closeCard} />
+                    </>
+                )}
             </View>
         )}
         </View>

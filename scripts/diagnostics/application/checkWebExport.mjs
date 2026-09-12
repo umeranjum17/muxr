@@ -174,6 +174,21 @@ if (!existsSync(distIndex)) {
     const canvaskitDist = join(mobile, 'dist', 'canvaskit.wasm');
     const canvaskitBytes = existsSync(canvaskitDist) ? statSync(canvaskitDist).size : 0;
     check('dist ships a full canvaskit.wasm', canvaskitBytes > 1024 * 1024, `${canvaskitBytes} bytes`);
+    // The browser QR scanner's decoder WASM ships as a hashed same-origin
+    // export asset and loads only when scanning starts (never a CDN, never
+    // the entry payload).
+    const zxingAssets = [];
+    const walkAssets = (dir) => {
+        if (!existsSync(dir)) return;
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            const path = join(dir, entry.name);
+            if (entry.isDirectory()) walkAssets(path);
+            else if (/^zxing_reader\.[0-9a-f]{32}\.wasm$/.test(entry.name)) zxingAssets.push(path);
+        }
+    };
+    walkAssets(join(mobile, 'dist', 'assets'));
+    check('dist ships the hashed zxing reader WASM as an export asset', zxingAssets.length === 1 && statSync(zxingAssets[0]).size > 512 * 1024, zxingAssets.map((path) => path.replace(`${mobile}/`, '')).join(', ') || 'missing');
+    check('dist initial payload never names the decoder CDN', !distText.includes('jsdelivr'));
 }
 
 if (failures.length > 0) {

@@ -12,6 +12,10 @@ The relay routes ciphertext and connection metadata (which device talks to which
 
 A browser is paired with an explicit grant: **Control** (send input, approve, start agents) or **View-only** (read everything, change nothing), for a fixed lifetime; **Personal Control** is a longer grant for a browser only you use, chosen explicitly with `muxr pair --browser-personal`. Installing the app to your home screen grants nothing extra: authority comes from the grant, never from how the window is displayed. The consent screen shows the computer, the role and the exact expiry before you accept.
 
+## Pairing by QR
+
+The QR the computer shows is the one-use pairing link and nothing else. Scanning it in the browser reads the camera image on your device; no frame, code or link is sent anywhere or logged. The interactive demo can scan a QR too, but it only takes you to your computer's own address: the demo site never claims, stores or fetches the invitation. Consent, the claim, key storage and revocation happen only in the browser app served by your computer. A phone's camera app scanning the same QR lands on the same consent screen. An installed Safari app on iPhone is a separate storage partition and needs its own fresh QR.
+
 ## Shell authority
 
 A Control grant can type into the agents' terminals and open shells on that computer with your user's permissions. Give Control only to browsers you would sit at; give others View-only.

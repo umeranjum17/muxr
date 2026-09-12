@@ -91,9 +91,9 @@ function NotAuthenticated() {
                     {Platform.OS === 'web' ? (
                         <>
                             {/* Browser pairing lives in one place: /pair owns
-                                deep links, manual paste, install-before-claim,
-                                and expired/revoked re-pairing. */}
-                            <ActionButton title="Enter pairing string" icon="keypad-outline" onPress={() => router.push('/pair')} />
+                                the QR scanner, cold links, manual entry,
+                                install-before-claim, and re-pairing. */}
+                            <ActionButton title="Scan QR to pair" icon="qr-code-outline" onPress={() => router.push('/pair')} />
                             <ActionButton variant="secondary" title="Try interactive demo" icon="play-circle-outline" onPress={() => router.push('/demo')} />
                         </>
                     ) : (

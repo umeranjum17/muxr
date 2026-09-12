@@ -1176,6 +1176,11 @@ else if(a[0]==='view') {
         }, 50);
     });
     assert.doesNotMatch(browserPairOutput, /muxr:\/\/pair|[?&#]payload=/, 'browser pairing printed the giant payload');
+    // Browser pairing is QR-first: the prompt names the QR and the intent,
+    // and a piped (non-TTY) run refuses the image truthfully instead of
+    // emitting an unscannable one.
+    assert.match(browserPairOutput, /Scan this control browser QR/, 'browser pairing prompt does not lead with the QR');
+    assert.match(browserPairOutput, /QR omitted in append-only\/plain output/, 'piped browser pairing did not state the QR omission');
     browserPair.kill('SIGTERM');
     await new Promise((resolve) => browserPair.once('exit', resolve));
     stopRelayFor(join(browserHome, '.muxr', 'relay'));

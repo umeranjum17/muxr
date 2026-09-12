@@ -1,3 +1,4 @@
+import { PAIRING_CODE_ALPHABET } from '@muxr/crypto';
 import { decodeBase64 } from '@/encryption/base64';
 
 const UNSAFE_PAIRING_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
@@ -177,4 +178,48 @@ export function hostedPairingLifetime(url: string): 'eight hours' | '30 days' {
     if (fragment.get('personal') === '1') return '30 days';
     const decoded = compactPairingRecord(fragment.get('payload'));
     return decoded?.personal === true ? '30 days' : 'eight hours';
+}
+
+export type BrowserPairingQr = {
+    readonly url: string;
+    /** Normalized destination origin (ASCII host, explicit non-default port). */
+    readonly origin: string;
+    readonly authority: PairingAuthority;
+    readonly personal: boolean;
+};
+
+export type BrowserPairingQrParse =
+    | { ok: true; qr: BrowserPairingQr }
+    | { ok: false; error: string };
+
+const BROWSER_QR_KEYS = ['pair', 'role', 'personal'];
+// The computer prints the code as XXXXX-XXXXX; the undashed form is the same code.
+const BROWSER_QR_CODE = new RegExp(`^[${PAIRING_CODE_ALPHABET}]{5}-?[${PAIRING_CODE_ALPHABET}]{5}$`);
+const NOT_A_BROWSER_QR = 'This is not a browser pairing QR from muxr. Run muxr pair --browser on your computer and scan the QR it shows.';
+const NATIVE_QR = 'This QR is for the native app. Run muxr pair --browser on your computer for a browser QR.';
+
+/**
+ * Accept only the short browser invitation the computer prints
+ * (`https://host/pair?pair=CODE&role=control|observe[&personal=1]`) before
+ * anything reads it. Native/enrollment/arbitrary QR values are rejected with
+ * a static message: the scanned text is never echoed.
+ */
+export function parseBrowserPairingQr(value: unknown): BrowserPairingQrParse {
+    if (typeof value !== 'string' || value.length === 0 || value.length > 4096) return { ok: false, error: NOT_A_BROWSER_QR };
+    if (/^(wss?|muxr):\/\//i.test(value)) return { ok: false, error: NATIVE_QR };
+    if (UNSAFE_PAIRING_TEXT.test(value) || /\s/.test(value)) return { ok: false, error: NOT_A_BROWSER_QR };
+    let parsed: URL;
+    try { parsed = new URL(value); }
+    catch { return { ok: false, error: NOT_A_BROWSER_QR }; }
+    const shape = parsed.protocol === 'https:' && parsed.pathname === '/pair' && parsed.hostname !== ''
+        && parsed.username === '' && parsed.password === '' && parsed.hash === '';
+    if (!shape) return { ok: false, error: NOT_A_BROWSER_QR };
+    const keys = [...parsed.searchParams.keys()];
+    if (keys.length !== new Set(keys).size || keys.some((key) => !BROWSER_QR_KEYS.includes(key))) return { ok: false, error: NOT_A_BROWSER_QR };
+    const code = parsed.searchParams.get('pair') ?? '';
+    const role = parsed.searchParams.get('role');
+    const personal = parsed.searchParams.get('personal');
+    if (!BROWSER_QR_CODE.test(code) || (role !== 'control' && role !== 'observe')) return { ok: false, error: NOT_A_BROWSER_QR };
+    if (personal !== null && personal !== '1') return { ok: false, error: NOT_A_BROWSER_QR };
+    return { ok: true, qr: { url: value, origin: parsed.origin, authority: role, personal: personal === '1' } };
 }
