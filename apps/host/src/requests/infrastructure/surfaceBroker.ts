@@ -37,6 +37,7 @@ import {
     type SurfacePlacement,
 } from '@muxr/contract';
 import { createSurfaceOffers, type SurfaceOfferRegistry } from './surfaceOffers.js';
+import { browserServiceAvailable, callBrowserService } from './browserSessions.js';
 import { openSurfaceOffer } from '../application/openSurfaceOffer.js';
 import type { PreviewEndpointRegistry } from './previewEndpoint.js';
 import type { SessionSource } from '../../agent/index.js';
@@ -103,6 +104,9 @@ export interface SurfaceBrokerPorts {
     endpoints?: PreviewEndpointRegistry;
     snapshot?(): Promise<string>;
     now?: () => number;
+    /** Agent-side browser session ops relayed to the browser service. Defaults to the service control socket. */
+    browserService?(op: string, params: Record<string, unknown>): Promise<unknown>;
+    browserServiceAvailable?(): boolean;
 }
 
 type BrokerRequest =
@@ -114,6 +118,14 @@ type BrokerRequest =
     | { method: 'browser.origin'; name?: string }
     | { method: 'code.open'; target: string; name?: string; placement?: string; provider?: string }
     | { method: 'code.diff'; target?: string; name?: string; placement?: string; provider?: string }
+    | { method: 'browser.session.open'; name?: string; placement?: string; provider?: string }
+    | { method: 'browser.session.navigate'; url: string; name?: string }
+    | { method: 'browser.session.snapshot'; name?: string }
+    | { method: 'browser.session.click'; target: string; name?: string }
+    | { method: 'browser.session.fill'; target: string; text: string; name?: string }
+    | { method: 'browser.session.scroll'; dy: number; name?: string }
+    | { method: 'browser.session.help'; name?: string }
+    | { method: 'browser.session.close'; name?: string }
     | { method: 'surface.list' };
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -150,6 +162,14 @@ const BROKER_METHODS = [
     'browser.origin',
     'code.open',
     'code.diff',
+    'browser.session.open',
+    'browser.session.navigate',
+    'browser.session.snapshot',
+    'browser.session.click',
+    'browser.session.fill',
+    'browser.session.scroll',
+    'browser.session.help',
+    'browser.session.close',
     'surface.list',
 ] as const;
 
@@ -206,6 +226,52 @@ function parseRequest(value: unknown): BrokerRequest {
                 ...(request.name === undefined ? {} : { name: requiredText(request.name, 'name', 64) }),
                 ...(request.placement === undefined ? {} : { placement: requiredText(request.placement, 'placement', 16) }),
                 ...(request.provider === undefined ? {} : { provider: requiredText(request.provider, 'provider', 64) }),
+            };
+        case 'browser.session.open':
+            only(request, ['method', 'name', 'placement', 'provider']);
+            return {
+                method: 'browser.session.open',
+                ...(request.name === undefined ? {} : { name: requiredText(request.name, 'name', 64) }),
+                ...(request.placement === undefined ? {} : { placement: requiredText(request.placement, 'placement', 16) }),
+                ...(request.provider === undefined ? {} : { provider: requiredText(request.provider, 'provider', 64) }),
+            };
+        case 'browser.session.navigate':
+            only(request, ['method', 'url', 'name']);
+            return {
+                method: 'browser.session.navigate',
+                url: requiredText(request.url, 'url', 2048),
+                ...(request.name === undefined ? {} : { name: requiredText(request.name, 'name', 64) }),
+            };
+        case 'browser.session.click':
+            only(request, ['method', 'target', 'name']);
+            return {
+                method: 'browser.session.click',
+                target: requiredText(request.target, 'target', 512),
+                ...(request.name === undefined ? {} : { name: requiredText(request.name, 'name', 64) }),
+            };
+        case 'browser.session.fill':
+            only(request, ['method', 'target', 'text', 'name']);
+            return {
+                method: 'browser.session.fill',
+                target: requiredText(request.target, 'target', 512),
+                text: requiredText(request.text, 'text', 4096),
+                ...(request.name === undefined ? {} : { name: requiredText(request.name, 'name', 64) }),
+            };
+        case 'browser.session.scroll':
+            only(request, ['method', 'dy', 'name']);
+            if (typeof request.dy !== 'number' || !Number.isFinite(request.dy)) throw new Error('scroll needs a distance in pixels');
+            return {
+                method: 'browser.session.scroll',
+                dy: request.dy,
+                ...(request.name === undefined ? {} : { name: requiredText(request.name, 'name', 64) }),
+            };
+        case 'browser.session.snapshot':
+        case 'browser.session.help':
+        case 'browser.session.close':
+            only(request, ['method', 'name']);
+            return {
+                method: request.method,
+                ...(request.name === undefined ? {} : { name: requiredText(request.name, 'name', 64) }),
             };
         default:
             throw new Error('unknown surface broker method');
@@ -275,6 +341,8 @@ export class SurfaceBroker {
     private readonly source: Pick<SessionSource, 'herdrTree' | 'pluginList'>;
     private readonly snapshot: (() => Promise<string>) | undefined;
     private readonly endpoints: PreviewEndpointRegistry | undefined;
+    private readonly browserService: (op: string, params: Record<string, unknown>) => Promise<unknown>;
+    private readonly browserServiceLive: () => boolean;
 
     constructor(private readonly ports: SurfaceBrokerPorts) {
         this.socketPath = surfaceSocketPath(ports.dataDir);
@@ -282,6 +350,8 @@ export class SurfaceBroker {
         this.source = ports.source;
         this.snapshot = ports.snapshot;
         this.endpoints = ports.endpoints;
+        this.browserService = ports.browserService ?? ((op, params) => callBrowserService(op, params));
+        this.browserServiceLive = ports.browserServiceAvailable ?? (() => browserServiceAvailable());
     }
 
     get registry(): SurfaceOfferRegistry {
@@ -546,6 +616,12 @@ export class SurfaceBroker {
                     .map((offer) => this.visible(offer)),
             };
         }
+        if (request.method === 'browser.session.open' || request.method === 'browser.session.navigate'
+            || request.method === 'browser.session.snapshot' || request.method === 'browser.session.click'
+            || request.method === 'browser.session.fill' || request.method === 'browser.session.scroll'
+            || request.method === 'browser.session.help' || request.method === 'browser.session.close') {
+            return this.invokeBrowserSession(request, hints);
+        }
         if (request.method === 'browser.close') {
             const resolved = await this.resolveContext(hints);
             this.offers.close(request.name ?? 'browser', resolved.context, resolved.sessionId);
@@ -628,6 +704,7 @@ export class SurfaceBroker {
             );
             return { outcome: 'accepted' as const, surface: this.visible(record.offer) };
         }
+        if (request.method !== 'code.open' && request.method !== 'code.diff') throw new Error('unknown surface broker method');
         const resolved = await this.resolveContext(hints);
         const name = request.name ?? 'code';
         // `code diff` is an opening command, not an update: a targetless
@@ -666,6 +743,97 @@ export class SurfaceBroker {
             { offer: input, context: resolved.context, sessionId: resolved.sessionId },
         );
         return { outcome: 'accepted' as const, surface: this.visible(record.offer) };
+    }
+
+    /**
+     * Agent-side semantic browser session operations, relayed to the browser
+     * service (the sole authority). `open` starts a session and publishes a
+     * `browser-session` offer; the other verbs address the session by logical
+     * name through that offer's opaque handle and never a port or URL. While a
+     * human owns the seat every agent op fails status-only with no page data
+     * -- the service enforces that; the broker never sees the private channel.
+     */
+    private async invokeBrowserSession(request: Extract<BrokerRequest, { method: `browser.session.${string}` }>, hints: SurfaceBrokerHints): Promise<unknown> {
+        if (!this.browserServiceLive()) throw new Error('this computer has no agent browser; enable the browser service first');
+        const resolved = await this.resolveContext(hints);
+        const name = request.name ?? 'agent-browser';
+        if (request.method === 'browser.session.open') {
+            const provider = await this.resolveInstalledProvider('surface.browser.control-host-session', request.provider);
+            const opened = await this.browserService('session.open', { context: resolved.context }) as { session: string; site?: string };
+            const input: SurfaceOfferInput = {
+                kind: 'browser-session',
+                capability: 'surface.browser.control-host-session',
+                name,
+                ...(request.placement === undefined ? {} : { placement: this.placementOf(request.placement) }),
+                ...(request.name === undefined ? { title: 'Agent browser' } : {}),
+                session: opened.session,
+                site: opened.site ?? '',
+                context: resolved.context,
+                provider,
+            };
+            const record = await openSurfaceOffer(
+                { offers: this.offers, snapshot: () => this.snapshotDigest(), claimants: (capability) => this.claimantsFor(capability) },
+                { offer: input, context: resolved.context, sessionId: resolved.sessionId },
+            );
+            return { outcome: 'accepted' as const, surface: this.visible(record.offer) };
+        }
+        const current = this.offers.current(name, resolved.context, resolved.sessionId);
+        if (current === undefined || current.offer.kind !== 'browser-session') {
+            throw new Error('no agent browser by that name; run `browser session open` first');
+        }
+        const session = current.offer.session;
+        const provider = current.offer.provider;
+        // Re-publish the offer with the service's current safe site: navigation
+        // keeps the same session handle and only updates the shown hostname.
+        const republish = async (site: string): Promise<SurfaceOffer> => {
+            const input: SurfaceOfferInput = {
+                kind: 'browser-session',
+                capability: 'surface.browser.control-host-session',
+                name,
+                title: current.offer.title,
+                placement: current.offer.placement,
+                session,
+                site,
+                context: resolved.context,
+                provider,
+            };
+            const record = await openSurfaceOffer(
+                { offers: this.offers, snapshot: () => this.snapshotDigest(), claimants: (capability) => this.claimantsFor(capability) },
+                { offer: input, context: resolved.context, sessionId: resolved.sessionId },
+            );
+            return record.offer;
+        };
+        switch (request.method) {
+            case 'browser.session.navigate': {
+                const result = await this.browserService('session.navigate', { session, url: request.url }) as { site?: string };
+                const offer = await republish(result.site ?? current.offer.site);
+                return { outcome: 'accepted' as const, surface: this.visible(offer) };
+            }
+            case 'browser.session.snapshot': {
+                const result = await this.browserService('session.snapshot', { session }) as { site?: string; text?: string };
+                const offer = result.site !== undefined && result.site !== current.offer.site ? await republish(result.site) : current.offer;
+                return { outcome: 'visible' as const, surface: this.visible(offer), text: typeof result.text === 'string' ? result.text : '' };
+            }
+            case 'browser.session.click':
+                await this.browserService('session.click', { session, target: request.target });
+                return { outcome: 'accepted' as const, surface: this.visible(current.offer) };
+            case 'browser.session.fill':
+                await this.browserService('session.fill', { session, target: request.target, text: request.text });
+                return { outcome: 'accepted' as const, surface: this.visible(current.offer) };
+            case 'browser.session.scroll':
+                await this.browserService('session.scroll', { session, dy: request.dy });
+                return { outcome: 'accepted' as const, surface: this.visible(current.offer) };
+            case 'browser.session.help': {
+                await this.browserService('session.help', { session });
+                return { outcome: 'accepted' as const, surface: this.visible(current.offer), help: 'waiting-for-you' };
+            }
+            case 'browser.session.close':
+                await this.browserService('session.close', { session }).catch(() => undefined);
+                this.offers.close(name, resolved.context, resolved.sessionId);
+                return { outcome: 'closed' as const, name };
+            default:
+                throw new Error('unknown surface broker method');
+        }
     }
 
     /**
