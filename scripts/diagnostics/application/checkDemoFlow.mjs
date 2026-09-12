@@ -188,7 +188,8 @@ async function drive(target) {
         if (res.result?.exceptionDetails) throw new Error(`page js error: ${JSON.stringify(res.result.exceptionDetails.exception?.description ?? res.result.exceptionDetails).slice(0, 400)}`);
         return res.result?.result?.value;
     };
-    const bodyText = () => evaluate('document.body.innerText');
+    // A reload in progress has no body yet; that is not a page error.
+    const bodyText = () => evaluate("document.body ? document.body.innerText : ''");
     const waitFor = async (label, predicate, timeoutMs = 45000) => {
         const started = Date.now();
         for (;;) {
@@ -392,6 +393,59 @@ try {
     await clickControl('Back');
     const herdAgain = await journey.waitFor('back to herd', (text) => text.includes('nothing is real') && text.includes('Add retry with backoff to sync'));
     check('back from session lands on the herd', herdAgain.includes('Migrate billing to usage-based plans'));
+
+    // F1 (observed data loss): two distinct unsent drafts in two terminals,
+    // Back between them, both must still be there after returning — through
+    // the shipped composer, typed with the native setter so React sees it.
+    const typeDraft = async (text) => {
+        const started = Date.now();
+        for (;;) {
+            const typed = await journey.evaluate(`(() => {
+                const box = ${visibleComposer};
+                if (!box) return 'missing';
+                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(box, ${JSON.stringify(text)});
+                box.dispatchEvent(new Event('input', { bubbles: true }));
+                return 'typed';
+            })()`);
+            if (typed === 'typed') return;
+            if (Date.now() - started > 30000) throw new Error('composer never appeared for a draft');
+            await new Promise((r) => setTimeout(r, 500));
+        }
+    };
+    const readDraft = async () => {
+        const started = Date.now();
+        for (;;) {
+            const value = await journey.evaluate(`(() => { const box = ${visibleComposer}; return box ? box.value : null; })()`);
+            if (value !== null) return value;
+            if (Date.now() - started > 30000) return null;
+            await new Promise((r) => setTimeout(r, 500));
+        }
+    };
+    const draftA = 'F1 draft one unsent 日本語';
+    const draftB = 'F1 draft two unsent';
+    await clickText('Add retry with backoff to sync');
+    await journey.waitFor('session A for a draft', (text) => text.includes('Add retry with backoff to sync') && text.includes('^C'));
+    await typeDraft(draftA);
+    await clickControl('Back');
+    await journey.waitFor('herd between drafts', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('nothing is real'));
+    await clickText('Migrate billing to usage-based plans');
+    await journey.waitFor('session B for a draft', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('^C'));
+    check('session B opens with an empty composer of its own', (await readDraft()) === '');
+    await typeDraft(draftB);
+    await clickControl('Back');
+    await journey.waitFor('herd after drafts', (text) => text.includes('Add retry with backoff to sync') && text.includes('nothing is real'));
+    await clickText('Add retry with backoff to sync');
+    await journey.waitFor('session A again', (text) => text.includes('Add retry with backoff to sync') && text.includes('^C'));
+    check('unsent draft survives leaving and returning to session A', (await readDraft()) === draftA);
+    await typeDraft('');
+    await clickControl('Back');
+    await journey.waitFor('herd once more', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('nothing is real'));
+    await clickText('Migrate billing to usage-based plans');
+    await journey.waitFor('session B again', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('^C'));
+    check('unsent draft survives leaving and returning to session B', (await readDraft()) === draftB);
+    await typeDraft('');
+    await clickControl('Back');
+    await journey.waitFor('herd after clearing drafts', (text) => text.includes('Migrate billing to usage-based plans') && text.includes('nothing is real'));
     // Restart restores the whole journey: Bex blocked again, replay intact.
     await clickControl('Restart the demo');
     const restarted = await journey.waitFor('restart', (text) => text.includes('Needs you'), 30000);

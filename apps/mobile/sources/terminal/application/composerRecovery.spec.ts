@@ -41,6 +41,7 @@ vi.mock('@/catalog/application/sync', () => ({
 }));
 
 import { ComposerRecovery, type ComposerPorts } from './composerRecovery';
+import { composerDraft, useComposerDrafts } from './composerDrafts';
 import { recoverable, submitPrompt, useSubmissions, type Submission } from '@/catalog/application/submissions';
 import { ConnectionNegotiation, hostConfirmsPromptsRunOnce } from '@/catalog/domain/connectionNegotiation';
 import type { AttachmentPreview } from '@/catalog/infrastructure/attachmentTypes';
@@ -52,18 +53,23 @@ const refusedNotReady = async () => { throw Object.assign(new Error('That agent 
 
 /** A screen opening: the composer state ComposerRecovery drives. */
 function opening(machineId: string, sessionId: string) {
-    const composer = { draft: '', attachments: [] as ComposerAttachment[], uploads: [] as AttachmentPreview[] };
+    // As TerminalScreen does: the editable draft starts from its own
+    // computer+session entry and every change writes through.
+    const target = { machineId, sessionId };
+    const composer = { draft: composerDraft(target), attachments: [] as ComposerAttachment[], uploads: [] as AttachmentPreview[] };
+    const setDraft = (text: string) => { composer.draft = text; useComposerDrafts.getState().set(target, text); };
     const ports: ComposerPorts = {
         restore: (submission: Submission) => {
+            // Recovery-owned text is shown, not stored as typed.
             composer.draft = [submission.draft, composer.draft].filter((part) => part !== '').join('\n');
             composer.attachments = [...submission.attachments, ...composer.attachments];
             composer.uploads = [...composer.uploads, ...submission.pendingUploads];
         },
-        clear: () => { composer.draft = ''; composer.attachments = []; },
+        clear: () => { setDraft(''); composer.attachments = []; },
     };
-    const recovery = new ComposerRecovery({ machineId, sessionId }, ports);
+    const recovery = new ComposerRecovery(target, ports);
     const empty = () => composer.draft === '' && composer.attachments.length === 0 && composer.uploads.length === 0;
-    return { composer, recovery, reconcile: () => recovery.reconcile(empty()), send: () => recovery.send(composer.draft, composer.attachments) };
+    return { composer, recovery, type: setDraft, reconcile: () => recovery.reconcile(empty()), send: () => recovery.send(composer.draft, composer.attachments) };
 }
 
 beforeEach(() => {
@@ -74,6 +80,7 @@ beforeEach(() => {
     wire.alerts = [];
     uuidSeq = 0;
     useSubmissions.setState({ byTarget: {} });
+    useComposerDrafts.setState({ byTarget: {} });
 });
 
 describe('composer recovery keeps one identity per submission', () => {
@@ -255,5 +262,37 @@ describe('composer recovery keeps one identity per submission', () => {
         // A replaced transport never inherits the old one's negotiation.
         const replacement = { id: 'transport-2' };
         expect(negotiation.capabilitiesFor(replacement)).toBeUndefined();
+    });
+
+    it('keeps two unsent drafts in two terminals across leaving and returning, and clears only the one that is sent', async () => {
+        // F1: type in A, Back, type in B, Back, return to each.
+        const a1 = opening('mac', 'shell:w2:p1');
+        a1.type('F1 draft one unsent 日本語');
+        a1.recovery.dispose();
+        const b1 = opening('mac', 'shell:w3:p1');
+        expect(b1.composer.draft).toBe('');
+        b1.type('F1 draft two unsent');
+        b1.recovery.dispose();
+        const a2 = opening('mac', 'shell:w2:p1');
+        a2.reconcile();
+        expect(a2.composer.draft).toBe('F1 draft one unsent 日本語');
+        a2.recovery.dispose();
+        const b2 = opening('mac', 'shell:w3:p1');
+        b2.reconcile();
+        expect(b2.composer.draft).toBe('F1 draft two unsent');
+        // The same route on another computer has its own, empty, draft.
+        expect(opening('other', 'shell:w2:p1').composer.draft).toBe('');
+        // Sending B clears B's draft only; A's stays for its next opening.
+        await b2.send();
+        expect(wire.sent.at(-1)).toMatchObject({ text: 'F1 draft two unsent', sessionId: 'shell:w3:p1' });
+        expect(composerDraft({ machineId: 'mac', sessionId: 'shell:w3:p1' })).toBe('');
+        expect(composerDraft({ machineId: 'mac', sessionId: 'shell:w2:p1' })).toBe('F1 draft one unsent 日本語');
+        // A lost answer restores into the (now empty) draft store of that target.
+        wire.answer = lost;
+        const a3 = opening('mac', 'shell:w2:p1');
+        await a3.send();
+        expect(composerDraft({ machineId: 'mac', sessionId: 'shell:w2:p1' })).toBe('');
+        a3.reconcile();
+        expect(a3.composer.draft).toBe('F1 draft one unsent 日本語');
     });
 });

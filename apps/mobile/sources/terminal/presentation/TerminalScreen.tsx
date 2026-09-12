@@ -44,6 +44,7 @@ import { Typography } from '@/constants/Typography';
 import { randomUUID } from 'expo-crypto';
 import { targetKey, useSubmissions } from '@/catalog/application/submissions';
 import { ComposerRecovery } from '@/terminal/application/composerRecovery';
+import { composerDraft, useComposerDrafts } from '@/terminal/application/composerDrafts';
 import { failureText, humanError } from '@/utils/errors';
 import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
@@ -137,7 +138,14 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     const swipeIds = React.useMemo(() => workingAgentSwipeIds(sessions, swipeNow), [sessions, swipeNow]);
     const [status, setStatus] = React.useState('connecting');
     const [openAttempt, setOpenAttempt] = React.useState(0);
-    const [draft, setDraft] = React.useState('');
+    // The unsent draft lives in composerDrafts (per computer + session) so
+    // it survives leaving this screen; this state mirrors it for rendering.
+    const draftTarget = React.useMemo(() => ({ machineId: props.machineId, sessionId: props.id }), [props.machineId, props.id]);
+    const [draft, setDraftState] = React.useState(() => composerDraft(draftTarget));
+    const setDraft = React.useCallback((text: string) => {
+        setDraftState(text);
+        useComposerDrafts.getState().set(draftTarget, text);
+    }, [draftTarget]);
     const [stopping, setStopping] = React.useState(false);
     // Latching modifiers apply to one toolbar key or typed character, then clear.
     // Modal.alert lays buttons out in a row: past three it collapses into
@@ -380,8 +388,11 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     const submissions = useSubmissions((state) => state.byTarget[targetKey(target)]);
     const recovery = React.useMemo(() => new ComposerRecovery(target, {
         restore: (submission) => {
+            // Recovery-owned text: shown, but not stored as a typed draft, so
+            // a reopened screen restores the same submission (same identity)
+            // instead of finding "typed" text it cannot attribute.
             draftRef.current = [submission.draft, draftRef.current].filter((part) => part !== '').join('\n');
-            setDraft(draftRef.current);
+            setDraftState(draftRef.current);
             setAttachedImages((previous) => [...submission.attachments, ...previous]);
             // Previews that never reached the host are uploaded afresh.
             if (submission.pendingUploads.length > 0) addImages(submission.pendingUploads);
