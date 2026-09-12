@@ -1,14 +1,14 @@
-id = "muxr.code"
-name = "Code"
+id = "muxr.browser"
+name = "Browser"
 version = "0.1.0"
 min_herdr_version = "0.8.0"
 platforms = ["linux", "macos"]
-description = "Installed by muxr — do not install directly. Browse files, review changes, and read git history for the repository you are working in"
+description = "Provider-neutral browser surface target for host-local web apps"
 
 [[actions]]
 id = "open"
-title = "Open Code"
-description = "Review the worktree beside the focused agent pane, as a muxr surface (no terminal pane)"
+title = "Open Browser"
+description = "Open a blank browser beside the focused agent pane, as a muxr surface (no terminal pane)"
 contexts = ["global"]
 command = ["bash", "open.sh"]
 

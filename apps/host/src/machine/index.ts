@@ -11,6 +11,7 @@ export {
     deviceAuthority,
     deviceKind,
     deviceTableCanMutate,
+    deviceTableHoldsControl,
     deviceTableIsObserve,
     deviceTablesFromCrypto,
     grantMayAdministerPeers,

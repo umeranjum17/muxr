@@ -474,15 +474,80 @@ export interface RequestMap extends PeerRequestMap {
      */
     'preview.probe': { params: { port: number }; result: { contentType: string | null } };
     /**
-     * Ask the host to join `channel` and forward it to `port`. Native callers
+     * Register an endpoint this device may reach through a preview tunnel.
+     *
+     * The lease, not the caller, names the endpoint from here on: the host
+     * records machine, device, surface kind, access, provider, context, the
+     * plugin snapshot it was issued under and an expiry, and `preview.attach`
+     * can only dial an endpoint the host itself wrote down. Expiry, a device
+     * whose grant has gone, a provider that is no longer enabled, or a catalog
+     * the host cannot read all close the live tunnel and its connections. A
+     * lease with a live tunnel that still passes every one of those checks is
+     * renewed, so a surface does not die mid-read.
+     *
+     * `access` says how the endpoint was chosen and is never a formality:
+     * `developer` is an operator typing a loopback port inside muxr's own
+     * chrome, and it reaches anything listening on that machine, so it stays a
+     * named diagnostic operation. `product` binds the lease to the capability
+     * provider and the worktree/context it belongs to; the provider is an
+     * opaque id checked against the catalog, never one this contract names.
+     */
+    'preview.lease': {
+        params: {
+            kind: 'browser';
+            access: 'developer' | 'product';
+            /**
+             * Developer path only: the operator-typed loopback port. Product
+             * callers name an offer handle instead; a product port, provider
+             * or context submitted by the caller is refused.
+             */
+            port?: number;
+            provider?: string;
+            context?: string;
+            /**
+             * Product path names a current local Browser offer handle. The
+             * host resolves port, provider and context from its own offer
+             * table; a product caller never submits those fields directly.
+             */
+            offer?: string;
+        };
+        result: {
+            lease: string;
+            expiresAt: number;
+            kind: 'browser';
+        };
+    };
+
+    /** Give a lease back early. Idempotent: an unknown lease is already gone. */
+    'preview.release': { params: { lease: string }; result: null };
+
+    /**
+     * Renew a held product lease from the device that holds it. This is the
+     * lease's authenticated liveness: the call itself, over the encrypted
+     * control plane, proves the holder is still present. The host
+     * re-validates the exact offer generation, the receiving device's
+     * provider approval, and the grant before extending anything, and renews
+     * the bound offer alongside the lease. Calls inside the minimum interval
+     * return the current expiry unchanged. Developer leases do not renew
+     * here; their typed-port diagnostic keeps holder-based renewal.
+     */
+    'preview.renew': { params: { lease: string }; result: { expiresAt: number } };
+
+    /**
+     * Ask the host to join `channel` and forward it to an endpoint. `lease`
+     * names an endpoint the host wrote down; `port` is the legacy
+     * takeover/preview path. Exactly one of them is given. Native callers
      * send a per-preview key through this encrypted request; local legacy web
      * preview may omit it because the browser cannot decrypt a raw TCP listener.
      *
      * Takeover callers claim `mode`: exactly one `control` holder per port may
      * send input, while `observe` watchers receive frames read-only. Callers
-     * that omit it (dev-server previews) share the port as before.
+     * that omit it (dev-server previews, leased surfaces) share the port as before.
      */
-    'preview.attach': { params: { channel: string; port: number; key?: string; mode?: 'observe' | 'control' }; result: null };
+    'preview.attach': {
+        params: { channel: string; port?: number; lease?: string; key?: string; mode?: 'observe' | 'control' };
+        result: null;
+    };
 
     // --- worktrees ----------------------------------------------------------
     /**

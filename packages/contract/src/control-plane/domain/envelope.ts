@@ -9,6 +9,8 @@
 
 import type { MachineInfo, SessionEvent, SessionInfo } from '../../herd/index.js';
 import type { ClientRequest, RequestResponse } from './requests.js';
+import type { SurfaceOffer } from './surface.js';
+import { isSurfaceOfferHandle, isSurfaceSessionId, SURFACE_CAPABILITIES } from './surface.js';
 import { isValidPluginId } from '../../plugins/index.js';
 
 /**
@@ -94,7 +96,71 @@ export type HostFrame =
     | { type: 'machine.hello'; machineId: string; hostVersion: string }
     | { type: 'machine.list'; machines: MachineInfo[] }
     | PluginsInvalidatedFrame
+    | SurfaceOfferHostFrame
     | RequestResponse;
+
+/**
+ * Host-originated Surface offer: how a phone learns that `muxr browser open`
+ * on the host named a target for exactly one live agent session.
+ *
+ * Emitted on open, update, reload (re-emit, same revision) and close, inside
+ * the existing encrypted control plane, directed only at currently
+ * control-authorized devices -- never peers, never view-only, revoked or
+ * expired grants. The opaque handle and the session id travel here and in
+ * `preview.lease` alone; they stay out of CLI and agent output. A phone that
+ * reconnects is replayed the current offers; nothing is claimed visible
+ * before a device acknowledgement exists.
+ */
+export interface SurfaceOfferHostFrame {
+    type: 'surface.offer';
+    operation: 'open' | 'update' | 'reload' | 'close';
+    /** Opaque current offer handle. Control-plane only, never displayed. */
+    handle: string;
+    /** The exact live agent session this offer belongs to. Never displayed. */
+    sessionId: string;
+    revision: number;
+    expiresAt: number;
+    /**
+     * Monotonic command identity for this logical surface: every open,
+     * update, reload, and close advances it. A reload with a command the
+     * phone already executed is a duplicate, not an order; a renewal
+     * re-emit keeps its command so it never executes. Absent only on
+     * frames from hosts that predate commands, which never execute.
+     */
+    command?: number;
+    /** Absent on close: there is nothing to show anymore. */
+    offer?: SurfaceOffer;
+}
+
+/** Bounded runtime guard for host-originated surface frames. Shape only. */
+export function isSurfaceOfferHostFrame(value: unknown): value is SurfaceOfferHostFrame {
+    if (typeof value !== 'object' || value === null) return false;
+    const frame = value as Record<string, unknown>;
+    if (frame.type !== 'surface.offer') return false;
+    if (frame.operation !== 'open' && frame.operation !== 'update'
+        && frame.operation !== 'reload' && frame.operation !== 'close') return false;
+    if (!isSurfaceOfferHandle(frame.handle)) return false;
+    if (!isSurfaceSessionId(frame.sessionId)) return false;
+    if (typeof frame.revision !== 'number' || !Number.isInteger(frame.revision) || frame.revision < 1) return false;
+    if (typeof frame.expiresAt !== 'number' || !Number.isFinite(frame.expiresAt) || frame.expiresAt <= 0) return false;
+    if (frame.command !== undefined
+        && (typeof frame.command !== 'number' || !Number.isInteger(frame.command) || frame.command < 1)) return false;
+    if (frame.operation === 'close') return frame.offer === undefined;
+    const offer = frame.offer as Record<string, unknown> | undefined;
+    if (typeof offer !== 'object' || offer === null) return false;
+    if (offer.version !== 1 || typeof offer.name !== 'string' || typeof offer.title !== 'string') return false;
+    if (typeof offer.revision !== 'number' || typeof offer.expiresAt !== 'number') return false;
+    if (typeof offer.capability !== 'string'
+        || !(SURFACE_CAPABILITIES as readonly string[]).includes(offer.capability)) return false;
+    // The mobile admits only when this exact provider is currently approved
+    // and still claims the capability, so a frame without one is malformed.
+    if (typeof offer.provider !== 'string' || offer.provider === '' || offer.provider.length > 64) return false;
+    if (offer.kind !== 'browser-direct' && offer.kind !== 'browser-local' && offer.kind !== 'code-review') return false;
+    // `code open` versus `code diff` travels explicitly: the phone must never
+    // infer the native destination from a revision string.
+    if (offer.kind === 'code-review' && offer.destination !== 'file' && offer.destination !== 'diff') return false;
+    return true;
+}
 
 /** Runtime guard for the additive machine frame; malformed peer data is ignored. */
 const PLUGIN_INVALIDATION_REASONS = ['linked', 'unlinked', 'enabled', 'disabled', 'changed'] as const;

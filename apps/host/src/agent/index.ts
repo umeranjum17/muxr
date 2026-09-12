@@ -46,3 +46,5 @@ export { openTerminal, closeTerminal } from './application/openTerminal.js';
 export { createHerdrSessionSource, type CreateHerdrSessionSourceOptions } from './infrastructure/herdrSessionSource.js';
 export { assertFakeSourceCoversContract, createFakeSessionSource } from './infrastructure/fakeSessionSource.js';
 export { TerminalManager, type TerminalManagerOptions } from './infrastructure/terminalManager.js';
+export { PluginApprovals } from './infrastructure/pluginApprovals.js';
+export { attachmentsInvalidationFrame, pluginCatalogChange } from './infrastructure/pluginCatalog.js';

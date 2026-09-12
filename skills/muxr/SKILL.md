@@ -53,6 +53,7 @@ work.
 | Create panes/tabs/workspaces/worktrees, run and read agents, socket API | `muxr skill herdr` · [source](references/herdr.md) |
 | Connect computers; list, read, watch, or prompt a remote agent; voice | `muxr skill collaboration` · [source](references/collaboration.md) |
 | Hand a browser login, 2FA, or CAPTCHA to the phone | `muxr skill browser-takeover` · [source](references/browser-takeover.md) |
+| Open a browser or code review surface instead of terminal graphics | `muxr skill surfaces` · [source](references/surfaces.md) |
 | Build, install, debug, or override a plugin | `muxr skill plugins` · [source](references/plugins.md) |
 | Troubleshoot, recover, or report a bug | run interactive `muxr doctor` for checked safe repairs, then `muxr diagnostics` locally or `muxr report` for a draft; show the complete draft and ask before any external action |
 | Full plugin manifest contract | run `muxr plugin docs` and read the printed PLUGINS.md |
