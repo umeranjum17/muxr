@@ -124,14 +124,6 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
-                name="session/[id]/takeover"
-                options={{
-                    headerShown: true,
-                    headerTitle: t('navigation.browserTakeover'),
-                    headerBackTitle: t('common.back'),
-                }}
-            />
-            <Stack.Screen
                 name="settings/appearance"
                 options={{
                     headerTitle: t('settings.appearance'),
