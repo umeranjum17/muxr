@@ -166,6 +166,8 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
             const first = permitIssuedAt === undefined;
             permit = message.permit;
             permitIssuedAt = now();
+            // Permits are the service's 100 ms pulse: a live permit stream is liveness.
+            lastServiceHeartbeat = now();
             // Permits tick every 100 ms; only the first one changes what the view shows.
             if (first) notify();
             return;
@@ -184,24 +186,39 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
         }
     };
 
-    /** One private peer per generation: offer, sealed round trip, answer. */
+    /** A sealed private round trip for the current generation; the reply is opened and typed. */
+    const signal = async (message: unknown): Promise<unknown> => {
+        if (sealer === undefined) throw new Error('not paired');
+        const reply = await sync.request('browser.session.signal', { session, generation: generation(), message: sealer.seal(message) });
+        return reply.message === undefined ? undefined : sealer.open(reply.message);
+    };
+
+    /** One private peer per generation: hello, offer, sealed round trips, answer. */
     const connectMedia = async (): Promise<void> => {
         if (closed || status === undefined || status.state === 'ended') return;
-        if (sealer === undefined) {
-            const grant = getBrowserServiceGrant(machineId);
-            if (grant === undefined) {
-                phase = 'needs-pairing';
-                closePeer();
-                notify();
-                return;
-            }
-            sealer = browserSessionSealer(grant, machineId, session);
+        const grant = getBrowserServiceGrant(machineId);
+        if (grant === undefined) {
+            phase = 'needs-pairing';
+            closePeer();
+            notify();
+            return;
         }
         closePeer();
         const forGeneration = generation();
+        // The scope is generation-bound: a fresh sealer per seat, so nothing
+        // sealed for an old generation opens under this one.
+        sealer = browserSessionSealer(grant, session, forGeneration);
         const thisMedia = ++mediaGeneration;
         const current = (): boolean => !closed && thisMedia === mediaGeneration && forGeneration === generation();
         try {
+            // The service sizes the shared target to this device's usable
+            // region before capture; a viewport that is not yet measured
+            // falls back to the service default.
+            const hello = await signal({ type: 'hello', generation: forGeneration, viewport: display.width > 0 && display.height > 0
+                ? { width: Math.round(display.width), height: Math.round(display.height), scale: Math.min(2, Math.max(1, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)) }
+                : undefined });
+            if (!current()) return;
+            if (isServiceMessage(hello) && hello.type === 'status') applyStatus(hello.status);
             const created = await createBrowserPeer({
                 onControl: (text) => {
                     if (!current()) return;
@@ -221,14 +238,9 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
             notify();
             const offer = await created.offer();
             if (!current()) return;
-            const reply = await sync.request('browser.session.signal', {
-                session,
-                generation: forGeneration,
-                message: sealer.seal(JSON.stringify({ type: 'offer', generation: forGeneration, sdp: offer })),
-            });
+            const answer = await signal({ type: 'offer', generation: forGeneration, sdp: offer });
             if (!current()) return;
-            if (reply.message === undefined) throw new Error('The browser service did not answer.');
-            const answer: unknown = JSON.parse(sealer.open(reply.message));
+            if (answer === undefined) throw new Error('The browser service did not answer.');
             if (!isServiceMessage(answer) || answer.type !== 'answer' || answer.generation !== forGeneration) {
                 throw new Error('The browser service answer did not match this session.');
             }
@@ -369,9 +381,17 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
         refresh,
         presented: (forMedia) => {
             if (forMedia !== mediaGeneration) return;
+            const firstForSeat = presentedGeneration !== forMedia || presentedFor !== generation();
             presentedGeneration = forMedia;
             presentedFor = generation();
             notify();
+            // The service moves the seat to you-control only once this
+            // device has actually shown a frame of the private track.
+            if (firstForSeat && status?.state === 'taking-control') {
+                void signal({ type: 'presented', generation: generation() })
+                    .then((reply) => { if (!closed && isServiceMessage(reply) && reply.type === 'status') applyStatus(reply.status); })
+                    .catch(() => { if (!closed) void refresh(); });
+            }
         },
         displayed: (nextDisplay, nextFrame) => {
             display = nextDisplay;

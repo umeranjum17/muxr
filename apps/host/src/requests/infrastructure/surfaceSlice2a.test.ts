@@ -1607,17 +1607,19 @@ describe('slice 2A surface contract', () => {
             expect(upstreamRequests).toEqual([]);
 
             // One-use bootstrap admits with a host-only Secure HttpOnly cookie and lands on the app path.
+            // The body is posted verbatim, exactly as a native WebView does.
+            expect(booted.data.bootstrap.body).toMatch(/^bootstrap=[A-Za-z0-9_-]{43}$/);
             const admitted = await fetchVia(gateway.port, host, booted.data.bootstrap.path, {
                 method: 'POST',
                 headers: { 'content-type': 'application/x-www-form-urlencoded' },
-                body: `bootstrap=${encodeURIComponent(booted.data.bootstrap.body)}`,
+                body: booted.data.bootstrap.body,
             });
             expect(admitted.status).toBe(303);
             expect(admitted.headers.location).toBe('/app');
             const setCookie = (admitted.headers['set-cookie'] ?? [])[0] as string;
-            expect(setCookie).toMatch(new RegExp(`^${PREVIEW_ADMISSION_COOKIE}=[A-Za-z0-9_-]{43}; Secure; HttpOnly; SameSite=Lax; Path=/$`));
+            expect(setCookie).toMatch(new RegExp(`^${PREVIEW_ADMISSION_COOKIE}=[A-Za-z0-9_-]{43}; Secure; HttpOnly; SameSite=None; Partitioned; Path=/$`));
             const cookie = setCookie.split(';')[0] as string;
-            const replay = await fetchVia(gateway.port, host, booted.data.bootstrap.path, { method: 'POST', body: booted.data.bootstrap.body });
+            const replay = await fetchVia(gateway.port, host, booted.data.bootstrap.path, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: booted.data.bootstrap.body });
             expect(replay.status).toBe(403);
 
             // Page: the app's cookies pass through with only the upstream Domain dropped.

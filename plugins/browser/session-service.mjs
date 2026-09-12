@@ -513,6 +513,13 @@ class BrowserService {
         const target = await this.cdp.send('Target.createTarget', { url: marker });
         const attached = await this.cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
         await this.cdp.send('Page.enable', {}, attached.sessionId);
+        this.cdp.on('Page.frameNavigated', (params, sessionId) => {
+            if (sessionId !== attached.sessionId || params.frame?.parentId) return;
+            const live = [...this.sessions.values()].find((entry) => entry.cdpSession === sessionId);
+            if (live === undefined) return;
+            live.documentGeneration += 1;
+            if (live.captured) void this.sendGeometry(live);
+        });
         let mapped;
         for (let attempt = 0; attempt < 10; attempt += 1) {
             try {
@@ -548,6 +555,12 @@ class BrowserService {
             pressed: { keys: new Map(), buttons: new Set(), x: 0, y: 0 },
             pendingCandidates: [],
             viewport: { width: 1280, height: 800, scale: 1 },
+            // Generations the device names on every input: the captured
+            // target (moves on every capture), the document (moves on every
+            // main-frame navigation) and the focused field.
+            targetGeneration: 0,
+            documentGeneration: 0,
+            focusGeneration: 0,
             device: undefined,
             child: undefined,
             captured: false,
@@ -780,7 +793,17 @@ class BrowserService {
         const after = await this.channel.command({ cmd: 'verify', tabId: target.tabId });
         if (after.url !== info.targetInfo.url) throw new Error('the registered tab changed during capture');
         session.captured = true;
+        session.targetGeneration += 1;
         return captured;
+    }
+
+    /** What the device may map taps into: the CSS viewport and the generations it must quote. */
+    async sendGeometry(session) {
+        if (!session.captured) return;
+        const { width, height } = session.viewport;
+        await this.channel.command({ cmd: 'send', channel: 'control', generation: session.generation, data: {
+            type: 'geometry', generation: session.generation, target: session.targetGeneration, document: session.documentGeneration, width, height,
+        } }, 1_000).catch(() => undefined);
     }
 
     recapture(session) {
@@ -1009,6 +1032,8 @@ class BrowserService {
         if (session === undefined) return;
         if (event.event === 'input') {
             void this.onInput(session, event.intent).catch(() => undefined);
+        } else if (event.event === 'channel' && event.channel === 'control') {
+            void this.sendGeometry(session).then(() => this.reportFocus(session)).catch(() => undefined);
         } else if (event.event === 'capture-ended' || (event.event === 'peer' && (event.connection === 'failed' || event.connection === 'closed'))) {
             if (session.state === 'you-control' || session.state === 'taking-control') void this.pause(session, event.event === 'capture-ended' ? 'the page capture stopped' : 'the private connection dropped');
         } else if (event.event === 'ice' && event.candidate) {
@@ -1018,12 +1043,22 @@ class BrowserService {
     }
 
     /** Device input: only in you-control, only with a live permit, only once per identity. */
+    /**
+     * Device messages on the private lanes, in the device's own vocabulary:
+     * heartbeat and release carry no permit; every other message is a
+     * discrete input that must quote the current generation, a live permit,
+     * a unique id and the target/document generations it was made for.
+     */
     async onInput(session, intent) {
-        if (session.state !== 'you-control' || typeof intent !== 'object' || intent === null) return;
-        if (intent.generation !== session.generation) return;
+        if (typeof intent !== 'object' || intent === null || intent.generation !== session.generation) return;
+        if (intent.type === 'heartbeat') { session.heartbeatAt = now(); return; }
+        if (intent.type === 'release') { await this.releasePressed(session); return; }
+        if (session.state !== 'you-control') return;
         const permit = session.permits.find((entry) => entry.id === intent.permit);
         if (permit === undefined || now() - permit.issuedAt > PERMIT_TTL_MS) return;
-        if (intent.kind !== 'move') {
+        if (intent.target !== session.targetGeneration || intent.document !== session.documentGeneration) return;
+        const motion = intent.type === 'touch' && intent.phase === 'move';
+        if (!motion) {
             if (typeof intent.id !== 'string' || intent.id === '' || session.seen.has(intent.id)) return;
             session.seen.add(intent.id);
             if (session.seen.size > 512) session.seen.delete(session.seen.values().next().value);
@@ -1034,45 +1069,71 @@ class BrowserService {
         const y = point(Number(intent.y), height);
         const target = session.cdpSession;
         const pressed = session.pressed;
-        switch (intent.kind) {
-            case 'move':
+        const mouse = (type, px, py, button = 'left') => this.cdp.send('Input.dispatchMouseEvent', { type, x: px, y: py, button, clickCount: 1 }, target);
+        const keyPair = async (key, code, vk, text) => {
+            pressed.keys.set(code, { key, vk });
+            await this.cdp.send('Input.dispatchKeyEvent', { type: text === undefined ? 'rawKeyDown' : 'keyDown', key, code, windowsVirtualKeyCode: vk, ...(text === undefined ? {} : { text }) }, target);
+            pressed.keys.delete(code);
+            await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk }, target);
+        };
+        switch (intent.type) {
+            case 'tap':
                 if (x === undefined || y === undefined) return;
                 pressed.x = x; pressed.y = y;
-                await this.cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: pressed.buttons.has('left') ? 'left' : 'none' }, target);
+                await mouse('mouseMoved', x, y, 'none');
+                pressed.buttons.add('left');
+                await mouse('mousePressed', x, y);
+                pressed.buttons.delete('left');
+                await mouse('mouseReleased', x, y);
+                await this.reportFocus(session);
                 return;
-            case 'down':
-            case 'up': {
+            case 'touch':
+                if (intent.phase === 'end') {
+                    if (!pressed.buttons.has('left')) return;
+                    pressed.buttons.delete('left');
+                    await mouse('mouseReleased', pressed.x, pressed.y);
+                    await this.reportFocus(session);
+                    return;
+                }
                 if (x === undefined || y === undefined) return;
-                const button = intent.button === 'right' ? 'right' : 'left';
                 pressed.x = x; pressed.y = y;
-                if (intent.kind === 'down') pressed.buttons.add(button); else pressed.buttons.delete(button);
-                await this.cdp.send('Input.dispatchMouseEvent', { type: intent.kind === 'down' ? 'mousePressed' : 'mouseReleased', x, y, button, clickCount: 1 }, target);
-                if (intent.kind === 'up') await this.reportFocus(session);
+                if (intent.phase === 'start') {
+                    pressed.buttons.add('left');
+                    await mouse('mousePressed', x, y);
+                } else {
+                    await mouse('mouseMoved', x, y, pressed.buttons.has('left') ? 'left' : 'none');
+                }
                 return;
-            }
             case 'wheel':
                 if (x === undefined || y === undefined) return;
-                await this.cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: Number(intent.dx) || 0, deltaY: Number(intent.dy) || 0 }, target);
+                await this.cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: Number(intent.deltaX) || 0, deltaY: Number(intent.deltaY) || 0 }, target);
                 return;
             case 'key': {
-                if (typeof intent.key !== 'string' || typeof intent.code !== 'string' || intent.key.length > 32 || intent.code.length > 32) return;
-                const vk = Number.isInteger(intent.vk) ? intent.vk : 0;
-                const type = intent.type === 'up' ? 'keyUp' : intent.text ? 'keyDown' : 'rawKeyDown';
-                if (type === 'keyUp') pressed.keys.delete(intent.code); else pressed.keys.set(intent.code, { key: intent.key, vk });
-                await this.cdp.send('Input.dispatchKeyEvent', { type, key: intent.key, code: intent.code, windowsVirtualKeyCode: vk, ...(typeof intent.text === 'string' && intent.text.length <= 4 ? { text: intent.text } : {}), modifiers: Number(intent.modifiers) || 0 }, target);
-                if (type === 'keyUp') await this.reportFocus(session);
+                const keys = { Enter: ['Enter', 13, '\r'], Backspace: ['Backspace', 8, undefined], Tab: ['Tab', 9, '\t'] };
+                const spec = keys[intent.key];
+                if (spec === undefined) return;
+                await keyPair(intent.key, spec[0], spec[1], spec[2]);
+                await this.reportFocus(session);
                 return;
             }
-            case 'text': {
+            case 'commit':
+            case 'insertText': {
                 // One committed edit applied once to the focused field: the
                 // device keeps composition local and sends the result.
-                if (typeof intent.value !== 'string' || intent.value.length > 4096) return;
-                if (intent.replace === true) {
+                if (typeof intent.text !== 'string' || intent.text.length > 4096) return;
+                if (intent.type === 'commit') {
                     await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', modifiers: 2, windowsVirtualKeyCode: 65, commands: ['selectAll'] }, target);
                     await this.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', modifiers: 2, windowsVirtualKeyCode: 65 }, target);
                 }
-                await this.cdp.send('Input.insertText', { text: intent.value }, target);
+                await this.cdp.send('Input.insertText', { text: intent.text }, target);
                 await this.reportFocus(session);
+                return;
+            }
+            case 'navigate': {
+                const history = await this.cdp.send('Page.getNavigationHistory', {}, target);
+                const index = history.currentIndex + (intent.direction === 'back' ? -1 : 1);
+                const entry = history.entries[index];
+                if (entry !== undefined) await this.cdp.send('Page.navigateToHistoryEntry', { entryId: entry.id }, target);
                 return;
             }
             default:
@@ -1107,7 +1168,14 @@ class BrowserService {
 
     async reportFocus(session) {
         const info = await this.focusInfo(session);
-        await this.channel.command({ cmd: 'send', channel: 'control', generation: session.generation, data: { type: 'focus', ...info } }, 1_000).catch(() => undefined);
+        session.focusGeneration += 1;
+        const kinds = { text: 'text', textarea: 'text', password: 'password', otp: 'otp', email: 'email', tel: 'tel', number: 'number', url: 'url', search: 'search' };
+        const field = info.editable
+            ? { kind: kinds[info.type] ?? 'text', label: info.label ?? '', ...(info.value === undefined ? {} : { value: info.value }) }
+            : null;
+        await this.channel.command({ cmd: 'send', channel: 'control', generation: session.generation, data: {
+            type: 'focus', generation: session.generation, target: session.targetGeneration, document: session.documentGeneration, focus: session.focusGeneration, field,
+        } }, 1_000).catch(() => undefined);
     }
 
     // ---- enrollment (owner-only socket; never reachable through agent commands)

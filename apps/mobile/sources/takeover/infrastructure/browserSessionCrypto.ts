@@ -2,39 +2,34 @@
  * Sealing for private signaling under the browser-service grant.
  *
  * The device seals every signal it sends and opens every reply with the
- * per-device root the browser service shares -- never the session root, so
- * the host relays bytes it cannot read. Bound to machine, service, device,
- * session and key version; replay-tracked per session.
+ * per-device roots the browser service pinned -- never the session root, so
+ * the host relays bytes it cannot read. The scope binds service, device,
+ * session, ownership generation and key generation; one sealer per
+ * generation, so nothing from an old seat opens under a new one.
  */
 
 import {
-    deriveV2Key,
+    deriveBrowserSessionKeys,
     newV2ReplayTracker,
     newV2SenderState,
-    openV2,
-    sealV2,
-    type V2Context,
+    openBrowserSessionMessage,
+    sealBrowserSessionMessage,
+    type BrowserSessionScope,
 } from '@muxr/crypto';
 import type { BrowserServiceGrant } from '@/pairing/e2ee';
 
 export interface BrowserSessionSealer {
-    seal: (plaintext: string) => string;
-    open: (sealed: string) => string;
+    seal: (message: unknown) => string;
+    open: (sealed: string) => unknown;
 }
 
-// ponytail: adapter over the existing v2 envelope; swap the two calls for
-// sealBrowserSessionMessage/openBrowserSessionMessage once the crypto lane
-// exports them, keeping this interface.
-export function browserSessionSealer(grant: BrowserServiceGrant, machineId: string, session: string): BrowserSessionSealer {
-    const base = { machineId, channel: 'stream' as const, streamId: session, keyVersion: grant.keyVersion };
-    const toService: V2Context = { ...base, senderId: grant.deviceId, recipientId: grant.serviceId };
-    const fromService: V2Context = { ...base, senderId: grant.serviceId, recipientId: grant.deviceId };
-    const sendKey = deriveV2Key(grant.root, 'client->host');
-    const receiveKey = deriveV2Key(grant.root, 'host->client');
+export function browserSessionSealer(grant: BrowserServiceGrant, session: string, generation: number): BrowserSessionSealer {
+    const keys = deriveBrowserSessionKeys({ dataKey: grant.dataKey, ingressKey: grant.ingressKey });
+    const scope: BrowserSessionScope = { serviceId: grant.serviceId, deviceId: grant.deviceId, session, generation, keyVersion: grant.keyVersion };
     const sender = newV2SenderState();
     const replay = newV2ReplayTracker();
     return {
-        seal: (plaintext) => sealV2(plaintext, sendKey, toService, sender),
-        open: (sealed) => openV2(sealed, receiveKey, fromService, replay),
+        seal: (message) => sealBrowserSessionMessage(message, keys, scope, 'device->service', sender),
+        open: (sealed) => openBrowserSessionMessage(sealed, keys, scope, 'service->device', replay),
     };
 }

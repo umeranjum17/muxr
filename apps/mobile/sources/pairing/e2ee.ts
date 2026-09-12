@@ -8,11 +8,13 @@ export * from './application/hostedE2ee';
  * browser asks for a fresh pairing instead of pretending to be private.
  */
 export interface BrowserServiceGrant {
-    /** 32-byte root, base64. */
-    root: string;
+    /** The browser service's own identity id (the `machineId` of its grant). */
     serviceId: string;
     deviceId: string;
     keyVersion: number;
+    /** 32-byte roots from the opened browser-service grant, base64: service->device and device->service. */
+    dataKey: string;
+    ingressKey: string;
 }
 
 // ponytail: stub reading an optional field of the stored grant; the pairing
