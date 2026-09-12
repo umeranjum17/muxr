@@ -63,6 +63,12 @@ export interface PreviewLease {
     offerHandle?: string;
     offerRevision?: number;
     offerSession?: string;
+    /**
+     * Endpoint process generation this product lease was issued against. A
+     * dev server that restarted behind the same port moves it, and the
+     * gateway admits nothing for this lease on the new process.
+     */
+    endpointGeneration?: number;
     issuedAt: number;
     expiresAt: number;
     /**
@@ -92,6 +98,7 @@ export interface PreviewLeaseIssue {
     offerHandle?: string;
     offerRevision?: number;
     offerSession?: string;
+    endpointGeneration?: number;
 }
 
 export interface PreviewLeaseRegistry {
@@ -534,6 +541,7 @@ export function createPreviewLeases(ports: PreviewLeasePorts): PreviewLeaseRegis
                 ...(input.offerHandle === undefined ? {} : { offerHandle: input.offerHandle }),
                 ...(input.offerRevision === undefined ? {} : { offerRevision: input.offerRevision }),
                 ...(input.offerSession === undefined ? {} : { offerSession: input.offerSession }),
+                ...(input.endpointGeneration === undefined ? {} : { endpointGeneration: input.endpointGeneration }),
                 issuedAt: at,
                 expiresAt: at + ttl,
                 seenAt: at,

@@ -12,6 +12,7 @@
  * generically, and its replies leak no ids or secrets.
  */
 import { mkdirSync, mkdtempSync, symlinkSync } from 'node:fs';
+import { createServer as createHttpServer, request as httpRequest, type IncomingMessage } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +29,9 @@ import { surfaceOfferFrame } from '../application/surfaceFanout.js';
 import { createSurfaceOffers, type SurfaceOfferEvent } from './surfaceOffers.js';
 import { SurfaceBroker } from './surfaceBroker.js';
 import { createPreviewLeases } from './previewLeases.js';
+import { createPreviewEndpoints } from './previewEndpoint.js';
+import { PREVIEW_ADMISSION_COOKIE, startPreviewGateway } from './previewGateway.js';
+import WebSocket, { WebSocketServer } from 'ws';
 import { PluginApprovals, attachmentsInvalidationFrame, pluginCatalogChange, type SessionSource } from '../../agent/index.js';
 import { isPluginsInvalidatedFrame } from '@muxr/contract';
 
@@ -128,7 +132,11 @@ const claimantsFor = (ids: string[]) => async (capability: SurfaceCapability): P
     return [];
 };
 
-function dispatcherFor(source: SessionSource, offers: ReturnType<typeof createSurfaceOffers>) {
+function dispatcherFor(
+    source: SessionSource,
+    offers: ReturnType<typeof createSurfaceOffers>,
+    preview?: Pick<Parameters<typeof createRequestDispatcher>[0], 'previewEndpoints' | 'previewGateway'>,
+) {
     const grants = new Set(['control-device']);
     return createRequestDispatcher({
         source,
@@ -138,6 +146,20 @@ function dispatcherFor(source: SessionSource, offers: ReturnType<typeof createSu
         relayUrl: 'ws://relay.test',
         surfaceAuthority: (deviceId: string) => grants.has(deviceId),
         surfaceOffers: offers,
+        ...preview,
+    });
+}
+
+/** One raw HTTP exchange against the gateway under a public Host header. */
+function fetchVia(port: number, host: string, path: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<{ status: number; headers: IncomingMessage['headers']; body: string }> {
+    return new Promise((resolvePromise, reject) => {
+        const request = httpRequest({ host: '127.0.0.1', port, method: init.method ?? 'GET', path, headers: { host, ...init.headers }, agent: false }, (response) => {
+            const chunks: Buffer[] = [];
+            response.on('data', (chunk: Buffer) => chunks.push(chunk));
+            response.on('end', () => resolvePromise({ status: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks).toString('utf8') }));
+        });
+        request.on('error', reject);
+        request.end(init.body);
     });
 }
 
@@ -1520,5 +1542,124 @@ describe('slice 2A surface contract', () => {
         expect(seen.map((entry) => entry.operation)).toEqual(['open', 'reload', 'reload', 'close']);
         expect([...commands].sort((a, b) => a - b)).toEqual(commands);
         expect(new Set(commands).size).toBe(commands.length - 1);
+    });
+
+    it('delivers a real app over the HTTPS gateway: unadmitted refused with zero dials, bootstrap admits, page, asset, cookie and WebSocket flow, release closes the socket', async () => {
+        // A real dev-server stub: a page that installs a session cookie
+        // scoped to its own host, an asset that reads it back, a redirect
+        // to its own authority, and an echo WebSocket on the same listener.
+        const upstreamRequests: string[] = [];
+        const app = createHttpServer((request, response) => {
+            upstreamRequests.push(`${request.method} ${request.url}`);
+            if (request.url === '/app') {
+                response.writeHead(200, {
+                    'content-type': 'text/html',
+                    'set-cookie': ['sid=s3cr3t; Path=/; Domain=localhost; HttpOnly', 'theme=dark; Path=/'],
+                });
+                response.end('<script src="/app.js"></script>');
+                return;
+            }
+            if (request.url === '/app.js') {
+                response.writeHead(200, { 'content-type': 'text/javascript' });
+                response.end(`// cookie=${request.headers.cookie ?? ''}; proto=${request.headers['x-forwarded-proto']}; fhost=${request.headers['x-forwarded-host']}`);
+                return;
+            }
+            if (request.url === '/login') {
+                response.writeHead(302, { location: `http://127.0.0.1:${appPort}/app?next=1` });
+                response.end();
+                return;
+            }
+            response.writeHead(404);
+            response.end();
+        });
+        const socketServer = new WebSocketServer({ server: app, path: '/hmr' });
+        socketServer.on('connection', (socket, request) => {
+            socket.send(`hello ${request.headers.cookie ?? ''}`);
+            socket.on('message', (data) => socket.send(`echo ${String(data)}`));
+        });
+        await new Promise<void>((resolvePromise) => app.listen(0, '127.0.0.1', resolvePromise));
+        const appPort = (app.address() as { port: number }).port;
+
+        const endpoints = createPreviewEndpoints({ publicPort: 443, allocator: { hostnameFor: (endpoint) => `${endpoint.id}.preview.test` } });
+        const gateway = await startPreviewGateway({ endpoints });
+        const source = fakeSource();
+        const offers = createSurfaceOffers();
+        const { dispatch } = dispatcherFor(source, offers, { previewEndpoints: endpoints, previewGateway: gateway });
+        try {
+            const record = await openSurfaceOffer(
+                { offers, snapshot: async () => 'muxr.browser:h1', claimants: claimantsFor(['muxr.browser']) },
+                { offer: { ...LOCAL_OFFER, port: appPort, path: '/app' }, context: WORKTREE, sessionId: 'route-1' },
+            );
+            const leased = await dispatch({ type: 'preview.lease', requestId: 'l', params: { kind: 'browser', access: 'product', offer: record.handle } } as never, 'control-device') as { ok: boolean; data: { lease: string } };
+            expect(leased.ok).toBe(true);
+            const booted = await dispatch({ type: 'preview.bootstrap', requestId: 'b', params: { lease: leased.data.lease } } as never, 'control-device') as {
+                ok: boolean; data: { origin: string; generation: number; path: string; bootstrap: { path: string; body: string; expiresAt: number } };
+            };
+            expect(booted.ok).toBe(true);
+            const host = new URL(booted.data.origin).host;
+            expect(host).toMatch(/\.preview\.test$/);
+            expect(booted.data.path).toBe('/app');
+
+            // Unpaired: right host, no cookie -- and a forged cookie -- reach nothing upstream.
+            expect((await fetchVia(gateway.port, host, '/app')).status).toBe(403);
+            expect((await fetchVia(gateway.port, host, '/app', { headers: { cookie: `${PREVIEW_ADMISSION_COOKIE}=${'x'.repeat(43)}` } })).status).toBe(403);
+            expect((await fetchVia(gateway.port, 'other.preview.test', '/app')).status).toBe(403);
+            expect(upstreamRequests).toEqual([]);
+
+            // One-use bootstrap admits with a host-only Secure HttpOnly cookie and lands on the app path.
+            const admitted = await fetchVia(gateway.port, host, booted.data.bootstrap.path, {
+                method: 'POST',
+                headers: { 'content-type': 'application/x-www-form-urlencoded' },
+                body: `bootstrap=${encodeURIComponent(booted.data.bootstrap.body)}`,
+            });
+            expect(admitted.status).toBe(303);
+            expect(admitted.headers.location).toBe('/app');
+            const setCookie = (admitted.headers['set-cookie'] ?? [])[0] as string;
+            expect(setCookie).toMatch(new RegExp(`^${PREVIEW_ADMISSION_COOKIE}=[A-Za-z0-9_-]{43}; Secure; HttpOnly; SameSite=Lax; Path=/$`));
+            const cookie = setCookie.split(';')[0] as string;
+            const replay = await fetchVia(gateway.port, host, booted.data.bootstrap.path, { method: 'POST', body: booted.data.bootstrap.body });
+            expect(replay.status).toBe(403);
+
+            // Page: the app's cookies pass through with only the upstream Domain dropped.
+            const page = await fetchVia(gateway.port, host, '/app', { headers: { cookie } });
+            expect(page.status).toBe(200);
+            expect(page.body).toContain('/app.js');
+            expect(page.headers['set-cookie']).toEqual(['sid=s3cr3t; Path=/; HttpOnly', 'theme=dark; Path=/']);
+            // Asset: the app session cookie reaches upstream, the gateway cookie does not, and forwarding facts are set.
+            const asset = await fetchVia(gateway.port, host, '/app.js', { headers: { cookie: `${cookie}; sid=s3cr3t; theme=dark` } });
+            expect(asset.body).toBe(`// cookie=sid=s3cr3t; theme=dark; proto=https; fhost=${host}`);
+            // Redirect to the upstream's own authority maps back to the public origin, query intact.
+            const redirect = await fetchVia(gateway.port, host, '/login', { headers: { cookie } });
+            expect(redirect.status).toBe(302);
+            expect(redirect.headers.location).toBe(`${booted.data.origin}/app?next=1`);
+
+            // WebSocket: admitted upgrade becomes a raw duplex; an unadmitted one is refused before any dial.
+            const refused = new WebSocket(`ws://127.0.0.1:${gateway.port}/hmr`, { headers: { host } });
+            await new Promise<void>((resolvePromise) => refused.once('error', () => resolvePromise()));
+            const upgrades = upstreamRequests.length;
+            const live = new WebSocket(`ws://127.0.0.1:${gateway.port}/hmr`, { headers: { host, cookie: `${cookie}; sid=s3cr3t` } });
+            const messages: string[] = [];
+            const closed = new Promise<void>((resolvePromise) => live.once('close', () => resolvePromise()));
+            await new Promise<void>((resolvePromise, reject) => {
+                live.once('error', reject);
+                live.on('message', (data) => {
+                    messages.push(String(data));
+                    if (messages.length === 1) live.send('ping');
+                    if (messages.length === 2) resolvePromise();
+                });
+            });
+            expect(messages).toEqual(['hello sid=s3cr3t', 'echo ping']);
+            expect(upstreamRequests.length).toBe(upgrades);
+
+            // Release ends the lease: the gateway closes the live socket and admits nothing more.
+            await dispatch({ type: 'preview.release', requestId: 'r', params: { lease: leased.data.lease } } as never, 'control-device');
+            await closed;
+            expect((await fetchVia(gateway.port, host, '/app', { headers: { cookie } })).status).toBe(403);
+        } finally {
+            gateway.close();
+            endpoints.dispose();
+            socketServer.close();
+            app.close();
+        }
     });
 });
