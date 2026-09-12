@@ -594,6 +594,18 @@ export interface RequestMap extends PeerRequestMap {
         params: { session: string; generation: number; message: string };
         result: { message?: string };
     };
+    /**
+     * Enroll this device with the browser service: the service mints the
+     * separately pinned browser-service grant, sealed to the device's own
+     * X25519 key and signed by the service identity. Only a device holding
+     * control authority may enroll, and only for itself. Pairing pins the
+     * same grant in hosted deployments; this is the owner re-enrolling an
+     * already trusted device, never an agent command.
+     */
+    'browser.session.enroll': {
+        params: { devicePublicKey: string };
+        result: { grant: unknown; serviceId: string; signingPublicKey: string; expiresAt: number };
+    };
 
     /**
      * Ask the host to join `channel` and forward it to an endpoint. `lease`
@@ -692,6 +704,7 @@ const E2EE_REQUEST_TYPES = new Set([
     'browser.session.resume',
     'browser.session.return',
     'browser.session.signal',
+    'browser.session.enroll',
 ]);
 
 export function requestRequiresE2ee(type: string): boolean {

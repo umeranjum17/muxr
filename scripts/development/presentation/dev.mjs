@@ -103,7 +103,7 @@ const upEnv = {
     // Preview gateway knobs are dev-local too: an origin base such as
     // preview.localhost, a dev TLS pair for it, and a fixed gateway port.
     // They name no service and carry no authority.
-    ...Object.fromEntries(Object.entries(process.env).filter(([name, value]) => /^MUXR_PREVIEW_/.test(name) && value?.trim())),
+    ...Object.fromEntries(Object.entries(process.env).filter(([name, value]) => /^MUXR_(PREVIEW|BROWSER_SERVICE)_/.test(name) && value?.trim())),
 };
 
 const metroEnv = {

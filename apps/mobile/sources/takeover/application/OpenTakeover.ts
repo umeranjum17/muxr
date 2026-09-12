@@ -17,7 +17,7 @@
 import { randomUUID } from 'expo-crypto';
 import type { BrowserSessionState, BrowserSessionStatus } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
-import { getBrowserServiceGrant } from '@/pairing/e2ee';
+import { enrollBrowserService, getBrowserServiceGrant } from '@/pairing/e2ee';
 import { mapDisplayToViewport, type Point, type Size } from '../domain/coordinates';
 import {
     HEARTBEAT_MS,
@@ -196,7 +196,17 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
     /** One private peer per generation: hello, offer, sealed round trips, answer. */
     const connectMedia = async (): Promise<void> => {
         if (closed || status === undefined || status.state === 'ended') return;
-        const grant = getBrowserServiceGrant(machineId);
+        let grant = getBrowserServiceGrant(machineId);
+        if (grant === undefined) {
+            // An owner device enrolls itself once; a refusal (no service, no
+            // control authority, expired pairing) is the honest end state.
+            try {
+                grant = await enrollBrowserService(machineId);
+            } catch {
+                grant = undefined;
+            }
+            if (closed) return;
+        }
         if (grant === undefined) {
             phase = 'needs-pairing';
             closePeer();
