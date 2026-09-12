@@ -67,6 +67,41 @@ export async function serveSurfaceFixture(port = 0) {
             response.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18"><circle cx="9" cy="9" r="8" fill="#5f7a5a"/></svg>');
             return;
         }
+        // A sign-in wall for the Agent browser journey: password + one-time
+        // code, an HttpOnly session cookie on success, and an account page
+        // that only the cookie reaches. Fixture-only credentials.
+        if (url === '/login' && request.method !== 'POST') {
+            response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+            response.end(html(`<h1>Sign in</h1><form method="post" action="/login"><label>Email <input name="email" type="email" autocomplete="username" value="owner@example.test"></label><br>
+<label>Password <input name="password" type="password" autocomplete="current-password"></label><br>
+<label>One-time code <input name="otp" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></label><br>
+<button type="submit" id="signin">Sign in</button></form><p id="hint">fixture: password <b>hunter2</b>, code <b>424242</b></p>`));
+            return;
+        }
+        if (url === '/account') {
+            const signedIn = /(?:^|;\s*)fixture-session=ok/.test(request.headers.cookie ?? '');
+            response.writeHead(signedIn ? 200 : 302, signedIn ? { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } : { location: '/login' });
+            response.end(signedIn ? html(`<h1 id="account">Signed in as owner@example.test</h1><p>Only a browser holding the session cookie sees this page.</p><p><a href="/logout">Sign out</a></p>`) : '');
+            return;
+        }
+        if (url === '/logout') {
+            response.writeHead(302, { location: '/login', 'set-cookie': 'fixture-session=; Path=/; Max-Age=0' });
+            response.end();
+            return;
+        }
+        if (request.method === 'POST' && url === '/login') {
+            let body = '';
+            request.on('data', (chunk) => { body += String(chunk).slice(0, 4096); });
+            request.on('end', () => {
+                const fields = new URLSearchParams(body);
+                const ok = fields.get('password') === 'hunter2' && fields.get('otp') === '424242';
+                response.writeHead(302, ok
+                    ? { location: '/account', 'set-cookie': 'fixture-session=ok; Path=/; HttpOnly' }
+                    : { location: '/login' });
+                response.end();
+            });
+            return;
+        }
         if (url === '/about') {
             response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
             response.end(html(`<h1>About</h1><p>A second page reached by ordinary navigation. Version ${version}.</p><p><a href="/">back to the fixture</a></p>`));

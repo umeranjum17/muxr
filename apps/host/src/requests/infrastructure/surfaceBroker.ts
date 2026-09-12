@@ -759,7 +759,7 @@ export class SurfaceBroker {
         const name = request.name ?? 'agent-browser';
         if (request.method === 'browser.session.open') {
             const provider = await this.resolveInstalledProvider('surface.browser.control-host-session', request.provider);
-            const opened = await this.browserService('session.open', { context: resolved.context }) as { session: string; site?: string };
+            const opened = await this.browserService('session.open', { context: resolved.context, name }) as { session: string; site?: string };
             const input: SurfaceOfferInput = {
                 kind: 'browser-session',
                 capability: 'surface.browser.control-host-session',
@@ -777,10 +777,20 @@ export class SurfaceBroker {
             );
             return { outcome: 'accepted' as const, surface: this.visible(record.offer) };
         }
-        const current = this.offers.current(name, resolved.context, resolved.sessionId);
+        let current = this.offers.current(name, resolved.context, resolved.sessionId);
         if (current === undefined || current.offer.kind !== 'browser-session') {
-            throw new Error('no agent browser by that name; run `browser session open` first');
+            // The offer registry is host memory; the session outlives a host
+            // restart in the service. Recover the record by name and context
+            // and republish it, so the agent's name still means its session.
+            const found = await this.browserService('session.find', { name, context: resolved.context }) as { session?: string; site?: string };
+            if (typeof found.session !== 'string') throw new Error('no agent browser by that name; run `browser session open` first');
+            const provider = await this.resolveInstalledProvider('surface.browser.control-host-session', 'provider' in request && typeof request.provider === 'string' ? request.provider : undefined);
+            current = await openSurfaceOffer(
+                { offers: this.offers, snapshot: () => this.snapshotDigest(), claimants: (capability) => this.claimantsFor(capability) },
+                { offer: { kind: 'browser-session', capability: 'surface.browser.control-host-session', name, ...(request.name === undefined ? { title: 'Agent browser' } : {}), session: found.session, site: found.site ?? '', context: resolved.context, provider } satisfies SurfaceOfferInput, context: resolved.context, sessionId: resolved.sessionId },
+            );
         }
+        if (current.offer.kind !== 'browser-session') throw new Error('no agent browser by that name; run `browser session open` first');
         const session = current.offer.session;
         const provider = current.offer.provider;
         // Re-publish the offer with the service's current safe site: navigation

@@ -217,6 +217,10 @@ function demo(): void {
     assert(isSurfaceOfferHostFrame(decodePayload(encodePayload(frame))), 'host-originated surface frames round-trip');
     assert(isSurfaceOfferHostFrame({ ...frame, offer: undefined, operation: 'close' }), 'close frames carry no offer');
     assert(!isSurfaceOfferHostFrame({ ...frame, handle: 'pvl_123' }), 'lease ids are not offer handles');
+    const sessionOffer = { ...frame.offer, kind: 'browser-session' as const, capability: 'surface.browser.control-host-session' as const, session: 'bsn_0123456789abcdef', site: 'accounts.example.com' };
+    assert(isSurfaceOfferHostFrame({ ...frame, offer: sessionOffer }), 'agent browser session frames validate');
+    assert(!isSurfaceOfferHostFrame({ ...frame, offer: { ...sessionOffer, site: 'https://x/?q=1' } }), 'a session site is a bare hostname');
+    assert(!isSurfaceOfferHostFrame({ ...frame, offer: { ...sessionOffer, capability: 'surface.browser.open' } }), 'a session offer needs host-session authority');
     assert(!isSurfaceOfferHostFrame({ ...frame, offer: { ...frame.offer, provider: '' } }), 'provider-less offers are malformed');
     assert(!isSurfaceOfferHostFrame({ ...frame, operation: 'visible' }), 'only host operations validate');
     assert(isSurfaceOfferHostFrame({ ...frame, command: 7 }), 'commands ride the frame');
