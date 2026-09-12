@@ -490,10 +490,15 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     const grantFailure = pairingFailure === 'device-revoked' ? 'revoked'
         : pairingFailure === 'grant-expired' || /grant expired/i.test(status) ? 'expired'
             : undefined;
+    // Only what the channel can vouch for: 'live' means frames flow with
+    // nothing known wrong, so it reads as connected, never as health; a known
+    // timeout or lost route reads unconfirmed until the host answers again.
     const statusText = grantFailure === 'expired' ? 'Access expired · Pair again'
         : grantFailure === 'revoked' ? 'Access removed · Pair again'
-            : /^(connecting|reconnecting|live|closed|disconnected)$/.test(status) || status.includes('another device') ? status
-                : `${failureText(status)} Tap to retry.`;
+            : status === 'live' ? 'connected'
+                : status === 'unconfirmed' ? 'Connection unconfirmed'
+                    : /^(connecting|reconnecting|closed|disconnected)$/.test(status) || status.includes('another device') ? status
+                        : `${failureText(status)} Tap to retry.`;
     const retryTerminal = React.useCallback(() => {
         if (grantFailure !== undefined) {
             router.push(`/pair?source=settings&reason=${grantFailure}` as never);
