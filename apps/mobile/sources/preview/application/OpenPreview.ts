@@ -1,16 +1,16 @@
 /**
  * Browser preview, device half.
  *
- * The device binds the listener and the relay only forwards frames, so the page
- * loads from the phone's own loopback over whatever transport the session
- * already uses -- LAN, Tailscale, a tunnel, a hosted relay. Asking the relay for
- * an ephemeral port instead only works where the relay is published beyond 443,
- * and is plain HTTP across the internet where it is, so web -- which cannot bind
- * a listener -- is the only caller left on that path.
+ * Product Preview (a leased `browser-local` offer) is ordinary HTTPS: the
+ * host allocates an origin, the device asks for a one-use bootstrap and the
+ * renderer posts it into its own frame; cookies, WebSockets and HMR then ride
+ * plain HTTP to the host gateway. Nothing on that path dials the E2EE preview
+ * tunnel. `attachPreviewTunnel` below remains for the takeover stream and the
+ * legacy typed-port preview screen, which still speak over the sealed tunnel.
  */
 
 import { newPreviewKey } from '@muxr/crypto';
-import { issueWsTicket, newPreviewChannel, ticketSocketUrl } from '@muxr/contract';
+import { issueWsTicket, newPreviewChannel, ticketSocketUrl, type RequestResult } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
 import { getCachedHostedGrant } from '@/pairing/e2ee';
 import { sync } from '@/catalog/sync';
@@ -261,19 +261,37 @@ export async function releaseSurfaceLease(lease: string): Promise<void> {
     await sync.request('preview.release', { lease }).catch(() => undefined);
 }
 
+/** What `preview.bootstrap` hands the renderer: where the app is and how to be admitted once. */
+export type PreviewAdmission = RequestResult<'preview.bootstrap'>;
+
+/**
+ * Turn a held lease into a loadable HTTPS preview. The body inside is a
+ * one-use credential that travels only over the encrypted control plane; the
+ * renderer posts it exactly once and never sees it again. Ask again only when
+ * the admission cookie itself is gone (eviction, a refused probe): the host
+ * issues a fresh body under the same lease.
+ */
+export async function requestPreviewBootstrap(lease: string): Promise<PreviewAdmission> {
+    return sync.request('preview.bootstrap', { lease });
+}
+
 /**
  * Authenticated device liveness for one mounted product surface: the lease
  * TTL is 10 minutes and holder existence is not liveness, so while its
  * surface stays mounted the device sends `preview.renew` every 4 minutes
  * over the encrypted control plane. The host re-reads approval, offer and
- * session standing before extending anything. A rejection or a transport
+ * session standing before extending anything; admission extends server-side
+ * and the frame is never navigated for it. A rejection or a transport
  * deadline stops the loop and reaches `onLost`; a stopped loop never fires
- * again.
+ * again. `pause` holds the timer (native background); `resume` renews at
+ * once to re-check standing before the interval restarts.
  */
 export const SURFACE_RENEW_INTERVAL_MS = 4 * 60_000;
 
 export interface SurfaceRenewLoop {
     stop: () => void;
+    pause: () => void;
+    resume: () => void;
 }
 
 export function startSurfaceRenewLoop(
@@ -283,7 +301,8 @@ export function startSurfaceRenewLoop(
     const interval = options.intervalMs ?? SURFACE_RENEW_INTERVAL_MS;
     let stopped = false;
     let inFlight = false;
-    const timer = setInterval(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const renew = (): void => {
         if (stopped || inFlight) return;
         inFlight = true;
         sync.request('preview.renew', { lease }).then(
@@ -294,16 +313,32 @@ export function startSurfaceRenewLoop(
                 inFlight = false;
                 if (stopped) return;
                 stopped = true;
-                clearInterval(timer);
+                if (timer !== null) clearInterval(timer);
                 options.onLost?.(error instanceof Error ? error.message : String(error));
             },
         );
-    }, interval);
-    (timer as unknown as { unref?: () => void }).unref?.();
+    };
+    const arm = (): void => {
+        if (stopped || timer !== null) return;
+        timer = setInterval(renew, interval);
+        (timer as unknown as { unref?: () => void }).unref?.();
+    };
+    const pause = (): void => {
+        if (timer === null) return;
+        clearInterval(timer);
+        timer = null;
+    };
+    arm();
     return {
         stop: () => {
             stopped = true;
-            clearInterval(timer);
+            pause();
+        },
+        pause,
+        resume: () => {
+            if (stopped || timer !== null) return;
+            renew();
+            arm();
         },
     };
 }
