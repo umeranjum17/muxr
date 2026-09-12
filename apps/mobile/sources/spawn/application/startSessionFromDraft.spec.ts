@@ -14,6 +14,7 @@ vi.mock('@/catalog/application/persistence', () => ({ loadNewSessionDraft: () =>
 vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ machineId: 'm1' }) }));
 vi.mock('@/modal', () => ({ Modal: { alert: vi.fn(), confirm: vi.fn() } }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('@/catalog/sync', () => ({ sync: { currentMachineId: () => 'm1' } }));
 vi.mock('./StartAgentFromDock', () => ({
     startAgentFromDock: (command: { prompt: string; onRouteReady?: (id: string) => void }) => {
         harness.calls.push(command);
@@ -52,7 +53,7 @@ describe('draft submission ownership', () => {
 
         // User types B while A's first message is still being delivered.
         useNewSessionDraft.getState().setInput('B');
-        harness.finish!({ ok: true, agentRoute: 'pp_a', promptFailed: 'timed out' });
+        harness.finish!({ ok: true, agentRoute: 'pp_a', machineId: 'm1', promptFailed: 'timed out' });
         await expect(first).resolves.toBe('pp_a');
         expect(useNewSessionDraft.getState().input).toBe('B');
         // The failed first message itself is kept by submitPrompt on pp_a
@@ -68,7 +69,7 @@ describe('draft submission ownership', () => {
         useNewSessionDraft.getState().setInput('B');
         harness.calls[0]!.onRouteReady!('pp_b');
         expect(useNewSessionDraft.getState().input).toBe('B');
-        harness.finish!({ ok: true, agentRoute: 'pp_b' });
+        harness.finish!({ ok: true, agentRoute: 'pp_b', machineId: 'm1' });
         await first;
         expect(useNewSessionDraft.getState().input).toBe('B');
     });

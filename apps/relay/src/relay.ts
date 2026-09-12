@@ -11,6 +11,7 @@ import { createPublicKey, randomBytes, verify } from 'node:crypto';
 import { hostname } from 'node:os';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
+    RELAY_CLOSE_HOST_GONE,
     RELAY_CLOSE_REPLACED,
     decodePayload,
     isPeerCapabilities,
@@ -1212,6 +1213,18 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
 
         const detach = (): void => {
             peers.remove(peer);
+            // A machine route ending ends every client route that negotiated
+            // with that host: the clients reconnect and negotiate afresh with
+            // the host that answers next, rather than keeping a promise the
+            // replacement never made.
+            if (peer.role === 'machine') {
+                for (const machineId of peer.machineIds) {
+                    for (const client of peers.forMachine(machineId, 'client', peer.accountId)) {
+                        peers.remove(client);
+                        client.socket.close(RELAY_CLOSE_HOST_GONE, 'host disconnected');
+                    }
+                }
+            }
             // BYO-email notify: the last machine peer dropping means the box went offline.
             if (notifyOffline !== undefined && peer.role === 'machine'
                 && peers.forMachine(peer.machineIds.values().next().value ?? '', 'machine', peer.accountId).length === 0) {

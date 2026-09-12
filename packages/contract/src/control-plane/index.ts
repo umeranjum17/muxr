@@ -26,6 +26,7 @@ export {
     isPluginsInvalidatedFrame,
     isRoutingChannel,
     nextRequestId,
+    RELAY_CLOSE_HOST_GONE,
     RELAY_CLOSE_REPLACED,
     ROUTING_CHANNELS,
 } from './domain/envelope.js';

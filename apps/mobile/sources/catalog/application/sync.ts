@@ -25,7 +25,7 @@ import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
 import type { DecryptedArtifact } from '../infrastructure/artifactTypes';
 import { MuxrClient, type MuxrTransport } from '@/pairing/client';
-import { demoTransport, isDemoTransport } from '@/demo/demoTransport';
+import { demoMachineId, demoTransport, isDemoTransport } from '@/demo/demoTransport';
 import * as Notifications from 'expo-notifications';
 import { AppState, Platform } from 'react-native';
 import {
@@ -295,6 +295,7 @@ class MuxrSync {
             this.attachClient(demo);
             demo.connect();
             this.client = demo;
+            this.activeMachineId = demoMachineId();
             return demo;
         }
         const settings = this.getConnection();
@@ -816,6 +817,14 @@ class MuxrSync {
 
     getCredentials(): AuthCredentials | undefined {
         return this.credentials;
+    }
+
+    /**
+     * The computer every submission is owned by: captured by callers before
+     * any asynchronous work and checked again at delivery.
+     */
+    currentMachineId(): string {
+        return this.activeMachineId ?? '';
     }
 
     /** A submission composed for one computer never goes to another. */

@@ -16,6 +16,12 @@ import { isValidPluginId } from '../../plugins/index.js';
  * connected for the same machineId. The retired host must not reconnect.
  */
 export const RELAY_CLOSE_REPLACED = 4000;
+/**
+ * The machine host behind a client's route went away or was replaced. The
+ * relay closes the client so it reconnects and negotiates with whatever host
+ * answers next, instead of carrying the old host's guarantees to a new one.
+ */
+export const RELAY_CLOSE_HOST_GONE = 4001;
 
 /**
  * Strict hosted-mode routing channel. The same vocabulary binds relay routing

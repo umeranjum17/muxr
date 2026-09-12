@@ -1,6 +1,7 @@
 import type { OpenTerminalCommand, TerminalChannel } from '@/terminal/application/OpenTerminal';
 import type { MuxrTransport } from '@/pairing/infrastructure/muxrClient';
 import { demoClient } from './demoClient';
+import { DEMO_MACHINE_ID } from './demoRecords';
 import { isDemoPathname } from './demoGuard';
 
 /**
@@ -22,6 +23,11 @@ export function activateDemoTransport(): void {
 
 export function isDemoTransport(): boolean {
     return active || isDemoPathname();
+}
+
+/** The replay's one machine: what its submissions are owned by. */
+export function demoMachineId(): string {
+    return DEMO_MACHINE_ID;
 }
 
 export function demoTransport(): MuxrTransport {

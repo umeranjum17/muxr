@@ -6,6 +6,7 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import { startAgentFromDock } from './StartAgentFromDock';
+import { sync } from '@/catalog/sync';
 
 /**
  * One submission at a time, app-wide. The Dock, focus mode, the sidebar's
@@ -83,7 +84,9 @@ async function submitDraft(options: {
         if (result.ok) {
             // A failed first message already waits on the session's own
             // submissions; nothing is cleared here, since the draft may be B.
-            if (routed.sessionId !== result.agentRoute) options.navigateToSession(result.agentRoute);
+            // The session belongs to the computer it was started on; if the
+            // app is on another one now, do not open it there.
+            if (routed.sessionId !== result.agentRoute && sync.currentMachineId() === result.machineId) options.navigateToSession(result.agentRoute);
             return result.agentRoute;
         }
         if (result.reason === 'needs-directory' && !createCwd) {

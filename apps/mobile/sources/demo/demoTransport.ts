@@ -13,6 +13,10 @@ export function isDemoTransport(): boolean {
 
 export function activateDemoTransport(): void {}
 
+export function demoMachineId(): string {
+    throw new Error('demo replay is web-only');
+}
+
 export function demoTransport(): MuxrTransport {
     throw new Error('demo replay is web-only');
 }

@@ -2,7 +2,7 @@ import type { Machine } from '@/catalog';
 import { machineSpawnNewSession } from '@/catalog/ops';
 import { submitPrompt } from '@/catalog/application/submissions';
 import { isMachineOnline } from '@/pairing';
-import { getCachedConnectionSettings } from '@/connection';
+import { sync } from '@/catalog/sync';
 import { createWorktree } from '../infrastructure/worktree';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import type { NewSessionAgentType } from '@/catalog/application/persistence';
@@ -21,7 +21,7 @@ export type StartAgentFromDockCommand = {
 };
 
 export type StartAgentFromDockResult =
-    | { ok: true; agentRoute: string; promptFailed?: string }
+    | { ok: true; agentRoute: string; machineId: string; promptFailed?: string }
     | { ok: false; reason: 'no-machine' | 'offline' | 'worktree-failed' | 'needs-directory' | 'failed'; message?: string; directory?: string };
 
 /**
@@ -34,6 +34,11 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
     const machine = command.machine;
     if (!machine) return { ok: false, reason: 'no-machine', message: 'Please select a machine' };
     if (!isMachineOnline(machine)) return { ok: false, reason: 'offline', message: 'Machine is offline' };
+    // Ownership is fixed here, before anything asynchronous: the computer
+    // this draft is for is the one the transport is on now. It is never
+    // re-read later; a switch mid-way is detected against it.
+    const owner = sync.currentMachineId();
+    if (machine.id !== owner) return { ok: false, reason: 'offline', message: 'That computer is not the connected one. Switch to it, then start the agent.' };
 
     let spawnDirectory = command.directory;
     if (command.worktree.wantsNewCheckout()) {
@@ -59,16 +64,16 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
 
     // machineSpawnNewSession already refreshed until the session was listed.
     // The host holds the first prompt until the agent can accept it, which is
-    // seconds for some kinds. Show the session now instead of a dead Dock.
-    command.onRouteReady?.(result.sessionId);
+    // seconds for some kinds. Show the session now instead of a dead Dock —
+    // unless the app moved to another computer meanwhile: A's session is
+    // never opened on B.
+    if (sync.currentMachineId() === owner) command.onRouteReady?.(result.sessionId);
     if (command.prompt || command.attachments.length > 0) {
-        // The submission (uploads, exact sent text, identity, outcome) is kept
-        // on the session, so a failed first message waits for its composer
-        // and an unchanged resend runs once without uploading again.
-        // The target is the paired connection the terminal route restores
-        // under, the same id the composer will use for this session.
-        const sent = await submitPrompt({ machineId: getCachedConnectionSettings().machineId, sessionId: result.sessionId, draft: command.prompt, attachments: [], uploads: command.attachments as AttachmentPreview[], source: 'new_session' });
-        if (!sent.ok) return { ok: true, agentRoute: result.sessionId, promptFailed: sent.submission.reason };
+        // Stored, uploaded and delivered under the owner captured above; a
+        // switch makes delivery refuse and leaves the prompt recoverable on
+        // the owner's session.
+        const sent = await submitPrompt({ machineId: owner, sessionId: result.sessionId, draft: command.prompt, attachments: [], uploads: command.attachments as AttachmentPreview[], source: 'new_session' });
+        if (!sent.ok) return { ok: true, agentRoute: result.sessionId, machineId: owner, promptFailed: sent.submission.reason };
     }
-    return { ok: true, agentRoute: result.sessionId };
+    return { ok: true, agentRoute: result.sessionId, machineId: owner };
 }

@@ -111,6 +111,7 @@ export {
     admitClientFrame,
     parseClientFrame,
     tryParseClientFrame,
+    RELAY_CLOSE_HOST_GONE,
     RELAY_CLOSE_REPLACED,
     ROUTING_CHANNELS,
     decodePreviewFrame,

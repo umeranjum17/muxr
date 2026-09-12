@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
-import { getCachedConnectionSettings } from '@/connection';
+import { sync } from '@/catalog/sync';
 import { useHerdrTree } from '@/catalog/store';
 import { TerminalScreen } from './TerminalScreen';
 
@@ -9,7 +9,8 @@ import { TerminalScreen } from './TerminalScreen';
 export function TerminalRoute({ id }: { id: string }): React.JSX.Element {
     const focused = useIsFocused();
     const { workspaces } = useHerdrTree();
-    const machineId = getCachedConnectionSettings().machineId;
+    // The owner of everything this screen sends, as the transport sees it.
+    const machineId = sync.currentMachineId();
     const binding = React.useRef<{ machineId: string; route: string; paneId: string } | null>(null);
     const panes = workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes));
     const live = panes.find((pane) => pane.sessionId === id);

@@ -155,6 +155,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     const [bottomBlockTop, setBottomBlockTop] = React.useState(0);
     const [accessoryBottom, setAccessoryBottom] = React.useState(0);
     const { attaching, selectedImages, attachedImages, setAttachedImages, attachedPaths, failed: failedImages, retryFailed, discardFailed, pickImages, addImages } = useAttachmentUploads(
+        props.machineId,
         props.id,
         (error) => Modal.alert('Attachment failed', `${humanError(error).message} The files are kept below; retry when the connection is back.`),
     );
