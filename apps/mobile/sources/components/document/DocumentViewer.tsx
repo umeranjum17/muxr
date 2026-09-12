@@ -361,6 +361,8 @@ export function DocumentViewer(props: {
     loading: boolean;
     error: string | null;
     onNavigate?: (path: string) => void;
+    /** Explicit initial file/diff mode. Absent keeps the viewer's own default. */
+    initialMode?: DocumentDisplayMode;
 }) {
     const { theme } = useUnistyles();
     const router = useRouter();
@@ -368,7 +370,7 @@ export function DocumentViewer(props: {
     const { document: model, loading, error, onNavigate } = props;
     const { width: windowWidth } = useWindowDimensions();
     const isNarrow = windowWidth < 700;
-    const [displayMode, setDisplayMode] = React.useState<DocumentDisplayMode>('diff');
+    const [displayMode, setDisplayMode] = React.useState<DocumentDisplayMode>(props.initialMode ?? 'diff');
     // Zoom is the terminal pane's ladder, not a free float: `FONT_STEPS` here
     // mirrors TerminalView.tsx:51 so a tap means the same thing in both panes.
     // `undefined` means the derived size is still in charge.

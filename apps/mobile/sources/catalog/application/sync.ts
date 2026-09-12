@@ -35,6 +35,7 @@ import {
 } from '@/connection';
 import { getCachedHostedGrant, loadHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
 import { storage } from './storage';
+import { ingestSurfaceOffer } from './surfaceCoordinator';
 import {
     applyStatusToSession,
     machineInfoToMachine,
@@ -354,6 +355,10 @@ class MuxrSync {
             }
         });
         client.onEvent((sessionId, event) => this.handleSessionEvent(sessionId, event));
+        // Host-originated Surface offers arrive on the same encrypted
+        // control plane. The client authenticates the frame and the guard;
+        // the coordinator keys it by the exact live machine + session.
+        client.onSurfaceOffer?.((frame) => ingestSurfaceOffer(this.getConnection().machineId, frame));
     }
 
     /**

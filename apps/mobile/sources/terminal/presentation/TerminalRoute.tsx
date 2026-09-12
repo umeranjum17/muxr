@@ -6,7 +6,7 @@ import { useHerdrTree } from '@/catalog/store';
 import { TerminalScreen } from './TerminalScreen';
 
 /** Keep an open terminal on its pane when an agent starts, exits or restarts. */
-export function TerminalRoute({ id }: { id: string }): React.JSX.Element {
+export function TerminalRoute({ id, onOpenBlankBrowser }: { id: string; onOpenBlankBrowser?: () => void }): React.JSX.Element {
     const focused = useIsFocused();
     const { workspaces } = useHerdrTree();
     // The owner of everything this screen sends, as the transport sees it.
@@ -34,5 +34,5 @@ export function TerminalRoute({ id }: { id: string }): React.JSX.Element {
     // A new route needs a fresh native surface/layout callback and channel.
     // Reusing the view resets its attach refs without changing native size,
     // leaving it waiting for a size event that may never happen.
-    return <TerminalScreen key={`${machineId}:${currentId}`} id={currentId} machineId={machineId} />;
+    return <TerminalScreen key={`${machineId}:${currentId}`} id={currentId} machineId={machineId} onOpenBlankBrowser={onOpenBlankBrowser} />;
 }

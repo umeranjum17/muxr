@@ -108,11 +108,14 @@ export function openFileViewer(input: {
     navigation?: { key: string };
     line?: number;
     column?: number;
+    /** Explicit initial viewer mode. Absent keeps the viewer's own default. */
+    mode?: 'file' | 'diff';
 }): string {
     const params = new URLSearchParams({ path: input.path });
     if (input.navigation?.key) params.set('nav', input.navigation.key);
     if (input.line !== undefined && input.line > 0) params.set('line', String(input.line));
     if (input.column !== undefined && input.column > 0) params.set('column', String(input.column));
+    if (input.mode !== undefined) params.set('mode', input.mode);
     return `/session/${encodeURIComponent(input.sessionId)}/file?${params}`;
 }
 

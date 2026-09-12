@@ -3,7 +3,7 @@ title: Browser and Code web surfaces
 slug: browser-code-surfaces
 status: in-progress
 created: 2026-09-09
-updated: 2026-09-10
+updated: 2026-09-12
 owner: umer
 links:
   - ../decisions/0005-pi-like-extension-runtime.md
@@ -11,6 +11,36 @@ links:
 ---
 
 # Browser and Code web surfaces
+
+## Status on the PWA lineage (2026-09-12)
+
+This spec now tracks the port onto `feat/pwa-primary-channel` (base
+`8eac274c`), where the browser app is the first-class runtime. What is in:
+
+- Host offers, local broker, leases (approval-snapshot identity, exact offer
+  generation, live session, 1 s standing sweep, revocation closing live
+  connections), the `muxr browser|code|surface` CLI and both plugin
+  manifests -- unchanged in shape from Slice 2A.
+- Browser on web: a leased offer resolves through `preview.lease`, attaches
+  the existing encrypted v1 preview channel, and the existing preview
+  service worker serves the page into an opaque-origin sandboxed iframe under
+  the PWA's own origin. No loopback listener, no cookie install, no private
+  127/8 origin, no admission gateway: none of those exist or are needed in a
+  browser tab. Reload is the update mechanism; HMR/WebSockets do not ride the
+  request bridge.
+- Browser on native: the same lease path over the existing native loopback
+  bridge (Slice 0 posture: shared `127.0.0.1` cookie jar, no admission).
+- Direct HTTPS: an iframe on web with a labelled external-tab action for
+  sites that refuse framing; the hardened WebView on native.
+- Code stays review/navigation-first: `code open`/`code diff` route to the
+  native Files/Changes viewer.
+- Offers broadcast on the session channel (no per-recipient sealing); an
+  offer carries no credential and acting on one needs a control grant and a
+  lease issued to that exact device.
+
+Deliberately not ported: v2 authenticated framing and credits, the admission
+gateway, private origins and cookie admission, the Kotlin surface chooser,
+the developer Web Surface route.
 
 ## Context
 
