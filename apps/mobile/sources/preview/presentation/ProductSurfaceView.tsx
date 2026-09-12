@@ -9,14 +9,14 @@ import { openExternalUrl } from '@/utils/openExternalUrl';
 import type { SurfaceEntry } from '@/catalog/application/surfaceCoordinator';
 import { dismissSurfaceOffer, onSurfaceReload } from '@/catalog/application/surfaceCoordinator';
 import {
-    attachPreviewTunnel,
     releaseSurfaceLease,
+    requestPreviewBootstrap,
     requestProductSurfaceLease,
     startSurfaceRenewLoop,
-    type PreviewTunnel,
     type SurfaceRenewLoop,
 } from '../application/OpenPreview';
 import { SURFACE_FRAME_HAS_HISTORY, SurfaceFrame, isDirectUrl, type SurfaceFrameHandle } from './SurfaceFrame';
+import type { PreviewBootstrap } from './surfaceFrameContract';
 
 /** The exact provider must be approved and still claim the exact capability. */
 export function surfaceProviderApproved(provider: string, capability: string): boolean {
@@ -187,25 +187,59 @@ const openInTabLabel = Platform.OS === 'web' ? 'Open in a browser tab' : 'Open i
 
 /**
  * The mounted local surface: an expiring host lease for one offer generation,
- * the encrypted tunnel that lease opened, and the renewal that keeps it.
+ * the HTTPS admission that lease bootstrapped, and the renewal that keeps it.
  * Everything async is fenced by `generation`, captured before the first
  * await and compared after every one: a close, an update, a revoke or an
- * unmount that lands mid-attach closes what arrived instead of adopting it.
+ * unmount that lands mid-attach releases what arrived instead of adopting it.
  */
 type LocalPhase =
-    | { state: 'attaching' }
-    | { state: 'ready'; url: string; origin: string }
-    | { state: 'lost'; reason: string }
+    | { state: 'preparing' }
+    | { state: 'ready'; url: string; origin: string; bootstrap: PreviewBootstrap; frameKey: number }
     | { state: 'parked' };
+
+/** A known loss, shown over whatever the frame still holds. */
+type Fault = { kind: 'disconnected' | 'expired' | 'stopped'; reason: string };
+
+/** From the frame: navigating, first document arrived, app painted. */
+type FrameStage = 'connecting' | 'loading' | 'shown';
+
+/**
+ * The host does not yet say why a lease died beyond its error text, so the
+ * text is the mapping. Expiry is its own recovery (a fresh lease); a dev
+ * process that ended needs the agent, not a Retry.
+ */
+function classifyFault(reason: string): Fault {
+    if (/expired/i.test(reason)) return { kind: 'expired', reason };
+    // ponytail: text match until the host reports upstream state on the lease.
+    if (/stopped|exited|not running|no longer running|terminated|ended/i.test(reason)) return { kind: 'stopped', reason };
+    return { kind: 'disconnected', reason };
+}
+
+const FAULT_LABEL: Record<Fault['kind'], { title: string; action: string }> = {
+    disconnected: { title: 'Preview disconnected', action: 'Retry' },
+    expired: { title: 'Access expired', action: 'Reconnect' },
+    stopped: { title: 'App stopped', action: 'Ask agent to start it' },
+};
+
+function Overlay(props: { children: React.ReactNode }): React.JSX.Element {
+    const { theme } = useUnistyles();
+    return (
+        <View style={{ position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24, backgroundColor: theme.colors.surface + 'E6' }}>
+            {props.children}
+        </View>
+    );
+}
 
 /**
  * Local Browser companion for one current offer.
  *
- * Lease, attach, mount; on teardown unmount, close the tunnel, release the
- * lease. Provider loss, renewal refusal, a relay close, native background,
- * unmount and explicit close all reach the same detach. A newer offer
+ * Lease, bootstrap, mount; on teardown release the lease. Provider loss,
+ * renewal refusal, a refused admission, unmount and explicit close all reach
+ * the same ending. The frame stays mounted through normal builds and known
+ * losses: the app's own HMR and overlay are the update UI, and a loss is an
+ * overlay over retained content with one explicit recovery. A newer offer
  * generation follows before the user interacts; afterwards it waits behind
- * an explicit Show. Reload is the update mechanism.
+ * an explicit Show. Reload is a recovery button, never the update mechanism.
  */
 export function LocalBrowserSurface(props: {
     entry: SurfaceEntry;
@@ -220,8 +254,10 @@ export function LocalBrowserSurface(props: {
     const { theme } = useUnistyles();
     const frameRef = React.useRef<SurfaceFrameHandle | null>(null);
     const offer = props.entry.offer;
-    const offerPath = offer.kind === 'browser-local' ? offer.path : '/';
-    const [phase, setPhase] = React.useState<LocalPhase>({ state: 'attaching' });
+    const [phase, setPhase] = React.useState<LocalPhase>({ state: 'preparing' });
+    const [fault, setFault] = React.useState<Fault | null>(null);
+    const [stage, setStage] = React.useState<FrameStage>('connecting');
+    const [reloaded, setReloaded] = React.useState(false);
     const [loading, setLoading] = React.useState(false);
     const [nav, setNav] = React.useState({ canGoBack: false, canGoForward: false });
     const [blocked, setBlocked] = React.useState<string | null>(null);
@@ -230,29 +266,41 @@ export function LocalBrowserSurface(props: {
     const interactedRef = React.useRef(false);
     const generationRef = React.useRef(0);
     const mountedHandleRef = React.useRef<string | null>(null);
-    const ownerRef = React.useRef<{ tunnel: PreviewTunnel; lease: string; renew: SurfaceRenewLoop } | null>(null);
+    const ownerRef = React.useRef<{ lease: string; renew: SurfaceRenewLoop } | null>(null);
+    const frameKeyRef = React.useRef(0);
 
-    /** One ending for everything: stop renewing, drop the page, close, release. */
-    const detach = React.useCallback((next: LocalPhase) => {
+    /** Stop renewing and give the lease back. The frame is untouched. */
+    const endLease = React.useCallback(() => {
         generationRef.current += 1;
         const owner = ownerRef.current;
         ownerRef.current = null;
         mountedHandleRef.current = null;
-        setPhase(next);
         if (owner === null) return;
         owner.renew.stop();
-        try { owner.tunnel.close(); } catch { /* already closed */ }
         void releaseSurfaceLease(owner.lease);
     }, []);
+    /** One ending for everything that also drops the page. */
+    const detach = React.useCallback((next: LocalPhase) => {
+        endLease();
+        setFault(null);
+        setPhase(next);
+    }, [endLease]);
+    /** A known loss: keep what the frame shows, say what happened, offer one way back. */
+    const lose = React.useCallback((reason: string) => {
+        endLease();
+        setFault(classifyFault(reason));
+    }, [endLease]);
 
     const attach = React.useCallback(async (handle: string) => {
-        detach({ state: 'attaching' });
+        detach({ state: 'preparing' });
         const generation = generationRef.current;
         const current = (): boolean => generation === generationRef.current;
         interactedRef.current = false;
         setBlocked(null);
         setPendingHandle(null);
         setPendingReload(null);
+        setStage('connecting');
+        setReloaded(false);
         let lease: { lease: string } | undefined;
         try {
             lease = await requestProductSurfaceLease(handle);
@@ -261,27 +309,21 @@ export function LocalBrowserSurface(props: {
                 return;
             }
             const leaseId = lease.lease;
-            const tunnel = await attachPreviewTunnel({ lease: leaseId }, {
-                onClosed: () => {
-                    if (!current()) return;
-                    detach({ state: 'lost', reason: 'The connection to this page closed.' });
-                },
-            });
+            const admission = await requestPreviewBootstrap(leaseId);
             if (!current()) {
-                tunnel.close();
                 void releaseSurfaceLease(leaseId);
                 return;
             }
-            const base = tunnel.url !== undefined ? tunnel.url.replace(/\/$/, '') : `http://${tunnel.hostname}:${tunnel.port}`;
             const renew = startSurfaceRenewLoop(leaseId, {
                 onLost: (reason) => {
                     if (!current()) return;
-                    detach({ state: 'lost', reason: `This page is no longer available. ${reason}` });
+                    lose(reason);
                 },
             });
-            ownerRef.current = { tunnel, lease: leaseId, renew };
+            ownerRef.current = { lease: leaseId, renew };
             mountedHandleRef.current = handle;
-            setPhase({ state: 'ready', url: `${base}${offerPath}`, origin: base });
+            frameKeyRef.current += 1;
+            setPhase({ state: 'ready', url: `${admission.origin}${admission.path}`, origin: admission.origin, bootstrap: admission.bootstrap, frameKey: frameKeyRef.current });
         } catch (error) {
             if (!current()) return;
             if (lease !== undefined) void releaseSurfaceLease(lease.lease);
@@ -295,9 +337,47 @@ export function LocalBrowserSurface(props: {
                 dismissSurfaceOffer(handle);
                 return;
             }
-            detach({ state: 'lost', reason });
+            lose(reason);
         }
-    }, [detach, offerPath]);
+    }, [detach, lose]);
+
+    /**
+     * The admission cookie is gone but the lease stands: a fresh one-use
+     * bootstrap goes through the frame's hidden auxiliary document, and the
+     * healthy main document reconnects on its own.
+     */
+    const readmit = React.useCallback(async () => {
+        const owner = ownerRef.current;
+        const frame = frameRef.current;
+        if (owner === null || frame === null) return;
+        const generation = generationRef.current;
+        try {
+            const admission = await requestPreviewBootstrap(owner.lease);
+            if (generation !== generationRef.current) return;
+            await frame.readmit(admission.bootstrap);
+        } catch (error) {
+            if (generation !== generationRef.current) return;
+            lose(error instanceof Error ? error.message : String(error));
+        }
+    }, [lose]);
+
+    /** The OS evicted the renderer: a fresh bootstrap into a fresh frame, and say so. */
+    const recoverEvicted = React.useCallback(async () => {
+        const owner = ownerRef.current;
+        if (owner === null) return;
+        const generation = generationRef.current;
+        try {
+            const admission = await requestPreviewBootstrap(owner.lease);
+            if (generation !== generationRef.current) return;
+            frameKeyRef.current += 1;
+            setStage('connecting');
+            setReloaded(true);
+            setPhase({ state: 'ready', url: `${admission.origin}${admission.path}`, origin: admission.origin, bootstrap: admission.bootstrap, frameKey: frameKeyRef.current });
+        } catch (error) {
+            if (generation !== generationRef.current) return;
+            lose(error instanceof Error ? error.message : String(error));
+        }
+    }, [lose]);
 
     // Mount on first approval; unmount ends everything.
     const handle = props.entry.handle;
@@ -313,24 +393,22 @@ export function LocalBrowserSurface(props: {
         }
         // A newer generation after interaction waits behind Show. The host
         // may end the previous generation's lease meanwhile; that arrives
-        // through onClosed and shows as lost with the same Show action.
+        // through renewal and shows as a loss with the same Show action.
         setPendingHandle(handle);
     }, [handle, props.approved, props.blockedReason, attach, detach]);
     React.useEffect(() => () => detach({ state: 'parked' }), [detach]);
 
-    // Native background releases the loopback listener; foreground
-    // reattaches to the offer path. Web keeps the frame: no listener exists.
+    // Native background keeps the WebView (there is no loopback listener to
+    // protect) and only pauses renewal; foreground renews at once, so lost
+    // standing shows before the user trusts a stale page.
     React.useEffect(() => {
         if (Platform.OS === 'web') return undefined;
         const subscription = AppState.addEventListener('change', (next) => {
-            if (next === 'background') {
-                if (ownerRef.current !== null) detach({ state: 'parked' });
-            } else if (next === 'active' && ownerRef.current === null && props.approved && props.blockedReason === null) {
-                void attach(handle);
-            }
+            if (next === 'background') ownerRef.current?.renew.pause();
+            else if (next === 'active') ownerRef.current?.renew.resume();
         });
         return () => subscription.remove();
-    }, [attach, detach, handle, props.approved, props.blockedReason]);
+    }, []);
 
     // Host reload orders for the mounted handle: immediately before
     // interaction, parked behind Show after it, applied exactly once.
@@ -362,6 +440,10 @@ export function LocalBrowserSurface(props: {
         detach({ state: 'parked' });
         props.onUserClose();
     }, [detach, props.onUserClose]);
+    const mode = React.useMemo(
+        () => (phase.state === 'ready' ? { kind: 'local' as const, origin: phase.origin, bootstrap: phase.bootstrap } : null),
+        [phase],
+    );
 
     const title = offer.title;
     const chrome = (
@@ -370,7 +452,7 @@ export function LocalBrowserSurface(props: {
             {SURFACE_FRAME_HAS_HISTORY && <ChromeButton label="Forward" icon="chevron-forward" disabled={!nav.canGoForward} onPress={() => frameRef.current?.goForward()} />}
             {loading && SURFACE_FRAME_HAS_HISTORY
                 ? <ChromeButton label="Stop" icon="close" onPress={() => frameRef.current?.stop()} />
-                : <ChromeButton label="Reload" icon="refresh" onPress={() => { setBlocked(null); frameRef.current?.reload(); }} />}
+                : <ChromeButton label="Reload" icon="refresh" disabled={phase.state !== 'ready'} onPress={() => { setBlocked(null); setReloaded(false); frameRef.current?.reload(); }} />}
             <View style={{ flex: 1, minWidth: 0, paddingHorizontal: 8 }}>
                 <Text style={{ ...Typography.default('semiBold'), color: theme.colors.text }} numberOfLines={1}>{title}</Text>
                 <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, fontSize: 12 }} numberOfLines={1}>
@@ -382,6 +464,18 @@ export function LocalBrowserSurface(props: {
         </View>
     );
 
+    const faultView = fault === null ? null : (
+        <>
+            <Text style={{ ...Typography.default('semiBold'), color: theme.colors.text, textAlign: 'center' }}>{FAULT_LABEL[fault.kind].title}</Text>
+            <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center', fontSize: 12 }} numberOfLines={3}>{fault.reason}</Text>
+            <TextAction
+                label={FAULT_LABEL[fault.kind].action}
+                onPress={() => (fault.kind === 'stopped' ? props.onReturnToAgent() : void attach(pendingHandle ?? handle))}
+            />
+            <TextAction label="Return to agent" onPress={props.onReturnToAgent} />
+        </>
+    );
+
     let body: React.JSX.Element;
     if (props.blockedReason !== null) {
         body = (
@@ -390,46 +484,53 @@ export function LocalBrowserSurface(props: {
                 <TextAction label="Return to agent" onPress={props.onReturnToAgent} />
             </Centered>
         );
-    } else if (phase.state === 'ready') {
+    } else if (phase.state === 'ready' && mode !== null) {
         body = (
             <View style={{ flex: 1 }} onTouchStart={markInteracted}>
                 <SurfaceFrame
+                    key={phase.frameKey}
                     ref={frameRef}
                     uri={phase.url}
-                    mode={{ kind: 'local', origin: phase.origin }}
+                    mode={mode}
                     onBlockedUrl={(url) => setBlocked(url)}
                     onInteract={markInteracted}
+                    onAdmissionRefused={() => void readmit()}
                     onRendererGone={() => {
                         markInteracted();
-                        detach({ state: 'lost', reason: 'The page stopped responding.' });
+                        void recoverEvicted();
                     }}
                     onLoadStart={() => setLoading(true)}
-                    onLoadEnd={() => setLoading(false)}
+                    onLoadEnd={() => { setLoading(false); setStage('shown'); }}
                     onNavigation={(state) => {
                         setNav({ canGoBack: state.canGoBack, canGoForward: state.canGoForward });
+                        // The redirect out of the bootstrap path is the first
+                        // document arriving; anything after the first paint is
+                        // the user's own navigation.
+                        setStage((current) => (current === 'connecting' && state.url !== `${phase.origin}${phase.bootstrap.path}` ? 'loading' : current));
                         if (state.url !== phase.url) markInteracted();
                     }}
                     onError={(description) => {
                         setLoading(false);
                         setBlocked(null);
-                        detach({ state: 'lost', reason: description });
+                        lose(description);
                     }}
                 />
+                {fault !== null && <Overlay>{faultView}</Overlay>}
+                {fault === null && stage !== 'shown' && (
+                    <Overlay>
+                        <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                        <Text style={{ ...Typography.default(), color: theme.colors.textSecondary }}>{stage === 'connecting' ? 'Connecting…' : 'Loading app…'}</Text>
+                    </Overlay>
+                )}
             </View>
         );
-    } else if (phase.state === 'lost') {
-        body = (
-            <Centered>
-                <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center' }}>{phase.reason}</Text>
-                <TextAction label="Reopen" onPress={() => void attach(pendingHandle ?? handle)} />
-                <TextAction label="Return to agent" onPress={props.onReturnToAgent} />
-            </Centered>
-        );
+    } else if (fault !== null) {
+        body = <Centered>{faultView}</Centered>;
     } else {
         body = (
             <Centered>
                 <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                <Text style={{ ...Typography.default(), color: theme.colors.textSecondary }}>Opening {title}…</Text>
+                <Text style={{ ...Typography.default(), color: theme.colors.textSecondary }}>Preparing secure preview…</Text>
             </Centered>
         );
     }
@@ -443,6 +544,7 @@ export function LocalBrowserSurface(props: {
             {pendingReload !== null && pendingReload.handle === mountedHandleRef.current && (
                 <Banner label="Agent reloaded · Show" onPress={() => { setPendingReload(null); interactedRef.current = false; frameRef.current?.reload(); }} />
             )}
+            {reloaded && fault === null && <Notice text="Preview reloaded" />}
             {blocked !== null && (
                 <View style={{ paddingHorizontal: 16, paddingBottom: 6, gap: 4 }}>
                     <Notice text={`This page wants to leave the local app for ${foreignDomain(blocked)}.`} />
