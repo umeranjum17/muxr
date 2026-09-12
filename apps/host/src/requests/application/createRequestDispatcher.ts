@@ -695,6 +695,15 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             browserSessionCall(context.deviceId, () => browserSessions.return(params, context.deviceId)),
         'browser.session.signal': async (params, context) =>
             browserSessionCall(context.deviceId, () => browserSessions.signal(params, context.deviceId)),
+        // Enrollment is the owner's own device asking for its grant: gated
+        // on live control authority like every session call, bound to the
+        // authenticated device identity, never to a field.
+        'browser.session.enroll': async (params, context) => {
+            if (typeof params.devicePublicKey !== 'string' || params.devicePublicKey.length > 128) {
+                throw new Error('browser: enrollment needs this device\'s public key');
+            }
+            return browserSessionCall(context.deviceId, () => browserSessions.enroll(params.devicePublicKey, context.deviceId));
+        },
         'preview.attach': async (params, context) => {
             // Legacy path: the caller names a port (takeover streams and the
             // typed dev-server preview). The lease path below never does.

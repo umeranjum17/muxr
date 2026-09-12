@@ -183,8 +183,20 @@ function responseHeaders(headers: IncomingMessage['headers'], upstreamAuthoritie
                 if (cookieName === PREVIEW_ADMISSION_COOKIE) return [];
                 // A Domain naming the local upstream would be rejected by the
                 // browser at the preview origin; dropping exactly that
-                // attribute makes it host-only. Every other attribute stays.
-                return [cookie.replace(/;\s*Domain=(?:localhost|127\.0\.0\.1)\s*(?=;|$)/i, '')];
+                // attribute makes it host-only.
+                let framed = cookie.replace(/;\s*Domain=(?:localhost|127\.0\.0\.1)\s*(?=;|$)/i, '');
+                // The web app frames this origin cross-site, where a cookie
+                // with no SameSite at all defaults to Lax and is never sent
+                // from the frame. Only that absent case is completed --
+                // Secure is implied by the HTTPS origin, Partitioned keeps it
+                // under third-party-cookie blocking. An explicit Lax or
+                // Strict is the application's choice and stays exactly as
+                // it was; every other attribute stays.
+                if (!/;\s*SameSite=/i.test(framed)) {
+                    if (!/;\s*Secure\s*(?=;|$)/i.test(framed)) framed += '; Secure';
+                    framed += '; SameSite=None; Partitioned';
+                }
+                return [framed];
             });
             if (cookies.length > 0) out[name] = cookies;
             continue;

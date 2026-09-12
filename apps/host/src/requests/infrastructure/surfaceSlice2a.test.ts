@@ -1626,7 +1626,13 @@ describe('slice 2A surface contract', () => {
             const page = await fetchVia(gateway.port, host, '/app', { headers: { cookie } });
             expect(page.status).toBe(200);
             expect(page.body).toContain('/app.js');
-            expect(page.headers['set-cookie']).toEqual(['sid=s3cr3t; Path=/; HttpOnly', 'theme=dark; Path=/']);
+            // Domain=localhost dropped (host-only at the preview origin); an
+            // absent SameSite is completed so the cookie is sent from the
+            // cross-site web frame; nothing else changes.
+            expect(page.headers['set-cookie']).toEqual([
+                'sid=s3cr3t; Path=/; HttpOnly; Secure; SameSite=None; Partitioned',
+                'theme=dark; Path=/; Secure; SameSite=None; Partitioned',
+            ]);
             // Asset: the app session cookie reaches upstream, the gateway cookie does not, and forwarding facts are set.
             const asset = await fetchVia(gateway.port, host, '/app.js', { headers: { cookie: `${cookie}; sid=s3cr3t; theme=dark` } });
             expect(asset.body).toBe(`// cookie=sid=s3cr3t; theme=dark; proto=https; fhost=${host}`);

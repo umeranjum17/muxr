@@ -50,6 +50,8 @@ export interface BrowserSessionAdapter {
     resume(params: TransitionParams, deviceId: string): Promise<BrowserSessionStatus>;
     return(params: TransitionParams, deviceId: string): Promise<BrowserSessionStatus>;
     signal(params: SignalParams, deviceId: string): Promise<{ message?: string }>;
+    /** Owner enrollment: the service mints this device's browser-service grant. */
+    enroll(devicePublicKey: string, deviceId: string): Promise<{ grant: unknown; serviceId: string; signingPublicKey: string; expiresAt: number }>;
 }
 
 interface TransitionParams {
@@ -139,5 +141,6 @@ export function createBrowserSessionAdapter(options: { socketPath?: string } = {
         resume: async (params, deviceId) => status(await call('session.resume', { ...params, deviceId })),
         return: async (params, deviceId) => status(await call('session.return', { ...params, deviceId })),
         signal: async (params, deviceId) => (await call('session.signal', { ...params, deviceId })) as { message?: string },
+        enroll: async (devicePublicKey, deviceId) => (await call('device.enroll', { devicePublicKey, deviceId })) as { grant: unknown; serviceId: string; signingPublicKey: string; expiresAt: number },
     };
 }
