@@ -45,6 +45,8 @@ export interface HostOptions {
     hostVersion?: string;
     /** Shared Surface offer registry. One is created when absent. */
     surfaceOffers?: RequestDispatcherOptions['surfaceOffers'];
+    previewEndpoints?: RequestDispatcherOptions['previewEndpoints'];
+    previewGateway?: RequestDispatcherOptions['previewGateway'];
     onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced', code?: RelayStateCode) => void;
     /** Mandatory strict v2 endpoint keys for hosted mode. */
     hostedE2ee?: HostedMachineKeys;
@@ -95,6 +97,8 @@ export function startHost(options: HostOptions): Host {
         hostVersion,
         relayUrl: options.relayUrl,
         ...(options.surfaceOffers === undefined ? {} : { surfaceOffers: options.surfaceOffers }),
+        ...(options.previewEndpoints === undefined ? {} : { previewEndpoints: options.previewEndpoints }),
+        ...(options.previewGateway === undefined ? {} : { previewGateway: options.previewGateway }),
         ...(options.terminals === undefined ? {} : { terminals: options.terminals }),
         ...(options.token === undefined ? {} : { token: options.token }),
         ...(options.peerRuntime === undefined ? {} : { peerRuntime: options.peerRuntime }),

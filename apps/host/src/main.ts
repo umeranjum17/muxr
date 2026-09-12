@@ -9,7 +9,7 @@ import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSes
 import { startHost } from './host.js';
 import { createPersistQueue } from './platform/persistedJson.js';
 import { HttpPeerAuthority, PeerBroker, PeerRuntime } from './peer/index.js';
-import { createSurfaceOffers, SurfaceBroker } from './requests/index.js';
+import { createPreviewEndpoints, createSurfaceOffers, previewGatewayEnvOptions, startPreviewGateway, SurfaceBroker, type PreviewGateway } from './requests/index.js';
 import type { MachineCryptoState } from './machine/index.js';
 import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, hostPlatformLabel } from './machine/index.js';
 import { HostDiagnosticsJournal } from './diagnostics/index.js';
@@ -655,12 +655,35 @@ async function main(): Promise<void> {
     // by the local broker and the request dispatcher, so a product lease
     // always resolves its endpoint from host-owned offer state.
     const surfaceOffers = createSurfaceOffers();
+    // HTTPS preview delivery: one loopback gateway (stock Caddy in front in
+    // production) and the endpoint registry that allocates each app its own
+    // public origin. Unavailable is honest: bootstrap then says so.
+    let previewGateway: PreviewGateway | undefined;
+    let previewEndpoints: ReturnType<typeof createPreviewEndpoints> | undefined;
+    try {
+        const gatewayEnv = previewGatewayEnvOptions();
+        // A dev gateway terminating its own TLS is reached on its own port,
+        // known only once it listens; origins are composed at registration.
+        const endpoints = createPreviewEndpoints({ publicPort: () => gatewayEnv.publicPort || previewGateway?.port || 443 });
+        previewGateway = await startPreviewGateway({
+            endpoints,
+            port: gatewayEnv.port,
+            ...(gatewayEnv.tls === undefined ? {} : { tls: gatewayEnv.tls }),
+        });
+        previewEndpoints = endpoints;
+        process.stdout.write(`preview gateway: ${previewGateway.tls ? 'https' : 'http'} on loopback\n`);
+    } catch (error) {
+        previewGateway = undefined;
+        previewEndpoints = undefined;
+        process.stderr.write(`preview gateway unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
+    }
     let surfaceBroker: SurfaceBroker | undefined;
     try {
         surfaceBroker = new SurfaceBroker({
             dataDir,
             source,
             offers: surfaceOffers,
+            ...(previewEndpoints === undefined ? {} : { endpoints: previewEndpoints }),
             snapshot: async () => (await source.pluginList('local'))
                 .map((plugin) => `${plugin.pluginId}:${plugin.manifestHash}`)
                 .sort()
@@ -682,6 +705,8 @@ async function main(): Promise<void> {
         domain,
         terminals,
         surfaceOffers,
+        ...(previewEndpoints === undefined ? {} : { previewEndpoints }),
+        ...(previewGateway === undefined ? {} : { previewGateway }),
         ...(peerRuntime === undefined ? {} : { peerRuntime }),
         ...(diagnostics === undefined ? {} : { diagnostics }),
         hostVersion,
@@ -702,6 +727,8 @@ async function main(): Promise<void> {
         shuttingDown = true;
         terminals.closeAll();
         peerRuntime?.close();
+        previewGateway?.close();
+        previewEndpoints?.dispose();
         diagnostics?.stopping();
         void Promise.all([peerBroker?.close(), surfaceBroker?.close(), source.dispose(), diagnostics?.flush()]).finally(() => process.exit(0));
     };

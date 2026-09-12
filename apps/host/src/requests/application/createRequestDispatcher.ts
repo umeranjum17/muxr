@@ -30,6 +30,8 @@ import type { PeerDeviceContext, PeerRuntime } from '../../peer/index.js';
 import { grantMayAdministerPeers, hostPlatformLabel, listMachines, observerGrantIsViewOnly } from '../../machine/index.js';
 import { attachPreview, probePreviewPort } from '../infrastructure/preview.js';
 import { createPreviewLeases, providerIdentity, type PreviewLeaseRegistry } from '../infrastructure/previewLeases.js';
+import type { PreviewGateway } from '../infrastructure/previewGateway.js';
+import type { PreviewEndpointRegistry } from '../infrastructure/previewEndpoint.js';
 import { createSurfaceOffers, type SurfaceOfferRegistry } from '../infrastructure/surfaceOffers.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
@@ -68,6 +70,13 @@ export interface RequestDispatcherOptions {
      * always resolves its endpoint from host-owned offer state.
      */
     surfaceOffers?: SurfaceOfferRegistry;
+    /**
+     * HTTPS preview delivery: the endpoint registry a product lease binds
+     * to and the gateway that admits its renderer. Absent means this host
+     * cannot serve an HTTPS preview and `preview.bootstrap` says so.
+     */
+    previewEndpoints?: PreviewEndpointRegistry;
+    previewGateway?: PreviewGateway;
     peerRuntime?: PeerRuntime;
     getDeviceContext?: (deviceId: string) => PeerDeviceContext | undefined;
 }
@@ -344,6 +353,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
     });
 
+    // The gateway admits on this registry's standing and closes a lease's
+    // connections through its holder when the registry ends it.
+    options.previewGateway?.bindLeases(previewLeases);
+
     // Event-driven: the approval store announces every mutation start with
     // its exact device and plugin, and the registry ends the current
     // holders standing on that approval in the same event turn -- while
@@ -568,6 +581,13 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 if (current.handle !== record.handle || current.revision !== record.revision) {
                     throw new Error('preview: that surface is no longer open; open it again');
                 }
+                // The lease binds the endpoint's current process generation:
+                // registration is idempotent and re-reads the listener now.
+                const endpoint = options.previewEndpoints?.register({
+                    context: record.offer.context,
+                    provider: record.offer.provider,
+                    port: record.offer.port,
+                });
                 const lease = previewLeases.issue({
                     deviceId: context.deviceId,
                     kind: params.kind,
@@ -579,6 +599,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                     offerHandle: record.handle,
                     offerRevision: record.revision,
                     ...(record.sessionId === undefined ? {} : { offerSession: record.sessionId }),
+                    ...(endpoint === undefined ? {} : { endpointGeneration: endpoint.generation }),
                 });
                 return { lease: lease.id, expiresAt: lease.expiresAt, kind: lease.kind };
             }
@@ -600,6 +621,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             return { lease: lease.id, expiresAt: lease.expiresAt, kind: lease.kind };
         },
         'preview.release': async (params, context) => {
+            // Release ends the lease, and the gateway's holder closes every
+            // connection admitted under it.
             previewLeases.release(params.lease, context.deviceId);
             return null;
         },
@@ -612,12 +635,37 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             const lease = await previewLeases.renew(params.lease, context.deviceId);
             return { expiresAt: lease.expiresAt };
         },
-        // Frozen in the contract, implemented by the HTTPS preview and the
-        // browser-service parcels. Until those land this host answers
-        // honestly: nothing here pretends a preview or a session exists.
-        'preview.bootstrap': async () => {
-            throw new Error('preview: this computer cannot serve an HTTPS preview yet; update muxr');
+        'preview.bootstrap': async (params, context) => {
+            const gateway = options.previewGateway;
+            const endpoints = options.previewEndpoints;
+            if (gateway === undefined || endpoints === undefined) {
+                throw new Error('preview: this computer cannot serve an HTTPS preview yet; update muxr');
+            }
+            // Device-bound resolve: expiry, device, offer generation and
+            // authority all re-read; developer leases have no endpoint.
+            const lease = previewLeases.resolve(params.lease, context.deviceId);
+            if (lease.access !== 'product' || lease.provider === undefined || lease.context === undefined
+                || lease.endpointGeneration === undefined || lease.offerHandle === undefined) {
+                throw new Error('preview: that surface has no HTTPS preview; open it again');
+            }
+            const endpoint = endpoints.get(endpoints.idFor({ context: lease.context, provider: lease.provider, port: lease.port }));
+            if (endpoint === undefined || endpoint.generation !== lease.endpointGeneration) {
+                // The app process behind the port changed since this lease
+                // was issued: a fresh lease binds the new generation.
+                throw new Error('preview: the app restarted; open it again');
+            }
+            const record = surfaceOffers.resolve(lease.offerHandle);
+            const path = record.offer.kind === 'browser-local' ? record.offer.path : '/';
+            return {
+                origin: endpoint.origin,
+                generation: endpoint.generation,
+                path,
+                bootstrap: gateway.mintBootstrap({ id: lease.id, deviceId: lease.deviceId }, endpoint, path),
+            };
         },
+        // Frozen in the contract, implemented by the browser-service parcel.
+        // Until it lands this host answers honestly: nothing here pretends
+        // a session exists.
         'browser.session.status': async () => {
             throw new Error('browser: this computer has no browser service yet; update muxr');
         },
