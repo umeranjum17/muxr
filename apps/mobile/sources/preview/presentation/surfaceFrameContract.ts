@@ -3,20 +3,42 @@
  * navigation policy and the imperative controls the chrome may call.
  */
 
+/** One-use admission the frame posts to `origin + path` exactly once. */
+export interface PreviewBootstrap {
+    path: string;
+    body: string;
+}
+
 export type SurfaceFrameMode =
-    | { kind: 'local'; origin: string }
+    /**
+     * A leased app on its host-allocated HTTPS origin. The first navigation is
+     * the bootstrap POST; the gateway answers a `__Host-` cookie and redirects
+     * to `uri`. Everything after is ordinary navigation inside `origin`.
+     */
+    | { kind: 'local'; origin: string; bootstrap: PreviewBootstrap }
     | { kind: 'direct' };
 
 export interface SurfaceFrameHandle {
+    /** Re-navigate to `uri`. A recovery action, never the update mechanism. */
     reload(): void;
     goBack(): void;
     goForward(): void;
     stop(): void;
+    /**
+     * Local mode: post a fresh bootstrap through a hidden auxiliary frame that
+     * shares the preview origin's cookie store, so the healthy main document
+     * keeps running and its framework reconnects on its own. Resolves once
+     * the auxiliary frame has landed.
+     */
+    readmit(bootstrap: PreviewBootstrap): Promise<void>;
 }
 
 export interface SurfaceFrameProps {
+    /** The app URL: `origin + path` in local mode, the page itself in direct mode. */
     uri: string;
     mode: SurfaceFrameMode;
+    /** Local mode, native only: the gateway refused the main document (admission cookie gone). */
+    onAdmissionRefused?: () => void;
     /** A top-level navigation the policy refused. Never a silent drop. */
     onBlockedUrl?: (url: string) => void;
     /** Native scroll or touch on the page. Records interaction; no page script. */
