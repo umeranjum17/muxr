@@ -20,7 +20,7 @@ Navigate by capability. Domain language is in the root [CONTEXT.md](../../../CON
 | Grant peer authority | `collaboration/application/GrantPeerAuthority.ts` | `Collaboration` | Settings → Collaboration |
 | Revoke peer authority | `collaboration/application/RevokePeerAuthority.ts` | `Collaboration` | Settings → Collaboration disconnect |
 | Open Terminal | `terminal/application/OpenTerminal.ts` | live pane / Agent Route | `TerminalView` |
-| Open Takeover | `takeover/application/OpenTakeover.ts` | coordinates | `session/[id]/takeover.tsx` |
+| Open Takeover | `takeover/application/OpenTakeover.ts` | browser session ownership, coordinates | `HostBrowserView.tsx` |
 | Run plugin action | `plugins/application/RunPluginAction.ts` | screen/tree models | `pluginActions.ts` (modals + router) |
 | Run plugin shortcut | `plugins/application/RunPluginShortcut.ts` | enabled catalog | `app/(app)/shortcut/[id].tsx` |
 

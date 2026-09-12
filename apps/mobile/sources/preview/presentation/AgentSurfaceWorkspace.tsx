@@ -13,6 +13,7 @@ import { Typography } from '@/constants/Typography';
 import { hapticsSelection } from '@/components/haptics';
 import { Modal } from '@/modal';
 import { TerminalRoute } from '@/terminal/ui';
+import { HostBrowserView } from '@/takeover/ui';
 import { dismissSurfaceOffer, findSurfaceEntry, useSurfaceEntries, type SurfaceEntry } from '@/catalog';
 import { useLocalSettingMutable } from '@/catalog/store';
 import { getCachedConnectionSettings } from '@/connection';
@@ -88,6 +89,14 @@ function directHost(url: string): string {
     } catch {
         return url;
     }
+}
+
+/** Preview and Agent browser are the two named destinations; the chip says which. */
+function dockName(offer: SurfaceEntry['offer']): string {
+    if (offer.kind === 'browser-local') return `Local · ${offer.title}`;
+    if (offer.kind === 'browser-direct') return `Site · ${directHost(offer.url)}`;
+    if (offer.kind === 'browser-session') return `Agent browser · ${offer.site === '' ? offer.title : offer.site}`;
+    return offer.title;
 }
 
 function codeTarget(path: string, line?: number): string {
@@ -436,6 +445,18 @@ export function AgentSurfaceWorkspace(props: { id: string }): React.JSX.Element 
                 />
             );
         }
+        if (entry.offer.kind === 'browser-session') {
+            // Agent browser: the second named destination beside Preview.
+            return (
+                <HostBrowserView
+                    offer={entry.offer}
+                    machineId={machineId}
+                    registerBackHandler={registerSurfaceBack}
+                    onClose={() => closeOffer(entry)}
+                    onReturnToAgent={returnToAgent}
+                />
+            );
+        }
         return <View style={{ flex: 1, backgroundColor: theme.colors.surface }} />;
     };
 
@@ -525,9 +546,7 @@ export function AgentSurfaceWorkspace(props: { id: string }): React.JSX.Element 
                             </Text>
                         );
                     }
-                    const name = entry.offer.kind === 'browser-local'
-                        ? `Local · ${entry.offer.title}`
-                        : `Site · ${entry.offer.kind === 'browser-direct' ? directHost(entry.offer.url) : entry.offer.title}`;
+                    const name = dockName(entry.offer);
                     const open = selection === entry.offer.name;
                     const title = open ? `${name} · Open` : name;
                     return (
