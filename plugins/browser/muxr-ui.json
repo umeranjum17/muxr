@@ -2,7 +2,8 @@
   "schemaVersion": 1,
   "pluginId": "muxr.browser",
   "capabilities": {
-    "surface.browser.open": "browser.describe"
+    "surface.browser.open": "browser.describe",
+    "surface.browser.control-host-session": "browser.describe"
   },
   "contributions": [
     {

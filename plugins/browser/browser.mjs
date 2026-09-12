@@ -11,6 +11,6 @@ if (input !== null && typeof input === 'object' && !Array.isArray(input)) {
 
 process.stdout.write(`${JSON.stringify({
     name: 'Browser',
-    capabilities: ['surface.browser.open'],
-    note: 'Host-local web apps open through a leased surface offer; this descriptor grants no browsing authority by itself.',
+    capabilities: ['surface.browser.open', 'surface.browser.control-host-session'],
+    note: 'Host-local web apps open through a leased surface offer; the agent browser is a broker-owned session with an enforceable human handover. This descriptor grants no browsing authority by itself.',
 })}\n`);

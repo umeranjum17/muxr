@@ -31,6 +31,7 @@ import { grantMayAdministerPeers, hostPlatformLabel, listMachines, observerGrant
 import { attachPreview, probePreviewPort } from '../infrastructure/preview.js';
 import { createPreviewLeases, providerIdentity, type PreviewLeaseRegistry } from '../infrastructure/previewLeases.js';
 import { createSurfaceOffers, type SurfaceOfferRegistry } from '../infrastructure/surfaceOffers.js';
+import { createBrowserSessionAdapter, type BrowserSessionAdapter } from '../infrastructure/browserSessions.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
 import { repairHost } from '../infrastructure/repairHost.js';
@@ -68,6 +69,8 @@ export interface RequestDispatcherOptions {
      * always resolves its endpoint from host-owned offer state.
      */
     surfaceOffers?: SurfaceOfferRegistry;
+    /** Relay to the broker-owned browser service. One is created when absent; fail-closed if the service is not running. */
+    browserSessions?: BrowserSessionAdapter;
     peerRuntime?: PeerRuntime;
     getDeviceContext?: (deviceId: string) => PeerDeviceContext | undefined;
 }
@@ -256,6 +259,18 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         return identity !== undefined && identity === providerIdentity(lease.snapshot, lease.provider);
     };
     const surfaceOffers = options.surfaceOffers ?? createSurfaceOffers();
+    const browserSessions = options.browserSessions ?? createBrowserSessionAdapter();
+    // A device may only act on a browser session it holds control authority
+    // for. `signal` additionally opens only under the separately pinned
+    // browser-service grant, which this host cannot read: an unpaired device
+    // that clears this gate still reveals nothing. An id-free failure keeps
+    // the ownership state the service reported so the phone reconciles.
+    const browserSessionCall = async <T>(deviceId: string, run: () => Promise<T>): Promise<T> => {
+        if (!deviceMayHoldSurface(deviceId)) {
+            throw new Error('this device grant cannot control the browser session; pair a control device');
+        }
+        return run();
+    };
     const previewLeases = options.previewLeases ?? createPreviewLeases({
         machineId,
         authorized: deviceMayHoldSurface,
@@ -618,24 +633,23 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'preview.bootstrap': async () => {
             throw new Error('preview: this computer cannot serve an HTTPS preview yet; update muxr');
         },
-        'browser.session.status': async () => {
-            throw new Error('browser: this computer has no browser service yet; update muxr');
-        },
-        'browser.session.take': async () => {
-            throw new Error('browser: this computer has no browser service yet; update muxr');
-        },
-        'browser.session.pause': async () => {
-            throw new Error('browser: this computer has no browser service yet; update muxr');
-        },
-        'browser.session.resume': async () => {
-            throw new Error('browser: this computer has no browser service yet; update muxr');
-        },
-        'browser.session.return': async () => {
-            throw new Error('browser: this computer has no browser service yet; update muxr');
-        },
-        'browser.session.signal': async () => {
-            throw new Error('browser: this computer has no browser service yet; update muxr');
-        },
+        // Relayed to the browser service, which is the sole authority. The
+        // device identity is the request context's, never a field. A device
+        // may act only on a session it holds control authority for; the
+        // service enforces ownership generation, the take barrier and, for
+        // signal, the browser-service grant this host cannot read.
+        'browser.session.status': async (params, context) =>
+            browserSessionCall(context.deviceId, () => browserSessions.status(params.session, context.deviceId)),
+        'browser.session.take': async (params, context) =>
+            browserSessionCall(context.deviceId, () => browserSessions.take(params, context.deviceId)),
+        'browser.session.pause': async (params, context) =>
+            browserSessionCall(context.deviceId, () => browserSessions.pause(params, context.deviceId)),
+        'browser.session.resume': async (params, context) =>
+            browserSessionCall(context.deviceId, () => browserSessions.resume(params, context.deviceId)),
+        'browser.session.return': async (params, context) =>
+            browserSessionCall(context.deviceId, () => browserSessions.return(params, context.deviceId)),
+        'browser.session.signal': async (params, context) =>
+            browserSessionCall(context.deviceId, () => browserSessions.signal(params, context.deviceId)),
         'preview.attach': async (params, context) => {
             // Legacy path: the caller names a port (takeover streams and the
             // typed dev-server preview). The lease path below never does.

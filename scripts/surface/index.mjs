@@ -6,8 +6,15 @@
  * - `muxr surface capabilities --json`
  * - `muxr browser open <https-url|http://localhost:PORT/path> [--beside|--focus] [--name NAME] [--provider ID]`
  * - `muxr browser update [URL]`, `muxr browser reload`, `muxr browser close`
+ * - `muxr browser session {open,navigate,snapshot,click,fill,scroll,help,close}`
  * - `muxr code open <path[:line[:column]]>`, `muxr code diff [path]`
  * - `muxr surface list`
+ *
+ * The agent's own browser is a broker-owned session with an enforceable human
+ * handover: `session open` starts it (the provider creates the context before
+ * any browsing), and `session help` only asks the owner to sign in. It never
+ * conveys a credential and never prints a port, provider, session handle or
+ * secret.
  *
  * Replies distinguish accepted, visible and failed. Human-readable by
  * default, JSON with `--json`. Logical names and titles only: offer, session,
@@ -71,6 +78,10 @@ function describeSurface(surface) {
     if (surface.kind === 'browser-local') {
         return `browser ${JSON.stringify(name)}${revision}${placement} -> local app${typeof surface.path === 'string' ? ` ${surface.path}` : ''}`;
     }
+    if (surface.kind === 'browser-session') {
+        const where = typeof surface.site === 'string' && surface.site !== '' ? ` -> ${surface.site}` : ' (blank)';
+        return `agent browser ${JSON.stringify(name)}${revision}${placement}${where}`;
+    }
     if (surface.kind === 'code-review' && typeof surface.path === 'string') {
         const anchor = typeof surface.line === 'number' ? `:${surface.line}${typeof surface.column === 'number' ? `:${surface.column}` : ''}` : '';
         const verb = surface.destination === 'diff' ? 'diff' : 'open';
@@ -109,11 +120,13 @@ function printResult(data, json) {
     const outcome = clean.outcome;
     if (outcome === 'accepted') {
         process.stdout.write(`Accepted ${describeSurface(clean.surface)}.\n`);
+        if (clean.help === 'waiting-for-you') process.stdout.write('Asked the owner to sign in; automation is paused until they hand back.\n');
         return;
     }
     if (outcome === 'visible') {
         if (clean.surface !== undefined) process.stdout.write(`Visible ${describeSurface(clean.surface)}.\n`);
         else process.stdout.write('Visible.\n');
+        if (typeof clean.text === 'string' && clean.text !== '') process.stdout.write(`${clean.text}\n`);
         return;
     }
     if (outcome === 'closed') {
@@ -152,6 +165,9 @@ export async function runSurfaceCli(argv) {
         }
         if (command === 'browser') {
             const [sub, ...rest] = args;
+            if (sub === 'session') {
+                return await runBrowserSession(rest, json);
+            }
             if (sub === 'home') {
                 const parsed = splitArgs(rest, { flags: ['--beside', '--focus'], options: ['--name'] });
                 if (parsed.positionals.length > 0) usageError('usage: muxr browser home [--beside|--focus] [--name NAME]');
@@ -197,7 +213,7 @@ export async function runSurfaceCli(argv) {
                 }), json);
                 return 0;
             }
-            usageError('usage: muxr browser open|home|update|reload|close');
+            usageError('usage: muxr browser open|home|update|reload|close|session ...');
         }
         if (command === 'code') {
             const [sub, ...rest] = args;
@@ -226,6 +242,55 @@ export async function runSurfaceCli(argv) {
         return 1;
     }
     return 1;
+}
+
+async function runBrowserSession(args, json) {
+    const [verb, ...rest] = args;
+    const nameOf = (parsed) => (parsed.options['--name'] === undefined ? {} : { name: parsed.options['--name'] });
+    if (verb === 'open') {
+        const parsed = splitArgs(rest, { flags: ['--beside', '--focus'], options: ['--name', '--provider'] });
+        if (parsed.positionals.length > 0) usageError('usage: muxr browser session open [--beside|--focus] [--name NAME] [--provider ID]');
+        printResult(await callSurfaceBroker({
+            method: 'browser.session.open',
+            ...nameOf(parsed),
+            ...placementOf(parsed),
+            ...(parsed.options['--provider'] === undefined ? {} : { provider: parsed.options['--provider'] }),
+        }), json);
+        return 0;
+    }
+    if (verb === 'navigate') {
+        const parsed = splitArgs(rest, { options: ['--name'] });
+        if (parsed.positionals.length !== 1) usageError('usage: muxr browser session navigate <http(s)-url> [--name NAME]');
+        printResult(await callSurfaceBroker({ method: 'browser.session.navigate', url: parsed.positionals[0], ...nameOf(parsed) }), json);
+        return 0;
+    }
+    if (verb === 'click' || verb === 'fill') {
+        const parsed = splitArgs(rest, { options: ['--name'] });
+        if (verb === 'click' && parsed.positionals.length !== 1) usageError('usage: muxr browser session click <snapshot-number|selector> [--name NAME]');
+        if (verb === 'fill' && parsed.positionals.length !== 2) usageError('usage: muxr browser session fill <snapshot-number|selector> <text> [--name NAME]');
+        printResult(await callSurfaceBroker({
+            method: `browser.session.${verb}`,
+            target: parsed.positionals[0],
+            ...(verb === 'fill' ? { text: parsed.positionals[1] } : {}),
+            ...nameOf(parsed),
+        }), json);
+        return 0;
+    }
+    if (verb === 'scroll') {
+        const parsed = splitArgs(rest, { options: ['--name'] });
+        if (parsed.positionals.length !== 1) usageError('usage: muxr browser session scroll <pixels> [--name NAME]');
+        const dy = Number(parsed.positionals[0]);
+        if (!Number.isFinite(dy)) usageError('scroll needs a distance in pixels');
+        printResult(await callSurfaceBroker({ method: 'browser.session.scroll', dy, ...nameOf(parsed) }), json);
+        return 0;
+    }
+    if (verb === 'snapshot' || verb === 'help' || verb === 'close') {
+        const parsed = splitArgs(rest, { options: ['--name'] });
+        if (parsed.positionals.length > 0) usageError(`usage: muxr browser session ${verb} [--name NAME]`);
+        printResult(await callSurfaceBroker({ method: `browser.session.${verb}`, ...nameOf(parsed) }), json);
+        return 0;
+    }
+    usageError('usage: muxr browser session open|navigate|snapshot|click|fill|scroll|help|close');
 }
 
 function placementOf(parsed) {
