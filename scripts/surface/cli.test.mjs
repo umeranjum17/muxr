@@ -198,4 +198,52 @@ describe('slice 2A CLI', () => {
             await broker.close();
         }
     });
+
+    it('opens an agent browser session and navigates it without leaking the session handle', async () => {
+        // The session verbs route CLI -> broker -> browser service. The
+        // service is faked here so the flow stays hermetic; the real service
+        // path is covered by plugins/browser/smoke.mjs. What this guards is
+        // the CLI parsing, the broker's browser-session offer, and that the
+        // opaque bsn_ handle never reaches agent output.
+        const { SurfaceBroker } = await import('../../apps/host/src/requests/infrastructure/surfaceBroker.js');
+        const dataRoot = mkdtempSync(join(tmpdir(), 'muxr-surface-bsn-'));
+        const workdir = mkdtempSync(join(tmpdir(), 'muxr-surface-bsn-work-'));
+        const source = {
+            async herdrTree() {
+                return { workspaces: [{ workspaceId: 'w1', tabs: [{ tabId: 'w1:t1', panes: [{ paneId: 'w1:p1', sessionId: 'route-1', cwd: workdir }] }], worktree: { path: workdir } }] };
+            },
+            async pluginList() {
+                return [{ pluginId: 'muxr.browser', manifestHash: 'h1', capabilities: { 'surface.browser.open': 'browser.describe', 'surface.browser.control-host-session': 'browser.describe' } }];
+            },
+        };
+        const bsn = 'bsn_0011223344556677';
+        const browserService = async (op, params) => {
+            if (op === 'session.open') return { session: bsn, site: '' };
+            if (op === 'session.navigate') return { site: 'example.com' };
+            throw new Error(`unexpected ${op}`);
+        };
+        const broker = new SurfaceBroker({ dataDir: join(dataRoot, 'host'), source, browserService, browserServiceAvailable: () => true });
+        await broker.start();
+        const execFileAsync = promisify(execFile);
+        const run = async (args) => {
+            const env = { ...process.env, MUXR_DATA_DIR: join(dataRoot, 'host'), HERDR_PANE_ID: 'w1:p1' };
+            try {
+                const { stdout } = await execFileAsync(process.execPath, [join(ROOT, 'scripts/cli.mjs'), ...args], { cwd: workdir, env, timeout: 60_000, encoding: 'utf8' });
+                return { code: 0, stdout };
+            } catch (error) {
+                return { code: typeof error.code === 'number' ? error.code : 1, stdout: String(error.stdout ?? ''), stderr: String(error.stderr ?? '') };
+            }
+        };
+        try {
+            const opened = await run(['browser', 'session', 'open']);
+            expect({ code: opened.code, stderr: opened.stderr ?? '' }).toMatchObject({ code: 0 });
+            expect(opened.stdout).toMatch(/Accepted agent browser/);
+            const navigated = await run(['browser', 'session', 'navigate', '--', 'https://example.com/path']);
+            expect({ code: navigated.code, stderr: navigated.stderr ?? '' }).toMatchObject({ code: 0 });
+            expect(navigated.stdout).toMatch(/example\.com/);
+            expect(`${opened.stdout}${navigated.stdout}`).not.toMatch(new RegExp(`${bsn}|sfo_|token|secret`, 'i'));
+        } finally {
+            await broker.close();
+        }
+    });
 });
