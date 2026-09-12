@@ -10,6 +10,8 @@ export type UndeliveredSubmission = {
     sessionId: string;
     text: string;
     attachments: AttachmentPreview[];
+    /** The failed send's identity, so the composer's resend runs once on the host. */
+    promptId: string;
 };
 
 type UndeliveredSubmissionState = {

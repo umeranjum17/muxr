@@ -30,7 +30,7 @@ export function useHostedPairing() {
                 `Pair with ${hostedPairingDisplayName(url)}?`,
                 (Platform.OS === 'web'
                     ? `This browser receives ${browserAuthority === 'control' ? 'full terminal and agent control' : 'view-only access'} for ${hostedPairingLifetime(url)}. Machine keys stay end-to-end encrypted with WebCrypto in this browser.\n\nOnly continue if you just ran ${browserAuthority === 'control' ? 'muxr pair --browser' : 'muxr pair --browser-view'} there.`
-                    : 'This phone will be able to read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr.\n\nOnly continue if you just ran muxr setup or muxr pair there.')
+                    : `This phone gets full control of ${hostedPairingDisplayName(url)} until revoked: it can read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr. Remove it with muxr devices on the computer, or forget the computer here.\n\nOnly continue if you just ran muxr setup or muxr pair there.`)
                 + (switching
                     ? '\n\nThis device is already paired to another machine — pairing switches the active connection to this one. The previous pairing stays saved and you can switch back from Settings.'
                     : ''),

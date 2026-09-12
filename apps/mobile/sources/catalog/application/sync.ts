@@ -175,6 +175,8 @@ type SendMessageOptions = {
     displayText?: string;
     source?: string;
     attachments?: AttachmentPreview[];
+    /** See PromptAgentCommand.promptId. */
+    promptId?: string;
 };
 
 /*
@@ -736,15 +738,16 @@ class MuxrSync {
         // lands at the next turn boundary instead of waiting for the run to settle.
         // The host ignores this while idle, where nothing is queued.
         await promptAgent(
-            { agentRoute: sessionId, text, hasAttachments: previews.length > 0 },
+            { agentRoute: sessionId, text, hasAttachments: previews.length > 0, ...(options?.promptId === undefined ? {} : { promptId: options.promptId }) },
             {
                 markSent: (agentRoute) => storage.getState().updateSession(agentRoute, { lastMessageSentAt: Date.now() }),
                 attachments: () => toPromptAttachments(previews),
-                deliver: ({ agentRoute, text: prompt, streamingBehavior, attachments }) => this.request('session.prompt', {
+                deliver: ({ agentRoute, text: prompt, streamingBehavior, attachments, promptId }) => this.request('session.prompt', {
                     sessionId: agentRoute,
                     text: prompt,
                     streamingBehavior,
                     ...(attachments === undefined || attachments.length === 0 ? {} : { attachments }),
+                    ...(promptId === undefined ? {} : { promptId }),
                 }),
             },
         );

@@ -13,6 +13,7 @@ export type HumanError = { title: string; message: string; details?: string };
 
 const HUMAN_ERRORS: Array<[RegExp, HumanError]> = [
     [/unsupported in demo replay/i, { title: 'Not available in the demo', message: 'Not available in the demo. Pair your computer to use it for real.' }],
+    [/may already have reached the agent/i, { title: 'Maybe already sent', message: 'This message may already have reached the agent: the computer restarted while sending it. Check the terminal before sending it again.' }],
     [/timed out|no reply from machine|timeout/i, { title: 'No answer', message: "Your computer didn't answer. Check the connection, then try again." }],
     [/grant expired/i, { title: 'Access expired', message: "This browser's access expired. Pair again to continue." }],
     [/revoked/i, { title: 'Access removed', message: 'This device was removed from the machine. Pair again to continue.' }],

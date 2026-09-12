@@ -120,7 +120,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             body: JSON.stringify({ code_hash: pairingCodeHash(code), payload: sealPairingCodePayload(payload, code) }),
         });
         if (!published.response.ok) throw new Error(published.body.error || 'pairing code publication failed');
-        const pairString = intent.pairingLocator(state.relayUrl, code);
+        const pairString = intent.pairingLocator(state.relayUrl, code, state.machine.name);
         pending = {
             pairId: created.body.pair_id,
             pairSecret,

@@ -2,6 +2,16 @@ import { PAIRING_CODE_ALPHABET } from '@muxr/crypto';
 import { decodeBase64 } from '@/encryption/base64';
 
 const UNSAFE_PAIRING_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
+// The computer's name rides the locator as public consent metadata (mirrors
+// consentMachineName in the CLI's setup domain): bounded and printable, never
+// authority. A present but malformed name means a tampered link.
+const CONSENT_NAME = /^[\p{L}\p{N}\p{M} ._'()-]{1,40}$/u;
+const UNNAMED_MACHINE = 'this machine';
+
+function wellFormedConsentName(params: URLSearchParams): boolean {
+    const names = params.getAll('name');
+    return names.length === 0 || (names.length === 1 && CONSENT_NAME.test(names[0]!));
+}
 
 export function pairingSearchParams(url: string): URLSearchParams {
     const paramsStart = url.search(/[?#]/);
@@ -33,17 +43,19 @@ function onlyPairQuery(parsed: URL): boolean {
         && parsed.hash === ''
         && codes.length === 1
         && codes[0] !== ''
-        && [...parsed.searchParams.keys()].every((key) => key === 'pair');
+        && [...parsed.searchParams.keys()].every((key) => key === 'pair' || key === 'name')
+        && wellFormedConsentName(parsed.searchParams);
 }
 
 function wellFormedBrowserPairQuery(parsed: URL): boolean {
     const codes = parsed.searchParams.getAll('pair');
     const role = parsed.searchParams.get('role');
-    const knownKeys = [...parsed.searchParams.keys()].every((key) => key === 'pair' || key === 'role' || key === 'personal');
+    const knownKeys = [...parsed.searchParams.keys()].every((key) => key === 'pair' || key === 'role' || key === 'personal' || key === 'name');
     return codes.length === 1
         && codes[0] !== ''
         && (role === 'control' || role === 'observe')
         && knownKeys
+        && wellFormedConsentName(parsed.searchParams)
         && parsed.hash === '';
 }
 
@@ -155,9 +167,9 @@ function pairingDisplayNameOf(url: string): string {
     let name = fragment.get('name')?.trim();
     if (!name) {
         const decoded = compactPairingRecord(fragment.get('payload'));
-        if (typeof decoded?.name === 'string') name = decoded.name.trim();
+        if (typeof decoded?.name === 'string') name = decoded.name.replace(/\s+/g, ' ').trim().slice(0, 40).trim();
     }
-    return name && name.length <= 120 ? name : 'this machine';
+    return name && CONSENT_NAME.test(name) ? name : UNNAMED_MACHINE;
 }
 
 export function hostedPairingAuthority(url: string): PairingAuthority {
@@ -186,13 +198,15 @@ export type BrowserPairingQr = {
     readonly origin: string;
     readonly authority: PairingAuthority;
     readonly personal: boolean;
+    /** Consent metadata only; "this machine" when the link carries none. */
+    readonly displayName: string;
 };
 
 export type BrowserPairingQrParse =
     | { ok: true; qr: BrowserPairingQr }
     | { ok: false; error: string };
 
-const BROWSER_QR_KEYS = ['pair', 'role', 'personal'];
+const BROWSER_QR_KEYS = ['pair', 'role', 'personal', 'name'];
 // The computer prints the code as XXXXX-XXXXX; the undashed form is the same code.
 const BROWSER_QR_CODE = new RegExp(`^[${PAIRING_CODE_ALPHABET}]{5}-?[${PAIRING_CODE_ALPHABET}]{5}$`);
 const NOT_A_BROWSER_QR = 'This is not a browser pairing QR from muxr. Run muxr pair --browser on your computer and scan the QR it shows.';
@@ -221,5 +235,6 @@ export function parseBrowserPairingQr(value: unknown): BrowserPairingQrParse {
     const personal = parsed.searchParams.get('personal');
     if (!BROWSER_QR_CODE.test(code) || (role !== 'control' && role !== 'observe')) return { ok: false, error: NOT_A_BROWSER_QR };
     if (personal !== null && personal !== '1') return { ok: false, error: NOT_A_BROWSER_QR };
-    return { ok: true, qr: { url: value, origin: parsed.origin, authority: role, personal: personal === '1' } };
+    if (!wellFormedConsentName(parsed.searchParams)) return { ok: false, error: NOT_A_BROWSER_QR };
+    return { ok: true, qr: { url: value, origin: parsed.origin, authority: role, personal: personal === '1', displayName: pairingDisplayNameOf(value) } };
 }

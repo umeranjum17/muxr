@@ -372,9 +372,17 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
 
     // A message that came back from the host after the composer was cleared
     // is put back only while the composer is still empty; otherwise the user
-    // has typed something newer and chooses what to keep. Delivery status is
-    // unknown on a failure, so nothing is ever resent on its own.
-    const recoverSubmission = React.useCallback((text: string, images: typeof attachedImages, reason: string) => {
+    // has typed something newer and chooses what to keep. Nothing is ever
+    // resent on its own; a lost answer keeps the submission's identity so an
+    // explicit resend of the same text runs on the host at most once.
+    const unconfirmedRef = React.useRef<{ promptId: string; text: string } | null>(null);
+    const recoverSubmission = React.useCallback((text: string, images: typeof attachedImages, error: unknown) => {
+        const human = humanError(error);
+        const unconfirmed = /timed out|connection lost/i.test(human.details ?? '');
+        const title = unconfirmed ? 'Not confirmed' : 'Message not sent';
+        const reason = unconfirmed
+            ? "Your computer didn't answer. If it received the message, it runs once: sending it again won't repeat it."
+            : failureText(error);
         const restore = () => {
             draftRef.current = [text, draftRef.current].filter((part) => part !== '').join('\n');
             setDraft(draftRef.current);
@@ -382,10 +390,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         };
         if (draftRef.current === '') {
             restore();
-            Modal.alert('Message not sent', reason);
+            Modal.alert(title, reason);
             return;
         }
-        Modal.alert('Message not sent', `${reason} Your earlier message is kept.`, [
+        Modal.alert(title, `${reason} Your earlier message is kept.`, [
             { text: 'Discard it', style: 'cancel' },
             { text: 'Put it back', onPress: restore },
         ]);
@@ -403,11 +411,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         if (text === '') return;
         const previousDraft = draftRef.current;
         const previousImages = attachedImages;
+        // The same text sent again after a lost answer is the same submission.
+        const promptId = unconfirmedRef.current?.text.trim() === text ? unconfirmedRef.current.promptId : randomUUID();
+        unconfirmedRef.current = null;
         draftRef.current = '';
         setDraft('');
         setAttachedImages([]);
-        void sync.sendMessage(props.id, text).catch((error: unknown) => {
-            recoverSubmission(previousDraft, previousImages, humanError(error).message);
+        void sync.sendMessage(props.id, text, { promptId }).catch((error: unknown) => {
+            unconfirmedRef.current = { promptId, text };
+            recoverSubmission(previousDraft, previousImages, error);
         });
     }, [attachedImages, attachedPaths, attaching, selectedImages.length, panePromptable, props.id, recoverSubmission, setAttachedImages]);
 
@@ -419,7 +431,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         const submission = useUndeliveredSubmission.getState().take(props.id);
         if (!submission) return;
         if (submission.attachments.length > 0) addImages(submission.attachments);
-        recoverSubmission(submission.text, [], "The agent started, but your first message didn't reach it.");
+        unconfirmedRef.current = { promptId: submission.promptId, text: submission.text };
+        recoverSubmission(submission.text, [], new Error("The agent started, but your first message didn't reach it."));
     }, [addImages, props.id, recoverSubmission, undelivered]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);

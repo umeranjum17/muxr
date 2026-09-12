@@ -27,6 +27,7 @@ const PHONE_PAIRING_GRANTS = [
     'Read every agent terminal on that computer, including whatever is already on screen.',
     'Type into those terminals and answer approval prompts.',
     'Start, stop and restart agents — running as the user who launched muxr.',
+    'Keep this access until revoked: remove it with muxr devices on the computer, or forget the computer here.',
 ] as const;
 
 // The lifetime comes from the link's intent (standard or personal browser
@@ -131,6 +132,10 @@ export default function PairScreen() {
     const grants = browser
         ? browserAuthority === 'control' ? browserControlGrants(lifetime) : browserObserveGrants(lifetime)
         : PHONE_PAIRING_GRANTS;
+    // Identity, authority and expiry in one line before anything is claimed:
+    // the link's public metadata, never authority itself (the host mints that).
+    let accessSummary = 'Full control · until revoked';
+    if (browser) accessSummary = `${browserAuthority === 'control' ? 'Control' : 'View-only'} · expires in ${lifetime}`;
     // With no link yet, name the default (control) browser command.
     let pairCommand = 'muxr pair';
     if (browser) pairCommand = stateUrl !== undefined && browserAuthority === 'observe' ? 'muxr pair --browser-view' : 'muxr pair --browser';
@@ -267,7 +272,10 @@ export default function PairScreen() {
                             : state.machineName ?? 'Securely pair this device'}
                 </Text>
                 {state?.phase === 'confirm' && (
-                    <Text style={styles.subtitle}>wants to pair with this {browser ? 'browser' : 'phone'}</Text>
+                    <>
+                        <Text style={styles.subtitle}>wants to pair with this {browser ? 'browser' : 'phone'}</Text>
+                        <Text style={styles.subtitle} accessibilityLabel={`Access: ${accessSummary}`}>{accessSummary}</Text>
+                    </>
                 )}
                 {state?.phase === 'success' && (
                     <Text style={styles.subtitle}>with {state.machineName}</Text>
@@ -329,7 +337,7 @@ export default function PairScreen() {
                     ) : (
                     <>
                         <View style={styles.stepGroup}>
-                            <Text style={styles.stepHeading}>{browser ? `This ${browserAuthority === 'control' ? 'control' : 'view-only'} browser will be able to` : 'This phone will be able to'}</Text>
+                            <Text style={styles.stepHeading}>{browser ? `This ${browserAuthority === 'control' ? 'control' : 'view-only'} browser will be able to` : `This phone gets full control of ${state.machineName ?? 'this machine'} and will be able to`}</Text>
                             {grants.map((grant) => (
                                 <View key={grant} style={styles.stepRow}>
                                     <Ionicons name="ellipse" size={6} color={styles.grantDot.color} style={styles.grantBullet} />

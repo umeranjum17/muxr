@@ -4,6 +4,8 @@ export type PromptAgentCommand = {
     agentRoute: string;
     text: string;
     hasAttachments: boolean;
+    /** Stable submission identity; a resend after a lost answer reuses it so the host runs it once. */
+    promptId?: string;
 };
 
 export type PromptAgentDelivery = {
@@ -11,6 +13,7 @@ export type PromptAgentDelivery = {
     text: string;
     streamingBehavior: 'steer';
     attachments?: PromptAttachment[];
+    promptId?: string;
 };
 
 export type PromptAgentResult =
@@ -34,6 +37,7 @@ export async function promptAgent(command: PromptAgentCommand, ports: PromptAgen
         text,
         streamingBehavior: 'steer',
         ...(attachments.length === 0 ? {} : { attachments }),
+        ...(command.promptId === undefined ? {} : { promptId: command.promptId }),
     });
     return { ok: true };
 }

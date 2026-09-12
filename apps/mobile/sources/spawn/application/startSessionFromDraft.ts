@@ -1,3 +1,4 @@
+import { randomUUID } from 'expo-crypto';
 import type { Machine } from '@/catalog';
 import { getCachedConnectionSettings } from '@/connection';
 import { useNewSessionDraft } from './useNewSessionDraft';
@@ -85,7 +86,7 @@ async function submitDraft(options: {
             // A failed first message waits on the session's own composer;
             // nothing is cleared here, since the draft may already be B.
             if (result.promptFailed) {
-                useUndeliveredSubmission.getState().keep({ sessionId: result.agentRoute, text: prompt, attachments });
+                useUndeliveredSubmission.getState().keep({ sessionId: result.agentRoute, text: prompt, attachments, promptId: result.promptId ?? randomUUID() });
             }
             if (routed.sessionId !== result.agentRoute) options.navigateToSession(result.agentRoute);
             return result.agentRoute;

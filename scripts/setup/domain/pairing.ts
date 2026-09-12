@@ -11,6 +11,21 @@ export const BROWSER_GRANT_TTL_MS = 8 * 60 * 60_000;
  */
 export const BROWSER_PERSONAL_GRANT_TTL_MS = 30 * 24 * 60 * 60_000;
 
+/**
+ * The computer's name as public consent metadata on the printed locator: what
+ * the phone or browser shows before it claims anything. Bounded, printable,
+ * no control or bidi text. It never authorizes: the code and the sealed
+ * payload do.
+ */
+export const CONSENT_NAME_MAX = 40;
+const CONSENT_NAME = /^[\p{L}\p{N}\p{M} ._'()-]+$/u;
+
+export function consentMachineName(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const name = value.normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, CONSENT_NAME_MAX).trim();
+    return name !== '' && CONSENT_NAME.test(name) ? name : undefined;
+}
+
 export type ClientKind = 'native' | 'browser';
 export type DeviceAuthority = 'control' | 'observe';
 
@@ -49,7 +64,7 @@ export type PairingIntent = {
         ingressKey: string;
         expiresAt: number;
     }) => Record<string, unknown>;
-    pairingLocator: (relayUrl: string, code: string) => string;
+    pairingLocator: (relayUrl: string, code: string, machineName?: unknown) => string;
     promptLine: () => string;
 };
 
@@ -98,15 +113,19 @@ export function pairingIntent(input: { kind?: unknown; authority?: unknown; pers
                 ...(personal ? { personal: true } : {}),
             };
         },
-        pairingLocator(relayUrl, code) {
+        pairingLocator(relayUrl, code, machineName) {
             const locator = new URL(relayUrl);
             locator.searchParams.set('pair', code);
-            if (kind !== 'browser') return locator.toString();
-            locator.protocol = 'https:';
-            locator.pathname = '/pair';
-            locator.searchParams.set('role', authority);
-            // Consent copy reads the lifetime from here; the host still decides it.
-            if (personal) locator.searchParams.set('personal', '1');
+            if (kind === 'browser') {
+                locator.protocol = 'https:';
+                locator.pathname = '/pair';
+                locator.searchParams.set('role', authority);
+                // Consent copy reads the lifetime from here; the host still decides it.
+                if (personal) locator.searchParams.set('personal', '1');
+            }
+            // Consent names the computer before anything is claimed.
+            const name = consentMachineName(machineName);
+            if (name !== undefined) locator.searchParams.set('name', name);
             return locator.toString();
         },
         promptLine() {

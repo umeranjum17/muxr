@@ -374,6 +374,12 @@ export interface RequestMap extends PeerRequestMap {
             text: string;
             attachments?: PromptAttachment[];
             streamingBehavior?: StreamingBehavior;
+            /**
+             * Stable identity of one composer submission (8-64 chars of
+             * [A-Za-z0-9_-]). A resend after a lost answer carries the same id
+             * and the host runs it at most once per device.
+             */
+            promptId?: string;
             /** Required by the peer dispatcher; ordinary trusted clients omit it. */
             peerMutation?: PeerMutationMetadata;
         };

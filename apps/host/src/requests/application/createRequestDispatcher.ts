@@ -202,8 +202,12 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'session.reload': async (params) => useCaseData(await stopAgent(
             { sessions: source }, { sessionId: params.sessionId, action: 'reload' },
         )),
-        'session.prompt': async ({ peerMutation: _peerMutation, ...params }) =>
-            useCaseData(await promptAgent(source, params)),
+        'session.prompt': async ({ peerMutation: _peerMutation, promptId, ...params }, context) => {
+            const run = async (): Promise<null> => useCaseData(await promptAgent(source, params));
+            // A client that lost the answer resends under the same promptId;
+            // the receipts run it once per device and replay the outcome.
+            return promptId === undefined ? run() : domain.prompts.once(context.deviceId, promptId, run);
+        },
         'session.status': async (params) => useCaseData(
             await readAgentSession(source, { view: 'status', sessionId: params.sessionId }),
         ) as Awaited<ReturnType<SessionSource['status']>>,

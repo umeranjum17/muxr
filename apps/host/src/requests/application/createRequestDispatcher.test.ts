@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MISSING_CWD_ERROR_PREFIX } from '@muxr/contract';
 import { createRequestDispatcher } from './createRequestDispatcher.js';
-import { createFakeSessionSource, type SessionSource } from '../../agent/index.js';
+import { createAgentWatchStores, createFakeSessionSource, type SessionSource } from '../../agent/index.js';
 import { hostPlatformLabel } from '../../machine/index.js';
 
 function dispatcherWithSpy(): { dispatch: ReturnType<typeof createRequestDispatcher>['dispatch']; started: string[] } {
@@ -293,5 +293,64 @@ describe('unknown request type guard', () => {
         const error = (unknown as { error: string }).error;
         expect(error).toContain('host/APK contract mismatch');
         expect(error).toContain('bogus.request');
+    });
+});
+
+describe('prompt resend after a lost answer', () => {
+    // The certified failure: the client timed out, the original prompt landed
+    // late through the relay, and the explicit resend ran it a second time.
+    it('runs one submission once across late delivery, resend, in-flight overlap and a host restart', async () => {
+        const dataDir = mkdtempSync(join(tmpdir(), 'muxr-prompts-'));
+        const executed: string[] = [];
+        let release: (() => void) | undefined;
+        const source = {
+            async prompt({ text }: { text: string }) {
+                executed.push(text);
+                if (text === 'hang') await new Promise<void>((resolve) => { release = resolve; });
+                if (text === 'refused') throw new Error('agent unavailable');
+            },
+        } as unknown as SessionSource;
+        const build = () => createRequestDispatcher({
+            source,
+            domain: createAgentWatchStores({ dataDir }),
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+        }).dispatch;
+        const dispatch = build();
+        const prompt = (requestId: string, text: string, promptId: string) =>
+            dispatch({ type: 'session.prompt', requestId, params: { sessionId: 's1', text, promptId } } as never, 'browser-1');
+
+        // Late original + explicit resend of the restored draft: one execution, both answered.
+        expect(await prompt('late', 'printf once', 'submission-0001')).toMatchObject({ ok: true });
+        expect(await prompt('resend', 'printf once', 'submission-0001')).toMatchObject({ ok: true });
+        // The same id from another device is that device's own submission.
+        expect(await dispatch({ type: 'session.prompt', requestId: 'other', params: { sessionId: 's1', text: 'printf once', promptId: 'submission-0001' } } as never, 'native-2')).toMatchObject({ ok: true });
+        expect(executed).toEqual(['printf once', 'printf once']);
+
+        // A definite host error clears the receipt: the resend is a fresh attempt.
+        expect(await prompt('refused-1', 'refused', 'submission-0002')).toMatchObject({ ok: false, error: 'agent unavailable' });
+        expect(await prompt('refused-2', 'refused', 'submission-0002')).toMatchObject({ ok: false, error: 'agent unavailable' });
+        expect(executed.filter((text) => text === 'refused')).toHaveLength(2);
+
+        // In flight: the duplicate joins the first execution instead of starting one.
+        const first = prompt('hang-1', 'hang', 'submission-0003');
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const duplicate = prompt('hang-2', 'hang', 'submission-0003');
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(executed.filter((text) => text === 'hang')).toHaveLength(1);
+        // The host dies with the prompt in its hands: the restarted host has a
+        // started-but-unfinished receipt and must refuse, never rerun.
+        const restarted = build();
+        const afterCrash = await restarted({ type: 'session.prompt', requestId: 'after-crash', params: { sessionId: 's1', text: 'hang', promptId: 'submission-0003' } } as never, 'browser-1');
+        expect(afterCrash).toMatchObject({ ok: false, code: 'prompt-uncertain' });
+        expect(executed.filter((text) => text === 'hang')).toHaveLength(1);
+        release?.();
+        expect(await first).toMatchObject({ ok: true });
+        expect(await duplicate).toMatchObject({ ok: true });
+
+        // Without an id nothing changes for callers that never resend.
+        expect(await dispatch({ type: 'session.prompt', requestId: 'plain', params: { sessionId: 's1', text: 'plain' } } as never)).toMatchObject({ ok: true });
+        expect(await dispatch({ type: 'session.prompt', requestId: 'bad-id', params: { sessionId: 's1', text: 'x', promptId: 'no' } } as never)).toMatchObject({ ok: false, error: expect.stringContaining('promptId') });
+        expect(executed).toHaveLength(6);
     });
 });

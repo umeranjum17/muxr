@@ -2,6 +2,7 @@ import type { UnreadCatalog } from '@muxr/contract';
 import { createAttentionStore, type AttentionStore } from '../infrastructure/attentionStore.js';
 import { createUnreadStore } from '../infrastructure/unreadStore.js';
 import { createLifecycleStore, type LifecycleStore } from '../infrastructure/lifecycleStore.js';
+import { createPromptReceipts, type PromptReceipts } from '../infrastructure/promptReceipts.js';
 
 export interface AgentWatchStores {
     unread: {
@@ -11,6 +12,8 @@ export interface AgentWatchStores {
     };
     attention: AttentionStore;
     lifecycle: LifecycleStore;
+    /** Same-device exactly-once prompts; see promptReceipts. */
+    prompts: PromptReceipts;
 }
 
 export interface CreateAgentWatchStoresOptions {
@@ -24,5 +27,6 @@ export function createAgentWatchStores(options: CreateAgentWatchStoresOptions): 
         unread: createUnreadStore(options.dataDir, now),
         attention: createAttentionStore(options.dataDir, now),
         lifecycle: createLifecycleStore(options.dataDir, now),
+        prompts: createPromptReceipts(options.dataDir, now),
     };
 }

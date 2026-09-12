@@ -1,3 +1,4 @@
+import { randomUUID } from 'expo-crypto';
 import type { Machine } from '@/catalog';
 import { machineSpawnNewSession } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
@@ -22,7 +23,7 @@ export type StartAgentFromDockCommand = {
 };
 
 export type StartAgentFromDockResult =
-    | { ok: true; agentRoute: string; promptFailed?: string }
+    | { ok: true; agentRoute: string; promptFailed?: string; promptId?: string }
     | { ok: false; reason: 'no-machine' | 'offline' | 'worktree-failed' | 'needs-directory' | 'failed'; message?: string; directory?: string };
 
 /**
@@ -81,14 +82,16 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
     // seconds for some kinds. Show the session now instead of a dead Dock.
     command.onRouteReady?.(result.sessionId);
     if (command.prompt || command.attachments.length > 0) {
+        const promptId = randomUUID();
         try {
             const text = await promptWithAttachmentPaths(result.sessionId, command.prompt, command.attachments);
-            await sync.sendMessage(result.sessionId, text, { source: 'new_session' });
+            await sync.sendMessage(result.sessionId, text, { source: 'new_session', promptId });
         } catch (error) {
             return {
                 ok: true,
                 agentRoute: result.sessionId,
                 promptFailed: error instanceof Error ? error.message : 'Failed to send the first message',
+                promptId,
             };
         }
     }
