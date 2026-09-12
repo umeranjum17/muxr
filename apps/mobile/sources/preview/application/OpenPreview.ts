@@ -72,12 +72,19 @@ function waitForRelay(socket: WebSocket, type: string): Promise<void> {
 }
 
 /**
+ * A leased surface names an endpoint the host wrote down; a plain port is
+ * the legacy takeover/typed-preview path. The device never sends a port
+ * alongside a lease.
+ */
+export type PreviewTarget = number | { lease: string };
+
+/**
  * Join a preview channel to a loopback port and hold it open. The relay
  * listener carries raw TCP without parsing it, so anything that speaks over a
  * socket -- HTTP for previews, a WebSocket for the takeover stream -- can
  * ride the same tunnel.
  */
-export async function attachPreviewTunnel(port: number, options?: { rawTcp?: boolean; wsStream?: boolean; mode?: 'observe' | 'control' }): Promise<PreviewTunnel> {
+export async function attachPreviewTunnel(target: PreviewTarget, options?: { rawTcp?: boolean; wsStream?: boolean; mode?: 'observe' | 'control'; onClosed?: () => void }): Promise<PreviewTunnel> {
     const { previewBridgeAvailable, startPreviewBridge } = await import('../infrastructure/previewBridge');
     // The raw-TCP takeover stream needs the byte tunnel, never the web HTTP
     // bridge; the wsStream takeover variant speaks over sealed frames instead.
@@ -127,15 +134,25 @@ export async function attachPreviewTunnel(port: number, options?: { rawTcp?: boo
     // The per-preview key crosses inside the existing E2EE request. The relay
     // sees connection ids for multiplexing, never the frontend bytes.
     // Takeover callers claim a mode so the host arbitrates control.
+    if (typeof target !== 'number' && key === undefined) {
+        throw new Error('preview: a surface needs the encrypted preview bridge. Open this page over https, or use the muxr app.');
+    }
     await sync.request('preview.attach', {
         channel,
-        port,
+        ...(typeof target === 'number' ? { port: target } : { lease: target.lease }),
         ...(key === undefined ? {} : { key }),
         ...(options?.mode === undefined ? {} : { mode: options.mode }),
     });
 
     const socketUrl = ticketSocketUrl(ticketInput.relayUrl, ticket, 'preview', previewBridgeAvailable);
     const socket = new WebSocket(socketUrl);
+    // The relay closes this side when the host ends the tunnel (revocation,
+    // expiry, host death). The owner learns it here rather than from a
+    // page that stops answering.
+    if (options?.onClosed !== undefined) {
+        const onClosed = options.onClosed;
+        socket.addEventListener('close', () => onClosed());
+    }
 
     // A failure after this point must not leave the socket open and
     // unreferenced: the relay would hold the pair and, for takeover, the
@@ -220,5 +237,73 @@ export async function openPreview(command: OpenPreviewCommand): Promise<OpenPrev
     return {
         url: `http://${tunnel.hostname}:${tunnel.port}/`,
         close: tunnel.close,
+    };
+}
+
+/** A product surface lease the host issued for one current local offer. */
+export interface PreviewSurfaceLease {
+    lease: string;
+    expiresAt: number;
+}
+
+/**
+ * Resolve an approved local Browser offer into an expiring host lease. The
+ * device names the offer handle and nothing else: the host resolves port,
+ * provider and context from its own offer table.
+ */
+export async function requestProductSurfaceLease(offerHandle: string): Promise<PreviewSurfaceLease> {
+    if (offerHandle === '') throw new Error('preview: that surface is no longer open; open it again');
+    const granted = await sync.request('preview.lease', { kind: 'browser', access: 'product', offer: offerHandle });
+    return { lease: granted.lease, expiresAt: granted.expiresAt };
+}
+
+export async function releaseSurfaceLease(lease: string): Promise<void> {
+    await sync.request('preview.release', { lease }).catch(() => undefined);
+}
+
+/**
+ * Authenticated device liveness for one mounted product surface: the lease
+ * TTL is 10 minutes and holder existence is not liveness, so while its
+ * surface stays mounted the device sends `preview.renew` every 4 minutes
+ * over the encrypted control plane. The host re-reads approval, offer and
+ * session standing before extending anything. A rejection or a transport
+ * deadline stops the loop and reaches `onLost`; a stopped loop never fires
+ * again.
+ */
+export const SURFACE_RENEW_INTERVAL_MS = 4 * 60_000;
+
+export interface SurfaceRenewLoop {
+    stop: () => void;
+}
+
+export function startSurfaceRenewLoop(
+    lease: string,
+    options: { intervalMs?: number; onLost?: (reason: string) => void } = {},
+): SurfaceRenewLoop {
+    const interval = options.intervalMs ?? SURFACE_RENEW_INTERVAL_MS;
+    let stopped = false;
+    let inFlight = false;
+    const timer = setInterval(() => {
+        if (stopped || inFlight) return;
+        inFlight = true;
+        sync.request('preview.renew', { lease }).then(
+            () => {
+                inFlight = false;
+            },
+            (error: unknown) => {
+                inFlight = false;
+                if (stopped) return;
+                stopped = true;
+                clearInterval(timer);
+                options.onLost?.(error instanceof Error ? error.message : String(error));
+            },
+        );
+    }, interval);
+    (timer as unknown as { unref?: () => void }).unref?.();
+    return {
+        stop: () => {
+            stopped = true;
+            clearInterval(timer);
+        },
     };
 }

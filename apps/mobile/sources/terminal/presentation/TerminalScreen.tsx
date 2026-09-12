@@ -70,7 +70,7 @@ function TerminalViewFallback() {
     );
 }
 
-export const TerminalScreen = React.memo((props: { id: string; machineId: string }) => {
+export const TerminalScreen = React.memo((props: { id: string; machineId: string; onOpenBlankBrowser?: () => void }) => {
     const { theme } = useUnistyles();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canControl = authority === 'control' && !authorityLoading;
@@ -894,6 +894,13 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                         elevation: 12,
                     }}>
                         <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
+                            {props.onOpenBlankBrowser !== undefined && (
+                                <Pressable onPress={() => { const open = props.onOpenBlankBrowser; setActionsOpen(false); open?.(); }} accessibilityRole="button" accessibilityLabel="Open a blank browser"
+                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                    <Ionicons name="globe-outline" size={18} color={theme.colors.textSecondary} />
+                                    <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Open blank browser</Text>
+                                </Pressable>
+                            )}
                             {(paneActions.length > 0 || recentTerminalLinks(props.id).length > 0) && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>}
                             <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />
                             {recentTerminalLinks(props.id).length > 0 && <>
