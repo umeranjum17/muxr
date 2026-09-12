@@ -149,6 +149,8 @@ try {
     // Heartbeat loss while owned pauses without handing back.
     status = await ok('session.resume', { session, deviceId, expectedGeneration: 2, command: 'cmd-resume-1' });
     assert(status.state === 'taking-control' && status.generation === 3, `resume: ${JSON.stringify(status)}`);
+    // The device sizes the tab and triggers capture with its hello; only then does a presented frame count.
+    await signal(session, 3, { type: 'hello', viewport: { width: 390, height: 700, scale: 2 } });
     await signal(session, 3, { type: 'presented' });
     await new Promise((resolve) => setTimeout(resolve, 4_500));
     status = await ok('session.status', { session, deviceId });
@@ -162,13 +164,15 @@ try {
     assert(home.text.includes('"Welcome"') && home.text.includes('[') && !home.text.includes('hunter2'), 'home snapshot lists roles and no secret values');
     status = await ok('session.take', { session: second, deviceId, expectedGeneration: 1, command: 'cmd-take-2' });
     assert(status.state === 'taking-control', `take on safe page: ${JSON.stringify(status)}`);
+    await signal(second, 2, { type: 'hello', viewport: { width: 390, height: 700, scale: 2 } });
     await signal(second, 2, { type: 'presented' });
     await refused('session.snapshot', { session: second }, 'you-control');
     status = await ok('session.return', { session: second, deviceId, expectedGeneration: 2, command: 'cmd-return-2' });
     assert(status.state === 'agent-driving' && status.generation === 3 && status.owner === 'agent', `give back: ${JSON.stringify(status)}`);
     const after = await ok('session.snapshot', { session: second });
     assert(after.text.includes('"Continue"'), 'agent continues in the same context');
-    await refused('session.signal', { session: second, deviceId, generation: 3, message: 'e2ee:v2:xx' }, 'agent-driving');
+    // Watching while the agent drives is allowed for the owner; a message that does not open is still refused.
+    await refused('session.signal', { session: second, deviceId, generation: 3, message: 'e2ee:v2:xx' });
     status = await ok('session.help', { session: second });
     assert(status.state === 'waiting-for-you', 'help enters waiting-for-you');
     await refused('session.snapshot', { session: second }, 'waiting-for-you');

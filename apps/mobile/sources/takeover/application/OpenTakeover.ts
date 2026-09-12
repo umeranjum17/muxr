@@ -99,6 +99,7 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
     let transition: TakeoverTransition | undefined;
     let failure: string | undefined;
     let sealer: BrowserSessionSealer | undefined;
+    let sealerGeneration = -1;
     let peer: BrowserPeer | undefined;
     let mediaGeneration = 0;
     let presentedGeneration = -1;
@@ -145,13 +146,18 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
         field = null;
     };
 
-    const applyStatus = (next: BrowserSessionStatus): void => {
+    /**
+     * `reconnect` is false for status learned inside the media handshake
+     * itself (the hello reply): reconnecting from there would cancel the
+     * handshake that is delivering it.
+     */
+    const applyStatus = (next: BrowserSessionStatus, reconnect = true): void => {
         const generationChanged = status === undefined || next.generation !== status.generation;
         status = { ...next, ...(next.reason === undefined ? {} : { reason: redactUrls(next.reason) }) };
         phase = 'live';
         if (next.state === 'ended') closePeer();
         // A paused seat streams nothing; Resume brings fresh media and permits.
-        else if (next.state !== 'paused' && (generationChanged || peer === undefined)) void connectMedia();
+        else if (reconnect && next.state !== 'paused' && (generationChanged || peer === undefined)) void connectMedia();
         // A barrier still settling has no private channel to push its outcome: ask again shortly.
         if (next.state === 'taking-control' || next.state === 'giving-back') {
             setTimeout(() => { if (!closed && status?.state === next.state) void refresh(); }, HEARTBEAT_MS);
@@ -216,8 +222,13 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
         closePeer();
         const forGeneration = generation();
         // The scope is generation-bound: a fresh sealer per seat, so nothing
-        // sealed for an old generation opens under this one.
-        sealer = browserSessionSealer(grant, session, forGeneration);
+        // sealed for an old generation opens under this one -- and exactly
+        // one per seat, because the service tracks replay per generation
+        // and a restarted sequence would read as a replay.
+        if (sealer === undefined || sealerGeneration !== forGeneration) {
+            sealer = browserSessionSealer(grant, session, forGeneration);
+            sealerGeneration = forGeneration;
+        }
         const thisMedia = ++mediaGeneration;
         const current = (): boolean => !closed && thisMedia === mediaGeneration && forGeneration === generation();
         try {
@@ -228,7 +239,7 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
                 ? { width: Math.round(display.width), height: Math.round(display.height), scale: Math.min(2, Math.max(1, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)) }
                 : undefined });
             if (!current()) return;
-            if (isServiceMessage(hello) && hello.type === 'status') applyStatus(hello.status);
+            if (isServiceMessage(hello) && hello.type === 'status') applyStatus(hello.status, false);
             const created = await createBrowserPeer({
                 onControl: (text) => {
                     if (!current()) return;
@@ -356,7 +367,9 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
     const heartbeat = setInterval(() => {
         if (closed || !ownsSeat(status) || peer === undefined) return;
         send({ type: 'heartbeat', generation: generation() });
-        if (lastServiceHeartbeat > 0 && now() - lastServiceHeartbeat > HEARTBEAT_LOSS_MS) void lostAuthority();
+        // The service's pulse (permits) starts once the seat is live; a
+        // handshake still negotiating is bounded by the service, not here.
+        if (freshMedia() && lastServiceHeartbeat > 0 && now() - lastServiceHeartbeat > HEARTBEAT_LOSS_MS) void lostAuthority();
     }, HEARTBEAT_MS);
     const sampler = setInterval(() => {
         if (closed || peer === undefined) return;

@@ -155,10 +155,17 @@ export function isSurfaceOfferHostFrame(value: unknown): value is SurfaceOfferHo
     // The mobile admits only when this exact provider is currently approved
     // and still claims the capability, so a frame without one is malformed.
     if (typeof offer.provider !== 'string' || offer.provider === '' || offer.provider.length > 64) return false;
-    if (offer.kind !== 'browser-direct' && offer.kind !== 'browser-local' && offer.kind !== 'code-review') return false;
+    if (offer.kind !== 'browser-direct' && offer.kind !== 'browser-local' && offer.kind !== 'browser-session' && offer.kind !== 'code-review') return false;
     // `code open` versus `code diff` travels explicitly: the phone must never
     // infer the native destination from a revision string.
     if (offer.kind === 'code-review' && offer.destination !== 'file' && offer.destination !== 'diff') return false;
+    // A session offer names its session by opaque handle and shows a bare
+    // hostname; anything else in those fields is malformed.
+    if (offer.kind === 'browser-session') {
+        if (offer.capability !== 'surface.browser.control-host-session') return false;
+        if (typeof offer.session !== 'string' || !/^bsn_[A-Za-z0-9_-]{8,128}$/.test(offer.session)) return false;
+        if (typeof offer.site !== 'string' || offer.site.length > 253 || (offer.site !== '' && !/^[A-Za-z0-9.-]+$/.test(offer.site))) return false;
+    }
     return true;
 }
 

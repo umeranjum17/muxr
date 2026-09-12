@@ -56,6 +56,8 @@ const HEARTBEAT_MISSES = 3;
 const PERMIT_EVERY_MS = 100;
 const PERMIT_TTL_MS = 300;
 const SESSION_IDLE_MS = 60 * 60_000;
+/** A take that has not presented a frame within this window is paused, not left half-open. */
+const TAKE_HANDSHAKE_MS = 30_000;
 const ENDED_KEEP_MS = 10 * 60_000;
 const GRANT_TTL_MS = 365 * 24 * 60 * 60_000;
 const MAX_SNAPSHOT_LINES = 400;
@@ -436,8 +438,12 @@ class BrowserService {
                 if (at - session.endedAt > ENDED_KEEP_MS) this.sessions.delete(handle);
                 continue;
             }
+            // Heartbeats ride the private channel, which exists only once the
+            // seat is live; a take still negotiating its peer is bounded by
+            // the longer handshake window instead of the 1 s pulse.
+            const window = session.state === 'you-control' ? HEARTBEAT_MS * HEARTBEAT_MISSES : TAKE_HANDSHAKE_MS;
             if ((session.state === 'you-control' || session.state === 'taking-control') && session.heartbeatAt !== undefined
-                && at - session.heartbeatAt > HEARTBEAT_MS * HEARTBEAT_MISSES) {
+                && at - session.heartbeatAt > window) {
                 void this.pause(session, 'your device stopped answering');
             }
             if (at > session.expiresAt) {
@@ -460,6 +466,9 @@ class BrowserService {
     transition(session, state, entry = {}) {
         const from = session.state;
         session.state = state;
+        // Operator log only (stderr of the service): states and plain
+        // reasons, never handles, ids or page content.
+        process.stderr.write(`browser service: ${from} -> ${state}${entry.reason ? ` (${entry.reason})` : ''}\n`);
         session.reason = entry.reason;
         if (state === 'ended') session.endedAt = now();
         this.record(session, { from, ...entry });
@@ -508,7 +517,7 @@ class BrowserService {
 
     // ---- sessions
 
-    async open({ context }) {
+    async open({ context, name }) {
         const marker = `about:blank#muxr-${randomUUID()}`;
         const target = await this.cdp.send('Target.createTarget', { url: marker });
         const attached = await this.cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
@@ -533,6 +542,9 @@ class BrowserService {
         const session = {
             handle: `bsn_${randomUUID().replaceAll('-', '')}`,
             context: typeof context === 'string' ? context : '',
+            // The logical name the agent addresses the session by, kept here
+            // so a restarted host can find its sessions again.
+            name: typeof name === 'string' && name.length <= 64 ? name : '',
             targetId: target.targetId,
             cdpSession: attached.sessionId,
             tabId: mapped.tabId,
@@ -775,6 +787,40 @@ class BrowserService {
         }
     }
 
+    /**
+     * The captured surface must be exactly the CSS viewport the device maps
+     * taps into: size the tab's window to it (headless honours window
+     * bounds per target) and pin the metrics/DPR, so the frame has no
+     * chrome, no letterbox inside it and no offset.
+     */
+    async applyViewport(session) {
+        const wanted = session.viewport;
+        const scale = Math.min(2, Math.max(1, wanted.scale || 1));
+        const target = session.child?.targetId ?? session.targetId;
+        const bounds = async (width, height) => {
+            const { windowId } = await this.cdp.send('Browser.getWindowForTarget', { targetId: target });
+            await this.cdp.send('Browser.setWindowBounds', { windowId, bounds: { width, height, windowState: 'normal' } });
+            const metrics = await this.cdp.send('Page.getLayoutMetrics', {}, session.cdpSession);
+            return { width: metrics.cssLayoutViewport.clientWidth, height: metrics.cssLayoutViewport.clientHeight };
+        };
+        try {
+            // Window bounds include the window's own frame: measure the
+            // client area the page actually got and grow the window by the
+            // difference, then record the exact viewport the device maps into.
+            let client = await bounds(wanted.width, wanted.height);
+            if (client.height !== wanted.height || client.width !== wanted.width) {
+                client = await bounds(wanted.width + (wanted.width - client.width), wanted.height + (wanted.height - client.height));
+            }
+            session.viewport = { width: client.width, height: client.height, scale };
+        } catch {
+            /* an environment without window bounds keeps the emulated size below */
+            await this.cdp.send('Emulation.setDeviceMetricsOverride', { width: wanted.width, height: wanted.height, deviceScaleFactor: scale, mobile: false }, session.cdpSession).catch(() => undefined);
+            return;
+        }
+        // Pin the density only; the size is the real window's.
+        await this.cdp.send('Emulation.setDeviceMetricsOverride', { width: 0, height: 0, deviceScaleFactor: scale, mobile: false }, session.cdpSession).catch(() => undefined);
+    }
+
     captureDimensions(session) {
         const scale = Math.min(2, Math.max(1, session.viewport.scale || 1));
         const width = session.viewport.width * scale;
@@ -857,16 +903,10 @@ class BrowserService {
             await session.inFlight?.catch(() => undefined);
             session.refs = new Map();
             await this.stopPeer(session);
-            try {
-                await this.cdp.send('Emulation.setDeviceMetricsOverride', {
-                    width: session.viewport.width, height: session.viewport.height, deviceScaleFactor: Math.min(2, session.viewport.scale || 1), mobile: false,
-                }, session.cdpSession);
-                const captured = await this.captureTarget(session);
-                this.record(session, { by: 'service', note: `captured (${captured.invocation})` });
-            } catch (error) {
-                this.transition(session, 'paused', { by: 'service', reason: 'could not take control' });
-                this.record(session, { by: 'service', note: error instanceof Error ? error.message : 'capture failed' });
-            }
+            // Capture waits for the device's hello: the tab is sized to that
+            // device's viewport first, and a tab capture keeps the surface
+            // size it started with, so capturing before the resize would
+            // stream the old geometry inset in a stale frame.
             this.touch(session);
             return this.status(session, deviceId);
         });
@@ -953,9 +993,19 @@ class BrowserService {
         return { serviceId: this.identity.serviceId, deviceId: device.deviceId, session: session.handle, generation: session.generation, keyVersion: device.keyVersion };
     }
 
+    /**
+     * The owner watches while the agent drives (and while waiting for them):
+     * view-only media under the current generation, no permits, no input.
+     * Taking control moves the generation and recreates the peer, so a watch
+     * never keeps the keys of a private seat.
+     */
+    watching(session) {
+        return session.state === 'agent-driving' || session.state === 'waiting-for-you';
+    }
+
     async signal(session, deviceId, generation, message) {
-        if (session.state === 'ended' || session.state === 'agent-driving' || session.state === 'waiting-for-you') throw this.statusError(session);
-        if (session.owner !== deviceId) throw this.statusError(session);
+        if (session.state === 'ended') throw this.statusError(session);
+        if (!this.watching(session) && session.owner !== deviceId) throw this.statusError(session);
         if (generation !== session.generation) throw this.statusError(session);
         const device = this.requireDevice(session, deviceId);
         const scope = this.scopeFor(session, device);
@@ -979,15 +1029,28 @@ class BrowserService {
                 const width = Math.min(4096, Math.max(320, Math.round(Number(viewport.width) || 1280)));
                 const height = Math.min(4096, Math.max(320, Math.round(Number(viewport.height) || 800)));
                 const scale = Math.min(2, Math.max(1, Number(viewport.scale) || 1));
-                session.viewport = { width, height, scale };
+                // Watching never changes the host viewport; only the seat holder's does.
+                if (!this.watching(session)) session.viewport = { width, height, scale };
                 if (session.state === 'taking-control' || session.state === 'you-control') {
-                    await this.cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: scale, mobile: false }, session.cdpSession).catch(() => undefined);
+                    await this.applyViewport(session);
+                    if (!session.captured) {
+                        try {
+                            const captured = await this.captureTarget(session);
+                            this.record(session, { by: 'service', note: `captured (${captured.invocation})` });
+                        } catch (error) {
+                            this.transition(session, 'paused', { by: 'service', reason: 'could not take control' });
+                            this.record(session, { by: 'service', note: error instanceof Error ? error.message : 'capture failed' });
+                            return { type: 'status', status: await this.status(session, device.deviceId), viewport: session.viewport };
+                        }
+                    }
+                    void this.sendGeometry(session);
                 }
                 session.heartbeatAt = now();
                 return { type: 'status', status: await this.status(session, device.deviceId), viewport: session.viewport };
             }
             case 'offer': {
-                if (session.state !== 'taking-control' || !session.captured) throw this.statusError(session);
+                if (session.state !== 'taking-control' && !this.watching(session)) throw this.statusError(session);
+                if (!session.captured) await this.captureTarget(session);
                 if (typeof message.sdp !== 'string' || message.sdp.length > 64 * 1024) throw new Error('that offer is invalid');
                 session.heartbeatAt = now();
                 const answer = await this.channel.command({ cmd: 'answer', generation: session.generation, sdp: message.sdp });
@@ -1229,6 +1292,10 @@ class BrowserService {
                 return this.revoke(params);
             case 'session.open':
                 return this.open(params);
+            case 'session.find': {
+                const found = [...this.sessions.values()].find((entry) => entry.state !== 'ended' && entry.name === params.name && entry.context === params.context);
+                return found === undefined ? {} : { session: found.handle, site: found.site };
+            }
             case 'session.close': {
                 const session = this.sessions.get(params.session);
                 if (session !== undefined) await this.end(session, 'closed by the agent');
