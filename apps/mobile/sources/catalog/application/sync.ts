@@ -44,6 +44,7 @@ import { agentStatusUnchanged, applyHostInfoToAgent } from '../domain/agent';
 import type { SessionInfo } from '@muxr/contract';
 import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
 import { promptAgent } from './promptAgent';
+import { hostConfirmsPromptsRunOnce, UNSUPPORTED_HOST } from '../domain/promptSubmission';
 import type { Settings } from './settings';
 import { lifecycleNotificationCopy } from '@/utils/herd';
 
@@ -175,8 +176,9 @@ type SendMessageOptions = {
     displayText?: string;
     source?: string;
     attachments?: AttachmentPreview[];
-    /** See PromptAgentCommand.promptId. */
-    promptId?: string;
+    /** Submission identity the host runs at most once; see submissions.ts. */
+    promptId: string;
+    notValidAfter: number;
 };
 
 /*
@@ -239,6 +241,8 @@ class MuxrSync {
     private openedSessions = new Set<string>();
     private opening = new Map<string, Promise<void>>();
     private activeMachineId: string | undefined;
+    /** What the connected host advertised on machines.list; unknown means unsupported. */
+    private hostCapabilities: readonly string[] | undefined;
     private herdrTreeRequest = 0;
     private presentingLifecycleIds = new Set<string>();
     encryption!: Encryption;
@@ -579,6 +583,8 @@ class MuxrSync {
             this.refreshHerdTree().catch(() => undefined),
         ]);
         if (client !== this.client) return;
+        // One transport, one host: its advertised features gate what the app promises.
+        this.hostCapabilities = machines.find((machine) => machine.capabilities !== undefined)?.capabilities;
         storage.getState().applyMachines(machines.map((machine) =>
             machineInfoToMachine(machine, getCachedHostedGrant(machine.machineId)?.machineName)
         ), true);
@@ -669,6 +675,7 @@ class MuxrSync {
     private async bootstrap(credentials: AuthCredentials): Promise<void> {
         this.client?.close();
         this.client = undefined;
+        this.hostCapabilities = undefined;
         this.credentials = credentials;
         await this.initEncryption(credentials);
         const settings = await loadConnectionSettingsAsync();
@@ -713,6 +720,7 @@ class MuxrSync {
         this.credentials = undefined;
         this.accountValidation = undefined;
         this.activeMachineId = undefined;
+        this.hostCapabilities = undefined;
         this.openedSessions.clear();
         this.opening.clear();
         this.herdrTreeRequest += 1;
@@ -726,9 +734,14 @@ class MuxrSync {
         await this.bootstrap(credentials);
     }
 
-    async sendMessage(sessionId: string, text: string, options?: SendMessageOptions): Promise<void> {
-        const previews = options?.attachments ?? [];
+    async sendMessage(sessionId: string, text: string, options: SendMessageOptions): Promise<void> {
+        const previews = options.attachments ?? [];
         if (text.trim().length === 0 && previews.length === 0) return;
+        // A host without receipts would run a resend twice; refuse to send at
+        // all rather than promise what it cannot keep.
+        if (!hostConfirmsPromptsRunOnce(this.hostCapabilities)) {
+            throw Object.assign(new Error(UNSUPPORTED_HOST), { code: 'host-unsupported' });
+        }
         // Readiness is the host's call: it waits for a starting agent to accept
         // the prompt. Refusing here on cached metadata drops the first prompt
         // during the seconds before the tree reports the agent promptable.
@@ -738,16 +751,17 @@ class MuxrSync {
         // lands at the next turn boundary instead of waiting for the run to settle.
         // The host ignores this while idle, where nothing is queued.
         await promptAgent(
-            { agentRoute: sessionId, text, hasAttachments: previews.length > 0, ...(options?.promptId === undefined ? {} : { promptId: options.promptId }) },
+            { agentRoute: sessionId, text, hasAttachments: previews.length > 0, promptId: options.promptId, notValidAfter: options.notValidAfter },
             {
                 markSent: (agentRoute) => storage.getState().updateSession(agentRoute, { lastMessageSentAt: Date.now() }),
                 attachments: () => toPromptAttachments(previews),
-                deliver: ({ agentRoute, text: prompt, streamingBehavior, attachments, promptId }) => this.request('session.prompt', {
+                deliver: ({ agentRoute, text: prompt, streamingBehavior, attachments, promptId, notValidAfter }) => this.request('session.prompt', {
                     sessionId: agentRoute,
                     text: prompt,
                     streamingBehavior,
                     ...(attachments === undefined || attachments.length === 0 ? {} : { attachments }),
-                    ...(promptId === undefined ? {} : { promptId }),
+                    promptId,
+                    promptNotValidAfter: notValidAfter,
                 }),
             },
         );

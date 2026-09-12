@@ -23,20 +23,40 @@ export function defaultDeviceAuthority(platform: string): DeviceAuthority {
 
 export type VerifiedGrantDecision =
     | { ok: true; authority: DeviceAuthority }
-    | { ok: false; error: 'machine-substitution' | 'authority-substitution' };
+    | { ok: false; error: 'machine-substitution' | 'authority-substitution' | 'lifetime-substitution' };
 
-/** Stable machine id authorizes; display name never does. */
+/** Reviewed browser lifetimes; the host mints the real expiry and this caps it. */
+export const BROWSER_GRANT_TTL_MS = 8 * 60 * 60_000;
+export const BROWSER_PERSONAL_GRANT_TTL_MS = 30 * 24 * 60 * 60_000;
+/** Slack for a grant minted a little before the claim completed. */
+const GRANT_LIFETIME_SLACK_MS = 10 * 60_000;
+
+export function reviewedGrantCeiling(lifetime: 'eight hours' | '30 days', claimedAt: number): number {
+    return claimedAt + (lifetime === '30 days' ? BROWSER_PERSONAL_GRANT_TTL_MS : BROWSER_GRANT_TTL_MS) + GRANT_LIFETIME_SLACK_MS;
+}
+
+/**
+ * Stable machine id authorizes; display name never does. Authority and
+ * lifetime may only be what the person reviewed at consent.
+ */
 export function acceptVerifiedGrant(args: {
     verifiedMachineId: string;
     pendingMachineId: string;
     verifiedAuthority: DeviceAuthority | undefined;
     expectedAuthority: DeviceAuthority | undefined;
+    verifiedExpiresAt?: number;
+    /** Latest acceptable expiry for a browser grant; absent for native (until revoked). */
+    expiresNoLaterThan?: number;
     platform: string;
 }): VerifiedGrantDecision {
     if (args.verifiedMachineId !== args.pendingMachineId) return { ok: false, error: 'machine-substitution' };
     const authority = args.verifiedAuthority ?? defaultDeviceAuthority(args.platform);
     if (args.expectedAuthority !== undefined && authority !== args.expectedAuthority) {
         return { ok: false, error: 'authority-substitution' };
+    }
+    if (args.expiresNoLaterThan !== undefined
+        && (args.verifiedExpiresAt === undefined || !Number.isFinite(args.verifiedExpiresAt) || args.verifiedExpiresAt > args.expiresNoLaterThan)) {
+        return { ok: false, error: 'lifetime-substitution' };
     }
     return { ok: true, authority };
 }

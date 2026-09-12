@@ -55,6 +55,7 @@ import {
     type HerdrAgentSessionRef,
 } from './agentRouteStore.js';
 import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcInputDigest, rpcReplayKey, runPluginProcess, type HerdrPlugin, type PluginBackendCallTarget } from './pluginCatalog.js';
+import { markPromptDispatched } from './promptReceipts.js';
 import { PluginApprovals } from './pluginApprovals.js';
 import { PluginStreamManager } from './pluginStreamManager.js';
 import {
@@ -1810,7 +1811,7 @@ export async function createHerdrSessionSource(
         // A pane with no agent is a plain shell: the "prompt" is a command
         // line, typed and submitted atomically (bracketed paste, then Enter).
         if (session.agent === undefined) {
-            await client.call('pane.send_input', { pane_id: session.paneId, text, keys: ['Enter'] });
+            await client.call('pane.send_input', { pane_id: session.paneId, text, keys: ['Enter'] }).catch((error: unknown) => { throw markPromptDispatched(error); });
             return;
         }
         if (!agentPromptable(session)) {
@@ -1826,7 +1827,10 @@ export async function createHerdrSessionSource(
         }
         const promptable = agentPromptable(session);
         if (!promptable) options.onAgentReadinessDiagnostic?.('not-promptable', false, readinessDetail(session));
-        await promptPromptableHerdrAgent(client, session, promptable, text);
+        if (!promptable) throw agentRouteError('agent-not-ready');
+        // Past this call the text may have reached the agent even when the
+        // answer is lost, so the failure is uncertain, never a refusal.
+        await promptHerdrAgent(client, session, text).catch((error: unknown) => { throw markPromptDispatched(error); });
     }
 
     async function sendSessionKeys(sessionId: string, keys: string[]): Promise<void> {

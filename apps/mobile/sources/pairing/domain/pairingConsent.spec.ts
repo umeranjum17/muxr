@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { pairingIntent } from '../../../../../scripts/setup/domain/pairing';
-import { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingLifetime, parseBrowserPairingQr, parsePairingString } from './pairingString';
+import { expandCompactPairingPayload, hostedPairingAuthority, hostedPairingDisplayName, hostedPairingLifetime, parseBrowserPairingQr, parsePairingString, reviewedConsentMismatch } from './pairingString';
+import { acceptVerifiedGrant, reviewedGrantCeiling } from './hostedGrant';
+
+/** The sealed payload exactly as pairDevice.mjs builds it (before code-sealing). */
+function sealedPayload(fields: Record<string, string>): URLSearchParams {
+    const compact = Buffer.from(JSON.stringify({ v: '2', generation: '1', id: 'pair-id', claim: 'c', pair: 'p', machine: 'machine-1', machinePk: 'k', r: 'wss://relay.example.test', authority: 'control', ...fields })).toString('base64url');
+    const fragment = new URLSearchParams({ payload: compact });
+    expandCompactPairingPayload(fragment);
+    return fragment;
+}
 
 // The certified failure: the QR named "this machine" although the host is
 // called Android-Cert, and native consent carried no expiry. The locator the
@@ -52,5 +61,31 @@ describe('pairing consent metadata from the printed locator', () => {
         }
         // The display name is not authority: a link claiming a name still reads its role from the link, and an unknown role stays control.
         expect(hostedPairingAuthority(`https://relay.example.test/pair?pair=${code}&role=observe&name=Boss`)).toBe('observe');
+    });
+
+    it('binds the reviewed name and lifetime to the sealed code before any claim, and caps the grant', () => {
+        const sealed = sealedPayload({ name: 'Android-Cert' });
+        // The ordinary QR: reviewed name equals the sealed name.
+        expect(reviewedConsentMismatch({ name: 'Android-Cert', lifetime: 'eight hours' }, sealed)).toBeUndefined();
+        // Only the public name changed: refused with a static message.
+        expect(reviewedConsentMismatch({ name: 'Trusted-Laptop', lifetime: 'eight hours' }, sealed)).toMatch(/names a different computer/);
+        // An unnamed link binds nothing; the sealed name still shows afterwards.
+        expect(reviewedConsentMismatch({ name: 'this machine', lifetime: 'eight hours' }, sealed)).toBeUndefined();
+        // personal=1 removed from a personal invitation (or added to a standard one): refused.
+        const personal = sealedPayload({ name: 'Studio', personal: '1' });
+        expect(reviewedConsentMismatch({ name: 'Studio', lifetime: 'eight hours' }, personal)).toMatch(/different access lifetime/);
+        expect(reviewedConsentMismatch({ name: 'Studio', lifetime: '30 days' }, personal)).toBeUndefined();
+        expect(reviewedConsentMismatch({ name: 'Android-Cert', lifetime: '30 days' }, sealed)).toMatch(/different access lifetime/);
+
+        // The verified grant may not outlive what was reviewed, on first claim or resume.
+        const claimedAt = Date.parse('2026-09-12T12:00:00Z');
+        const base = { verifiedMachineId: 'machine-1', pendingMachineId: 'machine-1', verifiedAuthority: 'control' as const, expectedAuthority: 'control' as const, platform: 'web' };
+        const eightHours = reviewedGrantCeiling('eight hours', claimedAt);
+        expect(acceptVerifiedGrant({ ...base, verifiedExpiresAt: claimedAt + 8 * 60 * 60_000, expiresNoLaterThan: eightHours })).toMatchObject({ ok: true });
+        expect(acceptVerifiedGrant({ ...base, verifiedExpiresAt: claimedAt + 30 * 24 * 60 * 60_000, expiresNoLaterThan: eightHours })).toEqual({ ok: false, error: 'lifetime-substitution' });
+        expect(acceptVerifiedGrant({ ...base, verifiedExpiresAt: claimedAt + 30 * 24 * 60 * 60_000, expiresNoLaterThan: reviewedGrantCeiling('30 days', claimedAt) })).toMatchObject({ ok: true });
+        expect(acceptVerifiedGrant({ ...base, expiresNoLaterThan: eightHours })).toEqual({ ok: false, error: 'lifetime-substitution' });
+        // Native pairing reviewed "until revoked": no ceiling, durable grant accepted.
+        expect(acceptVerifiedGrant({ ...base, platform: 'android', verifiedExpiresAt: Date.UTC(9999, 11, 31) })).toMatchObject({ ok: true });
     });
 });

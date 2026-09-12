@@ -1,3 +1,4 @@
+import { HOST_CAPABILITY_PROMPT_RECEIPTS } from '@muxr/contract';
 import type {
     AgentLifecycle,
     AttentionEntry,
@@ -91,7 +92,9 @@ export const DEMO_WORKSPACE: HerdrTreeWorkspace = {
 };
 
 export const DEMO_MACHINES: MachineInfo[] = [
-    { machineId: DEMO_MACHINE_ID, name: 'demo', online: true, platform: 'linux' },
+    // The replay answers prompts in memory; it advertises receipts so the
+    // composer treats it like the real host it stands in for.
+    { machineId: DEMO_MACHINE_ID, name: 'demo', online: true, platform: 'linux', capabilities: [HOST_CAPABILITY_PROMPT_RECEIPTS] },
 ];
 
 export const DEMO_ATTENTION: AttentionEntry[] = [

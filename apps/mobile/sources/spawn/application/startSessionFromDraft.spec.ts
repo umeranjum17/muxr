@@ -23,7 +23,6 @@ vi.mock('./StartAgentFromDock', () => ({
 
 import { startSessionFromDraft } from './startSessionFromDraft';
 import { useNewSessionDraft } from './useNewSessionDraft';
-import { useUndeliveredSubmission } from '@/catalog/application/undeliveredSubmission';
 
 const machines = [{ id: 'm1', metadata: { homeDir: '/home/u' } }] as never;
 const navigate = vi.fn();
@@ -56,7 +55,8 @@ describe('draft submission ownership', () => {
         harness.finish!({ ok: true, agentRoute: 'pp_a', promptFailed: 'timed out' });
         await expect(first).resolves.toBe('pp_a');
         expect(useNewSessionDraft.getState().input).toBe('B');
-        expect(useUndeliveredSubmission.getState().bySession['pp_a']).toMatchObject({ text: 'A' });
+        // The failed first message itself is kept by submitPrompt on pp_a
+        // (see submissions.spec.ts); the Dock never clears B for it.
         expect(navigate).toHaveBeenCalledTimes(1);
     });
 
@@ -71,6 +71,5 @@ describe('draft submission ownership', () => {
         harness.finish!({ ok: true, agentRoute: 'pp_b' });
         await first;
         expect(useNewSessionDraft.getState().input).toBe('B');
-        expect(useUndeliveredSubmission.getState().bySession['pp_b']).toBeUndefined();
     });
 });

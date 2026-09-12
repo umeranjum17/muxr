@@ -30,6 +30,7 @@ export type {
     SessionSaveAttachmentsOptions,
 } from './application/sessionSource.js';
 export { createAgentWatchStores, type AgentWatchStores } from './application/watchStores.js';
+export { markPromptDispatched } from './infrastructure/promptReceipts.js';
 export { startAgent } from './application/startAgent.js';
 export { promptAgent } from './application/promptAgent.js';
 export { openAgent } from './application/openAgent.js';

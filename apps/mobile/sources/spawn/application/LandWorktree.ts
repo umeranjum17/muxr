@@ -1,5 +1,6 @@
 import { getRepoPath, isWorktreePath, landWorktree } from '../infrastructure/worktree';
 import { machineSpawnNewSession } from '@/catalog/ops';
+import { newSubmissionIdentity } from '@/catalog/application/submissions';
 import { sync } from '@/catalog/sync';
 
 export type LandWorktreeCommand = {
@@ -57,6 +58,7 @@ export async function landWorktreeBranch(command: LandWorktreeCommand): Promise<
     if (spawn.type !== 'success') {
         return { status: 'failed', message: spawn.type === 'error' ? spawn.errorMessage : 'Could not start the agent' };
     }
-    await sync.sendMessage(spawn.sessionId, handoffPrompt(command.worktreePath, conflict.branch, conflict.detail));
+    // Automated handoff, never resent: a fresh identity satisfies the host.
+    await sync.sendMessage(spawn.sessionId, handoffPrompt(command.worktreePath, conflict.branch, conflict.detail), newSubmissionIdentity());
     return { status: 'handoff-started', agentRoute: spawn.sessionId };
 }

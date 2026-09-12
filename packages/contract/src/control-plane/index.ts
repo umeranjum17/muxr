@@ -16,7 +16,7 @@ export type {
     WatchSettlement,
     LayoutSnapshot,
 } from './domain/requests.js';
-export { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure, requestRequiresE2ee } from './domain/requests.js';
+export { HOST_CAPABILITY_PROMPT_RECEIPTS, MISSING_CWD_ERROR_PREFIX, PROMPT_ID_PATTERN, PROMPT_SUBMISSION_CLOCK_SKEW_MS, PROMPT_SUBMISSION_MAX_TTL_MS, normalizeRequestFailure, requestRequiresE2ee } from './domain/requests.js';
 
 export type { ClientFrame, Envelope, EnvelopeHeader, PluginsInvalidatedFrame, HostFrame, RoutingChannel } from './domain/envelope.js';
 export {

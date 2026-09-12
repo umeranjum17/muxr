@@ -27,6 +27,6 @@ export function createAgentWatchStores(options: CreateAgentWatchStoresOptions): 
         unread: createUnreadStore(options.dataDir, now),
         attention: createAttentionStore(options.dataDir, now),
         lifecycle: createLifecycleStore(options.dataDir, now),
-        prompts: createPromptReceipts(options.dataDir, now),
+        prompts: createPromptReceipts(options.dataDir, () => now().getTime()),
     };
 }

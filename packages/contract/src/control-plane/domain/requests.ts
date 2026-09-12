@@ -377,9 +377,13 @@ export interface RequestMap extends PeerRequestMap {
             /**
              * Stable identity of one composer submission (8-64 chars of
              * [A-Za-z0-9_-]). A resend after a lost answer carries the same id
-             * and the host runs it at most once per device.
+             * and input; a host advertising HOST_CAPABILITY_PROMPT_RECEIPTS runs
+             * it at most once per device and refuses conflicting reuse. Required
+             * from clients; peers carry `peerMutation` instead.
              */
             promptId?: string;
+            /** Epoch ms after which the submission may no longer be admitted or retried. */
+            promptNotValidAfter?: number;
             /** Required by the peer dispatcher; ordinary trusted clients omit it. */
             peerMutation?: PeerMutationMetadata;
         };
@@ -534,6 +538,14 @@ export type RequestResponse =
     | { type: 'result'; requestId: string; ok: false; error: string; code?: string };
 
 /** session.start marker for a cwd that does not exist; clients prompt to create it. */
+/** Advertised by hosts that keep durable per-device prompt receipts. */
+export const HOST_CAPABILITY_PROMPT_RECEIPTS = 'prompt-receipts';
+/** Longest submission validity a client may declare; receipts live at least this long. */
+export const PROMPT_SUBMISSION_MAX_TTL_MS = 2 * 60 * 60_000;
+/** Accepted producer clock skew on `promptNotValidAfter`. */
+export const PROMPT_SUBMISSION_CLOCK_SKEW_MS = 5 * 60_000;
+export const PROMPT_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
+
 export const MISSING_CWD_ERROR_PREFIX = 'cwd-does-not-exist:';
 
 /** Normalize both old-host crashes and current structured result errors. */

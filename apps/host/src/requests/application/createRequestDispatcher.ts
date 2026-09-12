@@ -202,11 +202,25 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'session.reload': async (params) => useCaseData(await stopAgent(
             { sessions: source }, { sessionId: params.sessionId, action: 'reload' },
         )),
-        'session.prompt': async ({ peerMutation: _peerMutation, promptId, ...params }, context) => {
-            const run = async (): Promise<null> => useCaseData(await promptAgent(source, params));
-            // A client that lost the answer resends under the same promptId;
-            // the receipts run it once per device and replay the outcome.
-            return promptId === undefined ? run() : domain.prompts.once(context.deviceId, promptId, run);
+        'session.prompt': async ({ peerMutation, promptId, promptNotValidAfter, ...params }, context) => {
+            const run = async (): Promise<null> => {
+                const result = await promptAgent(source, params);
+                if (result.ok) return result.data;
+                const error = new Error(result.error) as Error & { code?: string; promptDispatched?: true };
+                if (result.code !== undefined) error.code = result.code;
+                if (result.dispatched === true) error.promptDispatched = true;
+                throw error;
+            };
+            // Peers carry their own durable receipt (peerMutation, admitted
+            // before dispatch). Every other client must identify the
+            // submission so a resend after a lost answer runs at most once.
+            if (peerMutation !== undefined) return run();
+            if (promptId === undefined && promptNotValidAfter === undefined) {
+                const error = new Error('session.prompt requires promptId and promptNotValidAfter on this host; update the app') as Error & { code: string };
+                error.code = 'prompt-id-required';
+                throw error;
+            }
+            return domain.prompts.once(context.deviceId, { promptId, notValidAfter: promptNotValidAfter, input: params }, run);
         },
         'session.status': async (params) => useCaseData(
             await readAgentSession(source, { view: 'status', sessionId: params.sessionId }),

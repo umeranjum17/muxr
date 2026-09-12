@@ -1,4 +1,3 @@
-import { randomUUID } from 'expo-crypto';
 import type { Machine } from '@/catalog';
 import { getCachedConnectionSettings } from '@/connection';
 import { useNewSessionDraft } from './useNewSessionDraft';
@@ -7,7 +6,6 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import { startAgentFromDock } from './StartAgentFromDock';
-import { useUndeliveredSubmission } from '@/catalog/application/undeliveredSubmission';
 
 /**
  * One submission at a time, app-wide. The Dock, focus mode, the sidebar's
@@ -83,11 +81,8 @@ async function submitDraft(options: {
             },
         });
         if (result.ok) {
-            // A failed first message waits on the session's own composer;
-            // nothing is cleared here, since the draft may already be B.
-            if (result.promptFailed) {
-                useUndeliveredSubmission.getState().keep({ sessionId: result.agentRoute, text: prompt, attachments, promptId: result.promptId ?? randomUUID() });
-            }
+            // A failed first message already waits on the session's own
+            // submissions; nothing is cleared here, since the draft may be B.
             if (routed.sessionId !== result.agentRoute) options.navigateToSession(result.agentRoute);
             return result.agentRoute;
         }

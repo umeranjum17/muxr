@@ -1,14 +1,11 @@
-import { randomUUID } from 'expo-crypto';
 import type { Machine } from '@/catalog';
 import { machineSpawnNewSession } from '@/catalog/ops';
-import { sync } from '@/catalog/sync';
+import { submitPrompt } from '@/catalog/application/submissions';
 import { isMachineOnline } from '@/pairing';
 import { createWorktree } from '../infrastructure/worktree';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import type { NewSessionAgentType } from '@/catalog/application/persistence';
 import type { AttachmentPreview } from '@/catalog/infrastructure/attachmentTypes';
-import { readFileBytes } from '@/utils/readFileBytes';
-import { encodeBase64 } from '@/encryption/base64';
 
 export type StartAgentFromDockCommand = {
     machine: Machine | undefined;
@@ -23,7 +20,7 @@ export type StartAgentFromDockCommand = {
 };
 
 export type StartAgentFromDockResult =
-    | { ok: true; agentRoute: string; promptFailed?: string; promptId?: string }
+    | { ok: true; agentRoute: string; promptFailed?: string }
     | { ok: false; reason: 'no-machine' | 'offline' | 'worktree-failed' | 'needs-directory' | 'failed'; message?: string; directory?: string };
 
 /**
@@ -31,24 +28,6 @@ export type StartAgentFromDockResult =
  * Save the images to the host over the session socket, the same way the
  * terminal composer does, and append the paths it returns.
  */
-async function promptWithAttachmentPaths(
-    sessionId: string,
-    prompt: string,
-    previews: unknown[],
-): Promise<string> {
-    if (previews.length === 0) return prompt;
-    const attachments = [];
-    for (const preview of previews as AttachmentPreview[]) {
-        attachments.push({
-            name: preview.name,
-            mimeType: preview.mimeType,
-            data: encodeBase64(await readFileBytes(preview.uri)),
-        });
-    }
-    const saved = await sync.request('session.saveAttachments', { sessionId, attachments });
-    return [prompt.trim(), ...saved.savedPaths].filter((part) => part !== '').join(' ');
-}
-
 /** Spawn from the Dock: Machine, directory, Worktree, and Agent Kind are already chosen. */
 export async function startAgentFromDock(command: StartAgentFromDockCommand): Promise<StartAgentFromDockResult> {
     const machine = command.machine;
@@ -82,18 +61,11 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
     // seconds for some kinds. Show the session now instead of a dead Dock.
     command.onRouteReady?.(result.sessionId);
     if (command.prompt || command.attachments.length > 0) {
-        const promptId = randomUUID();
-        try {
-            const text = await promptWithAttachmentPaths(result.sessionId, command.prompt, command.attachments);
-            await sync.sendMessage(result.sessionId, text, { source: 'new_session', promptId });
-        } catch (error) {
-            return {
-                ok: true,
-                agentRoute: result.sessionId,
-                promptFailed: error instanceof Error ? error.message : 'Failed to send the first message',
-                promptId,
-            };
-        }
+        // The submission (uploads, exact sent text, identity, outcome) is kept
+        // on the session, so a failed first message waits for its composer
+        // and an unchanged resend runs once without uploading again.
+        const sent = await submitPrompt({ sessionId: result.sessionId, draft: command.prompt, attachments: [], uploads: command.attachments as AttachmentPreview[], source: 'new_session' });
+        if (!sent.ok) return { ok: true, agentRoute: result.sessionId, promptFailed: sent.submission.reason };
     }
     return { ok: true, agentRoute: result.sessionId };
 }

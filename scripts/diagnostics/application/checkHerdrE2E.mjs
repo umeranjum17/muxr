@@ -15,7 +15,7 @@
  */
 
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
@@ -175,7 +175,7 @@ socket.on('message', (raw) => {
         const entry = pending.get(frame.requestId);
         if (entry === undefined) return;
         pending.delete(frame.requestId);
-        frame.ok ? entry.resolve(frame.data) : entry.reject(new Error(frame.error ?? 'request failed'));
+        frame.ok ? entry.resolve(frame.data) : entry.reject(Object.assign(new Error(frame.error ?? 'request failed'), frame.code === undefined ? {} : { code: frame.code }));
         return;
     }
     if (frame?.type === 'session.event') {
@@ -411,9 +411,32 @@ async function run() {
         previousWorkspaceId = undefined;
     }
 
-    // 5. prompt + abort round-trip (ack-only requests)
-    await request(socket, 'session.prompt', { sessionId: newId, text: 'say nothing' });
+    // 5. prompt + abort round-trip (ack-only requests). Every client
+    // submission carries an identity the host runs at most once: the same
+    // id resent to the real shell pane lands one line, a different text
+    // under that id is refused, and an unidentified prompt (an older
+    // client) is refused before it reaches Herdr.
+    const submission = { promptId: `e2e-${Date.now().toString(36)}-once`, promptNotValidAfter: Date.now() + 60_000 };
+    await request(socket, 'session.prompt', { sessionId: newId, text: 'say nothing', ...submission });
     console.log('ok: session.prompt acked');
+    const onceMarker = join(workdir, 'prompt-once.txt');
+    const onceCommand = `printf 'once\\n' >> ${onceMarker}`;
+    const shellSubmission = { promptId: `e2e-${Date.now().toString(36)}-shell`, promptNotValidAfter: Date.now() + 60_000 };
+    // The Kitty step above left the terminal's graphics reply on the shell's
+    // input line (no client consumed it after detach); start from a clean line.
+    runHerdr(['pane', 'send-keys', kittyAttached.paneId, 'c-c']);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await request(socket, 'session.prompt', { sessionId: shellId, text: onceCommand, ...shellSubmission });
+    await request(socket, 'session.prompt', { sessionId: shellId, text: onceCommand, ...shellSubmission });
+    const conflict = await request(socket, 'session.prompt', { sessionId: shellId, text: 'echo other', ...shellSubmission }).then(() => undefined, (error) => error);
+    if (conflict?.code !== 'prompt-conflict') fail(`a reused prompt id with different text was not refused (${conflict?.message ?? 'accepted'})`);
+    const unidentified = await request(socket, 'session.prompt', { sessionId: shellId, text: onceCommand }).then(() => undefined, (error) => error);
+    if (unidentified?.code !== 'prompt-id-required') fail(`an unidentified prompt was not refused (${unidentified?.message ?? 'accepted'})`);
+    await waitFor(() => existsSync(onceMarker), 'the identified shell prompt to run');
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    const onceLines = readFileSync(onceMarker, 'utf8');
+    if (onceLines !== 'once\n') fail(`the resent shell prompt ran ${onceLines.split('\n').filter(Boolean).length} times (${JSON.stringify(onceLines)})`);
+    console.log('ok: same-id resend ran the shell command exactly once; conflicting and unidentified prompts refused');
     await request(socket, 'session.abort', { sessionId: newId });
     console.log('ok: session.abort acked');
 

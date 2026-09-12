@@ -5,12 +5,21 @@ const UNSAFE_PAIRING_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e
 // The computer's name rides the locator as public consent metadata (mirrors
 // consentMachineName in the CLI's setup domain): bounded and printable, never
 // authority. A present but malformed name means a tampered link.
-const CONSENT_NAME = /^[\p{L}\p{N}\p{M} ._'()-]{1,40}$/u;
-const UNNAMED_MACHINE = 'this machine';
+const CONSENT_NAME = /^[\p{L}\p{N}\p{M} ._'()-]+$/u;
+const CONSENT_NAME_MAX = 40;
+export const UNNAMED_MACHINE = 'this machine';
+
+/** The one normalization the CLI applies before printing: NFKC, collapsed, bounded, printable. */
+export function consentName(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const name = value.normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, CONSENT_NAME_MAX).trim();
+    return name !== '' && CONSENT_NAME.test(name) ? name : undefined;
+}
 
 function wellFormedConsentName(params: URLSearchParams): boolean {
     const names = params.getAll('name');
-    return names.length === 0 || (names.length === 1 && CONSENT_NAME.test(names[0]!));
+    // A public name is exactly what the CLI would print: already normalized.
+    return names.length === 0 || (names.length === 1 && consentName(names[0]) === names[0]);
 }
 
 export function pairingSearchParams(url: string): URLSearchParams {
@@ -164,12 +173,9 @@ function pairingAuthorityOf(url: string): PairingAuthority {
 
 function pairingDisplayNameOf(url: string): string {
     const fragment = pairingSearchParams(url);
-    let name = fragment.get('name')?.trim();
-    if (!name) {
-        const decoded = compactPairingRecord(fragment.get('payload'));
-        if (typeof decoded?.name === 'string') name = decoded.name.replace(/\s+/g, ' ').trim().slice(0, 40).trim();
-    }
-    return name && CONSENT_NAME.test(name) ? name : UNNAMED_MACHINE;
+    let name = consentName(fragment.get('name'));
+    if (name === undefined) name = consentName(compactPairingRecord(fragment.get('payload'))?.name);
+    return name ?? UNNAMED_MACHINE;
 }
 
 export function hostedPairingAuthority(url: string): PairingAuthority {
@@ -189,7 +195,7 @@ export function hostedPairingLifetime(url: string): 'eight hours' | '30 days' {
     const fragment = pairingSearchParams(url);
     if (fragment.get('personal') === '1') return '30 days';
     const decoded = compactPairingRecord(fragment.get('payload'));
-    return decoded?.personal === true ? '30 days' : 'eight hours';
+    return decoded?.personal === '1' ? '30 days' : 'eight hours';
 }
 
 export type BrowserPairingQr = {
@@ -237,4 +243,22 @@ export function parseBrowserPairingQr(value: unknown): BrowserPairingQrParse {
     if (personal !== null && personal !== '1') return { ok: false, error: NOT_A_BROWSER_QR };
     if (!wellFormedConsentName(parsed.searchParams)) return { ok: false, error: NOT_A_BROWSER_QR };
     return { ok: true, qr: { url: value, origin: parsed.origin, authority: role, personal: personal === '1', displayName: pairingDisplayNameOf(value) } };
+}
+
+export type ReviewedConsent = { name: string; lifetime: 'eight hours' | '30 days' };
+
+/**
+ * What was reviewed on the public link must be what the sealed code says,
+ * before anything is claimed: the computer's normalized name (when the link
+ * carried one) and the lifetime intent. A static message; nothing echoed.
+ */
+export function reviewedConsentMismatch(reviewed: ReviewedConsent, sealed: URLSearchParams): string | undefined {
+    if (reviewed.name !== UNNAMED_MACHINE && consentName(sealed.get('name')) !== reviewed.name) {
+        return 'This pairing link names a different computer than its code. Create a fresh QR on the computer and scan it exactly.';
+    }
+    const sealedLifetime = sealed.get('personal') === '1' ? '30 days' : 'eight hours';
+    if (sealedLifetime !== reviewed.lifetime) {
+        return 'This pairing link asks for a different access lifetime than its code. Create a fresh QR on the computer and scan it exactly.';
+    }
+    return undefined;
 }

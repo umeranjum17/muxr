@@ -112,6 +112,9 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             machinePk: state.machine.crypto.signingPublicKey,
             r: state.relayUrl,
             authority: requestedAuthority,
+            // Sealed twin of the public link's lifetime intent: the app refuses
+            // a link whose visible lifetime differs from what was minted.
+            ...(intent.personal ? { personal: '1' } : {}),
         })).toString('base64url');
         const code = newPairingCode();
         const published = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(created.body.pair_id)}/code`, {

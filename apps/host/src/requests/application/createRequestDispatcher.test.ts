@@ -1,10 +1,10 @@
-import { existsSync, mkdtempSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MISSING_CWD_ERROR_PREFIX } from '@muxr/contract';
 import { createRequestDispatcher } from './createRequestDispatcher.js';
-import { createAgentWatchStores, createFakeSessionSource, type SessionSource } from '../../agent/index.js';
+import { createAgentWatchStores, createFakeSessionSource, markPromptDispatched, type SessionSource } from '../../agent/index.js';
 import { hostPlatformLabel } from '../../machine/index.js';
 
 function dispatcherWithSpy(): { dispatch: ReturnType<typeof createRequestDispatcher>['dispatch']; started: string[] } {
@@ -297,9 +297,61 @@ describe('unknown request type guard', () => {
 });
 
 describe('prompt resend after a lost answer', () => {
-    // The certified failure: the client timed out, the original prompt landed
-    // late through the relay, and the explicit resend ran it a second time.
-    it('runs one submission once across late delivery, resend, in-flight overlap and a host restart', async () => {
+    // One validity per submission, like the client keeps on a resend.
+    const validity = new Map<string, number>();
+    const later = (promptId?: unknown) => {
+        const key = String(promptId);
+        const known = validity.get(key) ?? Date.now() + 60_000;
+        validity.set(key, known);
+        return known;
+    };
+    const build = (dataDir: string, source: SessionSource) => createRequestDispatcher({
+        source,
+        domain: createAgentWatchStores({ dataDir }),
+        machineId: 'm1',
+        hostVersion: '0.0.0',
+    }).dispatch;
+    const promptOf = (dispatch: ReturnType<typeof createRequestDispatcher>['dispatch'], device = 'browser-1') =>
+        (requestId: string, text: string, promptId: unknown, extra: Record<string, unknown> = {}) =>
+            dispatch({ type: 'session.prompt', requestId, params: { sessionId: 's1', text, promptId, promptNotValidAfter: later(promptId), ...extra } } as never, device);
+
+    // The certified failure and its next boundary: Herdr accepts the
+    // keystrokes, the answer is lost; the receipt must fence every retry.
+    it('fences a side effect whose answer was lost, before and after a host restart, and replays refusals', async () => {
+        const dataDir = mkdtempSync(join(tmpdir(), 'muxr-prompts-'));
+        const marker = join(dataDir, 'marker.txt');
+        const source = {
+            async prompt({ text }: { text: string }) {
+                if (text.startsWith('refuse')) {
+                    const error = new Error('That agent is no longer available. Refresh and try again.') as Error & { code: string };
+                    error.code = 'agent-unavailable';
+                    throw error;
+                }
+                appendFileSync(marker, `${text}\n`);
+                // Herdr executed pane.send_input and then the socket timed out.
+                if (text.startsWith('lost')) throw markPromptDispatched(new Error('herdr: request timed out'));
+            },
+        } as unknown as SessionSource;
+        const dispatch = build(dataDir, source);
+        const prompt = promptOf(dispatch);
+
+        expect(await prompt('lost-1', 'lost answer', 'submission-0001')).toMatchObject({ ok: false, code: 'prompt-uncertain' });
+        expect(await prompt('lost-2', 'lost answer', 'submission-0001')).toMatchObject({ ok: false, code: 'prompt-uncertain' });
+        // Host restart: the ledger, not memory, still fences it.
+        expect(await promptOf(build(dataDir, source))('lost-3', 'lost answer', 'submission-0001')).toMatchObject({ ok: false, code: 'prompt-uncertain' });
+        expect(readFileSync(marker, 'utf8')).toBe('lost answer\n');
+
+        // A refusal the host made before dispatch replays as the same refusal;
+        // a deliberate new attempt is a new id.
+        expect(await prompt('refuse-1', 'refuse me', 'submission-0002')).toMatchObject({ ok: false, code: 'agent-unavailable' });
+        expect(await prompt('refuse-2', 'refuse me', 'submission-0002')).toMatchObject({ ok: false, code: 'agent-unavailable' });
+        expect(await prompt('ok-1', 'printf once', 'submission-0003')).toMatchObject({ ok: true });
+        expect(await prompt('ok-2', 'printf once', 'submission-0003')).toMatchObject({ ok: true });
+        expect(await promptOf(build(dataDir, source))('ok-3', 'printf once', 'submission-0003')).toMatchObject({ ok: true });
+        expect(readFileSync(marker, 'utf8')).toBe('lost answer\nprintf once\n');
+    });
+
+    it('joins in-flight duplicates immediately and refuses conflicting input, wrong ids, expiry and unidentified prompts', async () => {
         const dataDir = mkdtempSync(join(tmpdir(), 'muxr-prompts-'));
         const executed: string[] = [];
         let release: (() => void) | undefined;
@@ -307,50 +359,77 @@ describe('prompt resend after a lost answer', () => {
             async prompt({ text }: { text: string }) {
                 executed.push(text);
                 if (text === 'hang') await new Promise<void>((resolve) => { release = resolve; });
-                if (text === 'refused') throw new Error('agent unavailable');
             },
         } as unknown as SessionSource;
-        const build = () => createRequestDispatcher({
-            source,
-            domain: createAgentWatchStores({ dataDir }),
-            machineId: 'm1',
-            hostVersion: '0.0.0',
-        }).dispatch;
-        const dispatch = build();
-        const prompt = (requestId: string, text: string, promptId: string) =>
-            dispatch({ type: 'session.prompt', requestId, params: { sessionId: 's1', text, promptId } } as never, 'browser-1');
+        const dispatch = build(dataDir, source);
+        const prompt = promptOf(dispatch);
 
-        // Late original + explicit resend of the restored draft: one execution, both answered.
-        expect(await prompt('late', 'printf once', 'submission-0001')).toMatchObject({ ok: true });
-        expect(await prompt('resend', 'printf once', 'submission-0001')).toMatchObject({ ok: true });
-        // The same id from another device is that device's own submission.
-        expect(await dispatch({ type: 'session.prompt', requestId: 'other', params: { sessionId: 's1', text: 'printf once', promptId: 'submission-0001' } } as never, 'native-2')).toMatchObject({ ok: true });
-        expect(executed).toEqual(['printf once', 'printf once']);
-
-        // A definite host error clears the receipt: the resend is a fresh attempt.
-        expect(await prompt('refused-1', 'refused', 'submission-0002')).toMatchObject({ ok: false, error: 'agent unavailable' });
-        expect(await prompt('refused-2', 'refused', 'submission-0002')).toMatchObject({ ok: false, error: 'agent unavailable' });
-        expect(executed.filter((text) => text === 'refused')).toHaveLength(2);
-
-        // In flight: the duplicate joins the first execution instead of starting one.
-        const first = prompt('hang-1', 'hang', 'submission-0003');
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        const duplicate = prompt('hang-2', 'hang', 'submission-0003');
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        expect(executed.filter((text) => text === 'hang')).toHaveLength(1);
-        // The host dies with the prompt in its hands: the restarted host has a
-        // started-but-unfinished receipt and must refuse, never rerun.
-        const restarted = build();
-        const afterCrash = await restarted({ type: 'session.prompt', requestId: 'after-crash', params: { sessionId: 's1', text: 'hang', promptId: 'submission-0003' } } as never, 'browser-1');
-        expect(afterCrash).toMatchObject({ ok: false, code: 'prompt-uncertain' });
-        expect(executed.filter((text) => text === 'hang')).toHaveLength(1);
+        // No sleep between them: the duplicate joins before the fence is even on disk.
+        const first = prompt('hang-1', 'hang', 'submission-0004');
+        const duplicate = prompt('hang-2', 'hang', 'submission-0004');
+        const conflict = prompt('hang-3', 'other text', 'submission-0004');
+        expect(await conflict).toMatchObject({ ok: false, code: 'prompt-conflict' });
+        // A restart while it hangs sees a started receipt: uncertain, never re-run.
+        while (!existsSync(join(dataDir, 'prompt-receipts.json'))) await new Promise((resolve) => setTimeout(resolve, 5));
+        expect(await promptOf(build(dataDir, source))('hang-4', 'hang', 'submission-0004')).toMatchObject({ ok: false, code: 'prompt-uncertain' });
         release?.();
         expect(await first).toMatchObject({ ok: true });
         expect(await duplicate).toMatchObject({ ok: true });
+        expect(executed).toEqual(['hang']);
 
-        // Without an id nothing changes for callers that never resend.
-        expect(await dispatch({ type: 'session.prompt', requestId: 'plain', params: { sessionId: 's1', text: 'plain' } } as never)).toMatchObject({ ok: true });
-        expect(await dispatch({ type: 'session.prompt', requestId: 'bad-id', params: { sessionId: 's1', text: 'x', promptId: 'no' } } as never)).toMatchObject({ ok: false, error: expect.stringContaining('promptId') });
-        expect(executed).toHaveLength(6);
+        expect(await prompt('done', 'done', 'submission-0005')).toMatchObject({ ok: true });
+        expect(await prompt('done-other-session', 'done', 'submission-0005', { sessionId: 's2' })).toMatchObject({ ok: false, code: 'prompt-conflict' });
+        expect(await prompt('done-other-attachments', 'done', 'submission-0005', { attachments: [{ name: 'a', mimeType: 'text/plain', data: 'AA==' }] })).toMatchObject({ ok: false, code: 'prompt-conflict' });
+        // Same id from another device is that device's own submission.
+        expect(await promptOf(dispatch, 'native-2')('other-device', 'done', 'submission-0005')).toMatchObject({ ok: true });
+        expect(executed).toEqual(['hang', 'done', 'done']);
+
+        for (const bad of [12345678, ['submission-0006'], 'no', null]) {
+            expect(await prompt('bad', 'x', bad)).toMatchObject({ ok: false, code: 'prompt-invalid' });
+        }
+        expect(await prompt('expired', 'x', 'submission-0007', { promptNotValidAfter: Date.now() - 1 })).toMatchObject({ ok: false, code: 'prompt-expired' });
+        expect(await prompt('too-long', 'x', 'submission-0008', { promptNotValidAfter: Date.now() + 24 * 60 * 60_000 })).toMatchObject({ ok: false, code: 'prompt-invalid' });
+        expect(await dispatch({ type: 'session.prompt', requestId: 'old-client', params: { sessionId: 's1', text: 'x' } } as never, 'browser-1')).toMatchObject({ ok: false, code: 'prompt-id-required' });
+        expect(executed).toEqual(['hang', 'done', 'done']);
+    });
+
+    it('refuses at capacity without evicting protection and fails closed on a lost or corrupt ledger', async () => {
+        const dataDir = mkdtempSync(join(tmpdir(), 'muxr-prompts-'));
+        const executed: string[] = [];
+        const source = { async prompt({ text }: { text: string }) { executed.push(text); } } as unknown as SessionSource;
+        const dispatch = build(dataDir, source);
+        const prompt = promptOf(dispatch);
+        expect(await prompt('a', 'A', 'submission-A000')).toMatchObject({ ok: true });
+        for (let index = 1; index < 256; index += 1) {
+            expect(await prompt(`fill-${index}`, `fill ${index}`, `submission-${String(index).padStart(4, '0')}`)).toMatchObject({ ok: true });
+        }
+        // The device is full: a new submission is refused, A stays protected,
+        // and another device is unaffected.
+        expect(await prompt('over', 'over', 'submission-over')).toMatchObject({ ok: false, code: 'prompt-capacity' });
+        expect(await prompt('a-again', 'A', 'submission-A000')).toMatchObject({ ok: true });
+        expect(await promptOf(dispatch, 'native-2')('other', 'other', 'submission-over')).toMatchObject({ ok: true });
+        expect(executed.filter((text) => text === 'A')).toHaveLength(1);
+        expect(executed.filter((text) => text === 'over')).toHaveLength(0);
+
+        // The ledger vanishes but the initialised marker remains: history was
+        // lost, so identified prompts are refused until every submission it
+        // could have protected has expired — and nothing is re-run.
+        const ledger = join(dataDir, 'prompt-receipts.json');
+        const before = readFileSync(ledger, 'utf8');
+        rmSync(ledger);
+        expect(await promptOf(build(dataDir, source))('after-loss', 'A', 'submission-A000')).toMatchObject({ ok: false, code: 'prompt-history-lost' });
+        while (!existsSync(ledger)) await new Promise((resolve) => setTimeout(resolve, 5));
+        expect(JSON.parse(readFileSync(ledger, 'utf8'))).toMatchObject({ quarantineUntil: expect.any(Number) });
+
+        // A corrupt ledger fails every identified prompt closed and is never overwritten.
+        writeFileSync(ledger, `${before.slice(0, 40)}garbage`);
+        expect(await promptOf(build(dataDir, source))('corrupt', 'A', 'submission-A000')).toMatchObject({ ok: false, code: 'prompt-ledger-unreadable' });
+        writeFileSync(ledger, JSON.stringify({ revision: 3, receipts: [{ deviceId: 'browser-1', promptId: 'submission-A000', requestHash: 'x', notValidAfter: later(), state: 'done' }] }));
+        expect(await promptOf(build(dataDir, source))('invalid-entry', 'A', 'submission-A000')).toMatchObject({ ok: false, code: 'prompt-ledger-unreadable' });
+        expect(readFileSync(ledger, 'utf8')).toContain('"requestHash":"x"');
+        expect(executed.filter((text) => text === 'A')).toHaveLength(1);
+
+        // Peers keep their own receipt boundary: no client identity needed.
+        expect(await dispatch({ type: 'session.prompt', requestId: 'peer', params: { sessionId: 's1', text: 'peer prompt', peerMutation: { operationId: 'op', notValidAfter: later() } } } as never, 'peer-1')).toMatchObject({ ok: true });
     });
 });
