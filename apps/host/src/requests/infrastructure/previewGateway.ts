@@ -315,8 +315,12 @@ export async function startPreviewGateway(options: PreviewGatewayOptions): Promi
         return { ok: true, endpoint, admission, cookie: kept.length === 0 ? undefined : kept.map((cookie) => cookie.pair).join('; ') };
     };
 
+    // SameSite=None because the web app frames this origin cross-site (the
+    // PWA origin is the top level), and Partitioned so a browser that
+    // partitions third-party cookies still sends it from the frame. Native
+    // WebViews load the origin top-level and are unaffected.
     const setCookie = (token: string): string =>
-        `${PREVIEW_ADMISSION_COOKIE}=${token}; Secure; HttpOnly; SameSite=Lax; Path=/`;
+        `${PREVIEW_ADMISSION_COOKIE}=${token}; Secure; HttpOnly; SameSite=None; Partitioned; Path=/`;
 
     /** One-use bootstrap: verify, mint the admission cookie, redirect into the app. */
     const bootstrap = (request: IncomingMessage, response: ServerResponse): void => {
@@ -578,11 +582,14 @@ export async function startPreviewGateway(options: PreviewGatewayOptions): Promi
         mintBootstrap(lease, endpoint, appPath) {
             // One outstanding body per lease; expired ones are swept here.
             for (const [key, stale] of [...bootstraps]) if (stale.expiresAt <= now() || stale.leaseId === lease.id) bootstraps.delete(key);
-            const body = randomBytes(32).toString('base64url');
+            const token = randomBytes(32).toString('base64url');
             const expiresAt = now() + BOOTSTRAP_TTL_MS;
-            bootstraps.set(body, { token: Buffer.from(body, 'utf8'), leaseId: lease.id, deviceId: lease.deviceId, endpointId: endpoint.id, generation: endpoint.generation, expiresAt });
-            // The 303 lands on the app path; the gateway only ever redirects within its own origin.
-            return { path: `${PREVIEW_BOOTSTRAP_PATH}?to=${encodeURIComponent(appPath)}`, body, expiresAt };
+            bootstraps.set(token, { token: Buffer.from(token, 'utf8'), leaseId: lease.id, deviceId: lease.deviceId, endpointId: endpoint.id, generation: endpoint.generation, expiresAt });
+            // The body is what the renderer posts verbatim as
+            // application/x-www-form-urlencoded: a native WebView sends it as
+            // is, a web frame unpacks it into hidden fields. The 303 lands on
+            // the app path; the gateway only ever redirects within its own origin.
+            return { path: `${PREVIEW_BOOTSTRAP_PATH}?to=${encodeURIComponent(appPath)}`, body: `bootstrap=${token}`, expiresAt };
         },
         closeLease,
         bindLeases(registry) {

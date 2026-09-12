@@ -84,6 +84,8 @@ function fingerprintOf(sdp) {
 
 function wireChannel(channel) {
     state.channels[channel.label] = channel;
+    // The service pushes geometry and focus once the control lane is open.
+    channel.onopen = () => void post({ event: 'channel', generation: state.generation, channel: channel.label });
     channel.onmessage = (event) => {
         if (typeof event.data !== 'string' || event.data.length > 16 * 1024) return;
         let intent;
@@ -109,6 +111,14 @@ async function answer({ generation, sdp }) {
     const codec = transceiver ? preferCodec(transceiver) : 'unknown';
     const local = await pc.createAnswer();
     await pc.setLocalDescription(local);
+    // The device's offer arrived complete and its signal channel is a
+    // request/reply relay, so the answer must be complete too: gather
+    // before replying (bounded) instead of trickling into the void.
+    await new Promise((resolve) => {
+        if (pc.iceGatheringState === 'complete') { resolve(); return; }
+        const timer = setTimeout(resolve, 2_000);
+        pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') { clearTimeout(timer); resolve(); } };
+    });
     const parameters = sender.getParameters();
     parameters.degradationPreference = 'balanced';
     parameters.encodings = [{ ...(parameters.encodings?.[0] ?? {}), maxBitrate: 4_000_000, maxFramerate: 60 }];
