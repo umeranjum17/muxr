@@ -83,6 +83,47 @@ export class PluginRefreshGate {
     }
 }
 
+/**
+ * The attachments plugin's own invalidation: an agent-dropped file changed
+ * what the bundled attachments plugin lists. Named exactly -- the id is
+ * read from that plugin's own bundled manifest, never spelled here --
+ * so consumers keying authority on provider ids see precisely which
+ * provider moved instead of the empty informational frame. Returns
+ * undefined when no such plugin ships, in which case nothing is
+ * invalidated: an unnamed change is not a catalog change.
+ */
+export function attachmentsInvalidationFrame(bundledPluginsRoot: string | undefined): PluginsInvalidatedFrame | undefined {
+    if (bundledPluginsRoot === undefined) return undefined;
+    try {
+        const manifest = JSON.parse(readFileSync(join(bundledPluginsRoot, 'attachments', 'muxr-ui.json'), 'utf8')) as { pluginId?: unknown };
+        if (typeof manifest.pluginId !== 'string' || !isValidPluginId(manifest.pluginId)) return undefined;
+        return { type: 'plugins.invalidated', reason: 'changed', pluginIds: [manifest.pluginId] };
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * An authoritative catalog change: the complete set of changed plugin ids
+ * (unbounded, for the host's own authority consumers) and the bounded
+ * wire frame for phones (which omits ids -- informational -- when the
+ * change is too large or unnameable). Authority always sees every
+ * changed provider; the wire never carries a partial list.
+ */
+export interface PluginCatalogChange {
+    changed: readonly string[];
+    frame: PluginsInvalidatedFrame;
+}
+
+export function pluginCatalogChange(previous: PluginDigestSnapshot, next: PluginDigestSnapshot): PluginCatalogChange | undefined {
+    const frame = pluginInvalidationFrame(previous, next);
+    if (frame === undefined) return undefined;
+    const changed = [...new Set([...previous.digests.keys(), ...next.digests.keys()])]
+        .filter((id) => previous.digests.get(id) !== next.digests.get(id))
+        .sort();
+    return { changed, frame };
+}
+
 /** Compare two authoritative snapshots; omitted IDs are informational only. */
 export function pluginInvalidationFrame(previous: PluginDigestSnapshot, next: PluginDigestSnapshot): PluginsInvalidatedFrame | undefined {
     const changed = [...new Set([...previous.digests.keys(), ...next.digests.keys()])]

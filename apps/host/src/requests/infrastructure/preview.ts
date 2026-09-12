@@ -25,6 +25,16 @@ import { ticketWsCredential } from '../../machine/index.js';
 
 const PROBE_TIMEOUT_MS = 1200;
 const ATTACH_TIMEOUT_MS = 10_000;
+/**
+ * Conservative transport ceilings. A browser opens a handful of connections
+ * per origin; a leased surface never needs more than this, and a device that
+ * churns connection ids is refused rather than buffered.
+ */
+const MAX_CONNECTIONS = 64;
+/** Pause upstream reads while this much is queued on the relay socket. */
+const SOCKET_HIGH_WATER_BYTES = 4 * 1024 * 1024;
+const SOCKET_LOW_WATER_BYTES = 1 * 1024 * 1024;
+const DRAIN_POLL_MS = 25;
 /** Observe-mode bounds: handshake heads are small, client frames stay small. */
 const OBSERVE_SCAN_BYTES = 16 * 1024;
 const OBSERVE_FRAME_BYTES = 1024 * 1024;
@@ -137,14 +147,22 @@ export interface AttachPreviewOptions {
     mode?: 'observe' | 'control';
     token?: string;
     onChannelClose?: (channel: string) => void;
+    /**
+     * Re-read before every new upstream dial. A leased surface passes its
+     * live standing here, so a revoked device or an ended lease opens no
+     * further connections even before the sweep closes the tunnel.
+     */
+    authorize?: () => boolean;
 }
 
 /**
  * Join `channel` and forward it to `port`. Resolves once the relay socket is
  * open, so a failure to reach the relay surfaces as a failed request instead of
- * a preview that silently never loads.
+ * a preview that silently never loads. The returned closer ends the tunnel and
+ * every connection under it; a lease holds it so revocation closes live
+ * connections, not only new dials.
  */
-export async function attachPreview(options: AttachPreviewOptions): Promise<null> {
+export async function attachPreview(options: AttachPreviewOptions): Promise<() => void> {
     const credential = ticketWsCredential(options.token);
     let socketUrl: string;
     if (credential === undefined) {
@@ -219,6 +237,13 @@ export async function attachPreview(options: AttachPreviewOptions): Promise<null
 
         let upstream = connections.get(frame.connId);
         if (upstream === undefined) {
+            // Standing is re-read before every dial, and the connection table
+            // is bounded: neither a revoked device nor a churning one reaches
+            // the dev server again.
+            if (connections.size >= MAX_CONNECTIONS || options.authorize?.() === false) {
+                send(frame.connId, PREVIEW_CLOSE);
+                return;
+            }
             // The device opened a new TCP connection; mirror it against the dev
             // server. Writes before connect land in node's own socket buffer.
             upstream = connect(options.port, '127.0.0.1');
@@ -226,10 +251,25 @@ export async function attachPreview(options: AttachPreviewOptions): Promise<null
             if (observing) {
                 observed.set(frame.connId, { framed: false, scan: [], scanBytes: 0, pending: [], pendingBytes: 0 });
             }
-            // ponytail: no backpressure. A large bundle buffers in ws until it
-            // drains. Pause the socket on socket.bufferedAmount if it bites.
+            const dialed = upstream;
+            // Backpressure toward the dev server: while the relay socket holds
+            // more than the high-water mark, stop reading this upstream until
+            // it drains. Nothing is dropped; the sender simply waits.
             upstream.on('data', (chunk: Buffer) => {
                 send(frame.connId, PREVIEW_DATA, new Uint8Array(chunk));
+                if (socket.bufferedAmount > SOCKET_HIGH_WATER_BYTES && !dialed.isPaused()) {
+                    dialed.pause();
+                    const timer = setInterval(() => {
+                        if (dialed.destroyed || socket.readyState !== WebSocket.OPEN) {
+                            clearInterval(timer);
+                            return;
+                        }
+                        if (socket.bufferedAmount > SOCKET_LOW_WATER_BYTES) return;
+                        clearInterval(timer);
+                        dialed.resume();
+                    }, DRAIN_POLL_MS);
+                    timer.unref?.();
+                }
                 if (observing) {
                     const state = observed.get(frame.connId);
                     if (state !== undefined && !state.framed) {
@@ -290,12 +330,18 @@ export async function attachPreview(options: AttachPreviewOptions): Promise<null
     // The relay closes this side when the device goes away. Without the sweep
     // every dev-server connection from this preview would leak. Releasing the
     // channel also frees takeover control for the next device.
+    let ended = false;
     const teardown = (): void => {
+        if (ended) return;
+        ended = true;
         for (const connId of [...connections.keys()]) drop(connId);
         options.onChannelClose?.(options.channel);
     };
     socket.on('close', teardown);
     socket.on('error', teardown);
 
-    return null;
+    return () => {
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close();
+        teardown();
+    };
 }

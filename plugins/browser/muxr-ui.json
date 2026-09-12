@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "muxr.browser",
+  "capabilities": {
+    "surface.browser.open": "browser.describe"
+  },
+  "contributions": [
+    {
+      "slot": "host.rpc",
+      "id": "browser.describe",
+      "type": "rpc",
+      "method": "describe",
+      "entry": "browser.mjs",
+      "mode": "read"
+    }
+  ]
+}

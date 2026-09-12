@@ -51,6 +51,7 @@ import {
 } from './plugin/index.mjs';
 import { dumpDiagnostics, readDiagnostics } from './diagnostics/index.mjs';
 import { updateCli } from './release/index.mjs';
+import { runSurfaceCli } from './surface/index.mjs';
 
 const HELP = `muxr — every coding agent on your phone
 
@@ -83,6 +84,14 @@ Run and maintain
 Agent instructions
   muxr --skill | muxr skill       print the compact muxr agent skill
   muxr skill <topic>              load one reference only when needed
+
+Surfaces
+  muxr surface capabilities [--json]
+  muxr browser open <https-url|http://localhost:PORT/path|about:blank> [--beside|--focus] [--name NAME] [--provider ID]
+  muxr browser home [--beside|--focus] [--name NAME]
+  muxr browser update [URL] | muxr browser reload | muxr browser close
+  muxr code open <path[:line[:column]]> | muxr code diff [path]
+  muxr surface list [--json]
 
 Build plugins
   muxr plugin docs|create|clone|check|dev|call|list|install|update|remove
@@ -117,11 +126,14 @@ const COMMAND_HELP = {
     restart: `muxr restart\n\nRestart the supervised relay and host (same as muxr daemon restart).\n`,
     uninstall: `muxr uninstall [--yes|--resume]\n\nRemove all muxr-owned services, ingress, identity, pairings, grants, relay/plugin state, provider keys, logs, caches, and managed integrations. Herdr, its sessions, repositories, worktrees, exports, signing keys, and unrecognized files stay. The globally installed CLI can be removed last.\n`,
     update: `muxr update [--check|--yes] [--channel stable|nightly] [--to VERSION] [--allow-downgrade]\n\nCheck npm for a newer @trymuxr/cli release. --to VERSION selects an exact published version through the same trusted install path; changing channels or downgrading (rollback) remains explicit with --allow-downgrade. Interactive terminals ask before installing; --yes updates without prompting.\n`,
-    skill: `muxr --skill\nmuxr skill\nmuxr skill <onboarding|herdr|collaboration|browser-takeover|plugins>\nmuxr skill all\n\nPrint the compact canonical skill by default. Load one focused reference on demand; muxr skill all prints the archival self-contained bundle. Herdr guidance comes from the installed binary when available. No files or state are changed.\n`,
+    skill: `muxr --skill\nmuxr skill\nmuxr skill <onboarding|herdr|collaboration|browser-takeover|surfaces|plugins>\nmuxr skill all\n\nPrint the compact canonical skill by default. Load one focused reference on demand; muxr skill all prints the archival self-contained bundle. Herdr guidance comes from the installed binary when available. No files or state are changed.\n`,
     peers: `muxr peers list [--machine <name>]\nmuxr peers read --machine <name> [--agent <name>] [--lines <n>]\nmuxr peers status --machine <name> [--agent <name>]\nmuxr peers watch --machine <name> [--agent <name>] [--timeout-ms <n>]\nmuxr peers prompt --machine <name> [--agent <name>] --text <prompt>\n\nUse established computer collaboration with Machine Names and Agent Names only. Output is JSON. Raw shell, takeover, and destructive actions are never granted.\n`,
     connect: `muxr connect --enrollment <muxr://enroll?...> [--no-pair|--pair-browser|--pair-browser-view|--pair-both]\nmuxr connect --resume\n`,
     machines: `muxr machines enroll\nmuxr machines list\nmuxr machines revoke <number|name>\n`,
     'shared-relay': `muxr shared-relay\n\nInteractively configure a supervised VPS relay, optional browser client, and machine enrollments.\n`,
+    surface: `muxr surface capabilities [--json]\nmuxr surface list [--json]\nmuxr surface close [NAME] [--json]\n\nProvider-neutral surface offers over the host-local broker. Replies name the logical surface only; offer, session, pane, lease and device ids never print.\n`,
+    browser: `muxr browser open <https-url|http://localhost:PORT/path|about:blank> [--beside|--focus] [--name NAME] [--provider ID] [--json]\nmuxr browser home [--beside|--focus] [--name NAME] [--json]\nmuxr browser update [URL] [--beside|--focus] [--name NAME] [--provider ID] [--json]\nmuxr browser reload [--name NAME] [--json]\nmuxr browser close [--name NAME] [--json]\n\nOpen a real WebView surface: public HTTPS loads directly, host-local HTTP opens through a leased endpoint, and home opens an honest blank tab. Remote non-HTTPS URLs, credentialed URLs and unsupported schemes fail closed.\n`,
+    code: `muxr code open <path[:line[:column]]> [--beside|--focus] [--name NAME] [--provider ID] [--json]\nmuxr code diff [path] [--beside|--focus] [--name NAME] [--provider ID] [--json]\n\nOpen a native review target (Files/Changes/History). Mode is review; opening Code grants no editing authority. Paths outside the resolved worktree fail closed.\n`,
 };
 
 function printHelp(command) {
@@ -198,6 +210,7 @@ const SKILL_TOPICS = {
     collaboration: 'collaboration.md',
     'browser-takeover': 'browser-takeover.md',
     browser: 'browser-takeover.md',
+    surfaces: 'surfaces.md',
     plugins: 'plugins.md',
 };
 
@@ -491,6 +504,14 @@ async function dispatch(command, args = []) {
     }
     if (command === 'pair') return pairDevice(args);
     if (command === 'config') return printOperatorConfig(args);
+    if (command === 'surface' || command === 'browser' || command === 'code') {
+        try {
+            return await runSurfaceCli([command, ...args]);
+        } catch (error) {
+            process.stderr.write(`muxr ${command}: ${error instanceof Error ? error.message : String(error)}\n`);
+            return 1;
+        }
+    }
     if (command === 'version' || command === '--version' || command === '-v') {
         process.stdout.write(`${versionString()}\n`);
         return 0;

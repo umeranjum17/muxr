@@ -54,7 +54,7 @@ import {
     shouldAdoptPublishedLaunch,
     type HerdrAgentSessionRef,
 } from './agentRouteStore.js';
-import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcInputDigest, rpcReplayKey, runPluginProcess, type HerdrPlugin, type PluginBackendCallTarget } from './pluginCatalog.js';
+import { pluginCatalogChange, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcInputDigest, rpcReplayKey, runPluginProcess, type HerdrPlugin, type PluginBackendCallTarget, attachmentsInvalidationFrame } from './pluginCatalog.js';
 import { markPromptDispatched } from './promptReceipts.js';
 import { PluginApprovals } from './pluginApprovals.js';
 import { PluginStreamManager } from './pluginStreamManager.js';
@@ -621,6 +621,8 @@ export async function createHerdrSessionSource(
 
     const listeners = new Set<(sessionId: string, event: SessionEventBody) => void>();
     const machineListeners = new Set<(frame: PluginsInvalidatedFrame) => void>();
+    /** Authority consumers of the complete changed-provider set, told before the wire frame goes out. */
+    const catalogChangeListeners = new Set<(changedPluginIds: readonly string[]) => void>();
     const agentsByPane = new Map<string, AgentRecord>();
     const panesById = new Map<string, PaneRecord>();
     /** Last pane authorized by an Agent Route. It survives a vanished agent
@@ -906,7 +908,19 @@ export async function createHerdrSessionSource(
     /** Agent-dropped artifacts in the pane's dump dir. Listed on demand through the attachments plugin. */
     const attachmentsDir = options.attachmentsDir ?? join(homedir(), '.muxr', 'attachments', 'pane');
     const attachments = new AttachmentWatcher(attachmentsDir, () => {
-        const frame: PluginsInvalidatedFrame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: [] };
+        // Named: only the attachments plugin changed. An empty frame is
+        // the informational "reconcile everything" signal and would read
+        // as a full-catalog change to authority consumers.
+        let frame = attachmentsInvalidationFrame(BROWSER_RPC_PLUGINS_ROOT);
+        if (frame === undefined) {
+            // The bundled manifest could not be read: phones still need to
+            // reconcile their caches, so the empty informational frame
+            // goes out (it never touches lease authority) and the cause is
+            // logged locally instead of the reconciliation being lost.
+            // eslint-disable-next-line no-console
+            console.warn(`[muxr] attachments plugin manifest unreadable under ${BROWSER_RPC_PLUGINS_ROOT ?? '(no bundled plugins root)'}; sending an informational invalidation`);
+            frame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: [] };
+        }
         for (const listener of machineListeners) listener(frame);
     });
     attachments.start();
@@ -1887,14 +1901,23 @@ export async function createHerdrSessionSource(
             pluginDigests = nextDigests;
             pluginEnabled = nextEnabled;
             if (previousDigests === undefined) return; // first snapshot establishes the baseline
-            const frame = pluginInvalidationFrame(
+            const change = pluginCatalogChange(
                 { digests: previousDigests, enabled: previousEnabled },
                 { digests: nextDigests, enabled: nextEnabled },
             );
-            if (frame === undefined) return;
+            if (change === undefined) return;
             // A changed/disabled manifest must not leave an old provider process live.
             pluginStreams?.closeAll();
-            for (const listener of machineListeners) listener(frame);
+            // Authority first, with every changed id: the wire frame below
+            // may be the bounded informational form.
+            for (const listener of [...catalogChangeListeners]) {
+                try {
+                    listener(change.changed);
+                } catch {
+                    /* one consumer's failure never blocks the others or the wire */
+                }
+            }
+            for (const listener of machineListeners) listener(change.frame);
         });
 
     /** Polls coalesce; freshness-critical callers get one trailing authoritative read. */
@@ -2174,6 +2197,14 @@ export async function createHerdrSessionSource(
             await refreshPlugins();
             if (approved) catalog.manifest(pluginId, manifestHash);
             await pluginApprovals.set(deviceId, pluginId, approved);
+        },
+
+        pluginApprovalRevision(deviceId, pluginId) {
+            return pluginApprovals.revision(deviceId, pluginId);
+        },
+
+        onPluginApprovalMutation(listener) {
+            return pluginApprovals.onMutation(listener);
         },
 
         async pluginInvoke({ deviceId, pluginId, manifestHash, contributionId, sessionId, idempotencyKey }) {
@@ -2953,6 +2984,11 @@ export async function createHerdrSessionSource(
         subscribe(listener: (sessionId: string, event: SessionEventBody) => void): () => void {
             listeners.add(listener);
             return () => listeners.delete(listener);
+        },
+
+        onPluginCatalogChange(listener) {
+            catalogChangeListeners.add(listener);
+            return () => catalogChangeListeners.delete(listener);
         },
 
         subscribeMachine(listener: (frame: PluginsInvalidatedFrame) => void): () => void {

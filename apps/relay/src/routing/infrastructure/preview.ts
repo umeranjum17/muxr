@@ -30,6 +30,12 @@ const UPSTREAM_WAIT_ATTEMPTS = 40;
  * channel normally. Matches the ticket lifetime that summoned it.
  */
 const PENDING_TTL_MS = 60_000;
+/** Stop reading a peer once this much is queued for the other one. */
+const BRIDGE_HIGH_WATER_BYTES = 4 * 1024 * 1024;
+const BRIDGE_LOW_WATER_BYTES = 1 * 1024 * 1024;
+/** A queue still growing after the pause is a leak; close instead of buffering. */
+const BRIDGE_MAX_BYTES = 16 * 1024 * 1024;
+const BRIDGE_DRAIN_POLL_MS = 25;
 
 /** `::ffff:192.168.1.5` and `192.168.1.5` are the same peer. */
 function normalizeAddress(address: string | undefined): string {
@@ -85,19 +91,56 @@ export class PreviewChannels {
         this.upstreams.delete(channel);
         this.clearPending(channel);
 
-        const copy = (from: WebSocket, to: WebSocket) => (data: RawData) => {
-            // Decoded, not relayed blind: a malformed frame is dropped here
-            // rather than handed to the other end.
-            if (decodePreviewFrame(new Uint8Array(data as Buffer)) === undefined) return;
-            if (to.readyState === to.OPEN) to.send(data as Buffer, { binary: true });
-        };
-        socket.on('message', copy(socket, upstream));
-        upstream.on('message', copy(upstream, socket));
-
+        const drains = new Set<NodeJS.Timeout>();
         const teardown = (): void => {
+            for (const timer of drains) clearInterval(timer);
+            drains.clear();
             if (socket.readyState === socket.OPEN) socket.close();
             if (upstream.readyState === upstream.OPEN) upstream.close();
         };
+
+        /**
+         * Backpressure, not buffering: a slow reader pauses the writer's socket
+         * so TCP flow control reaches all the way back to whoever is sending.
+         * Nothing is dropped, and a queue that keeps growing anyway closes the
+         * bridge explicitly rather than growing the relay's memory.
+         */
+        const applyPressure = (from: WebSocket, to: WebSocket): void => {
+            if (to.bufferedAmount > BRIDGE_MAX_BYTES) {
+                to.close(1013, 'preview: peer queue overflowed');
+                teardown();
+                return;
+            }
+            if (to.bufferedAmount <= BRIDGE_HIGH_WATER_BYTES) return;
+            from.pause();
+            const timer = setInterval(() => {
+                if (to.bufferedAmount > BRIDGE_MAX_BYTES) {
+                    clearInterval(timer);
+                    drains.delete(timer);
+                    to.close(1013, 'preview: peer queue overflowed');
+                    teardown();
+                    return;
+                }
+                if (to.bufferedAmount > BRIDGE_LOW_WATER_BYTES) return;
+                clearInterval(timer);
+                drains.delete(timer);
+                from.resume();
+            }, BRIDGE_DRAIN_POLL_MS);
+            timer.unref?.();
+            drains.add(timer);
+        };
+
+        const copy = (from: WebSocket, to: WebSocket) => (data: RawData) => {
+            // Decoded, not relayed blind: a malformed frame is dropped here
+            // rather than handed to the other end. A v2 endpoint notices the
+            // gap the drop leaves and fails closed on its own sequence.
+            if (decodePreviewFrame(new Uint8Array(data as Buffer)) === undefined) return;
+            if (to.readyState !== to.OPEN) return;
+            to.send(data as Buffer, { binary: true });
+            applyPressure(from, to);
+        };
+        socket.on('message', copy(socket, upstream));
+        upstream.on('message', copy(upstream, socket));
         socket.on('close', teardown);
         socket.on('error', teardown);
         upstream.on('close', teardown);

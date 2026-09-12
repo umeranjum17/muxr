@@ -21,7 +21,7 @@ export interface OpenPreviewPorts {
         mode?: 'observe' | 'control';
         token?: string;
         onChannelClose?: (channel: string) => void;
-    }): Promise<null>;
+    }): Promise<unknown>;
 }
 
 /**

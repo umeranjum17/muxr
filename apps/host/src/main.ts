@@ -9,6 +9,7 @@ import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSes
 import { startHost } from './host.js';
 import { createPersistQueue } from './platform/persistedJson.js';
 import { HttpPeerAuthority, PeerBroker, PeerRuntime } from './peer/index.js';
+import { createSurfaceOffers, SurfaceBroker } from './requests/index.js';
 import type { MachineCryptoState } from './machine/index.js';
 import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, hostPlatformLabel } from './machine/index.js';
 import { HostDiagnosticsJournal } from './diagnostics/index.js';
@@ -650,6 +651,27 @@ async function main(): Promise<void> {
         }),
     });
 
+    // Provider-neutral Surface offers live in one host-memory registry shared
+    // by the local broker and the request dispatcher, so a product lease
+    // always resolves its endpoint from host-owned offer state.
+    const surfaceOffers = createSurfaceOffers();
+    let surfaceBroker: SurfaceBroker | undefined;
+    try {
+        surfaceBroker = new SurfaceBroker({
+            dataDir,
+            source,
+            offers: surfaceOffers,
+            snapshot: async () => (await source.pluginList('local'))
+                .map((plugin) => `${plugin.pluginId}:${plugin.manifestHash}`)
+                .sort()
+                .join('|'),
+        });
+        await surfaceBroker.start();
+    } catch (error) {
+        surfaceBroker = undefined;
+        process.stderr.write(`surface broker unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
+    }
+
     startHost({
         ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
         ...(token === undefined ? {} : { token }),
@@ -659,6 +681,7 @@ async function main(): Promise<void> {
         source,
         domain,
         terminals,
+        surfaceOffers,
         ...(peerRuntime === undefined ? {} : { peerRuntime }),
         ...(diagnostics === undefined ? {} : { diagnostics }),
         hostVersion,
@@ -680,7 +703,7 @@ async function main(): Promise<void> {
         terminals.closeAll();
         peerRuntime?.close();
         diagnostics?.stopping();
-        void Promise.all([peerBroker?.close(), source.dispose(), diagnostics?.flush()]).finally(() => process.exit(0));
+        void Promise.all([peerBroker?.close(), surfaceBroker?.close(), source.dispose(), diagnostics?.flush()]).finally(() => process.exit(0));
     };
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
