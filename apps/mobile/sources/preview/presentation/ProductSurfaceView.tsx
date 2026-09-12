@@ -7,7 +7,7 @@ import { Typography } from '@/constants/Typography';
 import { pluginSnapshot } from '@/plugins';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import type { SurfaceEntry } from '@/catalog/application/surfaceCoordinator';
-import { onSurfaceReload } from '@/catalog/application/surfaceCoordinator';
+import { dismissSurfaceOffer, onSurfaceReload } from '@/catalog/application/surfaceCoordinator';
 import {
     attachPreviewTunnel,
     releaseSurfaceLease,
@@ -285,7 +285,17 @@ export function LocalBrowserSurface(props: {
         } catch (error) {
             if (!current()) return;
             if (lease !== undefined) void releaseSurfaceLease(lease.lease);
-            detach({ state: 'lost', reason: error instanceof Error ? error.message : String(error) });
+            const reason = error instanceof Error ? error.message : String(error);
+            // The host no longer knows this generation (closed, replaced, or
+            // a restarted host): retire it here so the workspace resolves the
+            // name to whatever newer record exists instead of retrying a
+            // handle that can never open again.
+            if (/no longer open/.test(reason)) {
+                detach({ state: 'parked' });
+                dismissSurfaceOffer(handle);
+                return;
+            }
+            detach({ state: 'lost', reason });
         }
     }, [detach, offerPath]);
 
@@ -361,7 +371,7 @@ export function LocalBrowserSurface(props: {
             {loading && SURFACE_FRAME_HAS_HISTORY
                 ? <ChromeButton label="Stop" icon="close" onPress={() => frameRef.current?.stop()} />
                 : <ChromeButton label="Reload" icon="refresh" onPress={() => { setBlocked(null); frameRef.current?.reload(); }} />}
-            <View style={{ flex: 1, paddingHorizontal: 8 }}>
+            <View style={{ flex: 1, minWidth: 0, paddingHorizontal: 8 }}>
                 <Text style={{ ...Typography.default('semiBold'), color: theme.colors.text }} numberOfLines={1}>{title}</Text>
                 <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, fontSize: 12 }} numberOfLines={1}>
                     {props.machineLabel === undefined ? 'Local app on your computer' : `Local app on ${props.machineLabel}`}
@@ -571,6 +581,10 @@ export function DirectBrowserSurface(props: {
                     accessibilityLabel="Web address. Enter an HTTPS address."
                     style={{
                         flex: 1,
+                        // Shrink below the intrinsic width on narrow screens so
+                        // Return to agent and the menu never leave the row.
+                        minWidth: 0,
+                        flexShrink: 1,
                         minHeight: 44,
                         color: addressError ? theme.colors.textDestructive : theme.colors.text,
                         backgroundColor: theme.colors.surfaceHigh,

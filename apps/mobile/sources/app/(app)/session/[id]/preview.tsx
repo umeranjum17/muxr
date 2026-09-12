@@ -8,7 +8,7 @@ import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { useSession, useSocketStatus } from '@/catalog/store';
 import * as Device from 'expo-device';
-import { openPreview, previewIsSameOrigin, previewMayOpenTopLevel, type OpenPreview } from '@/preview';
+import { openPreview, previewMayOpenTopLevel, type OpenPreview } from '@/preview';
 import { failureText } from '@/utils/errors';
 
 /** A tunnel that never delivers a first paint is a failure with a retry, not a blank frame. */
@@ -58,20 +58,6 @@ function previewUrlNeedsTab(url: string): boolean {
     } catch {
         return true;
     }
-}
-
-/**
- * A same-origin preview runs page JS in the PWA's origin, where the device
- * credential lives -- sandbox it away from storage, cookies, and top
- * navigation. Cross-origin (relay-port) previews are isolated already.
- * Cost: app-JS fetch/XHR under the opaque origin needs the app to allow it,
- * and HMR sockets cannot ride the request bridge.
- */
-const PREVIEW_SANDBOX = 'allow-scripts allow-forms allow-modals allow-popups allow-downloads';
-
-function previewUrlIsSandboxed(url: string): boolean {
-    if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
-    return previewIsSameOrigin(url, window.location.href);
 }
 
 export default function PreviewScreen() {
@@ -178,7 +164,11 @@ export default function PreviewScreen() {
                         independently isolated origin gets an Open control. */}
                     <PreviewBar label={`localhost:${directPort ?? ''}`} onReload={reload} onOpen={previewMayOpenTopLevel(preview.url, window.location.href) ? () => window.open(preview.url, '_blank') : undefined} />
                     {!painted && <ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ position: 'absolute', top: 52, alignSelf: 'center' }} />}
-                    <iframe key={generation} src={preview.url} onLoad={() => setPainted(true)} sandbox={previewUrlIsSandboxed(preview.url) ? PREVIEW_SANDBOX : undefined} style={{ flex: 1, border: 'none' }} title="preview" />
+                    {/* No sandbox attribute on the bridge frame: a sandboxed-origin
+                        navigation skips the service worker and the frame would
+                        load the app shell instead. The worker's own CSP sandbox
+                        header isolates every document it serves. */}
+                    <iframe key={generation} src={preview.url} onLoad={() => setPainted(true)} style={{ flex: 1, border: 'none' }} title="preview" />
                 </View>
             );
         }

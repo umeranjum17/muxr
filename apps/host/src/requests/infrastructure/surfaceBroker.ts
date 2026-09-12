@@ -586,9 +586,9 @@ export class SurfaceBroker {
                     capability: 'surface.browser.open',
                     name,
                     ...(request.placement === undefined ? {} : { placement: this.placementOf(request.placement) }),
-                    // Unnamed local opens dock as their loopback port, which
-                    // is what the operator actually typed.
-                    ...(request.name === undefined ? { title: `localhost:${classified.port}` } : {}),
+                    // Unnamed local opens dock as a local app; a port never
+                    // appears in chrome, even the one the operator typed.
+                    ...(request.name === undefined ? { title: classified.path === '/' ? 'Local app' : `Local app ${classified.path}` } : {}),
                     port: classified.port,
                     path: classified.path,
                     label: name,
@@ -672,11 +672,12 @@ export class SurfaceBroker {
             revision: offer.revision,
             capability: offer.capability,
             kind: offer.kind,
-            provider: offer.provider,
         };
         if (offer.kind === 'browser-direct') return { ...base, url: offer.url };
+        // Ports and provider ids stay on the host: a reply names the logical
+        // surface, its path and its worktree only.
         if (offer.kind === 'browser-local') {
-            return { ...base, port: offer.port, path: offer.path, label: offer.label, context: offer.context };
+            return { ...base, path: offer.path, label: offer.label, context: offer.context };
         }
         return {
             ...base,

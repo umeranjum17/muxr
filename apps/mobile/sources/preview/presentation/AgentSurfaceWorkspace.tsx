@@ -16,8 +16,7 @@ import { TerminalRoute } from '@/terminal/ui';
 import { dismissSurfaceOffer, findSurfaceEntry, useSurfaceEntries, type SurfaceEntry } from '@/catalog';
 import { useLocalSettingMutable } from '@/catalog/store';
 import { getCachedConnectionSettings } from '@/connection';
-import { pluginCatalogLoaded, pluginHref, pluginSnapshot, subscribePlugins } from '@/plugins';
-import { openFileViewer } from '@/plugins/application/fileNavigationList';
+import { openFileViewer, pluginCatalogLoaded, pluginHref, pluginSnapshot, subscribePlugins } from '@/plugins';
 import { useDeviceAuthority } from '@/pairing';
 import { getCachedHostedGrant } from '@/pairing/e2ee';
 import {
@@ -151,7 +150,12 @@ function DockButton(props: {
 
 export function AgentSurfaceWorkspace(props: { id: string }): React.JSX.Element {
     const { theme } = useUnistyles();
-    const { width } = useWindowDimensions();
+    const window = useWindowDimensions();
+    // The workspace may not own the whole window: on a desktop browser a
+    // sidebar takes part of it. Layout decisions and pane geometry follow
+    // the measured container, with the window as the pre-layout estimate.
+    const [measuredWidth, setMeasuredWidth] = React.useState<number | null>(null);
+    const width = measuredWidth ?? window.width;
     const insets = useSafeAreaInsets();
     const { authority } = useDeviceAuthority();
     const machineId = getCachedConnectionSettings().machineId;
@@ -345,11 +349,17 @@ export function AgentSurfaceWorkspace(props: { id: string }): React.JSX.Element 
         .onEnd(() => {
             scheduleOnRN(commitRatio, ratioShared.value, widthShared.value);
         });
+    // The split is a shared value too: on web an animated inline width set
+    // by the worklet outlives the style prop, so leaving wide mode must
+    // write the full width back rather than merely stop passing the style.
+    const splitShared = useSharedValue(false);
     const agentWidthStyle = useAnimatedStyle(() => ({
-        width: ratioShared.value * (widthShared.value - SURFACE_DIVIDER_ZONE_DP),
+        width: splitShared.value ? ratioShared.value * (widthShared.value - SURFACE_DIVIDER_ZONE_DP) : '100%',
     }));
     const surfaceWidthStyle = useAnimatedStyle(() => ({
-        width: (widthShared.value - SURFACE_DIVIDER_ZONE_DP) - ratioShared.value * (widthShared.value - SURFACE_DIVIDER_ZONE_DP),
+        width: splitShared.value
+            ? (widthShared.value - SURFACE_DIVIDER_ZONE_DP) - ratioShared.value * (widthShared.value - SURFACE_DIVIDER_ZONE_DP)
+            : '100%',
     }));
 
     const returnToAgent = React.useCallback(() => setFocus('agent'), []);
@@ -465,6 +475,10 @@ export function AgentSurfaceWorkspace(props: { id: string }): React.JSX.Element 
         );
     }
     const plan = planSurfacePanes({ wide, focus, surfaceId });
+    const split = wide && surfaceId !== null;
+    React.useEffect(() => {
+        splitShared.value = split;
+    }, [split, splitShared]);
 
     // The dock shows only when useful -- offers, a selected surface, or the
     // blank entry -- and never while the keyboard is up (it would sit
@@ -567,25 +581,27 @@ export function AgentSurfaceWorkspace(props: { id: string }): React.JSX.Element 
         <View style={{ flex: 1, backgroundColor: theme.colors.terminal.background }}>
             <View
                 style={{ flex: 1, flexDirection: wide ? 'row' : 'column' }}
-                onLayout={wide ? ({ nativeEvent }) => {
+                onLayout={({ nativeEvent }) => {
                     // Every measured container change recomputes
                     // divider-aware clamps and shared geometry, so both
                     // mounted panes stay >=360dp after rotations, folds,
                     // and window resizes -- not just window-dimension
-                    // changes.
+                    // changes. Always attached: a handler bound only while
+                    // wide misses the very resize that makes it wide.
                     const containerWidth = nativeEvent.layout.width;
                     if (!(containerWidth > 0)) return;
+                    setMeasuredWidth(containerWidth);
                     widthShared.value = containerWidth;
                     const next = clampSurfaceRatio(ratioShared.value, containerWidth, DIVIDER_ZONE);
                     lastCommitted.current = next;
                     ratioShared.value = next;
-                } : undefined}
+                }}
             >
                 <Animated.View
                     key="agent-terminal"
                     // No Surface mounted means the Agent takes 100%: split
                     // sizing applies only beside a mounted surface.
-                    style={wide ? (surfaceId === null ? { flex: 1 } : agentWidthStyle) : plan.terminal.hidden ? hiddenPaneStyle : { flex: 1 }}
+                    style={split ? agentWidthStyle : plan.terminal.hidden ? hiddenPaneStyle : [{ flex: 1 }, agentWidthStyle]}
                     pointerEvents={plan.terminal.hidden ? 'none' : 'auto'}
                     accessibilityElementsHidden={plan.terminal.hidden}
                     importantForAccessibility={plan.terminal.hidden ? 'no-hide-descendants' : 'auto'}
@@ -616,11 +632,11 @@ export function AgentSurfaceWorkspace(props: { id: string }): React.JSX.Element 
                         // focus and wide alike), where the terminal owns its
                         // own inset but nothing else does: cutout and status
                         // bar must clear the chrome row.
-                        style={wide
+                        style={split
                             ? [surfaceWidthStyle, { paddingTop: insets.top }]
                             : plan.surface.hidden
                                 ? [hiddenPaneStyle, { paddingTop: insets.top }]
-                                : { flex: 1, paddingTop: insets.top }}
+                                : [{ flex: 1, paddingTop: insets.top }, surfaceWidthStyle]}
                         pointerEvents={plan.surface.hidden ? 'none' : 'auto'}
                         accessibilityElementsHidden={plan.surface.hidden}
                         importantForAccessibility={plan.surface.hidden ? 'no-hide-descendants' : 'auto'}
