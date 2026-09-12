@@ -85,9 +85,11 @@ type Phase =
  */
 export function BrowserPairQrScanner({ title, onScanned }: BrowserPairQrScannerProps) {
     const [phase, setPhase] = React.useState<Phase>({ kind: 'idle' });
-    // Each opening owns its own history entry: an obsolete entry restored by
-    // browser Forward must never be mistaken for the current scan.
-    const [opening, setOpening] = React.useState(0);
+    // Each opening owns its own history entry under a document-unique id: an
+    // obsolete entry restored by browser Forward must never be mistaken for
+    // the current scan, even after this component remounts (demo Hide →
+    // Connect) — a component-local counter would restart and collide.
+    const [opening, setOpening] = React.useState('');
     const generation = React.useRef(0);
     const stream = React.useRef<MediaStream | null>(null);
     const video = React.useRef<HTMLVideoElement | null>(null);
@@ -119,7 +121,7 @@ export function BrowserPairQrScanner({ title, onScanned }: BrowserPairQrScannerP
         stop();
         const mine = generation.current;
         const live = () => mine === generation.current;
-        setOpening((count) => count + 1);
+        setOpening(crypto.randomUUID());
         setPhase({ kind: 'starting' });
         let acquired: MediaStream;
         try {
