@@ -526,10 +526,33 @@ try {
     check('connect card keeps Herdr first and offers the scanner', connectCardQr.indexOf('herdr plugin install') < connectCardQr.indexOf('Scan the QR from Setup'));
     check('opening the connect card opens no camera', await fresh.evaluate('window.__streams.length') === 0);
     const demoRequestsBefore = fresh.requests.length;
+    // Browser Back during an unfinished scan: the demo bar persists across
+    // routes, so the scanner must own its own history entry. Hold the first
+    // permission answer, press real Back, then release it: the late stream
+    // must end at once and nothing may decode, confirm or navigate.
+    await fresh.evaluate(`(() => {
+        const wrapped = navigator.mediaDevices.getUserMedia;
+        let held = new Promise((resolve) => { window.__releasePermission = resolve; });
+        navigator.mediaDevices.getUserMedia = async (c) => { const gate = held; held = null; if (gate) await gate; return wrapped(c); };
+        return 'gated';
+    })()`);
+    await fresh.evaluate(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Scan the QR from Setup' && el.offsetParent !== null)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const pendingScan = await fresh.waitFor('pending permission', (text) => text.includes('Waiting for camera permission'), 10000);
+    check('unfinished scan shows the camera view while permission is pending', pendingScan.includes('Waiting for camera permission') && await fresh.evaluate(`!!document.querySelector('video')`));
+    await fresh.evaluate('window.history.back()');
+    await fresh.waitFor('back closes the scanner', (text) => !text.includes('Waiting for camera permission'), 10000);
+    check('back closes the scanner and stays on the demo', !(await fresh.evaluate(`!!document.querySelector('video')`)) && (await fresh.evaluate('window.location.pathname')) === '/demo');
+    check('back keeps the connect card and its launcher', (await fresh.bodyText()).includes('Scan the QR from Setup'));
+    await fresh.evaluate('window.__releasePermission()');
+    await new Promise((r) => setTimeout(r, 2500));
+    check('late permission after back yields a stopped stream', await fresh.evaluate(`window.__streams.length === 1 && window.__streams[0].getTracks().every((t) => t.readyState === 'ended')`));
+    check('late permission after back reopens nothing', !(await fresh.evaluate(`!!document.querySelector('video')`)) && !(await fresh.bodyText()).includes('Continue to this computer'));
+    check('late permission after back navigates nowhere', (await fresh.evaluate('window.location.pathname')) === '/demo' && fresh.requests.slice(demoRequestsBefore).every((entry) => entry.url.startsWith(`http://127.0.0.1:${port}/`)));
+    // A fresh explicit scan still works through the same launcher.
     await fresh.evaluate(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Scan the QR from Setup' && el.offsetParent !== null)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
     const handoff = await fresh.waitFor('demo handoff confirmation', (text) => text.includes('Continue to this computer'), 30000);
     check('demo shows only the destination origin', handoff.includes(QR_HOST) && !handoff.includes(QR_CODE) && handoff.includes('Scan again'));
-    check('demo camera tracks are stopped before the handoff', await fresh.evaluate(`window.__streams.length === 1 && window.__streams.every((s) => s.getTracks().every((t) => t.readyState === 'ended'))`) && await fresh.evaluate(`!document.querySelector('video')`));
+    check('demo camera tracks are stopped before the handoff', await fresh.evaluate(`window.__streams.length === 2 && window.__streams.every((s) => s.getTracks().every((t) => t.readyState === 'ended'))`) && await fresh.evaluate(`!document.querySelector('video')`));
     check('demo stores nothing from the scan', await fresh.evaluate(storageSnapshot) === storageBefore);
     check('demo contacts neither the host nor a CDN before Continue', fresh.requests.slice(demoRequestsBefore).every((entry) => entry.url.startsWith(`http://127.0.0.1:${port}/`)));
     check('no invitation code in the demo DOM', !(await fresh.evaluate(`document.documentElement.outerHTML.includes(${JSON.stringify(QR_CODE)})`)));

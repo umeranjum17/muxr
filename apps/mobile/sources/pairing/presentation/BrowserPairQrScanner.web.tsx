@@ -3,6 +3,7 @@ import { Text, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { Asset } from 'expo-asset';
 import { ActionButton } from '@/components/ActionButton';
+import { useWebBackCloses } from '@/components/useWebBackCloses';
 import { Typography } from '@/constants/Typography';
 import { parseBrowserPairingQr, type BrowserPairingQr } from '../domain/pairingString';
 
@@ -175,21 +176,19 @@ export function BrowserPairQrScanner({ title, onScanned }: BrowserPairQrScannerP
     }, [close, stop]);
 
     const active = phase.kind === 'starting' || phase.kind === 'scanning';
+    // An active scanner owns one history entry: browser Back and Escape
+    // close it (stopping the camera) instead of leaving the route, even
+    // where the host frame persists across routes (the demo bar).
+    const cancel = React.useCallback(() => close({ kind: 'idle' }), [close]);
+    useWebBackCloses(active, cancel, 'muxrQrScanner');
     React.useEffect(() => {
         if (!active) return undefined;
         const onHide = () => { if (document.visibilityState === 'hidden') close({ kind: 'error', message: BACKGROUND_STOP }); };
-        const onKey = (event: KeyboardEvent) => {
-            if (event.key !== 'Escape') return;
-            event.preventDefault();
-            close({ kind: 'idle' });
-        };
         document.addEventListener('visibilitychange', onHide);
         window.addEventListener('pagehide', stop);
-        document.addEventListener('keydown', onKey, true);
         return () => {
             document.removeEventListener('visibilitychange', onHide);
             window.removeEventListener('pagehide', stop);
-            document.removeEventListener('keydown', onKey, true);
         };
     }, [active, close, stop]);
     React.useEffect(() => stop, [stop]);
@@ -216,7 +215,7 @@ export function BrowserPairQrScanner({ title, onScanned }: BrowserPairQrScannerP
                         <video ref={video} autoPlay muted playsInline style={videoStyle} />
                     </View>
                     <Text accessibilityLiveRegion="polite" style={styles.status}>{status}</Text>
-                    <ActionButton title="Cancel" variant="secondary" onPress={() => close({ kind: 'idle' })} />
+                    <ActionButton title="Cancel" variant="secondary" onPress={cancel} />
                 </>
             )}
         </View>
