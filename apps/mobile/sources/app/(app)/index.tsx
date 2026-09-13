@@ -1,6 +1,6 @@
 import { ActionButton } from "@/components/ActionButton";
 import { useAuth } from "@/account/ui";
-import { Text, View, Platform } from "react-native";
+import { ScrollView, Text, View, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as React from 'react';
 import { encodeBase64 } from "@/encryption/base64";
@@ -12,6 +12,7 @@ import { useIsLandscape } from "@/utils/responsive";
 import { Typography } from "@/constants/Typography";
 import { HomeHeaderNotAuth } from "@/herd/ui";
 import { MainView } from "@/herd/ui";
+import { FirstRunSetupCard } from "@/herd/ui";
 import { Wordmark } from "@/components/Wordmark";
 import { t } from '@/text';
 import { Modal } from '@/modal';
@@ -81,13 +82,21 @@ function NotAuthenticated() {
     };
     if (hosted) {
         return (
-            <View style={styles.screen}>
-                <View style={styles.hero}>
+            // Scrollable so the three-step card and the primary action both fit
+            // at 390-wide portrait and at larger text sizes; the hero is
+            // compact rather than a full-height decorative void.
+            <ScrollView
+                style={styles.screen}
+                contentContainerStyle={[styles.hostedScroll, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 24 }]}
+                keyboardShouldPersistTaps="handled"
+            >
+                <View style={styles.heroCompact}>
                     {heroMark}
                     <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : 'Run your agents from your phone.'}</Text>
                     <Text style={styles.subtitle}>{Platform.OS === 'web' ? 'Pair this browser for eight hours at a time. Every agent session on your computer, end-to-end encrypted.' : 'Pair once. Every agent session on your computer, end-to-end encrypted.'}</Text>
                 </View>
-                <View style={[styles.actions, { paddingBottom: insets.bottom + 24 }]}>
+                <FirstRunSetupCard />
+                <View style={styles.actions}>
                     {Platform.OS === 'web' ? (
                         <>
                             {/* Browser pairing lives in one place: /pair owns
@@ -104,7 +113,7 @@ function NotAuthenticated() {
                     )}
                     <Text style={styles.footer}>End-to-end encrypted · machine keys never leave your devices</Text>
                 </View>
-            </View>
+            </ScrollView>
         );
     }
 
@@ -197,6 +206,17 @@ const styles = StyleSheet.create((theme) => ({
     // NotAuthenticated styles
     screen: {
         flex: 1,
+    },
+    hostedScroll: {
+        flexGrow: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 24,
+        paddingHorizontal: 16,
+    },
+    heroCompact: {
+        alignItems: 'center',
+        paddingHorizontal: 16,
     },
     hero: {
         flex: 1,
