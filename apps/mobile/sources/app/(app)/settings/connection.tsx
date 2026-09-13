@@ -19,7 +19,7 @@ import { Modal } from '@/modal';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { Stack, useRouter } from 'expo-router';
-import { getCachedHostedGrant } from '@/pairing/e2ee';
+import { getCachedHostedGrant, listPairedGrants } from '@/pairing/e2ee';
 import { useDeviceAuthority } from '@/pairing';
 import { ConnectionSupport } from '@/settings/presentation/ConnectionSupport';
 import { formatLatestConnectionFailure } from '@/catalog/infrastructure/connectionDiagnostics';
@@ -75,6 +75,14 @@ export default function ConnectionSettingsScreen() {
     const [restartCopied, setRestartCopied] = React.useState(false);
     const [urlCopied, setUrlCopied] = React.useState(false);
     const { authority, loading: authorityLoading } = useDeviceAuthority();
+    // The grants this phone holds. That is what this device can reach, not
+    // the computer's list of authorized devices, which only it knows.
+    const [pairedCount, setPairedCount] = React.useState<number>();
+    React.useEffect(() => {
+        let cancelled = false;
+        void listPairedGrants().then((grants) => { if (!cancelled) setPairedCount(grants.length); }).catch(() => { if (!cancelled) setPairedCount(undefined); });
+        return () => { cancelled = true; };
+    }, []);
 
     const { theme } = useUnistyles();
     const [scheme, setScheme] = React.useState<'ws' | 'wss'>(() => splitRelayUrl(initial.relayUrl).scheme);
@@ -161,6 +169,8 @@ export default function ConnectionSettingsScreen() {
 
                 <ItemGroup title="This device's access" footer="Terminal traffic between this device and your computer is end-to-end encrypted. Manage or revoke this device from muxr on the computer.">
                     <Item title="Access" detail={accessRole} subtitle={`${accessSaved}${accessLifetime}`} subtitleLines={0} loading={authorityLoading} />
+                    <Item title="Paired with this phone" detail={pairedCount === undefined ? 'Unavailable' : `${pairedCount} computer${pairedCount === 1 ? '' : 's'}`}
+                        subtitle="Pairings stored on this device. Which devices a computer accepts is listed on that computer, not here." subtitleLines={0} />
                 </ItemGroup>
 
                 <ItemGroup title="This computer" footer="Route, port and relay URL are connectionMode, relayPort and relayUrl in muxr's configuration on the computer; change them with muxr setup there. Each restarts the relay and host, and changing a relay endpoint requires pairing devices again. This app cannot change them.">

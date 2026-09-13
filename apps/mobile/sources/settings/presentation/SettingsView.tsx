@@ -11,7 +11,7 @@ import { forgetMachine as forgetPairedMachine, isMachineOnline } from '@/pairing
 import { formatOSPlatform } from '@/herd';
 import { useAuth } from '@/account/ui';
 import { ItemList } from '@/components/ItemList';
-import { useLocalSettingMutable, useSettingMutable } from '@/catalog/store';
+import { useLocalSettingMutable, useSettingMutable, useSocketStatus } from '@/catalog/store';
 import { Modal } from '@/modal';
 import { useAllMachines } from '@/catalog/store';
 import { useUnistyles } from 'react-native-unistyles';
@@ -78,6 +78,7 @@ export const SettingsView = React.memo(function SettingsView({
     const lifecycleNotificationLevel = useLocalSettingMutable('lifecycleNotificationLevel')[0];
     // The hub rows carry the value their page holds, so a glance answers the question.
     const themePreference = useLocalSettingMutable('themePreference')[0];
+    const socketStatus = useSocketStatus().status;
     const sortSessionsByActivity = useSettingMutable('sortSessionsByActivity')[0];
     const [showOfflineMachines, setShowOfflineMachines] = React.useState(false);
     const allMachinesWithOffline = useAllMachines({ includeOffline: true });
@@ -270,22 +271,20 @@ export const SettingsView = React.memo(function SettingsView({
             onScroll={onScroll}
             scrollEventThrottle={16}
         >
-            <ItemGroup>
+            {/* Hosted machines require a persisted grant; live transport rows
+                cannot resurrect a pairing the user just forgot. */}
+            <ItemGroup title="Connection" footer="Tap a computer to open it. The trash forgets its pairing on this device; the computer keeps running.">
                 <Item
-                    title="Connection & updates"
+                    title="Connection"
                     subtitle={versionMismatch
                         ? 'App and host versions differ — review updates'
-                        : 'Connection health, installed versions and diagnostics'}
+                        : 'Health, this device\'s access, versions and diagnostics'}
                     subtitleLines={0}
+                    detail={socketStatus === 'connected' ? 'Connected' : socketStatus === 'connecting' ? 'Connecting' : 'Offline'}
                     subtitleStyle={versionMismatch ? { color: theme.colors.text, fontWeight: '600' } : undefined}
                     icon={<Ionicons name={versionMismatch ? "warning-outline" : "link-outline"} size={29} color={versionMismatch ? theme.colors.box.warning.border : theme.colors.textSecondary} />}
                     onPress={openConnection}
                 />
-            </ItemGroup>
-
-            {/* Hosted machines require a persisted grant; live transport rows
-                cannot resurrect a pairing the user just forgot. */}
-            <ItemGroup title={t('settings.machines')} footer="Tap a computer to open it. The trash forgets its pairing on this device; the computer keeps running.">
                 {machineRows.map(({ id, live: machine }) => {
                     const isOnline = machine !== undefined && isMachineOnline(machine);
                     const host = machine?.metadata?.host;
@@ -366,21 +365,15 @@ export const SettingsView = React.memo(function SettingsView({
                     icon={<Ionicons name="git-network-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={() => router.push('/settings/collaboration' as any)}
                 />
-            </ItemGroup>
-            <ItemGroup title="App and plugins">
-                <Item
-                    title="Realtime voice"
-                    subtitle="Readiness on this computer and hands-free options"
-                    icon={<Ionicons name="pulse-outline" size={29} color={theme.colors.textSecondary} />}
-                    onPress={openVoice}
-                />
                 <Item
                     title="Plugins"
-                    subtitle="Native UI and capabilities installed through Herdr"
+                    subtitle="Native UI and capabilities installed through Herdr on the computer"
                     icon={<Ionicons name="extension-puzzle-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={openPlugins}
                 />
                 <DeclarativeSettingsItems />
+            </ItemGroup>
+            <ItemGroup title="Terminal">
                 <Item
                     title="Appearance"
                     subtitle="Theme, language, avatars and terminal text"
@@ -388,13 +381,23 @@ export const SettingsView = React.memo(function SettingsView({
                     icon={<Ionicons name="color-palette-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={openAppearance}
                 />
+            </ItemGroup>
+            <ItemGroup title="Input">
                 <Item
                     title="Preferences"
-                    subtitle="Session order, inactive sessions and keyboard"
+                    subtitle="Session order, inactive sessions and keyboard on tap"
                     detail={sortSessionsByActivity ? 'Recent activity' : 'Created'}
                     icon={<Ionicons name="options-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={openPreferences}
                 />
+                <Item
+                    title="Realtime voice"
+                    subtitle="Readiness on this computer and hands-free options"
+                    icon={<Ionicons name="pulse-outline" size={29} color={theme.colors.textSecondary} />}
+                    onPress={openVoice}
+                />
+            </ItemGroup>
+            <ItemGroup title="Notifications">
                 {Platform.OS !== 'web' && (
                     <Item
                         title="Agent notifications"
@@ -450,18 +453,26 @@ export const SettingsView = React.memo(function SettingsView({
                 )}
             </ItemGroup>
 
-            <ItemGroup title="Help and advanced" footer="Diagnostics never includes credentials, QR claims, machine keys, terminal text or internal identifiers.">
-                {docsBase && <Item title="Connect a computer" icon={<Ionicons name="desktop-outline" size={29} color={theme.colors.textSecondary} />} onPress={() => openExternalUrl(`${docsBase}/docs/setup`)} />}
-                {docsBase && <Item title="Troubleshooting" icon={<Ionicons name="help-circle-outline" size={29} color={theme.colors.textSecondary} />} onPress={() => openExternalUrl(`${docsBase}/docs/troubleshooting`)} />}
-                <Item title="Contact support" subtitle="Public issue tracker" icon={<Ionicons name="chatbubble-ellipses-outline" size={29} color={theme.colors.textSecondary} />} onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/issues')} />
-                {docsBase && <Item title="Privacy and deletion" subtitle="Policy, revocation and data removal" icon={<Ionicons name="shield-checkmark-outline" size={29} color={theme.colors.textSecondary} />} onPress={() => openExternalUrl(`${docsBase}/docs/privacy#retention-and-deletion`)} />}
+            <ItemGroup title="About" footer="Installed versions, the source commit and date, and diagnostics are under Connection & updates. Diagnostics never include credentials, QR claims, machine keys, terminal text or internal identifiers.">
+                <Item
+                    title="Version"
+                    subtitle="This app; the connected host and the source commit are under Connection & updates"
+                    detail={appVersion}
+                    icon={<Ionicons name="information-circle-outline" size={29} color={theme.colors.textSecondary} />}
+                    onPress={openConnection}
+                />
                 <Item
                     title={t('settings.whatsNew')}
+                    subtitle="Release notes for this version"
                     icon={<Ionicons name="sparkles-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={() => router.push('/changelog')}
                 />
+                {docsBase && <Item title="Connect a computer" subtitle="Setup guide, in the browser" icon={<Ionicons name="desktop-outline" size={29} color={theme.colors.textSecondary} />} onPress={() => openExternalUrl(`${docsBase}/docs/setup`)} />}
+                {docsBase && <Item title="Troubleshooting" subtitle="Symptoms, causes and the command that fixes them" icon={<Ionicons name="help-circle-outline" size={29} color={theme.colors.textSecondary} />} onPress={() => openExternalUrl(`${docsBase}/docs/troubleshooting`)} />}
+                <Item title="Contact support" subtitle="Public issue tracker on GitHub" icon={<Ionicons name="chatbubble-ellipses-outline" size={29} color={theme.colors.textSecondary} />} onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/issues')} />
+                {docsBase && <Item title="Privacy and deletion" subtitle="Policy, revocation and data removal" icon={<Ionicons name="shield-checkmark-outline" size={29} color={theme.colors.textSecondary} />} onPress={() => openExternalUrl(`${docsBase}/docs/privacy#retention-and-deletion`)} />}
                 {Platform.OS === 'ios' && (
-                    <Item title="EULA" icon={<Ionicons name="document-text-outline" size={29} color={theme.colors.textSecondary} />} onPress={() => openExternalUrl('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')} />
+                    <Item title="EULA" subtitle="Apple's standard licence for App Store apps" icon={<Ionicons name="document-text-outline" size={29} color={theme.colors.textSecondary} />} onPress={() => openExternalUrl('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')} />
                 )}
             </ItemGroup>
 
