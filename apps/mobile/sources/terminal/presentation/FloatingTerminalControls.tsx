@@ -96,7 +96,7 @@ export function TerminalToolsTrigger({ side, onSideChange, onPress, blocked, exp
             style={{ position: 'absolute', bottom: TOOLS_TRIGGER_MARGIN, [side]: TOOLS_TRIGGER_MARGIN }}>
             <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={blocked ? 'Hide keyboard to open Tools' : expanded ? 'Close Tools' : 'Tools'}
+                accessibilityLabel={blocked ? 'Hide keyboard to open terminal quick actions' : expanded ? 'Close terminal quick actions' : 'Terminal quick actions'}
                 accessibilityHint={`Drag sideways to move to the ${other}.`}
                 accessibilityState={{ expanded }}
                 accessibilityActions={[{ name: 'move', label: `Move Tools to the ${other}` }]}
@@ -142,7 +142,7 @@ export function TerminalToolsPanel({ commands, bottomInset, onClose, children }:
         // The card sits the footer's edge in on three sides; the keys below
         // already carry their own top margin, so the bottom gap matches.
         <View style={{ paddingHorizontal: FOOTER_EDGE, paddingTop: FOOTER_EDGE, paddingBottom: FOOTER_EDGE - PANEL_PADDING }}>
-            <View accessibilityRole="menu" accessibilityLabel="Tools"
+            <View accessibilityRole="menu" accessibilityLabel="Terminal quick actions"
                 style={{ maxHeight, borderRadius: 12, backgroundColor: theme.colors.surfaceHigh, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 6, paddingVertical: PANEL_PADDING }}>
                     {commands.map((command) => (
@@ -150,7 +150,7 @@ export function TerminalToolsPanel({ commands, bottomInset, onClose, children }:
                             onPress={() => { if (command.dismiss) onClose(); command.run(); }} />
                     ))}
                     <View style={{ flex: 1 }} />
-                    <Keycap word="Close" label="Close Tools" onPress={onClose} />
+                    <Keycap word="Close" label="Close terminal quick actions" onPress={onClose} />
                 </View>
                 <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider }} />
                 <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingVertical: PANEL_PADDING }} keyboardShouldPersistTaps="always" nestedScrollEnabled>
