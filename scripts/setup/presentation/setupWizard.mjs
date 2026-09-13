@@ -265,9 +265,13 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
     const serveOccupied = serveRoot.status === 'occupied';
     const serveDisabled = serveRoot.status === 'disabled';
     if (found.tailscale.connected || tailscalePlanned) {
-        let serveDescription = 'private HTTPS · works from anywhere';
+        // Approximate setup time and the prerequisites each route needs, so a
+        // ready route reads apart from one that needs work before it is chosen.
+        // An unavailable/occupied route keeps its actual blocking reason.
+        let serveDescription = '~1 min · Tailscale on both devices · browser + native';
         if (serveOccupied) serveDescription = 'already used by another service · left unchanged';
         else if (serveDisabled) serveDescription = serveRoot.reason;
+        else if (tailscalePlanned) serveDescription = 'Time varies · install/sign in to Tailscale on both devices · browser + native';
         options.push({
             value: 'tailscale',
             title: 'Tailscale Serve',
@@ -277,7 +281,7 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
         options.push({
             value: 'tailscale-direct',
             title: 'Direct Tailscale',
-            description: tailscalePlanned ? 'connect during Apply · use the private tailnet address' : 'use the private tailnet address · does not require Serve',
+            description: tailscalePlanned ? 'Time varies · install/sign in to Tailscale on both devices · native only' : '~1 min once connected · Tailscale on both devices · native only',
         });
     } else {
         options.push({ value: 'tailscale', title: 'Tailscale', description: found.tailscale.detail, disabled: true });
@@ -286,20 +290,20 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
         options.push({
             value: 'private',
             title: found.private.provider === 'private network' ? 'Private network' : `${found.private.provider} private network`,
-            description: `${found.private.interface} · phone must join the same private network`,
+            description: '~1 min · both devices on this private network · native only',
         });
     }
     if (found.lan) {
-        options.push({ value: 'lan', title: 'Same Wi-Fi', description: 'works now · phone and computer must use the same trusted network' });
+        options.push({ value: 'lan', title: 'Same Wi-Fi', description: '~1 min · same trusted Wi-Fi · native only' });
     } else {
         options.push({ value: 'lan', title: 'Same Wi-Fi', description: 'no usable local-network address found', disabled: true });
     }
     if (found.cloudflared.ok) {
-        options.push({ value: 'cloudflare', title: 'Temporary Cloudflare tunnel', description: 'create a temporary public HTTPS URL during Apply' });
+        options.push({ value: 'cloudflare', title: 'Temporary Cloudflare tunnel', description: 'Time varies · temporary public HTTPS URL created during Apply · browser + native' });
     } else {
         options.push({ value: 'cloudflare', title: 'Temporary Cloudflare tunnel', description: found.cloudflared.detail, disabled: true });
     }
-    options.push({ value: 'external', title: 'Your own server', description: 'use an existing stable wss:// relay address' });
+    options.push({ value: 'external', title: 'Your own server', description: 'Time varies · existing secure muxr relay; browser use also needs the browser app hosted' });
     return options;
 }
 
@@ -383,7 +387,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
                 ? { ...choice, title: `${choice.title} · current` }
                 : choice);
             const initial = Math.max(0, connectionChoices.findIndex((choice) => choice.value === current?.connectionMode));
-            mode = await select('Choose another way', connectionChoices, initial);
+            mode = await select('How devices reach the relay — approximate setup time; prerequisites below must be ready', connectionChoices, initial);
         }
     }
     if (aborted(mode)) return undefined;
