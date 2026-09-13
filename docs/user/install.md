@@ -49,7 +49,7 @@ No add-on, provider or theme question appears before Apply. Those live in [Confi
 
 ## Pair this browser
 
-After Apply, setup prints one pairing link and its QR. The QR *is* that one-use link, nothing more. Get it into the browser you want to use:
+After Apply, setup prints one pairing link and its QR. The QR *is* that one-use link, nothing more. Keep the pairing QR or link private: anyone with it can pair a device with the displayed access until it is used or expires. Get it into the browser you want to use:
 
 - **Scan it.** On a phone or tablet, open your computer's address in the browser (or the installed app) and tap **Scan QR to pair**; the camera image is read on the device and never leaves it. Your phone's camera app also works: it opens the same pairing page.
 - **On the same computer**, open the printed link. **Enter pairing link manually** on the pairing page is the fallback when there is no camera.

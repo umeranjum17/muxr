@@ -14,7 +14,7 @@ A browser is paired with an explicit grant: **Control** (send input, approve, st
 
 ## Pairing by QR
 
-The QR the computer shows is the one-use pairing link and nothing else. Scanning it in the browser reads the camera image on your device; no frame, code or link is sent anywhere or logged. The interactive demo can scan a QR too, but it only takes you to your computer's own address: the demo site never claims, stores or fetches the invitation. Consent, the claim, key storage and revocation happen only in the browser app served by your computer. A phone's camera app scanning the same QR lands on the same consent screen. An installed Safari app on iPhone is a separate storage partition and needs its own fresh QR.
+The QR the computer shows is the one-use pairing link and nothing else. Keep the pairing QR or link private: anyone with it can pair a device with the displayed access until it is used or expires. Scanning it in the browser reads the camera image on your device; no frame, code or link is sent anywhere or logged. The interactive demo can scan a QR too, but it only takes you to your computer's own address: the demo site never claims, stores or fetches the invitation. Consent, the claim, key storage and revocation happen only in the browser app served by your computer. A phone's camera app scanning the same QR lands on the same consent screen. An installed Safari app on iPhone is a separate storage partition and needs its own fresh QR.
 
 ## Shell authority
 
