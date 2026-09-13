@@ -225,9 +225,12 @@ export async function applyConfigSelfcheck() {
     assert.deepEqual(row.ids, [], 'an unchanged configured computer plans nothing');
     // The skill and the configuration page carry every attribute, from the schema.
     assert.deepEqual(await checkConfigDocs(), []);
-    const skill = readFileSync(new URL('../../../skills/muxr/references/onboarding.md', import.meta.url), 'utf8');
-    for (const attribute of CONFIG_ATTRIBUTES) assert.ok(skill.includes(`\`${attribute.key}\``), `skill lacks ${attribute.key}`);
-    for (const phrase of ['--apply-config --dry-run', 'Secret boundary', 'Pairing handoff', '--allow-downgrade', 'herdr plugin install umeranjum17/muxr/plugins/control']) assert.ok(skill.includes(phrase), `skill lacks ${phrase}`);
+    // The single config inventory is now the configuration reference; it carries
+    // every attribute from the schema. Onboarding keeps the core-flow phrases.
+    const configSkill = readFileSync(new URL('../../../skills/muxr/references/configuration.md', import.meta.url), 'utf8');
+    for (const attribute of CONFIG_ATTRIBUTES) assert.ok(configSkill.includes(`\`${attribute.key}\``), `configuration reference lacks ${attribute.key}`);
+    const onboarding = readFileSync(new URL('../../../skills/muxr/references/onboarding.md', import.meta.url), 'utf8');
+    for (const phrase of ['--apply-config --dry-run', 'Pairing handoff', 'herdr plugin install umeranjum17/muxr/plugins/control']) assert.ok(onboarding.includes(phrase), `onboarding reference lacks ${phrase}`);
     cleanEnv();
 
     // First-apply ordering (the wizard applies before writing config.env):

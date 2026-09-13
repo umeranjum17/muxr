@@ -159,9 +159,9 @@ Defaults below assume a normal private relay, without the development API.
 |---|---|---|
 | `MUXR_RELAY_MAX_PAYLOAD_BYTES` | 4194304 (4 MiB) | Maximum WebSocket message size. The development API uses 512 MiB; that is not the production default. |
 | `MUXR_RELAY_BUFFER_LIMIT` | 500 | Maximum buffered envelopes for an offline destination. |
-| `MUXR_RELAY_BUFFER_TTL_MS` | 86400000 (24 hours) | Offline-buffer retention in milliseconds. |
+| `MUXR_RELAY_BUFFER_TTL_MS` | 86400000 (24h) | Offline-buffer retention in milliseconds. |
 | `MUXR_RELAY_REPLAY_LIMIT` | 1000 | Maximum retained replay envelopes per machine. |
-| `MUXR_RELAY_REPLAY_TTL_MS` | 3600000 (1 hour) | Replay retention in milliseconds. |
+| `MUXR_RELAY_REPLAY_TTL_MS` | 3600000 (1h) | Replay retention in milliseconds. |
 | `MUXR_RELAY_PUSH_WEBHOOK` | Unset | Optional POST destination for undelivered client notifications. Receives machine/session identifiers and a timestamp; use a receiver you control. No authentication-header setting is implemented. |
 | `MUXR_RELAY_PUSH_WEBHOOK_RETRIES` | 2 | Retries after the initial webhook attempt. |
 | `MUXR_RELAY_PUSH_WEBHOOK_TIMEOUT_MS` | 3000 | Deadline for each webhook attempt. |

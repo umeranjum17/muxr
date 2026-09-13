@@ -208,6 +208,7 @@ function installedHerdrReference() {
 
 const SKILL_TOPICS = {
     onboarding: 'onboarding.md',
+    configuration: 'configuration.md',
     herdr: 'herdr.md',
     collaboration: 'collaboration.md',
     'browser-takeover': 'browser-takeover.md',

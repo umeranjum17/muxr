@@ -21,7 +21,7 @@ import { checkConfigDocs, releaseFacts } from '../../release/index.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const USER_PAGES = ['docs/user/introduction.md', 'docs/user/install.md', 'docs/user/daily-use.md', 'docs/user/configuration.md', 'docs/user/trust.md', 'docs/user/troubleshooting.md'];
-const COMMAND_PAGES = [...USER_PAGES, 'README.md', 'docs/README.md', 'docs/npm-readme.md', 'plugins/README.md', 'plugins/control/README.md', 'skills/muxr/SKILL.md', 'skills/muxr/references/onboarding.md', 'skills/muxr/references/herdr.md', 'skills/muxr/references/plugins.md', 'skills/muxr/references/collaboration.md', 'skills/muxr/references/browser-takeover.md'];
+const COMMAND_PAGES = [...USER_PAGES, 'README.md', 'docs/npm-readme.md', 'plugins/README.md', 'plugins/control/README.md', 'skills/muxr/SKILL.md', 'skills/muxr/references/onboarding.md', 'skills/muxr/references/configuration.md', 'skills/muxr/references/herdr.md', 'skills/muxr/references/plugins.md', 'skills/muxr/references/collaboration.md', 'skills/muxr/references/browser-takeover.md', 'skills/muxr/references/surfaces.md'];
 const MAINTAINER_DOCS = ['ARCHITECTURE.md', 'RELEASING.md', 'NATIVE-BUILD.md', 'NEW-USER-SMOKE.md', 'HOST-CONTRACT-COMPATIBILITY.md', 'license-inventory.md', 'decisions/', 'specs/', 'CONTEXT.md', 'CONTEXT-MAP.md', 'AGENTS.md', 'CLAUDE.md', 'USE_CASES.md'];
 
 const failures = [];
