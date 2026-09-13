@@ -297,6 +297,11 @@ function directTitle(url: string): string {
     }
 }
 
+/** Unnamed local opens dock as a local app; the root path adds nothing. */
+function localTitle(path: string): string {
+    return path === '/' ? 'Local app' : `Local app ${path}`;
+}
+
 function codeTitle(path: string, line?: number): string {
     if (path === '.') return 'Worktree root';
     const base = (path.split('/').pop() ?? path).slice(0, 100);
@@ -684,9 +689,9 @@ export class SurfaceBroker {
                     capability: 'surface.browser.open',
                     name,
                     ...(request.placement === undefined ? {} : { placement: this.placementOf(request.placement) }),
-                    // Unnamed local opens dock as a local app; a port never
-                    // appears in chrome, even the one the operator typed.
-                    ...(request.name === undefined ? { title: classified.path === '/' ? 'Local app' : `Local app ${classified.path}` } : {}),
+                    // A port never appears in chrome, even the one the
+                    // operator typed.
+                    ...(request.name === undefined ? { title: localTitle(classified.path) } : {}),
                     port: classified.port,
                     path: classified.path,
                     label: name,
