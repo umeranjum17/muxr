@@ -260,7 +260,7 @@ diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/lib
 index 9d6ad16..45d564e 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
-@@ -9,6 +9,7 @@ import android.graphics.Canvas
+@@ -9,6 +9,7 @@
  import android.graphics.Paint
  import android.graphics.Path
  import android.graphics.Rect
@@ -268,7 +268,7 @@ index 9d6ad16..45d564e 100644
  import android.graphics.Typeface
  import android.provider.Settings
  import android.text.InputType
-@@ -23,6 +24,7 @@ import android.view.MenuItem
+@@ -23,6 +24,7 @@
  import android.view.MotionEvent
  import android.view.ScaleGestureDetector
  import android.view.View
@@ -276,7 +276,7 @@ index 9d6ad16..45d564e 100644
  import android.view.inputmethod.BaseInputConnection
  import android.view.inputmethod.EditorInfo
  import android.view.inputmethod.InputConnection
-@@ -30,6 +32,7 @@ import android.view.inputmethod.InputMethodManager
+@@ -30,6 +32,7 @@
  import android.widget.OverScroller
  import java.nio.ByteBuffer
  import java.nio.ByteOrder
@@ -284,7 +284,7 @@ index 9d6ad16..45d564e 100644
  import kotlin.math.ceil
  import kotlin.math.floor
  import kotlin.math.hypot
-@@ -47,7 +50,13 @@ import kotlin.math.roundToInt
+@@ -47,7 +50,13 @@
   */
  internal class GhosttyTerminalView(context: Context) : View(context) {
    var onInputBytes: ((ByteArray) -> Unit)? = null
@@ -296,20 +296,62 @@ index 9d6ad16..45d564e 100644
 +  /** Set when scrollback lives on a server; suppresses the local buffer,
 +   *  which holds only repaint diffs and shows garbage when scrolled. */
 +  var onScrollRows: ((rows: Int) -> Unit)? = null
-
+ 
    /** Sticky-modifier source for accessory-bar keys and IME text (optional). */
    var accessoryBar: TerminalAccessoryBar? = null
-@@ -72,6 +81,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -57,11 +66,35 @@
+ 
+   // ── Cell metrics ──
+   private var fontSizeDp = FONT_SIZE_DP
+-  private val textPaint = newTextPaint(Typeface.MONOSPACE)
+-  private val boldPaint = newTextPaint(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD))
+-  private val italicPaint = newTextPaint(Typeface.create(Typeface.MONOSPACE, Typeface.ITALIC))
++  // The grid is cellWidth = advance of "M", and every glyph is drawn at
++  // col * cellWidth, so the face must be genuinely monospaced. The system's
++  // Typeface.MONOSPACE is not a dependable contract: a ROM font
++  // customization, an accessibility font or an OEM variable-font
++  // substitution can resolve it to a proportional face, and then every
++  // glyph sits in an "M"-wide cell, letter-spaced, wrapping at ~30 columns.
++  // So the text is set in a face the app bundles, the way PUA cells already
++  // use the bundled symbols font, and the system face is only the fallback.
++  private val bundledMono: Typeface? = try {
++    Typeface.createFromAsset(context.assets, TEXT_FONT_ASSET)
++  } catch (e: RuntimeException) {
++    null
++  }
++  private val bundledMonoItalic: Typeface? = try {
++    Typeface.createFromAsset(context.assets, TEXT_FONT_ITALIC_ASSET)
++  } catch (e: RuntimeException) {
++    null
++  }
++  private val bundledMonoBold: Typeface? = try {
++    Typeface.createFromAsset(context.assets, TEXT_FONT_BOLD_ASSET)
++  } catch (e: RuntimeException) {
++    null
++  }
++  private val monoTypeface: Typeface = bundledMono ?: Typeface.MONOSPACE
++  private val textPaint = newTextPaint(monoTypeface)
++  private val boldPaint = newTextPaint(bundledMonoBold ?: Typeface.create(monoTypeface, Typeface.BOLD))
++  private val italicPaint = newTextPaint(bundledMonoItalic ?: Typeface.create(monoTypeface, Typeface.ITALIC))
+   private val boldItalicPaint =
+-    newTextPaint(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD_ITALIC))
++    newTextPaint(Typeface.create(bundledMonoBold ?: monoTypeface, Typeface.BOLD_ITALIC))
+ 
+   // Nerd Font private-use glyphs (powerline, devicons, …) are absent from the
+   // system fallback chain; route those cells to the bundled symbols-only font.
+@@ -72,7 +105,8 @@
    }
    private val fillPaint = Paint()
    private val cursorPaint = Paint()
+-  private var cellWidth = textPaint.measureText("M")
 +  private val kittyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFilterBitmap = true }
-   private var cellWidth = textPaint.measureText("M")
++  private var cellWidth = measureCellWidth()
    private var cellHeight = ceil(
      textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
-@@ -146,6 +156,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+   ).toInt()
+@@ -146,6 +180,18 @@
    }
-
+ 
    private var scrollAccum = 0f
 +  private val pointerSlop = ViewConfiguration.get(context).scaledTouchSlop
 +  private var pointerStartX = 0f
@@ -323,10 +365,10 @@ index 9d6ad16..45d564e 100644
 +  private var kittyCellWidth = 0f
 +  private var kittyCellHeight = 0
 +  private var kittyBitmaps = emptyList<KittyBitmap>()
-
+ 
    // ── Scrollback state ──
    private val scroller = OverScroller(context)
-@@ -166,7 +188,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -166,7 +212,7 @@
        val deltaRows = (scrollAccum / cellHeight).toInt()
        if (deltaRows != 0) {
          scrollAccum -= deltaRows * cellHeight
@@ -335,7 +377,7 @@ index 9d6ad16..45d564e 100644
          markScrollActivity()
          scheduleFrame()
        }
-@@ -194,8 +216,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -194,8 +240,7 @@
            return true
          }
          requestFocus()
@@ -344,8 +386,8 @@ index 9d6ad16..45d564e 100644
 +        if (autoShowKeyboard) showKeyboard()
          return true
        }
-
-@@ -229,7 +250,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+ 
+@@ -229,7 +274,7 @@
          val deltaRows = (scrollAccum / cellHeight).toInt()
          if (deltaRows != 0) {
            scrollAccum -= deltaRows * cellHeight
@@ -354,7 +396,42 @@ index 9d6ad16..45d564e 100644
            markScrollActivity()
            scheduleFrame()
          }
-@@ -457,7 +478,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -288,6 +333,25 @@
+   }
+ 
+   /**
++   * The cell is the advance of "M" in the face the text is drawn with. If
++   * that face turns out not to be monospaced -- the bundled asset failed to
++   * load and the system face is proportional -- the grid and the glyphs
++   * disagree and the output reads letter-spaced; say so once in the log
++   * rather than silently, since there is no narrower cell that would fit.
++   */
++  private fun measureCellWidth(): Float {
++    val wide = textPaint.measureText("M")
++    val narrow = textPaint.measureText("i")
++    if (kotlin.math.abs(wide - narrow) > 0.5f) {
++      android.util.Log.w(
++        "GhosttyTerminalView",
++        "terminal face is not monospaced (M=$wide i=$narrow); bundled=${bundledMono != null}"
++      )
++    }
++    return wide
++  }
++
++  /**
+    * Base font size in dp (default 14, clamped to 4–64 like iOS); pinch-to-zoom
+    * steps from the current value. Content reflows in place — libghostty-vt
+    * owns the grid state, so no output is lost.
+@@ -300,7 +364,7 @@
+     for (paint in arrayOf(textPaint, boldPaint, italicPaint, boldItalicPaint, symbolsPaint)) {
+       paint?.textSize = px
+     }
+-    cellWidth = textPaint.measureText("M")
++    cellWidth = measureCellWidth()
+     cellHeight = ceil(textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent).toInt()
+     baseline = -textPaint.fontMetrics.ascent
+     // Cell geometry moved under any active selection handles.
+@@ -457,7 +521,7 @@
      if (changed || force || bitmap == null) {
        GhosttyVt.nativeResize(handle, cols, rows, cellWidth.roundToInt(), cellHeight)
        allocateGridBuffers()
@@ -363,7 +440,7 @@ index 9d6ad16..45d564e 100644
      }
      scheduleFrame()
    }
-@@ -465,9 +486,22 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -465,9 +529,22 @@
    private fun allocateGridBuffers() {
      val widthPx = max(1, ceil(cols * cellWidth).toInt())
      val heightPx = max(1, rows * cellHeight)
@@ -386,15 +463,15 @@ index 9d6ad16..45d564e 100644
      }
      val capacity = HEADER_BYTES +
        rows * (ROW_HEADER_BYTES + cols * CELL_RECORD_BYTES + cols * MAX_CELL_TEXT_UNITS * 2 + 4)
-@@ -522,10 +556,85 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
-
+@@ -522,10 +599,85 @@
+ 
      if (dirtyKind == DIRTY_FULL) canvas.drawColor(defaultBg)
      repeat(rowCount) { drawRowRecord(buf, canvas, snapCols) }
 +    drawKitty(canvas)
      syncSelectionUi()
      invalidate()
    }
-
+ 
 +  private fun drawKitty(canvas: Canvas) {
 +    val generation = GhosttyVt.nativeKittyGeneration(handle)
 +    if (generation < 0) {
@@ -470,20 +547,20 @@ index 9d6ad16..45d564e 100644
 +  }
 +
    // ── Selection ──
-
+ 
    /** Top-left / bottom-right cells of the rendered selection, or null. */
-@@ -775,6 +884,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -775,6 +927,7 @@
    override fun onDetachedFromWindow() {
      super.onDetachedFromWindow()
      syncBlinkTimer()
 +    clearKittyBitmaps()
    }
-
+ 
    private fun drawRowRecord(buf: ByteBuffer, canvas: Canvas, snapCols: Int) {
-@@ -970,9 +1080,64 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -970,9 +1123,64 @@
      }
    }
-
+ 
 +  /** Explicit keyboard control; pointer focus alone must not open the IME. */
 +  fun showKeyboard() {
 +    if (handle == 0L || finished || !isAttachedToWindow) return
@@ -499,7 +576,7 @@ index 9d6ad16..45d564e 100644
 +  }
 +
    // ── Input ──
-
+ 
    override fun onTouchEvent(event: MotionEvent): Boolean {
 +    // Pointer mode: tap emits a click; drag scrolls the pane. Never both.
 +    if (pointerMode) {
@@ -545,9 +622,21 @@ index 9d6ad16..45d564e 100644
      if (event.actionMasked == MotionEvent.ACTION_DOWN) scroller.abortAnimation()
      scaleDetector.onTouchEvent(event)
      if (scaleDetector.isInProgress) {
-@@ -1131,6 +1296,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1105,6 +1313,11 @@
+     const val MAX_SCROLLBACK = 10_000L
+     const val BLINK_INTERVAL_MS = 600L
+     const val SYMBOLS_FONT_ASSET = "SymbolsNerdFontMono-Regular.ttf"
++    // Bundled by the app (android/app/src/main/assets); checked by
++    // scripts/diagnostics/application/checkTerminalFont.mjs.
++    const val TEXT_FONT_ASSET = "JetBrainsMono-Regular.ttf"
++    const val TEXT_FONT_ITALIC_ASSET = "JetBrainsMono-Italic.ttf"
++    const val TEXT_FONT_BOLD_ASSET = "JetBrainsMono-SemiBold.ttf"
+ 
+     // Nerd Font glyph ranges: BMP private-use area plus the supplementary
+     // private-use planes (material icons live at U+F0000+ since v3).
+@@ -1131,6 +1344,7 @@
      const val JUMP_CHIP_ARROW_COLOR = 0xFFE0E0E0.toInt()
-
+ 
      const val HEADER_BYTES = 52
 +    const val KITTY_PLACEMENT_HEADER_BYTES = 56
      const val ROW_HEADER_BYTES = 16
