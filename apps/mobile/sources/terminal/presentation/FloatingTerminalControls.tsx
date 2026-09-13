@@ -1,9 +1,8 @@
 import * as React from 'react';
-import { PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import type { PanelGlyphName } from '@/components/ActionShortcut';
-import { PANE_GESTURE_IGNORE_ID } from '../application/usePaneGestures';
 
 export type TerminalCommand = {
     label: string;
@@ -57,12 +56,6 @@ function Keycap({ word, label, onPress, disabled = false }: { word: string; labe
 /** The floating trigger's size and its distance from the terminal's edge. */
 export const TOOLS_TRIGGER_SIZE = 36;
 export const TOOLS_TRIGGER_MARGIN = 8;
-/**
- * The band under the last terminal row that the mark (and Jump to bottom)
- * live in: the grid stops above it, so nothing floating ever covers an
- * output row, and the mark still sits on the terminal at the thumb.
- */
-export const TOOLS_TRIGGER_BAND = TOOLS_TRIGGER_SIZE + 2 * 4;
 
 /**
  * The trigger: one small floating icon over the terminal, in the thumb
@@ -98,17 +91,9 @@ export function TerminalToolsTrigger({ side, onSideChange, onPress, blocked, exp
         onPanResponderTerminationRequest: () => false,
     })).current;
     const other: ToolsSide = side === 'left' ? 'right' : 'left';
-    // A touch on the mark is the mark's: a sideways drag docks it and must
-    // never also read as the pane's own swipe to the next agent. Natively the
-    // touch stops here; on the web the pane's listener recognises the mark
-    // by id (stopping the DOM event would starve the responder system, which
-    // listens at the document, and the drag itself).
-    const swallow = Platform.OS === 'web' ? undefined : (event: { stopPropagation: () => void }): void => event.stopPropagation();
     return (
         <View {...drag.panHandlers} collapsable={false}
-            onTouchStart={swallow} onTouchMove={swallow} onTouchEnd={swallow}
-            nativeID={PANE_GESTURE_IGNORE_ID}
-            style={{ position: 'absolute', bottom: (TOOLS_TRIGGER_BAND - TOOLS_TRIGGER_SIZE) / 2, [side]: TOOLS_TRIGGER_MARGIN }}>
+            style={{ position: 'absolute', bottom: TOOLS_TRIGGER_MARGIN, [side]: TOOLS_TRIGGER_MARGIN }}>
             <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={blocked ? 'Hide keyboard to open terminal quick actions' : expanded ? 'Close terminal quick actions' : 'Terminal quick actions'}
@@ -159,18 +144,13 @@ export function TerminalToolsPanel({ commands, bottomInset, onClose, children }:
         <View style={{ paddingHorizontal: FOOTER_EDGE, paddingTop: FOOTER_EDGE, paddingBottom: FOOTER_EDGE - PANEL_PADDING }}>
             <View accessibilityRole="menu" accessibilityLabel="Terminal quick actions"
                 style={{ maxHeight, borderRadius: 12, backgroundColor: theme.colors.surfaceHigh, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }}>
-                {/* The quick keys wrap where the width runs out (a 270dp
-                    phone takes two lines); every key stays on screen and
-                    Close ends the last line. Nothing is hidden behind a
-                    scroll a reader cannot see. */}
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, paddingHorizontal: 6, paddingVertical: PANEL_PADDING }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 6, paddingVertical: PANEL_PADDING }}>
                     {commands.map((command) => (
                         <Keycap key={command.icon} word={QUICK_KEY_WORD[command.icon] ?? command.label} label={command.label} disabled={command.disabled === true}
                             onPress={() => { if (command.dismiss) onClose(); command.run(); }} />
                     ))}
-                    <View style={{ marginLeft: 'auto' }}>
-                        <Keycap word="Close" label="Close terminal quick actions" onPress={onClose} />
-                    </View>
+                    <View style={{ flex: 1 }} />
+                    <Keycap word="Close" label="Close terminal quick actions" onPress={onClose} />
                 </View>
                 <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider }} />
                 <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingVertical: PANEL_PADDING }} keyboardShouldPersistTaps="always" nestedScrollEnabled>
