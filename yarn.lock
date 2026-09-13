@@ -4980,10 +4980,10 @@ expo-updates@55.0.15, expo-updates@~55.0.0:
     ignore "^5.3.1"
     resolve-from "^5.0.0"
 
-expo-web-browser@55.0.10, expo-web-browser@~55.0.0:
-  version "55.0.10"
-  resolved "https://registry.yarnpkg.com/expo-web-browser/-/expo-web-browser-55.0.10.tgz#f036958e6fafa9fb7ab27e84e134021713a83264"
-  integrity sha512-2d6qVrg/nt0JvW5uAqOMDG/xITIXFe1Prkq1ri+I3PrC0QmV5cMYNSagU9ykfC8S7YKWxF1qO7Qsih9fxNa9dw==
+expo-web-browser@57.0.2, expo-web-browser@~57.0.2:
+  version "57.0.2"
+  resolved "https://registry.yarnpkg.com/expo-web-browser/-/expo-web-browser-57.0.2.tgz#37a9386069bbf0a35709b3f0b394f195dc1cd43a"
+  integrity sha512-3vl5kvd7PB48ub6PpNIJUuPxO8xVa6D8RnIgNba6SXRwqFprOfeEZgwTgtm41kz0AAtvMOztUVNEUkwrHKjqMQ==
 
 expo@55.0.8, expo@~55.0.8:
   version "55.0.8"
