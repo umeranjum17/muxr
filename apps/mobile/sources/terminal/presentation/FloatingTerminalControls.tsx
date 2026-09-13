@@ -15,26 +15,24 @@ export type TerminalCommand = {
 export type ToolsSide = 'left' | 'right';
 
 export const FOOTER_ROW_HEIGHT = 52;
-const KEY = 44;
+/** The footer's own edge: keys start here, the panel's card ends here. */
+export const FOOTER_EDGE = 8;
+const KEY_HEIGHT = 44;
 const ROW = 44;
 const PANEL_PADDING = 4;
 // A sideways pull past this flips the dock; anything shorter is a tap.
 const FLIP_DISTANCE = 40;
-/** The card's width where the window allows it; narrower windows take the width minus the margins. */
-const PANEL_WIDTH = 320;
 
-/** The glyph a strip key shows for a terminal command; the label stays its accessible name. */
-const STRIP_GLYPH: Partial<Record<PanelGlyphName, React.ComponentProps<typeof Ionicons>['name']>> = { keyboard: 'keypad-outline', reset: 'refresh-outline', close: 'close-outline' };
-const STRIP_WORD: Partial<Record<PanelGlyphName, string>> = { minus: '\u2212', plus: '+' };
+/** The word a quick key shows for a terminal command; the label stays its accessible name. */
+const QUICK_KEY_WORD: Partial<Record<PanelGlyphName, string>> = { keyboard: 'Keyboard', minus: '−', plus: '+', reset: 'Reset' };
 
 /**
- * One key in the card's strip across the top: a 44dp control with one
- * outline glyph at 20dp (or the bare zoom sign), the register every
- * control on this screen keeps.
+ * One key in the panel's quick row: the same cap as ctrl/shift/esc beneath
+ * it, a word or a symbol on it, never a drawing, so the row of quick keys
+ * and the row of accessory keys read as one family.
  */
-function StripKey({ glyph, label, onPress, disabled = false }: { glyph: PanelGlyphName; label: string; onPress: () => void; disabled?: boolean }) {
+function Keycap({ word, label, onPress, disabled = false }: { word: string; label: string; onPress: () => void; disabled?: boolean }) {
     const { theme } = useUnistyles();
-    const word = STRIP_WORD[glyph];
     return (
         <Pressable
             accessibilityRole="button"
@@ -43,15 +41,15 @@ function StripKey({ glyph, label, onPress, disabled = false }: { glyph: PanelGly
             disabled={disabled}
             onPress={onPress}
             style={({ pressed }) => ({
-                width: KEY, height: KEY, borderRadius: 8,
+                minWidth: 44, height: KEY_HEIGHT, paddingHorizontal: 10, borderRadius: 6,
                 alignItems: 'center', justifyContent: 'center',
-                backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent',
-                opacity: disabled ? 0.35 : 1,
+                // One step up from the card, as the keys are from the footer.
+                backgroundColor: theme.colors.surfaceHighest,
+                opacity: disabled ? 0.4 : pressed ? 0.6 : 1,
             })}
         >
-            {word === undefined
-                ? <Ionicons name={STRIP_GLYPH[glyph] ?? 'ellipse-outline'} size={20} color={theme.colors.text} />
-                : <Text style={{ fontSize: 20, lineHeight: 24, color: theme.colors.text }}>{word}</Text>}
+            {/* Set like ctrl/shift beside it: the default face, one weight. */}
+            <Text style={{ fontSize: word.length > 1 ? 14 : 16, lineHeight: 20, color: theme.colors.text }}>{word}</Text>
         </Pressable>
     );
 }
@@ -60,12 +58,11 @@ function StripKey({ glyph, label, onPress, disabled = false }: { glyph: PanelGly
 export const TOOLS_TRIGGER_SIZE = 36;
 export const TOOLS_TRIGGER_MARGIN = 8;
 /**
- * The inset the terminal keeps at its bottom: the grid ends this far above
- * the container's edge, so the mark, which sits on the terminal at the
- * thumb, never has an output row underneath it. Jump to bottom uses the
- * same inset at the other corner.
+ * The band under the last terminal row that the mark (and Jump to bottom)
+ * live in: the grid stops above it, so nothing floating ever covers an
+ * output row, and the mark still sits on the terminal at the thumb.
  */
-export const TOOLS_TRIGGER_INSET = TOOLS_TRIGGER_SIZE + 2 * TOOLS_TRIGGER_MARGIN;
+export const TOOLS_TRIGGER_BAND = TOOLS_TRIGGER_SIZE + 2 * 4;
 
 /**
  * The trigger: one small floating icon over the terminal, in the thumb
@@ -75,8 +72,7 @@ export const TOOLS_TRIGGER_INSET = TOOLS_TRIGGER_SIZE + 2 * TOOLS_TRIGGER_MARGIN
  * edge, translucent, and it dims while the output is being read back so
  * it never hides a line that matters. Dragging it sideways moves it to the
  * other edge; the same move is offered as an accessibility action. While
- * its card is open the card sits over it; a second tap on the same spot
- * (the card's own close) closes it.
+ * its panel is open it stays put and lit, and a second tap closes it.
  */
 export function TerminalToolsTrigger({ side, onSideChange, onPress, blocked, expanded, dimmed }: {
     side: ToolsSide;
@@ -112,7 +108,7 @@ export function TerminalToolsTrigger({ side, onSideChange, onPress, blocked, exp
         <View {...drag.panHandlers} collapsable={false}
             onTouchStart={swallow} onTouchMove={swallow} onTouchEnd={swallow}
             nativeID={PANE_GESTURE_IGNORE_ID}
-            style={{ position: 'absolute', bottom: TOOLS_TRIGGER_MARGIN, [side]: TOOLS_TRIGGER_MARGIN }}>
+            style={{ position: 'absolute', bottom: (TOOLS_TRIGGER_BAND - TOOLS_TRIGGER_SIZE) / 2, [side]: TOOLS_TRIGGER_MARGIN }}>
             <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={blocked ? 'Hide keyboard to open terminal quick actions' : expanded ? 'Close terminal quick actions' : 'Terminal quick actions'}
@@ -125,61 +121,62 @@ export function TerminalToolsTrigger({ side, onSideChange, onPress, blocked, exp
                 style={({ pressed }) => ({
                     width: TOOLS_TRIGGER_SIZE, height: TOOLS_TRIGGER_SIZE, borderRadius: 10,
                     alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: theme.colors.surfaceHigh,
+                    backgroundColor: expanded ? theme.colors.accent : theme.colors.surfaceHigh,
                     borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider,
                     opacity: pressed ? 0.7 : expanded ? 1 : dimmed ? 0.35 : 0.88,
                 })}
             >
-                <Ionicons name="options-outline" size={20} color={theme.colors.text} />
+                <Ionicons name="options-outline" size={20} color={expanded ? theme.colors.button.primary.tint : theme.colors.text} />
             </Pressable>
         </View>
     );
 }
 
 /**
- * The open card: a compact rounded card floating over the terminal, its
- * corner on the mark that opened it (the hand's side, just above the
- * footer), elevated above the output rows it partly covers. Across its top
- * the strip: the terminal's own keyboard and zoom, then the close, as 44dp
- * glyph keys; a hairline; then the labelled rows with their data inline,
- * one line each, sized to content. It never grows past the terminal's own
- * height; a list longer than that (many open surfaces) scrolls, which is
- * the fallback and not the design. A tap on the terminal, Back and Escape
+ * The open Tools panel: one card anchored directly above the key row that
+ * opened it, at every width, in flow -- never over terminal rows, never a
+ * corner card in a gutter. Its edges are the footer's edges. Inside, one
+ * register: a row of quick keys across the top (the terminal's own
+ * keyboard and zoom, then Close), set exactly like the accessory keys
+ * beneath the panel; a hairline; then the labelled rows with their data
+ * inline, one line each. It takes at most half the screen so the terminal
+ * keeps at least the rows it had while typing; a longer list scrolls and
+ * rows never shrink. The Tools key, a tap on the terminal, Back and Escape
  * close it too.
  */
-export function TerminalToolsPanel({ commands, side, maxHeight, onClose, children }: {
+export function TerminalToolsPanel({ commands, bottomInset, onClose, children }: {
     commands: readonly TerminalCommand[];
-    side: ToolsSide;
-    /** The terminal container's height: the card stays inside it. */
-    maxHeight: number;
+    bottomInset: number;
     onClose: () => void;
     children: React.ReactNode;
 }) {
     const { theme } = useUnistyles();
-    const { width } = useWindowDimensions();
+    const { height } = useWindowDimensions();
+    const maxHeight = Math.max(ROW * 3, Math.floor(height / 2) - bottomInset - FOOTER_EDGE);
     return (
-        <View accessibilityRole="menu" accessibilityLabel="Terminal quick actions"
-            style={{
-                position: 'absolute', bottom: TOOLS_TRIGGER_MARGIN, [side]: TOOLS_TRIGGER_MARGIN,
-                width: Math.min(PANEL_WIDTH, width - 2 * TOOLS_TRIGGER_MARGIN),
-                maxHeight: Math.max(KEY + ROW, maxHeight - 2 * TOOLS_TRIGGER_MARGIN),
-                borderRadius: 14, overflow: 'hidden',
-                backgroundColor: theme.colors.surfaceHigh,
-                borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider,
-                elevation: 12,
-                shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
-            }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: PANEL_PADDING, paddingVertical: PANEL_PADDING }}>
-                {commands.map((command) => (
-                    <StripKey key={command.icon} glyph={command.icon} label={command.label} disabled={command.disabled === true}
-                        onPress={() => { if (command.dismiss) onClose(); command.run(); }} />
-                ))}
-                <StripKey glyph="close" label="Close terminal quick actions" onPress={onClose} />
+        // The card sits the footer's edge in on three sides; the keys below
+        // already carry their own top margin, so the bottom gap matches.
+        <View style={{ paddingHorizontal: FOOTER_EDGE, paddingTop: FOOTER_EDGE, paddingBottom: FOOTER_EDGE - PANEL_PADDING }}>
+            <View accessibilityRole="menu" accessibilityLabel="Terminal quick actions"
+                style={{ maxHeight, borderRadius: 12, backgroundColor: theme.colors.surfaceHigh, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }}>
+                {/* The quick keys wrap where the width runs out (a 270dp
+                    phone takes two lines); every key stays on screen and
+                    Close ends the last line. Nothing is hidden behind a
+                    scroll a reader cannot see. */}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, paddingHorizontal: 6, paddingVertical: PANEL_PADDING }}>
+                    {commands.map((command) => (
+                        <Keycap key={command.icon} word={QUICK_KEY_WORD[command.icon] ?? command.label} label={command.label} disabled={command.disabled === true}
+                            onPress={() => { if (command.dismiss) onClose(); command.run(); }} />
+                    ))}
+                    <View style={{ marginLeft: 'auto' }}>
+                        <Keycap word="Close" label="Close terminal quick actions" onPress={onClose} />
+                    </View>
+                </View>
+                <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider }} />
+                <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingVertical: PANEL_PADDING }} keyboardShouldPersistTaps="always" nestedScrollEnabled>
+                    {children}
+                </ScrollView>
             </View>
-            <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider }} />
-            <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ paddingVertical: PANEL_PADDING }} keyboardShouldPersistTaps="always" nestedScrollEnabled>
-                {children}
-            </ScrollView>
         </View>
     );
 }
