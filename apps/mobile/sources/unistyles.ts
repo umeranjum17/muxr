@@ -1,7 +1,7 @@
 import { StyleSheet, UnistylesRuntime } from 'react-native-unistyles';
 import { darkTheme, lightTheme } from '@/theme';
 import { loadThemePreference } from '@/catalog/application/persistence';
-import { Appearance, Platform } from 'react-native';
+import { Platform } from 'react-native';
 import * as SystemUI from 'expo-system-ui';
 
 //
@@ -22,17 +22,11 @@ const breakpoints = {
     // use as many breakpoints as you need
 };
 
-// Load theme preference from storage
-const themePreference = loadThemePreference();
+export type ThemePreference = 'light' | 'dark' | 'adaptive';
 
-// Determine initial theme and adaptive settings
-const getInitialTheme = (): 'light' | 'dark' => {
-    if (themePreference === 'adaptive') {
-        const systemTheme = Appearance.getColorScheme();
-        return systemTheme === 'dark' ? 'dark' : 'light';
-    }
-    return themePreference;
-};
+// The preference at boot picks the configuration; changes after boot go
+// through applyThemePreference below.
+const themePreference = loadThemePreference();
 
 const settings = themePreference === 'adaptive'
     ? {
@@ -42,7 +36,7 @@ const settings = themePreference === 'adaptive'
     }
     : {
         // When fixed theme, set the initial theme explicitly
-        initialTheme: getInitialTheme(),
+        initialTheme: themePreference,
         CSSVars: true, // Enable CSS variables for web
     };
 
@@ -64,34 +58,61 @@ StyleSheet.configure({
     themes: appThemes,
 })
 
-// Set initial root view background color based on theme
-const setRootBackgroundColor = () => {
-    if (themePreference === 'adaptive') {
-        const systemTheme = Appearance.getColorScheme();
-        const color = systemTheme === 'dark' ? appThemes.dark.colors.groupped.background : appThemes.light.colors.groupped.background;
-        UnistylesRuntime.setRootViewBackgroundColor(color);
-        SystemUI.setBackgroundColorAsync(color);
-    } else {
-        const color = themePreference === 'dark' ? appThemes.dark.colors.groupped.background : appThemes.light.colors.groupped.background;
-        UnistylesRuntime.setRootViewBackgroundColor(color);
-        SystemUI.setBackgroundColorAsync(color);
+/**
+ * The ground behind the app follows the theme in force. Native's root view
+ * shows behind navigator transitions; web's ground is CSS (theme.css) and
+ * follows the theme variables by itself.
+ */
+function syncGround(): void {
+    if (Platform.OS === 'web') return;
+    const ground = appThemes[UnistylesRuntime.themeName ?? 'light'].colors.groupped.background;
+    UnistylesRuntime.setRootViewBackgroundColor(ground);
+    void SystemUI.setBackgroundColorAsync(ground);
+}
+
+/**
+ * Bring every theme reader back to the one theme Unistyles currently holds.
+ *
+ * The app paints through two representations: StyleSheet.create styles,
+ * which on web are CSS variables the browser resolves from `:root`'s class
+ * or the prefers-color-scheme media rule, and useUnistyles() hooks, which
+ * hold a snapshot they refresh only on a Theme event. Unistyles' own
+ * switching leaves the two apart: setAdaptiveThemes(true) keeps the fixed
+ * theme's `:root` class, so variables stay pinned while hooks follow the
+ * OS; setTheme() emits nothing when the name equals its boot snapshot, so
+ * hooks keep a stale theme while the variables switch. Cleaning the class
+ * list and re-emitting the current theme once (an identity updateTheme)
+ * lets every mounted hook re-read the same theme the stylesheet uses.
+ */
+function syncThemeReaders(): void {
+    const name = UnistylesRuntime.themeName ?? 'light';
+    if (Platform.OS === 'web') {
+        const root = document.documentElement.classList;
+        root.remove('light', 'dark');
+        if (!UnistylesRuntime.hasAdaptiveThemes) root.add(name);
     }
-};
+    UnistylesRuntime.updateTheme(name, (theme) => theme);
+    syncGround();
+}
 
-// Set initial background color
-setRootBackgroundColor();
+/** The one way the theme changes after boot: the appearance setting. */
+export function applyThemePreference(preference: ThemePreference): void {
+    if (preference === 'adaptive') {
+        UnistylesRuntime.setAdaptiveThemes(true);
+    } else {
+        UnistylesRuntime.setAdaptiveThemes(false);
+        UnistylesRuntime.setTheme(preference);
+    }
+    syncThemeReaders();
+}
 
-// Re-sync theme when tab becomes visible (web only — Appearance API may miss changes while hidden)
-if (Platform.OS === 'web' && themePreference === 'adaptive') {
+syncGround();
+
+// A hidden tab can miss the OS scheme change that adaptive mode follows;
+// coming back re-syncs the hooks to whatever the variables already show.
+// Reads the live mode, so a fixed theme chosen in this session stays.
+if (Platform.OS === 'web') {
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-            const themeName = Appearance.getColorScheme() === 'dark' ? 'dark' : 'light';
-            // Toggle adaptive off, set correct theme, toggle back on
-            UnistylesRuntime.setAdaptiveThemes(false);
-            UnistylesRuntime.setTheme(themeName);
-            UnistylesRuntime.setAdaptiveThemes(true);
-            const color = appThemes[themeName].colors.groupped.background;
-            UnistylesRuntime.setRootViewBackgroundColor(color);
-        }
+        if (document.visibilityState === 'visible' && UnistylesRuntime.hasAdaptiveThemes) syncThemeReaders();
     });
 }

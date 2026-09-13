@@ -6,13 +6,11 @@ import { ItemList } from '@/components/ItemList';
 import { useSettingMutable, useLocalSettingMutable } from '@/catalog/store';
 import { useRouter } from 'expo-router';
 import * as Localization from 'expo-localization';
-import { useUnistyles, UnistylesRuntime } from 'react-native-unistyles';
+import { useUnistyles } from 'react-native-unistyles';
 import { Switch } from '@/components/Switch';
 import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { TERMINAL_FONT_SIZES } from '@/catalog/application/localSettings';
-import { Appearance } from 'react-native';
-import * as SystemUI from 'expo-system-ui';
-import { darkTheme, lightTheme } from '@/theme';
+import { applyThemePreference, type ThemePreference } from '@/unistyles';
 import { t, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
 
 // Define known avatar styles for this version of the app
@@ -44,21 +42,9 @@ export default function AppearanceSettingsScreen() {
         { key: 'brutalist', name: t('settingsAppearance.avatarOptions.brutalist') },
     ];
     const fontOptions: ModelMode[] = TERMINAL_FONT_SIZES.map((size) => ({ key: String(size), name: `${size} px` }));
-    const applyTheme = (nextTheme: 'adaptive' | 'light' | 'dark') => {
+    const applyTheme = (nextTheme: ThemePreference) => {
         setThemePreference(nextTheme);
-        if (nextTheme === 'adaptive') {
-            UnistylesRuntime.setAdaptiveThemes(true);
-            const systemTheme = Appearance.getColorScheme();
-            const color = systemTheme === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
-            UnistylesRuntime.setRootViewBackgroundColor(color);
-            SystemUI.setBackgroundColorAsync(color);
-        } else {
-            UnistylesRuntime.setAdaptiveThemes(false);
-            UnistylesRuntime.setTheme(nextTheme);
-            const color = nextTheme === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
-            UnistylesRuntime.setRootViewBackgroundColor(color);
-            SystemUI.setBackgroundColorAsync(color);
-        }
+        applyThemePreference(nextTheme);
     };
     const [preferredLanguage] = useSettingMutable('preferredLanguage');
 

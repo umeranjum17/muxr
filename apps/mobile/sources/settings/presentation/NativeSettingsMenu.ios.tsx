@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Host, HStack, Menu, Spacer } from '@expo/ui/swift-ui';
+import { useUnistyles } from 'react-native-unistyles';
 import { contentShape, frame, opacity, shapes, tint } from '@expo/ui/swift-ui/modifiers';
 import type { NativeSettingsMenuProps } from './NativeSettingsMenu.types';
 
@@ -22,12 +23,15 @@ const styles = StyleSheet.create({
 });
 
 export function NativeSettingsMenu({ groups, children, style, flat = false }: NativeSettingsMenuProps) {
+    // The SwiftUI menu is a sheet over the app's chrome: it follows the app
+    // theme, not a fixed dark material.
+    const { theme } = useUnistyles();
     return (
         <View style={[styles.container, style]}>
             <View pointerEvents="none" style={styles.trigger}>{children}</View>
-            <Host colorScheme="dark" style={styles.host}>
+            <Host colorScheme={theme.dark ? 'dark' : 'light'} style={styles.host}>
                 <Menu
-                    modifiers={[tint('#FFFFFF')]}
+                    modifiers={[tint(theme.colors.text)]}
                     label={(
                         <HStack modifiers={[
                             frame({ maxWidth: 10000, minHeight: 40 }),
@@ -52,7 +56,7 @@ export function NativeSettingsMenu({ groups, children, style, flat = false }: Na
                             key={group.key}
                             label={group.label}
                             systemImage={group.systemImage}
-                            modifiers={[tint('#FFFFFF')]}
+                            modifiers={[tint(theme.colors.text)]}
                         >
                             {group.options.map((option) => (
                                 <Button

@@ -4,6 +4,7 @@ import { Modal } from '@/modal/ModalManager';
 import { WebAlertModal } from '@/modal/components/WebAlertModal';
 import { WebPromptModal } from '@/modal/components/WebPromptModal';
 import { CustomModal } from '@/modal/components/CustomModal';
+import { SurfaceTheme, useActiveSurfaceTheme } from '@/components/SurfaceTheme';
 
 const ModalContext = createContext<ModalContextValue | undefined>(undefined);
 
@@ -77,12 +78,15 @@ export function ModalProvider({ children }: { children: React.ReactNode }) {
     };
 
     const currentModal = state.modals[state.modals.length - 1];
+    // A static Modal.* call has no place in the tree, so the dialog mounts
+    // here at the root; it is painted for the surface it opens over.
+    const surface = useActiveSurfaceTheme();
 
     return (
         <ModalContext.Provider value={contextValue}>
             {children}
             {currentModal && (
-                <>
+                <SurfaceTheme name={surface}>
                     {currentModal.type === 'alert' && (
                         <WebAlertModal
                             config={currentModal}
@@ -115,7 +119,7 @@ export function ModalProvider({ children }: { children: React.ReactNode }) {
                             onClose={() => hideModal(currentModal.id)}
                         />
                     )}
-                </>
+                </SurfaceTheme>
             )}
         </ModalContext.Provider>
     );

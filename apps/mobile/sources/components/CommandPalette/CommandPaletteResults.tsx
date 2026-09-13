@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
-import { View, ScrollView, Text, StyleSheet, Platform } from 'react-native';
+import { View, ScrollView, Text, Platform } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { Command, CommandCategory } from '@/components/CommandPalette/types';
 import { CommandPaletteItem } from '@/components/CommandPalette/CommandPaletteItem';
 import { Typography } from '@/constants/Typography';
@@ -97,7 +98,7 @@ export function CommandPaletteResults({
     );
 }
 
-const styles = StyleSheet.create({
+const styles = StyleSheet.create((theme) => ({
     container: {
         // Use viewport-based height for better proportions
         ...(Platform.OS === 'web' ? {
@@ -113,7 +114,7 @@ const styles = StyleSheet.create({
     },
     emptyText: {
         fontSize: 15,
-        color: '#999',
+        color: theme.colors.textSecondary,
         letterSpacing: -0.2,
     },
     categoryTitle: {
@@ -121,9 +122,9 @@ const styles = StyleSheet.create({
         paddingTop: 16,
         paddingBottom: 8,
         fontSize: 12,
-        color: '#999',
+        color: theme.colors.textSecondary,
         textTransform: 'uppercase',
         letterSpacing: 0.8,
         fontWeight: '600',
     },
-});
+}));

@@ -19,6 +19,7 @@ import { Typography } from '@/constants/Typography';
 import { ProviderIcon } from '@/components/ProviderIcon';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { hapticsLight } from '@/components/haptics';
+import { SurfaceTheme } from '@/components/SurfaceTheme';
 import { t } from '@/text';
 export interface ModelMode {
     key: string;
@@ -41,21 +42,7 @@ function formatContextWindow(contextWindow?: number): string | null {
     return `${Math.round(contextWindow / 1000)}K`;
 }
 
-export function OptionSheet({
-    visible,
-    title,
-    options: models,
-    selectedKey,
-    onSelect,
-    onClose,
-    emptyText,
-    footer,
-    body,
-    virtualizedBody = false,
-    virtualizedBodyHeight,
-    onSubmitCustom,
-    searchPlaceholder,
-}: {
+type OptionSheetProps = {
     visible: boolean;
     title: string;
     options: ModelMode[];
@@ -73,21 +60,49 @@ export function OptionSheet({
     // Lets the search field double as free-text entry (custom project paths).
     onSubmitCustom?: (value: string) => void;
     searchPlaceholder?: string;
-}) {
+};
+
+export function OptionSheet(props: OptionSheetProps) {
+    const { visible, onClose } = props;
+    useWebBackCloses(visible, onClose, 'muxrSheet');
+    // The sheet's content mounts when `visible` flips, from this component's
+    // own render, so the surface it covers is re-applied here, inside the
+    // Modal, where that content actually mounts. Closing unmounts it: a
+    // reopened sheet starts from a clean slate by construction.
+    return (
+        <RNModal
+            visible={visible}
+            transparent
+            animationType="slide"
+            onRequestClose={onClose}
+            statusBarTranslucent
+        >
+            <SurfaceTheme>
+                <OptionSheetContent {...props} />
+            </SurfaceTheme>
+        </RNModal>
+    );
+}
+
+function OptionSheetContent({
+    title,
+    options: models,
+    selectedKey,
+    onSelect,
+    onClose,
+    emptyText,
+    footer,
+    body,
+    virtualizedBody = false,
+    virtualizedBodyHeight,
+    onSubmitCustom,
+    searchPlaceholder,
+}: OptionSheetProps) {
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
     const { height: windowHeight } = useWindowDimensions();
     const [search, setSearch] = React.useState('');
     const [provider, setProvider] = React.useState<string>(ALL_PROVIDERS);
-
-    // A sheet reopened after a switch should start from a clean slate.
-    useWebBackCloses(visible, onClose, 'muxrSheet');
-    React.useEffect(() => {
-        if (!visible) {
-            setSearch('');
-            setProvider(ALL_PROVIDERS);
-        }
-    }, [visible]);
 
     const providers = React.useMemo(() => groupByProvider(models), [models]);
     const visibleModels = React.useMemo(
@@ -113,12 +128,13 @@ export function OptionSheet({
         onClose();
     };
 
+    // Rows the list mounts as it scrolls arrive outside this render pass.
     const renderRow = (model: ModelMode) => {
         const isSelected = model.key === selectedKey;
         const context = formatContextWindow(model.contextWindow);
         return (
+            <SurfaceTheme key={model.key}>
             <Pressable
-                key={model.key}
                 onPress={() => select(model)}
                 style={({ pressed }) => [
                     styles.row,
@@ -144,17 +160,11 @@ export function OptionSheet({
                 {context && <Text style={styles.contextChip}>{context}</Text>}
                 {model.agentKind && isSelected && <Ionicons name="checkmark-circle" size={20} color={theme.colors.textLink} />}
             </Pressable>
+            </SurfaceTheme>
         );
     };
 
     return (
-        <RNModal
-            visible={visible}
-            transparent
-            animationType="slide"
-            onRequestClose={onClose}
-            statusBarTranslucent
-        >
             <View style={styles.overlay}>
                 <TouchableWithoutFeedback onPress={onClose}>
                     <View style={styles.backdrop} />
@@ -254,7 +264,6 @@ export function OptionSheet({
                     )}
                 </View>
             </View>
-        </RNModal>
     );
 }
 
