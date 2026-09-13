@@ -132,11 +132,13 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     const gitStatus = useSessionGitStatus(props.id);
     const pluginButtons = useSessionPlugins();
     const declaredActions = useDeclarativeSessionActions(session?.metadata?.path);
-    // Tools order is fixed by the brief -- Files, Changes, then the
-    // Applications launcher -- whatever order the plugins were installed in.
+    // The quick-actions list has a fixed order -- Files, Changes, then the
+    // Applications launcher -- keyed by the declarations' identities, never
+    // by a label, whatever order the plugins were installed in.
     const quickActions = React.useMemo(() => {
-        const rank = (label: string): number => (label === 'Files' ? 0 : label === 'Changes' ? 1 : 2);
-        return declaredActions.filter((action) => action.quickAction).sort((left, right) => rank(left.label) - rank(right.label));
+        const order = ['muxr.code:files.open', 'muxr.code:changes', 'muxr.panes:tools-sheet'];
+        const rank = (key: string): number => { const index = order.indexOf(key); return index === -1 ? order.length : index; };
+        return declaredActions.filter((action) => action.quickAction).sort((left, right) => rank(left.key) - rank(right.key));
     }, [declaredActions]);
     const paneActions = React.useMemo(() => declaredActions.filter((action) => !action.quickAction), [declaredActions]);
     const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
@@ -676,7 +678,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 <React.Suspense fallback={<TerminalViewFallback />}>
                     <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} attempt={openAttempt} />
                 </React.Suspense>
-                {toolsOpen && <Pressable accessibilityLabel="Close Tools" onPress={closeTools} style={StyleSheet.absoluteFill} />}
+                {toolsOpen && <Pressable accessibilityLabel="Close terminal quick actions" onPress={closeTools} style={StyleSheet.absoluteFill} />}
                 {/* Connection changes are announced, not only coloured: the pill
                     is visual, this one line is for assistive tech. */}
                 <Text accessibilityLiveRegion="polite" style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}>
