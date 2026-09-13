@@ -929,7 +929,11 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                     showsHorizontalScrollIndicator={false}
                     keyboardShouldPersistTaps="always"
                     style={{ maxHeight: FOOTER_ROW_HEIGHT }}
-                    contentContainerStyle={{ minHeight: FOOTER_ROW_HEIGHT, alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 6 }}
+                    // Moshi-measured strip: 7dp gaps, 10dp row inset, 58dp
+                    // pitch. Single-row horizontal scroll, never wraps -- the
+                    // content runs past the edge with a visible mid-cap cut,
+                    // so more keys are never hidden without a cue.
+                    contentContainerStyle={{ minHeight: FOOTER_ROW_HEIGHT, alignItems: 'center', gap: 7, paddingHorizontal: 10, paddingVertical: 6 }}
                 >
                     <DeclarativeTerminalKeySlot channel={channel} />
                 </ScrollView>
