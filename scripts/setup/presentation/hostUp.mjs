@@ -1,10 +1,16 @@
 /** Run the user-operated host bridge. In self-host mode this process also owns the relay child. */
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { ensureHerdrServer } from '../infrastructure/herdr.mjs';
-import { hostEntry, relayEntry } from '../infrastructure/paths.mjs';
+import { hostEntry, relayEntry, webClientRoot } from '../infrastructure/paths.mjs';
+import { readSelfhostState, readDesiredConfig } from '../infrastructure/selfhost.mjs';
+
+/** auto binds loopback for browser/tunnel routes, all interfaces for direct/private/LAN. */
+function resolveBindHost(bindHost, connectionMode) {
+    if (bindHost === '127.0.0.1' || bindHost === '0.0.0.0') return bindHost;
+    return ['tailscale', 'external', 'cloudflare'].includes(connectionMode) ? '127.0.0.1' : '0.0.0.0';
+}
 
 const hostPath = hostEntry();
 const relayPath = relayEntry();
@@ -80,10 +86,22 @@ process.on('exit', () => {
 const mode = process.env.MUXR_MODE;
 if (mode === 'selfhost' || mode === 'relay') {
     const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
-    const state = JSON.parse(readFileSync(join(root, 'selfhost.json'), 'utf8'));
+    // Applied view: machine identity and the actual advertised endpoint.
+    // Desired: the editable values a manual selfhost.json edit changes — so a
+    // restart honours them instead of a stale persisted webRoot/bindHost.
+    const state = readSelfhostState();
+    if (state === undefined) throw new Error('self-host relay state is missing or unreadable');
+    const desired = readDesiredConfig() ?? {};
     if (mode === 'relay' || state.relayLocation !== 'remote') {
-        const port = Number(state.relayPort);
+        const port = Number(desired.relayPort ?? state.relayPort);
         if (!Number.isInteger(port)) throw new Error('self-host relay state has no valid port');
+        const connectionMode = desired.connectionMode ?? state.connectionMode;
+        // webRoot is derived from desired webEnabled and the current package,
+        // never inherited: false removes static serving and its web origin.
+        const webEnabled = desired.webEnabled === true;
+        const webRoot = webEnabled ? webClientRoot() : undefined;
+        if (webEnabled && webRoot === undefined) process.stderr.write('muxr: web is enabled but the packaged web client is missing; serving without it\n');
+        const webOrigin = webRoot !== undefined && typeof state.relayUrl === 'string' ? state.relayUrl.replace(/^wss/, 'https') : undefined;
         const relay = start(relayPath, {
             ...process.env,
             MUXR_RELAY_LOCAL_AUTHORITY: '1',
@@ -91,12 +109,12 @@ if (mode === 'selfhost' || mode === 'relay') {
             ...(state.machine?.id ? { MUXR_RELAY_MDNS_MACHINE: state.machine.id } : {}),
             ...(state.machine?.name ? { MUXR_RELAY_MDNS_NAME: `muxr ${state.machine.name}` } : {}),
             ...(state.relayUrl ? { MUXR_RELAY_MDNS_RELAY: state.relayUrl } : {}),
-            ...(state.connectionMode ? { MUXR_RELAY_MDNS_MODE: state.connectionMode } : {}),
+            ...(connectionMode ? { MUXR_RELAY_MDNS_MODE: connectionMode } : {}),
             MUXR_RELAY_PORT: String(port),
-            MUXR_RELAY_HOST: state.bindHost || '0.0.0.0',
+            MUXR_RELAY_HOST: resolveBindHost(desired.bindHost ?? 'auto', connectionMode),
             MUXR_RELAY_DATA_DIR: join(root, 'relay'),
-            ...(state.webRoot ? { MUXR_WEB_ROOT: state.webRoot } : {}),
-            ...(state.webOrigin ? { MUXR_ALLOWED_ORIGINS: state.webOrigin } : {}),
+            ...(webRoot !== undefined ? { MUXR_WEB_ROOT: webRoot } : {}),
+            ...(webOrigin !== undefined ? { MUXR_ALLOWED_ORIGINS: webOrigin } : {}),
         });
         try { await waitForRelay(port); }
         catch (cause) {

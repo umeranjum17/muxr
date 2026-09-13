@@ -35,7 +35,7 @@ import {
     SERVE_OWNED_ERROR,
     stopOwnedSelfhostRelay,
     tailscaleServeFailure,
-    writeSelfhostState,
+    mergeSelfhostRuntime,
 } from './selfhost.mjs';
 
 export function enrollmentPayload(link) {
@@ -230,11 +230,15 @@ export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOr
     throw new Error(`self-host relay did not come up on :${port}; see ${logPath}`);
 }
 export function persistRelayRuntimeState({ state, health }) {
-    state.bindHost = health.bindHost === '127.0.0.1' ? '127.0.0.1' : '0.0.0.0';
-    state.webEnabled = health.webEnabled === true;
-    state.webRoot = state.webEnabled ? join(dirname(realpathSync(process.argv[1])), 'web') : undefined;
-    state.webOrigin = state.webEnabled && typeof state.relayUrl === 'string' ? state.relayUrl.replace(/^wss/, 'https') : undefined;
-    writeSelfhostState(state);
+    // Observations are generated state: they record what the relay is actually
+    // doing into `runtime`, and must never assign a top-level (desired) value.
+    const webEnabled = health.webEnabled === true;
+    mergeSelfhostRuntime({
+        bindHost: health.bindHost === '127.0.0.1' ? '127.0.0.1' : '0.0.0.0',
+        webEnabled,
+        webRoot: webEnabled ? join(dirname(realpathSync(process.argv[1])), 'web') : undefined,
+        webOrigin: webEnabled && typeof state.relayUrl === 'string' ? state.relayUrl.replace(/^wss/, 'https') : undefined,
+    });
 }
 
 /**
