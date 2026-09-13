@@ -336,7 +336,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                             setScaleIndex(0);
                         }
                         setGraphicsActive(live);
-                        setGraphicsReason(active ? undefined : reason);
+                        // A pane the desktop is not showing simply sends no
+                        // pictures; its text keeps flowing and the picture
+                        // returns by itself when the desktop shows it. That is
+                        // the ordinary state of most panes, not a condition to
+                        // announce over the output. Only graphics that stopped
+                        // and need a Retry are named.
+                        setGraphicsReason(active || reason === 'pane-off-surface' ? undefined : reason);
                     });
                     // One Ghostty write at a time, in wire order. Graphics can
                     // update independent placements or delete an earlier image;
@@ -490,49 +496,32 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             </Animated.View>
             </GestureDetector>
             {graphicsReason !== undefined && (
-                <View
-                    // A pane Herdr is not rendering is not broken, and the user
-                    // may well keep typing into it, so this variant is a label
-                    // rather than a control and never takes a touch.
-                    pointerEvents={graphicsReason === 'pane-off-surface' ? 'none' : 'auto'}
-                    style={{
-                    position: 'absolute',
-                    left: 10,
-                    right: 10,
-                    bottom: 10,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 10,
-                    borderRadius: 10,
-                    paddingVertical: 9,
-                    paddingLeft: 12,
-                    paddingRight: 8,
-                    backgroundColor: 'rgba(28, 28, 27, 0.96)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(255,255,255,0.12)',
-                }}>
-                    <Text style={{ flex: 1, color: '#d8d8d4', fontSize: 12, lineHeight: 16 }}>
-                        {graphicsReason === 'pane-off-surface'
-                            ? 'No picture: this pane is not on the active workspace, tab, or zoomed pane on the desktop. Text still works. Open it there and the picture returns.'
-                            : 'Graphics stopped. Retry brings them back to this phone and resizes Herdr on the desktop.'}
-                    </Text>
-                    {graphicsReason !== 'pane-off-surface' && (
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Retry terminal graphics"
-                        onPress={() => channelRef.current?.repaint(true)}
-                        style={({ pressed }) => ({
-                            minHeight: 36,
-                            justifyContent: 'center',
-                            borderRadius: 8,
-                            paddingHorizontal: 12,
-                            backgroundColor: pressed ? '#d7d7d2' : '#f2f2ed',
-                        })}
-                    >
-                        <Text style={{ color: '#11110f', fontSize: 12, fontWeight: '600' }}>Retry</Text>
-                    </Pressable>
-                    )}
-                </View>
+                // One line at the top, like the connection pill, never a panel
+                // over the rows: graphics stopped and a tap brings them back.
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Graphics stopped. Retry terminal graphics"
+                    onPress={() => channelRef.current?.repaint(true)}
+                    hitSlop={8}
+                    style={({ pressed }) => ({
+                        position: 'absolute',
+                        top: 12,
+                        alignSelf: 'center',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 999,
+                        backgroundColor: '#212121',
+                        borderWidth: 1,
+                        borderColor: '#2e2e2e',
+                        opacity: pressed ? 0.7 : 1,
+                    })}
+                >
+                    <Text style={{ color: '#9a9a9f', fontSize: 12 }}>Graphics stopped · Retry</Text>
+                    <Ionicons name="refresh-outline" size={12} color="#9a9a9f" />
+                </Pressable>
             )}
         </View>
     );

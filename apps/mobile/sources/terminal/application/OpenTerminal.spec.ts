@@ -495,6 +495,13 @@ describe('recentTerminalLinks', () => {
         record('hard-break', 'https://short.example/path\nnot-part-of-the-link');
         expect(recentTerminalLinks('hard-break')).toEqual(['https://short.example/path']);
 
+        // A TUI repaint separates rows and columns with cursor moves, not
+        // whitespace; the next row's prose is not part of the link.
+        clearTerminalOutput('repaint');
+        setTerminalColumns('repaint', columns);
+        record('repaint', '\x1b[12;5Hhttps://example.com/.\x1b[13;1HBrowser\x1b[2Cleft open.\x1b[K');
+        expect(recentTerminalLinks('repaint')).toEqual(['https://example.com/']);
+
         clearTerminalOutput('s2');
         for (let index = 0; index < 10; index++) record('s2', ` https://link-${index}.example`);
         expect(recentTerminalLinks('s2')).toEqual(Array.from({ length: 8 }, (_, index) => `https://link-${9 - index}.example/`));

@@ -44,7 +44,7 @@ function ChromeButton(props: { label: string; icon: string; disabled?: boolean; 
                 opacity: props.disabled === true ? 0.35 : pressed ? 0.6 : 1,
             })}
         >
-            <Ionicons name={props.icon as never} size={22} color={theme.colors.text} />
+            <Ionicons name={props.icon as never} size={20} color={theme.colors.text} />
         </Pressable>
     );
 }
@@ -89,10 +89,13 @@ function OverflowMenu(props: { label: string; items: OverflowItem[] }): React.JS
                     backgroundColor: open ? theme.colors.surfaceHigh : 'transparent',
                 })}
             >
-                <Ionicons name="ellipsis-horizontal" size={22} color={theme.colors.text} />
+                <Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.text} />
             </Pressable>
             <RNModal transparent visible={open} animationType="none" onRequestClose={() => setOpen(false)}>
-                <Pressable onPress={() => setOpen(false)} accessibilityLabel="Close menu" accessibilityRole="button" style={{ flex: 1 }}>
+                {/* The backdrop is a sibling of the menu, not its parent: on the
+                    web a button may not contain the row buttons. */}
+                <View style={{ flex: 1 }}>
+                    <Pressable onPress={() => setOpen(false)} accessibilityLabel="Close menu" accessibilityRole="button" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
                     <View style={{
                         position: 'absolute',
                         right: 8,
@@ -120,14 +123,14 @@ function OverflowMenu(props: { label: string; items: OverflowItem[] }): React.JS
                                     backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent',
                                 })}
                             >
-                                <Ionicons name={item.icon as never} size={18} color={item.destructive === true ? theme.colors.status.error : theme.colors.textSecondary} />
+                                {/* Named rows are words; the declared glyph stays metadata. */}
                                 <Text style={{ ...Typography.default(), flex: 1, color: item.destructive === true ? theme.colors.status.error : theme.colors.text }}>
                                     {item.label}
                                 </Text>
                             </Pressable>
                         ))}
                     </View>
-                </Pressable>
+                </View>
             </RNModal>
         </View>
     );

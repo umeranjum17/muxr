@@ -1,8 +1,8 @@
 import * as React from 'react';
-import { BackHandler, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
-import { Typography } from '@/constants/Typography';
-import { panelPalette, type PanelGlyphName } from '@/components/ActionShortcut';
+import { PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useUnistyles } from 'react-native-unistyles';
+import { Ionicons } from '@expo/vector-icons';
+import type { PanelGlyphName } from '@/components/ActionShortcut';
 
 export type TerminalCommand = {
     label: string;
@@ -13,31 +13,69 @@ export type TerminalCommand = {
 };
 export type ToolsSide = 'left' | 'right';
 
-/** The footer slot the Tools key owns; accessory keys scroll in the rest. */
-export const TOOLS_SLOT_WIDTH = 76;
 export const FOOTER_ROW_HEIGHT = 52;
+/** The footer's own edge: keys start here, the panel's card ends here. */
+export const FOOTER_EDGE = 8;
 const KEY_HEIGHT = 44;
-const PANEL_WIDTH = 268;
-const PANEL_MAX_HEIGHT = 237;
 const ROW = 44;
 const PANEL_PADDING = 4;
 // A sideways pull past this flips the dock; anything shorter is a tap.
 const FLIP_DISTANCE = 40;
 
+/** The word a quick key shows for a terminal command; the label stays its accessible name. */
+const QUICK_KEY_WORD: Partial<Record<PanelGlyphName, string>> = { keyboard: 'Keyboard', minus: '−', plus: '+', reset: 'Reset' };
+
 /**
- * The Tools key: a typographic key in the footer's reserved slot, set like
- * the ctrl/shift/esc keys beside it -- a word, not a glyph, because the row
- * is a row of words. Docked to the side the holding hand prefers; it never
- * floats over the terminal. Dragging it sideways moves it to the other
- * edge; the same move is offered as an accessibility action.
+ * One key in the panel's quick row: the same cap as ctrl/shift/esc beneath
+ * it, a word or a symbol on it, never a drawing, so the row of quick keys
+ * and the row of accessory keys read as one family.
  */
-export function TerminalToolsKey({ side, onSideChange, onPress, blocked, expanded }: {
+function Keycap({ word, label, onPress, disabled = false }: { word: string; label: string; onPress: () => void; disabled?: boolean }) {
+    const { theme } = useUnistyles();
+    return (
+        <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            accessibilityState={{ disabled }}
+            disabled={disabled}
+            onPress={onPress}
+            style={({ pressed }) => ({
+                minWidth: 44, height: KEY_HEIGHT, paddingHorizontal: 10, borderRadius: 6,
+                alignItems: 'center', justifyContent: 'center',
+                // One step up from the card, as the keys are from the footer.
+                backgroundColor: theme.colors.surfaceHighest,
+                opacity: disabled ? 0.4 : pressed ? 0.6 : 1,
+            })}
+        >
+            {/* Set like ctrl/shift beside it: the default face, one weight. */}
+            <Text style={{ fontSize: word.length > 1 ? 14 : 16, lineHeight: 20, color: theme.colors.text }}>{word}</Text>
+        </Pressable>
+    );
+}
+
+/** The floating trigger's size and its distance from the terminal's edge. */
+export const TOOLS_TRIGGER_SIZE = 36;
+export const TOOLS_TRIGGER_MARGIN = 8;
+
+/**
+ * The trigger: one small floating icon over the terminal, in the thumb
+ * zone -- the corner just above the footer, on the side the holding hand
+ * prefers. It carries an identity (options: the controls for this
+ * terminal), not a dot triple, and it is a mark, not a disc: 36dp at the
+ * edge, translucent, and it dims while the output is being read back so
+ * it never hides a line that matters. Dragging it sideways moves it to the
+ * other edge; the same move is offered as an accessibility action. While
+ * its panel is open it stays put and lit, and a second tap closes it.
+ */
+export function TerminalToolsTrigger({ side, onSideChange, onPress, blocked, expanded, dimmed }: {
     side: ToolsSide;
     onSideChange: (side: ToolsSide) => void;
     onPress: () => void;
-    /** The keyboard would not go down: say so on the key instead of opening nothing. */
+    /** The keyboard would not go down: say so instead of opening nothing. */
     blocked: boolean;
     expanded: boolean;
+    /** The output is being read back or streamed: step out of the way. */
+    dimmed: boolean;
 }) {
     const { theme } = useUnistyles();
     const sideRef = React.useRef(side);
@@ -54,77 +92,70 @@ export function TerminalToolsKey({ side, onSideChange, onPress, blocked, expande
     })).current;
     const other: ToolsSide = side === 'left' ? 'right' : 'left';
     return (
-        <View {...drag.panHandlers} collapsable={false} style={{ width: TOOLS_SLOT_WIDTH, height: KEY_HEIGHT, alignItems: 'center', justifyContent: 'center' }}>
+        <View {...drag.panHandlers} collapsable={false}
+            style={{ position: 'absolute', bottom: TOOLS_TRIGGER_MARGIN, [side]: TOOLS_TRIGGER_MARGIN }}>
             <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={blocked ? 'Hide keyboard to open Tools' : 'Tools'}
-                accessibilityHint={`Drag sideways to dock on the ${other}.`}
+                accessibilityLabel={blocked ? 'Hide keyboard to open Tools' : expanded ? 'Close Tools' : 'Tools'}
+                accessibilityHint={`Drag sideways to move to the ${other}.`}
                 accessibilityState={{ expanded }}
                 accessibilityActions={[{ name: 'move', label: `Move Tools to the ${other}` }]}
                 onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'move') onSideChange(other); }}
                 onPress={onPress}
+                hitSlop={6}
                 style={({ pressed }) => ({
-                    height: KEY_HEIGHT, minWidth: 68, paddingHorizontal: 12, borderRadius: 6,
+                    width: TOOLS_TRIGGER_SIZE, height: TOOLS_TRIGGER_SIZE, borderRadius: 10,
                     alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: expanded ? theme.colors.accent : pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh,
+                    backgroundColor: expanded ? theme.colors.accent : theme.colors.surfaceHigh,
+                    borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider,
+                    opacity: pressed ? 0.7 : expanded ? 1 : dimmed ? 0.35 : 0.88,
                 })}
             >
-                <Text style={{ ...Typography.default('semiBold'), color: expanded ? theme.colors.button.primary.tint : theme.colors.text }}>Tools</Text>
+                <Ionicons name="options-outline" size={20} color={expanded ? theme.colors.button.primary.tint : theme.colors.text} />
             </Pressable>
         </View>
     );
 }
 
 /**
- * The open Tools panel, in the footer where the composer and keys were: one
- * column of full-width rows docked to the key's side, at most 268dp wide and
- * a third of the screen tall, with Done pinned below the rows. Longer lists
- * scroll inside; rows never shrink to fit.
+ * The open Tools panel: one card anchored directly above the key row that
+ * opened it, at every width, in flow -- never over terminal rows, never a
+ * corner card in a gutter. Its edges are the footer's edges. Inside, one
+ * register: a row of quick keys across the top (the terminal's own
+ * keyboard and zoom, then Close), set exactly like the accessory keys
+ * beneath the panel; a hairline; then the labelled rows with their data
+ * inline, one line each. It takes at most half the screen so the terminal
+ * keeps at least the rows it had while typing; a longer list scrolls and
+ * rows never shrink. The Tools key, a tap on the terminal, Back and Escape
+ * close it too.
  */
-export function TerminalToolsPanel(props: {
-    side: ToolsSide;
-    bottomInset: number;
-    onClose: () => void;
-    children: React.ReactNode;
-}) {
-    // The panel stands where the terminal's dark content ends, whatever the
-    // app theme: dark content, dark sheet. The scope sits at the panel's own
-    // mount so every row beneath reads the dark theme.
-    return (
-        <ScopedTheme name="dark">
-            <ToolsPanelSurface {...props} />
-        </ScopedTheme>
-    );
-}
-
-function ToolsPanelSurface({ side, bottomInset, onClose, children }: {
-    side: ToolsSide;
+export function TerminalToolsPanel({ commands, bottomInset, onClose, children }: {
+    commands: readonly TerminalCommand[];
     bottomInset: number;
     onClose: () => void;
     children: React.ReactNode;
 }) {
     const { theme } = useUnistyles();
-    const panel = panelPalette(theme);
-    const { width, height } = useWindowDimensions();
-    const panelWidth = Math.min(PANEL_WIDTH, width - 32);
-    const maxHeight = Math.max(ROW * 2 + PANEL_PADDING * 2, Math.min(PANEL_MAX_HEIGHT, height / 3 - bottomInset - 8));
-    React.useEffect(() => {
-        if (Platform.OS !== 'android') return;
-        const subscription = BackHandler.addEventListener('hardwareBackPress', () => { onClose(); return true; });
-        return () => subscription.remove();
-    }, [onClose]);
+    const { height } = useWindowDimensions();
+    const maxHeight = Math.max(ROW * 3, Math.floor(height / 2) - bottomInset - FOOTER_EDGE);
     return (
-        <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: bottomInset + 8, alignItems: side === 'left' ? 'flex-start' : 'flex-end', backgroundColor: theme.colors.terminal.background }}>
+        // The card sits the footer's edge in on three sides; the keys below
+        // already carry their own top margin, so the bottom gap matches.
+        <View style={{ paddingHorizontal: FOOTER_EDGE, paddingTop: FOOTER_EDGE, paddingBottom: FOOTER_EDGE - PANEL_PADDING }}>
             <View accessibilityRole="menu" accessibilityLabel="Tools"
-                style={{ width: panelWidth, maxHeight, borderRadius: 16, padding: PANEL_PADDING, backgroundColor: panel.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: panel.border, elevation: 8, overflow: 'hidden' }}>
-                <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="always" nestedScrollEnabled>
+                style={{ maxHeight, borderRadius: 12, backgroundColor: theme.colors.surfaceHigh, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 6, paddingVertical: PANEL_PADDING }}>
+                    {commands.map((command) => (
+                        <Keycap key={command.icon} word={QUICK_KEY_WORD[command.icon] ?? command.label} label={command.label} disabled={command.disabled === true}
+                            onPress={() => { if (command.dismiss) onClose(); command.run(); }} />
+                    ))}
+                    <View style={{ flex: 1 }} />
+                    <Keycap word="Close" label="Close Tools" onPress={onClose} />
+                </View>
+                <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider }} />
+                <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingVertical: PANEL_PADDING }} keyboardShouldPersistTaps="always" nestedScrollEnabled>
                     {children}
                 </ScrollView>
-                <View style={{ height: 1, marginVertical: 2, marginHorizontal: 6, backgroundColor: panel.divider }} />
-                <Pressable accessibilityRole="button" accessibilityLabel="Done" onPress={onClose}
-                    style={({ pressed }) => ({ height: ROW, borderRadius: 10, alignItems: side === 'left' ? 'flex-start' : 'flex-end', justifyContent: 'center', paddingHorizontal: 12, backgroundColor: pressed ? panel.pressed : 'transparent' })}>
-                    <Text style={{ ...Typography.default('semiBold'), fontSize: 15, color: panel.text }}>Done</Text>
-                </Pressable>
             </View>
         </View>
     );

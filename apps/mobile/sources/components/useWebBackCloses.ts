@@ -81,7 +81,13 @@ export function useWebBackCloses(open: boolean, onClose: () => void, tag: string
             pushedRef.current = false;
             const returnTo = returnToRef.current;
             returnToRef.current = null;
-            if (typeof returnTo?.focus === 'function') setTimeout(() => returnTo.focus?.(), 0);
+            // Focus returns to the opener only when closing left nothing
+            // focused: a choice that focused something itself (the terminal
+            // keyboard) keeps it.
+            if (typeof returnTo?.focus === 'function') setTimeout(() => {
+                const active = document.activeElement;
+                if (active === null || active === document.body || !document.contains(active)) returnTo.focus?.();
+            }, 0);
         };
     }, [open, tag]);
 }
