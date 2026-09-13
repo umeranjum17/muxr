@@ -432,7 +432,10 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
             // Recovery-owned text: shown, but not stored as a typed draft, so
             // a reopened screen restores the same submission (same identity)
             // instead of finding "typed" text it cannot attribute.
-            draftRef.current = [submission.draft, draftRef.current].filter((part) => part !== '').join('\n');
+            // Single-line composer: join with a space, never '\n' -- a web
+            // <input> drops the newline and glues the two texts together
+            // ("unsent draftunsent draft"); composeText joins with ' ' too.
+            draftRef.current = [submission.draft, draftRef.current].filter((part) => part !== '').join(' ');
             setDraftState(draftRef.current);
             setAttachedImages((previous) => [...submission.attachments, ...previous]);
             // Previews that never reached the host are uploaded afresh.
@@ -874,11 +877,15 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 keys, and the terminal above keeps every row it had while
                 typing. */}
             <View style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
-            {toolsOpen ? (
+            {toolsOpen && (
                 <TerminalToolsPanel commands={viewControls.commands} bottomInset={keyboardPad > 0 ? 0 : insets.bottom} onClose={closeTools}>
                     {toolsRows}
                 </TerminalToolsPanel>
-            ) : canControl && <>
+            )}
+            {/* The composer stays mounted while Tools shows, only hidden: a
+                recreated input is a new element for the IME to reconnect to,
+                and Android keyboards re-commit their buffer into it. */}
+            {canControl && <View style={toolsOpen ? { display: 'none' } : undefined}>
             {failedImages.length > 0 && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
                     <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />
@@ -949,7 +956,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                     </View>
                 </Pressable>
             </View>
-            </>}
+            </View>}
             {canControl && (
                 <ScrollView
                     horizontal
