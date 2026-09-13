@@ -47,6 +47,14 @@ below. What is in and proven on the PWA (Chromium, dev stack, loopback):
   enrolls with `browser.session.enroll` (X25519 device grant minted from the
   service identity, scope = service, device, session, generation, key
   version).
+- Chrome: no permanent surface strip. Open surfaces are listed where tools
+  already live -- the sidebar Tools section (tablet/desktop) and the
+  session's pane actions (every width), blank browser last -- and closing
+  stays on the surface itself. Give back is a sheet inside the surface pane,
+  under the ownership strip, never a window-centred alert. The seat holder's
+  viewport follows display width: rotation re-sizes the tab and recaptures in
+  place on the same peer and generation (portrait 744x1248 -> landscape
+  484x846 in under a second in the Chromium dev check).
 - Measured (directive 9, loopback, frame-callback detection, no physical
   display): input -> visible response through tap/CDP/capture/WebRTC/`<video>`
   over 200 attempts, 0 missed, p50 36.9 ms, p95 54.4 ms, p99 55.7 ms, max
@@ -58,7 +66,15 @@ below. What is in and proven on the PWA (Chromium, dev stack, loopback):
 Not done or not runnable here: the remote profile (80 ms RTT / 10 Mbit /
 loss; no netem without root), physical Android/iOS devices and camera
 recording, the Expo Web fixture, sustained-scroll gap measurement,
-HMR-ready -> visible timing. Known limits for the PWA integrator: same-UID
+HMR-ready -> visible timing. The iPad pass (Safari portrait/landscape and the
+installed PWA: open session, Tools, surface, Take control, password/OTP,
+Give back, rotate mid-control) is parked until the device is on the tailnet
+and the self-hosted origin serves a Browser-capable candidate; the layout
+question it will answer is whether a tablet with the sidebar open should
+split at all (12.9" landscape: sidebar 355 + agent ~404 + surface ~607).
+Open real-phone finding from device QA (sol-13): "Checking who has control ·
+Retry" after returning from recents on candidate 59263812; not yet
+reproduced on the current candidate. Known limits for the PWA integrator: same-UID
 isolation of the browser service is not enforced; the public Caddy/frp route
 and TURN are the PWA lane's; grant pinning at pairing is the PWA lane's and
 the in-memory grant re-enrolls on every PWA reload; a service restart leaves
