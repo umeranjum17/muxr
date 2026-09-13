@@ -162,7 +162,7 @@ function rotationGrantPublicKey(
 }
 
 interface SelfhostState {
-    version: 1;
+    version: 1 | 2;
     relayPort?: number;
     relayUrl?: string;
     mintSecret?: string;
@@ -200,8 +200,8 @@ function readSelfhostAuth(): SelfhostState | undefined {
     if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
         throw new NonRecoverableAuthError(`${path} must be a regular owner-only file`);
     }
-    let parsed: Partial<SelfhostState>;
-    try { parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<SelfhostState>; }
+    let raw: Record<string, unknown>;
+    try { raw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>; }
     catch (error) {
         if (error instanceof SyntaxError) throw new NonRecoverableAuthError(`${path} contains malformed JSON`);
         if ((error as NodeJS.ErrnoException)?.code === 'EACCES' || (error as NodeJS.ErrnoException)?.code === 'EPERM') {
@@ -209,7 +209,18 @@ function readSelfhostAuth(): SelfhostState | undefined {
         }
         throw error;
     }
-    if (parsed.version !== 1 || typeof parsed.machine?.id !== 'string' || !validMachineCrypto(parsed.machine.crypto, 'selfhost')
+    // selfhost.json v2 splits editable desired (top level) from generated
+    // identity/observations (runtime). The host needs the applied-effective
+    // view: runtime identity and endpoint over the editable values. A v1 file
+    // is already that flat shape.
+    let parsed: Partial<SelfhostState>;
+    if (raw?.version === 2) {
+        const { runtime, version: _version, ...desired } = raw;
+        parsed = { ...desired, ...((runtime as Record<string, unknown>) ?? {}), version: 2 } as Partial<SelfhostState>;
+    } else {
+        parsed = raw as Partial<SelfhostState>;
+    }
+    if (parsed.version !== 1 && parsed.version !== 2 || typeof parsed.machine?.id !== 'string' || !validMachineCrypto(parsed.machine.crypto, 'selfhost')
         || typeof parsed.mintSecret !== 'string' && typeof parsed.machineCredential !== 'string'
         || parsed.relayLocation === 'remote' && typeof parsed.relayUrl !== 'string'
         || parsed.relayLocation !== 'remote' && typeof parsed.relayPort !== 'number') {
@@ -276,7 +287,25 @@ function writeHostedAuth(auth: HostedAuthState): void {
 }
 
 function writeSelfhostAuth(auth: SelfhostState): void {
-    atomicWriteJson(selfhostFile(), auth);
+    const path = selfhostFile();
+    // A key rotation refreshes generated identity only. On a v2 file that state
+    // belongs under `runtime`; writing the flat auth back would clobber the
+    // owner's editable desired config. Merge the refreshed identity/credential
+    // into runtime and leave every desired value untouched. A v1 file keeps the
+    // flat write until the CLI migrates it.
+    let current: Record<string, unknown> | undefined;
+    try { current = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>; }
+    catch { current = undefined; }
+    if (current?.version === 2) {
+        const runtime = { ...((current.runtime as Record<string, unknown>) ?? {}) };
+        runtime.machine = auth.machine;
+        if (auth.machineCredential !== undefined) runtime.machineCredential = auth.machineCredential;
+        if (auth.credentialExpiresAt !== undefined) runtime.credentialExpiresAt = auth.credentialExpiresAt;
+        if (auth.mintSecret !== undefined) runtime.mintSecret = auth.mintSecret;
+        atomicWriteJson(path, { ...current, runtime });
+        return;
+    }
+    atomicWriteJson(path, auth);
 }
 
 async function reconcileHostedKeys(auth: HostedAuthState): Promise<void> {
