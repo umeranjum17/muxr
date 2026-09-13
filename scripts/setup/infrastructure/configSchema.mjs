@@ -94,27 +94,33 @@ export const CONFIG_ATTRIBUTES = [
         parse(raw, from) { const v = raw.trim(); if (!this.values.includes(v)) throw ruleError(this, from, `must be one of ${this.values.join(', ')}`); return v; },
     },
     {
-        key: 'MUXR_CONNECTION', name: 'connection', type: 'enum', values: CONNECTION_MODES, default: undefined,
+        key: 'MUXR_CONNECTION', name: 'connection', jsonName: 'connectionMode', type: 'enum', values: CONNECTION_MODES, default: undefined,
         description: 'How devices reach the relay. tailscale (Serve, HTTPS), cloudflare (quick tunnel, HTTPS) and external (your own wss:// origin) serve the browser app; tailscale-direct, private and lan are native-only routes.',
         appliesTo: 'single-machine, shared-relay', restart: 'relay and host', flag: '--connection-mode',
         parse(raw, from) { const v = raw.trim(); if (!this.values.includes(v)) throw ruleError(this, from, `must be one of ${this.values.join(', ')}`); return v; },
     },
     {
-        key: 'MUXR_RELAY_PORT', name: 'relayPort', type: 'integer', values: '1024..65535', default: 8792,
+        key: 'MUXR_RELAY_PORT', name: 'relayPort', jsonName: 'relayPort', type: 'integer', values: '1024..65535', default: 8792,
         description: 'Local relay port.',
         appliesTo: 'single-machine, shared-relay', restart: 'relay and host', flag: '--port',
         parse(raw, from) { const port = Number(raw); if (!Number.isInteger(port) || port < 1024 || port > 65535) throw ruleError(this, from, 'must be an integer from 1024 to 65535'); return port; },
         format: (value) => String(value),
     },
     {
-        key: 'MUXR_WEB', name: 'web', type: 'boolean', values: ['true', 'false'], default: undefined,
+        key: 'MUXR_BIND_HOST', name: 'bindHost', jsonName: 'bindHost', type: 'enum', values: ['auto', '127.0.0.1', '0.0.0.0'], default: 'auto',
+        description: 'Which address the relay listens on. auto is loopback for Tailscale Serve / external HTTPS / legacy tunnel routes and all interfaces for direct/private/LAN routes; an explicit 127.0.0.1 or 0.0.0.0 is never silently widened. The resolved address shows in inspection.',
+        appliesTo: 'single-machine, shared-relay', restart: 'relay and host', flag: '--bind-host',
+        parse(raw, from) { const v = raw.trim().toLowerCase(); if (!this.values.includes(v)) throw ruleError(this, from, `must be one of ${this.values.join(', ')}`); return v; },
+    },
+    {
+        key: 'MUXR_WEB', name: 'web', jsonName: 'webEnabled', type: 'boolean', values: ['true', 'false'], default: undefined,
         description: 'Serve the browser app from this host. Requires a browser-capable connection. A fresh single-machine setup defaults to true; automation must say false explicitly to opt out.',
         appliesTo: 'single-machine', restart: 'relay', flag: '--web / --no-web',
         parse(raw, from) { if (truthy(raw)) return true; if (falsy(raw)) return false; throw ruleError(this, from, 'must be true or false'); },
         format: (value) => (value ? 'true' : 'false'),
     },
     {
-        key: 'MUXR_ADVERTISE_URL', name: 'advertiseUrl', type: 'url', values: 'root ws(s)://host[:port]', default: undefined,
+        key: 'MUXR_ADVERTISE_URL', name: 'advertiseUrl', jsonName: 'relayUrl', type: 'url', values: 'root ws(s)://host[:port]', default: undefined,
         description: 'Relay URL devices connect to. Required for external (root wss://host, nothing else in it); derived for the other routes.',
         appliesTo: 'connection=external (required), private/lan (optional override)', restart: 'relay and host', flag: '--advertise',
         parse(raw, from) { const url = raw.trim() === '' ? undefined : parseRootWsUrl(raw, { requireWss: false }); if (raw.trim() !== '' && url === undefined) throw ruleError(this, from, 'must be a root ws(s)://host[:port] URL without credentials, path, query, or fragment'); return url; },
@@ -181,6 +187,11 @@ export function configDefaults() {
 
 export const attributeByKey = (key) => CONFIG_ATTRIBUTES.find((attribute) => attribute.key === key);
 export const attributeByName = (name) => CONFIG_ATTRIBUTES.find((attribute) => attribute.name === name);
+/** The public JSON key for an attribute in selfhost.json v2 (defaults to its internal name). */
+export const jsonNameOf = (attribute) => attribute.jsonName ?? attribute.name;
+export const attributeByJsonName = (jsonName) => CONFIG_ATTRIBUTES.find((attribute) => jsonNameOf(attribute) === jsonName);
+/** The editable top-level keys of selfhost.json v2, in schema order. */
+export const DESIRED_JSON_KEYS = CONFIG_ATTRIBUTES.map(jsonNameOf);
 export const CONFIG_KEYS = CONFIG_ATTRIBUTES.map((attribute) => attribute.key);
 
 export function formatAttribute(attribute, value) {
