@@ -43,7 +43,7 @@ function useTakeover(machineId: string, session: string): [TakeoverSession, Take
     return [takeover, snapshot];
 }
 
-function Action(props: { label: string; icon?: string; emphasis?: boolean; onPress: () => void }): React.JSX.Element {
+function Action(props: { label: string; icon?: string; emphasis?: boolean; compact?: boolean; onPress: () => void }): React.JSX.Element {
     const { theme } = useUnistyles();
     return (
         <Pressable
@@ -63,7 +63,8 @@ function Action(props: { label: string; icon?: string; emphasis?: boolean; onPre
             })}
         >
             {props.icon !== undefined && <Ionicons name={props.icon as never} size={18} color={props.emphasis === true ? '#fff' : theme.colors.text} />}
-            <Text style={{ ...Typography.default('semiBold'), color: props.emphasis === true ? '#fff' : theme.colors.text }}>{props.label}</Text>
+            {/* Compact keeps the icon only; the label still names the button. */}
+            {(props.compact !== true || props.icon === undefined) && <Text style={{ ...Typography.default('semiBold'), color: props.emphasis === true ? '#fff' : theme.colors.text }}>{props.label}</Text>}
         </Pressable>
     );
 }
@@ -337,7 +338,10 @@ export function HostBrowserView(props: {
     const secret = field !== null && (field.kind === 'password' || field.kind === 'otp');
     const enterLabel = field?.enter === 'next' ? 'Next' : field?.enter === 'go' ? 'Go' : 'Enter';
     const composer = field !== null && inputUnlocked ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.colors.surface, borderTopWidth: 1, borderTopColor: theme.colors.divider }}>
+        // The row must never be wider than the pane: a web text input keeps an
+        // intrinsic width, and an overflowing row scrolls the whole surface
+        // sideways when the field is focused.
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, overflow: 'hidden', backgroundColor: theme.colors.surface, borderTopWidth: 1, borderTopColor: theme.colors.divider }}>
             <TextInput
                 ref={composerRef}
                 value={draft}
@@ -354,9 +358,9 @@ export function HostBrowserView(props: {
                 autoCorrect={!secret}
                 blurOnSubmit={false}
                 accessibilityLabel={field.label === '' ? 'Page text field' : field.label}
-                style={{ ...Typography.default(), flex: 1, minHeight: 44, color: theme.colors.text, backgroundColor: theme.colors.surfaceHigh, borderRadius: 12, paddingHorizontal: 12 }}
+                style={{ ...Typography.default(), flex: 1, minWidth: 0, minHeight: 44, color: theme.colors.text, backgroundColor: theme.colors.surfaceHigh, borderRadius: 12, paddingHorizontal: 12 }}
             />
-            {field.kind === 'otp' && <Action label="Paste code" icon="clipboard-outline" onPress={() => void pasteCode()} />}
+            {field.kind === 'otp' && <Action label="Paste code" icon="clipboard-outline" compact={display.width < 420} onPress={() => void pasteCode()} />}
             <Action label={enterLabel} icon="return-down-forward-outline" emphasis onPress={() => takeover.key('Enter')} />
         </View>
     ) : null;
