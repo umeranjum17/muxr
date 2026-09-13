@@ -14,6 +14,7 @@
 
 import * as React from 'react';
 import type { TerminalCommand } from './FloatingTerminalControls';
+import { GraphicsStoppedPill } from './GraphicsStoppedPill';
 import { AppState, PixelRatio, Platform, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -495,34 +496,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             />
             </Animated.View>
             </GestureDetector>
-            {graphicsReason !== undefined && (
-                // One line at the top, like the connection pill, never a panel
-                // over the rows: graphics stopped and a tap brings them back.
-                <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Graphics stopped. Retry terminal graphics"
-                    onPress={() => channelRef.current?.repaint(true)}
-                    hitSlop={8}
-                    style={({ pressed }) => ({
-                        position: 'absolute',
-                        top: 12,
-                        alignSelf: 'center',
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 6,
-                        paddingHorizontal: 12,
-                        paddingVertical: 6,
-                        borderRadius: 999,
-                        backgroundColor: '#212121',
-                        borderWidth: 1,
-                        borderColor: '#2e2e2e',
-                        opacity: pressed ? 0.7 : 1,
-                    })}
-                >
-                    <Text style={{ color: '#9a9a9f', fontSize: 12 }}>Graphics stopped · Retry</Text>
-                    <Ionicons name="refresh-outline" size={12} color="#9a9a9f" />
-                </Pressable>
-            )}
+            {graphicsReason !== undefined && <GraphicsStoppedPill onRetry={() => channelRef.current?.repaint(true)} />}
         </View>
     );
 });
