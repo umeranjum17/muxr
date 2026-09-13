@@ -6,6 +6,9 @@
 import * as React from 'react';
 import { Platform, type GestureResponderEvent, type View } from 'react-native';
 
+/** The element id (web) of a control whose touches are its own, never a page through the agents. */
+export const PANE_GESTURE_IGNORE_ID = 'terminal-quick-actions-mark';
+
 export interface PaneGestureHandlers {
     onAgentSwipe: (direction: 'next' | 'prev') => void;
 }
@@ -64,7 +67,13 @@ export function usePaneGestures(handlers: PaneGestureHandlers) {
         if (Platform.OS !== 'web') return;
         const node = elementRef.current as unknown as HTMLElement | null;
         if (node === null) return;
-        const onStart = (event: TouchEvent): void => begin(pointsOf(event.touches));
+        // A touch that starts on the floating mark is the mark's own drag,
+        // never a page through the agents.
+        const onStart = (event: TouchEvent): void => {
+            const target = event.target as Element | null;
+            if (target?.closest?.(`#${PANE_GESTURE_IGNORE_ID}`) != null) { gestureRef.current = null; return; }
+            begin(pointsOf(event.touches));
+        };
         const onMove = (event: TouchEvent): void => move(pointsOf(event.touches));
         const onEnd = (): void => end();
         node.addEventListener('touchstart', onStart, { capture: true, passive: true });

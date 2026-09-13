@@ -51,7 +51,7 @@ import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import type { SessionMenu } from '@/plugins';
-import { FOOTER_ROW_HEIGHT, TOOLS_TRIGGER_MARGIN, TOOLS_TRIGGER_SIZE, TerminalToolsPanel, TerminalToolsTrigger } from './FloatingTerminalControls';
+import { FOOTER_ROW_HEIGHT, TOOLS_TRIGGER_BAND, TerminalToolsPanel, TerminalToolsTrigger } from './FloatingTerminalControls';
 import { FindOutputSheet } from './FindOutputSheet';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
@@ -690,12 +690,14 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 </View>
             )}
 
+            {/* The grid ends above a band that the floating mark and Jump to
+                bottom live in: nothing floats over an output row. */}
             <View
                 ref={paneGestures.ref}
                 onTouchStart={paneGestures.onTouchStart}
                 onTouchMove={paneGestures.onTouchMove}
                 onTouchEnd={paneGestures.onTouchEnd}
-                style={{ flex: 1 }}
+                style={{ flex: 1, paddingBottom: TOOLS_TRIGGER_BAND }}
             >
                 <React.Suspense fallback={<TerminalViewFallback />}>
                     <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} attempt={openAttempt} />
@@ -780,9 +782,10 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                         accessibilityLabel="Jump to bottom"
                         style={({ pressed }) => ({
                             position: 'absolute',
-                            right: 14,
-                            // Above the trigger when they share a corner.
-                            bottom: toolsSide === 'right' ? TOOLS_TRIGGER_MARGIN * 2 + TOOLS_TRIGGER_SIZE : 14,
+                            // In the band under the last row, at the corner the
+                            // mark does not use.
+                            [toolsSide === 'right' ? 'left' : 'right']: 14,
+                            bottom: (TOOLS_TRIGGER_BAND - 38) / 2,
                             width: 38,
                             height: 38,
                             borderRadius: 19,

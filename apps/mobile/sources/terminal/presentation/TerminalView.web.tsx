@@ -6,6 +6,7 @@
 import * as React from 'react';
 import { Text, View } from 'react-native';
 import type { TerminalCommand } from './FloatingTerminalControls';
+import { GraphicsStoppedPill } from './GraphicsStoppedPill';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -117,6 +118,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         resizeRef.current();
     }, [fontSize, screenReaderMode]);
     const [graphicsUnavailable, setGraphicsUnavailable] = React.useState(false);
+    // Host-side graphics that were running and stopped (the bridge closed,
+    // the pane retired): the same Retry the native view offers. A pane the
+    // desktop is not showing simply sends no pictures and is not announced.
+    const [graphicsStopped, setGraphicsStopped] = React.useState(false);
+    const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
 
     React.useEffect(() => {
         const element = hostRef.current as unknown as HTMLElement | null;
@@ -259,12 +265,16 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     return;
                 }
                 channel = opened;
+                channelRef.current = opened;
                 onChannel?.(opened);
                 // The first thing herdr sends is the whole screen, so this
                 // attach is a viewport capture. Without it the link chip has
                 // no viewport until the first scroll.
                 beginViewportCapture(sessionId);
-                opened.onGraphics((active) => { graphicsActive = active && !graphicsFailed; });
+                opened.onGraphics((active, reason) => {
+                    graphicsActive = active && !graphicsFailed;
+                    setGraphicsStopped(!active && (reason === 'retired' || reason === 'bridge-closed'));
+                });
                 let pending: { bytes: string; graphics?: boolean }[] = [];
                 let pendingBytes = 0;
                 let overflowed = false;
@@ -564,6 +574,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             canvas.remove();
             onChannel?.(undefined);
             channel?.close();
+            channelRef.current = undefined;
             controller.abort();
             termRef.current = null;
             resizeRef.current = () => undefined;
@@ -583,6 +594,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     {t('files.graphicsUnavailable')}
                 </Text>
             )}
+            {graphicsStopped && <GraphicsStoppedPill onRetry={() => channelRef.current?.repaint(true)} />}
         </View>
     );
 });
