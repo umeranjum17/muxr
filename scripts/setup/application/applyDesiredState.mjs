@@ -1,5 +1,5 @@
 /**
- * Inspect → plan → apply → verify for the desired state in config.env.
+ * Inspect → plan → apply → verify for the desired state in ~/.muxr/selfhost.json.
  *
  *   muxr setup --apply-config --dry-run [--json]   the plan, no mutation (exit 2 when it has changes)
  *   muxr setup --apply-config [--json]             apply exactly that plan, then verify (exit 0 verified, 1 failed)
@@ -15,10 +15,10 @@ import { pathToFileURL } from 'node:url';
 import { BROWSER_CAPABLE_CONNECTIONS, CONFIG_ATTRIBUTES, attributeByName, formatAttribute } from '../infrastructure/configSchema.mjs';
 import { daemonIsRunning, daemonMode } from '../infrastructure/daemon.mjs';
 import { runLocalPrerequisites } from '../infrastructure/herdr.mjs';
-import { operatorConfigPath, planToArgs, resolveSetupPlan } from '../infrastructure/operatorConfig.mjs';
+import { planToArgs, resolveSetupPlan } from '../infrastructure/operatorConfig.mjs';
 import { pluginFolder, pluginsRoot } from '../infrastructure/paths.mjs';
 import { print, run, stateDir } from '../infrastructure/runtime.mjs';
-import { readSelfhostState } from '../infrastructure/selfhost.mjs';
+import { readSelfhostState, selfhostPath } from '../infrastructure/selfhost.mjs';
 import { selfhostPublicSummary } from '../infrastructure/selfhostRelay.mjs';
 import { herdrPlugins, installPlugin } from '../../plugin/index.mjs';
 import { startSelfHost } from './startSelfHost.mjs';
@@ -152,6 +152,12 @@ export function planDesiredState(desired, current) {
     const unknownBundled = Object.keys(desired.values.bundledPlugins ?? {}).filter((name) => !bundledPluginNames().includes(name));
     if (unknownBundled.length > 0) missing.push(`MUXR_BUNDLED_PLUGINS names unknown bundled plugins: ${unknownBundled.join(', ')} (known: ${bundledPluginNames().join(', ')})`);
     const steps = [];
+    // MUXR_BIND_HOST is intentionally NOT here: desired 'auto' resolves per route,
+    // so comparing it against the applied resolved address would flag a spurious
+    // change. An explicit bind is honoured whenever a relay-host reconfigure runs
+    // (planToArgs emits --bind-host; startSelfHost applies it) and on a plain
+    // `muxr restart`; a bind-only change taking effect through apply on its own
+    // needs resolved-value diffing and rides the config executable-contract work.
     const runtimeChanged = attributes.some((entry) => entry.changed && ['MUXR_SETUP_ROLE', 'MUXR_CONNECTION', 'MUXR_RELAY_PORT', 'MUXR_WEB', 'MUXR_ADVERTISE_URL', 'MUXR_NOTIFY_EMAIL', 'MUXR_SERVICE_MODE'].includes(entry.key));
     if (desired.values.setupRole !== 'remote-host') {
         if (runtimeChanged || !current.configured) steps.push({ id: 'relay-host', detail: `configure relay+host: ${desired.values.connection} on :${desired.values.relayPort}, browser app ${desired.values.web ? 'on' : 'off'}, service ${desired.values.serviceMode}` });
@@ -188,12 +194,12 @@ export function planLines(plan, desired, { dryRun }) {
 }
 
 function printPlan(plan, desired, options) {
-    print(`desired state: ${operatorConfigPath()}${existsSync(operatorConfigPath()) ? '' : ' (missing — flags, env and defaults apply)'}`);
+    print(`desired state: ${selfhostPath()}${existsSync(selfhostPath()) ? '' : ' (missing — flags, env and defaults apply)'}`);
     for (const line of planLines(plan, desired, options)) print(line);
 }
 
 function receipt(phase, plan, desired, extra = {}) {
-    return { ok: extra.ok ?? plan.missing.length === 0, phase, file: operatorConfigPath(), attributes: plan.attributes, steps: plan.steps, missing: plan.missing, changes: plan.changes, ...extra };
+    return { ok: extra.ok ?? plan.missing.length === 0, phase, file: selfhostPath(), attributes: plan.attributes, steps: plan.steps, missing: plan.missing, changes: plan.changes, ...extra };
 }
 
 async function verifyDesiredState(desired) {

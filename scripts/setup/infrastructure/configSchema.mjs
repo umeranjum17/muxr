@@ -1,8 +1,9 @@
 /**
  * The one versioned definition of muxr's desired-state configuration.
  *
- * Every attribute of `~/.muxr/config.env` is declared here once: its env
- * name, type, allowed values, default, applicability, restart behaviour and
+ * Every editable attribute of `~/.muxr/selfhost.json` (the desired block) is
+ * declared here once: its public JSON name, env name, type, allowed values,
+ * default, applicability, restart behaviour and
  * one-line description. Validation, defaults, provenance, `muxr config
  * --schema/--json`, the TUI Review preview, the JSON plan, the generated
  * configuration page and the agent skill all derive from this table, so
@@ -225,7 +226,7 @@ export function validateCrossAttributes(values) {
 export function configSchema() {
     return {
         version: CONFIG_SCHEMA_VERSION,
-        file: '~/.muxr/config.env',
+        file: '~/.muxr/selfhost.json',
         precedence: ['flag', 'env', 'config', 'probed', 'default'],
         attributes: CONFIG_ATTRIBUTES.map((attribute) => ({
             key: attribute.key,

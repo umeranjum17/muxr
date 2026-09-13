@@ -143,7 +143,12 @@ export async function startSelfHost(args = []) {
         pendingIngress = advertise.ingress?.kind === 'cloudflare-quick' ? advertise.ingress : undefined;
         if (advertise.ingress?.kind === 'tailscale-serve') state = persistOwnedServeIngress(state, advertise.ingress);
         if (web && !advertise.url.startsWith('wss://')) throw new Error('--web requires HTTPS (Tailscale Serve, a named HTTPS tunnel, or --advertise wss://...)');
-        const bindHost = tailscale || args.includes('--tunnel') || web || explicitAdvertise?.startsWith('wss://') ? '127.0.0.1' : '0.0.0.0';
+        // An explicit desired bind (via --bind-host from planToArgs) is honoured
+        // verbatim and never silently widened; 'auto'/unset derives from the route.
+        const bindHostFlag = flagValue(args, '--bind-host');
+        const bindHost = bindHostFlag === '127.0.0.1' || bindHostFlag === '0.0.0.0'
+            ? bindHostFlag
+            : (tailscale || args.includes('--tunnel') || web || explicitAdvertise?.startsWith('wss://') ? '127.0.0.1' : '0.0.0.0');
         const webOrigin = web ? advertise.url.replace(/^wss/, 'https') : undefined;
         // Operator intent that the relay process itself consumes travels as
         // explicit env (never via ambient process env, which setup cannot

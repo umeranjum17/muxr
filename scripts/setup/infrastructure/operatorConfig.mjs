@@ -148,7 +148,7 @@ export function resolveOperatorConfig({ args = [], probed = {} } = {}) {
     // After migration to v2 the file is authoritative; a config.env beside it
     // is conflicting legacy input, never a silently-honoured second source.
     if (readSelfhostFile()?.version === 2 && existsSync(operatorConfigPath())) {
-        throw new Error(`${operatorConfigPath()} exists beside a version-2 ${selfhostPath()} — config.env is no longer a config source (its values were migrated once, with a backup kept). Remove it, or fold changes in with \`muxr config set\``);
+        throw new Error(`${operatorConfigPath()} exists beside a version-2 ${selfhostPath()} — config.env is no longer a config source. Remove it (its values are not auto-imported), then edit ${selfhostPath()} and run \`muxr setup --apply-config\``);
     }
     // Per-attribute flag spellings that are not `--<flag> value`.
     let webFlag;
@@ -255,6 +255,9 @@ export function resolveSetupPlan({ args = [], probed = {} } = {}) {
 export function planToArgs(plan, { reconfigure = true } = {}) {
     const argv = ['--port', String(plan.relayPort ?? 8792)];
     if (plan.connection !== undefined) argv.push('--connection-mode', plan.connection);
+    // An explicit bind choice is applied verbatim; 'auto' (or unset) is left to
+    // the route-derived default, so it is never emitted or silently widened.
+    if (plan.bindHost === '127.0.0.1' || plan.bindHost === '0.0.0.0') argv.push('--bind-host', plan.bindHost);
     if (plan.web === true) argv.push('--web');
     if (plan.web === false) argv.push('--no-web');
     if (plan.advertiseUrl !== undefined) argv.push('--advertise', plan.advertiseUrl);
@@ -276,7 +279,7 @@ function sameValue(a, b) {
  * Where an effective desired value stands against what the machine last
  * applied: 'not configured', 'runtime unavailable' (no selfhost.json runtime
  * yet), 'applied' (matches the last applied config) or 'pending apply' (differs
- * — a service start/restart or `muxr config apply` will make it live).
+ * — a service start/restart (`muxr restart`) or `muxr setup --apply-config` will make it live).
  */
 function appliedStatus(attribute, value) {
     if (value === undefined) return 'not configured';
@@ -303,8 +306,9 @@ export function operatorConfigJson(resolved) {
 
 /**
  * The portable, versioned desired document — editable JSON names only, never
- * runtime identity/observations. `muxr config apply --file` replays it into any
- * machine's own selfhost.json (omitted keys fall back to schema defaults).
+ * runtime identity/observations. Replay it on another machine by copying it into
+ * that machine's selfhost.json desired block and running `muxr setup
+ * --apply-config` (omitted keys fall back to schema defaults).
  */
 export function exportDesiredConfig() {
     const desired = readDesiredConfig() ?? {};
@@ -344,7 +348,7 @@ export function printOperatorConfig(args = []) {
         print(`  ${jsonNameOf(attribute)}=${formatAttribute(attribute, value)} (${resolved.provenance[attribute.name]}${state === 'applied' ? '' : `, ${state}`})`);
     }
     if (existsSync(operatorConfigPath())) {
-        print(`legacy: ${operatorConfigPath()} still present — its explicit values win until migrated; run \`muxr setup --apply-config\` to fold them in`);
+        print(`legacy: ${operatorConfigPath()} still present — its explicit values override selfhost.json desired while it exists; remove it to stop that (a one-time import is not yet available)`);
     }
     print('precedence: CLI flag > MUXR_* env > selfhost.json desired > probed/default · identity and observations live under "runtime", never edited by hand');
     print('edit selfhost.json then `muxr setup --apply-config` · export: muxr config export · schema: muxr config --schema');
