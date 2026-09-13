@@ -52,7 +52,7 @@ import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import type { SessionMenu } from '@/plugins';
-import { FOOTER_ROW_HEIGHT, TOOLS_TRIGGER_BAND, TerminalToolsPanel, TerminalToolsTrigger } from './FloatingTerminalControls';
+import { FOOTER_ROW_HEIGHT, TOOLS_TRIGGER_INSET, TerminalToolsPanel, TerminalToolsTrigger } from './FloatingTerminalControls';
 import { FindOutputSheet } from './FindOutputSheet';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
@@ -174,6 +174,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     // Tools lives in the footer's reserved slot, docked to the hand's side;
     // open, it takes the composer and keys' place and never the terminal's.
     const [toolsOpen, setToolsOpen] = React.useState(false);
+    const [terminalHeight, setTerminalHeight] = React.useState(0);
     const [toolsBlocked, setToolsBlocked] = React.useState(false);
     // Find in recent output: a sheet over the session, opened from the panel.
     const [findOpen, setFindOpen] = React.useState(false);
@@ -593,8 +594,10 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     // that floats over it gets counted as empty space and lands on the output.
     // What repeats while working, at the thumb: the pane's surfaces first,
     // then the declared quick actions (Files, Changes, Applications) and the
-    // recent links; the terminal's own keyboard and zoom are the panel's
-    // quick keys above these rows.
+    // recent links; the terminal's own keyboard and zoom are the card's
+    // strip above these rows. Find in recent output is inspection and lives
+    // in the header with Git history and Usage: the card is sized to show
+    // every row it has without a scroll, at 270dp too.
     const recentLinks = recentTerminalLinks(props.id);
     const toolsRows = (
         <>
@@ -609,7 +612,6 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 />
             ))}
             <DeclarativeSessionActions actions={quickActions} sessionId={props.id} onNavigate={closeTools} presentation="shortcut" />
-            <ActionShortcut label="Find in recent output" onPress={openFind} />
             {recentLinks.length > 0 && <>
                 <ActionShortcut label="Open link" icon="open-outline" onPress={() => showRecentLinks('open')} />
                 <ActionShortcut label="Copy link" icon="copy-outline" onPress={() => showRecentLinks('copy')} />
@@ -701,14 +703,16 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 </View>
             )}
 
-            {/* The grid ends above a band that the floating mark and Jump to
-                bottom live in: nothing floats over an output row. */}
+            {/* The grid keeps an inset above the container's bottom edge, so
+                the mark on the terminal (and Jump to bottom) never has an
+                output row underneath it. The open card floats in here too. */}
             <View
                 ref={paneGestures.ref}
                 onTouchStart={paneGestures.onTouchStart}
                 onTouchMove={paneGestures.onTouchMove}
                 onTouchEnd={paneGestures.onTouchEnd}
-                style={{ flex: 1, paddingBottom: TOOLS_TRIGGER_BAND }}
+                onLayout={(event) => setTerminalHeight(event.nativeEvent.layout.height)}
+                style={{ flex: 1, paddingBottom: TOOLS_TRIGGER_INSET }}
             >
                 <React.Suspense fallback={<TerminalViewFallback />}>
                     <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} attempt={openAttempt} />
@@ -793,10 +797,10 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                         accessibilityLabel="Jump to bottom"
                         style={({ pressed }) => ({
                             position: 'absolute',
-                            // In the band under the last row, at the corner the
+                            // In the inset under the last row, at the corner the
                             // mark does not use.
                             [toolsSide === 'right' ? 'left' : 'right']: 14,
-                            bottom: (TOOLS_TRIGGER_BAND - 38) / 2,
+                            bottom: (TOOLS_TRIGGER_INSET - 38) / 2,
                             width: 38,
                             height: 38,
                             borderRadius: 19,
@@ -816,6 +820,11 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                     while the output is being read back. */}
                 <TerminalToolsTrigger side={toolsSide} onSideChange={setToolsSide} onPress={toolsOpen ? closeTools : openTools}
                     blocked={toolsBlocked} expanded={toolsOpen} dimmed={showJump} />
+                {toolsOpen && (
+                    <TerminalToolsPanel commands={viewControls.commands} side={toolsSide} maxHeight={terminalHeight} onClose={closeTools}>
+                        {toolsRows}
+                    </TerminalToolsPanel>
+                )}
             </View>
 
             {/* The workspace's tabs, for anyone who can look: a tap opens that
@@ -902,20 +911,11 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
             )}
 
             {/* Footer: the composer (for those who may type) and then the bottommost
-                row of accessory keys. Open, Tools takes the composer's place
-                directly above the keys, at every width; the key row stays
-                keys, and the terminal above keeps every row it had while
-                typing. */}
+                row of accessory keys -- keys above the composer, the composer
+                last, and neither moves when the card is open: the card floats
+                over the terminal above. */}
             <View style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
-            {toolsOpen && (
-                <TerminalToolsPanel commands={viewControls.commands} bottomInset={keyboardPad > 0 ? 0 : insets.bottom} onClose={closeTools}>
-                    {toolsRows}
-                </TerminalToolsPanel>
-            )}
-            {/* The composer stays mounted while Tools shows, only hidden: a
-                recreated input is a new element for the IME to reconnect to,
-                and Android keyboards re-commit their buffer into it. */}
-            {canControl && <View style={toolsOpen ? { display: 'none' } : undefined}>
+            {canControl && <>
             {failedImages.length > 0 && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
                     <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />
@@ -1043,8 +1043,12 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                                     <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{terminalKeyboardDisabled ? 'Enable keyboard on tap' : 'Disable keyboard on tap'}</Text>
                                 </Pressable>
                             )}
-                            {paneActions.length > 0 && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>}
+                            <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>
                             <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />
+                            <Pressable onPress={() => { setActionsOpen(false); openFind(); }} accessibilityRole="button" accessibilityLabel="Find in recent output"
+                                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Find in recent output</Text>
+                            </Pressable>
                             {/* Returning the computer to this pane rearranges the
                                 desktop: occasional, deliberate, and only with control. */}
                             <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Computer</Text>
