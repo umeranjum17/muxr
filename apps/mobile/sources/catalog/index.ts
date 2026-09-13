@@ -20,6 +20,7 @@ export { indexSessionsById } from './domain/sessionIdentity';
 export { resolveAgentCatalog, FALLBACK_AGENT_KINDS, AGENT_KINDS, type AgentCatalogOption } from './domain/agentKinds';
 export { resolveControlHandoffDirection, resolveControlMode } from './domain/controlHandoff';
 export * from './application/storage';
+export * from './application/surfaceCoordinator';
 export * from './application/sync';
 export * from './application/ops';
 export * from './application/persistence';

@@ -26,6 +26,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
+        minHeight: 44,
         paddingVertical: 10,
         paddingHorizontal: 14,
         borderRadius: 10,
@@ -138,12 +139,13 @@ export const SidebarView = React.memo(() => {
     }, [router]);
 
     return (
-        <View style={[styles.container, { paddingTop: safeArea.top + headerHeight }]}>
+        <View testID="sidebar" style={[styles.container, { paddingTop: safeArea.top + headerHeight }]}>
             <View style={styles.headerRow}>
                 <Pressable
                     onPress={handleNewSession}
                     disabled={newSessionDisabled}
                     accessibilityRole="button"
+                    accessibilityLabel="New session"
                     accessibilityState={{ disabled: newSessionDisabled }}
                     style={({ pressed }) => [
                         styles.newSessionButton,

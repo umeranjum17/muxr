@@ -14,10 +14,18 @@
 import { issueWsTicket, newTerminalChannel, ticketSocketUrl, type Envelope, type TerminalGraphicsReason, type TerminalGraphicsSurface } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
+import { storage } from '@/catalog/store';
 import { beginTerminalFrameCounts, finalizeTerminalFrameCounts, recordTerminalChannel, recordTerminalFirstFrame, recordTerminalFrameReceived, recordTerminalFrameWritten, type TerminalFrameCountToken } from '@/catalog/infrastructure/connectionDiagnostics';
 import { DeviceV2Crypto, getCachedHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
+import { isDemoTerminalSession, isDemoTransport, openDemoTerminal } from '@/demo/demoTransport';
 
-export type TerminalChannelState = 'live' | 'reconnecting';
+/**
+ * 'reconnecting' while this pane's socket is being re-attached; 'live' while
+ * frames flow with nothing known to be wrong; 'unconfirmed' when the pane's
+ * socket is open but the machine transport last reported a timeout or a lost
+ * route, so nobody can say the host is still there until it answers again.
+ */
+export type TerminalChannelState = 'live' | 'reconnecting' | 'unconfirmed';
 
 export interface TerminalChannel {
     /** Count a successful native write. Stale after the channel finalizes. */
@@ -26,7 +34,11 @@ export interface TerminalChannel {
     onData: (listener: (base64: string, graphics?: boolean) => void) => () => void;
     onClose: (listener: (reason?: string) => void) => () => void;
     onGraphics: (listener: (active: boolean, reason?: TerminalGraphicsReason, surface?: TerminalGraphicsSurface) => void) => () => void;
-    /** 'reconnecting' while a dropped socket is being re-attached, 'live' after. */
+    /**
+     * 'reconnecting' while a dropped socket is being re-attached, 'live' once
+     * the transport is open. The current state is replayed on subscribe, so a
+     * view never reports live before the socket does.
+     */
     onState: (listener: (state: TerminalChannelState) => void) => () => void;
     sendText: (text: string) => void;
     sendBytes: (base64: string) => void;
@@ -54,6 +66,9 @@ export type OpenTerminalCommand = {
 const MAX_ATTEMPTS = 15;
 
 export async function openTerminal(command: OpenTerminalCommand): Promise<TerminalChannel> {
+    // Demo replay: same contract, in-memory channel. Selected here — never by
+    // the channel implementation — and only on the unpaired demo route.
+    if (isDemoTransport() && isDemoTerminalSession(command.agentRoute)) return openDemoTerminal(command);
     let closedByUser = false;
     let attachSent = false;
     const assertOpen = (): void => {
@@ -174,13 +189,42 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     let takeoverRequested = false;
     let graphicsResetRequested = false;
 
+    // The link is what this channel knows first-hand: attaching, or frames
+    // flowing. There is no terminal heartbeat, so the only evidence that an
+    // open pane may be talking to nobody comes from the machine transport
+    // (storage.socketStatus): 'error' is a request that timed out, 'disconnected'
+    // a lost route, 'connected' an authenticated host frame. A known failure
+    // reads 'unconfirmed' until this pane paints again or the host answers.
+    let link: 'live' | 'reconnecting' = 'reconnecting';
+    let hostUnconfirmed = false;
     let state: TerminalChannelState = 'reconnecting';
-    const emitState = (nextState: TerminalChannelState): void => {
-        if (state === nextState) return;
-        state = nextState;
-        recordTerminalChannel(state, { ok: true });
+    const publishState = (): void => {
+        let next: TerminalChannelState = link;
+        if (link === 'live' && hostUnconfirmed) next = 'unconfirmed';
+        if (state === next) return;
+        state = next;
         for (const listener of stateListeners) listener(state);
     };
+    const emitState = (nextLink: 'live' | 'reconnecting'): void => {
+        if (link !== nextLink) {
+            link = nextLink;
+            recordTerminalChannel(link, { ok: true });
+        }
+        publishState();
+    };
+    const hostAnswered = (): void => {
+        if (!hostUnconfirmed) return;
+        hostUnconfirmed = false;
+        publishState();
+    };
+    const stopWatchingHost = storage.subscribe((current, previous) => {
+        if (current.socketStatus === previous.socketStatus) return;
+        if (current.socketStatus === 'connected') hostAnswered();
+        else if (current.socketStatus !== 'connecting') {
+            hostUnconfirmed = true;
+            publishState();
+        }
+    });
 
     function scheduleRetry(): void {
         if (closedByUser || retryTimer !== undefined) return;
@@ -332,6 +376,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     const rawSurface = 'graphicsSurface' in frame ? frame.graphicsSurface : undefined;
                     const surface = rawSurface === 'full' || rawSurface === 'inline' ? rawSurface : undefined;
                     if (frameCounts !== undefined) recordTerminalFrameReceived(frameCounts);
+                    hostAnswered();
                     if (!firstFrame) {
                         firstFrame = true;
                         if (retryTimer !== undefined) {
@@ -381,6 +426,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     function close(): void {
         closedByUser = true;
         closedByTakeover = false;
+        stopWatchingHost();
         command.signal?.removeEventListener('abort', close);
         emitGraphics(false);
         finalizeCounts();

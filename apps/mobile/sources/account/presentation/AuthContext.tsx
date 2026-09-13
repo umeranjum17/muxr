@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 import * as Updates from 'expo-updates';
 import { relayControlUrl } from '@muxr/contract';
 import { TokenStorage, type AuthCredentials } from '../application/tokenStorage';
-import { setAccountCredentialRejectedHandler, syncCreate } from '@/catalog/sync';
+import { setAccountCredentialRejectedHandler, syncCreate, syncShutdown } from '@/catalog/sync';
 import { clearPersistence } from '@/catalog';
 import { getCachedConnectionSettings } from '@/connection';
 import { clearHostedE2ee } from '@/pairing/e2ee';
@@ -23,6 +23,9 @@ export function AuthProvider({ children, initialCredentials }: { children: React
     const [credentials, setCredentials] = useState<AuthCredentials | null>(initialCredentials);
 
     const clearLocalSession = useCallback(async (clearMachineKeys: boolean) => {
+        // The transport goes first: nothing may keep dialling with the grant
+        // that is about to be deleted, and the reload below is best-effort.
+        syncShutdown();
         clearPersistence();
         if (clearMachineKeys && getCachedConnectionSettings().mode === 'hosted') {
             try { await clearHostedE2ee(); } catch {}

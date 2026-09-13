@@ -22,7 +22,10 @@ import { SidebarNavigator } from '@/herd/ui';
 import sodium from '@/encryption/libsodium.lib';
 import { View, Platform, AppState, Pressable, Text } from 'react-native';
 import { ModalProvider } from '@/modal';
-import { sync, syncRestore, syncResume } from '@/catalog/sync';
+import { sync, syncReconnect, syncRestore, syncResume } from '@/catalog/sync';
+import { isDemoPathname } from '@/demo/demoGuard';
+import { isDemoTransport } from '@/demo/demoTransport';
+import { watchInstallPrompt } from '@/utils/pwaInstall';
 import { FaviconPermissionIndicator } from '@/components/web/FaviconPermissionIndicator';
 import { CommandPaletteProvider } from '@/components/CommandPalette/CommandPaletteProvider';
 import { StatusBarProvider } from '@/components/StatusBarProvider';
@@ -39,6 +42,8 @@ import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcut
 import { KernelNotifications } from '@/herd/ui';
 import { acknowledgeLifecyclePush } from '@/utils/nativePushNotifications';
 import { realtimeAppController } from '@/conversation/application/realtimeAppControl';
+import { MOTION } from '@/constants/motion';
+import { humanError } from '@/utils/errors';
 
 // Configure notification handler — suppress push display when app is in foreground
 Notifications.setNotificationHandler({
@@ -78,7 +83,7 @@ export {
 // Configure splash screen
 SplashScreen.setOptions({
     fade: true,
-    duration: 300,
+    duration: MOTION.slow,
 })
 SplashScreen.preventAutoHideAsync();
 
@@ -237,6 +242,10 @@ export default function RootLayout() {
     const [initState, setInitState] = React.useState<{ credentials: AuthCredentials | null; error?: string } | null>(null);
 
     React.useEffect(() => {
+        // Demo replay: no credential restore, no device sync, no push
+        // registration. The demo route installs its deterministic backend
+        // before any of these effects could mount it.
+        if (isDemoPathname()) return () => undefined;
         const subscription = Notifications.addNotificationReceivedListener((notification) => {
             acknowledgeLifecyclePush(notification.request.content.data);
         });
@@ -248,31 +257,25 @@ export default function RootLayout() {
             try {
                 await loadFonts();
                 await sodium.ready;
-                // Skia draws the gauge and ring charts. Native ships it in the
-                // binary; the browser has to fetch CanvasKit first, and without
-                // this every plugin panel holding one of those charts died on
-                // `CanvasKit is not defined`.
-                if (Platform.OS === 'web') {
-                    const { LoadSkiaWeb } = await import('@shopify/react-native-skia/lib/module/web');
-                    await LoadSkiaWeb({ locateFile: (file: string) => `/${file}` });
-                }
 
-                try {
-                    credentials = await TokenStorage.getCredentials();
-                    const restoredGrant = await restoreHostedConnection();
-                    if (restoredGrant !== undefined && (credentials?.token !== restoredGrant.credential
-                        || credentials?.secret !== restoredGrant.deviceKey.secretKey)) {
-                        credentials = { token: restoredGrant.credential, secret: restoredGrant.deviceKey.secretKey };
-                        await TokenStorage.setCredentials(credentials);
+                if (!isDemoPathname()) {
+                    try {
+                        credentials = await TokenStorage.getCredentials();
+                        const restoredGrant = await restoreHostedConnection();
+                        if (restoredGrant !== undefined && (credentials?.token !== restoredGrant.credential
+                            || credentials?.secret !== restoredGrant.deviceKey.secretKey)) {
+                            credentials = { token: restoredGrant.credential, secret: restoredGrant.deviceKey.secretKey };
+                            await TokenStorage.setCredentials(credentials);
+                        }
+                    } catch (error) {
+                        setInitState({
+                            credentials,
+                            error: humanError(error).message,
+                        });
+                        return;
                     }
-                } catch (error) {
-                    setInitState({
-                        credentials,
-                        error: error instanceof Error ? error.message : String(error),
-                    });
-                    return;
                 }
-                const devCredentials = getDevWebQueryCredentials() ?? getDevEnvironmentCredentials();
+                const devCredentials = isDemoPathname() ? null : getDevWebQueryCredentials() ?? getDevEnvironmentCredentials();
 
                 if (devCredentials) {
                     const credentialsChanged = credentials?.token !== devCredentials.token
@@ -339,6 +342,50 @@ export default function RootLayout() {
         return () => subscription.remove();
     }, [initState?.credentials]);
 
+    // beforeinstallprompt fires around first load — long before pairing
+    // credentials exist — so the watcher mounts unconditionally (once) and
+    // never depends on auth state. Capture is idempotent; the prompt itself
+    // is only ever shown from an explicit post-pairing gesture.
+    React.useEffect(() => {
+        if (Platform.OS !== 'web') return;
+        watchInstallPrompt();
+    }, []);
+
+    // Web has no AppState foregrounding, and a frozen tab can return with a
+    // half-open socket that still reads `open` while delivering nothing. On a
+    // real hidden -> visible transition, run the serialized reconnect path:
+    // it replaces the socket and refreshes from a fresh catalog exactly once.
+    // The hidden flag plus cooldown collapse the pageshow + visibilitychange
+    // echo into a single reconnect; already-visible events are ignored, so no
+    // duplicate subscriptions or duplicate terminal commands can result.
+    // The demo replay owns no socket: a visibility resume there must never
+    // tear down the deterministic transport (closing the singleton used to
+    // brick the herd until reload).
+    React.useEffect(() => {
+        if (initState?.credentials === undefined || Platform.OS !== 'web' || isDemoTransport()) return;
+        let hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+        let lastReconnect = 0;
+        const onReturn = () => {
+            if (isDemoTransport()) return;
+            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+                hidden = true;
+                return;
+            }
+            if (!hidden) return;
+            const now = Date.now();
+            if (now - lastReconnect < 1000) return;
+            lastReconnect = now;
+            hidden = false;
+            void syncReconnect().catch(() => undefined);
+        };
+        document.addEventListener('visibilitychange', onReturn);
+        window.addEventListener('pageshow', onReturn);
+        return () => {
+            document.removeEventListener('visibilitychange', onReturn);
+            window.removeEventListener('pageshow', onReturn);
+        };
+    }, [initState?.credentials]);
+
     const handledNotificationIds = React.useRef<Set<string>>(new Set());
     const handleNotificationResponse = React.useCallback(async (response: Notifications.NotificationResponse | null) => {
         if (!response) {
@@ -380,7 +427,7 @@ export default function RootLayout() {
     }, [router]);
 
     React.useEffect(() => {
-        if (!initState) {
+        if (!initState || isDemoTransport()) {
             return;
         }
 

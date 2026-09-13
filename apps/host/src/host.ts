@@ -7,8 +7,8 @@
  */
 
 import type { ClientFrame, ClientRequest, SessionEvent, SessionEventBody } from '@muxr/contract';
-import { connectToRelay, deviceTableCanMutate, type RelayLink, type RelayStateCode, type HostedMachineKeys } from './machine/index.js';
-import { createRequestDispatcher } from './requests/index.js';
+import { connectToRelay, deviceTableCanMutate, deviceTableHoldsControl, type RelayLink, type RelayStateCode, type HostedMachineKeys } from './machine/index.js';
+import { createRequestDispatcher, surfaceOfferFrame, type RequestDispatcherOptions, type SurfaceOfferEvent } from './requests/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
 import type { PeerRuntime } from './peer/index.js';
 import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/index.js';
@@ -43,6 +43,10 @@ export interface HostOptions {
     domain: AgentWatchStores;
     terminals?: TerminalManager;
     hostVersion?: string;
+    /** Shared Surface offer registry. One is created when absent. */
+    surfaceOffers?: RequestDispatcherOptions['surfaceOffers'];
+    previewEndpoints?: RequestDispatcherOptions['previewEndpoints'];
+    previewGateway?: RequestDispatcherOptions['previewGateway'];
     onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced', code?: RelayStateCode) => void;
     /** Mandatory strict v2 endpoint keys for hosted mode. */
     hostedE2ee?: HostedMachineKeys;
@@ -67,6 +71,11 @@ export function startHost(options: HostOptions): Host {
         hostedDispatcherOptions = {
             requirePreviewEncryption: true,
             canMutateDevice: (deviceId: string) => deviceTableCanMutate(hosted.deviceAuthorities, deviceId),
+            // Surfaces read the grant itself, not the absence of a "view-only"
+            // note: removing a grant leaves no authority entry behind, and the
+            // tables are refreshed in place as pairing rewrites them, so this
+            // is the live answer every sweep.
+            surfaceAuthority: (deviceId: string) => deviceTableHoldsControl(hosted, deviceId),
             getDeviceContext: (deviceId: string) => {
                 const kind = hosted.deviceKinds?.[deviceId];
                 if (kind === undefined) return undefined;
@@ -87,6 +96,9 @@ export function startHost(options: HostOptions): Host {
         ...(options.machineName === undefined ? {} : { machineName: options.machineName }),
         hostVersion,
         relayUrl: options.relayUrl,
+        ...(options.surfaceOffers === undefined ? {} : { surfaceOffers: options.surfaceOffers }),
+        ...(options.previewEndpoints === undefined ? {} : { previewEndpoints: options.previewEndpoints }),
+        ...(options.previewGateway === undefined ? {} : { previewGateway: options.previewGateway }),
         ...(options.terminals === undefined ? {} : { terminals: options.terminals }),
         ...(options.token === undefined ? {} : { token: options.token }),
         ...(options.peerRuntime === undefined ? {} : { peerRuntime: options.peerRuntime }),
@@ -97,6 +109,26 @@ export function startHost(options: HostOptions): Host {
         const seq = (seqBySession.get(sessionId) ?? 0) + 1;
         seqBySession.set(sessionId, seq);
         return seq;
+    }
+
+    /**
+     * Fan a Surface registry event out as a host-originated frame on the
+     * session channel. Sessionless records emit nothing. An offer carries no
+     * credential: acting on one still needs a control grant and a lease the
+     * host issues to that exact device, so an observe grant that can read
+     * the frame can do nothing with it.
+     */
+    // ponytail: broadcast under the shared session root; per-recipient
+    // sealing (so observe grants cannot even read offers) needs the directed
+    // egress key on both ends -- add when offers start carrying anything a
+    // view-only device must not see.
+    function emitSurfaceOffer(operation: SurfaceOfferEvent['operation'], record: SurfaceOfferEvent['record']): void {
+        const frame = surfaceOfferFrame({ operation, record });
+        if (frame === undefined || record.sessionId === undefined) return;
+        link?.send(frame, record.sessionId, 'session');
+    }
+    if (options.surfaceOffers !== undefined) {
+        options.surfaceOffers.onEvent = (event) => emitSurfaceOffer(event.operation, event.record);
     }
 
     async function handleClientFrame(frame: ClientFrame, authenticatedSenderId?: string): Promise<void> {
@@ -121,6 +153,12 @@ export function startHost(options: HostOptions): Host {
                 }
             }
             if (peerRecipient === undefined) source.resendCumulativeState?.();
+            // A device rejoining an already-connected host missed every
+            // offer frame while it was gone; replay the current offers.
+            // Coordinators apply them idempotently.
+            for (const record of options.surfaceOffers?.records() ?? []) {
+                emitSurfaceOffer('open', record);
+            }
             return;
         }
 
@@ -164,6 +202,13 @@ export function startHost(options: HostOptions): Host {
                 // Clients do not reconnect when the host restarts, so waiting
                 // for client.hello never rescues them.
                 source.resendCumulativeState?.();
+                // A reconnected phone missed every offer frame while it was
+                // gone. Replay the current offers to the devices that may
+                // hold them now; nothing replayed is claimed visible before
+                // the device acknowledges it.
+                for (const record of options.surfaceOffers?.records() ?? []) {
+                    emitSurfaceOffer('open', record);
+                }
             }
         },
         onClientFrame: (frame, authenticatedSenderId) => {

@@ -6,7 +6,6 @@ import { VersionNotice } from '@/components/VersionNotice';
 
 import * as React from 'react';
 import {
-    ActivityIndicator,
     Pressable,
     View,
     NativeScrollEvent,
@@ -29,8 +28,10 @@ import { ActionButton } from '@/components/ActionButton';
 import { LiveTerminalsRow } from './LiveTerminalsRow';
 import { SpacesTree } from './SpacesTree';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
+import { useSocketStatus } from '@/catalog/store';
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
+import { LoadingHairline } from '@/components/LoadingHairline';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -153,6 +154,34 @@ const stylesheet = StyleSheet.create((theme) => ({
 }));
 
 
+/** Warning row with the copyable command chip the setup card already uses. */
+function RecoveryBanner({ text, command }: { text: string; command?: string }) {
+    const { theme } = useUnistyles();
+    const styles = stylesheet;
+    return (
+        <View style={styles.banner} accessibilityRole="alert">
+            <Ionicons name="warning-outline" size={16} color={theme.colors.box.warning.text} />
+            <View style={{ flex: 1, gap: 4 }}>
+                <Text style={[styles.bannerText, { color: theme.colors.box.warning.text }]}>{text}</Text>
+                {command !== undefined && (
+                    <View style={styles.commandRow}>
+                        <Text style={styles.setupCommand} selectable>{command}</Text>
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`Copy ${command}`}
+                            hitSlop={10}
+                            style={styles.copyButton}
+                            onPress={() => void Clipboard.setStringAsync(command)}
+                        >
+                            <Ionicons name="copy-outline" size={17} color={theme.colors.textSecondary} />
+                        </Pressable>
+                    </View>
+                )}
+            </View>
+        </View>
+    );
+}
+
 export const HerdView = React.memo(({
     topContentInset = 0,
     bottomContentInset = 128,
@@ -184,6 +213,22 @@ export const HerdView = React.memo(({
     } = useHerdTreeLive();
     const processPairLink = useHostedPairing();
     const scanPairQr = usePairQrScanner((url) => void processPairLink(url));
+    const { status: socketStatus } = useSocketStatus();
+    // One banner under the header for everything that makes the herd below
+    // stale: the machine's runtime not answering (with the command that
+    // brings it back), or this device being offline. Nothing is hidden and
+    // nothing is queued for replay; the data stays as last known.
+    const recovery = herdrConnected === false
+        ? <RecoveryBanner text="This computer is online, but its agent runtime (herdr) is not answering, so what you see may be stale. Run this on the computer:" command="herdr server" />
+        : (socketStatus === 'disconnected' || socketStatus === 'error')
+            // loaded: we had the herd, so show it as last-known. Not loaded: we
+            // never reached the computer — say so plainly instead of a bare
+            // spinner or a misleading "no agents yet". The client fails closed
+            // after its backoff and this device keeps a slow foreground retry.
+            ? <RecoveryBanner text={loaded
+                ? "Offline. Showing what was last known."
+                : "Can't reach your computer. Check it's on, connected, and running muxr — this device keeps trying."} />
+            : null;
 
     // "No agents anywhere" hides the whole list in favour of the friendly empty
     // state; the live strip already hides itself.
@@ -197,24 +242,17 @@ export const HerdView = React.memo(({
     // grants can tell "never paired" from "paired but the machine is off".
     const neverPaired = connection.mode === 'hosted' && hasPairedGrant === false;
 
-    if (!loaded && !attempted) {
+    // First load and the grant-storage wait both keep the shell: header,
+    // captions and dock stay put and a hairline says the herd is coming.
+    if ((!loaded && !attempted) || (agentsEmpty && connection.mode === 'hosted' && hasPairedGrant === undefined)) {
         return (
-            <View style={[styles.empty, { paddingBottom: safeArea.bottom }]}>
-                <ActivityIndicator color={theme.colors.textSecondary} />
+            <View style={{ flex: 1, paddingBottom: safeArea.bottom }}>
+                <LoadingHairline active />
             </View>
         );
     }
 
     if (agentsEmpty) {
-        if (connection.mode === 'hosted' && hasPairedGrant === undefined) {
-            // Grant storage has not answered yet: showing either the onboarding
-            // card or the error branch now would be a guess.
-            return (
-                <View style={[styles.empty, { paddingBottom: safeArea.bottom }]}>
-                    <ActivityIndicator color={theme.colors.textSecondary} />
-                </View>
-            );
-        }
         if (neverPaired) {
             return (
                 <View style={[styles.empty, { paddingBottom: safeArea.bottom }]}>
@@ -252,7 +290,7 @@ export const HerdView = React.memo(({
                     </View>
                     <View style={styles.emptyAction}>
                         {Platform.OS === 'web' ? (
-                            <ActionButton title="Paste browser pairing link" icon="clipboard-outline" onPress={() => router.push('/pair')} />
+                            <ActionButton title="Scan QR to pair" icon="qr-code-outline" onPress={() => router.push('/pair')} />
                         ) : (
                             <>
                                 <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
@@ -277,14 +315,7 @@ export const HerdView = React.memo(({
                     visibilityTop={topContentInset}
                     visibilityBottomInset={bottomContentInset}
                 />
-            {herdrConnected === false ? (
-                <View style={styles.banner}>
-                    <Ionicons name="warning-outline" size={16} color={theme.colors.box.warning.text} />
-                    <Text style={[styles.bannerText, { color: theme.colors.box.warning.text }]}>
-                        This computer is online, but its agent runtime (herdr) is not answering — sessions may be stale. Restart herdr on the machine to refresh them.
-                    </Text>
-                </View>
-            ) : null}
+            {recovery}
             <View style={[styles.empty, { paddingBottom: safeArea.bottom }]}>
                 <Ionicons name="albums-outline" size={40} color={theme.colors.textSecondary} />
                 <Text style={styles.emptyText}>
@@ -313,14 +344,7 @@ export const HerdView = React.memo(({
             {error === null ? null : (
                 <Text style={[styles.error, { color: theme.colors.status.error }]}>{error}</Text>
             )}
-            {herdrConnected === false ? (
-                <View style={styles.banner}>
-                    <Ionicons name="warning-outline" size={16} color={theme.colors.box.warning.text} />
-                    <Text style={[styles.bannerText, { color: theme.colors.box.warning.text }]}>
-                        This computer is online, but its agent runtime (herdr) is not answering — sessions below may be stale. Restart herdr on the machine to refresh them.
-                    </Text>
-                </View>
-            ) : null}
+            {recovery}
             <SpacesTree
                 workspaces={workspaces}
                 defaultExpandedWorkspaceIds={defaultExpandedWorkspaceIds}

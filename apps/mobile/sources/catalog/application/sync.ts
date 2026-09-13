@@ -24,7 +24,8 @@ import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../i
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
 import type { DecryptedArtifact } from '../infrastructure/artifactTypes';
-import { MuxrClient } from '@/pairing/client';
+import { MuxrClient, type MuxrTransport } from '@/pairing/client';
+import { demoMachineId, demoTransport, isDemoTransport } from '@/demo/demoTransport';
 import * as Notifications from 'expo-notifications';
 import { AppState, Platform } from 'react-native';
 import {
@@ -34,6 +35,7 @@ import {
 } from '@/connection';
 import { getCachedHostedGrant, loadHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
 import { storage } from './storage';
+import { ingestSurfaceOffer } from './surfaceCoordinator';
 import {
     applyStatusToSession,
     machineInfoToMachine,
@@ -43,6 +45,7 @@ import { agentStatusUnchanged, applyHostInfoToAgent } from '../domain/agent';
 import type { SessionInfo } from '@muxr/contract';
 import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
 import { promptAgent } from './promptAgent';
+import { ConnectionNegotiation, hostConfirmsPromptsRunOnce, UNSUPPORTED_HOST } from '../domain/connectionNegotiation';
 import type { Settings } from './settings';
 import { lifecycleNotificationCopy } from '@/utils/herd';
 
@@ -77,7 +80,7 @@ function socketStatusFromClient(state: string): 'connected' | 'connecting' | 'er
     return 'disconnected';
 }
 
-function waitUntilClientOpen(client: MuxrClient, timeoutMs: number): Promise<void> {
+function waitUntilClientOpen(client: MuxrTransport, timeoutMs: number): Promise<void> {
     if (client.isLive()) return Promise.resolve();
     // Header can stay `open` after the socket dies without onclose. A new
     // connect() is what unblocks herdr.tree / terminal.attach.
@@ -174,6 +177,11 @@ type SendMessageOptions = {
     displayText?: string;
     source?: string;
     attachments?: AttachmentPreview[];
+    /** Submission identity the host runs at most once; see submissions.ts. */
+    promptId: string;
+    notValidAfter: number;
+    /** The computer this submission was composed for; a different active machine is refused. */
+    machineId: string;
 };
 
 /*
@@ -226,7 +234,7 @@ const SESSION_UPDATE_FLUSH_MS = 250;
 class MuxrSync {
     private readonly pendingSessionInfo = new Map<string, SessionInfo>();
     private sessionFlushTimer: ReturnType<typeof setTimeout> | undefined;
-    private client: MuxrClient | undefined;
+    private client: MuxrTransport | undefined;
     private lifecycleWork: Promise<void> = Promise.resolve();
     private reconnectWork: Promise<void> | undefined;
     private resumeWork: Promise<void> | undefined;
@@ -236,6 +244,13 @@ class MuxrSync {
     private openedSessions = new Set<string>();
     private opening = new Map<string, Promise<void>>();
     private activeMachineId: string | undefined;
+    /**
+     * What the connected host advertised on machines.list, bound to the exact
+     * transport and connection it was learned on. Any close, stale route or
+     * client replacement bumps the epoch; a prompt needs support negotiated
+     * on the connection that will carry it, or it is not sent.
+     */
+    private readonly negotiation = new ConnectionNegotiation<MuxrTransport>();
     private herdrTreeRequest = 0;
     private presentingLifecycleIds = new Set<string>();
     encryption!: Encryption;
@@ -247,6 +262,9 @@ class MuxrSync {
     }
 
     private hasTransport(): boolean {
+        // The demo replay is transport by selection: no grant, no relay, no
+        // pairing — the deterministic backend answers instead.
+        if (isDemoTransport()) return true;
         const settings = this.getConnection();
         return hostedTransportReady(settings.mode, settings.machineId, getCachedHostedGrant(settings.machineId));
     }
@@ -268,15 +286,26 @@ class MuxrSync {
         return this.accountValidation;
     }
 
-    private ensureClient(): MuxrClient {
+    private ensureClient(): MuxrTransport {
         if (this.client !== undefined) return this.client;
+        // Demo replay first: no grant, no relay, no readiness gate — the
+        // deterministic backend answers instead. Selected here, never inside
+        // the client, and only on the unpaired demo route.
+        if (isDemoTransport()) {
+            const demo = demoTransport();
+            this.attachClient(demo);
+            demo.connect();
+            this.client = demo;
+            this.activeMachineId = demoMachineId();
+            return demo;
+        }
         const settings = this.getConnection();
         const hostedGrant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
         if (!hostedTransportReady(settings.mode, settings.machineId, hostedGrant)) {
             throw new Error('machine transport unavailable until secure pairing completes');
         }
         const transportToken = settings.mode === 'hosted' ? hostedGrant?.credential : settings.token.trim();
-        const client = new MuxrClient({
+        const client: MuxrTransport = new MuxrClient({
             mode: settings.mode,
             relayUrl: hostedGrant?.relayUrl ?? settings.relayUrl,
             machineId: settings.machineId,
@@ -288,11 +317,24 @@ class MuxrSync {
             ...(hostedGrant === undefined ? {} : { hostedGrant }),
             ...(settings.mode === 'hosted' ? {
                 onTicketRejected: () => { void this.refreshAccountSession().catch(() => undefined); },
-                onPermanentError: (message: string) => storage.getState().setSocketError(message),
+                onPermanentError: (failure) => {
+                    storage.getState().setSocketError(failure.message);
+                    storage.getState().setPairingFailure(failure.kind);
+                },
             } : {}),
         });
+        this.attachClient(client);
+        client.connect();
+        this.client = client;
+        return client;
+    }
+
+    /** Shared wiring for every transport behind the seam: state, events, refresh. */
+    private attachClient(client: MuxrTransport): void {
         client.onPluginsInvalidated?.((frame) => reconcilePluginCaches(frame));
         client.onStateChange((state) => {
+            // A connection that is not open is a new negotiation, synchronously.
+            if (state !== 'open') this.negotiation.invalidate();
             recordSocketState(state, client.isLive());
             storage.getState().setSocketStatus(socketStatusFromClient(state));
             // Events emitted while the socket was down are gone: nothing replays them.
@@ -300,6 +342,7 @@ class MuxrSync {
             // that only a manual app reload could fix.
             if (state === 'open') {
                 storage.getState().setSocketError(null);
+                storage.getState().setPairingFailure(null);
                 // Machine frames are edge-triggered; reconnect/mount paths also
                 // reconcile caches so a lost wakeup cannot leave stale UI.
                 reconcilePluginCaches({ type: 'plugins.invalidated', reason: 'changed', pluginIds: [] });
@@ -312,9 +355,10 @@ class MuxrSync {
             }
         });
         client.onEvent((sessionId, event) => this.handleSessionEvent(sessionId, event));
-        client.connect();
-        this.client = client;
-        return client;
+        // Host-originated Surface offers arrive on the same encrypted
+        // control plane. The client authenticates the frame and the guard;
+        // the coordinator keys it by the exact live machine + session.
+        client.onSurfaceOffer?.((frame) => ingestSurfaceOffer(this.getConnection().machineId, frame));
     }
 
     /**
@@ -543,6 +587,7 @@ class MuxrSync {
         }
         const client = this.ensureClient();
         if (!client.isLive()) await waitUntilClientOpen(client, 5000);
+        const epoch = this.negotiation.current;
         const [machines, sessions, attention, lifecycle, tree] = await Promise.all([
             client.request('machines.list', {}),
             client.request('session.list', {}),
@@ -554,6 +599,9 @@ class MuxrSync {
             this.refreshHerdTree().catch(() => undefined),
         ]);
         if (client !== this.client) return;
+        // One transport, one host: its advertised features gate what the app
+        // promises — only for the connection that answered.
+        this.negotiation.record(client, epoch, machines.find((machine) => machine.capabilities !== undefined)?.capabilities);
         storage.getState().applyMachines(machines.map((machine) =>
             machineInfoToMachine(machine, getCachedHostedGrant(machine.machineId)?.machineName)
         ), true);
@@ -644,6 +692,7 @@ class MuxrSync {
     private async bootstrap(credentials: AuthCredentials): Promise<void> {
         this.client?.close();
         this.client = undefined;
+        this.negotiation.invalidate();
         this.credentials = credentials;
         await this.initEncryption(credentials);
         const settings = await loadConnectionSettingsAsync();
@@ -677,13 +726,42 @@ class MuxrSync {
         await this.bootstrap(credentials);
     }
 
+    /**
+     * Forget/logout: drop the transport and every per-machine memory so a
+     * stale client cannot reconnect with a deleted grant, or report its late
+     * failure into the pairing that replaces it.
+     */
+    shutdown(): void {
+        this.client?.close();
+        this.client = undefined;
+        this.credentials = undefined;
+        this.accountValidation = undefined;
+        this.activeMachineId = undefined;
+        this.negotiation.invalidate();
+        this.openedSessions.clear();
+        this.opening.clear();
+        this.herdrTreeRequest += 1;
+        for (const resolve of this.pendingShell.values()) resolve({ stdout: '', exitCode: 1, isError: true });
+        this.pendingShell.clear();
+        storage.getState().setSocketStatus('disconnected');
+        storage.getState().setPairingFailure(null);
+    }
+
     async restore(credentials: AuthCredentials): Promise<void> {
         await this.bootstrap(credentials);
     }
 
-    async sendMessage(sessionId: string, text: string, options?: SendMessageOptions): Promise<void> {
-        const previews = options?.attachments ?? [];
+    async sendMessage(sessionId: string, text: string, options: SendMessageOptions): Promise<void> {
+        const previews = options.attachments ?? [];
         if (text.trim().length === 0 && previews.length === 0) return;
+        this.assertTarget(options.machineId);
+        // A host without receipts would run a resend twice; refuse to send at
+        // all rather than promise what it cannot keep. Support must come from
+        // the live connection that will carry this prompt.
+        const { client, epoch } = await this.negotiateCurrentConnection();
+        if (!hostConfirmsPromptsRunOnce(this.negotiation.capabilitiesFor(client, epoch))) {
+            throw Object.assign(new Error(UNSUPPORTED_HOST), { code: 'host-unsupported' });
+        }
         // Readiness is the host's call: it waits for a starting agent to accept
         // the prompt. Refusing here on cached metadata drops the first prompt
         // during the seconds before the tree reports the agent promptable.
@@ -693,16 +771,18 @@ class MuxrSync {
         // lands at the next turn boundary instead of waiting for the run to settle.
         // The host ignores this while idle, where nothing is queued.
         await promptAgent(
-            { agentRoute: sessionId, text, hasAttachments: previews.length > 0 },
+            { agentRoute: sessionId, text, hasAttachments: previews.length > 0, promptId: options.promptId, notValidAfter: options.notValidAfter },
             {
                 markSent: (agentRoute) => storage.getState().updateSession(agentRoute, { lastMessageSentAt: Date.now() }),
                 attachments: () => toPromptAttachments(previews),
-                deliver: ({ agentRoute, text: prompt, streamingBehavior, attachments }) => this.request('session.prompt', {
+                deliver: ({ agentRoute, text: prompt, streamingBehavior, attachments, promptId, notValidAfter }) => this.request('session.prompt', {
                     sessionId: agentRoute,
                     text: prompt,
                     streamingBehavior,
                     ...(attachments === undefined || attachments.length === 0 ? {} : { attachments }),
-                }),
+                    promptId,
+                    promptNotValidAfter: notValidAfter,
+                }, undefined, epoch),
             },
         );
     }
@@ -744,10 +824,47 @@ class MuxrSync {
         return this.credentials;
     }
 
+    /**
+     * The computer every submission is owned by: captured by callers before
+     * any asynchronous work and checked again at delivery.
+     */
+    currentMachineId(): string {
+        return this.activeMachineId ?? '';
+    }
+
+    /** A submission composed for one computer never goes to another. */
+    private assertTarget(machineId: string): void {
+        if ((this.activeMachineId ?? '') !== machineId) {
+            throw Object.assign(new Error('This message was written for a different computer and was not sent.'), { code: 'wrong-machine' });
+        }
+    }
+
+    /** Upload composer attachments for a submission, pinned to its computer. */
+    async saveAttachments(machineId: string, sessionId: string, attachments: import('@muxr/contract').PromptAttachment[]): Promise<{ savedPaths: string[] }> {
+        this.assertTarget(machineId);
+        const { epoch } = await this.negotiateCurrentConnection();
+        return this.request('session.saveAttachments', { sessionId, attachments }, undefined, epoch);
+    }
+
+    /**
+     * Wait for the live connection and make sure its host's features were
+     * learned on that very connection; returns the epoch a caller may pin.
+     */
+    private async negotiateCurrentConnection(): Promise<{ client: MuxrTransport; epoch: number }> {
+        const client = this.ensureClient();
+        if (!client.isLive()) await waitUntilClientOpen(client, 10_000);
+        if (!this.negotiation.isNegotiated(client)) await this.refreshCatalog();
+        if (client !== this.client || !this.negotiation.isNegotiated(client)) {
+            throw Object.assign(new Error('not connected: the connection changed before the message was sent'), { code: 'connection-changed' });
+        }
+        return { client, epoch: this.negotiation.current };
+    }
+
     async request<T extends import('@muxr/contract').RequestType>(
         type: T,
         params: import('@muxr/contract').RequestParams<T>,
         timeoutMs?: number,
+        onConnectionEpoch?: number,
     ): Promise<import('@muxr/contract').RequestResult<T>> {
         const started = Date.now();
         try {
@@ -756,6 +873,11 @@ class MuxrSync {
                 // Cold starts and a header that still says connected while the
                 // socket is dead both used to throw 'not connected' immediately.
                 await waitUntilClientOpen(client, 10_000);
+            }
+            // Pinned to a negotiated connection: a reconnect in between is a
+            // different host contract, so nothing is sent on it.
+            if (onConnectionEpoch !== undefined && onConnectionEpoch !== this.negotiation.current) {
+                throw Object.assign(new Error('not connected: the connection changed before the message was sent'), { code: 'connection-changed' });
             }
             const request = () => client.request(type, params, timeoutMs);
             const data = type === 'plugin.call' || type === 'plugin.invoke'
@@ -785,6 +907,7 @@ class MuxrSync {
             this.client?.close();
             this.client = undefined;
             storage.getState().setSocketStatus(this.hasTransport() ? 'connecting' : 'disconnected');
+            storage.getState().setPairingFailure(null);
             const settings = this.getConnection();
             watchAgentLifecycle(
                 { authority: this.anonID, machineId: settings.machineId },
@@ -848,6 +971,12 @@ export async function syncRestore(credentials: AuthCredentials): Promise<void> {
         initialized = false;
         throw error;
     }
+}
+
+/** Tear the transport down before local state is cleared; the next login bootstraps afresh. */
+export function syncShutdown(): void {
+    sync.shutdown();
+    initialized = false;
 }
 
 export async function syncReconnect(): Promise<void> {

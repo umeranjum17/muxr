@@ -16,6 +16,7 @@ import { useAllMachines } from '@/catalog/store';
 import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { requestPermissionAndSubscribe, refreshPushState, type PushState } from '@/utils/pushNotifications';
+import { isDemoTransport } from '@/demo/demoTransport';
 import { loadAppConfig } from '@/catalog/infrastructure/appConfig';
 import { versionsMismatch } from '@/utils/versionStatus';
 import { getAppVersion } from '@/utils/appVersion';
@@ -197,7 +198,7 @@ export const SettingsView = React.memo(function SettingsView({
             : '';
         const confirmed = await Modal.confirm(
             t('settingsAccount.logout'),
-            `This signs out and removes this device’s pairing with every machine it has ever paired with. To reconnect, pair each machine again from \`muxr pair\`.${collaborationWarning}`,
+            `This signs out and removes this device’s pairing with every machine it has ever paired with. To reconnect, pair each machine again from muxr pair.${collaborationWarning}`,
             { confirmText: t('settingsAccount.logout'), destructive: true },
         );
         if (!confirmed) return;
@@ -235,7 +236,7 @@ export const SettingsView = React.memo(function SettingsView({
     };
 
     const handlePushToggle = async () => {
-        if (pushBusy) return;
+        if (pushBusy || isDemoTransport()) return;
         setPushBusy(true);
         try {
             await requestPermissionAndSubscribe();
@@ -350,42 +351,48 @@ export const SettingsView = React.memo(function SettingsView({
                 )}
                 <Item
                     title="Pair another machine"
-                    subtitle="Scan the QR or enter the short string from `muxr pair`"
-                    icon={<Ionicons name="qr-code-outline" size={29} color="#007AFF" />}
+                    subtitle={Platform.OS === 'web' ? 'Paste the link printed by muxr pair --browser' : 'Scan the QR or enter the short string from muxr pair'}
+                    icon={<Ionicons name="qr-code-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={() => router.push('/pair?source=settings')}
                 />
                 <Item
                     title="Computer collaboration"
                     subtitle="Let selected computers read agent output and send prompts"
                     detail={collaborationSummary(collaborationIntent)}
-                    icon={<Ionicons name="git-network-outline" size={29} color="#5856D6" />}
+                    icon={<Ionicons name="git-network-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={() => router.push('/settings/collaboration' as any)}
                 />
             </ItemGroup>
             <ItemGroup title="App and plugins">
                 <Item
+                    title="Connection"
+                    subtitle="Status, transport, relay, and how to fix it"
+                    icon={<Ionicons name="link-outline" size={29} color={theme.colors.textSecondary} />}
+                    onPress={openConnection}
+                />
+                <Item
                     title="Realtime voice"
-                    subtitle="Choose which provider runs on this machine"
-                    icon={<Ionicons name="pulse-outline" size={29} color="#34C759" />}
+                    subtitle="Readiness on this computer and hands-free options"
+                    icon={<Ionicons name="pulse-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={openVoice}
                 />
                 <Item
                     title="Plugins"
                     subtitle="Native UI and capabilities installed through Herdr"
-                    icon={<Ionicons name="extension-puzzle-outline" size={29} color="#5856D6" />}
+                    icon={<Ionicons name="extension-puzzle-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={openPlugins}
                 />
                 <DeclarativeSettingsItems />
                 <Item
                     title="Appearance"
                     subtitle={t('settings.appearanceSubtitle')}
-                    icon={<Ionicons name="color-palette-outline" size={29} color="#5856D6" />}
+                    icon={<Ionicons name="color-palette-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={openAppearance}
                 />
                 <Item
                     title="Preferences"
                     subtitle="Recent activity and inactive sessions"
-                    icon={<Ionicons name="options-outline" size={29} color="#FF9500" />}
+                    icon={<Ionicons name="options-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={openPreferences}
                 />
                 {Platform.OS !== 'web' && (
@@ -395,7 +402,7 @@ export const SettingsView = React.memo(function SettingsView({
                         detail={lifecycleNotificationLevel === 'off'
                             ? 'Off'
                             : lifecycleNotificationLevel === 'important' ? 'Important' : 'All activity'}
-                        icon={<Ionicons name="notifications-outline" size={29} color="#FF9500" />}
+                        icon={<Ionicons name="notifications-outline" size={29} color={theme.colors.textSecondary} />}
                         onPress={openNotifications}
                         accessibilityLabel={`Agent notifications, ${lifecycleNotificationLevel === 'off'
                             ? 'Off'
@@ -406,7 +413,7 @@ export const SettingsView = React.memo(function SettingsView({
                     <Item
                         title="Background connection"
                         subtitle="Allow background activity so Live stays connected when you leave muxr"
-                        icon={<Ionicons name="battery-charging-outline" size={29} color="#34C759" />}
+                        icon={<Ionicons name="battery-charging-outline" size={29} color={theme.colors.textSecondary} />}
                         onPress={openBackgroundActivitySettings}
                     />
                 )}
@@ -415,7 +422,7 @@ export const SettingsView = React.memo(function SettingsView({
                         title="Live agent updates"
                         subtitle={liveUpdatesCopy(promotedNotificationsEnabled)}
                         detail={promotedNotificationsEnabled ? t('plugins.on') : t('plugins.off')}
-                        icon={<Ionicons name="pulse-outline" size={29} color="#34C759" />}
+                        icon={<Ionicons name="pulse-outline" size={29} color={theme.colors.textSecondary} />}
                         onPress={openPromotedNotificationSettings}
                     />
                 )}
@@ -424,7 +431,7 @@ export const SettingsView = React.memo(function SettingsView({
                         title="Notification permission"
                         subtitle="Allow lifecycle alerts in iOS Settings"
                         detail={iosNotificationsEnabled ? t('plugins.on') : t('plugins.off')}
-                        icon={<Ionicons name="notifications-outline" size={29} color="#FF9500" />}
+                        icon={<Ionicons name="notifications-outline" size={29} color={theme.colors.textSecondary} />}
                         onPress={() => void handleIosNotifications()}
                     />
                 )}
@@ -432,24 +439,26 @@ export const SettingsView = React.memo(function SettingsView({
                     <Item
                         title="Notifications"
                         subtitle={pushSubtitle}
-                        detail={pushState}
-                        icon={<Ionicons name="notifications-outline" size={29} color="#FF9500" />}
+                        detail={pushState === 'subscribed' ? t('plugins.on') : t('plugins.off')}
+                        icon={<Ionicons name="notifications-outline" size={29} color={theme.colors.textSecondary} />}
                         onPress={handlePushToggle}
                         loading={pushBusy}
                     />
                 )}
             </ItemGroup>
 
-            <ItemGroup title="Help">
-                <Item title="Contact support" subtitle="Public issue tracker" icon={<Ionicons name="chatbubble-ellipses-outline" size={29} color="#34C759" />} onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/issues')} />
-                {docsBase && <Item title="Privacy and deletion" subtitle="Policy, revocation and data removal" icon={<Ionicons name="shield-checkmark-outline" size={29} color="#5856D6" />} onPress={() => openExternalUrl(`${docsBase}/docs/privacy#retention-and-deletion`)} />}
+            <ItemGroup title="Help and advanced" footer="Diagnostics never includes credentials, QR claims, machine keys, terminal text or internal identifiers.">
+                {docsBase && <Item title="Connect a computer" icon={<Ionicons name="desktop-outline" size={29} color={theme.colors.textSecondary} />} onPress={() => openExternalUrl(`${docsBase}/docs/setup`)} />}
+                {docsBase && <Item title="Troubleshooting" icon={<Ionicons name="help-circle-outline" size={29} color={theme.colors.textSecondary} />} onPress={() => openExternalUrl(`${docsBase}/docs/troubleshooting`)} />}
+                <Item title="Contact support" subtitle="Public issue tracker" icon={<Ionicons name="chatbubble-ellipses-outline" size={29} color={theme.colors.textSecondary} />} onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/issues')} />
+                {docsBase && <Item title="Privacy and deletion" subtitle="Policy, revocation and data removal" icon={<Ionicons name="shield-checkmark-outline" size={29} color={theme.colors.textSecondary} />} onPress={() => openExternalUrl(`${docsBase}/docs/privacy#retention-and-deletion`)} />}
                 <Item
                     title={t('settings.whatsNew')}
-                    icon={<Ionicons name="sparkles-outline" size={29} color="#FF9500" />}
+                    icon={<Ionicons name="sparkles-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={() => router.push('/changelog')}
                 />
                 {Platform.OS === 'ios' && (
-                    <Item title="EULA" icon={<Ionicons name="document-text-outline" size={29} color="#007AFF" />} onPress={() => openExternalUrl('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')} />
+                    <Item title="EULA" icon={<Ionicons name="document-text-outline" size={29} color={theme.colors.textSecondary} />} onPress={() => openExternalUrl('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')} />
                 )}
             </ItemGroup>
 

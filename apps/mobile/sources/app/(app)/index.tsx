@@ -18,6 +18,7 @@ import { Modal } from '@/modal';
 import { resumePendingHostedPairing } from '@/pairing/e2ee';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
 import { useHostedPairing, usePairQrScanner } from '@/pairing';
+import { humanError } from '@/utils/errors';
 
 export default function Home() {
     const auth = useAuth();
@@ -50,7 +51,7 @@ function NotAuthenticated() {
             });
             await auth.login(grant.credential, grant.deviceKey.secretKey);
         }).catch((error) => {
-            Modal.alert('Pairing paused', error instanceof Error ? error.message : String(error));
+            Modal.alert('Pairing paused', humanError(error).message);
         }).finally(() => { pairing.current = false; });
     }, [auth, hosted]);
 
@@ -72,10 +73,8 @@ function NotAuthenticated() {
     const promptForPairingString = async (title: string) => {
         const pasted = await Modal.prompt(
             title,
-            Platform.OS === 'web'
-                ? 'Paste the short link shown by `muxr pair --browser` for eight hours of control, or `muxr pair --browser-view` for view-only access.'
-                : 'Paste the pairing string shown by `muxr pair` on that machine. It pairs this phone end-to-end encrypted.',
-            { placeholder: Platform.OS === 'web' ? 'https://your-relay/pair?pair=…' : 'wss://your-relay?pair=7KDM4-QXP7N' },
+            'Paste the pairing string shown by muxr pair on that machine. It pairs this phone end-to-end encrypted.',
+            { placeholder: 'wss://your-relay?pair=7KDM4-QXP7N' },
         );
         if (!pasted?.trim()) return;
         await processPairLink(pasted.trim());
@@ -86,11 +85,17 @@ function NotAuthenticated() {
                 <View style={styles.hero}>
                     {heroMark}
                     <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : 'Run your agents from your phone.'}</Text>
-                    <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
+                    <Text style={styles.subtitle}>{Platform.OS === 'web' ? 'Pair this browser for eight hours at a time. Every agent session on your computer, end-to-end encrypted.' : 'Pair once. Every agent session on your computer, end-to-end encrypted.'}</Text>
                 </View>
                 <View style={[styles.actions, { paddingBottom: insets.bottom + 24 }]}>
                     {Platform.OS === 'web' ? (
-                        <ActionButton title="Enter pairing string" icon="keypad-outline" action={() => promptForPairingString('Enter pairing string')} />
+                        <>
+                            {/* Browser pairing lives in one place: /pair owns
+                                the QR scanner, cold links, manual entry,
+                                install-before-claim, and re-pairing. */}
+                            <ActionButton title="Scan QR to pair" icon="qr-code-outline" onPress={() => router.push('/pair')} />
+                            <ActionButton variant="secondary" title="Try interactive demo" icon="play-circle-outline" onPress={() => router.push('/demo')} />
+                        </>
                     ) : (
                         <>
                             <ActionButton title="Scan QR to pair" icon="qr-code-outline" action={scanHostedQr} />

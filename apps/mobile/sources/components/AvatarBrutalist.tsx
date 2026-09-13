@@ -474,6 +474,7 @@ export const AvatarBrutalist = React.memo((props: GeneratedAvatarProps) => {
         >
             <Image
                 source={imageSource}
+                accessibilityLabel="Avatar"
                 style={{
                     width: dimension * 0.8,
                     height: dimension * 0.8,

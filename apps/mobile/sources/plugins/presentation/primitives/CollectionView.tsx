@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, AppState, Pressable, ScrollView, Text, View } from 'react-native';
+import { AppState, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
@@ -9,6 +9,9 @@ import { Modal } from '@/modal';
 import { sync } from '@/catalog/sync';
 import { ItemGroup } from '@/components/ItemGroup';
 import { StatusDot } from '@/components/StatusDot';
+import { AgentGlyph } from '@/components/AgentGlyph';
+import { agentImageKind } from '@/components/agentImageKind';
+import { HERD_STATUS_LABELS } from '@/herd';
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@muxr/contract';
@@ -20,6 +23,8 @@ import { clearPluginCache, registerPluginDataCacheInvalidator, subscribePluginDa
 import { toneColor } from '../../domain/pluginTone';
 import { resolvePluginText } from '../../domain/pluginText';
 import { t } from '@/text';
+import { humanError } from '@/utils/errors';
+import { LoadingHairline } from '@/components/LoadingHairline';
 
 const REFRESH_MS = 15_000;
 const cache = new Map<string, PluginCollectionGroup[]>();
@@ -39,8 +44,10 @@ function collectionEmptyMessage(failed: boolean, contribution: PrimitiveProps['c
 function collectionItemLabel(item: PluginCollectionItem): string {
     let label = item.title;
     if (item.subtitle !== undefined) label += `: ${item.subtitle}`;
-    if (item.status === 'positive') label += `, ${t('common.success')}`;
-    else if (item.status === 'danger') label += `, ${t('common.error')}`;
+    // A state is a word, not a colour: the same vocabulary as the herd.
+    if (item.status === 'positive') label += `, ${HERD_STATUS_LABELS.done}`;
+    else if (item.status === 'danger') label += `, ${HERD_STATUS_LABELS.blocked}`;
+    else if (item.status === 'warning') label += `, ${HERD_STATUS_LABELS.working}`;
     return label;
 }
 registerPluginDataCacheInvalidator((pluginIds) => {
@@ -61,6 +68,12 @@ function relativeTime(value: string): string {
 function ItemVisual({ item }: { item: PluginCollectionItem }) {
     const { theme } = useUnistyles();
     if (item.icon !== undefined) return <Ionicons name={item.icon as never} size={22} color={theme.colors.textSecondary} />;
+    // One agent identity everywhere: a known kind gets its mark, as on the strip.
+    if (item.glyph !== undefined && agentImageKind(item.glyph.trim().toLowerCase()) !== undefined) {
+        return <View accessible={false} style={{ width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceHigh, borderWidth: 1, borderColor: theme.colors.divider }}>
+            <AgentGlyph name={item.glyph} size={22} />
+        </View>;
+    }
     const letter = (item.glyph ?? item.title).trim().charAt(0).toUpperCase() || '·';
     return <View style={{ width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceHigh, borderWidth: 1, borderColor: theme.colors.divider }}>
         <Text style={{ color: theme.colors.textSecondary, fontSize: 15, fontWeight: '600' }}>{letter}</Text>
@@ -143,7 +156,7 @@ export function CollectionView({ context, pluginId, manifestHash, contribution }
         try {
             await dispatchPluginAction(item.action, { router, pluginId, manifestHash, manifest });
         } catch (error) {
-            Modal.alert(t('plugins.openFailed'), error instanceof Error ? error.message : String(error));
+            Modal.alert(t('plugins.openFailed'), humanError(error).message);
         }
     }, [manifest, manifestHash, pluginId, router]);
 
@@ -157,8 +170,8 @@ export function CollectionView({ context, pluginId, manifestHash, contribution }
 
     return <View style={{ flex: 1, backgroundColor: theme.colors.groupped.background }}>
         {showingSpinner && (
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: topInset }}>
-                <ActivityIndicator size="large" color={theme.colors.textSecondary} />
+            <View style={{ flex: 1, paddingTop: topInset, paddingHorizontal: 16 }}>
+                <LoadingHairline active />
             </View>
         )}
         {!showingSpinner && showingEmpty && (

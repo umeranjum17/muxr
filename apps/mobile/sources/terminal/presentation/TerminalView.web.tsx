@@ -12,7 +12,9 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
-import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
+import { beginViewportCapture, recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
+import { isDemoTerminalSession } from '@/demo/demoTransport';
+import { useLocalSetting } from '@/catalog/store';
 import { t } from '@/text';
 import {
     createKittyDecoderState,
@@ -26,6 +28,8 @@ export interface TerminalViewProps {
     sessionId: string;
     onStatus?: (status: string) => void;
     onChannel?: (channel: TerminalChannel | undefined) => void;
+    /** Bump to reopen after a failed first attach; a live channel reconnects itself. */
+    attempt?: number;
     /** Same contract as the native view; the browser has no view commands and
      *  no terminal IME, so the pane keeps its own keyboard fallback and the
      *  panel is Close plus the quick-action rows. */
@@ -38,6 +42,23 @@ function decodeBase64(value: string): Uint8Array {
     for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
     return bytes;
 }
+
+/**
+ * Visible xterm buffer text after a real write. Demo probe only: hosted
+ * sessions never expose buffer text.
+ */
+function visibleTerminalText(term: Terminal): string {
+    const buffer = term.buffer.active;
+    const lines: string[] = [];
+    const start = Math.max(0, buffer.length - term.rows);
+    for (let row = start; row < buffer.length; row += 1) {
+        lines.push(buffer.getLine(row)?.translateToString(true) ?? '');
+    }
+    return lines.join('\n').replace(/\s+$/, '');
+}
+
+// ponytail: one flat cap, 4 MiB of base64 (~3 MiB ANSI); a full herdr screen is a few KB.
+const PENDING_FRAME_BYTES_MAX = 4 * 1024 * 1024;
 
 type CellMetrics = { width: number; height: number };
 
@@ -57,7 +78,21 @@ function deviceCells(term: Terminal, dpr: number): CellMetrics {
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
     const hostRef = React.useRef<View | null>(null);
-    const { sessionId, onStatus, onChannel } = props;
+    const { sessionId, onStatus, onChannel, attempt = 0 } = props;
+    // Opt-in: xterm's screen-reader DOM costs on busy output, so it is a
+    // persisted preference, never the default. Both preferences apply to the
+    // live terminal in place: the channel, cwd and buffer are untouched.
+    const screenReaderMode = useLocalSetting('terminalScreenReader');
+    const fontSize = useLocalSetting('terminalFontSize');
+    const termRef = React.useRef<Terminal | null>(null);
+    const resizeRef = React.useRef<() => void>(() => undefined);
+    React.useEffect(() => {
+        const term = termRef.current;
+        if (term === null) return;
+        term.options.screenReaderMode = screenReaderMode;
+        term.options.fontSize = fontSize;
+        resizeRef.current();
+    }, [fontSize, screenReaderMode]);
     const [graphicsUnavailable, setGraphicsUnavailable] = React.useState(false);
 
     React.useEffect(() => {
@@ -66,17 +101,19 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         element.style.position = 'relative';
 
         const term = new Terminal({
-            fontSize: 13,
+            fontSize,
             fontFamily: 'Menlo, Monaco, "Courier New", monospace',
             theme: { background: '#0c0c0b' },
             convertEol: false,
             scrollback: 5000,
             cursorBlink: true,
+            screenReaderMode,
         });
         const fit = new FitAddon();
         term.loadAddon(fit);
         term.loadAddon(new WebLinksAddon());
         term.open(element);
+        termRef.current = term;
         fit.fit();
         setTerminalColumns(sessionId, term.cols);
         let webgl: WebglAddon | undefined;
@@ -127,6 +164,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         let channel: TerminalChannel | undefined;
         let pointerSuppressed = false;
         let paintGeneration = 0;
+        // Demo-only: mirror the actual xterm buffer for automation after the
+        // real write path. The attribute never exists for hosted sessions.
+        const demoTerminalSession = isDemoTerminalSession(sessionId);
 
         const dpr = (): number => window.devicePixelRatio || 1;
         const physicalMetrics = (): CellMetrics => deviceCells(term, dpr());
@@ -197,18 +237,43 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 }
                 channel = opened;
                 onChannel?.(opened);
+                // The first thing herdr sends is the whole screen, so this
+                // attach is a viewport capture. Without it the link chip has
+                // no viewport until the first scroll.
+                beginViewportCapture(sessionId);
                 opened.onGraphics((active) => { graphicsActive = active && !graphicsFailed; });
                 let pending: { bytes: string; graphics?: boolean }[] = [];
+                let pendingBytes = 0;
+                let overflowed = false;
                 let frameScheduled = false;
                 const flushFrames = (): void => {
                     frameScheduled = false;
-                    if (disposed || pending.length === 0) return;
+                    if (disposed) return;
+                    if (overflowed) {
+                        // The queue was cut while the tab was backgrounded. What
+                        // survived is not a valid ANSI stream; ask herdr for the
+                        // whole screen instead of painting fragments.
+                        overflowed = false;
+                        pending = [];
+                        pendingBytes = 0;
+                        beginViewportCapture(sessionId);
+                        opened.repaint();
+                        return;
+                    }
+                    if (pending.length === 0) return;
                     const chunks = pending;
                     pending = [];
+                    pendingBytes = 0;
                     for (const chunk of chunks) {
                         const bytes = decodeBase64(chunk.bytes);
                         if (chunk.graphics === undefined) {
-                            term.write(bytes);
+                            if (demoTerminalSession) {
+                                term.write(bytes, () => {
+                                    if (!disposed) element.setAttribute('data-demo-terminal-text', visibleTerminalText(term));
+                                });
+                            } else {
+                                term.write(bytes);
+                            }
                             continue;
                         }
                         const split = splitKittyFrame(bytes, decoder);
@@ -240,7 +305,18 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 };
                 opened.onData((base64, graphics) => {
                     if (graphics !== true) recordTerminalOutput(sessionId, base64);
-                    pending.push({ bytes: base64, graphics });
+                    // rAF does not fire in a hidden tab, so the queue is bounded
+                    // by bytes; past the cap the last frame stays on screen and
+                    // the next visible frame requests a fresh snapshot.
+                    if (overflowed) return;
+                    pendingBytes += base64.length;
+                    if (pendingBytes > PENDING_FRAME_BYTES_MAX) {
+                        overflowed = true;
+                        pending = [];
+                        pendingBytes = 0;
+                    } else {
+                        pending.push({ bytes: base64, graphics });
+                    }
                     if (!frameScheduled) {
                         frameScheduled = true;
                         requestAnimationFrame(flushFrames);
@@ -267,6 +343,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 paint();
             });
         };
+        resizeRef.current = resize;
         const resizeObserver = new ResizeObserver(resize);
         resizeObserver.observe(element);
         window.addEventListener('resize', resize);
@@ -465,9 +542,15 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             onChannel?.(undefined);
             channel?.close();
             controller.abort();
+            termRef.current = null;
+            resizeRef.current = () => undefined;
             term.dispose();
         };
-    }, [sessionId, onStatus, onChannel]);
+    // `attempt` reopens from scratch: a failed first attach left no channel to
+    // reconnect, and nothing on screen worth keeping. Preferences are applied
+    // above without re-running this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sessionId, onStatus, onChannel, attempt]);
 
     return (
         <View style={{ flex: 1, backgroundColor: '#0c0c0b' }}>

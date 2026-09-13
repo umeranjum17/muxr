@@ -38,6 +38,8 @@ export interface RealtimeTurn {
     id: number;
     role: 'user' | 'agent';
     text: string;
+    /** false while the provider is still refining this utterance. */
+    final: boolean;
 }
 const MAX_TURNS = 60;
 
@@ -135,7 +137,9 @@ export async function resolveRealtimeTarget(): Promise<RealtimeTarget | null> {
     const liveRoutes = new Set(tree.workspaces
         .flatMap((workspace) => workspace.tabs)
         .flatMap((tab) => tab.panes)
-        .flatMap((pane) => typeof pane.sessionId === 'string' && listedIds.has(pane.sessionId) ? [pane.sessionId] : []));
+        // Voice talks to an agent: a plain shell has nobody to prompt, so it is
+        // never a target, focused or not.
+        .flatMap((pane) => pane.agentKind !== undefined && typeof pane.sessionId === 'string' && listedIds.has(pane.sessionId) ? [pane.sessionId] : []));
     if (liveRoutes.size === 0) return null;
     const focused = tree.workspaces
         .filter((workspace) => workspace.focused)
@@ -279,11 +283,18 @@ function rejectReportSpeech(error: Error): void {
     report.reject(error);
 }
 
-function recordTurn(epoch: number, role: 'user' | 'agent', text: string): void {
+function recordTurn(epoch: number, role: 'user' | 'agent', text: string, final = true): void {
     if (epoch !== realtimeEpoch) return;
     const trimmed = text.trim();
     if (trimmed === '') return;
-    turns = [...turns, { id: turnId++, role, text: trimmed }].slice(-MAX_TURNS);
+    // A cumulative interim replaces the open turn of the same role; only a
+    // final transcript closes it, so corrections never stack as duplicates.
+    const last = turns[turns.length - 1];
+    if (last !== undefined && last.role === role && !last.final) {
+        turns = [...turns.slice(0, -1), { ...last, text: trimmed, final }];
+    } else {
+        turns = [...turns, { id: turnId++, role, text: trimmed, final }].slice(-MAX_TURNS);
+    }
     if (role === 'agent' && reportSpeech?.sent === true) reportSpeech.responseStarted = true;
     keepAwake(epoch);
     notify();
@@ -350,7 +361,35 @@ function applyTransportStatus(handle: RealtimeHandle, liveEpoch: number, next: R
     notify();
 }
 
+// Browser voice is foreground-only: a hidden tab cannot be trusted to keep
+// the microphone or playback alive, so the call sleeps with a reason the
+// overlay can name, and the tracks are released instead of lingering.
+let backgroundWatch = false;
+function watchBackgroundOnWeb(): void {
+    if (backgroundWatch || typeof document === 'undefined' || typeof document.addEventListener !== 'function') return;
+    backgroundWatch = true;
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            // Back in front: standby may listen again; a live call stays paused
+            // until the user taps, since the browser may have dropped audio.
+            if (watching && session === null && !starting) void armVadStandby();
+            return;
+        }
+        const wasLive = session !== null || starting;
+        // Sleeping re-arms standby by design; a hidden tab must not hold the
+        // microphone for standby either, so stop that after.
+        if (wasLive) sleepRealtimeSession();
+        vadEpoch += 1;
+        stopVadStandby();
+        if (wasLive) {
+            detail = 'Voice paused while this tab was in the background.';
+            notify();
+        }
+    });
+}
+
 export function startRealtimeSession(input: RealtimeTarget | string): boolean {
+    watchBackgroundOnWeb();
     const target = typeof input === 'string'
         ? { machineId: getCachedConnectionSettings().machineId, sessionId: input }
         : { ...input };
@@ -414,7 +453,7 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
                 if (liveEpoch !== realtimeEpoch || session !== handle) return;
                 applyTransportStatus(handle, liveEpoch, next, why);
             },
-            onTurn: (role, text) => recordTurn(liveEpoch, role, text),
+            onTurn: (role, text, final) => recordTurn(liveEpoch, role, text, final),
             onActivity: () => {
                 if (liveEpoch === realtimeEpoch && session === handle) keepAwake(liveEpoch);
             },
@@ -438,8 +477,16 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
     starting = false;
 }
 
+/** A hidden browser tab never holds the microphone, for standby either. */
+function tabHidden(): boolean {
+    return typeof document !== 'undefined' && document.hidden === true;
+}
+
 async function armVadStandby(): Promise<VadArmResult> {
-    if (storage.getState().localSettings?.vadStandbyEnabled !== true || dictating || session !== null || starting) return 'retry';
+    // Standby is the other way the browser acquires the microphone, so the
+    // hidden-tab release registers here too, not only on the first call.
+    watchBackgroundOnWeb();
+    if (storage.getState().localSettings?.vadStandbyEnabled !== true || dictating || session !== null || starting || tabHidden()) return 'retry';
     if (vadArming !== null) return vadArming;
     const epoch = vadEpoch;
     const task = (async (): Promise<VadArmResult> => {
@@ -447,14 +494,14 @@ async function armVadStandby(): Promise<VadArmResult> {
             ? realtimeTarget
             : await resolveRealtimeTarget();
         if (target === null || epoch !== vadEpoch || storage.getState().localSettings?.vadStandbyEnabled !== true
-            || dictating || session !== null || starting) return 'retry';
+            || dictating || session !== null || starting || tabHidden()) return 'retry';
         realtimeTarget = target;
         activateWatching();
         const armed = await startVadStandby(() => {
             const wakeTarget = realtimeTarget;
             if (wakeTarget !== null && session === null && !starting && !dictating) startRealtimeSession(wakeTarget);
         });
-        if (epoch !== vadEpoch) {
+        if (epoch !== vadEpoch || tabHidden()) {
             stopVadStandby();
             return 'retry';
         }

@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
@@ -8,6 +9,7 @@ import { Switch } from '@/components/Switch';
 import { t } from '@/text';
 
 export default function PreferencesSettingsScreen() {
+    const { theme } = useUnistyles();
     const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
     const [commandPaletteEnabled, setCommandPaletteEnabled] = useLocalSettingMutable('commandPaletteEnabled');
     const [hideInactiveSessions, setHideInactiveSessions] = useSettingMutable('hideInactiveSessions');
@@ -19,14 +21,14 @@ export default function PreferencesSettingsScreen() {
                 <Item
                     title="Sort by Recent Activity"
                     subtitle="Order sessions by last activity"
-                    icon={<Ionicons name="swap-vertical-outline" size={29} color="#FF9500" />}
+                    icon={<Ionicons name="swap-vertical-outline" size={29} color={theme.colors.textSecondary} />}
                     rightElement={<Switch value={sortSessionsByActivity} onValueChange={setSortSessionsByActivity} />}
                     showChevron={false}
                 />
                 <Item
                     title={t('settingsFeatures.hideInactiveSessions')}
                     subtitle={t('settingsFeatures.hideInactiveSessionsSubtitle')}
-                    icon={<Ionicons name="eye-off-outline" size={29} color="#FF9500" />}
+                    icon={<Ionicons name="eye-off-outline" size={29} color={theme.colors.textSecondary} />}
                     rightElement={<Switch value={hideInactiveSessions} onValueChange={setHideInactiveSessions} />}
                     showChevron={false}
                 />
@@ -47,7 +49,7 @@ export default function PreferencesSettingsScreen() {
                     <Item
                         title={t('settingsFeatures.commandPalette')}
                         subtitle={commandPaletteEnabled ? t('settingsFeatures.commandPaletteEnabled') : t('settingsFeatures.commandPaletteDisabled')}
-                        icon={<Ionicons name="keypad-outline" size={29} color="#007AFF" />}
+                        icon={<Ionicons name="keypad-outline" size={29} color={theme.colors.textSecondary} />}
                         rightElement={<Switch value={commandPaletteEnabled} onValueChange={setCommandPaletteEnabled} />}
                         showChevron={false}
                     />

@@ -16,12 +16,13 @@ import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { buildSpaceRows, workspaceName, type HerdRow } from '../domain/herdTree';
-import { agentIdentityLine, agentLabels, isShellLabels } from '../domain/agentPresentation';
+import { HERD_STATUS_LABELS, agentIdentityLine, agentLabels, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { layout } from '@/components/layout';
 import { useDeviceAuthority } from '@/pairing';
+import { humanError } from '@/utils/errors';
 
 const stylesheet = StyleSheet.create((theme) => ({
     contentContainer: {
@@ -104,7 +105,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         maxWidth: 140,
     },
     branchPillText: {
-        fontSize: 10,
+        fontSize: 11,
         color: theme.colors.textSecondary,
         ...Typography.default(),
     },
@@ -231,7 +232,7 @@ const AgentRow = React.memo(({
                 android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                accessibilityLabel={[`Open ${title}`, subtitle].filter(Boolean).join(', ')}
+                accessibilityLabel={[`Open ${title}`, subtitle, shell ? undefined : HERD_STATUS_LABELS[pane.agentStatus]].filter(Boolean).join(', ')}
             >
                 <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
                 <View style={styles.agentText}>
@@ -285,7 +286,7 @@ const WorkspaceCard = React.memo(({
                 ]}
                 android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
                 accessibilityRole="button"
-                accessibilityLabel={`${workspaceName(workspace)} workspace, ${agentCount} agent${agentCount === 1 ? '' : 's'}`}
+                accessibilityLabel={`${workspaceName(workspace)} workspace, ${agentCount} agent${agentCount === 1 ? '' : 's'}, ${HERD_STATUS_LABELS[workspace.agentStatus]}`}
             >
                 <View style={styles.chevron}>
                     <Ionicons
@@ -377,7 +378,7 @@ export const SpacesTree = React.memo(({
                     sync.request('workspace.close', { workspaceId: workspace.workspaceId })
                         .then(refresh)
                         .catch((cause) => {
-                            Modal.alert('Close failed', cause instanceof Error ? cause.message : String(cause));
+                            Modal.alert('Close failed', humanError(cause).message);
                             void refresh();
                         });
                 },
@@ -406,7 +407,7 @@ export const SpacesTree = React.memo(({
                     sync.request('pane.close', { sessionId })
                         .then(refresh)
                         .catch((cause) => {
-                            Modal.alert('Close failed', cause instanceof Error ? cause.message : String(cause));
+                            Modal.alert('Close failed', humanError(cause).message);
                             void refresh();
                         });
                 },
@@ -442,7 +443,7 @@ export const SpacesTree = React.memo(({
                 renderItem={renderItem}
                 renderSectionHeader={({ section }) => (
                     <View style={[styles.sectionHeader, compact && styles.sectionHeaderCompact]}>
-                        <Text style={styles.sectionTitle}>{section.title}</Text>
+                        <Text accessibilityRole="header" aria-level={2} style={styles.sectionTitle}>{section.title}</Text>
                     </View>
                 )}
                 stickySectionHeadersEnabled={false}

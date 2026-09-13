@@ -49,6 +49,7 @@ export const Avatar = React.memo((props: AvatarProps) => {
         const imageElement = (
             <Image
                 source={{ uri: imageUrl, thumbhash: thumbhash || undefined }}
+                accessibilityLabel="Avatar"
                 placeholder={thumbhash ? { thumbhash: thumbhash } : undefined}
                 contentFit="cover"
                 style={{
@@ -75,6 +76,7 @@ export const Avatar = React.memo((props: AvatarProps) => {
                     }]}>
                         <Image
                             source={piIcon}
+                            accessibilityLabel="Provider"
                             style={{ width: iconSize, height: iconSize }}
                             contentFit="contain"
                             tintColor={theme.colors.text}
@@ -114,6 +116,7 @@ export const Avatar = React.memo((props: AvatarProps) => {
                 }]}>
                     <Image
                         source={piIcon}
+                        accessibilityLabel="Provider"
                         style={{ width: iconSize, height: iconSize }}
                         contentFit="contain"
                         tintColor={theme.colors.text}

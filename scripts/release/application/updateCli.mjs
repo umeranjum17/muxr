@@ -2,9 +2,10 @@ import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { runBootstrap, daemonIsRunning, daemonMode, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from '../../setup/index.mjs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pluginFolder, runBootstrap, daemonIsRunning, daemonMode, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from '../../setup/index.mjs';
 import { compareVersions, channelTags, releaseVersion, resolveChannel } from '../domain/channel.mjs';
+
 
 const PACKAGE = '@trymuxr/cli';
 
@@ -107,7 +108,8 @@ export async function updateCli(command = {}) {
         process.stderr.write('npm returned an invalid version for the requested muxr channel or exact target\n');
         return 1;
     }
-    const comparison = compareVersions(latest, current);
+    const target = latest;
+    const comparison = compareVersions(target, current);
     if (comparison === undefined) {
         process.stderr.write('installed muxr version is invalid\n');
         return 1;
@@ -127,15 +129,15 @@ export async function updateCli(command = {}) {
     let approved = command.yes === true;
     if (!approved && command.confirm) {
         process.stdout.write([
-            'Update plan:',
-            `  • install ${PACKAGE}@${latest}`,
+            targetVersion !== undefined && comparison < 0 ? 'Rollback plan:' : 'Update plan:',
+            `  • install ${PACKAGE}@${target}`,
             installedMode === 'relay'
                 ? '  • leave Herdr and agent integrations unchanged on this relay-only server'
                 : '  • ensure the Herdr server is running and relink bundled plugins',
             '  • restart the muxr relay and host if they are running',
             '',
         ].join('\n'));
-        approved = await command.confirm({ latest, current }) === true;
+        approved = await command.confirm({ latest: target, current }) === true;
     }
     if (!approved) {
         process.stdout.write(`Nothing changed. Run \`muxr update --channel ${channel}${targetVersion === undefined ? '' : ` --to ${targetVersion}`}${command.allowDowngrade ? ' --allow-downgrade' : ''} --yes\` when ready.\n`);
@@ -145,8 +147,15 @@ export async function updateCli(command = {}) {
     if (!activePackageUsesCurrentNpmPrefix()) return 1;
     const restart = daemonIsRunning();
     const restartMode = installedMode;
-    const install = npm(['install', '--global', '--ignore-scripts', `${PACKAGE}@${latest}`], 'inherit');
+    const install = npm(['install', '--global', '--ignore-scripts', `${PACKAGE}@${target}`], 'inherit');
     if (install.status !== 0) return install.status ?? 1;
+
+    // The Herdr plugin runs whatever executable its runtime record names, at
+    // exactly the recorded version. Move that record to the installed target
+    // now, verified, or every plugin action would refuse the new version. A
+    // record that cannot be verified is left as it was and reported.
+    const runtimeRefresh = await refreshHerdrPluginRuntime(target);
+    if (runtimeRefresh !== undefined) process.stdout.write(`${runtimeRefresh}\n`);
 
     if (restartMode !== 'relay' && (await runBootstrap(['--no-install-herdr'])) !== 0) {
         process.stderr.write('The package updated, but the Herdr/plugin refresh failed. Run `muxr doctor`.\n');
@@ -178,8 +187,39 @@ export async function updateCli(command = {}) {
     if (relayRestarted) parts.push('relay');
     if (restart) parts.push('host');
     const restarted = parts.join(' and ');
-    process.stdout.write(`Updated muxr to ${latest}${restarted ? ` and restarted the ${restarted}` : ''}.\n`);
+    const action = targetVersion !== undefined && comparison < 0 ? 'Rolled back' : 'Updated';
+    const restartedNote = restarted === '' ? '' : ` and restarted the ${restarted}`;
+    process.stdout.write(`${action} muxr to ${target}${restartedNote}.\n`);
     return 0;
+}
+
+/**
+ * Refresh `~/.muxr/herdr-plugin.runtime` to the installed target through the
+ * plugin's own record module (the record format has one owner). Returns a
+ * line to print, or undefined when no plugin record exists.
+ */
+async function refreshHerdrPluginRuntime(target) {
+    let record;
+    try {
+        record = await import(pathToFileURL(join(pluginFolder('control'), 'runtimeRecord.mjs')).href);
+    } catch {
+        return undefined;
+    }
+    const existing = record.readRuntimeRecord();
+    if (existing === undefined) return undefined;
+    // The recorded executable normally is the npm global shim and now reports
+    // the target; otherwise the `muxr` on PATH may. Whichever verifies wins,
+    // and nothing is written when neither does.
+    const probe = spawnSync('sh', ['-c', 'command -v muxr'], { encoding: 'utf8', timeout: 10_000 });
+    const onPath = probe.status === 0 ? probe.stdout.trim().split('\n').pop()?.trim() : undefined;
+    const candidates = [existing.bin, ...(onPath && onPath !== existing.bin ? [onPath] : [])];
+    const bin = candidates.find((candidate) => record.muxrVersion(candidate) === target);
+    if (bin === undefined) {
+        process.stderr.write(`warn: Herdr plugin runtime record kept at ${existing.version}: no muxr executable reports ${target}. Run \`muxr doctor\`.\n`);
+        return undefined;
+    }
+    record.writeRuntimeRecord({ bin, version: target, source: `muxr update to ${PACKAGE}@${target}` });
+    return `Herdr plugin actions now execute ${bin} @ ${target}.`;
 }
 
 export { compareVersions };

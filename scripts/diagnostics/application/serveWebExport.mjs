@@ -1,5 +1,7 @@
 /** Static server for the Expo web export. SPA fallback so expo-router routes resolve. */
-import { createServer } from 'node:http';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, extname, normalize } from 'node:path';
 
@@ -9,11 +11,17 @@ const port = Number(process.env.MUXR_WEB_PORT?.trim() || 8790);
 const mime = {
     '.html': 'text/html',
     '.js': 'text/javascript',
+    '.mjs': 'text/javascript',
     '.json': 'application/json',
+    '.webmanifest': 'application/manifest+json',
     '.png': 'image/png',
+    '.ico': 'image/x-icon',
     '.css': 'text/css',
     '.map': 'application/json',
     '.ttf': 'font/ttf',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.wasm': 'application/wasm',
     '.svg': 'image/svg+xml',
 };
 
@@ -23,6 +31,13 @@ const redirect = env('MUXR_WEB_REDIRECT');
 const isLoopback = (address) =>
     address === '::1' || (address ?? '').replace('::ffff:', '').startsWith('127.');
 
+// Diagnostics only: a throwaway TLS pair lets a browser flow exercise the
+// HTTPS-only pairing paths against the export. Production TLS is the proxy's.
+const tlsKey = env('MUXR_WEB_TLS_KEY');
+const tlsCert = env('MUXR_WEB_TLS_CERT');
+const createServer = tlsKey !== undefined && tlsCert !== undefined
+    ? (handler) => createHttpsServer({ key: readFileSync(tlsKey), cert: readFileSync(tlsCert) }, handler)
+    : createHttpServer;
 createServer(async (req, res) => {
     if (redirect !== undefined && !isLoopback(req.socket.remoteAddress)) {
         res.writeHead(302, { location: redirect + (req.url ?? '/') });
@@ -42,14 +57,15 @@ createServer(async (req, res) => {
     if (path === '/' || extname(path) === '') path = '/index.html';
     try {
         const body = await readFile(join(root, path));
+        // Mutable entries revalidate so a cached index.html can never pin the
+        // client to chunks a re-export deleted. Mirrors the relay serveWeb rule.
+        const entry = path === '/index.html' || path === '/sw.js' || path === '/manifest.webmanifest';
         res.writeHead(200, {
             'content-type': mime[extname(path)] ?? 'application/octet-stream',
-            'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+            'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
             'x-content-type-options': 'nosniff',
             'referrer-policy': 'no-referrer',
-            // Bundle names are content-hashed, but a cached index.html pins the
-            // client to a bundle that no longer exists after a re-export.
-            ...(path === '/index.html' ? { 'cache-control': 'no-store' } : {}),
+            ...(entry ? { 'cache-control': 'no-store' } : {}),
         });
         res.end(body);
     } catch {
@@ -58,7 +74,7 @@ createServer(async (req, res) => {
             res.writeHead(200, {
                 'content-type': 'text/html',
                 'cache-control': 'no-store',
-                'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+                'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
                 'x-content-type-options': 'nosniff',
                 'referrer-policy': 'no-referrer',
             });
@@ -69,4 +85,4 @@ createServer(async (req, res) => {
         }
     }
 }).listen(port, env('MUXR_WEB_HOST') ?? '127.0.0.1');
-process.stdout.write(`web export on http://127.0.0.1:${port}\n`);
+process.stdout.write(`web export on ${tlsKey === undefined ? 'http' : 'https'}://127.0.0.1:${port}\n`);

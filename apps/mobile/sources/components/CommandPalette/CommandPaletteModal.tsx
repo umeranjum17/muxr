@@ -9,6 +9,8 @@ import {
     Platform
 } from 'react-native';
 import { LocalBlurHalo } from '@/components/AnimatedOverlay';
+import { MOTION } from '@/constants/motion';
+import { useReducedMotion } from 'react-native-reanimated';
 
 interface CommandPaletteModalProps {
     visible: boolean;
@@ -23,6 +25,7 @@ export function CommandPaletteModal({
 }: CommandPaletteModalProps) {
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const scaleAnim = useRef(new Animated.Value(0.95)).current;
+    const reducedMotion = useReducedMotion();
     const [isModalVisible, setIsModalVisible] = React.useState(true);
 
     useEffect(() => {
@@ -31,7 +34,7 @@ export function CommandPaletteModal({
             Animated.parallel([
                 Animated.timing(fadeAnim, {
                     toValue: 1,
-                    duration: 200,
+                    duration: reducedMotion ? 0 : MOTION.base,
                     useNativeDriver: true
                 }),
                 Animated.spring(scaleAnim, {
@@ -49,12 +52,12 @@ export function CommandPaletteModal({
         Animated.parallel([
             Animated.timing(fadeAnim, {
                 toValue: 0,
-                duration: 150,
+                duration: reducedMotion ? 0 : MOTION.exit,
                 useNativeDriver: true
             }),
             Animated.timing(scaleAnim, {
-                toValue: 0.95,
-                duration: 150,
+                toValue: reducedMotion ? 1 : 0.95,
+                duration: reducedMotion ? 0 : MOTION.exit,
                 useNativeDriver: true
             })
         ]).start(() => {

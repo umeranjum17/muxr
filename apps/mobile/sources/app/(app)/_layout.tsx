@@ -1,4 +1,4 @@
-import { Stack } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
 import 'react-native-reanimated';
 import * as React from 'react';
 import { Typography } from '@/constants/Typography';
@@ -8,6 +8,9 @@ import { isRunningOnMac } from '@/utils/platform';
 import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { MobileGlassBackdrop } from '@/components/MobileGlass';
+import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { DemoBar } from '@/demo/DemoBar';
+import { isDemoTransport } from '@/demo/demoTransport';
 
 export const unstable_settings = {
     initialRouteName: 'index',
@@ -19,6 +22,15 @@ export default function RootLayout() {
     const shouldUseCustomHeader = Platform.OS === 'android' || isRunningOnMac() || Platform.OS === 'web';
     const isDesktop = Platform.OS === 'web' || isRunningOnMac();
     const { theme } = useUnistyles();
+    // The demo bar is the frame around every demo destination -- herd,
+    // session, plugin, settings -- so the replay identity and the handoff
+    // never disappear on navigation. It takes the top inset itself and hands
+    // the screens beneath a zero top, so nothing pads twice. Paired sessions
+    // never see it: the transport is only ever activated on /demo.
+    usePathname();
+    const demo = isDemoTransport();
+    const insets = useSafeAreaInsets();
+    const demoInsets = React.useMemo(() => ({ ...insets, top: 0 }), [insets]);
 
     return (
         <View
@@ -30,6 +42,8 @@ export default function RootLayout() {
             }}
         >
             <MobileGlassBackdrop enabled={!isDesktop} />
+            {demo && <DemoBar topInset={insets.top} />}
+        <SafeAreaInsetsContext.Provider value={demo ? demoInsets : insets}>
         <Stack
             initialRouteName='index'
             screenOptions={{
@@ -106,14 +120,6 @@ export default function RootLayout() {
                 options={{
                     headerShown: true,
                     headerTitle: t('common.fileViewer'),
-                    headerBackTitle: t('common.back'),
-                }}
-            />
-            <Stack.Screen
-                name="session/[id]/takeover"
-                options={{
-                    headerShown: true,
-                    headerTitle: t('navigation.browserTakeover'),
                     headerBackTitle: t('common.back'),
                 }}
             />
@@ -202,6 +208,7 @@ export default function RootLayout() {
                 }}
             />
         </Stack>
+        </SafeAreaInsetsContext.Provider>
         </View>
     );
 }

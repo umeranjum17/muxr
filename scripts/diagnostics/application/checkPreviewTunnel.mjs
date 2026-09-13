@@ -8,8 +8,9 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { connect, createServer as createTcpServer } from 'node:net';
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -196,6 +197,111 @@ function loopbackGet(value, path) {
     });
 }
 
+/**
+ * Strict ticket leg: a real paired browser-device credential mints a real
+ * preview ticket (exactly what the hosted app does), and the relay admits
+ * it while refusing replays, wrong transports, revoked devices, and
+ * ticketless/garbage sockets. No mocks: a second throwaway relay in strict
+ * auth mode plus its real HTTP ticket/pairing endpoints.
+ */
+async function runStrictTicketLeg() {
+    const strictPort = await freePort();
+    const strictDir = mkdtempSync(join(tmpdir(), 'muxr-preview-strict-'));
+    const strict = spawn('node', ['apps/relay/dist/main.js'], {
+        env: { ...env, MUXR_RELAY_AUTH: 'strict', MUXR_RELAY_PORT: String(strictPort), MUXR_RELAY_DATA_DIR: strictDir },
+        stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    children.push(strict);
+    await waitForRelay(strictPort);
+
+    const base = `http://127.0.0.1:${strictPort}`;
+    const owner = JSON.parse(readFileSync(join(strictDir, 'mint-secret'), 'utf8'));
+    const api = async (path, { method = 'GET', auth, body } = {}) => {
+        const response = await fetch(`${base}${path}`, {
+            method,
+            headers: {
+                ...(auth === undefined ? {} : { authorization: `Bearer ${auth}` }),
+                ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+            },
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+        const text = await response.text();
+        let json;
+        try {
+            json = JSON.parse(text);
+        } catch {
+            json = undefined;
+        }
+        return { status: response.status, json, text };
+    };
+    const machineSlug = 'strict-check';
+    const channel = `check-${randomBytes(4).toString('hex')}`;
+    const claim = randomBytes(33).toString('base64url');
+    const deviceKey = randomBytes(32).toString('base64');
+
+    const session = await api('/v1/selfhost/pair-sessions', { method: 'POST', auth: owner,
+        body: { claim, machineSlug, deviceKind: 'browser', authority: 'control' } });
+    assert.equal(session.status, 201, `pair session must open, got ${session.status} ${session.text.slice(0, 120)}`);
+    const claimed = await api(`/v1/selfhost/pair-sessions/${session.json.pair_id}/claim`, { method: 'POST',
+        body: { claim, device_public_key: deviceKey, device_name: 'qa-browser', device_kind: 'browser', mailbox: '{}' } });
+    assert.equal(claimed.status, 201, `device claim must issue, got ${claimed.status} ${claimed.text.slice(0, 120)}`);
+    const deviceId = claimed.json.device_id;
+    const deviceCredential = claimed.json.device_credential;
+    assert.ok(typeof deviceCredential === 'string' && deviceCredential !== '', 'paired device credential issued');
+
+    const mint = async (credential, transport, ticketChannel = channel) => api('/v1/ws-tickets', { method: 'POST', auth: credential,
+        body: { machineSlug, role: 'client', transport, channel: ticketChannel } });
+    const minted = await mint(deviceCredential, 'preview');
+    assert.equal(minted.status, 200, `device must mint a preview ticket, got ${minted.status} ${minted.text.slice(0, 120)}`);
+
+    const dial = (ticket, path, queryChannel = channel) => new Promise((resolve) => {
+        const socket = new WebSocket(`ws://127.0.0.1:${strictPort}${path}?ticket=${encodeURIComponent(ticket)}&channel=${queryChannel}`);
+        const timer = setTimeout(() => resolve({ open: true, socket }), 1500);
+        socket.on('close', (code, reason) => {
+            clearTimeout(timer);
+            resolve({ open: false, code, reason: String(reason).slice(0, 80) });
+        });
+        socket.on('error', () => {});
+    });
+
+    // A device-minted preview ticket is admitted and stays open.
+    const admitted = await dial(minted.json.ticket, '/preview');
+    assert.equal(admitted.open, true, `preview ticket must be admitted, got close ${admitted.code} ${admitted.reason}`);
+    admitted.socket.close();
+
+    // Single use: the same ticket never authenticates twice.
+    const replay = await dial(minted.json.ticket, '/preview');
+    assert.equal(replay.open, false, 'ticket replay must not stay open');
+    assert.equal(replay.code, 1008, `replay must close 1008, got ${replay.code}`);
+
+    // Wrong transport: a terminal ticket opens no preview.
+    const terminalTicket = await mint(deviceCredential, 'terminal');
+    assert.equal(terminalTicket.status, 200, 'device must mint a terminal ticket for the negative');
+    const scoped = await dial(terminalTicket.json.ticket, '/preview');
+    assert.equal(scoped.open, false, 'cross-transport ticket must not stay open');
+    assert.equal(scoped.code, 1008, `scope mismatch must close 1008, got ${scoped.code}`);
+
+    // Ticketless and garbage sockets are refused in strict mode.
+    const bare = await dial('', '/preview');
+    assert.equal(bare.open, false, 'ticketless socket must not stay open');
+    const junk = await dial('muxr_tk_junk', '/preview');
+    assert.equal(junk.open, false, 'garbage ticket must not stay open');
+    assert.equal(junk.code, 1008, `garbage ticket must close 1008, got ${junk.code}`);
+
+    // Revoke the device: minting stops and outstanding tickets die at the gate.
+    const doomed = await mint(deviceCredential, 'preview');
+    assert.equal(doomed.status, 200, 'pre-revoke mint must succeed');
+    const revoked = await api(`/v1/selfhost/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE', auth: owner });
+    assert.equal(revoked.status, 200, `device revoke must succeed, got ${revoked.status} ${revoked.text.slice(0, 120)}`);
+    const afterRevoke = await dial(doomed.json.ticket, '/preview');
+    assert.equal(afterRevoke.open, false, 'revoked-device ticket must not stay open');
+    assert.equal(afterRevoke.code, 1008, `revoked device must close 1008, got ${afterRevoke.code}`);
+    const mintDenied = await mint(deviceCredential, 'preview');
+    assert.equal(mintDenied.status, 403, `revoked device must not mint, got ${mintDenied.status}`);
+
+    return { channel };
+}
+
 function openTunnel() {
     const control = new WebSocket(`${RELAY}/preview?role=client&machineId=${MACHINE}&channel=${CHANNEL}`);
 
@@ -232,6 +338,7 @@ function openTunnel() {
             }
 
             const bridgedPort = await runBridge();
+            const strict = await runStrictTicketLeg();
 
             done(0, `\nPASS: graphical takeover preview tunnel through the relay\n`
                 + `      loopback-bound stream reached: yes\n`
@@ -239,7 +346,11 @@ function openTunnel() {
                 + `      concurrent connections muxed: yes\n`
                 + `      foreign source address refused: ${pinned === undefined ? 'skipped' : 'yes'}\n`
                 + `      device-side bridge port: ${bridgedPort}\n`
-                + `      body bytes: ${body.length}\n`);
+                + `      body bytes: ${body.length}\n`
+                + `      strict device ticket admitted: yes (channel ${strict.channel})\n`
+                + `      ticket replay refused: yes\n`
+                + `      wrong transport refused: yes\n`
+                + `      revoked device refused: yes\n`);
         } catch (error) {
             done(1, `\nFAIL: request through preview port: ${error.message}\n`);
         }

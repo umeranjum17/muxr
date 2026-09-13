@@ -19,6 +19,7 @@ import { sync } from '@/catalog/sync';
 import type { RequestResult } from '@muxr/contract';
 import { Text } from '@/components/StyledText';
 import { basename, resolveListingTarget } from '@/utils/directoryPicker';
+import { humanError } from '@/utils/errors';
 
 type Listing = RequestResult<'machine.listDir'>;
 
@@ -169,7 +170,7 @@ export function DirectoryPicker({ value, onChange, recent }: DirectoryPickerProp
             })
             .catch((error) => {
                 if (seq !== fetchSeq.current) return;
-                setListError(error instanceof Error ? error.message : String(error));
+                setListError(humanError(error).message);
             })
             .finally(() => {
                 if (seq === fetchSeq.current) setLoading(false);

@@ -98,7 +98,8 @@ if (method === 'repos') {
     const binary = bytes.subarray(0, 4096).includes(0);
     const allLines = binary ? [] : bytes.toString('utf8').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').split('\n');
     const lines = allLines.slice(0, 240);
-    const truncated = stat.size > limit || allLines.length > lines.length;
+    // A binary file has no preview at all, so it has no "capped" note either.
+    const truncated = !binary && (stat.size > limit || allLines.length > lines.length);
     process.stdout.write(JSON.stringify({
         name: relative.split('/').pop() ?? relative,
         path: relative,

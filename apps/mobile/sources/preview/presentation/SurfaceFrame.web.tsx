@@ -1,0 +1,186 @@
+import * as React from 'react';
+import { View } from 'react-native';
+import { useUnistyles } from 'react-native-unistyles';
+import { surfaceNavigationAllowed, type PreviewBootstrap, type SurfaceFrameHandle, type SurfaceFrameProps } from './surfaceFrameContract';
+
+export { isDirectUrl, surfaceNavigationAllowed } from './surfaceFrameContract';
+export type { SurfaceFrameHandle, SurfaceFrameMode, SurfaceFrameProps } from './surfaceFrameContract';
+
+/** Cross-origin frame history is opaque to the embedder: no Back/Forward here. */
+export const SURFACE_FRAME_HAS_HISTORY = false;
+
+/**
+ * Both modes frame a separate origin, so the page keeps its own origin's
+ * storage and cookies and never sees the PWA's. No top-navigation: a page
+ * cannot walk the PWA away from itself.
+ */
+const SANDBOX = 'allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads';
+const READMIT_TIMEOUT_MS = 15_000;
+
+/**
+ * A src-less frame fires `load` for its initial about:blank, which is still
+ * same-origin and readable; the admitted app is cross-origin and throws.
+ * Only the latter is a document that arrived.
+ */
+function stillBlank(frame: HTMLIFrameElement | null): boolean {
+    try {
+        return frame?.contentWindow?.location.href === 'about:blank';
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Post a one-use bootstrap into the frame named `target`. The body is a
+ * urlencoded credential that must only ever travel in a POST body: it is
+ * unpacked into hidden fields, submitted once, and the form is gone before
+ * the response arrives. Never a URL, never a log line.
+ */
+function submitBootstrap(origin: string, bootstrap: PreviewBootstrap, target: string): void {
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = `${origin}${bootstrap.path}`;
+    form.target = target;
+    form.enctype = 'application/x-www-form-urlencoded';
+    form.hidden = true;
+    for (const [name, value] of new URLSearchParams(bootstrap.body)) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = value;
+        form.appendChild(input);
+    }
+    document.body.appendChild(form);
+    try {
+        form.submit();
+    } finally {
+        form.remove();
+    }
+}
+
+/**
+ * Web surface frame. Local mode's first navigation is the bootstrap POST;
+ * the gateway sets its `__Host-` cookie and redirects into the app, and the
+ * frame then navigates on its own inside that origin. Reload re-navigates to
+ * the app URL (a recovery action). A fresh cookie goes through a hidden
+ * auxiliary frame on the same origin so the healthy document is never
+ * remounted. Navigation inside a cross-origin frame is invisible to the
+ * embedder, so interaction is inferred from focus moving into the frame.
+ */
+export const SurfaceFrame = React.forwardRef<SurfaceFrameHandle, SurfaceFrameProps>(function SurfaceFrame(props, ref) {
+    const { theme } = useUnistyles();
+    const frameRef = React.useRef<HTMLIFrameElement | null>(null);
+    const id = React.useId();
+    const frameName = `surface${id}`;
+    const auxName = `surface-aux${id}`;
+    const [generation, setGeneration] = React.useState(0);
+    const [aux, setAux] = React.useState<{ bootstrap: PreviewBootstrap; settle: (error?: Error) => void } | null>(null);
+    const postedRef = React.useRef<string | null>(null);
+    const interactRef = React.useRef(props.onInteract);
+    interactRef.current = props.onInteract;
+    const loadStartRef = React.useRef(props.onLoadStart);
+    loadStartRef.current = props.onLoadStart;
+    const uriRef = React.useRef(props.uri);
+    uriRef.current = props.uri;
+    const local = props.mode.kind === 'local' ? props.mode : null;
+    const allowed = surfaceNavigationAllowed(props.uri, props.mode);
+
+    React.useImperativeHandle(ref, () => ({
+        reload: () => {
+            if (local === null) {
+                setGeneration((value) => value + 1);
+                return;
+            }
+            loadStartRef.current?.();
+            const frame = frameRef.current;
+            if (frame !== null) frame.src = uriRef.current;
+        },
+        goBack: () => undefined,
+        goForward: () => undefined,
+        stop: () => undefined,
+        readmit: (bootstrap) => new Promise<void>((resolve, reject) => {
+            if (local === null) {
+                reject(new Error('Only a local app can be readmitted.'));
+                return;
+            }
+            const timer = setTimeout(() => settle(new Error('The preview did not answer the new admission in time.')), READMIT_TIMEOUT_MS);
+            const settle = (error?: Error): void => {
+                clearTimeout(timer);
+                setAux(null);
+                if (error === undefined) resolve();
+                else reject(error);
+            };
+            setAux({ bootstrap, settle });
+        }),
+    }), [local]);
+
+    // Exactly one submission per bootstrap body, even across StrictMode's
+    // doubled effects: the gateway refuses a second one anyway.
+    React.useEffect(() => {
+        if (local === null || !allowed || postedRef.current === local.bootstrap.body) return;
+        postedRef.current = local.bootstrap.body;
+        loadStartRef.current?.();
+        submitBootstrap(local.origin, local.bootstrap, frameName);
+    }, [local, allowed, frameName]);
+
+    // The auxiliary frame exists only while a readmission is in flight.
+    // ponytail: after admission the redirect loads the whole app in the hidden
+    // frame too; a gateway "admit and stop" route would make this cheaper.
+    React.useEffect(() => {
+        if (aux === null || local === null) return;
+        submitBootstrap(local.origin, aux.bootstrap, auxName);
+    }, [aux, local, auxName]);
+
+    // Focus landing in the frame is the only interaction signal a
+    // cross-origin document leaks to its embedder.
+    React.useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const onBlur = (): void => {
+            if (frameRef.current !== null && document.activeElement === frameRef.current) interactRef.current?.();
+        };
+        window.addEventListener('blur', onBlur);
+        return () => window.removeEventListener('blur', onBlur);
+    }, []);
+    React.useEffect(() => {
+        if (local !== null) return;
+        loadStartRef.current?.();
+    }, [local, props.uri, generation]);
+    React.useEffect(() => {
+        if (!allowed) props.onBlockedUrl?.(props.uri);
+        // Report a refused address once per address; the chrome shows it.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [allowed, props.uri]);
+    if (!allowed) return <View style={{ flex: 1, backgroundColor: theme.colors.surface }} />;
+    return (
+        <View style={{ flex: 1, backgroundColor: theme.colors.surface }}>
+            <iframe
+                key={local === null ? `${props.uri} ${generation}` : local.origin}
+                ref={frameRef}
+                name={frameName}
+                {...(local === null ? { src: props.uri } : {})}
+                title="surface"
+                sandbox={SANDBOX}
+                referrerPolicy="no-referrer"
+                onLoad={() => {
+                    if (local !== null && stillBlank(frameRef.current)) return;
+                    props.onLoadEnd?.();
+                }}
+                style={{ flex: 1, border: 'none', width: '100%', height: '100%', backgroundColor: 'transparent' }}
+            />
+            {aux !== null && (
+                <iframe
+                    name={auxName}
+                    title="surface admission"
+                    sandbox={SANDBOX}
+                    referrerPolicy="no-referrer"
+                    hidden
+                    onLoad={(event) => {
+                        if (stillBlank(event.currentTarget)) return;
+                        aux.settle();
+                    }}
+                    style={{ display: 'none' }}
+                />
+            )}
+        </View>
+    );
+});

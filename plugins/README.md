@@ -18,6 +18,6 @@ Agent Names and Task Titles are Herdr fields. Muxr only displays them. Install a
 
 Read [docs/PLUGINS.md](../docs/PLUGINS.md) before adding a package. Every plugin folder must contain a concise `README.md` covering its UI, backend execution, permissions, state/secrets, offline behavior, compatibility, and removal.
 
-```bash
+```
 node scripts/cli.mjs plugin check plugins/<name>
 ```

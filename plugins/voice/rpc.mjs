@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { reportAgentOutcome } from './coordinatorPolicy.mjs';
 import { providerSecret } from './providerSecret.mjs';
-import { PROVIDERS, selectProvider, selectedProvider } from './provider.mjs';
+import { selectedProvider } from './provider.mjs';
 
 /** Secrets are per provider, so the store is resolved from the current selection. */
 function secretFor(provider) {
@@ -23,30 +23,13 @@ const secret = secretFor(provider);
 
 let output;
 if (method === 'status') {
-    // An adapter without a key store authenticates some other way and owns its
-    // own check; loading it is only worth the import cost in that case.
+    // Clients learn readiness only. Which provider answers, which account,
+    // which model and which key are host matters (`muxr voice`).
     const status = secret === undefined
         ? (await import(`./providers/${provider.id}.mjs`)).status()
         : await secret.statusPayload();
-    output = { ...status, providerId: provider.id, providerName: provider.name, keyLabel: provider.keyLabel };
-} else if (method === 'key.set') {
-    if (secret === undefined) throw new Error(`${provider.name} does not use an API key`);
-    await secret.writeKey(input?.key);
-    output = null;
-} else if (method === 'key.clear') {
-    if (secret !== undefined) await secret.clearKey();
-    output = null;
-} else if (method === 'provider.list') {
-    output = {
-        selected: provider.id,
-        providers: PROVIDERS.map(({ id, name, configurationContributionId }) => ({ id, name, configurationContributionId, selected: id === provider.id })),
-    };
-} else if (method === 'provider.set') {
-    const next = selectProvider(input?.providerId);
-    output = {
-        selected: next.id,
-        providers: PROVIDERS.map(({ id, name, configurationContributionId }) => ({ id, name, configurationContributionId, selected: id === next.id })),
-    };
+    const configured = status.configured === true;
+    output = { configured, statusLabel: configured ? 'Ready' : 'Not configured on this computer' };
 } else if (method === 'report') {
     output = { say: reportAgentOutcome(input) };
 } else {

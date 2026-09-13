@@ -14,5 +14,4 @@ export * from './presentation/SessionsList';
 export * from './presentation/SidebarNavigator';
 export * from './presentation/SidebarView';
 export * from './presentation/SpacesTree';
-export * from './presentation/TabBar';
 export * from './presentation/attentionPresentation';

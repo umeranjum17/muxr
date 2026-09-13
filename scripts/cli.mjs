@@ -9,6 +9,7 @@ import {
     BACK,
     applyMachineSetup,
     browserHostingCanEnable,
+    configureVoice,
     browserHostingReady,
     connectEnrollment,
     connectRemoteRelay,
@@ -23,6 +24,7 @@ import {
     listMachines,
     manageMachines,
     pairDevice,
+    printOperatorConfig,
     prompt,
     revokeDevice,
     revokeMachine,
@@ -49,6 +51,7 @@ import {
 } from './plugin/index.mjs';
 import { dumpDiagnostics, readDiagnostics } from './diagnostics/index.mjs';
 import { updateCli } from './release/index.mjs';
+import { runSurfaceCli } from './surface/index.mjs';
 
 const HELP = `muxr — every coding agent on your phone
 
@@ -56,10 +59,11 @@ Run muxr with no arguments for the interactive menu.
 
 Get started
   muxr setup                     install, connect, and pair this machine
-  muxr doctor                    check the complete local setup
+  muxr doctor [--json]           check the complete local setup (JSON: checks + exact runtime identity)
   muxr diagnostics               show bounded redacted host history for agents
   muxr report                    prepare a local redacted bug report draft
-  muxr pair [--browser|--browser-view] pair a phone or control/view-only browser
+  muxr pair [--browser|--browser-view|--browser-personal|--native] pair this browser (Control, default), a view-only or personal browser, or the native app
+  muxr config [--json|--schema]  show effective desired state and where each value came from
   muxr connect --enrollment ...  connect this agent machine to a shared relay
   muxr shared-relay              host an always-on relay for other machines
 
@@ -72,6 +76,7 @@ Run and maintain
   muxr self-host [options]       run the relay, host, and pairing flow
   muxr daemon <command>          install, start, stop, restart, or inspect muxr services
   muxr devices list|revoke       list or revoke paired devices
+  muxr voice [status|select|key] choose and configure the realtime voice provider on this computer
   muxr machines enroll|list|revoke manage machines on a shared relay
   muxr peers list|read|status|watch|prompt use established computer collaboration
   muxr integrations sync|uninstall
@@ -80,6 +85,14 @@ Agent instructions
   muxr --skill | muxr skill       print the compact muxr agent skill
   muxr skill <topic>              load one reference only when needed
 
+Surfaces
+  muxr surface capabilities [--json]
+  muxr browser open <https-url|http://localhost:PORT/path|about:blank> [--beside|--focus] [--name NAME] [--provider ID]
+  muxr browser home [--beside|--focus] [--name NAME]
+  muxr browser update [URL] | muxr browser reload | muxr browser close
+  muxr code open <path[:line[:column]]> | muxr code diff [path]
+  muxr surface list [--json]
+
 Build plugins
   muxr plugin docs|create|clone|check|dev|call|list|install|update|remove
 
@@ -87,10 +100,11 @@ Use “muxr help <command>” for command options.
 `;
 
 const COMMAND_HELP = {
-    setup: `muxr setup [--inspect] [--dry-run] [--no-install-herdr] [--port <n>]\n\nInteractive setup installs Herdr when missing, lets you choose networking, lifecycle integrations, plugins, and services, shows a final plan, then applies it and displays a short-lived pairing QR. It never installs agent skills or edits prompt files.\n`,
-    'self-host': `muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]\n               [--port <n>] [--relay-only|--host-only] [--web] [--yes]\n`,
+    setup: `muxr setup [--inspect] [--dry-run] [--no-install-herdr] [--port <n>]\nmuxr setup --apply-config [--dry-run] [--json]\n\n--apply-config plans this computer against ~/.muxr/config.env (flag > env > file > default): --dry-run prints the plan and exits 2 when it has changes; without it the plan is applied and verified (exit 0), never minting grants or invitations.\n\nInteractive setup installs Herdr when missing, lets you choose networking, lifecycle integrations, plugins, and services, shows a final plan, then applies it and displays a short-lived pairing QR. It never installs agent skills or edits prompt files.\n`,
+    'self-host': `muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]\n               [--port <n>] [--relay-only|--host-only] [--web] [--yes]\n               [--apply-config] [--dry-run]\n\n--apply-config reads ~/.muxr/config.env (flag > env > file > default) and applies it non-interactively; exits non-zero listing any missing decision.\n`,
     daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n\n\`install\` writes or updates the background-service definition without starting it. Normal \`muxr setup\` installs, starts, and verifies the service for you.\n`,
     devices: `muxr devices list\nmuxr devices revoke <number|name>\n`,
+    voice: `muxr voice\nmuxr voice status [--json]\nmuxr voice select <provider>\nmuxr voice key set [--stdin]\nmuxr voice key clear\n\nRealtime voice provider policy and credentials live on this computer only. Clients see configured/unavailable, never the provider or key. Keys are entered hidden or piped on stdin, never passed as arguments.\n`,
     integrations: `muxr integrations sync [--all] [--dry-run]\nmuxr integrations uninstall [--dry-run]\n\nSync Herdr lifecycle integrations only. Agent skills and prompt files are never changed.\n`,
     plugin: `muxr plugin docs\nmuxr plugin create <name>\nmuxr plugin clone <bundled-plugin-id> [destination]\nmuxr plugin check|dev <path> [--web]\nmuxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\nmuxr plugin list\nmuxr plugin install|update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\nmuxr plugin remove <plugin-id> [--yes]\n`,
     'plugin docs': `muxr plugin docs\n\nPrint absolute paths to the installed authoring guide and agent skill.\n`,
@@ -103,19 +117,23 @@ const COMMAND_HELP = {
     'plugin install': `muxr plugin install <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nMaterialize, validate, confirm, and enable a plugin.\n`,
     'plugin update': `muxr plugin update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nReplace plugin files transactionally while preserving its enabled state.\n`,
     'plugin remove': `muxr plugin remove <plugin-id> [--yes]\n\nDisable, unlink, and remove muxr-managed plugin files.\n`,
-    pair: `muxr pair [--browser|--browser-view]\n\nCreate a two-minute native QR/string, an eight-hour control-browser link (--browser), or an eight-hour view-only browser link (--browser-view).\n`,
+    pair: `muxr pair [--browser|--browser-view|--browser-personal|--native]\n\nWith no flag, MUXR_PAIRING_DEFAULT decides (default: --browser). --browser: an eight-hour Control link for this browser; --browser-view: eight-hour View-only; --browser-personal: 30-day Control for a browser only you use; --native: a two-minute one-use QR/string for the native app. Every link is one-use and expires in two minutes.\n`,
+    config: `muxr config\n\nPrint the effective operator intent (~/.muxr/config.env values overlaid by MUXR_* env and CLI flags) with provenance per value. Read-only; the setup wizard writes the file when you Apply.\n`,
     doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
     diagnostics: `muxr diagnostics\n\nPrint seven days of bounded redacted host, client, relay, collaboration, and broker history as JSON. No prompts, terminal output, paths, secrets, or internal ids are recorded.\n`,
     report: `muxr report > muxr-report.md\n\nPrepare a local GitHub issue draft with environment versions, redacted doctor check names, and the latest 50 bounded diagnostic events. The command only prints a draft. Review every line, add what happened, and explicitly decide whether to post it; muxr never opens or submits an issue.\n`,
     status: `muxr status\n\nAlias for muxr doctor.\n`,
     restart: `muxr restart\n\nRestart the supervised relay and host (same as muxr daemon restart).\n`,
     uninstall: `muxr uninstall [--yes|--resume]\n\nRemove all muxr-owned services, ingress, identity, pairings, grants, relay/plugin state, provider keys, logs, caches, and managed integrations. Herdr, its sessions, repositories, worktrees, exports, signing keys, and unrecognized files stay. The globally installed CLI can be removed last.\n`,
-    update: `muxr update [--check|--yes]\n\nCheck npm for a newer @trymuxr/cli release. --to VERSION selects an exact published version; changing channels or downgrading remains explicit. Interactive terminals ask before installing; --yes updates without prompting.\n`,
-    skill: `muxr --skill\nmuxr skill\nmuxr skill <onboarding|herdr|collaboration|browser-takeover|plugins>\nmuxr skill all\n\nPrint the compact canonical skill by default. Load one focused reference on demand; muxr skill all prints the archival self-contained bundle. Herdr guidance comes from the installed binary when available. No files or state are changed.\n`,
+    update: `muxr update [--check|--yes] [--channel stable|nightly] [--to VERSION] [--allow-downgrade]\n\nCheck npm for a newer @trymuxr/cli release. --to VERSION selects an exact published version through the same trusted install path; changing channels or downgrading (rollback) remains explicit with --allow-downgrade. Interactive terminals ask before installing; --yes updates without prompting.\n`,
+    skill: `muxr --skill\nmuxr skill\nmuxr skill <onboarding|herdr|collaboration|browser-takeover|surfaces|plugins>\nmuxr skill all\n\nPrint the compact canonical skill by default. Load one focused reference on demand; muxr skill all prints the archival self-contained bundle. Herdr guidance comes from the installed binary when available. No files or state are changed.\n`,
     peers: `muxr peers list [--machine <name>]\nmuxr peers read --machine <name> [--agent <name>] [--lines <n>]\nmuxr peers status --machine <name> [--agent <name>]\nmuxr peers watch --machine <name> [--agent <name>] [--timeout-ms <n>]\nmuxr peers prompt --machine <name> [--agent <name>] --text <prompt>\n\nUse established computer collaboration with Machine Names and Agent Names only. Output is JSON. Raw shell, takeover, and destructive actions are never granted.\n`,
     connect: `muxr connect --enrollment <muxr://enroll?...> [--no-pair|--pair-browser|--pair-browser-view|--pair-both]\nmuxr connect --resume\n`,
     machines: `muxr machines enroll\nmuxr machines list\nmuxr machines revoke <number|name>\n`,
     'shared-relay': `muxr shared-relay\n\nInteractively configure a supervised VPS relay, optional browser client, and machine enrollments.\n`,
+    surface: `muxr surface capabilities [--json]\nmuxr surface list [--json]\nmuxr surface close [NAME] [--json]\n\nProvider-neutral surface offers over the host-local broker. Replies name the logical surface only; offer, session, pane, lease and device ids never print.\n`,
+    browser: `muxr browser open <https-url|http://localhost:PORT/path|about:blank> [--beside|--focus] [--name NAME] [--provider ID] [--json]\nmuxr browser home [--beside|--focus] [--name NAME] [--json]\nmuxr browser update [URL] [--beside|--focus] [--name NAME] [--provider ID] [--json]\nmuxr browser reload [--name NAME] [--json]\nmuxr browser close [--name NAME] [--json]\n\nOpen a real WebView surface: public HTTPS loads directly, host-local HTTP opens through a leased endpoint, and home opens an honest blank tab. Remote non-HTTPS URLs, credentialed URLs and unsupported schemes fail closed.\n`,
+    code: `muxr code open <path[:line[:column]]> [--beside|--focus] [--name NAME] [--provider ID] [--json]\nmuxr code diff [path] [--beside|--focus] [--name NAME] [--provider ID] [--json]\n\nOpen a native review target (Files/Changes/History). Mode is review; opening Code grants no editing authority. Paths outside the resolved worktree fail closed.\n`,
 };
 
 function printHelp(command) {
@@ -192,6 +210,7 @@ const SKILL_TOPICS = {
     collaboration: 'collaboration.md',
     'browser-takeover': 'browser-takeover.md',
     browser: 'browser-takeover.md',
+    surfaces: 'surfaces.md',
     plugins: 'plugins.md',
 };
 
@@ -428,6 +447,7 @@ async function dispatch(command, args = []) {
     if (command === 'machines-menu') return manageMachines();
     if (command === 'connect') return connectEnrollment(args);
     if (command === 'self-host') return startSelfHost(args);
+    if (command === 'voice') return configureVoice(args);
     if (command === 'devices') {
         const [deviceCommand = 'list', ...deviceArgs] = args;
         if (deviceCommand === 'list') return listDevices();
@@ -452,7 +472,7 @@ async function dispatch(command, args = []) {
             return 1;
         }
     }
-    if (command === 'doctor' || command === 'status') return inspectSetup();
+    if (command === 'doctor' || command === 'status') return inspectSetup(args);
     if (command === 'diagnostics') {
         try { dumpDiagnostics(); return 0; }
         catch (error) { process.stderr.write(`muxr diagnostics: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
@@ -483,6 +503,15 @@ async function dispatch(command, args = []) {
         }
     }
     if (command === 'pair') return pairDevice(args);
+    if (command === 'config') return printOperatorConfig(args);
+    if (command === 'surface' || command === 'browser' || command === 'code') {
+        try {
+            return await runSurfaceCli([command, ...args]);
+        } catch (error) {
+            process.stderr.write(`muxr ${command}: ${error instanceof Error ? error.message : String(error)}\n`);
+            return 1;
+        }
+    }
     if (command === 'version' || command === '--version' || command === '-v') {
         process.stdout.write(`${versionString()}\n`);
         return 0;
@@ -519,9 +548,10 @@ async function advancedMenu() {
 async function devicesMenu() {
     for (;;) {
         const choice = await select('Phones and browsers', [
-            { value: 'pair', title: 'Pair a phone', description: 'show a two-minute QR and short pairing string' },
-            { value: 'pair-browser', title: 'Pair a control browser', description: 'full terminal and agent control for eight hours' },
+            { value: 'pair-browser', title: 'Pair this browser (Control)', description: 'full terminal and agent control for eight hours' },
             { value: 'pair-browser-view', title: 'Pair a view-only browser', description: 'observe agents without control for eight hours' },
+            { value: 'pair-browser-personal', title: 'Pair your installed browser', description: 'control from your own installed PWA for 30 days; revoke anytime' },
+            { value: 'pair', title: 'Pair the native app', description: 'show a two-minute QR and short pairing string' },
             { value: 'list', title: 'List paired devices', description: 'names and pairing dates' },
             { value: 'revoke', title: 'Revoke a device', description: 'disconnect a phone or browser' },
             { value: 'back', title: 'Back', description: 'return to the main menu' },
@@ -529,8 +559,11 @@ async function devicesMenu() {
         if (choice === undefined) return 'quit';
         if (choice === BACK || choice === 'back') return;
         let code = 0;
-        if (choice === 'pair') code = await pairDevice([]);
-        else if (choice === 'pair-browser' || choice === 'pair-browser-view') {
+        if (choice === 'pair') code = await pairDevice(['--native']);
+        else if (choice === 'pair-browser' || choice === 'pair-browser-view' || choice === 'pair-browser-personal') {
+            let flag = '--browser';
+            if (choice === 'pair-browser-view') flag = '--browser-view';
+            if (choice === 'pair-browser-personal') flag = '--browser-personal';
             if (!browserHostingReady()) {
                 const targeted = browserHostingCanEnable();
                 const enable = await select(
@@ -548,9 +581,9 @@ async function devicesMenu() {
                 if (enable === undefined) return 'quit';
                 if (enable === 'enable') {
                     code = await enableBrowserHosting();
-                    if (code === 0) code = await pairDevice([choice === 'pair-browser-view' ? '--browser-view' : '--browser']);
+                    if (code === 0) code = await pairDevice([flag]);
                 } else if (enable === 'setup') code = await dispatch('setup', []);
-            } else code = await pairDevice([choice === 'pair-browser-view' ? '--browser-view' : '--browser']);
+            } else code = await pairDevice([flag]);
         } else if (choice === 'list') code = await listDevices();
         else if (choice === 'revoke') {
             code = await listDevices();

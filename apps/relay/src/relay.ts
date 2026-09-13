@@ -11,6 +11,7 @@ import { createPublicKey, randomBytes, verify } from 'node:crypto';
 import { hostname } from 'node:os';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
+    RELAY_CLOSE_HOST_GONE,
     RELAY_CLOSE_REPLACED,
     decodePayload,
     isPeerCapabilities,
@@ -21,11 +22,11 @@ import {
     type HostFrame,
 } from '@muxr/contract';
 import { admitSocketFromUrl, extractBearerToken, secureEqual, admittedByTicket, type PeerIdentity, type Ticket } from './admission/index.js';
-import { handleHttpRequest, isExpoPushToken, readJsonBody, writeJson, writeJsonError, type PushActionOutcome } from './httpHandlers.js';
+import { handleHttpRequest, isExpoPushToken, isPushSubscription, readJsonBody, writeJson, writeJsonError, type PushActionOutcome } from './httpHandlers.js';
 import { OfflineBuffer, PeerTable, parseLastSeq, peerMayRoute, sendEnvelope, type ConnectedPeer, PreviewChannels, TerminalChannels, ReplayLog, deliverReplayAndOffline, routeEnvelope, type PeerRouteOutcome } from './routing/index.js';
 import { type RelayConfig, clientIp, isLoopbackAddress, loadRelayConfig } from './config.js';
 import { isValidPublicKey, PairingRequests, FileTicketStore, SelfhostPairing, MachineAuthority, enrollmentProofMessage, MachineRegistry } from './admission/index.js';
-import { parsePushNotification, PushService, notificationEmailFromEnv, type PushWebhookConfig } from './push/index.js';
+import { parsePushNotification, PushService, isAllowedPushEndpoint, notificationEmailFromEnv, type PushWebhookConfig } from './push/index.js';
 import { awaitPersistChain, writeJsonFileAtomic, readPrivateFile } from './platform/persist.js';
 
 /** How long push/action waits for the machine's answer before giving up. */
@@ -153,6 +154,16 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     const localTickets = config.localAuthority ? new FileTicketStore(config.dataDir) : undefined;
     const localPairing = config.localAuthority ? new SelfhostPairing(config.dataDir) : undefined;
     const machineAuthority = config.localAuthority ? new MachineAuthority(config.dataDir) : undefined;
+    if (localPairing !== undefined) {
+        // Delivery-time authorization: subscriptions are pruned the moment
+        // their device grant dies — revoked or naturally expired — instead of
+        // sending to a dead endpoint or waiting for a revoke call.
+        push.setAuthorizer(async (accountId, deviceId) => {
+            const slug = accountId.startsWith('local:') ? accountId.slice('local:'.length) : undefined;
+            if (slug === undefined || slug === '') return false;
+            return localPairing.deviceActiveIn(deviceId, slug);
+        });
+    }
     const notifications = config.localAuthority ? notificationEmailFromEnv() : undefined;
     // One email per machine per 5 minutes — a flap loop must not spam.
     const lastNotified = new Map<string, number>();
@@ -306,20 +317,33 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
 
     const hostDownloadBaseUrl = process.env.MUXR_HOST_HTTP_URL ?? 'http://127.0.0.1:8793';
     const webRoot = process.env.MUXR_WEB_ROOT?.trim();
-    const webMime: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.wasm': 'application/wasm' };
+    const webMime: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.map': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon', '.svg': 'image/svg+xml', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.wasm': 'application/wasm' };
+    // Mutable entries must revalidate: a cached index.html pins the client to
+    // content-hashed chunks that a re-export may already have deleted. The
+    // push worker and the install manifest are entry files for the same
+    // reason; fingerprinted bundles stay immutable.
+    const webEntryFile = (file: string): boolean => {
+        const base = file.split('/').pop() ?? '';
+        return file.endsWith('index.html') || base === 'sw.js' || base === 'manifest.webmanifest' || base === 'manifest.json';
+    };
     const serveWeb = async (pathname: string, head: boolean, res: import('node:http').ServerResponse): Promise<boolean> => {
         if (!config.localAuthority || !webRoot || pathname.startsWith('/v1/') || pathname === '/health' || pathname === '/ready') return false;
         const relative = normalize(decodeURIComponent(pathname)).replace(/^[/\\]+/, '');
         if (relative.startsWith('..')) return false;
         let path = join(webRoot, relative || 'index.html');
+        let entryFallback = relative === '' || relative === 'index.html';
         try { if ((await stat(path)).isDirectory()) path = join(path, 'index.html'); }
-        catch { path = join(webRoot, 'index.html'); }
+        catch { path = join(webRoot, 'index.html'); entryFallback = true; }
         try {
             const body = await readFile(path);
             res.writeHead(200, {
                 'content-type': webMime[extname(path).toLowerCase()] ?? 'application/octet-stream',
-                'cache-control': path.endsWith('index.html') ? 'no-store' : 'public, max-age=31536000, immutable',
-                'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+                'cache-control': webEntryFile(path) || entryFallback ? 'no-store' : 'public, max-age=31536000, immutable',
+                'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+                // The web client is a same-origin installed app surface, not an
+                // API response: camera/mic stay usable for future foreground
+                // voice and QR flows. The global API policy remains deny-by-default.
+                'permissions-policy': 'camera=(self), microphone=(self), geolocation=()',
                 'x-content-type-options': 'nosniff',
                 'referrer-policy': 'no-referrer',
             });
@@ -447,6 +471,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 for (const device of await localPairing.listDevices(slug)) {
                     await localPairing.revokeDevice(device.deviceId, slug);
                     await push.removeExpoDevice(`local:${slug}`, device.deviceId);
+                    await push.removeWebDevice(`local:${slug}`, device.deviceId);
                 }
                 closePeers({ accountId: `local:${slug}`, machineSlug: slug }, 'machine uninstalled');
                 writeJson(res, 200, { ok: true });
@@ -468,6 +493,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 for (const device of await localPairing.listDevices(slug)) {
                     await localPairing.revokeDevice(device.deviceId, slug);
                     await push.removeExpoDevice(`local:${slug}`, device.deviceId);
+                    await push.removeWebDevice(`local:${slug}`, device.deviceId);
                 }
                 closePeers({ accountId: `local:${slug}`, machineSlug: slug }, 'machine revoked');
                 writeJson(res, 200, { ok: true });
@@ -588,12 +614,15 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                         return;
                     }
                     const deviceAuthority = deviceKind === 'browser' && requestedAuthority === 'observe' ? 'observe' : 'control';
+                    // Personal lifetime is owner-authorized at session creation;
+                    // the browser claim body can never request it.
+                    const personal = deviceKind === 'browser' && body?.personal === true;
                     if (claim.length < 43 || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(machineSlug) || deviceKind === undefined) {
                         writeJsonError(res, 400, 'claim, machineSlug and deviceKind are required');
                         return;
                     }
                     if (!(await machineAuthority?.isMachineAllowed(machineSlug))) { writeJsonError(res, 403, 'machine is revoked or expired'); return; }
-                    const session = await localPairing.createSession({ claim, machineSlug, deviceKind, authority: deviceAuthority });
+                    const session = await localPairing.createSession({ claim, machineSlug, deviceKind, authority: deviceAuthority, ...(personal ? { personal: true } : {}) });
                     writeJson(res, 201, { pair_id: session.pairId, expires_in: session.expiresIn });
                     return;
                 }
@@ -626,14 +655,14 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     const deviceName = typeof body?.device_name === 'string' ? body.device_name.slice(0, 120) : '';
                     const mailbox = typeof body?.mailbox === 'string' ? body.mailbox : '';
                     const deviceKind = body?.device_kind === 'browser' ? 'browser' : 'native';
-                    const browserExpiresAt = deviceKind === 'browser' ? Date.now() + 8 * 60 * 60_000 : undefined;
                     if (claim === '' || devicePublicKey === '' || deviceName === '' || mailbox === '' || mailbox.length > 16 * 1024) {
                         writeJsonError(res, 400, 'claim, device_public_key, device_name and mailbox are required');
                         return;
                     }
+                    // Credential lifetime is decided inside claim() from the
+                    // owner-created session (personal marker or 8h default).
                     const result = await localPairing.claim(claimMatch[1], {
                         claim, devicePublicKey, deviceName, deviceKind, mailbox,
-                        ...(browserExpiresAt === undefined ? {} : { expiresAt: browserExpiresAt }),
                     });
                     if (result.state === 'issued') {
                         writeJson(res, 201, { device_id: result.deviceId, device_credential: result.credential });
@@ -883,6 +912,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 }
                 revokePeers({ accountId: `local:${revoked.machineSlug}`, deviceId });
                 await push.removeExpoDevice(`local:${revoked.machineSlug}`, deviceId);
+                await push.removeWebDevice(`local:${revoked.machineSlug}`, deviceId);
                 writeJson(res, 200, { ok: true });
                 return;
             }
@@ -900,6 +930,42 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 } else {
                     await push.removeExpoDevice(`local:${device.machineSlug}`, device.deviceId);
                 }
+                writeJson(res, 200, { ok: true });
+                return;
+            }
+            // Self-host web push: device-scoped and reachable in production.
+            // Browsers authenticate with the paired device credential they
+            // already hold for transport (never an account token). The
+            // deviceId is taken from the presenting credential, never the
+            // request body, so one browser cannot subscribe or unsubscribe
+            // another. Direct Approve/Deny from the worker is intentionally
+            // not offered here: notification taps deep-link into the session,
+            // where the approval runs under the real device grant.
+            if (config.localAuthority && localPairing !== undefined && req.method === 'GET'
+                && url.pathname === '/v1/push/vapid-public') {
+                const presented = extractBearerToken(req);
+                const device = presented === undefined ? undefined : await localPairing.resolveDeviceCredential(presented);
+                if (device === undefined || device.deviceKind === 'peer') { writeJsonError(res, 403, 'invalid device credential'); return; }
+                writeJson(res, 200, { publicKey: push.publicKey() });
+                return;
+            }
+            if (config.localAuthority && localPairing !== undefined && (req.method === 'POST' || req.method === 'DELETE')
+                && url.pathname === '/v1/push/subscribe') {
+                const presented = extractBearerToken(req);
+                const device = presented === undefined ? undefined : await localPairing.resolveDeviceCredential(presented);
+                if (device === undefined || device.deviceKind === 'peer') { writeJsonError(res, 403, 'invalid device credential'); return; }
+                const accountId = `local:${device.machineSlug}`;
+                if (req.method === 'DELETE') {
+                    await push.removeWebDevice(accountId, device.deviceId);
+                    writeJson(res, 200, { ok: true });
+                    return;
+                }
+                const body = (await readJsonBody(req).catch(() => undefined)) as { subscription?: unknown; level?: unknown } | undefined;
+                if (!isPushSubscription(body?.subscription)) { writeJsonError(res, 400, 'subscription must be {endpoint, keys: {p256dh, auth}}'); return; }
+                if (!isAllowedPushEndpoint(body.subscription.endpoint)) { writeJsonError(res, 400, 'subscription endpoint is not an allowed Web Push destination'); return; }
+                const level = body.level === undefined ? 'important' : parseLifecycleNotificationLevel(body.level);
+                if (level === undefined) { writeJsonError(res, 400, 'invalid lifecycle notification level'); return; }
+                await push.subscribe(accountId, body.subscription, { deviceId: device.deviceId, level });
                 writeJson(res, 200, { ok: true });
                 return;
             }
@@ -1147,6 +1213,18 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
 
         const detach = (): void => {
             peers.remove(peer);
+            // A machine route ending ends every client route that negotiated
+            // with that host: the clients reconnect and negotiate afresh with
+            // the host that answers next, rather than keeping a promise the
+            // replacement never made.
+            if (peer.role === 'machine') {
+                for (const machineId of peer.machineIds) {
+                    for (const client of peers.forMachine(machineId, 'client', peer.accountId)) {
+                        peers.remove(client);
+                        client.socket.close(RELAY_CLOSE_HOST_GONE, 'host disconnected');
+                    }
+                }
+            }
             // BYO-email notify: the last machine peer dropping means the box went offline.
             if (notifyOffline !== undefined && peer.role === 'machine'
                 && peers.forMachine(peer.machineIds.values().next().value ?? '', 'machine', peer.accountId).length === 0) {

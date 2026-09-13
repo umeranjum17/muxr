@@ -6,12 +6,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useUnistyles } from 'react-native-unistyles';
 import { isRunningOnMac } from '@/utils/platform';
 import Animated, {
-    Easing,
     useAnimatedStyle,
     useSharedValue,
     withSpring,
     withTiming,
 } from 'react-native-reanimated';
+import { MOTION, pressEasing, timing } from '@/constants/motion';
 
 type MobileGlassSurfaceProps = ViewProps & {
     enabled?: boolean;
@@ -58,10 +58,7 @@ function InteractiveMobileGlassSurface({
         });
     }, [pressScale]);
     const handleTouchStart = React.useCallback<NonNullable<ViewProps['onTouchStart']>>((event) => {
-        pressScale.value = withTiming(1.035, {
-            duration: 65,
-            easing: Easing.out(Easing.quad),
-        });
+        pressScale.value = withTiming(1.035, timing(MOTION.press, pressEasing));
         onTouchStart?.(event);
     }, [onTouchStart, pressScale]);
     const handleTouchEnd = React.useCallback<NonNullable<ViewProps['onTouchEnd']>>((event) => {

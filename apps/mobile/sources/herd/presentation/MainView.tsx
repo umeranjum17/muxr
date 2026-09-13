@@ -16,11 +16,9 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSocketStatus } from '@/catalog/store';
 import { useSplitViewLayout } from '@/utils/responsive';
 import { useRouter } from 'expo-router';
-import { TabBar, TabType } from './TabBar';
-import { PluginSlot, DeclarativeHomeCards, DeclarativeNavigationItems, DeclarativePhoneNavRow } from '@/plugins/ui';
+import { PluginSlot, DeclarativeHomeCards, DeclarativePhoneNavRow } from '@/plugins/ui';
 import { pluginHref } from '@/plugins';
 import { HomeDock, MOBILE_HOME_DOCK_CONTENT_INSET } from '@/spawn/ui';
-import { SettingsViewWrapper } from '@/settings';
 import { HerdView } from './HerdView';
 import { LiveTerminalsRow } from './LiveTerminalsRow';
 import { SessionItem } from './SessionsList';
@@ -37,19 +35,19 @@ import { useNewSessionDraft } from '@/spawn';
 import { useStartSessionFromDraft } from '@/spawn';
 import { listPairedGrants, type StoredHostedGrant } from '@/pairing/e2ee';
 import { getCachedConnectionSettings, pairingTransport, saveConnectionSettings } from '@/connection';
-import { useDeviceAuthority } from '@/pairing';
 import { useAuth } from '@/account/ui';
 import { useVisibleSessionListViewData } from '../application/useVisibleSessionListViewData';
 import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Modal } from '@/modal';
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
 import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
+import { humanError } from '@/utils/errors';
 
 
 const styles = StyleSheet.create((theme) => ({
     phoneContainer: {
         flex: 1,
-        backgroundColor: Platform.OS === 'web' ? 'transparent' : theme.colors.groupped.background,
+        backgroundColor: theme.colors.groupped.background,
     },
     phoneSceneStack: {
         flex: 1,
@@ -59,11 +57,11 @@ const styles = StyleSheet.create((theme) => ({
     },
     phoneRoot: {
         flex: 1,
-        backgroundColor: Platform.OS === 'web' ? 'transparent' : theme.colors.groupped.background,
+        backgroundColor: theme.colors.groupped.background,
     },
     phoneHeader: {
         zIndex: 10,
-        backgroundColor: Platform.OS === 'web' ? theme.colors.groupped.background : 'transparent',
+        backgroundColor: 'transparent',
     },
     phoneHeaderOverlay: {
         position: 'absolute',
@@ -105,15 +103,15 @@ const styles = StyleSheet.create((theme) => ({
     },
     titleContainer: {
         flex: 1,
-        alignItems: Platform.OS === 'web' ? 'center' : 'flex-start',
-        justifyContent: Platform.OS === 'web' ? 'flex-start' : 'center',
+        alignItems: 'flex-start',
+        justifyContent: 'center',
     },
     tabletTitleContainer: {
         alignItems: 'flex-start',
         justifyContent: 'flex-end',
     },
     titleText: {
-        fontSize: Platform.OS === 'web' ? 17 : 16,
+        fontSize: 16,
         color: theme.colors.header.tint,
         fontWeight: '600',
         ...Typography.default('semiBold'),
@@ -150,7 +148,7 @@ const styles = StyleSheet.create((theme) => ({
         marginTop: -2,
     },
     statusText: {
-        fontSize: Platform.OS === 'web' ? 12 : 11,
+        fontSize: 11,
         fontWeight: '500',
         lineHeight: 16,
         ...Typography.default(),
@@ -172,11 +170,23 @@ const styles = StyleSheet.create((theme) => ({
         alignItems: 'center',
         gap: 8,
     },
+    // 46 with the hairline border leaves a 44px control inside.
     headerActionGlass: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 46,
+        height: 46,
+        borderRadius: 23,
         overflow: 'hidden',
+        // Glass blur does not composite on web: the native surface falls
+        // back to a plain view, so compact web paints the solid control
+        // fill itself. Native keeps the live blur untouched.
+        ...Platform.select({
+            web: {
+                backgroundColor: theme.colors.glass.backgroundStrong,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: theme.colors.glass.border,
+            },
+            default: {},
+        }),
     },
     headerActionButton: {
         width: '100%',
@@ -204,7 +214,7 @@ const styles = StyleSheet.create((theme) => ({
 }));
 
 // Header title component with connection status and the active saved pairing.
-const HeaderTitle = React.memo(({ activeTab, pluginTitle, large = false }: { activeTab: TabType; pluginTitle?: string; large?: boolean }) => {
+const HeaderTitle = React.memo(({ large = false }: { large?: boolean }) => {
     const { theme } = useUnistyles();
     const socketStatus = useSocketStatus();
     const auth = useAuth();
@@ -237,7 +247,7 @@ const HeaderTitle = React.memo(({ activeTab, pluginTitle, large = false }: { act
             setActiveMachineId(getCachedConnectionSettings().machineId);
             setMachinePickerOpen(true);
         } catch (cause) {
-            Modal.alert('Could not load machines', cause instanceof Error ? cause.message : String(cause));
+            Modal.alert('Could not load machines', humanError(cause).message);
         }
     }, []);
 
@@ -266,7 +276,7 @@ const HeaderTitle = React.memo(({ activeTab, pluginTitle, large = false }: { act
             await auth.login(grant.credential, grant.deviceKey.secretKey);
             setActiveMachineId(grant.machineId);
         } catch (cause) {
-            Modal.alert('Could not switch machine', cause instanceof Error ? cause.message : String(cause));
+            Modal.alert('Could not switch machine', humanError(cause).message);
         }
     }, [activeMachineId, auth, pairedGrants]);
 
@@ -275,27 +285,26 @@ const HeaderTitle = React.memo(({ activeTab, pluginTitle, large = false }: { act
         [socketStatus, theme],
     );
 
-    const isHome = activeTab === 'sessions';
     const title = homeHeaderTitle(
-        activeTab,
-        pluginTitle,
+        'sessions',
+        undefined,
         activeGrant ? pairedMachineTitle(activeGrant.machineName) : undefined,
     );
 
     return (
         <View style={[styles.titleContainer, large && styles.tabletTitleContainer]}>
-            {isHome && pairedGrants.length > 1 ? (
+            {pairedGrants.length > 1 ? (
                 <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`Switch machine, current ${machineName}`}
                     onPress={() => { void openMachinePicker(); }}
                     style={styles.machineTitleButton}
                 >
-                    <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1}>{title}</Text>
+                    <Text accessibilityRole="header" aria-level={1} style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1}>{title}</Text>
                     <Ionicons name="chevron-down" size={13} color={theme.colors.header.tint} />
                 </Pressable>
             ) : (
-                <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1}>{title}</Text>
+                <Text accessibilityRole="header" aria-level={1} style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1}>{title}</Text>
             )}
             {connectionStatus.text && (
                 <View style={styles.statusContainer}>
@@ -342,71 +351,47 @@ const HeaderSearch = React.memo(({
     );
 });
 
-// Header right button - varies by tab
+// Header right buttons - search and settings, same composition everywhere.
 const HeaderRight = React.memo(({
-    activeTab,
     searchActive,
     onSearchPress,
 }: {
-    activeTab: TabType;
     searchActive: boolean;
     onSearchPress: () => void;
 }) => {
     const router = useRouter();
     const { theme } = useUnistyles();
-    const { authority, loading: authorityLoading } = useDeviceAuthority();
 
-    if (activeTab === 'sessions') {
-        if (Platform.OS !== 'web') {
-            return (
-                <View style={styles.headerActions}>
-                    <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
-                        <Pressable
-                            onPress={onSearchPress}
-                            style={styles.headerActionButton}
-                            hitSlop={8}
-                            accessibilityRole="button"
-                            accessibilityLabel={t('tools.names.search')}
-                        >
-                            <Ionicons
-                                name={searchActive ? 'close' : 'search'}
-                                size={searchActive ? 24 : 21}
-                                color={theme.colors.header.tint}
-                            />
-                        </Pressable>
-                    </MobileGlassSurface>
-                    <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
-                        <Pressable
-                            onPress={() => router.push('/settings')}
-                            style={styles.headerActionButton}
-                            hitSlop={8}
-                            accessibilityRole="button"
-                            accessibilityLabel={t('settings.title')}
-                        >
-                            <Ionicons name="settings-outline" size={21} color={theme.colors.header.tint} />
-                        </Pressable>
-                    </MobileGlassSurface>
-                </View>
-            );
-        }
-        return authority === 'control' && !authorityLoading ? (
-            <View style={styles.headerActions}>
+    return (
+        <View style={styles.headerActions}>
+            <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
                 <Pressable
-                    onPress={() => router.navigate('/new-agent')}
-                    hitSlop={15}
-                    style={styles.headerButton}
+                    onPress={onSearchPress}
+                    style={styles.headerActionButton}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('tools.names.search')}
                 >
-                    <Ionicons name="add-outline" size={28} color={theme.colors.header.tint} />
+                    <Ionicons
+                        name={searchActive ? 'close' : 'search'}
+                        size={searchActive ? 24 : 21}
+                        color={theme.colors.header.tint}
+                    />
                 </Pressable>
-            </View>
-        ) : null;
-    }
-
-    if (activeTab === 'settings') {
-        return Platform.OS === 'web' ? <View style={styles.headerButton} /> : null;
-    }
-
-    return null;
+            </MobileGlassSurface>
+            <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
+                <Pressable
+                    onPress={() => router.push('/settings')}
+                    style={styles.headerActionButton}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('settings.title')}
+                >
+                    <Ionicons name="settings-outline" size={21} color={theme.colors.header.tint} />
+                </Pressable>
+            </MobileGlassSurface>
+        </View>
+    );
 });
 
 export const MainView = React.memo(() => {
@@ -425,22 +410,24 @@ export const MainView = React.memo(() => {
 
     // Tab state management
     // NOTE: Zen tab removed - the feature never got to a useful state
-    const [activeTab, setActiveTab] = React.useState<TabType>('sessions');
-    const [pluginTab, setPluginTab] = React.useState<{ key: string; pluginId: string; contentId: string; label: string }>();
     const [searchQuery, setSearchQuery] = React.useState('');
     const [searchActive, setSearchActive] = React.useState(false);
-    const [homePrompt, setHomePrompt] = React.useState('');
+    const [homePrompt, setHomePrompt] = React.useState(() => useNewSessionDraft.getState().input);
+    // The draft store (not this component state) owns the prompt, so text
+    // survives the compact/split remount across the 900px breakpoint, and a
+    // submission releasing its own version from the store empties this too.
+    const storeInput = useNewSessionDraft((state) => state.input);
+    React.useEffect(() => { setHomePrompt(storeInput); }, [storeInput]);
+    const handleHomePromptChange = React.useCallback((value: string) => {
+        setHomePrompt(value);
+        useNewSessionDraft.getState().setInput(value);
+    }, []);
     const [headerBackdropVisible, setHeaderBackdropVisible] = React.useState(false);
     const headerBackdropVisibleRef = React.useRef(false);
-    const showHeaderRight = activeTab !== 'settings';
-    const topContentInset = Platform.OS === 'web'
-        ? 0
-        : safeArea.top
-            + MOBILE_GLASS_HEADER_HEIGHT
-            + 12;
-    const bottomContentInset = Platform.OS === 'web'
-        ? 0
-        : searchActive ? 16 : MOBILE_HOME_DOCK_CONTENT_INSET;
+    const topContentInset = safeArea.top
+        + MOBILE_GLASS_HEADER_HEIGHT
+        + 12;
+    const bottomContentInset = searchActive ? 16 : MOBILE_HOME_DOCK_CONTENT_INSET;
 
     const handleHomePromptSubmit = React.useCallback(async (): Promise<boolean> => {
         const prompt = homePrompt.trim();
@@ -450,9 +437,7 @@ export const MainView = React.memo(() => {
         }
         useNewSessionDraft.getState().setInput(prompt);
         Keyboard.dismiss();
-        const sessionId = await startHomeSession();
-        if (sessionId) setHomePrompt('');
-        return sessionId !== null;
+        return await startHomeSession() !== null;
     }, [homePrompt, startHomeSession]);
 
     // Opening a session with no prompt is a deliberate choice: pick the agent,
@@ -472,15 +457,6 @@ export const MainView = React.memo(() => {
         });
     }, []);
 
-    const handleTabPress = React.useCallback((tab: TabType) => {
-        // This callback is intentionally independent of activeTab. Gesture
-        // worklets can outlive the render that created them, so comparing with a
-        // captured tab here can discard a newer tap or drag commit.
-        headerBackdropVisibleRef.current = false;
-        setHeaderBackdropVisible(false);
-        setActiveTab((currentTab) => currentTab === tab ? currentTab : tab);
-    }, []);
-
     const handleContentScroll = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const nextVisible = event.nativeEvent.contentOffset.y > 12;
         if (nextVisible === headerBackdropVisibleRef.current) {
@@ -489,19 +465,6 @@ export const MainView = React.memo(() => {
         headerBackdropVisibleRef.current = nextVisible;
         setHeaderBackdropVisible(nextVisible);
     }, []);
-
-    const renderWebTabContent = () => {
-        switch (activeTab) {
-            case 'plugin':
-                return <PluginSlot slot="navigation.content" context={{ pluginId: pluginTab?.pluginId, contributionId: pluginTab?.contentId, topContentInset, bottomContentInset, onScroll: handleContentScroll }} />;
-            case 'settings':
-                return <SettingsViewWrapper topContentInset={topContentInset} bottomContentInset={bottomContentInset} onScroll={handleContentScroll} />;
-            case 'sessions':
-            default:
-                return <HerdView topContentInset={topContentInset} onScroll={handleContentScroll} />;
-        }
-    };
-
 
     // In split view, the sidebar is the only navigator. The landing pane is
     // content: identity, live previews, and home cards. Spaces never duplicate
@@ -523,7 +486,7 @@ export const MainView = React.memo(() => {
                     <View style={styles.tabletDashboardHeader}>
                         <View style={styles.tabletDashboardIdentity}>
                             <HeaderLogo />
-                            <HeaderTitle activeTab="sessions" large />
+                            <HeaderTitle large />
                         </View>
                     </View>
                     <VersionNotice />
@@ -549,23 +512,24 @@ export const MainView = React.memo(() => {
         );
     }
 
-    // Regular phone mode with tabs
+    // Regular phone mode: the native composition everywhere. Width chooses
+    // this density (see useSplitViewLayout); settings and plugin
+    // destinations are routes, so browser back works like native back.
     const phoneHeader = (
-        <View style={[styles.phoneHeader, Platform.OS !== 'web' && styles.phoneHeaderOverlay]}>
+        <View style={[styles.phoneHeader, styles.phoneHeaderOverlay]}>
             <Header
-                title={searchActive && Platform.OS !== 'web'
+                title={searchActive
                     ? <HeaderSearch value={searchQuery} onChangeText={setSearchQuery} />
-                    : <HeaderTitle activeTab={activeTab} pluginTitle={pluginTab?.label} />}
-                headerRight={showHeaderRight ? () => (
+                    : <HeaderTitle />}
+                headerRight={() => (
                     <HeaderRight
-                        activeTab={activeTab}
                         searchActive={searchActive}
                         onSearchPress={handleSearchPress}
                     />
-                ) : undefined}
+                )}
                 headerRightGlass={false}
                 headerLeft={() => <HeaderLogo />}
-                headerLeftGlass={Platform.OS !== 'web'}
+                headerLeftGlass={true}
                 headerBackdropVisible={headerBackdropVisible}
                 headerShadowVisible={false}
                 headerTransparent={true}
@@ -576,43 +540,32 @@ export const MainView = React.memo(() => {
     return (
         <View style={styles.phoneRoot}>
             <View style={styles.phoneContainer}>
-                {Platform.OS === 'web' && phoneHeader}
-                {Platform.OS === 'web' ? renderWebTabContent() : (
-                    <View style={styles.phoneSceneStack}>
-                        <HerdView
-                            topContentInset={topContentInset}
-                            bottomContentInset={bottomContentInset}
-                            header={<>
-                                <PluginSlot slot="home.cards" context={{}} />
-                                <DeclarativeHomeCards />
-                                <DeclarativePhoneNavRow onSelect={(pluginId, contentId) => router.push(pluginHref(pluginId, contentId))} />
-                            </>}
-                            onScroll={handleContentScroll}
-                            searchQuery={searchQuery}
-                        />
-                    </View>
-                )}
-                {Platform.OS !== 'web' && phoneHeader}
-            </View>
-            {Platform.OS === 'web' ? (
-                <>
-                    <TabBar activeTab={activeTab} onTabPress={handleTabPress}>
-                        <DeclarativeNavigationItems activeKey={activeTab === 'plugin' ? pluginTab?.key : undefined} onSelect={(key, pluginId, contentId, label) => { setPluginTab({ key, pluginId, contentId, label }); handleTabPress('plugin'); }} />
-                    </TabBar>
-                </>
-            ) : (
-                <View pointerEvents="box-none" style={styles.phoneBottomDockOverlay}>
-                    {!searchActive && (
-                        <HomeDock
-                            prompt={homePrompt}
-                            onPromptChange={setHomePrompt}
-                            onSubmit={handleHomePromptSubmit}
-                            onStartBlank={handleStartBlankSession}
-                            isSubmitting={isStartingHomeSession}
-                        />
-                    )}
+                <View style={styles.phoneSceneStack}>
+                    <HerdView
+                        topContentInset={topContentInset}
+                        bottomContentInset={bottomContentInset}
+                        header={<>
+                            <PluginSlot slot="home.cards" context={{}} />
+                            <DeclarativeHomeCards />
+                            <DeclarativePhoneNavRow onSelect={(pluginId, contentId) => router.push(pluginHref(pluginId, contentId))} />
+                        </>}
+                        onScroll={handleContentScroll}
+                        searchQuery={searchQuery}
+                    />
                 </View>
-            )}
+                {phoneHeader}
+            </View>
+            <View pointerEvents="box-none" style={styles.phoneBottomDockOverlay}>
+                {!searchActive && (
+                    <HomeDock
+                        prompt={homePrompt}
+                            onPromptChange={handleHomePromptChange}
+                        onSubmit={handleHomePromptSubmit}
+                        onStartBlank={handleStartBlankSession}
+                        isSubmitting={isStartingHomeSession}
+                    />
+                )}
+            </View>
         </View>
     );
 });

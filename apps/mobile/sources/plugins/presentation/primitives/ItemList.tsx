@@ -24,6 +24,7 @@ import { resolvePluginText } from '../../domain/pluginText';
 import { t } from '@/text';
 import { AttachmentGallery, AttachmentThumbnail, type GalleryImage } from '@/components/AttachmentGallery';
 import type { AttachmentAction } from '@/utils/attachmentPreview';
+import { humanError } from '@/utils/errors';
 import { richPreviewKind } from '@/utils/richAttachmentPreview';
 import { RichAttachmentPreview } from '@/components/attachment/RichAttachmentPreview';
 
@@ -229,7 +230,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
             setOpen(false);
         } catch (error) {
             hapticsError();
-            Modal.alert(t('plugins.openFailed'), error instanceof Error ? error.message : String(error));
+            Modal.alert(t('plugins.openFailed'), humanError(error).message);
         } finally {
             setBusyId(null);
         }
@@ -312,7 +313,8 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
             <Text style={[styles.count, { color: failed ? theme.colors.textDestructive : theme.colors.textSecondary }]}>{failed ? '!' : '0'}</Text>
         </Pressable>;
     }
-    const count = model.badge?.value ?? items.length;
+    const count = model.badge?.value ?? model.total ?? items.length;
+    const partial = model.total === undefined ? null : <Text style={[styles.partialNote, { color: theme.colors.textSecondary }]}>{t('plugins.partialList', { shown: items.length, total: model.total })}</Text>;
     return <>
         {/* Only a declared badge trails a panel row: an inferred item count is
             the pill's affordance, not the panel's secondary line. */}
@@ -338,6 +340,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
                     viewabilityConfig={thumbnailViewability}
                     onViewableItemsChanged={onThumbnailViewable}
                     ListHeaderComponent={model.actions.length > 0 ? <SheetActions actions={model.actions} busyId={busyId} onAction={onAction} /> : null}
+                    ListFooterComponent={partial}
                     renderItem={({ item: row }) => {
                         if (row.kind === 'label') return <SectionLabel style={[styles.groupLabel, row.spaced && styles.spacedRow]}>{row.name}</SectionLabel>;
                         if (row.kind === 'images') return <View style={[styles.imageGrid, row.spaced && styles.spacedRow]}>{row.images.map(({ image, galleryIndex }) => <View key={image.id} style={{ width: galleryWidth }}>
@@ -364,6 +367,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
                             </React.Fragment>)}
                         </View>
                     </View>)}
+                    {partial}
                 </View>
         } />
         {documentPreview !== undefined && sessionId !== undefined && <RichAttachmentPreview key={`${sessionId}:${documentPreview.id}`} sessionId={sessionId} attachment={documentPreview} onClose={() => setDocumentPreview(undefined)} />}
@@ -376,6 +380,7 @@ const styles = StyleSheet.create({
     actionRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 8 },
     actionLabel: { flex: 1, fontSize: 15 },
     count: { fontSize: 11, ...Typography.mono('semiBold') },
+    partialNote: { fontSize: 12, paddingTop: 12, paddingHorizontal: 4 },
     sheetActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 4 },
     imageGrid: { flexDirection: 'row', gap: 8, marginBottom: 8 },
     spacedRow: { marginTop: 14 },

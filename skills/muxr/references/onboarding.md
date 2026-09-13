@@ -1,224 +1,239 @@
-# Onboarding: install, pair, self-host, maintain
+# Onboarding: install, configure, pair, maintain
 
-Everything muxr does runs on your own infrastructure: the relay, the agent
-host, and the pairing between them and the app.
+Everything muxr does runs on the user's own computer: the relay, the agent
+host, the browser app it serves, and the pairing between them and a device.
+This reference is for an agent driving that computer. Words are fixed:
+**computer** (the machine running Herdr and muxr), **host** (the muxr
+process on it), **relay** (routes encrypted traffic, cannot read it),
+**browser app** (the daily client served from the computer's own HTTPS
+origin), **native app** (optional Android/iOS client), **Herdr plugin**
+(installs and operates muxr from Herdr), **pairing link** (one-use, short-lived),
+**browser access** (Control or View-only for a fixed lifetime, or explicit
+Personal Control for longer), **machine enrollment** (shared-relay invitation,
+one-use). The exact lifetimes are in the release facts below.
 
 ## Contents
 
-[Prerequisites](#prerequisites) · [Install](#install) · [First run](#first-run) ·
-[Connection choices](#connection-choices) · [Pairing](#pairing) ·
-[Shared relay](#shared-relay-on-a-vps) · [Maintenance](#maintenance) ·
-[Recovery](#diagnose-and-recover) · [Report](#report-an-issue) ·
-[Uninstall](#uninstall) · [Verify](#verify)
-
-## Prerequisites
-
-- Node 22+ on the machine that runs your agents (Linux, macOS, WSL).
-- Herdr: if missing, setup installs and verifies it automatically.
-- The muxr app on your phone (TestFlight, Google Play internal testing, or the
-  signed Android APK on GitHub Releases).
+[Install](#install) · [Desired state](#desired-state) · [Inspect, plan, apply, verify](#inspect-plan-apply-verify) ·
+[Secret boundary](#secret-boundary) · [Pairing handoff](#pairing-handoff) ·
+[Reapply, update, rollback](#reapply-update-rollback) · [Shared relay](#shared-relay) ·
+[Diagnose](#diagnose) · [Uninstall](#uninstall)
 
 ## Install
 
+Herdr-first (primary). The ref is the current release tag:
+
+<!-- herdr-commands:start -->
+```text
+herdr plugin install umeranjum17/muxr/plugins/control --ref v0.1.28
+herdr plugin pane open --plugin muxr.control --entrypoint setup
+```
+<!-- herdr-commands:end -->
+
+The plugin build resolves npm `latest` for `@trymuxr/cli` to one exact
+version, installs it as the current user (no sudo), verifies version and
+integrity, records them owner-only in `~/.muxr/herdr-plugin.runtime`, and
+prints that second command. Every Herdr pane (Setup, Pair, Devices, Doctor,
+Service, shared relay, host voice) runs exactly the recorded executable.
+
+Without Herdr (fallback):
+
+<!-- npm-commands:start -->
 ```bash
-npm install -g --ignore-scripts @trymuxr/cli
+npm install -g --ignore-scripts @trymuxr/cli@latest
 muxr
 ```
+<!-- npm-commands:end -->
 
-The convenience installer at
-`https://raw.githubusercontent.com/umeranjum17/muxr/main/install.sh` performs
-that same npm install without `sudo`; it requires Node 22+ and does not install
-Node itself.
+Node 22+ is required on the computer. Interactive `muxr setup` is three
+interactions on a fresh computer: accept the one recommended browser-capable
+route, Review, Apply. No add-on, provider or theme question appears before
+Apply; those are configuration (below) or later commands.
 
-## First run
+## Desired state
 
-Run `muxr` with no arguments for the interactive setup and maintenance menu.
-The onboarding inspects the machine without changing it. It keeps a healthy
-current route or proposes one detected private route and explains why. Accept
-that route or open **Choose another way** for alternative transports;
-then choose browser access, agent integrations, optional plugins, and managed
-services. Nothing changes before a final **Apply setup** confirmation. Setup
-then starts the selected relay and host, runs the pairing flow (scan the
-one-use QR from the phone app), and verifies the connection and managed
-services without printing credentials.
+`~/.muxr/config.env` is the whole desired state: `KEY=value` lines, no
+secrets, safe in dotfiles. `muxr config` prints the effective values and
+where each came from; `muxr config --json` is the same for programs;
+`muxr config --schema` prints the table below as JSON.
 
-Setup never installs skills or edits agent instruction files. Run `muxr --skill`
-for the compact workflow, then `muxr skill onboarding` only when this reference
-is needed. Lifecycle integrations only report agent process status.
+<!-- config-attributes:start -->
+_Generated from the configuration schema (version 1) by `scripts/release/application/generateConfigDocs.mjs`; edit the schema, not this table._
 
-The registered user service supervises the relay and host together, so both
-return after login or reboot. Preview managed-file changes anytime with
-`muxr setup --dry-run`.
+| Key | Values | Default | Applies to | Restart | Meaning |
+|---|---|---|---|---|---|
+| `MUXR_SETUP_ROLE` | `single-machine` · `shared-relay` · `remote-host` | `single-machine` | always | relay and host | What this computer is: the usual relay+host on one machine, an always-on shared relay for other machines, or an agent host enrolled with a shared relay. |
+| `MUXR_CONNECTION` | `tailscale` · `tailscale-direct` · `private` · `lan` · `cloudflare` · `external` | unset | single-machine, shared-relay | relay and host | How devices reach the relay. tailscale (Serve, HTTPS), cloudflare (quick tunnel, HTTPS) and external (your own wss:// origin) serve the browser app; tailscale-direct, private and lan are native-only routes. |
+| `MUXR_RELAY_PORT` | `1024..65535` | `8792` | single-machine, shared-relay | relay and host | Local relay port. |
+| `MUXR_WEB` | `true` · `false` | unset | single-machine | relay | Serve the browser app from this host. Requires a browser-capable connection. A fresh single-machine setup defaults to true; automation must say false explicitly to opt out. |
+| `MUXR_ADVERTISE_URL` | `root ws(s)://host[:port]` | unset | connection=external (required), private/lan (optional override) | relay and host | Relay URL devices connect to. Required for external (root wss://host, nothing else in it); derived for the other routes. |
+| `MUXR_INTEGRATIONS_SYNC` | `auto` · `on` · `off` | `auto` | single-machine, remote-host | none | Coding-agent lifecycle integrations: auto syncs detected agents, on syncs every supported agent, off leaves them alone. |
+| `MUXR_NOTIFY_EMAIL` | `one address` | unset | always | relay | Optional address the relay notifies about attention events. |
+| `MUXR_SERVICE_MODE` | `managed` · `foreground` | `managed` | always | relay and host | managed registers systemd/launchd user services that survive logout; foreground runs relay and host only while `muxr up` is running. |
+| `MUXR_PAIRING_DEFAULT` | `browser` · `browser-view` · `browser-personal` · `native` · `none` | `browser` | single-machine, remote-host | none | Which grant `muxr pair` and the Herdr Pair pane offer first: browser Control, View-only, personal Control for a browser only you use, the native QR, or nothing. |
+| `MUXR_BUNDLED_PLUGINS` | `<name>=on|off[,...]` | none | single-machine, remote-host | none | Enable or disable bundled muxr plugins by short name (for example code=on,status=off). Unlisted plugins keep their packaged default (enabled). |
+| `MUXR_EXTRA_PLUGINS` | `owner/repo[/subdir]@<sha>[,...] | npm:<name>@<version>` | none | single-machine, remote-host | none | Add-on muxr plugins pinned to an exact GitHub commit or exact npm version. Tags, branches and latest are refused so a reapply installs the same bytes. |
+| `MUXR_VOICE_PROVIDER` | `installed host voice provider id` | unset | single-machine, remote-host | none | Realtime voice provider selected on this host (see `muxr voice status`). Unset leaves the host choice unchanged. Credentials are never configuration. |
 
-## Connection choices
+Rules across keys:
 
-Interactive onboarding proposes one route instead of presenting infrastructure
-choices first. It prefers the healthy current route, Tailscale, a detected
-private overlay, an installed temporary tunnel, then same Wi-Fi. **Choose another way** reveals every available
-transport. Automation equivalents are flags on `muxr self-host`:
+- MUXR_CONNECTION=external needs MUXR_ADVERTISE_URL (root wss://host).
+- MUXR_WEB=true needs a browser-capable MUXR_CONNECTION (tailscale, cloudflare, external).
+- MUXR_SETUP_ROLE=remote-host takes no MUXR_CONNECTION; the shared relay decides.
 
-| Choice / flag | What happens |
+Not configuration (never in this file, never in a receipt): provider API keys and OAuth logins; the relay owner mint secret; device keys; pairing codes; enrollment strings; one-use invitations.
+
+Precedence, everywhere: `flag` > `env` > `config` > `probed` > `default`. Exit codes for `muxr setup --apply-config`: `0` verified, no unresolved failure; `1` invalid configuration or unavailable prerequisite; `2` dry run: valid plan with changes to apply.
+<!-- config-attributes:end -->
+
+<!-- release-facts:start -->
+| Fact | Value |
 |---|---|
-| `--advertise <url>` | Explicit relay URL wins. Use your own domain/reverse proxy. |
-| `--tunnel` | Spawns `cloudflared` for a public `trycloudflare.com` URL. Ephemeral; use a named tunnel for permanence. |
-| Tailscale Serve | Private HTTPS through `tailscale serve`; the relay stays on loopback. |
-| `--tailscale-direct` | Uses the tailnet IP directly when Serve is proven disabled or occupied. |
-| Detected private network | Existing NetBird, WireGuard, ZeroTier, or similar address. Phone must join the same private network. |
-| Same Wi-Fi | Local network address. Phone must be on the same trusted network. |
+| Current release | `@trymuxr/cli@0.1.28` (tag `v0.1.28`) |
+| Minimum Herdr | 0.8.0 |
+| Minimum Node (npm path) | 22 |
+| Default relay port | 8792 |
+| Pairing link | one use, expires in 2 minutes |
+| Browser access (Control or View-only) | 8 hours |
+| Personal Control (installed browser you own) | 30 days |
+| Machine enrollment (shared relay) | 5 minutes |
+| Native apps | optional: [Android APK](https://trymuxr.com/downloads/stable/android) ([checksums](https://trymuxr.com/downloads/stable/checksums)), [Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app), [iOS TestFlight](https://testflight.apple.com/join/aJSbs8pN) — availability depends on store review; [all channels](https://trymuxr.com/downloads) |
+<!-- release-facts:end -->
 
-An inconclusive read-only Serve probe does not demote Tailscale; the bounded
-Apply is authoritative. Proven disabled or occupied Serve is left unchanged and
-direct Tailscale is proposed instead. muxr never enables Tailscale Funnel.
-Restrict a Serve endpoint with a tailnet grant/ACL even though pairing and E2EE
-remain authoritative. `--web` requires a
-secure `wss://` route; insecure LAN HTTP is refused. Set `MUXR_TRUST_PROXY=1`
-when the relay sits behind cloudflared/nginx so rate limits key on real client
-IPs.
+Minimal browser-first single machine (Tailscale Serve provides the HTTPS
+origin; the browser app is on by default for a browser-capable route):
 
-Session, terminal, attachment, and plugin-stream payloads use the strict E2EE
-data plane; the relay routes ciphertext it cannot read.
-
-## Pairing
-
-- Native pairing is single-use and expires in two minutes. QR and manual entry
-  use the same short relay-qualified string. Run `muxr pair` anytime for a
-  fresh QR.
-- The phone proves itself once and receives a durable device credential. It
-  stays paired until explicit revocation; calendar time never forces another QR.
-- `muxr pair --browser` grants full terminal and agent control from a browser;
-  `muxr pair --browser-view` grants explicit view-only access. Both print one
-  short two-minute HTTPS link, expire after eight hours, and survive
-  refresh/restart.
-- List and revoke devices — never edit relay state by hand:
-
-  ```bash
-  muxr devices list
-  muxr devices revoke 2       # list number, or an unambiguous friendly name
-  ```
-
-  Revocation immediately closes that device's sockets and credential and
-  rejects its unused tickets.
-
-## Shared relay on a VPS
-
-For one relay serving several machines, run interactive `muxr` on the VPS and
-choose **Host or change a shared relay**. The VPS runs only the supervised
-relay; it does not need Herdr or an agent host. Automation equivalents:
-
-```bash
-muxr shared-relay
-muxr machines enroll|list|revoke
-muxr connect --enrollment <muxr://enroll?...> [--no-pair|--pair-browser|--pair-both]
+```text
+MUXR_CONNECTION=tailscale
 ```
 
-Enrollment strings are single-use and expire after five minutes. They contain
-the relay URL plus one-time bootstrap material, never relay-owner authority.
-Machine keys are created locally on each agent machine; the relay returns only
-a credential scoped to that machine. Revoking a machine disconnects its host
-and devices and cannot affect another enrolled machine.
+Explicit native-only LAN, no browser app, foreground service:
 
-Changing a relay endpoint requires fresh pairing because devices pin the
-endpoint from their pairing grant. Plugin and agent changes sync live.
-
-## Maintenance
-
-```bash
-muxr update                    # check, confirm, update, and restart
-muxr update --check            # check without changing anything
-muxr doctor                    # current setup health and checked repairs
-muxr diagnostics               # bounded redacted host/client history
-muxr report > muxr-report.md   # local redacted issue draft; never submits
-muxr daemon status|logs|start|stop|restart
-muxr setup --dry-run           # preview managed-file changes
+```text
+MUXR_CONNECTION=lan
+MUXR_WEB=false
+MUXR_SERVICE_MODE=foreground
 ```
 
-muxr state lives under `~/.muxr` unless `MUXR_HOME` is set.
+Your own HTTPS origin, one pinned add-on, one bundled plugin off, a chosen
+voice provider:
 
-## Diagnose and recover
+```text
+MUXR_CONNECTION=external
+MUXR_ADVERTISE_URL=wss://muxr.example.net
+MUXR_EXTRA_PLUGINS=owner/repo/plugins/thing@0123456789abcdef0123456789abcdef01234567
+MUXR_BUNDLED_PLUGINS=status=off
+MUXR_VOICE_PROVIDER=xai
+```
 
-Use the checked recovery path before changing files or reinstalling:
+## Inspect, plan, apply, verify
 
-1. Run `muxr doctor` in an interactive terminal. It checks the runtime, Herdr,
-   integrations, managed files, service registration, relay, connection,
-   pairing, and local peer access. When a failed check has a known safe repair,
-   doctor lists the repair and asks before running it.
-2. Approve only the repairs doctor offers, then rerun `muxr doctor`. A repair is
-   not complete until the failing check becomes healthy.
-3. Run `muxr diagnostics` for seven days of bounded, redacted host/client/relay
-   history. Redirect this JSON when escalation is needed. Review `muxr doctor`
-   output before posting it because connection names or addresses may be local.
-4. Use `muxr daemon logs` only for local diagnosis; review it before sharing.
+```bash
+muxr setup --inspect                         # read-only: Herdr, agents, routes; changes nothing
+muxr setup --apply-config --dry-run --json   # the plan: every key, current vs desired, steps; exit 2 when it has changes
+muxr setup --apply-config --json             # apply exactly that plan, then verify; exit 0 only when healthy
+muxr doctor --json                           # health rows plus the exact runtime identity (CLI, plugin runtime, plugins, web export)
+```
 
-If setup appears stuck, press Ctrl-C. Setup can be rerun and now prints its
-current network, relay, or service phase; each non-interactive dependency has a
-bounded deadline. Then follow the matching remedy:
+The dry-run plan is byte-identical to what the interactive Review screen
+shows for the same config. Apply performs only the listed steps, in order,
+and stops at the first failure without printing "complete"; the JSON
+receipt names the failed step. A second apply of the same config is a no-op:
+nothing restarts, no plugin reinstalls, no grant is minted or revoked.
+`muxr self-host --apply-config` is the same plan (kept for existing
+automation). Text output for humans, `--json` for programs; secrets appear
+in neither.
 
-| Failed phase or doctor check | Safe next action |
+## Secret boundary
+
+These are actions or credentials, never configuration, and never appear in
+`config.env`, `muxr config --json`, plans or receipts: provider API keys and
+OAuth logins (`muxr voice key set` reads them hidden or from stdin), the
+relay owner mint secret and device keys (machine-written under `~/.muxr`,
+owner-only), pairing codes and links, enrollment strings, one-use
+invitations. Validation errors name the key, its source and the rule — never
+the submitted value — so a mistyped URL with a token in it is not echoed.
+
+## Pairing handoff
+
+Apply never pairs. Pair explicitly, once the plan is verified:
+
+```bash
+muxr pair --browser            # Control grant: prints one one-use HTTPS link (or QR)
+muxr pair --browser-view       # View-only
+muxr pair --browser-personal   # Control for a browser only you use, longer lifetime
+muxr pair --native             # native app: one-use QR / short string
+muxr devices list
+```
+
+```
+muxr devices revoke <number|name>
+```
+
+`MUXR_PAIRING_DEFAULT` only chooses which of these the Herdr Pair pane and
+the menu offer first. Open the link in the browser you want to pair; the
+browser app is served from the computer's own origin and stores its
+credential there, so the pairing must happen in that browser (Safari may
+pair in the current tab; installing the app later needs a fresh grant in the
+installed app's separate storage). Revocation closes that device's sockets
+immediately and invalidates its tickets.
+
+## Reapply, update, rollback
+
+```bash
+muxr setup --apply-config --dry-run   # exit 0: nothing to do; exit 2: changes listed
+muxr update --check                   # what the channel offers, nothing changed
+muxr update --yes                     # install the exact target, move the Herdr plugin runtime record, restart services
+muxr doctor --json                    # confirm the runtime identity you expect
+```
+
+Rollback goes through the same owner:
+
+```
+muxr update --to <version> --allow-downgrade --yes
+```
+
+`muxr update` is the only updater. After a successful install it verifies
+the executable reports the target and rewrites `~/.muxr/herdr-plugin.runtime`
+atomically; a failed install leaves the previous record and runtime in
+place. Rollback is the same transition downward. Herdr panes keep operating
+across both because they execute whatever the record names.
+
+## Shared relay
+
+`MUXR_SETUP_ROLE=shared-relay` on the always-on server; agent computers use
+`MUXR_SETUP_ROLE=remote-host` and enroll once with an enrollment string:
+
+```
+muxr shared-relay                          # on the server (interactive), or apply-config with the role
+muxr machines enroll|list|revoke           # on the server
+muxr connect --enrollment <string>         # on each agent computer, once
+```
+
+Enrollment strings are single-use and short-lived; they carry
+no relay-owner authority. A remote host has no `MUXR_CONNECTION`: the
+shared relay decides the route.
+
+## Diagnose
+
+`muxr doctor` names the failing phase, the cause and the next action, and
+never prints "complete" while a check fails. `muxr diagnostics` prints
+bounded redacted history; `muxr report > muxr-report.md` drafts an issue
+locally and never submits it. Do not hand-edit `~/.muxr`.
+
+| Failing check | Safe next action |
 |---|---|
-| Herdr server or lifecycle integrations | accept doctor's offered repair, or run `muxr integrations sync`; rerun doctor |
-| muxr service, relay, or local peer access | `muxr daemon restart`, then `muxr doctor` |
-| Tailscale Serve | if Tailscale proves Serve is disabled, use its printed `login.tailscale.com` link or accept direct Tailscale. A timeout is inconclusive: let bounded Apply retry or choose another route. Restart `tailscaled` only when another connection can survive the interruption. |
-| Local relay port | `curl --max-time 3 http://127.0.0.1:8792/health`; inspect the owner with `ss -ltnp 'sport = :8792'` on Linux or `lsof -nP -iTCP:8792 -sTCP:LISTEN` on macOS; stop only a process you recognize or rerun `muxr setup --port <free-port>` |
-| Expired or interrupted pairing | `muxr pair` for a new single-use code |
-| Connection choice or tunnel | rerun interactive `muxr`; do not edit `~/.muxr` |
-
-On Linux, a Tailscale daemon stall can be confirmed without waiting forever:
-
-```bash
-timeout 15s tailscale status --json
-timeout 15s tailscale serve status --json
-```
-
-Exit status `124` means the local Tailscale command timed out. Capture
-`journalctl -u tailscaled -b --no-pager` locally before restarting it. Do not
-restart `tailscaled` from a session reachable only through Tailscale.
-
-Do not delete or hand-edit `~/.muxr` as a repair. If doctor reports corrupt or
-incomplete state, stop and back up the exact file it names before moving it
-aside; that state contains machine identity and pairing authority. `muxr
-uninstall` is destructive recovery, not first aid.
-
-## Report an issue
-
-Create one local draft instead of collecting commands by hand:
-
-```bash
-muxr report > muxr-report.md
-```
-
-`muxr report` works even when first setup never completed or host diagnostics do
-not exist. It includes muxr, Node, OS/kernel, Herdr, and Tailscale versions; only
-the names and states of doctor checks; and at most the latest 50 events from the
-bounded redacted diagnostic journal. It never includes prompts, terminal/file
-content, paths, credentials, keys, raw daemon logs, or internal ids. The command
-only writes the draft; it never opens or submits an issue.
-
-Before any post:
-
-1. Read the complete draft and fill in What happened, Steps to reproduce, and
-   Expected behavior.
-2. Show the complete title and body to the user. Do not summarize away fields
-   they need to review.
-3. Ask explicitly whether they want to post that exact draft.
-4. Take no browser, GitHub CLI, or API action unless they answer yes. Asking to
-   diagnose, summarize, or prepare a report is never approval to post.
-
-If they prefer to submit it themselves, give them the Bug form URL:
-`https://github.com/umeranjum17/muxr/issues/new/choose`.
+| Herdr server or integrations | accept doctor's offered repair or `muxr integrations sync`, then rerun doctor |
+| muxr service, relay, peer access | `muxr daemon restart`, then `muxr doctor` |
+| plugin runtime record drifted | `muxr update` (moves the record) or reinstall from the exact plugin source with the pinned ref |
+| browser app refused on this route | `MUXR_CONNECTION` must be tailscale, cloudflare or external; LAN and private routes are native-only |
+| relay port occupied | `ss -ltnp 'sport = :8792'` (Linux) / `lsof -nP -iTCP:8792 -sTCP:LISTEN` (macOS); stop only a process you recognize, or change `MUXR_RELAY_PORT` |
+| expired pairing | `muxr pair --browser` (or `muxr pair`) for a fresh one-use link |
 
 ## Uninstall
 
-`muxr uninstall` removes every muxr-owned operational component — including
-machine identity, pairings, grants, provider keys, runtime state, services,
-ingress, and managed integrations — then optionally removes the global CLI. It
-keeps Herdr, Herdr sessions, repositories, worktrees, received attachments,
-exports, signing keys, and unrecognized files. The narrower
-`muxr daemon uninstall` and `muxr integrations uninstall` remain available for
-advanced maintenance.
-
-## Verify
-
-- `muxr doctor` reports healthy relay, host, and pairing state with credentials
-  redacted.
-- `muxr devices list` shows the paired phone/browser.
-- The phone app shows the machine online and renders a live terminal.
+`herdr plugin uninstall muxr.control` removes only the Herdr plugin checkout.
+`muxr uninstall --yes` is the bounded operational teardown: services,
+runtime records, machine identity, grants, provider keys and managed
+integrations go; Herdr, its sessions, repositories, worktrees, received
+attachments and unrecognized files stay.

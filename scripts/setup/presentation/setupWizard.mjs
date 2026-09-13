@@ -10,6 +10,8 @@ import { enrollMachine } from '../application/enrollMachine.mjs';
 import { listMachines } from '../application/listMachines.mjs';
 import { revokeMachine } from '../application/revokeMachine.mjs';
 import { selfhostPublicSummary, sharedMachineCount } from '../infrastructure/selfhostRelay.mjs';
+import { formatOperatorConfig, parseExternalAdvertiseUrl, resolveOperatorConfig, writeOperatorConfig } from '../infrastructure/operatorConfig.mjs';
+import { continueWithDirectTailscale, finalizeSetupPlan, selfhostArgsFromSetupPlan } from '../application/finalizeSetupPlan.mjs';
 import { inspectTailscaleServeRoot, runTailscale, tailscaleBin } from '../infrastructure/selfhost.mjs';
 import { advertisedUrlForMode, connectionLabel, ingressPlan, modeAllowsBrowserHosting } from '../domain/dist/index.js';
 
@@ -301,67 +303,68 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
     return options;
 }
 
+/** The exact prerequisite for the browser app, named wherever a native-only route is offered. */
+export const BROWSER_ROUTE_PREREQUISITE = 'for the browser app, connect Tailscale (Serve), install cloudflared, or use your own HTTPS origin (MUXR_CONNECTION=external)';
+
 export function recommendedConnection(found, current, tailscalePlanned, serveRoot) {
     if (current?.relayHealthy && current?.publicHealthy
         && ['tailscale', 'tailscale-direct', 'private', 'lan', 'external', 'cloudflare'].includes(current.connectionMode)) {
         return { mode: current.connectionMode, title: connectionLabel(current.connectionMode, current.relayUrl, current.relayPort), description: 'already configured and reachable' };
     }
-    if (found.tailscale.connected || (tailscalePlanned && !found.private)) {
-        const direct = serveRoot.status === 'occupied' || serveRoot.status === 'disabled';
-        return direct
-            ? { mode: 'tailscale-direct', title: 'Direct Tailscale', description: 'private tailnet route · Tailscale Serve is not required' }
-            : { mode: 'tailscale', title: 'Tailscale Serve', description: tailscalePlanned ? 'connect Tailscale during Apply, then create private HTTPS access' : 'private access from anywhere · nothing exposed publicly' };
+    // Browser-capable routes first: the browser app is the primary client and
+    // needs an HTTPS origin. Native-only routes come with the exact
+    // prerequisite for the browser, never as a silent downgrade.
+    const serveBlocked = serveRoot.status === 'occupied' || serveRoot.status === 'disabled';
+    if ((found.tailscale.connected || (tailscalePlanned && !found.private)) && !serveBlocked) {
+        return { mode: 'tailscale', title: 'Tailscale Serve', description: tailscalePlanned ? 'connect Tailscale during Apply, then create private HTTPS access · browser app and native app' : 'private HTTPS from anywhere · nothing exposed publicly · browser app and native app' };
+    }
+    if (found.cloudflared.ok) return { mode: 'cloudflare', title: 'Temporary Cloudflare tunnel', description: 'temporary public HTTPS route created during Apply · browser app and native app' };
+    if (found.tailscale.connected && serveBlocked) {
+        return { mode: 'tailscale-direct', title: 'Direct Tailscale', description: `private tailnet route · native app only: Tailscale Serve is ${serveRoot.status} here — ${BROWSER_ROUTE_PREREQUISITE}` };
     }
     if (found.private) return {
         mode: 'private',
         title: `${found.private.provider} on ${found.private.interface}`,
-        description: 'use the private network already connected to this computer',
+        description: `private network already connected to this computer · native app only: ${BROWSER_ROUTE_PREREQUISITE}`,
     };
-    if (found.cloudflared.ok) return { mode: 'cloudflare', title: 'Temporary Cloudflare tunnel', description: 'create a temporary public HTTPS route during Apply' };
-    if (found.lan) return { mode: 'lan', title: 'Same Wi-Fi', description: 'works now while the phone and computer use this trusted network' };
+    if (found.lan) return { mode: 'lan', title: 'Same Wi-Fi', description: `works now while the phone and computer share this trusted network · native app only: ${BROWSER_ROUTE_PREREQUISITE}` };
     return undefined;
 }
 
 const aborted = (value) => value === undefined || value === BACK;
-
-export function continueWithDirectTailscale(plan) {
-    const browserPair = plan.pairing === 'browser' || plan.pairing === 'browser-view' || plan.pairing === 'both';
-    return {
-        mode: 'tailscale-direct',
-        port: plan.port,
-        endpoint: plan.endpoint,
-        web: false,
-        pairing: browserPair ? 'phone' : plan.pairing,
-    };
-}
-
-export function selfhostArgsFromSetupPlan({ mode, port, web, pairing, found, endpoint }) {
-    const selfhostArgs = ['--port', String(port), '--connection-mode', mode, '--reconfigure'];
-    if (mode === 'lan') selfhostArgs.push('--advertise', `ws://${found.lan}:${port}`);
-    if (mode === 'private') selfhostArgs.push('--advertise', endpoint ?? `ws://${found.private.address}:${port}`);
-    if (mode === 'external') selfhostArgs.push('--advertise', endpoint);
-    if (mode === 'cloudflare') selfhostArgs.push('--tunnel');
-    if (mode === 'tailscale-direct') selfhostArgs.push('--tailscale-direct');
-    if (web) selfhostArgs.push('--web', '--yes');
-    if (pairing === 'browser') selfhostArgs.push('--pair-browser');
-    if (pairing === 'browser-view') selfhostArgs.push('--pair-browser-view');
-    if (pairing === 'none') selfhostArgs.push('--no-pair');
-    return selfhostArgs;
-}
 
 function serveRootFor(found, port) {
     if (!found.tailscale.connected && !found.tailscale.dnsName) return { status: 'inconclusive' };
     return inspectTailscaleServeRoot(port, found.tailscale.dnsName, undefined, 8_000);
 }
 
-async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args }) {
+/** Explicit operator route (flag/env/config — never probed/default). */
+function explicitOperatorRoute(operator) {
+    if (operator?.values.connection === undefined) return undefined;
+    if (!['flag', 'env', 'config'].includes(operator.provenance.connection)) return undefined;
+    return operator.values.connection;
+}
+
+/** Root wss://host URL without credentials, query, or fragment — or undefined for interactive re-prompting. One rule shared with operator config. */
+function parseExternalEndpoint(entered) {
+    try {
+        return parseExternalAdvertiseUrl(entered, 'setup prompt');
+    } catch {
+        return undefined;
+    }
+}
+
+async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, firstRun, operator, stepsTotal }) {
     const requestedPort = value(args, '--port');
-    const plannedPort = requestedPort === undefined ? current?.relayPort || 8792 : Number(requestedPort);
+    const plannedPort = requestedPort === undefined ? (operator.values.relayPort ?? 8792) : Number(requestedPort);
     const serveRoot = serveRootFor(found, plannedPort);
     let mode = requestedMode;
     if (mode === 'selfhost') mode = undefined;
+    // Preconfigured route goes straight to review: an explicit flag, env, or
+    // config value must not be asked again. Probed/default still asks.
+    if (mode === undefined) mode = explicitOperatorRoute(operator);
     if (!mode) {
-        heading('Connect your phone to this computer');
+        heading('Reach this computer from your browser and phone');
         const proposal = recommendedConnection(found, current, tailscalePlanned, serveRoot);
         if (proposal) {
             status('Recommended route', proposal.title, 'ok');
@@ -412,30 +415,50 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     }
     let endpoint = mode === 'private' && current?.connectionMode === 'private' && current.publicHealthy ? current.relayUrl : undefined;
     if (mode === 'external') {
-        while (endpoint === undefined) {
-            setupStep(2, 5, 'Enter your server address');
-            const entered = await prompt('External relay URL (wss://...)', current?.connectionMode === 'external' ? current.relayUrl : '');
-            if (entered === undefined) return undefined;
-            try {
-                const parsed = new URL(entered);
-                if (parsed.protocol === 'wss:' && parsed.hostname && !parsed.username && !parsed.password && parsed.pathname === '/' && !parsed.search && !parsed.hash) endpoint = parsed.toString().replace(/\/$/, '');
-                else status('External relay URL', 'use a root wss://host URL without credentials, query, or fragment', 'warn');
-            } catch {
-                status('External relay URL', 'use a valid wss:// URL', 'warn');
+        // An explicitly configured advertise URL (flag/env/config) applies
+        // without re-prompting; a malformed one fails closed instead of
+        // falling back to asking. Probed values still prompt below.
+        const configured = ['flag', 'env', 'config'].includes(operator.provenance.advertiseUrl)
+            ? operator.values.advertiseUrl
+            : undefined;
+        if (configured !== undefined) {
+            const normalized = parseExternalEndpoint(configured);
+            if (normalized === undefined) {
+                process.stderr.write(`invalid advertise URL from ${operator.provenance.advertiseUrl ?? 'operator config'}: use a root wss://host URL without credentials, query, or fragment\n`);
+                return 1;
+            }
+            endpoint = normalized;
+        } else {
+            while (endpoint === undefined) {
+                setupStep(2, stepsTotal, 'Enter your server address');
+                const entered = await prompt('External relay URL (wss://...)', current?.connectionMode === 'external' ? current.relayUrl : '');
+                if (entered === undefined) return undefined;
+                const normalized = parseExternalEndpoint(entered);
+                if (normalized === undefined) status('External relay URL', 'use a root wss://host URL without credentials, query, or fragment', 'warn');
+                else endpoint = normalized;
             }
         }
     }
 
-    setupStep(2, 5, 'Choose app access');
+    setupStep(2, stepsTotal, 'Choose app access');
     let web = false;
     if (modeAllowsBrowserHosting(mode)) {
-        web = await select('Host the browser client too?', [
-            { value: false, title: 'Native app only', description: 'do not expose the browser client' },
-            { value: true, title: 'Host the browser client', description: 'serve it over the selected HTTPS/WSS connection' },
-        ], current?.webEnabled ? 1 : 0);
-        if (aborted(web)) return undefined;
+        if (firstRun) {
+            // Inferred, not asked: hosting stays on when the route supports
+            // HTTPS, unless the operator explicitly disabled it via CLI flag,
+            // MUXR_* env, or config.env. The value is shown in Review and
+            // nothing mutates before Apply.
+            web = operator.values.web ?? true;
+        } else {
+            const webDefault = operator.values.web ?? current?.webEnabled ?? false;
+            web = await select('Host the browser client too?', [
+                { value: false, title: 'Native app only', description: 'do not expose the browser client' },
+                { value: true, title: 'Host the browser client', description: 'serve it over the selected HTTPS/WSS connection' },
+            ], webDefault ? 1 : 0);
+            if (aborted(web)) return undefined;
+        }
     } else {
-        status('Browser client', 'requires Tailscale Serve, External WSS, or Cloudflare; native app only', 'off');
+        status('Browser app', `not on this route — ${BROWSER_ROUTE_PREREQUISITE}; the native app pairs with a QR`, 'warn');
     }
     const desiredUrl = advertisedUrlForMode({ mode, found, current, port, endpoint, web, tailscalePlanned });
     const connectionChanged = current === undefined || desiredUrl === undefined || current.relayUrl !== desiredUrl;
@@ -454,21 +477,36 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
             { value: 'both', title: 'Phone, then control browser', description: 'complete both pairing steps' },
         ] : []),
     ];
-    setupStep(2, 5, 'Choose what to pair');
-    const pairing = pairingChoices.length === 1 ? pairingChoices[0].value : await select(connectionChanged && current !== undefined
-        ? 'The connection changed. Keep existing devices or pair another one?'
-        : 'Pair a client?', pairingChoices);
-    if (aborted(pairing)) return undefined;
+    let pairing;
+    if (firstRun) {
+        // Browser-first when web is on: the PWA is the primary acquisition
+        // surface and new iOS users cannot reach TestFlight, so first run
+        // must not block on native pairing. One grant, one pending session —
+        // no parallel pair-session machinery. The native app stays optional
+        // via `muxr pair` afterwards.
+        pairing = web ? 'browser' : 'phone';
+    } else {
+        setupStep(2, stepsTotal, 'Choose what to pair');
+        // Phone QR and browser link are minted together (not either/or): when
+        // web hosting is on, pair both by default. Existing setups default to
+        // keeping devices unless explicitly pairing here.
+        const defaultPairing = web ? 'both' : 'phone';
+        const pairingInitial = Math.max(0, pairingChoices.findIndex((choice) => choice.value === defaultPairing));
+        pairing = pairingChoices.length === 1 ? pairingChoices[0].value : await select(connectionChanged && current !== undefined
+            ? 'The connection changed. Keep existing devices or pair another one?'
+            : 'Pair a client?', pairingChoices, pairingInitial);
+        if (aborted(pairing)) return undefined;
+    }
     return { mode, port, endpoint, web, pairing };
 }
 
-async function recoverTailscaleServe({ plan, found }) {
+async function recoverTailscaleServe({ plan, found, stepsTotal }) {
     if (plan.mode !== 'tailscale') return plan;
     const serveRoot = serveRootFor(found, plan.port);
     if (serveRoot.status === 'free' || serveRoot.status === 'ours' || serveRoot.status === 'inconclusive') return plan;
     const occupied = serveRoot.status === 'occupied';
     const title = occupied ? 'Tailscale Serve is already in use' : 'Tailscale Serve is unavailable';
-    setupStep(5, 5, title);
+    setupStep(stepsTotal, stepsTotal, title);
     heading(title);
     note(occupied ? [
         'Another service already owns the Tailscale Serve root.',
@@ -479,13 +517,18 @@ async function recoverTailscaleServe({ plan, found }) {
         'muxr made no Serve changes.',
         'You can use direct Tailscale networking now, or stop and rerun setup with another route.',
     ]);
+    // Never a silent downgrade: the reviewed plan wanted the browser app on
+    // Tailscale Serve. Direct Tailscale drops it, so that is an explicit
+    // choice with the prerequisite named; stopping preserves the plan in
+    // config.env so `muxr setup --apply-config` finishes it once Serve is free.
     const action = await select('How do you want to continue?', [
-        { value: 'direct', title: 'Use direct Tailscale networking', description: 'reach this computer over its tailnet address · does not require Serve' },
-        { value: 'stop', title: 'Stop here', description: 'keep completed prerequisites and rerun setup to choose another route' },
+        ...(plan.web ? [{ value: 'stop', title: 'Stop and keep the browser-app plan', description: `save the reviewed plan to ~/.muxr/config.env; ${occupied ? 'free the Serve root' : 'enable Tailscale Serve'}, then run \`muxr setup --apply-config\`` }] : []),
+        { value: 'direct', title: plan.web ? 'Continue with the native app only (no browser app)' : 'Use direct Tailscale networking', description: plan.web ? `reach this computer over its tailnet address now; ${BROWSER_ROUTE_PREREQUISITE}` : 'reach this computer over its tailnet address · does not require Serve' },
+        ...(plan.web ? [] : [{ value: 'stop', title: 'Stop here', description: 'keep completed prerequisites and rerun setup to choose another route' }]),
     ]);
     if (action !== 'direct') return undefined;
     const next = continueWithDirectTailscale(plan);
-    if (plan.web) status('Browser client', 'needs Tailscale Serve or HTTPS; continuing with the native app only', 'warn');
+    if (plan.web) status('Browser app', `off on direct Tailscale — ${BROWSER_ROUTE_PREREQUISITE}`, 'warn');
     status('Connection', connectionLabel(next.mode, next.endpoint, next.port), 'ok');
     return next;
 }
@@ -497,8 +540,10 @@ function cancelled() {
     return 0;
 }
 
-function stoppedAfterApply() {
-    outro('Stopped before the relay was configured. Completed prerequisites were kept; rerun muxr to finish setup.', 'warn');
+function stoppedAfterApply(planSaved = false) {
+    outro(planSaved
+        ? 'Stopped before the relay was configured. The reviewed plan is saved in ~/.muxr/config.env; fix the prerequisite above, then run `muxr setup --apply-config` (or `muxr`) to finish.'
+        : 'Stopped before the relay was configured. Completed prerequisites were kept; rerun muxr to finish setup.', 'warn');
     completeFullscreen();
     return 1;
 }
@@ -535,6 +580,11 @@ async function applyTailscaleConnect(found) {
 }
 
 export async function applyMachineSetup(args = []) {
+    // Desired-state path: plan, apply, verify against config.env; no wizard.
+    if (args.includes('--apply-config')) {
+        const { applyDesiredState } = await import('../application/applyDesiredState.mjs');
+        return applyDesiredState(args);
+    }
     // Existing automation stays stable: flags used by scripts keep the historical
     // non-wizard flow. Plain `muxr setup` is the high-touch interactive path.
     const requestedMode = value(args, '--mode');
@@ -559,35 +609,66 @@ export async function applyMachineSetup(args = []) {
     }
 
     return withFullscreen(async () => {
-    setupStep(1, 5, 'Check this machine');
+    // Read-only state first: it decides whether this is the three-interaction
+    // first run (confirm route -> Review/Apply -> perform pairing) or the
+    // full five-step reconfiguration of an existing setup.
+    const current = await selfhostPublicSummary();
+    const firstRun = current === undefined;
+    const stepsTotal = firstRun ? 3 : 5;
+    let operator;
+    try {
+        operator = resolveOperatorConfig({ args, probed: { relayPort: current?.relayPort, web: current?.webEnabled } });
+    } catch (cause) {
+        process.stderr.write(`muxr setup: ${cause instanceof Error ? cause.message : String(cause)}\n`);
+        completeFullscreen();
+        return 1;
+    }
+    setupStep(1, stepsTotal, 'Check this machine');
     const found = await withSpinner('Inspecting Herdr, agents, and networking', async () => probeMachine());
     renderInspection(found);
     // A disconnected Tailscale installation is proposed as one reviewed route;
     // connecting it remains behind Apply instead of becoming a preflight prompt.
     const tailscalePlanned = found.tailscale.installed && !found.tailscale.connected && found.tailscale.backend !== undefined;
     const cancelSetup = () => cancelled();
-    const current = await selfhostPublicSummary();
 
-    setupStep(2, 5, 'Connect your phone');
-    let plan = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args });
+    setupStep(2, stepsTotal, 'Connect your devices');
+    let plan = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, firstRun, operator, stepsTotal });
     if (plan === undefined) return cancelSetup();
     if (plan === 1) return 1;
     const desiredUrl = advertisedUrlForMode({ ...plan, found, current, tailscalePlanned });
     const connectionChanged = current === undefined || desiredUrl === undefined || current.relayUrl !== desiredUrl;
 
-    setupStep(3, 5, 'Connect agents and add-ons');
-    const syncIntegrations = await select(found.agents.checked
-        ? `Connect your coding agents (${found.agents.available.length} detected)?`
-        : 'Agent availability could not be checked. Retry integration setup anyway?', [
-        { value: true, title: 'Connect coding agents', description: 'install lifecycle detection so their status stays current' },
-        { value: false, title: 'Leave integrations unchanged', description: 'do not change coding-agent lifecycle integrations' },
-    ]);
-    if (aborted(syncIntegrations)) return cancelSetup();
+    let syncIntegrations;
+    if (firstRun) {
+        // Inferred from operator intent (flag/env/config, default auto);
+        // shown in Review, applied behind Apply.
+        syncIntegrations = operator.values.integrationsSync !== 'off';
+    } else {
+        setupStep(3, 5, 'Connect agents and add-ons');
+        syncIntegrations = await select(found.agents.checked
+            ? `Connect your coding agents (${found.agents.available.length} detected)?`
+            : 'Agent availability could not be checked. Retry integration setup anyway?', [
+            { value: true, title: 'Connect coding agents', description: 'install lifecycle detection so their status stays current' },
+            { value: false, title: 'Leave integrations unchanged', description: 'do not change coding-agent lifecycle integrations' },
+        ]);
+        if (aborted(syncIntegrations)) return cancelSetup();
+    }
 
     const plugins = current === undefined ? [] : await choosePlugins();
     if (plugins === undefined) return cancelSetup();
 
-    setupStep(4, 5, 'Review setup');
+    setupStep(2, stepsTotal, 'Review setup');
+    // One final normalized plan: Review shows it, recovery re-derives it,
+    // Apply persists and applies exactly it — startSelfHost re-resolves the
+    // same values from the plan-derived argv, so apply cannot diverge from
+    // review. Supported operator fields (notification address, integrations
+    // choice) are part of the plan and survive recovery.
+    const reviewedPlan = finalizeSetupPlan({ plan, found, syncIntegrations, notifyEmail: operator.values.notifyEmail, operator: operator.values });
+    const operatorPreview = formatOperatorConfig(reviewedPlan);
+    // The same plan `muxr setup --apply-config --dry-run` prints: current vs
+    // desired per key, then the steps. One planner, two presentations.
+    const { currentDesiredState, planDesiredState, planLines } = await import('../application/applyDesiredState.mjs');
+    const desiredPlan = planDesiredState({ values: reviewedPlan, provenance: operator.provenance }, await currentDesiredState());
     note([
         `Connection: ${connectionLabel(plan.mode, plan.endpoint, plan.port)}`,
         `Herdr: ${found.herdr.installed ? 'adopt existing installation and ensure its server is running' : 'download, install, and start during setup'}`,
@@ -599,6 +680,8 @@ export async function applyMachineSetup(args = []) {
         `Ingress: ${ingressPlan(plan.mode, tailscalePlanned)}`,
         'Services: register or restart the relay and host with systemd/launchd',
         `Existing connections: ${connectionChanged ? 'stored grants stay authoritative and adopt the advertised endpoint automatically' : 'keep working; restart only if a reviewed runtime setting changed'}`,
+        `Plan (same as muxr setup --apply-config --dry-run):\n${planLines(desiredPlan, { values: reviewedPlan }, { dryRun: true }).join('\n')}`,
+        `Desired state to write (~/.muxr/config.env):\n${operatorPreview.trimEnd()}`,
         'No change is made until you choose Apply setup.',
     ]);
     const apply = await select('Apply this setup?', [
@@ -607,7 +690,7 @@ export async function applyMachineSetup(args = []) {
     ], 1);
     if (apply !== true) return cancelSetup();
 
-    setupStep(5, 5, 'Install, start, and pair');
+    setupStep(stepsTotal, stepsTotal, 'Install, start, and pair');
     if ((plan.mode === 'tailscale' || plan.mode === 'tailscale-direct') && tailscalePlanned && !(await applyTailscaleConnect(found))) {
         process.stderr.write('Tailscale did not connect; fix the reported issue, then rerun setup\n');
         return 1;
@@ -623,22 +706,55 @@ export async function applyMachineSetup(args = []) {
     status('Network', 'checking Tailscale Serve ownership and local relay port', 'off');
     let result = 1;
     for (;;) {
-        const recovered = await recoverTailscaleServe({ plan, found });
-        if (recovered === undefined) return stoppedAfterApply();
+        const recovered = await recoverTailscaleServe({ plan, found, stepsTotal });
+        if (recovered === undefined) {
+            writeOperatorConfig(reviewedPlan);
+            return stoppedAfterApply(true);
+        }
         plan = recovered;
-        result = await startSelfHost(selfhostArgsFromSetupPlan({ ...plan, found }));
+        result = await startSelfHost(selfhostArgsFromSetupPlan({ ...plan, found, notifyEmail: reviewedPlan.notifyEmail }));
         if (result === 0) break;
         const failedServe = plan.mode === 'tailscale' ? serveRootFor(found, plan.port).status : undefined;
         if (failedServe !== 'occupied' && failedServe !== 'disabled') return result;
     }
+    // One final plan: Serve recovery inside the loop may have changed the
+    // applied mode/web/pairing after Review. Serializing the pre-recovery
+    // plan would describe a setup that does not exist, so re-derive from
+    // the actually applied working plan and require explicit acceptance of
+    // any change before anything is saved.
+    const finalPlan = finalizeSetupPlan({ plan, found, syncIntegrations, notifyEmail: operator.values.notifyEmail, operator: operator.values });
+    if (JSON.stringify(finalPlan) !== JSON.stringify(reviewedPlan)) {
+        const changed = Object.keys(finalPlan).filter((key) => JSON.stringify(finalPlan[key]) !== JSON.stringify(reviewedPlan[key]));
+        note([
+            'Tailscale Serve recovery changed the setup after Review:',
+            ...changed.map((key) => `${key}: ${JSON.stringify(reviewedPlan[key])} -> ${JSON.stringify(finalPlan[key])}`),
+            'The relay already runs this recovered plan. Nothing is saved until you accept it.',
+        ]);
+        const keep = await select('Keep the recovered setup and save it?', [
+            { value: false, title: 'Discard', description: 'leave config.env unchanged; rerun setup to choose another route' },
+            { value: true, title: 'Keep and save', description: 'save the recovered plan, then pair' },
+        ], 1);
+        if (keep !== true) {
+            process.stderr.write('Setup not saved: config.env was left unchanged. Rerun `muxr` to review and save.\n');
+            completeFullscreen();
+            return 1;
+        }
+    }
+    // The wizard is a config-file generator: persist exactly the applied
+    // operator intent (never secrets) so `muxr config` shows it and
+    // `muxr self-host --apply-config` reproduces this setup.
+    writeOperatorConfig(finalPlan);
     const { mode, endpoint, port, pairing } = plan;
     const browserPairFailed = pairing === 'both' && (await pairDevice(['--browser'])) !== 0;
     const doctor = await inspectSetup();
     if (doctor !== 0) return doctor;
     const summary = await selfhostPublicSummary();
-    setupStep(5, 5, 'Setup complete');
+    setupStep(stepsTotal, stepsTotal, 'Setup complete');
+    let hostLineSuffix = '';
+    if (pairing === 'none') hostLineSuffix = ' Pair with `muxr pair` when ready.';
+    if (pairing === 'browser') hostLineSuffix = ' This browser is paired; add the native app later with `muxr pair`.';
     note([
-        `Your host runs here. Phones reach it over ${relayKind(mode)}.${pairing === 'none' ? ' Pair with `muxr pair` when ready.' : ''}`,
+        `Your host runs here. Phones reach it over ${relayKind(mode)}.${hostLineSuffix}`,
         `Connection: ${connectionLabel(mode, endpoint, port)}`,
         'Relay location: this machine',
         `Relay URL: ${summary?.relayUrl ?? 'unavailable'}`,
@@ -656,11 +772,12 @@ export async function applyMachineSetup(args = []) {
         'Configuration: ~/.muxr (owner-only)',
     ]);
     const partial = browserPairFailed || pluginResult.failed.length > 0;
+    let farewell = 'Paired. Open muxr on your phone, or run `muxr` anytime to change these choices.';
+    if (pairing === 'none') farewell = 'Setup updated. Existing devices will reconnect automatically.';
+    if (pairing === 'browser') farewell = 'Paired in this browser. Run `muxr pair` anytime to add the native app, or `muxr` to change these choices.';
     outro(partial
         ? 'Core setup is ready, but one or more optional steps need attention.'
-        : pairing === 'none'
-            ? 'Setup updated. Existing devices will reconnect automatically.'
-            : 'Paired. Open muxr on your phone, or run `muxr` anytime to change these choices.', partial ? 'warn' : 'ok');
+        : farewell, partial ? 'warn' : 'ok');
     completeFullscreen();
     return partial ? 1 : 0;
     });

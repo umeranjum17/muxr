@@ -15,6 +15,8 @@ import {
     MOBILE_GLASS_CONTROL_SIZE,
     MOBILE_GLASS_HEADER_HEIGHT,
 } from '@/components/navigation/headerMetrics';
+import { MOTION } from '@/constants/motion';
+import { useReducedMotion } from 'react-native-reanimated';
 
 interface HeaderProps {
     title?: React.ReactNode;
@@ -60,12 +62,17 @@ export const Header = React.memo((props: HeaderProps) => {
     const paddingTop = safeAreaEnabled ? insets.top : 0;
     const headerHeight = useHeaderHeight();
     const isTablet = useIsTablet();
-    const isDesktop = Platform.OS === 'web' || isRunningOnMac();
+    // Density comes from width, not the platform: compact web renders the
+    // phone chrome, wide web keeps the desktop chrome. Native behavior is
+    // unchanged (Mac Catalyst stays desktop, phones/tablets stay phone).
+    const splitView = useSplitViewLayout();
+    const isDesktop = Platform.OS === 'web' ? splitView : isRunningOnMac();
     const floatingControlsEnabled = !isDesktop && !isTablet;
     const headerLeftUsesGlass = headerLeftGlass && !isDesktop;
     const headerRightUsesGlass = headerRightGlass && !isDesktop;
     const contentHeight = floatingControlsEnabled ? Math.max(headerHeight, MOBILE_GLASS_HEADER_HEIGHT) : headerHeight;
     const backdropOpacity = React.useRef(new Animated.Value(headerBackdropVisible ? 1 : 0)).current;
+    const reducedMotion = useReducedMotion();
     const [backdropMounted, setBackdropMounted] = React.useState(headerBackdropVisible);
 
     React.useEffect(() => {
@@ -74,7 +81,7 @@ export const Header = React.memo((props: HeaderProps) => {
         }
         Animated.timing(backdropOpacity, {
             toValue: headerBackdropVisible ? 1 : 0,
-            duration: 160,
+            duration: reducedMotion ? 0 : (headerBackdropVisible ? MOTION.base : MOTION.exit),
             useNativeDriver: true,
         }).start(({ finished }) => {
             if (finished && !headerBackdropVisible) {
@@ -174,7 +181,7 @@ const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((
     const { options, route, back, navigation } = props;
     const extendedOptions = options as ExtendedNavigationOptions;
     const splitViewLayout = useSplitViewLayout();
-    const isDesktop = Platform.OS === 'web' || isRunningOnMac();
+    const isDesktop = Platform.OS === 'web' ? splitViewLayout : isRunningOnMac();
 
     // The permanent split-view header owns Back only while the drawer is present.
     const shouldHideBackButton = splitViewLayout;
@@ -184,7 +191,7 @@ const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((
     if (options.headerTitle) {
         if (typeof options.headerTitle === 'string') {
             title = (
-                <Text style={[
+                <Text accessibilityRole="header" style={[
                     {
                         fontSize: isDesktop ? 17 : 16,
                         fontWeight: '600',
@@ -203,7 +210,7 @@ const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((
         }
     } else if (typeof options.title === 'string') {
         title = (
-            <Text style={[
+            <Text accessibilityRole="header" style={[
                 { fontSize: 17, fontWeight: '600', textAlign: Platform.OS === 'ios' ? 'center' : 'left', color: options.headerTintColor || '#000' },
                 Typography.default('semiBold'),
                 options.headerTitleStyle

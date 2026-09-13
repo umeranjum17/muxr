@@ -1,3 +1,4 @@
+import { HOST_CAPABILITY_PROMPT_RECEIPTS } from '@muxr/contract';
 export type ListMachinesCommand = {
     machineId: string;
     machineName?: string;
@@ -13,6 +14,7 @@ export type ListedMachine = {
     hostVersion: string;
     platform: string;
     lastSeenAt: string;
+    capabilities: string[];
 };
 
 export type ListMachinesResult = { ok: true; data: ListedMachine[] };
@@ -27,6 +29,7 @@ export function listMachines(command: ListMachinesCommand): ListMachinesResult {
             online: true,
             hostVersion: command.hostVersion,
             platform: command.platform,
+            capabilities: [HOST_CAPABILITY_PROMPT_RECEIPTS],
             lastSeenAt: (command.now ?? (() => new Date()))().toISOString(),
         }],
     };

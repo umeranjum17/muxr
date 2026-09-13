@@ -31,9 +31,9 @@ renders state the host reports.
   machines. The relay routes ciphertext it cannot read.
 - Enabling a Herdr plugin means trusting local code: plugin backends run
   unsandboxed as your user.
-- Native phone pairing is single-use and expires in two minutes. Browser grants
-  (`muxr pair --browser` control, `--browser-view` view-only) expire after
-  eight hours.
+- Native phone pairing is single-use and short-lived. Browser grants
+  (`muxr pair --browser` control, `--browser-view` view-only) expire on a
+  fixed lifetime; `muxr skill onboarding` carries the exact numbers.
 - Computer-to-computer collaboration grants are capability-scoped: peers may
   list, read, inspect status, watch, and prompt — never shell, raw Herdr CLI, terminal
   takeover, destructive pane/workspace actions, or arbitrary plugin calls.
@@ -53,6 +53,7 @@ work.
 | Create panes/tabs/workspaces/worktrees, run and read agents, socket API | `muxr skill herdr` · [source](references/herdr.md) |
 | Connect computers; list, read, watch, or prompt a remote agent; voice | `muxr skill collaboration` · [source](references/collaboration.md) |
 | Hand a browser login, 2FA, or CAPTCHA to the phone | `muxr skill browser-takeover` · [source](references/browser-takeover.md) |
+| Open a browser or code review surface instead of terminal graphics | `muxr skill surfaces` · [source](references/surfaces.md) |
 | Build, install, debug, or override a plugin | `muxr skill plugins` · [source](references/plugins.md) |
 | Troubleshoot, recover, or report a bug | run interactive `muxr doctor` for checked safe repairs, then `muxr diagnostics` locally or `muxr report` for a draft; show the complete draft and ask before any external action |
 | Full plugin manifest contract | run `muxr plugin docs` and read the printed PLUGINS.md |

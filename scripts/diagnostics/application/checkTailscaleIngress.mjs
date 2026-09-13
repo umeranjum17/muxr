@@ -48,11 +48,16 @@ try {
     }, '100.64.0.1').private, { address: '10.20.0.2', interface: 'utun5', provider: 'private network' });
     const found = { tailscale: { connected: false }, private: routes.private, lan: routes.lan, cloudflared: { ok: false } };
     assert.equal(recommendedConnection(found, undefined, false, { status: 'inconclusive' }).mode, 'private');
+    // Browser-first: a browser-capable route beats a native-only overlay; a
+    // native-only proposal names the browser prerequisite.
     assert.equal(recommendedConnection(found, undefined, true, { status: 'inconclusive' }).mode, 'private');
+    assert.equal(recommendedConnection({ ...found, cloudflared: { ok: true } }, undefined, false, { status: 'inconclusive' }).mode, 'cloudflare');
+    assert.match(recommendedConnection(found, undefined, false, { status: 'inconclusive' }).description, /native app only: for the browser app/);
     assert.equal(recommendedConnection({ ...found, private: undefined, cloudflared: { ok: true } }, undefined, false, { status: 'inconclusive' }).mode, 'cloudflare');
     assert.equal(recommendedConnection({ ...found, private: undefined }, undefined, false, { status: 'inconclusive' }).mode, 'lan');
     const privateArgs = selfhostArgsFromSetupPlan({ mode: 'private', port: 8792, web: false, pairing: 'phone', found });
-    assert.deepEqual(privateArgs.slice(-2), ['--advertise', 'ws://100.90.0.4:8792']);
+    const advertiseAt = privateArgs.indexOf('--advertise');
+    assert.deepEqual(privateArgs.slice(advertiseAt, advertiseAt + 2), ['--advertise', 'ws://100.90.0.4:8792']);
     assert.equal((await resolveAdvertise(privateArgs, 8792)).url, 'ws://100.90.0.4:8792');
     assert.equal(recommendedConnection(found, { connectionMode: 'external', relayUrl: 'wss://relay.example', relayPort: 8792, relayHealthy: true, publicHealthy: true }, false, { status: 'free' }).mode, 'external');
     assert.equal(recommendedConnection({ ...found, tailscale: { connected: true } }, undefined, false, { status: 'inconclusive' }).mode, 'tailscale');

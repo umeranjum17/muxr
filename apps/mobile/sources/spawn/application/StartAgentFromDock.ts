@@ -1,13 +1,12 @@
 import type { Machine } from '@/catalog';
 import { machineSpawnNewSession } from '@/catalog/ops';
-import { sync } from '@/catalog/sync';
+import { submitPrompt } from '@/catalog/application/submissions';
 import { isMachineOnline } from '@/pairing';
+import { sync } from '@/catalog/sync';
 import { createWorktree } from '../infrastructure/worktree';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import type { NewSessionAgentType } from '@/catalog/application/persistence';
 import type { AttachmentPreview } from '@/catalog/infrastructure/attachmentTypes';
-import { readFileBytes } from '@/utils/readFileBytes';
-import { encodeBase64 } from '@/encryption/base64';
 
 export type StartAgentFromDockCommand = {
     machine: Machine | undefined;
@@ -22,7 +21,7 @@ export type StartAgentFromDockCommand = {
 };
 
 export type StartAgentFromDockResult =
-    | { ok: true; agentRoute: string; promptFailed?: string }
+    | { ok: true; agentRoute: string; machineId: string; promptFailed?: string }
     | { ok: false; reason: 'no-machine' | 'offline' | 'worktree-failed' | 'needs-directory' | 'failed'; message?: string; directory?: string };
 
 /**
@@ -30,29 +29,16 @@ export type StartAgentFromDockResult =
  * Save the images to the host over the session socket, the same way the
  * terminal composer does, and append the paths it returns.
  */
-async function promptWithAttachmentPaths(
-    sessionId: string,
-    prompt: string,
-    previews: unknown[],
-): Promise<string> {
-    if (previews.length === 0) return prompt;
-    const attachments = [];
-    for (const preview of previews as AttachmentPreview[]) {
-        attachments.push({
-            name: preview.name,
-            mimeType: preview.mimeType,
-            data: encodeBase64(await readFileBytes(preview.uri)),
-        });
-    }
-    const saved = await sync.request('session.saveAttachments', { sessionId, attachments });
-    return [prompt.trim(), ...saved.savedPaths].filter((part) => part !== '').join(' ');
-}
-
 /** Spawn from the Dock: Machine, directory, Worktree, and Agent Kind are already chosen. */
 export async function startAgentFromDock(command: StartAgentFromDockCommand): Promise<StartAgentFromDockResult> {
     const machine = command.machine;
     if (!machine) return { ok: false, reason: 'no-machine', message: 'Please select a machine' };
     if (!isMachineOnline(machine)) return { ok: false, reason: 'offline', message: 'Machine is offline' };
+    // Ownership is fixed here, before anything asynchronous: the computer
+    // this draft is for is the one the transport is on now. It is never
+    // re-read later; a switch mid-way is detected against it.
+    const owner = sync.currentMachineId();
+    if (machine.id !== owner) return { ok: false, reason: 'offline', message: 'That computer is not the connected one. Switch to it, then start the agent.' };
 
     let spawnDirectory = command.directory;
     if (command.worktree.wantsNewCheckout()) {
@@ -78,19 +64,16 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
 
     // machineSpawnNewSession already refreshed until the session was listed.
     // The host holds the first prompt until the agent can accept it, which is
-    // seconds for some kinds. Show the session now instead of a dead Dock.
-    command.onRouteReady?.(result.sessionId);
+    // seconds for some kinds. Show the session now instead of a dead Dock —
+    // unless the app moved to another computer meanwhile: A's session is
+    // never opened on B.
+    if (sync.currentMachineId() === owner) command.onRouteReady?.(result.sessionId);
     if (command.prompt || command.attachments.length > 0) {
-        try {
-            const text = await promptWithAttachmentPaths(result.sessionId, command.prompt, command.attachments);
-            await sync.sendMessage(result.sessionId, text, { source: 'new_session' });
-        } catch (error) {
-            return {
-                ok: true,
-                agentRoute: result.sessionId,
-                promptFailed: error instanceof Error ? error.message : 'Failed to send the first message',
-            };
-        }
+        // Stored, uploaded and delivered under the owner captured above; a
+        // switch makes delivery refuse and leaves the prompt recoverable on
+        // the owner's session.
+        const sent = await submitPrompt({ machineId: owner, sessionId: result.sessionId, draft: command.prompt, attachments: [], uploads: command.attachments as AttachmentPreview[], source: 'new_session' });
+        if (!sent.ok) return { ok: true, agentRoute: result.sessionId, machineId: owner, promptFailed: sent.submission.reason };
     }
-    return { ok: true, agentRoute: result.sessionId };
+    return { ok: true, agentRoute: result.sessionId, machineId: owner };
 }

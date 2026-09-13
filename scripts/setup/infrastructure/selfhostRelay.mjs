@@ -173,7 +173,7 @@ export function relayDiscovery(state) {
     } : undefined;
 }
 
-export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOrigin, discovery) {
+export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOrigin, discovery, extraEnv = {}) {
     let health;
     try {
         health = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2_000) })
@@ -217,6 +217,7 @@ export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOr
             MUXR_RELAY_DATA_DIR: dataDir,
             ...(webRoot ? { MUXR_WEB_ROOT: webRoot } : {}),
             ...(webOrigin ? { MUXR_ALLOWED_ORIGINS: webOrigin } : {}),
+            ...extraEnv,
         },
     });
     proc.unref();
@@ -228,13 +229,52 @@ export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOr
     proc.kill('SIGTERM');
     throw new Error(`self-host relay did not come up on :${port}; see ${logPath}`);
 }
-
 export function persistRelayRuntimeState({ state, health }) {
     state.bindHost = health.bindHost === '127.0.0.1' ? '127.0.0.1' : '0.0.0.0';
     state.webEnabled = health.webEnabled === true;
     state.webRoot = state.webEnabled ? join(dirname(realpathSync(process.argv[1])), 'web') : undefined;
     state.webOrigin = state.webEnabled && typeof state.relayUrl === 'string' ? state.relayUrl.replace(/^wss/, 'https') : undefined;
     writeSelfhostState(state);
+}
+
+/**
+ * Owner-only relay process env (`~/.muxr/relay.env`, KEY=value). Carries
+ * operator intent the supervised service needs but systemd/launchd never
+ * inherit from a shell — currently MUXR_NOTIFY_EMAIL. Never secrets: relay
+ * identity stays in the data dir. Empty intent removes the file.
+ */
+export const relayEnvPath = () => join(stateDir(), 'relay.env');
+
+export function readRelayEnv() {
+    let raw;
+    try {
+        raw = readFileSync(relayEnvPath(), 'utf8');
+    } catch {
+        return {};
+    }
+    const out = {};
+    for (const line of raw.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed === '' || trimmed.startsWith('#')) continue;
+        const match = /^(MUXR_NOTIFY_EMAIL)=(.*)$/.exec(trimmed);
+        if (match?.[1] !== undefined && match[2] !== undefined && match[2].trim() !== '') {
+            out[match[1]] = match[2].trim();
+        }
+    }
+    return out;
+}
+
+export function writeRelayEnv(values) {
+    ensurePrivateDir(stateDir());
+    const lines = ['# muxr relay process env — written by setup/apply, read by the supervised service.'];
+    if (values.notifyEmail !== undefined) lines.push(`MUXR_NOTIFY_EMAIL=${values.notifyEmail}`);
+    if (lines.length === 1) {
+        rmSync(relayEnvPath(), { force: true });
+        return;
+    }
+    const path = relayEnvPath();
+    writeFileSync(path, `${lines.join('\n')}\n`, { mode: 0o600 });
+    chmodSync(path, 0o600);
 }
 
 export async function stopSelfhostRelayIfRunning() {

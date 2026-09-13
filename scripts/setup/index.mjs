@@ -2,6 +2,7 @@ export {
     accepted,
     advertisedUrlForMode,
     BROWSER_GRANT_TTL_MS,
+    BROWSER_PERSONAL_GRANT_TTL_MS,
     connectionLabel,
     DURABLE_GRANT_EXPIRES_AT,
     defaultAuthorityFor,
@@ -34,6 +35,7 @@ export { listMachines } from './application/listMachines.mjs';
 export { revokeMachine } from './application/revokeMachine.mjs';
 export { connectEnrollment } from './application/connectEnrollment.mjs';
 export { startSelfHost } from './application/startSelfHost.mjs';
+export { continueWithDirectTailscale, finalizeSetupPlan, selfhostArgsFromSetupPlan } from './application/finalizeSetupPlan.mjs';
 export { enableBrowserHosting } from './application/enableBrowserHosting.mjs';
 export {
     applyHostedSetup,
@@ -54,11 +56,9 @@ export {
     applyMachineSetup,
     classifyNetworkRoutes,
     connectRemoteRelay,
-    continueWithDirectTailscale,
     hostSharedRelay,
     manageMachines,
     recommendedConnection,
-    selfhostArgsFromSetupPlan,
 } from './presentation/setupWizard.mjs';
 
 export {
@@ -88,17 +88,21 @@ export {
     enrollmentPayload,
     ensureSelfhostRelay,
     hasPendingRemoteConnect,
+    readRelayEnv,
+    relayEnvPath,
     resolveAdvertise,
     restartSelfhostRelayIfRunning,
     selfhostPublicSummary,
     sharedMachineCount,
     stopSelfhostRelayIfRunning,
+    writeRelayEnv,
 } from './infrastructure/selfhostRelay.mjs';
 
 export {
     daemonDefinition,
     daemonIsRunning,
     daemonMode,
+    herdrSocketPath,
     runDaemon,
     serviceCommand,
     startMuxrDaemon,
@@ -113,7 +117,21 @@ export {
     runIntegrations,
     runLocalPrerequisites,
 } from './infrastructure/herdr.mjs';
-export { BACK, heading, prompt, select, status } from './presentation/ui.mjs';
+export {
+    formatOperatorConfig,
+    operatorConfigPath,
+    operatorReportLines,
+    planToArgs,
+    printOperatorConfig,
+    resolveOperatorConfig,
+    resolveSetupPlan,
+    validateSetupPlan,
+    writeOperatorConfig,
+} from './infrastructure/operatorConfig.mjs';
+export { BACK, heading, prompt, promptSecret, select, status } from './presentation/ui.mjs';
+export { configureVoice } from './presentation/voiceHost.mjs';
+export { CONFIG_ATTRIBUTES, CONFIG_CONFLICTS, attributeByKey, configSchema } from './infrastructure/configSchema.mjs';
+export { pluginFolder } from './infrastructure/paths.mjs';
 export { hostEntry, relayEntry } from './infrastructure/paths.mjs';
 
 export { stateDir } from './infrastructure/runtime.mjs';

@@ -4,7 +4,7 @@ import { get as httpGet } from 'node:http';
 import type { RelayE2eeMode } from './config.js';
 import { extractBearerToken, isValidPublicKey, pairMachine, approveMachinePairing, type PairingRequests, type MachineRegistry } from './admission/index.js';
 import type { OfflineBuffer, PeerTable, ReplayLog } from './routing/index.js';
-import { parsePushNotification, type PushService } from './push/index.js';
+import { isAllowedPushEndpoint, parsePushNotification, type PushService } from './push/index.js';
 
 export interface PushActionOutcome {
     ok: boolean;
@@ -88,7 +88,7 @@ export function isExpoPushToken(value: unknown): value is string {
     return typeof value === 'string' && /^(?:Exponent|Expo)PushToken\[[A-Za-z0-9_-]+\]$/.test(value);
 }
 
-function isPushSubscription(
+export function isPushSubscription(
     value: unknown,
 ): value is { endpoint: string; keys: { p256dh: string; auth: string } } {
     if (typeof value !== 'object' || value === null) return false;
@@ -361,7 +361,18 @@ export async function handleHttpRequest(
             writeJson(res, 400, { error: 'subscription must be {endpoint, keys: {p256dh, auth}}' });
             return;
         }
-        await ctx.push.subscribe(account.accountId, body.subscription);
+        if (!isAllowedPushEndpoint(body.subscription.endpoint)) {
+            writeJson(res, 400, { error: 'subscription endpoint is not an allowed Web Push destination' });
+            return;
+        }
+        const level = (body as { level?: unknown }).level === undefined
+            ? 'important'
+            : parseLifecycleNotificationLevel((body as { level?: unknown }).level);
+        if (level === undefined) {
+            writeJson(res, 400, { error: 'invalid lifecycle notification level' });
+            return;
+        }
+        await ctx.push.subscribe(account.accountId, body.subscription, { level });
         writeJson(res, 200, { ok: true });
         return;
     }

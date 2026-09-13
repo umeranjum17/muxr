@@ -60,6 +60,8 @@ export interface TerminalViewProps {
     sessionId: string;
     onStatus?: (status: string) => void;
     onChannel?: (channel: TerminalChannel | undefined) => void;
+    /** Bump to reopen after a failed first attach; a live channel reconnects itself. */
+    attempt?: number;
     /** The pane hosts the control, so the panel can cover the accessory row. */
     onViewControls?: (controls: TerminalViewControls) => void;
 }
@@ -90,7 +92,7 @@ function combineTextFrames(frames: readonly string[]): string {
 }
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
-    const { sessionId, onStatus, onChannel } = props;
+    const { sessionId, onStatus, onChannel, attempt = 0 } = props;
     const focused = useIsFocused();
     const [viewport, setViewport] = React.useState({ width: 0, height: 0 });
     const terminalKeyboardDisabled = useLocalSetting('terminalKeyboardDisabled');
@@ -253,10 +255,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         return () => subscription.remove();
     }, [focused]);
 
+    const knownSizeRef = React.useRef<{ cols: number; rows: number } | null>(null);
     const attach = React.useCallback(
         (cols: number, rows: number, cellWidthPx?: number, cellHeightPx?: number) => {
             recordTerminalResize(cols, rows, cellWidthPx, cellHeightPx);
             setTerminalColumns(sessionId, cols);
+            knownSizeRef.current = { cols, rows };
             const last = lastSizeRef.current;
             lastSizeRef.current = { cols, rows, ...(cellWidthPx === undefined ? {} : { cellWidthPx }), ...(cellHeightPx === undefined ? {} : { cellHeightPx }) };
             if (!focused) return;
@@ -416,6 +420,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     }), [atDefaultZoom, atMaxZoom, atMinZoom, dismissKeyboard]);
     React.useEffect(() => { onViewControls?.(viewControls); }, [onViewControls, viewControls]);
     React.useEffect(() => () => onViewControls?.({ commands: [], dismissKeyboard: () => {} }), [onViewControls]);
+
+    // Retry after a failed first open: nothing was attached, so open again at
+    // the size last reported.
+    React.useEffect(() => {
+        const size = lastSizeRef.current;
+        if (attempt === 0 || openedRef.current || size === null) return;
+        attach(size.cols, size.rows, size.cellWidthPx, size.cellHeightPx);
+    }, [attach, attempt]);
 
     return (
         <View onLayout={(event) => setViewport({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}

@@ -5,7 +5,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { RoundButton } from '@/components/RoundButton';
 import { Typography } from '@/constants/Typography';
-import { useMachine, useSocketStatus } from '@/catalog/store';
+import { useMachine, usePairingFailure, useSocketStatus } from '@/catalog/store';
 import { syncReconnect } from '@/catalog/sync';
 import {
     getCachedConnectionSettings,
@@ -14,7 +14,7 @@ import {
 } from '@/connection';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { getCachedHostedGrant } from '@/pairing/e2ee';
 import { ConnectionSupport } from '@/settings/presentation/ConnectionSupport';
 import { formatLatestConnectionFailure } from '@/catalog/infrastructure/connectionDiagnostics';
@@ -90,8 +90,13 @@ function Field(props: {
 
 export default function ConnectionSettingsScreen() {
     const styles = stylesheet;
+    const router = useRouter();
     const [initial, setInitial] = React.useState(() => getCachedConnectionSettings());
     const { status, error: socketError } = useSocketStatus();
+    // An expired or revoked grant is not a network problem: it needs a fresh
+    // pairing, so the status row offers exactly that instead of reconnecting.
+    const pairingFailure = usePairingFailure();
+    const pairAgainReason = pairingFailure === 'grant-expired' ? 'expired' : pairingFailure === 'device-revoked' ? 'revoked' : undefined;
     const [clock, setClock] = React.useState(Date.now());
     React.useEffect(() => {
         if (Platform.OS !== 'web') return undefined;
@@ -152,10 +157,19 @@ export default function ConnectionSettingsScreen() {
                         leftElement={<View style={[styles.dot, statusDot]} />}
                         loading={status === 'connecting'}
                     />
+                    {pairAgainReason !== undefined && (
+                        <Item
+                            title="Pair again"
+                            subtitle={pairAgainReason === 'expired'
+                                ? 'This grant expired — claim a fresh link to reconnect'
+                                : 'This device was revoked — claim a fresh link to reconnect'}
+                            onPress={() => router.push(`/pair?source=settings&reason=${pairAgainReason}` as never)}
+                        />
+                    )}
                     <Item title="Transport" subtitle={transport} subtitleLines={0} detail="Self-host" />
                     <Item title="Relay" subtitle={initial.relayUrl} subtitleLines={0} />
                     {Platform.OS === 'web' && <Item title="Browser access" subtitle={browserExpiresAt === undefined || browserMinutes === undefined
-                        ? `${browserRole} · pair again every eight hours`
+                        ? `${browserRole} · pair again when it expires`
                         : `${browserRole} · expires in ${Math.floor(browserMinutes / 60)}h ${browserMinutes % 60}m · ${new Date(browserExpiresAt).toLocaleString()}`} />}
                 </ItemGroup>
 
@@ -163,6 +177,10 @@ export default function ConnectionSettingsScreen() {
 
                 <ItemGroup title="Connection actions" footer="Your connection is end-to-end encrypted. Manage or revoke this device from muxr on the host.">
                     <Item title="Reconnect now" subtitle="Drops the socket and dials again" onPress={() => void syncReconnect()} />
+                    <Item title="Pair another machine" subtitle={Platform.OS === 'web' ? 'Paste the link printed by muxr pair --browser' : 'Scan the QR or enter the short string from muxr pair'} onPress={() => router.push('/pair?source=settings')} />
+                    <Text style={styles.hint}>
+                        To stop this device reaching a machine, revoke it from the interactive muxr menu.
+                    </Text>
                 </ItemGroup>
             </ItemList>
         );

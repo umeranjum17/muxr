@@ -188,6 +188,8 @@ interface StorageState extends WatchSnapshot {
     sessionsLoaded: boolean;
     socketStatus: 'disconnected' | 'connecting' | 'connected' | 'error';
     socketError: string | null;
+    /** Machine-readable pairing failure behind socketError; drives re-pair UI. */
+    pairingFailure: 'grant-expired' | 'device-revoked' | null;
     socketLastConnectedAt: number | null;
     socketLastDisconnectedAt: number | null;
     nativeUpdateStatus: { available: boolean; updateUrl?: string } | null;
@@ -208,6 +210,7 @@ interface StorageState extends WatchSnapshot {
     updateSession: (sessionId: string, patch: Partial<Session>) => void;
     setSocketStatus: (status: StorageState['socketStatus']) => void;
     setSocketError: (message: string | null) => void;
+    setPairingFailure: (failure: StorageState['pairingFailure']) => void;
     applyLocalSettings: (patch: Partial<LocalSettings>) => void;
     applySettingsLocal: (patch: Partial<Settings>) => void;
     updateSessionDraft: (sessionId: string, draft: string | null) => void;
@@ -290,6 +293,7 @@ export const storage = create<StorageState>()((set, get) => ({
     sessionsLoaded: false,
     socketStatus: 'disconnected',
     socketError: null,
+    pairingFailure: null,
     socketLastConnectedAt: null,
     socketLastDisconnectedAt: null,
     nativeUpdateStatus: null,
@@ -369,6 +373,7 @@ export const storage = create<StorageState>()((set, get) => ({
     }),
     setSocketStatus: (socketStatus) => set({ socketStatus }),
     setSocketError: (socketError) => set({ socketError }),
+    setPairingFailure: (pairingFailure) => set({ pairingFailure }),
     // Settings are device-local in muxr -- there is no settings sync request --
     // so writing the store was the whole change and every toggle reset on reload.
     applyLocalSettings: (patch) => set((state) => {
@@ -655,6 +660,11 @@ export function useSocketStatus() {
     // timestamps were read by nobody, and a clock sampled during selection would
     // not record the transition anyway.
     return storage(useShallow((state) => ({ status: state.socketStatus, error: state.socketError })));
+}
+
+/** Machine-readable pairing failure for re-pair UI; null when healthy. */
+export function usePairingFailure(): StorageState['pairingFailure'] {
+    return storage((state) => state.pairingFailure);
 }
 
 export function useSideChatSessions(_parentSessionId: string | null): Session[] {

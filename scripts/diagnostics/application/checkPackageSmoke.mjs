@@ -108,7 +108,7 @@ function assertUnifiedSkillOutput(output, { liveHerdr = true } = {}) {
         previous = index;
     }
     for (const heading of [
-        '# Onboarding: install, pair, self-host, maintain',
+        '# Onboarding: install, configure, pair, maintain',
         '# Herdr orchestration',
         '# Cross-machine agent collaboration',
         '# Browser takeover for login, 2FA, and CAPTCHA',
@@ -322,7 +322,7 @@ try {
     const sourceSkill = run(process.execPath, ['scripts/cli.mjs', '--skill'], { env: sourceEnv }).stdout;
     assertCompactSkillOutput(sourceSkill);
     assert.equal(run(process.execPath, ['scripts/cli.mjs', 'skill'], { env: sourceEnv }).stdout, sourceSkill, 'source skill alias diverged from --skill');
-    assert.match(run(process.execPath, ['scripts/cli.mjs', 'skill', 'onboarding'], { env: sourceEnv }).stdout, /## Diagnose and recover[\s\S]*muxr doctor[\s\S]*muxr diagnostics/);
+    assert.match(run(process.execPath, ['scripts/cli.mjs', 'skill', 'onboarding'], { env: sourceEnv }).stdout, /## Diagnose[\s\S]*muxr doctor[\s\S]*muxr diagnostics/);
     assert.match(run(process.execPath, ['scripts/cli.mjs', 'skill', 'collaboration'], { env: sourceEnv }).stdout, /muxr peers prompt/);
     assertUnifiedSkillOutput(run(process.execPath, ['scripts/cli.mjs', 'skill', 'all'], { env: sourceEnv }).stdout);
     const fallbackHome = join(scratch, 'skill-fallback-home');
@@ -365,12 +365,15 @@ try {
         ['muxr', 'muxr', 'com.trymuxr.app', 'com.trymuxr.app', 'https://owner.invalid'],
     );
     assert.equal(production.extra.eas, undefined, 'an old EAS project id leaked into production config');
-    const unconfiguredProduction = run('npx', ['expo', 'config', '--json'], {
+    const unconfiguredProduction = JSON.parse(run('npx', ['expo', 'config', '--json'], {
         cwd: join(root, 'apps', 'mobile'),
-        env: { ...process.env, APP_ENV: 'production', MUXR_APP_ID_BASE: '', MUXR_PUBLIC_BASE_URL: '' },
-        allowFailure: true,
-    });
-    assert.notEqual(unconfiguredProduction.status, 0, 'production config accepted missing publishing origin');
+        env: { ...process.env, APP_ENV: 'production', MUXR_APP_ID_BASE: 'com.trymuxr.app', MUXR_PUBLIC_BASE_URL: '' },
+    }).stdout);
+    // Production without a publishing origin is the self-host build: nothing
+    // baked in, no app links emitted.
+    assert.equal(unconfiguredProduction.extra.app.publicBaseUrl, undefined, 'self-host production config baked a base URL');
+    assert.equal(unconfiguredProduction.ios.associatedDomains, undefined, 'self-host production config emitted app links');
+    assert.equal(unconfiguredProduction.android.intentFilters, undefined, 'self-host production config emitted intent filters');
 
     // The release flow demands a clean source checkout, so mirror the exact
     // working-tree source (existing tracked + nonignored untracked files) plus
@@ -563,7 +566,7 @@ try {
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
     const installedPlugins = join(installedPackage, 'plugins');
     assert.equal(existsSync(join(installedPlugins, 'code', 'runbook.mjs')), false, 'installed Code plugin retained the retired Runbook file');
-    assert.match(readFileSync(join(installedPackage, 'README.md'), 'utf8'), /muxr --skill\s+# print the compact agent skill/);
+    assert.match(readFileSync(join(installedPackage, 'README.md'), 'utf8'), /muxr --skill\s+# compact agent skill/);
     const rootHelp = run(cli, ['--help'], { cwd: installDir }).stdout;
     assert.match(rootHelp, /muxr --skill \| muxr skill\s+print the compact muxr agent skill/);
     assert.match(rootHelp, /muxr peers list\|read\|status\|watch\|prompt/);
@@ -579,8 +582,8 @@ try {
     assertCompactSkillOutput(installedSkill);
     assert.equal(run(cli, ['skill'], { cwd: installDir, env: cliEnv() }).stdout, installedSkill, 'packed skill alias diverged from --skill');
     const onboardingSkill = run(cli, ['skill', 'onboarding'], { cwd: installDir, env: cliEnv() }).stdout;
-    assert.match(onboardingSkill, /proposes one route[\s\S]*NetBird[\s\S]*WireGuard/);
-    assert.match(onboardingSkill, /## Diagnose and recover[\s\S]*muxr doctor[\s\S]*muxr diagnostics/);
+    assert.match(onboardingSkill, /one recommended browser-capable\s+route[\s\S]*`MUXR_CONNECTION`[\s\S]*tailscale-direct, private and lan are native-only/);
+    assert.match(onboardingSkill, /## Diagnose[\s\S]*muxr doctor[\s\S]*muxr diagnostics/);
     assert.match(run(cli, ['skill', 'collaboration'], { cwd: installDir, env: cliEnv() }).stdout, /muxr peers prompt/);
     assertUnifiedSkillOutput(run(cli, ['skill', 'all'], { cwd: installDir, env: cliEnv() }).stdout);
     const unavailablePeers = run(cli, ['peers', 'list'], { cwd: installDir, env: cliEnv(), allowFailure: true });
@@ -588,7 +591,7 @@ try {
     assert.match(unavailablePeers.stderr, /Peer access is not ready/);
     const wizardSource = readFileSync(join(installedPackage, 'setup/presentation/setupWizard.mjs'), 'utf8');
     assert.match(wizardSource, /Recommended route[\s\S]*Use this route and continue[\s\S]*Choose another way/);
-    assert.match(wizardSource, /if \(recovered === undefined\) return stoppedAfterApply\(\)/, 'post-Apply stop falsely claimed nothing changed');
+    assert.match(wizardSource, /if \(recovered === undefined\) \{\s*writeOperatorConfig\(reviewedPlan\);\s*return stoppedAfterApply\(true\);/, 'post-Apply stop falsely claimed nothing changed');
     const applyGuard = wizardSource.indexOf("if (apply !== true) return cancelSetup();");
     const tailscaleMutation = wizardSource.indexOf('await applyTailscaleConnect(found)', applyGuard);
     assert.ok(applyGuard >= 0 && tailscaleMutation > applyGuard, 'interactive setup may mutate Tailscale before Apply setup');
@@ -656,25 +659,27 @@ try {
     const providerRoot = join(providerHome, '.muxr');
     const voicePlugin = join(installedPlugins, 'voice');
     const providerEnv = { ...cliEnv(providerHome), MUXR_HOME: providerRoot };
-    const packagedProviders = JSON.parse(run(cli, ['plugin', 'call', voicePlugin, 'provider-list'], { cwd: installDir, env: providerEnv }).stdout);
+    // Provider policy is host-owned: `muxr voice` selects and configures; the
+    // plugin RPC clients can reach only reports readiness.
+    const packagedProviders = JSON.parse(run(cli, ['voice', 'status', '--json'], { cwd: installDir, env: providerEnv }).stdout);
     assert.equal(packagedProviders.selected, 'codex', 'packaged voice must default to Codex');
-    assert.equal(packagedProviders.providers.find((provider) => provider.id === 'codex').selected, true);
-    // The diagnostic CLI gives each call a fresh state directory. Select the
-    // API-key adapter inside that boundary, then run the installed RPC unchanged.
-    const keyFixture = join(scratch, 'voice-key-fixture');
-    cpSync(voicePlugin, keyFixture, { recursive: true });
-    writeFileSync(join(keyFixture, 'rpc.mjs'), `const { selectProvider } = await import(${JSON.stringify(join(voicePlugin, 'provider.mjs'))});\nselectProvider('xai');\nawait import(${JSON.stringify(join(voicePlugin, 'rpc.mjs'))});\n`);
-    run(cli, ['plugin', 'call', keyFixture, 'key-set', '--input', '{"key":"smoke-key"}'], { cwd: installDir, env: providerEnv });
+    run(cli, ['voice', 'select', 'xai'], { cwd: installDir, env: providerEnv });
+    run(cli, ['voice', 'key', 'set', '--stdin'], { cwd: installDir, env: providerEnv, input: 'smoke-key\n' });
     assert.equal(statSync(providerRoot).mode & 0o777, 0o700);
     assert.equal(statSync(join(providerRoot, 'xai.key')).mode & 0o777, 0o600);
-    assert.match(run(cli, ['plugin', 'call', keyFixture, 'status'], { cwd: installDir, env: providerEnv }).stdout, /"configured": true/);
-    run(cli, ['plugin', 'call', keyFixture, 'key-clear', '--input', 'null'], { cwd: installDir, env: providerEnv });
+    // `muxr plugin call` runs authors' RPCs in a throwaway state dir; the host
+    // hands the Voice plugin its persistent one, so call the packaged RPC the
+    // way the host does.
+    const packagedStatus = run(process.execPath, [join(voicePlugin, 'rpc.mjs'), 'status'], { cwd: installDir, env: { ...providerEnv, MUXR_PLUGIN_STATE_DIR: join(providerRoot, 'plugin-state', 'muxr.voice') }, input: 'null' }).stdout;
+    assert.match(packagedStatus, /"configured":\s*true/);
+    assert.doesNotMatch(packagedStatus, /xai|grok|key/i, 'client-visible voice status leaked provider vocabulary');
+    run(cli, ['voice', 'key', 'clear'], { cwd: installDir, env: providerEnv });
     const symlinkTarget = join(scratch, 'provider-symlink-target');
     const symlinkRoot = join(scratch, 'provider-symlink-root');
     mkdirSync(symlinkTarget);
     symlinkSync(symlinkTarget, symlinkRoot, 'dir');
-    const symlinkWrite = run(cli, ['plugin', 'call', keyFixture, 'key-set', '--input', '{"key":"must-not-write"}'], {
-        cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: symlinkRoot }, allowFailure: true,
+    const symlinkWrite = run(cli, ['voice', 'key', 'set', '--stdin'], {
+        cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: symlinkRoot }, input: 'must-not-write\n', allowFailure: true,
     });
     assert.notEqual(symlinkWrite.status, 0, 'provider key write followed a symlinked MUXR_HOME');
     assert.equal(existsSync(join(symlinkTarget, 'xai.key')), false);
@@ -942,8 +947,42 @@ try {
     assert.match(`${prefixMismatch.stdout}${prefixMismatch.stderr}`, /different npm prefix/);
     assert.ok(!existsSync(updateLog), 'prefix mismatch reached npm install');
 
-    run(cli, ['update', '--to', '9.9.9', '--yes'], { cwd: installDir, env: updateEnv });
+    // The Herdr plugin runtime record moves with a verified update and stays
+    // put through a failed one: a shim standing in for the npm global `muxr`
+    // reports whatever version the (fake) install last wrote.
+    const runtimeShimDir = join(scratch, 'runtime-shim');
+    mkdirSync(runtimeShimDir, { recursive: true });
+    const runtimeVersionFile = join(runtimeShimDir, 'version');
+    const runtimeShim = join(runtimeShimDir, 'muxr');
+    writeFileSync(runtimeVersionFile, `${packageJson.version}\n`);
+    // Builtins only: the CLI's PATH here carries no coreutils.
+    writeFileSync(runtimeShim, `#!/bin/sh\nif [ "$1" = version ]; then read -r v < ${JSON.stringify(runtimeVersionFile)}; echo "$v"; exit 0; fi\nexit 1\n`, { mode: 0o755 });
+    const runtimeRecordPath = join(home, '.muxr', 'herdr-plugin.runtime');
+    writeFileSync(runtimeRecordPath, `${JSON.stringify({ bin: runtimeShim, version: packageJson.version, source: 'smoke', recordedAt: new Date().toISOString() })}\n`, { mode: 0o600 });
+    writeFileSync(updateNpm, '#!/bin/sh\nif [ "$1" = view ]; then printf \'"%s"\\n\' "${MUXR_UPDATE_LATEST:-9.9.9}"; exit 0; fi\nif [ "$1 $2" = "root --global" ]; then printf "%s\\n" "$MUXR_UPDATE_NPM_ROOT"; exit 0; fi\nif [ "$1" = install ]; then printf "%s\\n" "$*" >> "$MUXR_UPDATE_LOG"; if [ -n "$MUXR_UPDATE_FAIL" ]; then exit 1; fi; printf "%s\\n" "${MUXR_UPDATE_LATEST:-9.9.9}" > "$MUXR_UPDATE_VERSION_FILE"; exit 0; fi\nexit 1\n', { mode: 0o755 });
+    const runtimeEnv = { ...updateEnv, MUXR_UPDATE_VERSION_FILE: runtimeVersionFile };
+    const failedUpdate = run(cli, ['update', '--to', '9.9.7', '--yes'], { cwd: installDir, env: { ...runtimeEnv, MUXR_UPDATE_LATEST: '9.9.7', MUXR_UPDATE_FAIL: '1' }, allowFailure: true });
+    assert.notEqual(failedUpdate.status, 0, 'a failed npm install reported success');
+    assert.equal(JSON.parse(readFileSync(runtimeRecordPath, 'utf8')).version, packageJson.version, 'a failed update moved the Herdr plugin runtime record');
+    assert.equal(readFileSync(runtimeVersionFile, 'utf8').trim(), packageJson.version);
+
+    const upgraded = run(cli, ['update', '--to', '9.9.9', '--yes'], { cwd: installDir, env: runtimeEnv });
     assert.match(readFileSync(updateLog, 'utf8'), /install --global --ignore-scripts @trymuxr\/cli@9\.9\.9/);
+    assert.match(upgraded.stdout, /Herdr plugin actions now execute .* @ 9\.9\.9/, upgraded.stderr);
+    const movedRecord = JSON.parse(readFileSync(runtimeRecordPath, 'utf8'));
+    assert.deepEqual([movedRecord.bin, movedRecord.version], [runtimeShim, '9.9.9'], 'update did not refresh the Herdr plugin runtime record');
+    assert.equal(statSync(runtimeRecordPath).mode & 0o777, 0o600);
+    // The plugin entrypoint executes exactly the recorded runtime afterwards.
+    const controlRun = run(process.execPath, [join(installDir, 'node_modules', '@trymuxr', 'cli', 'plugins', 'control', 'run.mjs'), 'doctor'], {
+        cwd: installDir, env: { ...env, MUXR_HOME: join(home, '.muxr') }, allowFailure: true,
+    });
+    assert.doesNotMatch(`${controlRun.stdout}${controlRun.stderr}`, /recorded runtime .* falling back|is not the recorded/, 'plugin actions refused the updated runtime');
+    // Rollback is the same owner and the same record transition, downward.
+    const rolledBack = run(cli, ['update', '--to', '9.9.8', '--allow-downgrade', '--yes'], { cwd: installDir, env: { ...runtimeEnv, MUXR_UPDATE_LATEST: '9.9.8' } });
+    assert.match(rolledBack.stdout, /Herdr plugin actions now execute .* @ 9\.9\.8/);
+    assert.equal(JSON.parse(readFileSync(runtimeRecordPath, 'utf8')).version, '9.9.8');
+    run(cli, ['update', '--to', '9.9.9', '--yes'], { cwd: installDir, env: runtimeEnv });
+    rmSync(runtimeRecordPath, { force: true });
     const linuxUnit = readFileSync(join(home, '.config', 'systemd', 'user', 'muxr.service'), 'utf8');
     assert.match(linuxUnit, /MUXR_MODE=.*selfhost/, 'update removed the daemon mode');
     assert.ok(linuxUnit.includes(`Environment=PATH="${env.PATH}:`), 'Linux daemon dropped the interactive executable path');
@@ -1137,6 +1176,11 @@ else if(a[0]==='view') {
         }, 50);
     });
     assert.doesNotMatch(browserPairOutput, /muxr:\/\/pair|[?&#]payload=/, 'browser pairing printed the giant payload');
+    // Browser pairing is QR-first: the prompt names the QR and the intent,
+    // and a piped (non-TTY) run refuses the image truthfully instead of
+    // emitting an unscannable one.
+    assert.match(browserPairOutput, /Scan this control browser QR/, 'browser pairing prompt does not lead with the QR');
+    assert.match(browserPairOutput, /QR omitted in append-only\/plain output/, 'piped browser pairing did not state the QR omission');
     browserPair.kill('SIGTERM');
     await new Promise((resolve) => browserPair.once('exit', resolve));
     stopRelayFor(join(browserHome, '.muxr', 'relay'));

@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useUnistyles } from 'react-native-unistyles';
 import type { LifecycleNotificationLevel } from '@muxr/contract';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -17,6 +18,7 @@ const OPTIONS: ReadonlyArray<{
 ];
 
 export default function NotificationSettingsScreen() {
+    const { theme } = useUnistyles();
     const [level, setLevel] = useLocalSettingMutable('lifecycleNotificationLevel');
 
     const select = (next: LifecycleNotificationLevel) => {
@@ -38,8 +40,8 @@ export default function NotificationSettingsScreen() {
                             key={option.key}
                             title={option.title}
                             subtitle={option.summary}
-                            icon={<Ionicons name="notifications-outline" size={29} color="#FF9500" />}
-                            rightElement={selected ? <Ionicons name="checkmark" size={20} color="#007AFF" /> : null}
+                            icon={<Ionicons name="notifications-outline" size={29} color={theme.colors.textSecondary} />}
+                            rightElement={selected ? <Ionicons name="checkmark" size={20} color={theme.colors.text} /> : null}
                             selected={selected}
                             showChevron={false}
                             onPress={() => select(option.key)}

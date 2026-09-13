@@ -555,9 +555,11 @@ describe('session sync flow', () => {
     });
 
     it('reconciles structured lifecycle activity once across live replay, reconnect and restart', async () => {
-        // Keep this replay timeline inside the production seven-day retention
-        // window, regardless of when CI runs; leave async timers running normally.
-        vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-27T10:10:00.000Z'));
+        // Relative timestamps: the shared 7-day retention bound drops fixed
+        // dates once they age out, so anchor the same minute-spaced sequence
+        // to now instead of a calendar day.
+        const base = Date.now() - 10 * 60 * 1000;
+        const at = (minutes: number): string => new Date(base + minutes * 60 * 1000).toISOString();
         const event = (eventId: string, state: AgentLifecycle, at: string): LifecycleEvent => ({
             eventId,
             sessionId: 'session-secret-42',
@@ -570,13 +572,13 @@ describe('session sync flow', () => {
             at,
             taskTitle: 'Stabilizing realtime voice',
         });
-        const initial = event('event-initial', 'working', '2026-08-27T10:00:00.000Z');
-        const prebaseline = event('event-prebaseline', 'blocked', '2026-08-27T09:59:00.000Z');
-        const working = event('event-working', 'working', '2026-08-27T10:01:00.000Z');
-        const blocked = event('event-blocked', 'blocked', '2026-08-27T10:02:00.000Z');
-        const failed = event('event-failed', 'failed', '2026-08-27T10:03:00.000Z');
-        const done = event('event-done', 'done', '2026-08-27T10:04:00.000Z');
-        const pushBeforeCatalog = event('event-push-before-catalog', 'blocked', '2026-08-27T10:06:00.000Z');
+        const initial = event('event-initial', 'working', at(0));
+        const prebaseline = event('event-prebaseline', 'blocked', at(-1));
+        const working = event('event-working', 'working', at(1));
+        const blocked = event('event-blocked', 'blocked', at(2));
+        const failed = event('event-failed', 'failed', at(3));
+        const done = event('event-done', 'done', at(4));
+        const pushBeforeCatalog = event('event-push-before-catalog', 'blocked', at(6));
         const state = storage.getState();
 
         // A live exception can beat the first catalog response. Preserve it as
@@ -620,13 +622,13 @@ describe('session sync flow', () => {
 
         // A relay push owns its visible alert. Acknowledging its canonical id
         // before reconciliation prevents the local catalog path reposting it.
-        const pushed = event('event-pushed', 'blocked', '2026-08-27T10:05:00.000Z');
+        const pushed = event('event-pushed', 'blocked', at(5));
         state.acknowledgeLifecyclePush(pushed.eventId, 'machine');
         expect(state.applyLifecycleCatalog({ revision: 4, events: [pushed, done, failed, blocked, working, initial] })).toEqual([]);
         expect(storage.getState().pendingLifecycleEvents).toEqual([]);
 
         // A machine-B push received while A is active belongs only to B.
-        const machineBPush = event('event-machine-b', 'blocked', '2026-08-27T10:07:00.000Z');
+        const machineBPush = event('event-machine-b', 'blocked', at(7));
         state.setLifecycleScope('test-authority:machine-b');
         expect(state.applyLifecycleCatalog({ revision: 1, events: [done] })).toEqual([]);
         state.setLifecycleScope('test-authority:machine');

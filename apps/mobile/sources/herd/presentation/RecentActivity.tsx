@@ -34,7 +34,7 @@ const styles = StyleSheet.create((theme) => ({
     copy: { flex: 1, minWidth: 0, gap: 2 },
     task: { color: theme.colors.text, fontSize: 12, ...Typography.default('semiBold') },
     meta: { color: theme.colors.textSecondary, fontSize: 11, ...Typography.default() },
-    more: { minHeight: 38, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 7 },
+    more: { minHeight: 44, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 7 },
     moreText: { color: theme.colors.textSecondary, fontSize: 11, ...Typography.default('semiBold') },
 }));
 
@@ -57,7 +57,7 @@ export const RecentActivity = React.memo((props: {
     return (
         <View style={styles.section}>
             <View style={styles.header}>
-                <Text style={styles.title}>While you were away</Text>
+                <Text accessibilityRole="header" aria-level={2} style={styles.title}>While you were away</Text>
             </View>
             <View style={styles.card}>
                 {visible.map((row) => {

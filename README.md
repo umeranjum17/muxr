@@ -10,11 +10,11 @@
 </p>
 
 <p align="center">
-  <strong>Every agent. The real terminal. In your pocket.</strong><br/>
-  muxr is a mobile-first client for the coding agents running on your computers. See the whole herd at a glance — who's working, who needs you, who's done. Open any agent's exact live terminal, prompt it like you're at the desk, and watch it keep executing on your machine. Not a dashboard about your agents — the same session, built for a thumb.
+  <strong>Every agent. The real terminal. In your browser and your pocket.</strong><br/>
+  muxr is a browser-first, self-hosted client for the coding agents running on your computers. See the whole herd at a glance — who's working, who needs you, who's done. Open any agent's exact live terminal, prompt it like you're at the desk, and watch it keep executing on your machine. Not a dashboard about your agents — the same session, built for a thumb.
 </p>
 
-<h3 align="center"><a href="https://trymuxr.com/docs/quickstart"><ins>Get muxr</ins></a></h3>
+<h3 align="center"><a href="https://trymuxr.com/demo"><ins>Try it in your browser</ins></a> · <a href="docs/user/install.md">Connect your computer</a></h3>
 
 <p align="center">
   <a href="https://play.google.com/apps/testing/com.trymuxr.app">Google Play testing</a> ·
@@ -31,7 +31,7 @@
 
 Coding agents made programming asynchronous: they work for minutes or hours, then stop and wait for you. Your phone is where you already are during those waits — but a terminal squeezed into a phone browser is unusable, and a notification app cannot actually answer.
 
-muxr is the control surface built natively for the phone: the full agent lifecycle on one screen, the exact terminal when you tap in, and a prompt box that talks to the same session. Execution, code, credentials, and model subscriptions stay on your computers.
+muxr is the control surface built natively for the phone: the full agent lifecycle on one screen, the exact terminal when you tap in, and a prompt box that talks to the same session. Execution, code, coding-agent credentials, and model subscriptions stay on your computers.
 
 ## See it in action
 
@@ -91,7 +91,7 @@ Open the real diff, inspect every changed line, then accept or reject it without
 
 Use native realtime speech-to-speech when typing is the slow part. Ask what changed, give a follow-up, and keep the same agent context.
 
-[Voice setup →](docs/VOICE-SETUP.md)
+[Daily use: voice →](docs/user/daily-use.md#voice)
 
 </td>
 <td width="55%">
@@ -118,32 +118,35 @@ Parallel agents work like a party: each has a job, a state, and moments when it 
 
 Your phone and computer stay connected over Wi-Fi, Tailscale, or a VPS you run. Nobody else runs your agents.
 
-Terminal text, prompts, responses, keystrokes, files, pairing secrets, and credentials remain end-to-end encrypted. Agents, repositories, model subscriptions, and encryption keys stay on your computer.
+Terminal text, prompts, responses, keystrokes, files, and pairing secrets remain end-to-end encrypted between your computer and each paired device. Agents, repositories, model subscriptions, and the coding agents' own API keys and credentials stay on your computer. Each paired phone or browser holds its own scoped device credential and the encryption keys for its pairing, so a compromised paired device can reach what that device was granted (its sessions, for the grant's role and lifetime) and nothing on your computer beyond that; revoke it from the machine to end that access.
 
-[Privacy and trust →](https://trymuxr.com/docs/privacy) · [Self-hosting →](docs/SELF-HOSTING.md)
+[Trust →](docs/user/trust.md) · [Configuration →](docs/user/configuration.md)
 
 ## Install
 
-You need [Node.js 22 or newer](https://nodejs.org/) on Linux, macOS, or WSL. muxr installs [Herdr](https://herdr.dev) during setup if it is missing.
+Try it first: [trymuxr.com/demo](https://trymuxr.com/demo) runs the real app against three scripted agents, nothing to install.
 
+To use it with your own agents, install muxr on the computer that runs them. **In Herdr** (recommended), then open the Setup pane:
+
+<!-- herdr-commands:start -->
+```text
+herdr plugin install umeranjum17/muxr/plugins/control --ref v0.1.28
+herdr plugin pane open --plugin muxr.control --entrypoint setup
+```
+<!-- herdr-commands:end -->
+
+**Without Herdr**, install the CLI with npm ([Node.js 22+](https://nodejs.org/)); setup installs Herdr for you:
+
+<!-- npm-commands:start -->
 ```bash
 npm install -g --ignore-scripts @trymuxr/cli@latest
 muxr
 ```
+<!-- npm-commands:end -->
 
-Want the newest build? Install it with `npm install -g --ignore-scripts @trymuxr/cli@nightly` and take its APK from the [nightly channel](https://trymuxr.com/downloads/nightly). The **Android app** installs alongside a stable one rather than replacing it, so you can keep both on the phone. On your computer both channels are the same CLI, so switching npm tags replaces the host you already run rather than adding a second one. Beta and dev are retired: moving across is that one install, and an older binary will not upgrade itself to a `-nightly` version.
+Setup checks the computer, recommends one browser-capable route, shows the plan, and changes nothing until **Apply**. Then open the printed pairing link in the browser you want to use — the app is served from your own computer and can be installed from there. The native Android and iOS apps are optional; `muxr pair --native` pairs them with a QR.
 
-Then install the mobile companion:
-
-- **Android (stable):** [download the stable APK](https://trymuxr.com/downloads/stable/android) · [stable checksum](https://trymuxr.com/downloads/stable/checksums)
-- **Google Play testing:** [join the testing track](https://play.google.com/apps/testing/com.trymuxr.app) — availability depends on Google review and testing access
-- **iOS TestFlight:** [open the public link](https://testflight.apple.com/join/aJSbs8pN) — build availability depends on Apple review and tester capacity. Store tracks review and roll out on their own schedule, so they do not move with the nightly APK
-- **Web:** pair an eight-hour read-only browser during self-hosted setup
-- **All builds:** [every download channel](https://trymuxr.com/downloads)
-
-Save the channel's checksum next to the downloaded APK as `SHA256SUMS`, verify it with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`. Each channel publishes its own checksum, so verify against the channel you downloaded from. Setup explains one recommended route—the healthy current route, Tailscale, an existing private network, an installed temporary tunnel, or same Wi-Fi—and changes nothing until **Apply setup**. Scan the one-use QR from the phone when it is ready.
-
-[Read the step-by-step quickstart →](https://trymuxr.com/docs/quickstart)
+[Install guide →](docs/user/install.md) · [Daily use →](docs/user/daily-use.md) · [Configuration →](docs/user/configuration.md) · [Trust →](docs/user/trust.md) · [Troubleshooting →](docs/user/troubleshooting.md)
 
 ## Use the agents you already have
 

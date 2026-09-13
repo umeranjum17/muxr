@@ -86,7 +86,8 @@ export interface RealtimeAudioHostFrame {
 
 export interface RealtimeAudioClearFrame { type: 'realtime.audio.clear' }
 export interface RealtimeStateFrame { type: 'realtime.state'; state: RealtimeState; detail?: string }
-export interface RealtimeTranscriptFrame { type: 'realtime.transcript'; role: 'user' | 'agent'; text: string }
+/** `final: false` is a cumulative interim (the whole utterance so far); the device replaces, never appends, until `final: true`. */
+export interface RealtimeTranscriptFrame { type: 'realtime.transcript'; role: 'user' | 'agent'; text: string; final: boolean }
 export interface RealtimeClosedFrame { type: 'realtime.closed'; reason?: string }
 export interface RealtimeAppRequestFrame {
     type: 'realtime.app.request';
@@ -226,7 +227,7 @@ export function parseRealtimeHostFrame(value: unknown): RealtimeHostFrame {
     }
     if (frame.type === 'realtime.transcript') {
         if (frame.role !== 'user' && frame.role !== 'agent') throw new Error('invalid realtime transcript role');
-        return { type: 'realtime.transcript', role: frame.role, text: boundedText(frame.text, MAX_REALTIME_TEXT_BYTES, 'transcript') };
+        return { type: 'realtime.transcript', role: frame.role, text: boundedText(frame.text, MAX_REALTIME_TEXT_BYTES, 'transcript'), final: frame.final !== false };
     }
     if (frame.type === 'realtime.app.request') {
         if (typeof frame.action !== 'string' || REALTIME_APP_ACTIONS[frame.action as RealtimeAppAction] !== true) {

@@ -205,7 +205,7 @@ export const Item = React.memo<ItemProps>((props) => {
                         // Allow multiline when requested or when content contains line breaks
                         const effectiveLines = subtitleLines !== undefined
                             ? (subtitleLines <= 0 ? undefined : subtitleLines)
-                            : (typeof subtitle === 'string' && subtitle.indexOf('\n') !== -1 ? undefined : 1);
+                            : (typeof subtitle === 'string' && subtitle.indexOf('\n') !== -1 ? undefined : 2);
                         return (
                             <Text
                                 style={[styles.subtitle, subtitleStyle]}

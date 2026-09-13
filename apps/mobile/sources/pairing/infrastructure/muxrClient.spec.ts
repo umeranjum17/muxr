@@ -8,7 +8,7 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('../application/hostedE2ee', () => ({
     refreshHostedGrant: vi.fn(async () => undefined),
-    DeviceV2Crypto: class {},
+    DeviceV2Crypto: class { grant = { keyVersion: 0 }; },
 }));
 
 import { MuxrClient } from './muxrClient';
@@ -173,6 +173,55 @@ describe('mobile relay liveness', () => {
         await vi.advanceTimersByTimeAsync(10);
         expect(FakeWebSocket.current).not.toBe(second);
         expect(client.isLive()).toBe(false);
+        client.close();
+    });
+
+    it('re-dials when the host never answers client.hello, then goes live on the next socket', async () => {
+        // A freshly paired phone can dial before the host has loaded the new
+        // device key; the dropped hello must not pin the client to connecting.
+        vi.useFakeTimers();
+        vi.stubGlobal('WebSocket', FakeWebSocket);
+        const client = new MuxrClient({ mode: 'local', relayUrl: 'ws://relay.test', machineId: 'machine-1', requestTimeoutMs: 100, reconnectDelayMs: 10 });
+        client.connect();
+        await vi.advanceTimersByTimeAsync(0);
+        const first = FakeWebSocket.current!;
+        expect(client.state).toBe('connecting');
+        await vi.advanceTimersByTimeAsync(150);
+        await vi.advanceTimersByTimeAsync(50);
+        const second = FakeWebSocket.current!;
+        expect(second).not.toBe(first);
+        second.onmessage?.({ data: JSON.stringify({
+            header: { machineId: 'machine-1', seq: 1, at: Date.now() },
+            payload: encodePayload({ type: 'plugins.invalidated', reason: 'changed', pluginIds: ['example.ui'] } as never),
+        }) });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(client.state).toBe('open');
+        client.close();
+        vi.useRealTimers();
+    });
+
+    it('reports an expired grant with its kind so the UI can offer re-pairing', async () => {
+        const { refreshHostedGrant } = await import('../application/hostedE2ee');
+        vi.mocked(refreshHostedGrant).mockResolvedValueOnce({ expiresAt: Date.now() - 1000, keyVersion: 2 } as never);
+        const failures: unknown[] = [];
+        const states: string[] = [];
+        const client = new MuxrClient({
+            mode: 'hosted',
+            relayUrl: 'wss://relay.test',
+            machineId: 'machine-1',
+            token: 'credential-1',
+            hostedGrant: { keyVersion: 1 } as never,
+            onPermanentError: (failure) => { failures.push(failure); },
+        });
+        client.onStateChange((state) => { states.push(state); });
+        client.connect();
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        expect(failures).toEqual([{
+            kind: 'grant-expired',
+            message: expect.stringContaining('expired'),
+        }]);
+        expect(states).toContain('stale');
+        expect(client.state).toBe('stale');
         client.close();
     });
 });

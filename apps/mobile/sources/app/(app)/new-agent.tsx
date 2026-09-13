@@ -10,6 +10,7 @@
 import * as React from 'react';
 import {
     ActivityIndicator,
+    Keyboard,
     Pressable,
     ScrollView,
     View,
@@ -24,7 +25,8 @@ import { Text } from '@/components/StyledText';
 import { StatusDot } from '@/components/StatusDot';
 import { Switch } from '@/components/Switch';
 import { AgentGlyph } from '@/components/AgentGlyph';
-import { DirectoryPicker } from '@/spawn/ui';
+import { DirectoryPicker, HomeDock } from '@/spawn/ui';
+import { useNewSessionDraft, useStartSessionFromDraft } from '@/spawn';
 import { agentStatusColor } from '@/herd';
 import {
     getCachedConnectionSettings,
@@ -128,7 +130,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     agentAvailability: {
         color: theme.colors.textSecondary,
-        fontSize: 10,
+        fontSize: 11,
         fontWeight: '600',
     },
     squadHint: {
@@ -249,6 +251,14 @@ export default function NewAgentScreen() {
     const [workspaces, setWorkspaces] = React.useState<HerdrTreeWorkspace[]>([]);
     const [busy, setBusy] = React.useState(false);
     const [error, setError] = React.useState<string | undefined>(undefined);
+    // The progressive single-agent flow is the shared HomeDock behavior, not
+    // a second form: same Agent/Project/Worktree/prompt/attachment/blank
+    // flow as the home composer, on every density. Squad and workspace-join
+    // stay below as explicit advanced options.
+    const [flowPrompt, setFlowPrompt] = React.useState(() => useNewSessionDraft.getState().input);
+    const storeInput = useNewSessionDraft((state) => state.input);
+    React.useEffect(() => { setFlowPrompt(storeInput); }, [storeInput]);
+    const { isStarting: isStartingFlowSession, startSession: startFlowSession } = useStartSessionFromDraft();
 
     React.useEffect(() => {
         if (!canControl) return undefined;
@@ -302,6 +312,27 @@ export default function NewAgentScreen() {
         ? catalog
         : catalog.filter((option) => option.availability !== 'unavailable');
     const directory = cwd.trim();
+
+    const handleFlowPromptChange = React.useCallback((value: string) => {
+        setFlowPrompt(value);
+        useNewSessionDraft.getState().setInput(value);
+    }, []);
+
+    const handleFlowPromptSubmit = React.useCallback(async (): Promise<boolean> => {
+        const prompt = flowPrompt.trim();
+        const attachments = useNewSessionDraft.getState().attachments;
+        if (!prompt && attachments.length === 0) {
+            return false;
+        }
+        useNewSessionDraft.getState().setInput(prompt);
+        Keyboard.dismiss();
+        return await startFlowSession() !== null;
+    }, [flowPrompt, startFlowSession]);
+
+    const handleFlowStartBlank = React.useCallback(async (): Promise<boolean> => {
+        Keyboard.dismiss();
+        return await startFlowSession({ blank: true }) !== null;
+    }, [startFlowSession]);
 
     const start = React.useCallback(async () => {
         if (kinds.length === 0) {
@@ -368,6 +399,26 @@ export default function NewAgentScreen() {
             </View>
 
             <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+                {/* --- Progressive start: the shared HomeDock flow ------------ */}
+                <View>
+                    <View style={styles.sectionLabelRow}>
+                        <Text style={styles.sectionLabel}>START</Text>
+                    </View>
+                    <HomeDock
+                        prompt={flowPrompt}
+                        onPromptChange={handleFlowPromptChange}
+                        onSubmit={handleFlowPromptSubmit}
+                        onStartBlank={handleFlowStartBlank}
+                        isSubmitting={isStartingFlowSession}
+                    />
+                </View>
+
+                {/* --- Advanced: squads and joining ---------------------------- */}
+                <View>
+                    <View style={styles.sectionLabelRow}>
+                        <Text style={styles.sectionLabel}>ADVANCED</Text>
+                    </View>
+                </View>
                 {/* --- Agent grid (multi-select -> squad) ---------------------- */}
                 <View>
                     <View style={styles.sectionLabelRow}>

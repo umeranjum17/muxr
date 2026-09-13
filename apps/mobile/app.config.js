@@ -1,6 +1,10 @@
 const { execFileSync } = require('node:child_process');
 const { withAndroidManifest } = require('@expo/config-plugins');
 
+// One version for the app: the release build's APP_VERSION, otherwise the
+// repository version. The Android versionName resolves the same way, so the
+// version the app reports is the version the package carries.
+const version = process.env.APP_VERSION || require('../../package.json').version;
 
 const variant = process.env.APP_ENV || 'development';
 if (!['development', 'preview', 'production'].includes(variant)) {
@@ -18,10 +22,11 @@ if (variant === 'production' && configuredAppId !== undefined && configuredAppId
 }
 const appIdBase = variant === 'production' ? PRODUCTION_APP_ID : configuredAppId || 'app.muxr.local';
 const bundleId = variant === 'production' ? appIdBase : `${appIdBase}.${variant === 'development' ? 'dev' : 'preview'}`;
-const publicBaseUrl = process.env.MUXR_PUBLIC_BASE_URL?.trim().replace(/\/$/, '');
-if (variant === 'production' && publicBaseUrl === undefined) {
-    throw new Error('MUXR_PUBLIC_BASE_URL is required for production publishing');
-}
+const publicBaseUrlRaw = process.env.MUXR_PUBLIC_BASE_URL?.trim().replace(/\/$/, '');
+// Production without a publishing origin is a self-host build: the client is
+// served from the owner's own machine, so no app links are emitted and no
+// base URL is baked in. Store builds pass MUXR_PUBLIC_BASE_URL at EAS time.
+const publicBaseUrl = publicBaseUrlRaw === '' ? undefined : publicBaseUrlRaw;
 let publicHost;
 if (publicBaseUrl !== undefined) {
     const parsedPublicUrl = URL.canParse(publicBaseUrl) ? new URL(publicBaseUrl) : undefined;
@@ -113,7 +118,7 @@ export default {
     expo: {
         name,
         slug: "muxr",
-        version: process.env.APP_VERSION || require('../../package.json').version,
+        version,
         runtimeVersion: "2",
         orientation: "default",
         icon: "./sources/assets/images/icon.png",
@@ -182,7 +187,15 @@ export default {
         web: {
             bundler: "metro",
             output: "single",
-            favicon: "./sources/assets/images/favicon.png"
+            favicon: "./sources/assets/images/favicon.png",
+            // PWA installability for the self-hosted browser client. The
+            // static manifest in public/manifest.webmanifest carries the
+            // icons; these fields keep `expo config` and the generated
+            // metadata consistent with it.
+            display: "standalone",
+            themeColor: "#000000",
+            backgroundColor: "#000000",
+            description: "Every coding agent on your phone — paired browser client for your own muxr host."
         },
         plugins: [
             withDevelopmentCleartext,

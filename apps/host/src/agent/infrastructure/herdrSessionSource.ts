@@ -54,7 +54,8 @@ import {
     shouldAdoptPublishedLaunch,
     type HerdrAgentSessionRef,
 } from './agentRouteStore.js';
-import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcInputDigest, rpcReplayKey, runPluginProcess, type HerdrPlugin, type PluginBackendCallTarget } from './pluginCatalog.js';
+import { pluginCatalogChange, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcInputDigest, rpcReplayKey, runPluginProcess, type HerdrPlugin, type PluginBackendCallTarget, attachmentsInvalidationFrame } from './pluginCatalog.js';
+import { markPromptDispatched } from './promptReceipts.js';
 import { PluginApprovals } from './pluginApprovals.js';
 import { PluginStreamManager } from './pluginStreamManager.js';
 import {
@@ -572,7 +573,11 @@ export function isRetryableCloseFailure(error: unknown): boolean {
 export async function createHerdrSessionSource(
     options: CreateHerdrSessionSourceOptions,
 ): Promise<SessionSource> {
-    const socketPath = options.socketPath ?? join(homedir(), '.config', 'herdr', 'herdr.sock');
+    // Socket selection: explicit options win, then HERDR_SOCKET_PATH — which
+    // the daemon unit captures at install (live env, else the file the Herdr
+    // control plugin persists per invocation) — then the default socket.
+    const socketPath = options.socketPath
+        ?? (process.env.HERDR_SOCKET_PATH?.trim() || join(homedir(), '.config', 'herdr', 'herdr.sock'));
     const routes = options.routes ?? new AgentRouteStore(options.dataDir);
     await routes.load();
     const catalog = new PluginCatalog();
@@ -616,6 +621,8 @@ export async function createHerdrSessionSource(
 
     const listeners = new Set<(sessionId: string, event: SessionEventBody) => void>();
     const machineListeners = new Set<(frame: PluginsInvalidatedFrame) => void>();
+    /** Authority consumers of the complete changed-provider set, told before the wire frame goes out. */
+    const catalogChangeListeners = new Set<(changedPluginIds: readonly string[]) => void>();
     const agentsByPane = new Map<string, AgentRecord>();
     const panesById = new Map<string, PaneRecord>();
     /** Last pane authorized by an Agent Route. It survives a vanished agent
@@ -901,7 +908,19 @@ export async function createHerdrSessionSource(
     /** Agent-dropped artifacts in the pane's dump dir. Listed on demand through the attachments plugin. */
     const attachmentsDir = options.attachmentsDir ?? join(homedir(), '.muxr', 'attachments', 'pane');
     const attachments = new AttachmentWatcher(attachmentsDir, () => {
-        const frame: PluginsInvalidatedFrame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: [] };
+        // Named: only the attachments plugin changed. An empty frame is
+        // the informational "reconcile everything" signal and would read
+        // as a full-catalog change to authority consumers.
+        let frame = attachmentsInvalidationFrame(BROWSER_RPC_PLUGINS_ROOT);
+        if (frame === undefined) {
+            // The bundled manifest could not be read: phones still need to
+            // reconcile their caches, so the empty informational frame
+            // goes out (it never touches lease authority) and the cause is
+            // logged locally instead of the reconciliation being lost.
+            // eslint-disable-next-line no-console
+            console.warn(`[muxr] attachments plugin manifest unreadable under ${BROWSER_RPC_PLUGINS_ROOT ?? '(no bundled plugins root)'}; sending an informational invalidation`);
+            frame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: [] };
+        }
         for (const listener of machineListeners) listener(frame);
     });
     attachments.start();
@@ -1803,6 +1822,12 @@ export async function createHerdrSessionSource(
      */
     async function promptSession(sessionId: string, text: string): Promise<void> {
         let session = await resolvePane(sessionId);
+        // A pane with no agent is a plain shell: the "prompt" is a command
+        // line, typed and submitted atomically (bracketed paste, then Enter).
+        if (session.agent === undefined) {
+            await client.call('pane.send_input', { pane_id: session.paneId, text, keys: ['Enter'] }).catch((error: unknown) => { throw markPromptDispatched(error); });
+            return;
+        }
         if (!agentPromptable(session)) {
             // Cheap event-driven wait first, then a short poll for the route
             // rebind that adoption performs a beat later.
@@ -1816,7 +1841,10 @@ export async function createHerdrSessionSource(
         }
         const promptable = agentPromptable(session);
         if (!promptable) options.onAgentReadinessDiagnostic?.('not-promptable', false, readinessDetail(session));
-        await promptPromptableHerdrAgent(client, session, promptable, text);
+        if (!promptable) throw agentRouteError('agent-not-ready');
+        // Past this call the text may have reached the agent even when the
+        // answer is lost, so the failure is uncertain, never a refusal.
+        await promptHerdrAgent(client, session, text).catch((error: unknown) => { throw markPromptDispatched(error); });
     }
 
     async function sendSessionKeys(sessionId: string, keys: string[]): Promise<void> {
@@ -1873,14 +1901,23 @@ export async function createHerdrSessionSource(
             pluginDigests = nextDigests;
             pluginEnabled = nextEnabled;
             if (previousDigests === undefined) return; // first snapshot establishes the baseline
-            const frame = pluginInvalidationFrame(
+            const change = pluginCatalogChange(
                 { digests: previousDigests, enabled: previousEnabled },
                 { digests: nextDigests, enabled: nextEnabled },
             );
-            if (frame === undefined) return;
+            if (change === undefined) return;
             // A changed/disabled manifest must not leave an old provider process live.
             pluginStreams?.closeAll();
-            for (const listener of machineListeners) listener(frame);
+            // Authority first, with every changed id: the wire frame below
+            // may be the bounded informational form.
+            for (const listener of [...catalogChangeListeners]) {
+                try {
+                    listener(change.changed);
+                } catch {
+                    /* one consumer's failure never blocks the others or the wire */
+                }
+            }
+            for (const listener of machineListeners) listener(change.frame);
         });
 
     /** Polls coalesce; freshness-critical callers get one trailing authoritative read. */
@@ -2162,6 +2199,14 @@ export async function createHerdrSessionSource(
             await pluginApprovals.set(deviceId, pluginId, approved);
         },
 
+        pluginApprovalRevision(deviceId, pluginId) {
+            return pluginApprovals.revision(deviceId, pluginId);
+        },
+
+        onPluginApprovalMutation(listener) {
+            return pluginApprovals.onMutation(listener);
+        },
+
         async pluginInvoke({ deviceId, pluginId, manifestHash, contributionId, sessionId, idempotencyKey }) {
             await refreshPlugins();
             if (!pluginApprovals.has(deviceId, pluginId)) throw new Error('plugin is not approved for this device');
@@ -2219,6 +2264,10 @@ export async function createHerdrSessionSource(
                 const voiceSession = catalog.streamClaimsCapability(pluginId, manifestHash, contributionId, 'voice.session');
                 let publicContext: RealtimePluginPublicContext | undefined;
                 if (voiceSession) {
+                    // Voice prompts and reads an agent; a plain shell has neither.
+                    if (record !== undefined && record.agent === undefined) {
+                        throw Object.assign(new Error('Voice needs an agent session. This pane is a plain shell with no agent to talk to.'), { code: 'voice-needs-agent' });
+                    }
                     publicContext = realtimePluginPublicContext(
                         currentSessions()
                             .filter((session) => session.agent !== undefined)
@@ -2935,6 +2984,11 @@ export async function createHerdrSessionSource(
         subscribe(listener: (sessionId: string, event: SessionEventBody) => void): () => void {
             listeners.add(listener);
             return () => listeners.delete(listener);
+        },
+
+        onPluginCatalogChange(listener) {
+            catalogChangeListeners.add(listener);
+            return () => catalogChangeListeners.delete(listener);
         },
 
         subscribeMachine(listener: (frame: PluginsInvalidatedFrame) => void): () => void {

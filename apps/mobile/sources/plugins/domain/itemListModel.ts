@@ -40,6 +40,8 @@ export interface PluginItemListModel {
     items: PluginItemListItem[];
     actions: PluginItemListAction[];
     badge?: PluginItemListBadge;
+    /** Real count when the plugin bounded `items`; absent means complete. */
+    total?: number;
     summary?: PluginItemMetadata[];
 }
 
@@ -144,6 +146,13 @@ export function asPluginItemList(value: unknown, validateAction: (value: unknown
         }
     });
     const modelBadge = badge(record.badge);
+    const total = typeof record.total === 'number' && Number.isSafeInteger(record.total) && record.total > items.length
+        ? Math.min(record.total, 99_999)
+        : undefined;
     const summary = metadata(record.summary);
-    return { items, actions, ...(modelBadge === undefined ? {} : { badge: modelBadge }), ...(summary.length === 0 ? {} : { summary }) };
+    const model: PluginItemListModel = { items, actions };
+    if (modelBadge !== undefined) model.badge = modelBadge;
+    if (total !== undefined) model.total = total;
+    if (summary.length > 0) model.summary = summary;
+    return model;
 }

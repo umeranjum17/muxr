@@ -1,8 +1,6 @@
 import * as React from 'react';
 import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
-import { PolarChart, Pie } from 'victory-native';
-import { Canvas, Path, Skia } from '@shopify/react-native-skia';
-import Animated, { Easing, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import type { PluginScreenChartNode, PluginScreenTone } from '@muxr/contract';
 import type { Theme } from '@/theme';
@@ -14,6 +12,12 @@ import { t } from '@/text';
 import { Typography } from '@/constants/Typography';
 import { cardStyle, Meter, SectionLabel, withAlpha } from '@/components/ui';
 import { useScreenContentWidth } from './pluginScreenLayout';
+import { MOTION, timing } from '@/constants/motion';
+
+// victory-native and the Skia canvas stay out of the initial load graph:
+// they render wide-screen-only chart pictures, loaded on demand.
+const GaugeArc = React.lazy(() => import('./chartCanvas').then((module) => ({ default: module.GaugeArc })));
+const WideRingChart = React.lazy(() => import('./chartCanvas').then((module) => ({ default: module.WideRingChart })));
 
 /** Reserved above every column so one labelled bar cannot shrink its own plot. */
 const LABEL_ROW = 15;
@@ -50,34 +54,27 @@ function chartSummary(title: string | undefined, series: PluginChartItem[], vari
 
 /**
  * Open-bottom arc, so the gap reads as the scale's start and end rather than as
- * a slice that was left out of a pie.
+ * a slice that was left out of a pie. Canvas-backed; Suspense covers the load.
  */
-function GaugeArc({ ratio, size, color, track }: { ratio: number; size: number; color: string; track: string }) {
-    const reduceMotion = useReducedMotion();
-    const sweep = useSharedValue(reduceMotion ? ratio : 0);
-    React.useEffect(() => {
-        sweep.value = reduceMotion ? ratio : withTiming(ratio, { duration: 620, easing: Easing.bezier(0.23, 1, 0.32, 1) });
-    }, [ratio, reduceMotion, sweep]);
-    const stroke = size * 0.085;
-    const radius = (size - stroke) / 2;
-    const box = Skia.XYWHRect(stroke / 2, stroke / 2, radius * 2, radius * 2);
-    const START = 135;
-    const SPAN = 270;
-    const trackPath = React.useMemo(() => {
-        const path = Skia.Path.Make();
-        path.addArc(box, START, SPAN);
-        return path;
-    }, [box]);
-    const valuePath = useDerivedValue(() => {
-        const path = Skia.Path.Make();
-        path.addArc(box, START, Math.max(0.001, SPAN * sweep.value));
-        return path;
-    });
+function GaugeArcSuspense(props: { ratio: number; size: number; color: string; track: string; label: string }) {
     return (
-        <Canvas style={{ width: size, height: size }}>
-            <Path path={trackPath} color={track} style="stroke" strokeWidth={stroke} strokeCap="round" />
-            <Path path={valuePath} color={color} style="stroke" strokeWidth={stroke} strokeCap="round" />
-        </Canvas>
+        <React.Suspense fallback={<View style={{ width: props.size, height: props.size }} />}>
+            <GaugeArc {...props} />
+        </React.Suspense>
+    );
+}
+
+function WideRingSuspense(props: {
+    slices: Array<{ label: string; value: number; color: string }>;
+    heroLabel: string;
+    heroValue: string;
+    title?: string;
+    reduceMotion: boolean;
+}) {
+    return (
+        <React.Suspense fallback={<View style={{ height: 132 }} />}>
+            <WideRingChart {...props} />
+        </React.Suspense>
     );
 }
 
@@ -88,7 +85,7 @@ function AnimatedColumn({ ratio, max, color, delay }: { ratio: number; max: numb
     const target = ratio <= 0 ? 0 : Math.max(2, Math.min(1, ratio) * max);
     const height = useSharedValue(reduceMotion ? target : 0);
     React.useEffect(() => {
-        height.value = reduceMotion ? target : withDelay(delay, withTiming(target, { duration: 480, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
+        height.value = reduceMotion ? target : withDelay(delay, withTiming(target, timing(MOTION.slow)));
     }, [delay, target, reduceMotion, height]);
     const animated = useAnimatedStyle(() => ({ height: height.value }));
     // No track behind the column: seven filled boxes with lighter boxes inside
@@ -168,7 +165,7 @@ export function ScreenChart({ node, data, nested }: { node: PluginScreenChartNod
                         {/* The arc is the picture and the number beside it is the
                             value; printing it inside the arc as well said it twice. */}
                         <View style={{ width: 84, height: 84 }}>
-                            <GaugeArc ratio={ratio} size={84} color={theme.colors.accent} track={withAlpha(theme.colors.accent, 0.1)} />
+                            <GaugeArcSuspense ratio={ratio} size={84} color={theme.colors.accent} track={withAlpha(theme.colors.accent, 0.1)} label={summary} />
                         </View>
                         <View style={{ flex: 1, minWidth: 0 }}>
                             <SectionLabel numberOfLines={1}>{hero.label}</SectionLabel>
@@ -244,19 +241,13 @@ export function ScreenChart({ node, data, nested }: { node: PluginScreenChartNod
             <View accessible accessibilityRole="image" accessibilityLabel={summary}
                 style={{ ...cardStyle(theme), marginBottom: 14, padding: 16 }}>
                 {title !== undefined && <SectionLabel style={{ marginBottom: 12 }}>{title}</SectionLabel>}
-                <View style={{ alignItems: 'center' }}>
-                    <View style={{ width: 132, height: 132 }}>
-                        <PolarChart data={slices} labelKey="label" valueKey="value" colorKey="color" containerStyle={{ width: 132, height: 132 }}>
-                            <Pie.Chart innerRadius="74%" startAngle={-90}>
-                                {() => <Pie.Slice {...(reduceMotion ? {} : { animate: { type: 'timing', duration: 500, easing: Easing.bezier(0.23, 1, 0.32, 1) } })} />}
-                            </Pie.Chart>
-                        </PolarChart>
-                        <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
-                            <Text style={{ color: theme.colors.text, fontSize: 24, letterSpacing: -0.5, ...Typography.mono('semiBold') }}>{chartValue(hero)}</Text>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 1 }}>{hero.label}</Text>
-                        </View>
-                    </View>
-                </View>
+                <WideRingSuspense
+                    slices={slices}
+                    heroLabel={hero.label}
+                    heroValue={chartValue(hero)}
+                    title={title}
+                    reduceMotion={reduceMotion}
+                />
                 {/* Two slices are Left/Used: the centre already names both. */}
                 {series.length >= 3 && (
                     <View style={{ marginTop: 14 }}>

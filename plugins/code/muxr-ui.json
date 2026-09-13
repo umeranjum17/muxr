@@ -2,6 +2,9 @@
   "schemaVersion": 1,
   "pluginId": "muxr.code",
   "minMuxrVersion": 11,
+  "capabilities": {
+    "surface.code.open": "files.read"
+  },
   "contributions": [
     {
       "slot": "host.rpc",

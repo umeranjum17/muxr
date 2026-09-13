@@ -1,6 +1,7 @@
 export { accepted, rejected, type Accepted, type Rejected, type Result } from './result.js';
 export {
     BROWSER_GRANT_TTL_MS,
+    BROWSER_PERSONAL_GRANT_TTL_MS,
     DURABLE_GRANT_EXPIRES_AT,
     defaultAuthorityFor,
     pairingIntent,

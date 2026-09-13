@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useWebBackCloses } from './useWebBackCloses';
 import {
     View,
     Text,
@@ -80,6 +81,7 @@ export function OptionSheet({
     const [provider, setProvider] = React.useState<string>(ALL_PROVIDERS);
 
     // A sheet reopened after a switch should start from a clean slate.
+    useWebBackCloses(visible, onClose, 'muxrSheet');
     React.useEffect(() => {
         if (!visible) {
             setSearch('');
@@ -322,7 +324,7 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.text,
     },
     railCount: {
-        fontSize: 10,
+        fontSize: 11,
         color: theme.colors.textSecondary,
         ...Typography.default(),
     },

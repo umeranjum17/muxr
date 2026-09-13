@@ -43,6 +43,39 @@ const panes = () => call('pane', 'list').panes ?? [];
 const agentless = () => panes().filter((pane) => !pane.agent);
 const enabledPlugins = () => (call('plugin', 'list', '--json').plugins ?? []).filter((plugin) => plugin.enabled);
 
+/**
+ * Whether a plugin action is a declared Surface launch.
+ *
+ * A Surface action opens a muxr Browser/Code surface through the host-local
+ * broker instead of a terminal pane: it receives the originating agent
+ * pane's context and creates no shell, PTY, tab, or pane of its own. The
+ * declaration lives in the plugin's own manifest (`herdr-plugin.toml`, a
+ * `[surface]` section with `launch = "broker"`), which herdr itself ignores
+ * -- so declaring it changes no public identity, action id, title,
+ * contexts, or command. Anything undeclared keeps the shell-anchor path.
+ */
+function isSurfaceAction(entry) {
+    try {
+        if (typeof entry.pluginRoot !== 'string' || !entry.pluginRoot.startsWith('/')) return false;
+        const manifest = readFileSync(join(entry.pluginRoot, 'herdr-plugin.toml'), 'utf8');
+        const lines = manifest.split('\n');
+        let inSurface = false;
+        for (const line of lines) {
+            const clean = line.split('#')[0].trim();
+            if (clean === '') continue;
+            const section = /^\[(.+)\]$/.exec(clean);
+            if (section) {
+                inSurface = section[1].trim() === 'surface';
+                continue;
+            }
+            if (inSurface && /^launch\s*=\s*"broker"$/.test(clean)) return true;
+        }
+        return false;
+    } catch {
+        return false;
+    }
+}
+
 function catalog() {
     const entries = [];
     const plugins = enabledPlugins()
@@ -124,7 +157,38 @@ if (method === 'list') {
 
     if (!Array.isArray(entry.command) || entry.command.length === 0 || !entry.command.every((part) => typeof part === 'string' && part.length > 0)
         || typeof entry.pluginRoot !== 'string' || !entry.pluginRoot.startsWith('/')) throw new Error('Tool launch command is unavailable. Reinstall its plugin.');
-    // Give every launch an owned tab. An action may split its anchor; its
+    // A declared Surface launch keeps the originating agent context and
+    // creates nothing: no tab, no anchor shell, no terminal pane. The
+    // source pane must be a live agent pane -- never a shell -- and the
+    // action runs with the source pane's own cwd, so the broker's strict
+    // context check passes without retargeting. The surface itself lands
+    // on the phone through the broker; there is no pane to navigate to.
+    if (isSurfaceAction(entry)) {
+        if (!source.agent) throw new Error('that terminal has no live agent session; open one first');
+        const surfaceCwd = String(source.foreground_cwd || source.cwd || homedir());
+        const context = { workspace_id: source.workspace_id, tab_id: source.tab_id, focused_pane_id: source.pane_id, focused_pane_cwd: surfaceCwd, invocation_source: 'muxr' };
+        const actionEnv = {
+            HOME: homedir(), PATH: TOOL_PATH,
+            HERDR_ENV: '1', HERDR_BIN_PATH: herdr,
+            HERDR_WORKSPACE_ID: source.workspace_id, HERDR_TAB_ID: source.tab_id, HERDR_PANE_ID: source.pane_id,
+            HERDR_PLUGIN_ID: entry.plugin, HERDR_PLUGIN_ACTION_ID: entry.actionId,
+            HERDR_PLUGIN_ROOT: entry.pluginRoot, HERDR_PLUGIN_CONTEXT_JSON: JSON.stringify(context),
+            ...(process.env.HERDR_SOCKET_PATH ? { HERDR_SOCKET_PATH: process.env.HERDR_SOCKET_PATH } : {}),
+        };
+        try {
+            const argv = entry.command.map((part) => {
+                if (isAbsolute(part) || part.startsWith('-')) return part;
+                const path = resolve(entry.pluginRoot, part);
+                try { return statSync(path).isFile() ? path : part; } catch { return part; }
+            });
+            run(argv[0], argv.slice(1), 15000, { cwd: surfaceCwd, env: actionEnv });
+            process.stdout.write(JSON.stringify({ opened: entry.title, surface: true }));
+        } catch (cause) {
+            process.stderr.write(`${entry.title} launch failed: ${String(cause?.message ?? cause).slice(0, 1000)}\n`);
+            throw new Error('The tool could not start. Check that its command is installed and runnable on the host, then try again.');
+        }
+    } else {
+    // Give every shell launch an owned tab. An action may split its anchor; its
     // result can never be confused with an unrelated pane created elsewhere.
     const created = call('tab', 'create', '--workspace', source.workspace_id, '--cwd', String(input.cwd || source.cwd || homedir()), '--label', entry.title, '--no-focus');
     const anchor = created.root_pane?.pane_id;
@@ -168,6 +232,7 @@ if (method === 'list') {
         throw new Error(remaining.length
             ? 'The tool did not finish starting. Its pane is available in Panes; check its output before retrying.'
             : 'The tool could not start. Check that its command is installed and runnable on the host, then try again.');
+    }
     }
 } else {
     throw new Error('unknown method');

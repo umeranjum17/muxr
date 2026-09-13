@@ -6,15 +6,36 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import { startAgentFromDock } from './StartAgentFromDock';
+import { sync } from '@/catalog/sync';
 
-function pathForeignToHome(path: string, homeDir: string): boolean {
-    if (path === '~' || (!path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path))) return false;
-    const home = homeDir.replace(/[/\\]+$/, '');
-    return path !== home && !path.startsWith(`${home}/`) && !path.startsWith(`${home}\\`);
+/**
+ * One submission at a time, app-wide. The Dock, focus mode, the sidebar's
+ * New session and the New Agent screen all submit the same draft; a second
+ * Send while the first is in flight must not start a second agent for the
+ * same intent, whichever surface it came from.
+ */
+let inFlight: Promise<string | null> | null = null;
+
+/** The draft exactly as it was submitted, so only that version is cleared. */
+function submittedDraftUnchanged(text: string, attachmentIds: string[]): boolean {
+    const current = useNewSessionDraft.getState();
+    return current.input.trim() === text
+        && current.attachments.length === attachmentIds.length
+        && current.attachments.every((item, index) => item.id === attachmentIds[index]);
 }
 
 /** Adapter: Dock draft + confirmations around StartAgentFromDock. */
-export async function startSessionFromDraft(options: {
+export function startSessionFromDraft(options: {
+    machines: Machine[];
+    navigateToSession: (sessionId: string) => void;
+    blank?: boolean;
+}): Promise<string | null> {
+    if (inFlight !== null) return inFlight;
+    inFlight = submitDraft(options).finally(() => { inFlight = null; });
+    return inFlight;
+}
+
+async function submitDraft(options: {
     machines: Machine[];
     navigateToSession: (sessionId: string) => void;
     blank?: boolean;
@@ -23,35 +44,49 @@ export async function startSessionFromDraft(options: {
     const machineId = getCachedConnectionSettings().machineId || draft.selectedMachineId;
     const machine = options.machines.find((candidate) => candidate.id === machineId);
     const blank = options.blank === true;
+    // A valid selection outside $HOME survives: the host validates the
+    // working directory. Machine switches already clear the draft path via
+    // setMachineId, and missing directories still ask below.
     const homeDir = machine?.metadata?.homeDir;
-    let selectedPath = draft.selectedPath?.trim() || '~';
-    if (homeDir && pathForeignToHome(selectedPath, homeDir)) {
-        selectedPath = '~';
-        draft.setPath(null);
-    }
+    const selectedPath = draft.selectedPath?.trim() || '~';
     const absolutePath = resolveAbsolutePath(selectedPath, homeDir);
     const worktree = WorktreeSelection.fromPickerKey(
         draft.sessionType === 'worktree' ? draft.worktreeKey ?? '__new__' : '__none__',
     );
 
     let createCwd = false;
+    const routed = { sessionId: null as string | null };
+    const prompt = blank ? '' : draft.input.trim();
+    const attachments = blank ? [] : draft.attachments;
+    const attachmentIds = attachments.map((item) => item.id);
     for (;;) {
         const result = await startAgentFromDock({
             machine,
             directory: absolutePath,
             worktree,
             providerKind: draft.agentType,
-            prompt: blank ? '' : draft.input.trim(),
-            attachments: blank ? [] : draft.attachments,
+            prompt,
+            attachments,
             createCwd,
+            // The session exists: the submitted draft now belongs to it, so
+            // the Dock releases exactly that version -- never text or images
+            // typed since -- and the route opens while delivery continues.
+            onRouteReady: (sessionId) => {
+                routed.sessionId = sessionId;
+                if (!blank && submittedDraftUnchanged(prompt, attachmentIds)) {
+                    const current = useNewSessionDraft.getState();
+                    current.setInput('');
+                    current.setAttachments([]);
+                }
+                options.navigateToSession(sessionId);
+            },
         });
         if (result.ok) {
-            if (!blank) {
-                draft.setInput('');
-                draft.setAttachments([]);
-            }
-            if (result.promptFailed) Modal.alert(t('common.error'), result.promptFailed);
-            options.navigateToSession(result.agentRoute);
+            // A failed first message already waits on the session's own
+            // submissions; nothing is cleared here, since the draft may be B.
+            // The session belongs to the computer it was started on; if the
+            // app is on another one now, do not open it there.
+            if (routed.sessionId !== result.agentRoute && sync.currentMachineId() === result.machineId) options.navigateToSession(result.agentRoute);
             return result.agentRoute;
         }
         if (result.reason === 'needs-directory' && !createCwd) {
