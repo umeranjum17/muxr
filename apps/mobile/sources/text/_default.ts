@@ -153,7 +153,7 @@ export const en = {
         machines: 'Machines',
         showOfflineMachines: ({ count }: { count: number }) => count === 1 ? 'Show 1 offline machine' : `Show ${count} offline machines`,
         hideOfflineMachines: 'Hide offline machines',
-        features: 'Features',
+        features: 'Preferences',
         social: 'Social',
         account: 'Account',
         accountSubtitle: 'Manage your account details',
@@ -170,7 +170,7 @@ export const en = {
         connection: 'Connection',
         connectionSubtitle: 'Relay URL, machine and token',
         pushNotifications: 'Push notifications',
-        pushSubtitleSubscribed: 'Blocked and failed agents',
+        pushSubtitleSubscribed: 'On for blocked and failed agents. Turn them off in the browser\'s site settings; the alert level is fixed when you turn this on.',
         pushSubtitleDenied: 'Blocked by the browser — allow notifications to enable',
         pushSubtitleUnsupported: 'Not available in this browser',
         pushSubtitleDefault: 'When an agent needs an answer',
@@ -188,15 +188,15 @@ export const en = {
             dark: 'Dark',
         },
         themeDescriptions: {
-            adaptive: 'Match system settings',
-            light: 'Always use light theme',
-            dark: 'Always use dark theme',
+            adaptive: 'Adaptive follows the device: light by day, dark when the device is. Applies now on this device.',
+            light: 'Light regardless of the device setting. Applies now on this device.',
+            dark: 'Dark regardless of the device setting. Applies now on this device.',
         },
         display: 'Display',
-        displayDescription: 'Control layout and spacing',
+        displayDescription: 'Applies now on this device.',
 
-        avatarStyle: 'Avatar Style',
-        avatarStyleDescription: 'Choose session avatar appearance',
+        avatarStyle: 'Avatar style',
+        avatarStyleDescription: 'The mark each session carries in lists. Brutalist is the default.',
         avatarOptions: {
             pixelated: 'Pixelated',
             gradient: 'Gradient',
@@ -615,7 +615,7 @@ export const en = {
     settingsLanguage: {
         // Language settings screen
         title: 'Language',
-        description: 'Choose your preferred language for the app interface. This will sync across all your devices.',
+        description: 'The language of the app interface. Applies after the app restarts, on this device only.',
         currentLanguage: 'Language',
         automatic: 'Automatic',
         automaticSubtitle: 'Detect from device settings',

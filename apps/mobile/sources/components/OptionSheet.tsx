@@ -148,7 +148,7 @@ function OptionSheetContent({
                     <Ionicons
                         name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
                         size={20}
-                        color={isSelected ? theme.colors.textLink : theme.colors.textSecondary}
+                        color={isSelected ? theme.colors.text : theme.colors.textSecondary}
                     />
                 )}
                 <View style={styles.rowCopy}>
@@ -158,7 +158,7 @@ function OptionSheetContent({
                     )}
                 </View>
                 {context && <Text style={styles.contextChip}>{context}</Text>}
-                {model.agentKind && isSelected && <Ionicons name="checkmark-circle" size={20} color={theme.colors.textLink} />}
+                {model.agentKind && isSelected && <Ionicons name="checkmark-circle" size={20} color={theme.colors.text} />}
             </Pressable>
             </SurfaceTheme>
         );

@@ -9,7 +9,7 @@ import { useSessions, useAllMachines, useMachine, useLocalSetting, useHerdrTree 
 import { Ionicons } from '@expo/vector-icons';
 import type { Session } from '@/catalog';
 import { Modal } from '@/modal';
-import { formatPathRelativeToHome, getSessionName, getSessionSubtitle, herdrPaneForSession } from '@/herd';
+import { formatOSPlatform, formatPathRelativeToHome, getSessionName, getSessionSubtitle, herdrPaneForSession } from '@/herd';
 import { isMachineOnline } from '@/pairing';
 import { sync } from '@/catalog/sync';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
@@ -293,7 +293,7 @@ export default function MachineDetailScreen() {
                                         ref={inputRef}
                                         value={customPath}
                                         onChangeText={setCustomPath}
-                                        placeholder={'Enter custom path'}
+                                        placeholder="Where the new session starts; absolute, or relative to home"
                                         maxHeight={76}
                                         paddingTop={8}
                                         paddingBottom={8}
@@ -366,7 +366,7 @@ export default function MachineDetailScreen() {
                         <Item
                             title={`Collaborates with ${formatNames(collaborators)}`}
                             subtitle="Computers connect directly; the phone is not required afterward"
-                            icon={<Ionicons name="git-network-outline" size={28} color="#5856D6" />}
+                            icon={<Ionicons name="git-network-outline" size={28} color={theme.colors.textSecondary} />}
                             onPress={() => router.push('/settings/collaboration' as any)}
                         />
                     </ItemGroup>
@@ -394,7 +394,7 @@ export default function MachineDetailScreen() {
                                     <Item
                                         title={t('machine.cliVersion')}
                                         subtitle={machine.daemonState.startedWithCliVersion}
-                                        subtitleStyle={{ fontFamily: 'Menlo', fontSize: 13 }}
+                                        mono
                                     />
                                 )}
                             </>
@@ -406,19 +406,20 @@ export default function MachineDetailScreen() {
                                     <Item
                                         title={t('machine.lastKnownPid')}
                                         subtitle={String(machine.daemonState.pid)}
-                                        subtitleStyle={{ fontFamily: 'Menlo', fontSize: 13 }}
+                                        mono
                                     />
                                 )}
                                 {machine.daemonState?.httpPort && (
                                     <Item
                                         title={t('machine.lastKnownHttpPort')}
                                         subtitle={String(machine.daemonState.httpPort)}
-                                        subtitleStyle={{ fontFamily: 'Menlo', fontSize: 13 }}
+                                        mono
                                     />
                                 )}
                                 <Item
                                     title={t('machine.daemonStateVersion')}
                                     subtitle={String(machine.daemonStateVersion)}
+                                    mono
                                 />
                             </>
                         )}
@@ -443,40 +444,43 @@ export default function MachineDetailScreen() {
                 <ItemGroup title={t('machine.machineGroup')}>
                         {relayUrl && (
                             <>
-                                <Item title="Transport" subtitle={pairingTransport(relayUrl) ?? 'Relay'} />
-                                <Item title="Relay" subtitle={relayUrl} subtitleLines={0} />
+                                <Item title="Route" subtitle="Inferred from the relay URL" detail={pairingTransport(relayUrl) ?? 'Relay'} />
+                                <Item title="Relay URL" subtitle={relayUrl} subtitleLines={0} mono />
                             </>
                         )}
                         {metadata?.muxrCliVersion && (
-                            <Item title="muxr CLI" subtitle={metadata.muxrCliVersion} />
+                            <Item title="muxr CLI" subtitle={metadata.muxrCliVersion} mono />
                         )}
                         <Item
                             title={t('machine.host')}
                             subtitle={metadata?.host || machineName}
+                            mono
                         />
                         {metadata?.username && (
                             <Item
                                 title={t('machine.username')}
                                 subtitle={metadata.username}
+                                mono
                             />
                         )}
                         {metadata?.homeDir && (
                             <Item
                                 title={t('machine.homeDirectory')}
                                 subtitle={metadata.homeDir}
-                                subtitleStyle={{ fontFamily: 'Menlo', fontSize: 13 }}
+                                mono
                             />
                         )}
                         {metadata?.platform && (
                             <Item
                                 title={t('machine.platform')}
-                                subtitle={metadata.platform}
+                                subtitle={formatOSPlatform(metadata.platform)}
                             />
                         )}
                         {metadata?.arch && (
                             <Item
                                 title={t('machine.architecture')}
                                 subtitle={metadata.arch}
+                                mono
                             />
                         )}
                         <Item
@@ -487,6 +491,7 @@ export default function MachineDetailScreen() {
                             <Item
                                 title={t('machine.metadataVersion')}
                                 subtitle={String(machine.metadataVersion)}
+                                mono
                             />
                         )}
                 </ItemGroup>

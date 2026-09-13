@@ -1,7 +1,8 @@
 import * as React from 'react';
 import * as Linking from 'expo-linking';
 import * as Clipboard from 'expo-clipboard';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Field } from '@/components/Field';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
@@ -454,16 +455,14 @@ export default function PairScreen() {
                         )}
                         {manualEntry && (
                         <>
-                        <Text style={styles.inputLabel}>{browser ? 'Enter the browser pairing link' : openedFromSettings ? 'Or paste the pairing string' : 'Enter pairing string manually'}</Text>
-                        <TextInput
+                        <Field
+                            label={browser ? 'Pairing link' : 'Pairing string'}
+                            helper={browser ? 'Printed by muxr pair --browser on the computer. It is a credential: anyone with it can pair until it is used or expires.' : 'Printed by muxr pair on the computer. It is a credential: anyone with it can pair until it is used or expires.'}
+                            style={{ paddingHorizontal: 0 }}
                             accessibilityLabel="Pairing string"
-                            autoCapitalize="none"
-                            autoCorrect={false}
                             keyboardType="url"
-                            placeholder={browser ? 'https://your-relay/pair?pair=7KDM4-QXP7N' : 'wss://your-relay?pair=7KDM4-QXP7N'}
-                            placeholderTextColor={styles.inputPlaceholder.color}
+                            placeholder={browser ? 'https://your-relay/pair?pair=…' : 'wss://your-relay?pair=…'}
                             returnKeyType="go"
-                            style={styles.input}
                             value={pairingValue}
                             onChangeText={setPairingValue}
                             onSubmitEditing={connectManual}
@@ -639,25 +638,6 @@ const styles = StyleSheet.create((theme) => ({
         flex: 1,
         fontSize: 14,
         lineHeight: 20,
-        color: theme.colors.textSecondary,
-    },
-    inputLabel: {
-        ...Typography.default('semiBold'),
-        fontSize: 14,
-        color: theme.colors.text,
-    },
-    input: {
-        ...Typography.default(),
-        height: 50,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-        backgroundColor: theme.colors.surfaceHighest,
-        color: theme.colors.text,
-        paddingHorizontal: 14,
-        fontSize: 15,
-    },
-    inputPlaceholder: {
         color: theme.colors.textSecondary,
     },
     errorText: {

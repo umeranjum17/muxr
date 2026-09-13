@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { ActivityIndicator, Switch } from 'react-native';
+import { ActivityIndicator } from 'react-native';
+import { Switch } from '@/components/Switch';
 import { MUXR_UI_VERSION, pluginCompatibilityError, type PluginManifestV1, type PluginSummary } from '@muxr/contract';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -99,7 +100,7 @@ export default function PluginsScreen() {
                             subtitle={[...(blocked === undefined ? [] : [t('plugins.unavailableLabel')]), blocked ?? plugin.description ?? describe(manifests[plugin.pluginId]), trust, requestedContexts(manifests[plugin.pluginId])].filter(Boolean).join(' · ')}
                             subtitleLines={2}
                             showChevron={false}
-                            rightElement={<Switch value={plugin.approved} onValueChange={(next) => void setApproved([plugin], next)} />}
+                            rightElement={<Switch value={plugin.approved} onValueChange={(next) => void setApproved([plugin], next)} accessibilityLabel={plugin.name} />}
                         />;
                     })}
                 </ItemGroup>

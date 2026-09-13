@@ -40,6 +40,8 @@ export interface ItemProps {
     pressableStyle?: StyleProp<ViewStyle>;
     copy?: boolean | string;
     accessibilityLabel?: string;
+    /** The subtitle and detail are machine values (host, URL, version, ID): set them in mono. */
+    mono?: boolean;
 }
 
 const stylesheet = StyleSheet.create((theme, runtime) => ({
@@ -100,6 +102,10 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         fontSize: 17,
         letterSpacing: -0.41,
     },
+    mono: {
+        ...Typography.mono('regular'),
+        letterSpacing: 0,
+    },
     divider: {
         height: Platform.select({ ios: 0.33, default: 0 }),
         backgroundColor: Platform.select({ web: theme.colors.divider, default: theme.colors.glass.divider }),
@@ -141,7 +147,8 @@ export const Item = React.memo<ItemProps>((props) => {
         dividerInset = isIOS ? 15 : 16,
         pressableStyle,
         copy,
-        accessibilityLabel
+        accessibilityLabel,
+        mono = false,
     } = props;
 
     // Handle copy functionality
@@ -208,7 +215,7 @@ export const Item = React.memo<ItemProps>((props) => {
                             : (typeof subtitle === 'string' && subtitle.indexOf('\n') !== -1 ? undefined : 2);
                         return (
                             <Text
-                                style={[styles.subtitle, subtitleStyle]}
+                                style={[styles.subtitle, mono && styles.mono, subtitleStyle]}
                                 numberOfLines={effectiveLines}
                             >
                                 {subtitle}
@@ -223,6 +230,7 @@ export const Item = React.memo<ItemProps>((props) => {
                         <Text 
                             style={[
                                 styles.detail, 
+                                mono && styles.mono,
                                 { marginRight: showAccessory ? 6 : 0 },
                                 detailStyle
                             ]}

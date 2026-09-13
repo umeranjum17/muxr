@@ -8,6 +8,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
 import { getCachedHostedGrant, listPairedGrants, removeHostedGrant } from '@/pairing/e2ee';
 import { forgetMachine as forgetPairedMachine, isMachineOnline } from '@/pairing';
+import { formatOSPlatform } from '@/herd';
 import { useAuth } from '@/account/ui';
 import { ItemList } from '@/components/ItemList';
 import { useLocalSettingMutable } from '@/catalog/store';
@@ -281,7 +282,7 @@ export const SettingsView = React.memo(function SettingsView({
 
             {/* Hosted machines require a persisted grant; live transport rows
                 cannot resurrect a pairing the user just forgot. */}
-            <ItemGroup title={t('settings.machines')}>
+            <ItemGroup title={t('settings.machines')} footer="Tap a computer to open it. The trash forgets its pairing on this device; the computer keeps running.">
                 {machineRows.map(({ id, live: machine }) => {
                     const isOnline = machine !== undefined && isMachineOnline(machine);
                     const host = machine?.metadata?.host;
@@ -292,7 +293,7 @@ export const SettingsView = React.memo(function SettingsView({
                         ? 'paired'
                         : isOnline ? t('status.online') : t('status.offline');
                     const safeHost = host && !/^machine[-_]/i.test(host) ? host : undefined;
-                    const platform = machine?.metadata?.platform || '';
+                    const platform = formatOSPlatform(machine?.metadata?.platform);
 
                     const title = displayName || pairedName || safeHost || 'Paired computer';
 
@@ -345,7 +346,7 @@ export const SettingsView = React.memo(function SettingsView({
                         showChevron={false}
                         titleStyle={{
                             textAlign: 'center',
-                            color: theme.colors.textLink,
+                            color: theme.colors.textSecondary,
                         }}
                     />
                 )}
@@ -364,12 +365,6 @@ export const SettingsView = React.memo(function SettingsView({
                 />
             </ItemGroup>
             <ItemGroup title="App and plugins">
-                <Item
-                    title="Connection"
-                    subtitle="Status, transport, relay, and how to fix it"
-                    icon={<Ionicons name="link-outline" size={29} color={theme.colors.textSecondary} />}
-                    onPress={openConnection}
-                />
                 <Item
                     title="Realtime voice"
                     subtitle="Readiness on this computer and hands-free options"
@@ -437,11 +432,13 @@ export const SettingsView = React.memo(function SettingsView({
                 )}
                 {Platform.OS === 'web' && (
                     <Item
-                        title="Notifications"
+                        title={pushState === 'subscribed' ? 'Notifications' : 'Turn on notifications'}
                         subtitle={pushSubtitle}
-                        detail={pushState === 'subscribed' ? t('plugins.on') : t('plugins.off')}
+                        subtitleLines={0}
+                        detail={pushState === 'subscribed' ? t('plugins.on') : undefined}
                         icon={<Ionicons name="notifications-outline" size={29} color={theme.colors.textSecondary} />}
-                        onPress={handlePushToggle}
+                        onPress={pushState === 'subscribed' ? undefined : handlePushToggle}
+                        showChevron={false}
                         loading={pushBusy}
                     />
                 )}

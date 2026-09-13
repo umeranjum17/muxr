@@ -19,6 +19,9 @@ export const lightTheme = {
         warningCritical: '#FF3B30',
         warning: '#8E8E93',
         success: '#34C759',
+        // The one saturated thing on a form: the focused field, a secret's
+        // key mark and the confirm tick. 3:1 against white (#34C759 is 2.2:1).
+        formAccent: '#1F9D45',
         surface: '#ffffff',
         surfaceRipple: 'rgba(0, 0, 0, 0.08)',
         surfacePressed: '#f0f0f2',
@@ -269,6 +272,7 @@ export const darkTheme = {
         warningCritical: '#f38ba8',
         warning: '#77777d',
         success: '#94e2d5',
+        formAccent: '#30D158',
         // herdr ink palette: terminal darkest, app chrome one step up.
         surface: Platform.select({ web: '#1a1a1a', default: '#1a1a1a' }),
         surfaceRipple: Platform.select({ web: 'rgba(255, 255, 255, 0.08)', default: 'rgba(255, 255, 255, 0.07)' }),

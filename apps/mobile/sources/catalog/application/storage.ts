@@ -122,6 +122,7 @@ function buildSessionRowData(session: Session, workspaces: readonly HerdrTreeWor
 function buildSessionListViewData(
     sessions: Record<string, Session>,
     workspaces: readonly HerdrTreeWorkspace[],
+    sortByActivity: boolean = storage.getState().settings.sortSessionsByActivity,
 ): SessionListViewItem[] {
     const activeSessions: Session[] = [];
     const inactiveSessions: Session[] = [];
@@ -130,7 +131,7 @@ function buildSessionListViewData(
         if (isSessionActive(session)) activeSessions.push(session);
         else inactiveSessions.push(session);
     }
-    const sortKey = storage.getState().settings.sortSessionsByActivity
+    const sortKey = sortByActivity
         ? (s: Session) => s.lastMessageSentAt ?? s.createdAt
         : (s: Session) => s.createdAt;
     activeSessions.sort((a, b) => sortKey(b) - sortKey(a));
@@ -389,6 +390,11 @@ export const storage = create<StorageState>()((set, get) => ({
     applySettingsLocal: (patch) => set((state) => {
         const settings = { ...state.settings, ...patch };
         saveSettings(settings, state.settingsVersion ?? 0);
+        // The list's order reads the sort setting, so a change to it reorders
+        // the list now rather than on the next session change.
+        if ('sortSessionsByActivity' in patch) {
+            return { settings, sessionListViewData: buildSessionListViewData(state.sessions, state.herdrWorkspaces, settings.sortSessionsByActivity) };
+        }
         return { settings };
     }),
     updateSessionDraft: (sessionId, draft) => set((state) => {

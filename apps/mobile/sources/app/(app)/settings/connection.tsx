@@ -1,18 +1,21 @@
 import * as React from 'react';
 import * as Clipboard from 'expo-clipboard';
-import { Platform, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
-import { RoundButton } from '@/components/RoundButton';
-import { Typography } from '@/constants/Typography';
+import { Field } from '@/components/Field';
+import { SegmentedControl } from '@/components/SegmentedControl';
+import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import { useMachine, usePairingFailure, useSocketStatus } from '@/catalog/store';
 import { syncReconnect } from '@/catalog/sync';
 import {
     getCachedConnectionSettings,
     loadConnectionSettingsAsync,
+    pairingTransport,
     saveConnectionSettings,
 } from '@/connection';
+import { Modal } from '@/modal';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { Stack, useRouter } from 'expo-router';
@@ -21,40 +24,7 @@ import { ConnectionSupport } from '@/settings/presentation/ConnectionSupport';
 import { formatLatestConnectionFailure } from '@/catalog/infrastructure/connectionDiagnostics';
 
 const stylesheet = StyleSheet.create((theme) => ({
-    label: {
-        fontSize: 13,
-        color: theme.colors.textSecondary,
-        marginBottom: 6,
-        ...Typography.default('semiBold'),
-    },
-    input: {
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-        borderRadius: 10,
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        fontSize: 15,
-        color: theme.colors.text,
-        backgroundColor: theme.colors.surface,
-        ...Typography.mono(),
-    },
-    field: { paddingHorizontal: 16, paddingVertical: 10 },
-    hint: {
-        paddingHorizontal: 16,
-        paddingBottom: 12,
-        fontSize: 13,
-        lineHeight: 19,
-        color: theme.colors.textSecondary,
-        ...Typography.default(),
-    },
-    error: {
-        paddingHorizontal: 16,
-        paddingBottom: 8,
-        fontSize: 13,
-        color: theme.colors.textDestructive,
-        ...Typography.default(),
-    },
-    actions: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 24 },
+    row: { flexDirection: 'row', gap: 10, paddingHorizontal: 16 },
     dot: { width: 9, height: 9, borderRadius: 5 },
     dotOn: { backgroundColor: theme.colors.success },
     dotBusy: { backgroundColor: theme.colors.warning },
@@ -62,31 +32,16 @@ const stylesheet = StyleSheet.create((theme) => ({
     dotBad: { backgroundColor: theme.colors.textDestructive },
 }));
 
-function Field(props: {
-    label: string;
-    value: string;
-    onChange: (next: string) => void;
-    placeholder: string;
-    secure?: boolean;
-}) {
-    const styles = stylesheet;
-    const { theme } = useUnistyles();
-    return (
-        <View style={styles.field}>
-            <Text style={styles.label}>{props.label}</Text>
-            <TextInput
-                style={styles.input}
-                value={props.value}
-                onChangeText={props.onChange}
-                placeholder={props.placeholder}
-                placeholderTextColor={theme.colors.textSecondary}
-                autoCapitalize="none"
-                autoCorrect={false}
-                secureTextEntry={props.secure === true}
-                accessibilityLabel={props.label}
-            />
-        </View>
-    );
+const TRANSPORTS = [{ key: 'ws', label: 'ws' }, { key: 'wss', label: 'wss' }] as const;
+
+/** The relay URL as the form holds it: scheme, host and port apart. */
+function splitRelayUrl(relayUrl: string): { scheme: 'ws' | 'wss'; host: string; port: string } {
+    try {
+        const url = new URL(relayUrl);
+        return { scheme: url.protocol === 'wss:' ? 'wss' : 'ws', host: url.hostname, port: url.port };
+    } catch {
+        return { scheme: 'ws', host: '', port: '' };
+    }
 }
 
 export default function ConnectionSettingsScreen() {
@@ -117,11 +72,15 @@ export default function ConnectionSettingsScreen() {
         ? formatLatestConnectionFailure()
         : undefined;
     const [restartCopied, setRestartCopied] = React.useState(false);
+    const [urlCopied, setUrlCopied] = React.useState(false);
 
-    const [relayUrl, setRelayUrl] = React.useState(initial.relayUrl);
+    const { theme } = useUnistyles();
+    const [scheme, setScheme] = React.useState<'ws' | 'wss'>(() => splitRelayUrl(initial.relayUrl).scheme);
+    const [host, setHost] = React.useState(() => splitRelayUrl(initial.relayUrl).host);
+    const [port, setPort] = React.useState(() => splitRelayUrl(initial.relayUrl).port);
     const [machineId, setMachineId] = React.useState(initial.machineId);
     const [token, setToken] = React.useState(initial.token);
-    const [error, setError] = React.useState<string | undefined>(undefined);
+    const [error, setError] = React.useState<{ field: 'host' | 'port' | 'machine' | 'token'; text: string } | undefined>(undefined);
     const [saving, setSaving] = React.useState(false);
     const machine = useMachine(initial.machineId);
 
@@ -133,7 +92,10 @@ export default function ConnectionSettingsScreen() {
         void loadConnectionSettingsAsync().then((loaded) => {
             if (cancelled) return;
             setInitial(loaded);
-            setRelayUrl(loaded.relayUrl);
+            const parts = splitRelayUrl(loaded.relayUrl);
+            setScheme(parts.scheme);
+            setHost(parts.host);
+            setPort(parts.port);
             setMachineId(loaded.machineId);
             setToken(loaded.token);
         });
@@ -141,16 +103,14 @@ export default function ConnectionSettingsScreen() {
     }, []);
 
     if (initial.mode === 'hosted') {
-        const transport = initial.relayUrl.startsWith('wss://')
-            ? 'HTTPS/WSS transport + end-to-end encryption'
-            : 'Trusted-network WS transport + end-to-end encryption';
+        const route = pairingTransport(initial.relayUrl) ?? 'Relay';
+        const secure = initial.relayUrl.startsWith('wss://');
         const browserGrant = Platform.OS === 'web' ? getCachedHostedGrant(initial.machineId) : undefined;
         const browserExpiresAt = browserGrant?.expiresAt;
         const browserRole = browserGrant?.authority === 'control' ? 'Control' : 'View only';
         const browserMinutes = browserExpiresAt === undefined ? undefined : Math.max(0, Math.ceil((browserExpiresAt - clock) / 60_000));
         return (
             <ItemList>
-            <Stack.Screen options={{ title: 'Connection & updates' }} />
                 <ItemGroup title="Status">
                     <Item
                         title={statusText}
@@ -174,6 +134,7 @@ export default function ConnectionSettingsScreen() {
                             subtitle="Check this device's connection and that the computer is awake. If muxr runs as a background service there, copy and run muxr restart; if you started it in a terminal, restart it there."
                             subtitleLines={0}
                             detail={restartCopied ? 'Copied' : 'Copy muxr restart'}
+                            showChevron={false}
                             onPress={() => void Clipboard.setStringAsync('muxr restart').then((ok) => {
                                 if (ok === false) return;
                                 setRestartCopied(true);
@@ -181,61 +142,76 @@ export default function ConnectionSettingsScreen() {
                             }).catch(() => {})}
                         />
                     )}
-                    <Item title="Transport" subtitle={transport} subtitleLines={0} detail="Self-host" />
-                    <Item title="Relay" subtitle={initial.relayUrl} subtitleLines={0} />
-                    {Platform.OS === 'web' && <Item title="Browser access" subtitle={browserExpiresAt === undefined || browserMinutes === undefined
-                        ? `${browserRole} · pair again when it expires`
-                        : `${browserRole} · expires in ${Math.floor(browserMinutes / 60)}h ${browserMinutes % 60}m · ${new Date(browserExpiresAt).toLocaleString()}`} />}
+                </ItemGroup>
+
+                <ItemGroup title="This computer" footer="Route, port and relay URL are connectionMode, relayPort and relayUrl in selfhost.json on the computer. Change them with muxr setup there: each restarts the relay and host, and a new relay URL means pairing every device again. This app cannot change them.">
+                    <Item title="Route" subtitle={`${secure ? 'HTTPS/WSS' : 'WS'}, end-to-end encrypted either way. Inferred from the relay URL.`} subtitleLines={0} detail={route} />
+                    <Item title="Relay URL" subtitle={initial.relayUrl} subtitleLines={0} mono showChevron={false} detail={urlCopied ? 'Copied' : 'Copy'}
+                        onPress={() => void Clipboard.setStringAsync(initial.relayUrl).then((ok) => {
+                            if (ok === false) return;
+                            setUrlCopied(true);
+                            setTimeout(() => setUrlCopied(false), 2000);
+                        }).catch(() => {})} accessibilityLabel="Relay URL, tap to copy" />
+                    {Platform.OS === 'web' && <Item title="Browser access" detail={browserRole} subtitle={browserExpiresAt === undefined || browserMinutes === undefined
+                        ? 'Pair again when it expires'
+                        : `Expires in ${Math.floor(browserMinutes / 60)}h ${browserMinutes % 60}m. Pair again after that.`} />}
                 </ItemGroup>
 
                 <ConnectionSupport hostVersion={machine?.metadata?.muxrCliVersion} />
 
-                <ItemGroup title="Connection actions" footer="Your connection is end-to-end encrypted. Manage or revoke this device from muxr on the host.">
+                <ItemGroup title="Connection actions" footer="To stop this device reaching a computer, revoke it from the interactive muxr menu on that computer.">
                     <Item title="Reconnect now" subtitle="Drops the socket and dials again" onPress={() => void syncReconnect()} />
                     <Item title="Pair another machine" subtitle={Platform.OS === 'web' ? 'Paste the link printed by muxr pair --browser' : 'Scan the QR or enter the short string from muxr pair'} onPress={() => router.push('/pair?source=settings')} />
-                    <Text style={styles.hint}>
-                        To stop this device reaching a machine, revoke it from the interactive muxr menu.
-                    </Text>
                 </ItemGroup>
             </ItemList>
         );
     }
 
+    const relayUrl = `${scheme}://${host.trim()}${port.trim() === '' ? '' : `:${port.trim()}`}`;
+    const dirty = relayUrl !== initial.relayUrl || machineId.trim() !== initial.machineId || token.trim() !== initial.token;
+
     const save = async () => {
-        const url = relayUrl.trim();
-        // A bare host or an http:// URL is the mistake people make, and the
-        // failure mode is a silent 20s request timeout rather than anything
-        // that points at the cause.
-        if (!url.startsWith('ws://') && !url.startsWith('wss://')) {
-            setError('Relay URL must start with ws:// or wss://');
-            return;
-        }
-        if (machineId.trim().length === 0) {
-            setError('Machine name is required — it must match the host exactly.');
-            return;
-        }
+        if (host.trim() === '') { setError({ field: 'host', text: 'Host is required.' }); return; }
+        const portNumber = Number(port.trim());
+        if (port.trim() !== '' && (!Number.isInteger(portNumber) || portNumber < 1024 || portNumber > 65535)) { setError({ field: 'port', text: 'Port is 1024 to 65535.' }); return; }
+        if (machineId.trim() === '') { setError({ field: 'machine', text: 'Machine name is required; it must match the computer exactly.' }); return; }
         setError(undefined);
         setSaving(true);
         try {
             await saveConnectionSettings({
                 ...initial,
-                relayUrl: url,
+                relayUrl,
                 machineId: machineId.trim(),
                 token: token.trim(),
             });
             await syncReconnect();
+            router.back();
         } catch (e) {
-            setError(e instanceof Error ? e.message : String(e));
+            setError({ field: 'host', text: e instanceof Error ? e.message : String(e) });
         } finally {
             setSaving(false);
         }
     };
+    const cancel = () => {
+        if (!dirty) { router.back(); return; }
+        void Modal.confirm('Discard changes?', 'The relay settings on this device stay as they were.', { cancelText: 'Keep editing', confirmText: 'Discard', destructive: true })
+            .then((discard) => { if (discard) router.back(); });
+    };
 
     // Development harness only: a relay in dev mode still accepts these. Paired
     // machines never reach this branch, so the fields stay out of the normal UI.
+    // The screen holds a draft that one action commits, so its header is the
+    // staged pair: cancel on the left, the confirm tick on the right.
     return (
         <ItemList>
-            <Stack.Screen options={{ title: 'Connection & updates' }} />
+            <Stack.Screen options={{
+                headerTitle: 'Development relay',
+                headerBackVisible: false,
+                headerLeft: () => <HeaderBackButton icon="close" label="Cancel" onPress={cancel} />,
+                headerRight: () => saving
+                    ? <ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ marginRight: 8 }} />
+                    : <HeaderBackButton icon="checkmark" size={26} label="Save and connect" color={theme.colors.formAccent} disabled={!dirty} onPress={() => void save()} style={{ marginLeft: 0, marginRight: -8 }} />,
+            }} />
             <ItemGroup title="Status">
                 <Item
                     title={statusText}
@@ -245,19 +221,21 @@ export default function ConnectionSettingsScreen() {
                 />
             </ItemGroup>
             <ConnectionSupport hostVersion={machine?.metadata?.muxrCliVersion} />
-            <ItemGroup title="Development relay" footer="Printed by `muxr up` on the machine running the agents. A phone must use that machine's LAN address, not 127.0.0.1.">
-                <Field label="Relay URL" value={relayUrl} onChange={setRelayUrl} placeholder="ws://192.168.1.20:8792" />
-                <Field label="Machine name" value={machineId} onChange={setMachineId} placeholder="devbox" />
-                <Field label="Token" value={token} onChange={setToken} placeholder="required off loopback" secure />
-                {error !== undefined && <Text style={styles.error}>{error}</Text>}
-                <View style={styles.actions}>
-                    <RoundButton
-                        title={saving ? 'Connecting…' : 'Save and connect'}
-                        size="large"
-                        loading={saving}
-                        onPress={save}
-                    />
+            <ItemGroup title="Development relay" footer="Printed by muxr up on the computer running the agents. Saved on this device; confirming reconnects the app and changes nothing on the computer.">
+                <Field label="Transport" helper="ws is for a trusted network; wss is required for a browser or a public route.">
+                    <SegmentedControl accessibilityLabel="Transport" options={TRANSPORTS} value={scheme} onChange={setScheme} style={{ marginHorizontal: 0, marginVertical: 0 }} />
+                </Field>
+                <View style={styles.row}>
+                    <Field label="Host" style={{ flex: 3, paddingHorizontal: 0 }} value={host} onChangeText={setHost} placeholder="The computer's LAN address, not 127.0.0.1" keyboardType="url"
+                        error={error?.field === 'host' ? error.text : undefined} />
+                    <Field label="Port" style={{ flex: 1, paddingHorizontal: 0 }} value={port} onChangeText={setPort} placeholder="8792" keyboardType="number-pad"
+                        error={error?.field === 'port' ? error.text : undefined} />
                 </View>
+                <Field label="Machine name" value={machineId} onChangeText={setMachineId} placeholder="Exactly as the computer reports it"
+                    error={error?.field === 'machine' ? error.text : undefined} />
+                <Field label="Token" optional icon="key-outline" value={token} onChangeText={setToken} placeholder="Account token the relay issued" secureTextEntry
+                    helper="A relay off 127.0.0.1 refuses an empty token."
+                    error={error?.field === 'token' ? error.text : undefined} />
             </ItemGroup>
         </ItemList>
     );
