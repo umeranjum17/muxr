@@ -245,10 +245,11 @@ export function HostBrowserView(props: {
             <View
                 accessibilityRole="header"
                 accessibilityLabel={strip.label}
+                // One row, one action: a paused seat keeps its two choices on
+                // the cover below, so the strip never wraps into a second row.
                 style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    flexWrap: 'wrap',
                     gap: 8,
                     paddingHorizontal: 12,
                     paddingVertical: 8,
@@ -269,10 +270,7 @@ export function HostBrowserView(props: {
                 {snapshot.transition === undefined && (state === 'agent-driving' || state === 'waiting-for-you') && (
                     <Action label="Take control" icon="hand-right-outline" emphasis onPress={() => void takeover.take()} />
                 )}
-                {snapshot.transition === undefined && state === 'paused' && owning && (
-                    <Action label="Resume control" icon="play" onPress={() => void takeover.resume()} />
-                )}
-                {snapshot.transition === undefined && owning && (state === 'you-control' || state === 'paused' || state === 'taking-control') && (
+                {snapshot.transition === undefined && owning && (state === 'you-control' || state === 'taking-control') && (
                     <Action label="Give back" icon="return-down-back-outline" onPress={() => void giveBack()} />
                 )}
                 {snapshot.transition === undefined && (state === 'checking' || snapshot.failure !== undefined) && (
