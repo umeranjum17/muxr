@@ -1068,10 +1068,14 @@ class BrowserService {
                 const height = Math.min(4096, Math.max(320, Math.round(Number(viewport.height) || 800)));
                 const scale = Math.min(2, Math.max(1, Number(viewport.scale) || 1));
                 // Watching never changes the host viewport; only the seat holder's does.
+                const resized = session.captured && !this.watching(session) && (session.viewport.width !== width || session.viewport.height !== height);
                 if (!this.watching(session)) session.viewport = { width, height, scale };
                 if (session.state === 'taking-control' || session.state === 'you-control') {
                     await this.applyViewport(session);
-                    if (!session.captured) {
+                    // A rotated or resized display re-sizes the tab and
+                    // recaptures in place: the extension swaps the track on
+                    // the live peer, geometry follows with a new target.
+                    if (!session.captured || resized) {
                         try {
                             const captured = await this.captureTarget(session);
                             this.record(session, { by: 'service', note: `captured (${captured.invocation})` });

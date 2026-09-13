@@ -13,6 +13,7 @@ import { useDeviceAuthority } from '@/pairing';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
 import { DeclarativeNavigationItems } from '@/plugins/ui';
 import { pluginHref } from '@/plugins';
+import { SurfaceToolItems } from '@/preview/ui';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -183,6 +184,7 @@ export const SidebarView = React.memo(() => {
                     compact
                     onSelect={(_key, pluginId, contentId) => router.push(pluginHref(pluginId, contentId))}
                 />
+                <SurfaceToolItems sessionId={selectedSessionId} />
             </View>
 
             {/* Settings at bottom */}

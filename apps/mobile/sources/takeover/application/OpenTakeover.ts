@@ -200,6 +200,10 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
         return reply.message === undefined ? undefined : sealer.open(reply.message);
     };
 
+    const helloMessage = (forGeneration: number): unknown => ({ type: 'hello', generation: forGeneration, viewport: display.width > 0 && display.height > 0
+        ? { width: Math.round(display.width), height: Math.round(display.height), scale: Math.min(2, Math.max(1, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)) }
+        : undefined });
+
     /** One private peer per generation: hello, offer, sealed round trips, answer. */
     const connectMedia = async (): Promise<void> => {
         if (closed || status === undefined || status.state === 'ended') return;
@@ -236,9 +240,7 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
             // The service sizes the shared target to this device's usable
             // region before capture; a viewport that is not yet measured
             // falls back to the service default.
-            const hello = await signal({ type: 'hello', generation: forGeneration, viewport: display.width > 0 && display.height > 0
-                ? { width: Math.round(display.width), height: Math.round(display.height), scale: Math.min(2, Math.max(1, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)) }
-                : undefined });
+            const hello = await signal(helloMessage(forGeneration));
             if (!current()) return;
             if (isServiceMessage(hello) && hello.type === 'status') applyStatus(hello.status, false);
             const created = await createBrowserPeer({
@@ -291,6 +293,7 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
     };
 
     let rechecks = 0;
+    let refit: ReturnType<typeof setTimeout> | undefined;
     const refresh = async (): Promise<void> => {
         if (closed) return;
         failure = undefined;
@@ -433,8 +436,22 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
             }
         },
         displayed: (nextDisplay, nextFrame) => {
+            // Width is what rotation and a moving split change; the composer
+            // or keyboard only take height, and the frame letterboxes for that.
+            const resized = display.width > 0 && nextDisplay.width > 0 && Math.round(display.width) !== Math.round(nextDisplay.width);
             display = nextDisplay;
             frame = nextFrame;
+            // The seat holder's viewport follows its display: a fresh hello
+            // lets the service resize and recapture in place, same peer,
+            // same generation.
+            if (!resized || status?.state !== 'you-control' || !ownsSeat(status) || peer === undefined) return;
+            clearTimeout(refit);
+            refit = setTimeout(() => {
+                if (closed || status?.state !== 'you-control' || peer === undefined) return;
+                void signal(helloMessage(generation()))
+                    .then((reply) => { if (!closed && isServiceMessage(reply) && reply.type === 'status') applyStatus(reply.status, false); })
+                    .catch(() => undefined);
+            }, 250);
         },
         tap: (point) => {
             const target = mapped(point);
@@ -461,6 +478,7 @@ export function openTakeover(command: OpenTakeoverCommand): TakeoverSession {
             closed = true;
             clearInterval(heartbeat);
             clearInterval(sampler);
+            clearTimeout(refit);
             closePeer();
             listeners.clear();
         },

@@ -43,6 +43,11 @@ function stopCapture() {
 async function capture({ tabId, url, width, height, fps }) {
     if ((await tabUrl(tabId)) !== url) throw new Error('tab mapping changed before capture');
     const invoked = await chrome.runtime.sendMessage({ type: 'invoked', tabId }).catch(() => ({ at: null }));
+    // Chrome refuses a second capture of a tab with a live stream: an
+    // in-place recapture (resized display) ends the old stream first and
+    // swaps the new track onto the live sender below.
+    const previous = state.stream;
+    if (previous) for (const track of previous.getTracks()) track.stop();
     const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
     const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
@@ -56,7 +61,6 @@ async function capture({ tabId, url, width, height, fps }) {
     if (state.pc && state.track) {
         const sender = state.pc.getSenders().find((entry) => entry.track === state.track);
         if (sender) await sender.replaceTrack(track);
-        if (state.stream) for (const old of state.stream.getTracks()) old.stop();
     }
     state.stream = stream;
     state.track = track;

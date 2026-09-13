@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, AppState, Platform, Pressable, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, Keyboard, Platform, Pressable, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -9,7 +9,6 @@ import * as Clipboard from 'expo-clipboard';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { useWebImeComposing } from '@/components/useWebImeComposing';
-import { Modal } from '@/modal';
 import { setBrowserPrivate } from '@/../modules/browser-privacy';
 import type { SurfaceBrowserSessionOffer } from '@muxr/contract';
 import { openTakeover, ownershipStrip, type TakeoverSession, type TakeoverSnapshot } from '@/takeover';
@@ -199,10 +198,17 @@ export function HostBrowserView(props: {
     // No double-tap: a single tap must not wait out a second-tap window.
     const zoomStyle = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }, { translateY: y.value }, { scale: scale.value }] }));
 
-    const giveBack = React.useCallback(async () => {
-        const confirmed = await Modal.confirm('Give back control?', 'The agent will see this page and continue.', { cancelText: 'Keep control', confirmText: 'Give back' });
-        if (confirmed) { setDraft(''); await takeover.giveBack(); }
+    // Handing back is a moment inside the surface, not an alert over the
+    // window: the sheet sits on the page it is about to hand over, under the
+    // ownership strip that still says who is driving.
+    const [handingBack, setHandingBack] = React.useState(false);
+    const giveBack = React.useCallback(() => { Keyboard.dismiss(); setHandingBack(true); }, []);
+    const confirmGiveBack = React.useCallback(async () => {
+        setHandingBack(false);
+        setDraft('');
+        await takeover.giveBack();
     }, [takeover]);
+    React.useEffect(() => { if (!owning) setHandingBack(false); }, [owning]);
 
     const commit = React.useCallback((value: string) => {
         setDraft(value);
@@ -363,6 +369,22 @@ export function HostBrowserView(props: {
                 {covered && (
                     <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24, backgroundColor: theme.colors.surface }}>
                         {coverBody}
+                    </View>
+                )}
+                {handingBack && (
+                    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'flex-end' }}>
+                        <Pressable onPress={() => setHandingBack(false)} accessibilityLabel="Keep control" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.35)' }} />
+                        <View accessibilityViewIsModal style={{ margin: 12,  padding: 20, gap: 8, borderRadius: 16, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.divider, alignSelf: 'center', width: '100%', maxWidth: 480 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                <Ionicons name="return-down-back" size={20} color={theme.colors.text} />
+                                <Text style={{ ...Typography.default('semiBold'), fontSize: 17, color: theme.colors.text }}>Give the browser back?</Text>
+                            </View>
+                            <Text style={{ ...Typography.default(), color: theme.colors.textSecondary }}>The agent continues from this page as it is now. What you typed stays private.</Text>
+                            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
+                                <Action label="Keep control" onPress={() => setHandingBack(false)} />
+                                <Action label="Give back" icon="return-down-back" emphasis onPress={() => void confirmGiveBack()} />
+                            </View>
+                        </View>
                     </View>
                 )}
             </View>

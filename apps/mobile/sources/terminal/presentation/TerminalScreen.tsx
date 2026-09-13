@@ -70,7 +70,10 @@ function TerminalViewFallback() {
     );
 }
 
-export const TerminalScreen = React.memo((props: { id: string; machineId: string; onOpenBlankBrowser?: () => void }) => {
+/** One open surface (or the blank browser) as the session's pane actions list it. */
+export interface SurfaceAction { key: string; icon: string; label: string; shown: boolean; disabledReason?: string; onPress: () => void }
+
+export const TerminalScreen = React.memo((props: { id: string; machineId: string; surfaceActions?: SurfaceAction[] }) => {
     const { theme } = useUnistyles();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canControl = authority === 'control' && !authorityLoading;
@@ -889,13 +892,19 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                         elevation: 12,
                     }}>
                         <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
-                            {props.onOpenBlankBrowser !== undefined && (
-                                <Pressable onPress={() => { const open = props.onOpenBlankBrowser; setActionsOpen(false); open?.(); }} accessibilityRole="button" accessibilityLabel="Open a blank browser"
-                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                    <Ionicons name="globe-outline" size={18} color={theme.colors.textSecondary} />
-                                    <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Open blank browser</Text>
+                            {(props.surfaceActions ?? []).map((action) => (
+                                <Pressable key={action.key} onPress={() => { setActionsOpen(false); if (action.disabledReason === undefined) action.onPress(); }} accessibilityRole="button"
+                                    accessibilityLabel={`${action.shown ? 'Open' : 'Show'} ${action.label}${action.disabledReason === undefined ? '' : `, unavailable: ${action.disabledReason}`}`}
+                                    accessibilityState={{ selected: action.shown, disabled: action.disabledReason !== undefined }}
+                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: action.disabledReason === undefined ? 1 : 0.5 })}>
+                                    <Ionicons name={action.icon as never} size={18} color={action.shown ? theme.colors.accent : theme.colors.textSecondary} />
+                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                        <Text style={{ color: action.shown ? theme.colors.accent : theme.colors.text, fontSize: 15 }} numberOfLines={1}>{action.label}</Text>
+                                        {action.disabledReason !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }} numberOfLines={1}>{action.disabledReason}</Text>}
+                                    </View>
+                                    {action.shown && <Ionicons name="checkmark" size={16} color={theme.colors.accent} />}
                                 </Pressable>
-                            )}
+                            ))}
                             {(paneActions.length > 0 || recentTerminalLinks(props.id).length > 0) && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>}
                             <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />
                             {recentTerminalLinks(props.id).length > 0 && <>
