@@ -1,13 +1,11 @@
 import * as React from 'react';
-import { BackHandler, Keyboard, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { BackHandler, Keyboard, Pressable, View, useWindowDimensions } from 'react-native';
 import { router } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
-import { useKeyboardState } from 'react-native-keyboard-controller';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { hapticsSelection } from '@/components/haptics';
@@ -26,7 +24,10 @@ import {
     surfaceProviderApproved,
     type SurfaceBackRegistration,
 } from '@/preview/presentation/ProductSurfaceView';
-import { clampSurfaceRatio, defaultSurfaceRatio, planSurfaceDock, SURFACE_DIVIDER_ZONE_DP, surfaceLayoutForWindow } from '@/preview/application/surfaceLayout';
+import { clampSurfaceRatio, defaultSurfaceRatio, SURFACE_DIVIDER_ZONE_DP, surfaceLayoutForWindow } from '@/preview/application/surfaceLayout';
+import { reportShownSurface, useSurfaceFocusRequest } from '@/preview/application/surfaceFocus';
+import { surfaceIcon, surfaceLabel } from '@/preview/application/surfaceLabels';
+import type { SurfaceAction } from '@/terminal/ui';
 import { planSurfacePanes } from '@/preview/application/surfacePlacement';
 
 /**
@@ -41,9 +42,9 @@ import { planSurfacePanes } from '@/preview/application/surfacePlacement';
  * surfaces. Selection keys on the logical surface name, never the handle,
  * because an update replaces the handle.
  *
- * - Compact (below 764dp wide): Agent is the default. A quiet 64dp
- *   dock at the session edge offers ready surfaces; taps focus them.
- *   Offers never auto-select here.
+ * - Compact (below 764dp wide): Agent is the default. Ready surfaces are
+ *   listed where tools already live (the session's pane actions, the
+ *   sidebar Tools); a tap focuses one. Offers never auto-select here.
  * - Wide (both axes at/above the threshold): an incoming Browser `beside`
  *   offer is selected and mounted beside the Agent without moving keyboard
  *   focus; the divider adjusts the split.
@@ -81,82 +82,6 @@ const hiddenPaneStyle = {
 /** Native Changes destination every Code review provider declares. */
 const CODE_REVIEW_CONTENT_ID = 'changes.review';
 
-/** Human dock labels, derived per kind: no raw ids, no loopback origins. */
-function directHost(url: string): string {
-    if (url === 'about:blank') return 'Blank tab';
-    try {
-        return new URL(url).hostname;
-    } catch {
-        return url;
-    }
-}
-
-/** Preview and Agent browser are the two named destinations; the chip says which. */
-function dockName(offer: SurfaceEntry['offer']): string {
-    if (offer.kind === 'browser-local') return `Local · ${offer.title}`;
-    if (offer.kind === 'browser-direct') return `Site · ${directHost(offer.url)}`;
-    if (offer.kind === 'browser-session') return `Agent browser · ${offer.site === '' ? offer.title : offer.site}`;
-    return offer.title;
-}
-
-function codeTarget(path: string, line?: number): string {
-    if (path === '.') return 'Worktree root';
-    const base = path.split('/').pop() ?? path;
-    return line === undefined ? base : `${base}:${line}`;
-}
-
-function DockButton(props: {
-    icon: string;
-    title: string;
-    accessibilityLabel: string;
-    onPress: () => void;
-    onClose?: () => void;
-    closeLabel?: string;
-}): React.JSX.Element {
-    const { theme } = useUnistyles();
-    return (
-        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surfaceHigh, borderRadius: 999, marginRight: 8 }}>
-            <Pressable
-                onPress={props.onPress}
-                hitSlop={6}
-                accessibilityRole="button"
-                accessibilityLabel={props.accessibilityLabel}
-                style={({ pressed }) => ({
-                    minHeight: 44,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 6,
-                    paddingLeft: 12,
-                    paddingRight: props.onClose === undefined ? 12 : 4,
-                    opacity: pressed ? 0.6 : 1,
-                })}
-            >
-                <Ionicons name={props.icon as never} size={16} color={theme.colors.textLink} />
-                <Text style={{ ...Typography.default('semiBold'), color: theme.colors.text, fontSize: 13 }} numberOfLines={1}>
-                    {props.title}
-                </Text>
-            </Pressable>
-            {props.onClose !== undefined && (
-                <Pressable
-                    onPress={props.onClose}
-                    hitSlop={6}
-                    accessibilityRole="button"
-                    accessibilityLabel={props.closeLabel ?? 'Dismiss surface'}
-                    style={({ pressed }) => ({
-                        width: 44,
-                        height: 44,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        opacity: pressed ? 0.6 : 1,
-                    })}
-                >
-                    <Ionicons name="close" size={16} color={theme.colors.textSecondary} />
-                </Pressable>
-            )}
-        </View>
-    );
-}
-
 export function AgentSurfaceWorkspace(props: { id: string }): React.JSX.Element {
     const { theme } = useUnistyles();
     const window = useWindowDimensions();
@@ -170,7 +95,6 @@ export function AgentSurfaceWorkspace(props: { id: string }): React.JSX.Element 
     const machineId = getCachedConnectionSettings().machineId;
     // Pairing-time display name, never the internal machine id.
     const machineLabel = getCachedHostedGrant(machineId)?.machineName;
-    const keyboardVisible = useKeyboardState().isVisible;
     const entries = useSurfaceEntries(machineId, props.id);
     const [catalogTick, bumpCatalog] = React.useReducer((count: number) => count + 1, 0);
     React.useEffect(() => subscribePlugins(bumpCatalog), []);
@@ -372,6 +296,18 @@ export function AgentSurfaceWorkspace(props: { id: string }): React.JSX.Element 
     }));
 
     const returnToAgent = React.useCallback(() => setFocus('agent'), []);
+    // Tools rows and pane actions ask for a surface by name; the shown name
+    // goes back out so those lists can mark it.
+    const focusRequest = useSurfaceFocusRequest(props.id);
+    React.useEffect(() => {
+        if (focusRequest === null) return;
+        const entry = findSurfaceEntry(machineId, props.id, focusRequest.name);
+        if (entry === undefined) return;
+        if (entry.offer.kind === 'code-review') openCodeEntry(entry);
+        else focusSurfaceName(focusRequest.name);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [focusRequest?.seq]);
+
     const openBlank = React.useCallback(() => {
         Keyboard.dismiss();
         setSelection(null);
@@ -495,106 +431,33 @@ export function AgentSurfaceWorkspace(props: { id: string }): React.JSX.Element 
             </View>
         );
     }
+    // Open surfaces live in the session's pane actions (no permanent chrome),
+    // the blank browser last. Unavailable offers say why instead of opening.
+    const surfaceActions = React.useMemo<SurfaceAction[]>(() => [
+        ...entries.flatMap((entry) => {
+            const approval = approvals.get(entry.handle);
+            if (approval === undefined || approval.state === 'pending') return [];
+            const label = surfaceLabel(entry.offer);
+            return [{
+                key: entry.handle,
+                icon: surfaceIcon(entry.offer),
+                label,
+                shown: selection === entry.offer.name,
+                ...(approval.state === 'unavailable' ? { disabledReason: approval.reason } : {}),
+                onPress: () => { if (entry.offer.kind === 'code-review') openCodeEntry(entry); else focusSurfaceName(entry.offer.name); },
+            }];
+        }),
+        { key: 'blank', icon: 'globe-outline', label: 'Open blank browser', shown: blankOpen, onPress: openBlank },
+    ], [entries, approvals, selection, blankOpen, openCodeEntry, focusSurfaceName, openBlank]);
+    React.useEffect(() => {
+        reportShownSurface(props.id, focus === 'surface' || wide ? selection : null);
+    }, [props.id, focus, wide, selection]);
+
     const plan = planSurfacePanes({ wide, focus, surfaceId });
     const split = wide && surfaceId !== null;
     React.useEffect(() => {
         splitShared.value = split;
     }, [split, splitShared]);
-
-    // The dock shows only when useful -- offers, a selected surface, or the
-    // blank entry -- and never while the keyboard is up (it would sit
-    // between the composer and the keyboard). Compact with zero offers and
-    // no surface shows no 64dp strip at all: the blank browser lives in the
-    // session pane-actions overflow instead. Wide with a mounted surface
-    // still exposes every other offer (dock/chips) while hiding the
-    // selected duplicate. It owns the bottom inset itself; the workspace
-    // root adds none, so insets never stack.
-    const hideSelected = wide && surfaceId !== null;
-    const visibleBrowserEntries = hideSelected
-        ? browserEntries.filter((entry) => entry.offer.name !== selection)
-        : browserEntries;
-    const visibleCodeEntries = hideSelected
-        ? codeEntries.filter((entry) => entry.offer.name !== selection)
-        : codeEntries;
-    const { showDock } = planSurfaceDock({
-        wide,
-        keyboardVisible,
-        offerCount: entries.length,
-        otherOfferCount: visibleBrowserEntries.length + visibleCodeEntries.length,
-        surfaceMounted: surfaceId !== null,
-    });
-    const dock = showDock ? (
-        <View style={{
-            minHeight: 64,
-            flexDirection: 'row',
-            alignItems: 'center',
-            paddingHorizontal: 12,
-            paddingTop: 8,
-            paddingBottom: insets.bottom + 8,
-            backgroundColor: theme.colors.surface,
-            borderTopWidth: 1,
-            borderTopColor: theme.colors.divider,
-        }}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={{ alignItems: 'center' }}>
-                {visibleBrowserEntries.map((entry) => {
-                    const approval = approvals.get(entry.handle);
-                    if (approval === undefined || approval.state === 'pending') return null;
-                    if (approval.state === 'unavailable') {
-                        return (
-                            <Text key={entry.handle} style={{ ...Typography.default(), color: theme.colors.textSecondary, fontSize: 12, marginRight: 12 }} numberOfLines={1}>
-                                Browser unavailable · {approval.reason}
-                            </Text>
-                        );
-                    }
-                    const name = dockName(entry.offer);
-                    const open = selection === entry.offer.name;
-                    const title = open ? `${name} · Open` : name;
-                    return (
-                        <DockButton
-                            key={entry.handle}
-                            icon="globe-outline"
-                            title={title}
-                            accessibilityLabel={`${open ? 'Open' : 'Show'} ${name}`}
-                            onPress={() => focusSurfaceName(entry.offer.name)}
-                            onClose={() => closeOffer(entry)}
-                            closeLabel="Dismiss browser offer"
-                        />
-                    );
-                })}
-                {visibleCodeEntries.map((entry) => {
-                    const approval = approvals.get(entry.handle);
-                    if (approval === undefined || approval.state === 'pending') return null;
-                    if (approval.state === 'unavailable') {
-                        return (
-                            <Text key={entry.handle} style={{ ...Typography.default(), color: theme.colors.textSecondary, fontSize: 12, marginRight: 12 }} numberOfLines={1}>
-                                Code unavailable · {approval.reason}
-                            </Text>
-                        );
-                    }
-                    const target = entry.offer.kind === 'code-review'
-                        ? codeTarget(entry.offer.path, entry.offer.line)
-                        : entry.offer.title;
-                    return (
-                        <DockButton
-                            key={entry.handle}
-                            icon="code-outline"
-                            title={`Code · ${target}`}
-                            accessibilityLabel={`Open code review ${target}`}
-                            onPress={() => openCodeEntry(entry)}
-                            onClose={() => closeOffer(entry)}
-                            closeLabel="Dismiss code offer"
-                        />
-                    );
-                })}
-                {/* The blank browser lives in the session pane-actions
-                    overflow (zero permanent height), never as a permanent
-                    dock chip: compact with zero offers shows no dock. */}
-                {!hideSelected && (
-                <DockButton icon="globe-outline" title="Browser" accessibilityLabel="Open a blank browser" onPress={openBlank} />
-                )}
-            </ScrollView>
-        </View>
-    ) : null;
 
     return (
         <View style={{ flex: 1, backgroundColor: theme.colors.terminal.background }}>
@@ -625,7 +488,7 @@ export function AgentSurfaceWorkspace(props: { id: string }): React.JSX.Element 
                     accessibilityElementsHidden={plan.terminal.hidden}
                     importantForAccessibility={plan.terminal.hidden ? 'no-hide-descendants' : 'auto'}
                 >
-                    <TerminalRoute id={props.id} onOpenBlankBrowser={openBlank} />
+                    <TerminalRoute id={props.id} surfaceActions={surfaceActions} />
                 </Animated.View>
                 {wide && plan.surface !== null && (
                     <GestureDetector gesture={pan}>
@@ -664,7 +527,6 @@ export function AgentSurfaceWorkspace(props: { id: string }): React.JSX.Element 
                     </Animated.View>
                 )}
             </View>
-            {dock}
         </View>
     );
 }

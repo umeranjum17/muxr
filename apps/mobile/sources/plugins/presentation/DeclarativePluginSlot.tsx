@@ -160,10 +160,17 @@ function useBadgeCount(pluginId: string, manifestHash: string, source: PluginNav
 function NavigationItemButton({ contribution, pluginId, manifestHash, active, onPress, compact = false }: {
     contribution: PluginNavigationItem; pluginId: string; manifestHash: string; active?: boolean; onPress: () => void; compact?: boolean;
 }) {
-    const { theme } = useUnistyles();
     const label = resolvePluginText(contribution.label);
     const count = useBadgeCount(pluginId, manifestHash, contribution.badge);
     const badge = count > 0 ? `${count > 99 ? '99+' : count}` : undefined;
+    return <ToolRow icon={contribution.icon} label={label} badge={badge} active={active} compact={compact} onPress={onPress} />;
+}
+
+/** One Tools entry: the row plugins' navigation items use, shared with anything else listed under Tools. */
+export function ToolRow({ icon, label, badge, active, onPress, compact = false }: {
+    icon: string; label: string; badge?: string; active?: boolean; onPress: () => void; compact?: boolean;
+}) {
+    const { theme } = useUnistyles();
     // The compact pill keeps its 32px look; the pressable around it is 44px.
     const compactStyle = { minHeight: 44, justifyContent: 'center' as const };
     const pillStyle = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: active ? theme.colors.surfaceHigh : 'transparent' };
@@ -173,7 +180,7 @@ function NavigationItemButton({ contribution, pluginId, manifestHash, active, on
     else if (compact) labelColor = theme.colors.textSecondary;
     const content = <>
         <View>
-            <Ionicons name={contribution.icon as any} size={compact ? 15 : 24} color={active ? theme.colors.accent : theme.colors.textSecondary} />
+            <Ionicons name={icon as any} size={compact ? 15 : 24} color={active ? theme.colors.accent : theme.colors.textSecondary} />
             {badge !== undefined && !compact && <View accessibilityElementsHidden style={[badgeStyle(theme), { position: 'absolute', right: -18, top: -6 }]}>
                 <Text style={badgeTextStyle(theme)}>{badge}</Text>
             </View>}

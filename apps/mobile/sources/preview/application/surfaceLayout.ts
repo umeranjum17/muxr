@@ -54,27 +54,3 @@ export function surfacePaneWidths(ratio: number, containerWidth: number, divider
     const agent = ratio * available;
     return { agent, surface: available - agent };
 }
-
-/**
- * Whether the offers dock shows, and which entries it hides.
- *
- * Pure and dependency-free. Compact with zero offers and no surface shows
- * no 64dp strip (the blank browser lives in the session pane-actions
- * overflow); wide with a mounted surface still exposes every other offer
- * while hiding the selected duplicate; the keyboard always hides the dock.
- */
-export function planSurfaceDock(input: {
-    wide: boolean;
-    keyboardVisible: boolean;
-    /** Visible offers excluding the blank entry. */
-    offerCount: number;
-    /** Visible offers other than the selected surface. */
-    otherOfferCount: number;
-    /** A surface is mounted (selected offer, blank, or transient). */
-    surfaceMounted: boolean;
-}): { showDock: boolean } {
-    if (input.keyboardVisible) return { showDock: false };
-    if (!input.wide) return { showDock: input.offerCount > 0 || input.surfaceMounted };
-    if (!input.surfaceMounted) return { showDock: input.offerCount > 0 };
-    return { showDock: input.otherOfferCount > 0 };
-}
