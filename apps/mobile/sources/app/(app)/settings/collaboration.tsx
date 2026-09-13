@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import { Platform, Switch, Text, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
+import { Switch } from '@/components/Switch';
 import { useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -23,9 +24,11 @@ import {
     type PeerRequester,
 } from '@/collaboration';
 import { requestPairedMachine } from '@/collaboration';
+import { humanError } from '@/utils/errors';
+import { formatOSPlatform } from '@/herd';
 
 function showCollaborationError(cause: unknown) {
-    Modal.alert('Collaboration unavailable', cause instanceof Error ? cause.message : String(cause));
+    Modal.alert('Collaboration unavailable', humanError(cause).message);
 }
 
 function issueLabel(kind: CollaborationReport['issues'][string]['kind']): string {
@@ -34,17 +37,6 @@ function issueLabel(kind: CollaborationReport['issues'][string]['kind']): string
         case 'unauthorized': return 'Pair again';
         case 'unavailable': return 'Restart required';
         case 'offline': return 'Unavailable';
-    }
-}
-
-function platformName(value: string | undefined): string | undefined {
-    switch (value?.toLowerCase()) {
-        case 'darwin': return 'macOS';
-        case 'win32': return 'Windows';
-        case 'linux': return 'Linux';
-        case 'ios': return 'iOS';
-        case 'android': return 'Android';
-        default: return value?.trim() || undefined;
     }
 }
 
@@ -71,7 +63,7 @@ export default function ComputerCollaborationScreen() {
                 machineId: grant.machineId,
                 machineSigningPublicKey: grant.machineSigningPublicKey,
                 name: displayName || grant.machineName || safeHost || knownById.get(grant.machineId)?.name || 'Paired computer',
-                platform: platformName(live?.metadata?.platform) ?? knownById.get(grant.machineId)?.platform,
+                platform: (formatOSPlatform(live?.metadata?.platform) || undefined) ?? knownById.get(grant.machineId)?.platform,
             };
         });
     }, []);
@@ -128,7 +120,7 @@ export default function ComputerCollaborationScreen() {
                 machineId,
                 grant,
                 name: displayName || grant?.machineName || safeHost || known?.name || 'Paired computer',
-                platform: platformName(live?.metadata?.platform) ?? known?.platform,
+                platform: (formatOSPlatform(live?.metadata?.platform) || undefined) ?? known?.platform,
                 online: report?.reachableMachineIds.includes(machineId) === true,
                 collaborationState: report?.states[machineId],
                 issue: report?.issues[machineId],
@@ -259,12 +251,12 @@ export default function ComputerCollaborationScreen() {
                             title={row.name}
                             subtitle={`${[row.platform, availability, row.issue === undefined ? state : undefined].filter(Boolean).join(' • ')}${detail ? `\n${detail}` : ''}`}
                             subtitleLines={2}
-                            icon={<Ionicons name="desktop-outline" size={28} color={row.online ? theme.colors.status.connected : row.issue ? '#FF9F0A' : theme.colors.textSecondary} />}
+                            icon={<Ionicons name="desktop-outline" size={28} color={row.online ? theme.colors.status.connected : row.issue ? theme.colors.status.error : theme.colors.textSecondary} />}
                             rightElement={busy && checked ? undefined : (
                                 <Ionicons
                                     name={checked ? 'checkmark-circle' : 'ellipse-outline'}
                                     size={25}
-                                    color={checked ? theme.colors.status.connected : theme.colors.textSecondary}
+                                    color={checked ? theme.colors.text : theme.colors.textSecondary}
                                 />
                             )}
                             loading={busy && checked}
@@ -284,11 +276,11 @@ export default function ComputerCollaborationScreen() {
                 )}
             </ItemGroup>
 
-            <ItemGroup title="Permission" footer="Turn this off to revoke access. Starting new agents is not available yet. Shell, terminal takeover, destructive actions, and arbitrary plugin calls are never included.">
+            <ItemGroup title="Permission" footer={`Turn this off to revoke access; it applies on the selected computers now. Starting new agents is not available yet. Shell, terminal takeover, destructive actions, and arbitrary plugin calls are never included.${Platform.OS === 'web' ? ' Browser observe-only pairings cannot authorize collaboration; use the muxr phone app or a control pairing.' : ''}`}>
                 <Item
                     title="Agent collaboration"
                     subtitle="Read agent output, watch completion, and send prompts"
-                    icon={<Ionicons name="shield-checkmark-outline" size={28} color="#5856D6" />}
+                    icon={<Ionicons name="shield-checkmark-outline" size={28} color={theme.colors.textSecondary} />}
                     rightElement={(
                         <Switch
                             value={collaborationEnabled}
@@ -308,7 +300,7 @@ export default function ComputerCollaborationScreen() {
                         subtitle={selectionChanged && selected.length < 2
                             ? 'Select at least two computers, or turn off Agent collaboration'
                             : disconnecting ? 'Finish revoking access when the computers are reachable' : 'Try again when every selected computer is reachable'}
-                        icon={<Ionicons name={disconnecting ? 'unlink-outline' : 'refresh-outline'} size={28} color="#007AFF" />}
+                        icon={<Ionicons name={disconnecting ? 'unlink-outline' : 'refresh-outline'} size={28} color={theme.colors.textSecondary} />}
                         loading={busy}
                         disabled={busy || selectionChanged && selected.length < 2}
                         showChevron={false}
@@ -317,13 +309,6 @@ export default function ComputerCollaborationScreen() {
                 </ItemGroup>
             )}
 
-            {Platform.OS === 'web' && (
-                <View style={{ paddingHorizontal: 24, paddingBottom: 24 }}>
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>
-                        Browser observe-only pairings cannot authorize collaboration. Use the muxr phone app or a control pairing.
-                    </Text>
-                </View>
-            )}
         </ItemList>
     );
 }

@@ -55,6 +55,7 @@ export type ConnectionDiagnosticSocketFailureCode =
     | 'all-frames-rejected';
 export type ConnectionDiagnosticSocketCloseReason =
     | 'normal'
+    | 'host-gone'
     | 'going-away'
     | 'protocol-error'
     | 'unsupported-data'
@@ -306,6 +307,7 @@ export function socketCloseReason(code: number): ConnectionDiagnosticSocketClose
     if (code === 1012) return 'service-restart';
     if (code === 1013) return 'try-again';
     if (code === 4000) return 'replaced';
+    if (code === 4001) return 'host-gone';
     if (code >= 4000 && code <= 4999) return 'private';
     return 'other';
 }

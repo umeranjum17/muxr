@@ -18,6 +18,7 @@ import { subscribePluginDataInvalidation } from '../../application/pluginDataInv
 import { toneColor } from '../../domain/pluginTone';
 import { resolvePluginText } from '../../domain/pluginText';
 import { t } from '@/text';
+import { humanError } from '@/utils/errors';
 
 function flatten(nodes: PluginTreeNode[], depth = 0): Array<{ node: PluginTreeNode; depth: number }> {
     return nodes.flatMap((node) => [{ node, depth }, ...flatten(node.children ?? [], depth + 1)]);
@@ -84,7 +85,7 @@ export function TreeSheet({ context, pluginId, manifestHash, contribution }: Pri
             else await load();
         } catch (error) {
             hapticsError();
-            Modal.alert(t('plugins.actionFailed'), error instanceof Error ? error.message : String(error));
+            Modal.alert(t('plugins.actionFailed'), humanError(error).message);
         }
     }, [load, manifest, manifestHash, onClose, pluginId, router, sessionId]);
 

@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { View, Platform } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { CommandPaletteInput } from '@/components/CommandPalette/CommandPaletteInput';
 import { CommandPaletteResults } from '@/components/CommandPalette/CommandPaletteResults';
 import { useCommandPalette } from '@/components/CommandPalette/useCommandPalette';
@@ -45,9 +46,9 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
     );
 }
 
-const styles = StyleSheet.create({
+const styles = StyleSheet.create((theme) => ({
     container: {
-        backgroundColor: '#FFFFFF',
+        backgroundColor: theme.colors.surface,
         borderRadius: 16,
         width: '100%',
         maxWidth: 800, // Increased from 640 for wider input
@@ -58,7 +59,7 @@ const styles = StyleSheet.create({
             maxHeight: 500, // Fallback for native
         }),
         overflow: 'hidden',
-        shadowColor: '#000',
+        shadowColor: theme.colors.shadow.color,
         shadowOffset: {
             width: 0,
             height: 20,
@@ -67,6 +68,6 @@ const styles = StyleSheet.create({
         shadowRadius: 40,
         elevation: 20,
         borderWidth: 1,
-        borderColor: 'rgba(0, 0, 0, 0.08)',
+        borderColor: theme.colors.divider,
     },
-});
+}));

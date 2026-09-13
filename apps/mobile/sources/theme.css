@@ -6,6 +6,13 @@ html, body, #root {
     height: 100dvh;
 }
 
+/* The ground behind the app -- what shows while the keyboard resizes the
+   viewport or a route swaps -- is the app's own surface, read from the
+   theme variables Unistyles emits so it follows light/dark by itself. */
+html {
+    background-color: var(--colors-surface);
+}
+
 /* Disable overscroll bounce / pull-to-refresh on the whole page.
    Prevents scroll-chaining from inner scrollable elements to the body. */
 html, body {

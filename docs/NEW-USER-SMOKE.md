@@ -20,8 +20,13 @@ Primary gate: clean Linux VM plus a fresh API 36 Android emulator. Follow-up doc
    - Run `muxr setup` in the isolated HOME; do not run a second undocumented startup command.
    - Confirm relay health, host connection, owner-only state permissions, and a visible QR plus short two-minute pairing string.
 4. **Pair a fresh phone**
-   - Install the exact release build on a factory-reset emulator.
-   - Complete QR/pair-string consent. Confirm the app discovers or reaches only the chosen relay and reaches the Herd without email or checkout.
+    - Install the exact release build on a factory-reset emulator.
+    - Complete QR/pair-string consent. Confirm the app discovers or reaches only the chosen relay and reaches the Herd without email or checkout.
+4b. **Pair browsers (PWA acquisition)**
+    - Desktop tab: open the `/pair` link from `muxr pair --browser`, claim it, background the tab 5+ minutes, foreground and confirm live state within 3s without manual refresh.
+    - Android: pair in Chrome, then install the PWA and relaunch from the icon — still paired. Enable notifications in Settings and confirm a blocked agent notifies.
+    - iOS: Add to Home Screen from `/pair` *before* claiming, claim inside the installed app, relaunch — still paired.
+    - Revoke the browser device and prove its push subscription stops and its sockets fail.
 5. **Control real work**
    - Create a disposable git repository and start one real Herdr agent.
    - From the app: see working/waiting/done state, open its real terminal, send input, answer a prompt, stop/restart, and confirm the phone reflects Herdr truth.

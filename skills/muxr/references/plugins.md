@@ -17,7 +17,7 @@ realtime voice provider.
 
 ## Command loop
 
-```bash
+```
 muxr plugin docs
 muxr plugin create <name>
 muxr plugin clone <bundled-plugin-id> [destination]

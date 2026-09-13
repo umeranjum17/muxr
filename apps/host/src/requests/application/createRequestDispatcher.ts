@@ -10,6 +10,7 @@ import type {
     RequestResult,
     RequestType,
 } from '@muxr/contract';
+import { isPublishableSurfaceSession } from '@muxr/contract';
 import type { AgentWatchStores, SessionSource, TerminalManager } from '../../agent/index.js';
 import {
     answerAgent,
@@ -27,13 +28,18 @@ import {
 } from '../../agent/index.js';
 import type { PeerDeviceContext, PeerRuntime } from '../../peer/index.js';
 import { grantMayAdministerPeers, hostPlatformLabel, listMachines, observerGrantIsViewOnly } from '../../machine/index.js';
-import { attachPreview as attachPreviewTransport } from '../infrastructure/preview.js';
+import { attachPreview, probePreviewPort } from '../infrastructure/preview.js';
+import { createPreviewLeases, providerIdentity, type PreviewLeaseRegistry } from '../infrastructure/previewLeases.js';
+import type { PreviewGateway } from '../infrastructure/previewGateway.js';
+import type { PreviewEndpointRegistry } from '../infrastructure/previewEndpoint.js';
+import { createSurfaceOffers, type SurfaceOfferRegistry } from '../infrastructure/surfaceOffers.js';
+import { createBrowserSessionAdapter, type BrowserSessionAdapter } from '../infrastructure/browserSessions.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
 import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { runHerdrCli } from '../infrastructure/runHerdrCli.js';
-import { attachPreviewTunnel } from './attachPreviewTunnel.js';
+import { openPreview, probePreview } from './openPreview.js';
 
 export interface RequestDispatcherOptions {
     source: SessionSource;
@@ -49,11 +55,37 @@ export interface RequestDispatcherOptions {
     token?: string;
     /** Browser grants can observe but cannot mutate terminal/machine state. */
     canMutateDevice?: (deviceId: string) => boolean;
+    /**
+     * Whether a device holds an explicitly live, unexpired, control-authority
+     * grant right now. Surfaces need that stronger answer than the request gate
+     * does: a grant that was removed leaves no authority entry behind, and an
+     * absent entry must never read as permission. Hosted mode supplies it; an
+     * unhosted local host has no grant table and falls back to the request gate.
+     */
+    surfaceAuthority?: (deviceId: string) => boolean;
+    /** Endpoint leases for preview surfaces. One is created when absent. */
+    previewLeases?: PreviewLeaseRegistry;
+    /**
+     * Provider-neutral Surface offers. One is created when absent; the local
+     * broker and the device surface requests share it, so a product lease
+     * always resolves its endpoint from host-owned offer state.
+     */
+    surfaceOffers?: SurfaceOfferRegistry;
+    /**
+     * HTTPS preview delivery: the endpoint registry a product lease binds
+     * to and the gateway that admits its renderer. Absent means this host
+     * cannot serve an HTTPS preview and `preview.bootstrap` says so.
+     */
+    previewEndpoints?: PreviewEndpointRegistry;
+    previewGateway?: PreviewGateway;
+    /** Relay to the broker-owned browser service. One is created when absent; fail-closed if the service is not running. */
+    browserSessions?: BrowserSessionAdapter;
     peerRuntime?: PeerRuntime;
     getDeviceContext?: (deviceId: string) => PeerDeviceContext | undefined;
 }
 
-type RequestContext = { deviceId: string; requestId: string };
+/** `peerAdmitted`: reached through the authenticated peer runtime's receipt executor, never from a request field. */
+type RequestContext = { deviceId: string; requestId: string; peerAdmitted: boolean };
 type Handler<T extends RequestType> = (params: RequestMap[T]['params'], context: RequestContext) => Promise<RequestResult<T>>;
 type NonPeerRequestType = Exclude<RequestType, PeerRequestType>;
 type PluginExecutionRequest = Extract<ClientRequest, {
@@ -112,6 +144,246 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     dispatch(request: ClientRequest, authenticatedSenderId?: string): Promise<RequestResponse>;
 } {
     const { source, domain, machineId, hostVersion } = options;
+
+    // A device that has lost control authority can hold no surface. This
+    // predicate expires its leases and closes the listeners they hold, so it
+    // has to answer for a grant that is gone -- not merely for one recorded as
+    // view-only.
+    const deviceMayMutate = (deviceId: string): boolean => !observerGrantIsViewOnly(
+        options.getDeviceContext?.(deviceId)?.kind,
+        options.canMutateDevice?.(deviceId) !== false,
+    );
+    const deviceMayHoldSurface = (deviceId: string): boolean => {
+        if (options.surfaceAuthority !== undefined) return options.surfaceAuthority(deviceId) === true;
+        return deviceMayMutate(deviceId);
+    };
+    /**
+     * Digest of the enabled-and-approved plugin catalog a lease was issued
+     * under. Approval is part of standing: it throws on a failed read on
+     * purpose, and a revoked approval changes the digest so revalidation
+     * closes the tunnels it no longer covers. A catalog this host cannot
+     * read is not an empty catalog, and a lease must not be issued -- or
+     * kept -- under one.
+     */
+    /**
+     * Authority revisions: monotonic tokens moved by the owners of the
+     * state a lease stands on. The catalog token moves on every approval
+     * write through this dispatcher, on every plugins-invalidated frame
+     * from the herd, and whenever a catalog read observes a digest
+     * change. A session token moves on every session event the herd
+     * publishes for it (removal, replacement, status), on a tree
+     * connectivity flip, and whenever a liveness read observes a change.
+     * The registry captures the composite before its asynchronous reads
+     * and compares it synchronously before use, so a change the reads
+     * could not see still denies.
+     */
+    let catalogRevision = 0;
+    /**
+     * Monotonic provider generations, independent of anything observed by
+     * a read: a `plugins.invalidated` frame naming plugins advances each
+     * named provider's generation synchronously, so a relevant
+     * invalidation landing during an in-flight admission moves the token
+     * before the dial, while an unrelated provider's invalidation leaves
+     * a Browser token untouched. An empty frame is informational by
+     * contract (reconnect reconciliation, an unnameable change): it
+     * refreshes cache bookkeeping only and never moves authority or ends a
+     * holder -- an actual provider change surfaces through the exact
+     * provider identity on the next catalog read.
+     */
+    const providerGenerations = new Map<string, number>();
+    const sessionRevisions = new Map<string, number>();
+    let treeConnected: boolean | undefined;
+    const bumpCatalog = (): void => {
+        catalogRevision += 1;
+    };
+    const bumpSession = (sessionId: string): void => {
+        sessionRevisions.set(sessionId, (sessionRevisions.get(sessionId) ?? 0) + 1);
+    };
+    const bumpAllSessions = (): void => {
+        for (const sessionId of [...sessionRevisions.keys()]) bumpSession(sessionId);
+    };
+    const lastDigest = new Map<string, string>();
+    const lastLive = new Map<string, boolean>();
+    // Subscriptions live as long as the dispatcher does, like the lease
+    // registry they feed.
+    try {
+        source.subscribe((sessionId, event) => {
+            if (event.type === 'session.removed' || event.type === 'session.created'
+                || event.type === 'session.updated' || event.type === 'status.update') {
+                bumpSession(sessionId);
+            }
+        });
+    } catch {
+        /* a source without a stream still reconciles on read */
+    }
+    // A provider whose catalog identity changed: its generation moves and
+    // its current holders end, synchronously.
+    const providerChanged = (pluginId: string): void => {
+        providerGenerations.set(pluginId, (providerGenerations.get(pluginId) ?? 0) + 1);
+        previewLeases.invalidateProvider(pluginId);
+    };
+    try {
+        // Authoritative path from the catalog diff owner: the complete
+        // changed set, delivered before the bounded wire frame -- so a
+        // change too large for the wire to name still fences every
+        // affected provider.
+        source.onPluginCatalogChange?.((changed) => {
+            bumpCatalog();
+            for (const pluginId of changed) providerChanged(pluginId);
+        });
+    } catch {
+        /* a source without the hook still fences through named wire frames */
+    }
+    try {
+        // Wire frames: a named list is exhaustive by contract and fences
+        // the same way; the empty frame is informational (reconnect,
+        // attachments fallback) and refreshes cache bookkeeping only.
+        source.subscribeMachine?.((frame) => {
+            bumpCatalog();
+            const named = Array.isArray(frame.pluginIds) ? frame.pluginIds : [];
+            for (const pluginId of named) providerChanged(pluginId);
+        });
+    } catch {
+        /* same */
+    }
+    const pluginSnapshot = async (deviceId: string): Promise<string> => {
+        const listed = await source.pluginList(deviceId);
+        const digest = listed
+            .filter((plugin) => plugin.approved)
+            .map((plugin) => `${plugin.pluginId}:${plugin.manifestHash}`)
+            .sort()
+            .join('|');
+        // A first observation establishes the baseline; only a change
+        // from an earlier observation is a reconciliation the token
+        // records.
+        const previous = lastDigest.get(deviceId);
+        lastDigest.set(deviceId, digest);
+        if (previous !== undefined && previous !== digest) bumpCatalog();
+        return digest;
+    };
+    /** Same rule the registry applies: the exact provider's identity for product leases, the whole digest otherwise. */
+    const providerStillApproved = (lease: { provider?: string; snapshot: string }, current: string): boolean => {
+        if (lease.provider === undefined) return current === lease.snapshot;
+        const identity = providerIdentity(current, lease.provider);
+        return identity !== undefined && identity === providerIdentity(lease.snapshot, lease.provider);
+    };
+    const surfaceOffers = options.surfaceOffers ?? createSurfaceOffers();
+    const browserSessions = options.browserSessions ?? createBrowserSessionAdapter();
+    // A device may only act on a browser session it holds control authority
+    // for. `signal` additionally opens only under the separately pinned
+    // browser-service grant, which this host cannot read: an unpaired device
+    // that clears this gate still reveals nothing. An id-free failure keeps
+    // the ownership state the service reported so the phone reconciles.
+    const browserSessionCall = async <T>(deviceId: string, run: () => Promise<T>): Promise<T> => {
+        if (!deviceMayHoldSurface(deviceId)) {
+            throw new Error('this device grant cannot control the browser session; pair a control device');
+        }
+        return run();
+    };
+    const previewLeases = options.previewLeases ?? createPreviewLeases({
+        machineId,
+        authorized: deviceMayHoldSurface,
+        snapshot: (lease) => pluginSnapshot(lease.deviceId),
+        // A product lease stands only while its exact offer generation is
+        // still the current live record, in the exact live session it was
+        // issued for. Replace, close, expiry, and a session that moved on
+        // each answer undefined here and end the lease on the next check.
+        offerCurrent: (handle) => {
+            try {
+                const record = surfaceOffers.resolve(handle);
+                return { revision: record.revision, sessionId: record.sessionId };
+            } catch {
+                return undefined;
+            }
+        },
+        // The stored offer record cannot prove its own session is live:
+        // termination and replacement never rewrite it, and a cached
+        // disconnected tree still lists its panes. The herd is read live
+        // instead, and only a connected tree with a pane holding a
+        // publishable agent session under this exact id -- confirmed
+        // through an independent live status read that reconciles the
+        // session against current herd state rather than the cached
+        // tree -- keeps the lease standing. A disconnected tree is fail
+        // closed: cached state authorizes nothing, existing holders end,
+        // and a fresh attach reconciles once the herd is readable again.
+        sessionLive: async (sessionId) => {
+            const observed = (live: boolean): boolean => {
+                const previous = lastLive.get(sessionId);
+                lastLive.set(sessionId, live);
+                if (previous !== undefined && previous !== live) bumpSession(sessionId);
+                return live;
+            };
+            try {
+                const tree = await source.herdrTree();
+                const connected = tree.connected === true;
+                const previouslyConnected = treeConnected;
+                treeConnected = connected;
+                if (previouslyConnected !== undefined && previouslyConnected !== connected) bumpAllSessions();
+                if (!connected) return observed(false);
+                const present = tree.workspaces.some((workspace) =>
+                    workspace.tabs.some((tab) =>
+                        tab.panes.some((pane) =>
+                            pane.sessionId === sessionId
+                            && isPublishableSurfaceSession(pane.sessionId),
+                        ),
+                    ),
+                );
+                if (!present) return observed(false);
+                if (typeof source.status !== 'function') return observed(true);
+                try {
+                    await source.status(sessionId);
+                } catch {
+                    return observed(false);
+                }
+                return observed(true);
+            } catch {
+                return observed(false);
+            }
+        },
+        // The approval store's own fence leads the token: it moves before
+        // any approval persistence starts and is undefined while a
+        // mutation is in flight, so a check that starts or completes
+        // across a revocation is denied before any dial or extension.
+        authorityRevision: (lease) => {
+            // Fenced per (device, provider); a lease without a provider
+            // keeps the device-wide fence.
+            const approvals = typeof source.pluginApprovalRevision === 'function'
+                ? source.pluginApprovalRevision(lease.deviceId, lease.provider)
+                : 0;
+            if (approvals === undefined) return undefined;
+            // Catalog component: the exact provider's last observed identity
+            // for product leases -- an unrelated plugin's change does not
+            // move it -- and the whole-catalog revision for providerless
+            // ones. Before any observation the lease's own snapshot is the
+            // baseline.
+            const catalog = lease.provider === undefined
+                ? `${catalogRevision}`
+                : `${providerIdentity(lastDigest.get(lease.deviceId) ?? lease.snapshot, lease.provider) ?? 'absent'}/${providerGenerations.get(lease.provider) ?? 0}`;
+            return `${approvals}:${catalog}:${lease.offerSession === undefined ? '' : sessionRevisions.get(lease.offerSession) ?? 0}`;
+        },
+        // A renewed lease renews its offer alongside it, re-emitted
+        // unchanged: a live surface never watches its offer expire.
+        onRenew: (lease) => {
+            if (lease.offerHandle !== undefined) surfaceOffers.renew(lease.offerHandle);
+        },
+    });
+
+    // The gateway admits on this registry's standing and closes a lease's
+    // connections through its holder when the registry ends it.
+    options.previewGateway?.bindLeases(previewLeases);
+
+    // Event-driven: the approval store announces every mutation start with
+    // its exact device and plugin, and the registry ends the current
+    // holders standing on that approval in the same event turn -- while
+    // any catalog or session read is still pending, before persistence,
+    // and independently of the sweep.
+    try {
+        source.onPluginApprovalMutation?.((deviceId, pluginId) => {
+            previewLeases.invalidateAuthority(deviceId, pluginId);
+        });
+    } catch {
+        /* a source without the hook still fences through the token */
+    }
 
     const handlers: { [K in NonPeerRequestType]: Handler<K> } = {
         'session.list': async (params) => useCaseData(
@@ -202,8 +474,33 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'session.reload': async (params) => useCaseData(await stopAgent(
             { sessions: source }, { sessionId: params.sessionId, action: 'reload' },
         )),
-        'session.prompt': async ({ peerMutation: _peerMutation, ...params }) =>
-            useCaseData(await promptAgent(source, params)),
+        'session.prompt': async ({ peerMutation, promptId, promptNotValidAfter, ...params }, context) => {
+            const run = async (): Promise<null> => {
+                const result = await promptAgent(source, params);
+                if (result.ok) return result.data;
+                const error = new Error(result.error) as Error & { code?: string; promptDispatched?: true };
+                if (result.code !== undefined) error.code = result.code;
+                if (result.dispatched === true) error.promptDispatched = true;
+                throw error;
+            };
+            // Admitted peers carry their own durable receipt (peerMutation,
+            // executed by the peer runtime before this handler). Trust the
+            // dispatch context, never the field: an ordinary device offering
+            // peer metadata is refused. Every other client must identify the
+            // submission so a resend after a lost answer runs at most once.
+            if (context.peerAdmitted) return run();
+            if (peerMutation !== undefined) {
+                const error = new Error('peer mutation metadata is not accepted from this device') as Error & { code: string };
+                error.code = 'prompt-invalid';
+                throw error;
+            }
+            if (promptId === undefined && promptNotValidAfter === undefined) {
+                const error = new Error('session.prompt requires promptId and promptNotValidAfter on this host; update the app') as Error & { code: string };
+                error.code = 'prompt-id-required';
+                throw error;
+            }
+            return domain.prompts.once(context.deviceId, { promptId, notValidAfter: promptNotValidAfter, input: params }, run);
+        },
         'session.status': async (params) => useCaseData(
             await readAgentSession(source, { view: 'status', sessionId: params.sessionId }),
         ) as Awaited<ReturnType<SessionSource['status']>>,
@@ -231,13 +528,242 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'machine.shell': (params) => runMachineShell(params.command, params.cwd),
         'machine.listDir': (params) => listDir(params.path),
         'worktree.land': (params) => landWorktree(params.worktreePath, params.message, params.stash),
-        'preview.attach': async (params) => useCaseData(await attachPreviewTunnel({
-            ...(options.relayUrl === undefined ? {} : { relayUrl: options.relayUrl }),
-            machineId,
-            ...(options.token === undefined ? {} : { token: options.token }),
-            ...(options.requirePreviewEncryption === undefined ? {} : { requireEncryption: options.requirePreviewEncryption }),
-            attach: attachPreviewTransport,
-        }, params)),
+        'preview.probe': async (params) => {
+            const result = await probePreview(probePreviewPort, params);
+            return result.data;
+        },
+        'preview.lease': async (params, context) => {
+            // Product leases resolve their endpoint from a current local
+            // Browser offer. The phone names the offer handle and nothing
+            // else: a product port, provider or context submitted by the
+            // caller is refused rather than trusted. Developer leases keep
+            // their exact typed-port behavior.
+            if (params.access === 'product') {
+                if (typeof params.offer !== 'string' || params.offer === '') {
+                    throw new Error('preview: a surface needs its current local offer; open it again');
+                }
+                if (params.port !== undefined || params.provider !== undefined || params.context !== undefined) {
+                    throw new Error('preview: a surface names its offer, not its port or provider');
+                }
+                let record;
+                try {
+                    record = surfaceOffers.resolve(params.offer);
+                } catch {
+                    throw new Error('preview: that surface is no longer open; open it again');
+                }
+                if (record.offer.kind !== 'browser-local') {
+                    throw new Error('preview: that surface kind never creates a tunnel lease');
+                }
+                // The receiving device's own approvals decide, read live now:
+                // a provider it never approved -- or one it has since
+                // revoked -- names no endpoint for this device. A provider
+                // stored by the phone is never trusted; the caller names an
+                // offer handle and this table names everything else.
+                let summaries;
+                try {
+                    summaries = await source.pluginList(context.deviceId);
+                } catch {
+                    throw new Error('preview: this host cannot read its plugin catalog');
+                }
+                const approvedSnapshot = summaries
+                    .filter((plugin) => plugin.approved)
+                    .map((plugin) => `${plugin.pluginId}:${plugin.manifestHash}`)
+                    .sort()
+                    .join('|');
+                const approvedClaimants = summaries
+                    .filter((plugin) => plugin.approved
+                        && plugin.capabilities?.[record.offer.capability] !== undefined)
+                    .map((plugin) => plugin.pluginId);
+                if (!approvedClaimants.includes(record.offer.provider)) {
+                    throw new Error('preview: that surface provider is not approved on this device');
+                }
+                // Approval for this exact provider is being written (queued
+                // or in flight): nothing is issued on state that is about
+                // to change.
+                if (typeof source.pluginApprovalRevision === 'function'
+                    && source.pluginApprovalRevision(context.deviceId, record.offer.provider) === undefined) {
+                    throw new Error('preview: that surface provider\'s approval is changing; try again');
+                }
+                // The catalog read above awaited: a replace or close in that
+                // window must not still issue a lease. Resolve again and
+                // require the exact same generation.
+                let current: typeof record;
+                try {
+                    current = surfaceOffers.resolve(params.offer);
+                } catch {
+                    throw new Error('preview: that surface is no longer open; open it again');
+                }
+                if (current.handle !== record.handle || current.revision !== record.revision) {
+                    throw new Error('preview: that surface is no longer open; open it again');
+                }
+                // The lease binds the endpoint's current process generation:
+                // registration is idempotent and re-reads the listener now.
+                const endpoint = options.previewEndpoints?.register({
+                    context: record.offer.context,
+                    provider: record.offer.provider,
+                    port: record.offer.port,
+                });
+                const lease = previewLeases.issue({
+                    deviceId: context.deviceId,
+                    kind: params.kind,
+                    access: params.access,
+                    port: record.offer.port,
+                    provider: record.offer.provider,
+                    context: record.offer.context,
+                    snapshot: approvedSnapshot,
+                    offerHandle: record.handle,
+                    offerRevision: record.revision,
+                    ...(record.sessionId === undefined ? {} : { offerSession: record.sessionId }),
+                    ...(endpoint === undefined ? {} : { endpointGeneration: endpoint.generation }),
+                });
+                return { lease: lease.id, expiresAt: lease.expiresAt, kind: lease.kind };
+            }
+            if (params.offer !== undefined) {
+                throw new Error('preview: a developer surface names its port, not an offer');
+            }
+            if (params.port === undefined) throw new Error('preview: that is not a port on this machine');
+            const lease = previewLeases.issue({
+                deviceId: context.deviceId,
+                kind: params.kind,
+                access: params.access,
+                port: params.port,
+                ...(params.provider === undefined ? {} : { provider: params.provider }),
+                ...(params.context === undefined ? {} : { context: params.context }),
+                snapshot: await pluginSnapshot(context.deviceId),
+            });
+            // The endpoint and the snapshot stay on the host: the device gets an
+            // opaque id and an expiry, and nothing it could reuse elsewhere.
+            return { lease: lease.id, expiresAt: lease.expiresAt, kind: lease.kind };
+        },
+        'preview.release': async (params, context) => {
+            // Release ends the lease, and the gateway's holder closes every
+            // connection admitted under it.
+            previewLeases.release(params.lease, context.deviceId);
+            return null;
+        },
+        'preview.renew': async (params, context) => {
+            // Authenticated liveness from the holding device: the call
+            // itself, over the encrypted control plane, proves presence.
+            // The registry re-resolves the exact offer generation and
+            // re-reads approval before extending anything, and renews the
+            // bound offer alongside the lease.
+            const lease = await previewLeases.renew(params.lease, context.deviceId);
+            return { expiresAt: lease.expiresAt };
+        },
+        'preview.bootstrap': async (params, context) => {
+            const gateway = options.previewGateway;
+            const endpoints = options.previewEndpoints;
+            if (gateway === undefined || endpoints === undefined) {
+                throw new Error('preview: this computer cannot serve an HTTPS preview yet; update muxr');
+            }
+            // Device-bound resolve: expiry, device, offer generation and
+            // authority all re-read; developer leases have no endpoint.
+            const lease = previewLeases.resolve(params.lease, context.deviceId);
+            if (lease.access !== 'product' || lease.provider === undefined || lease.context === undefined
+                || lease.endpointGeneration === undefined || lease.offerHandle === undefined) {
+                throw new Error('preview: that surface has no HTTPS preview; open it again');
+            }
+            const endpoint = endpoints.get(endpoints.idFor({ context: lease.context, provider: lease.provider, port: lease.port }));
+            if (endpoint === undefined || endpoint.generation !== lease.endpointGeneration) {
+                // The app process behind the port changed since this lease
+                // was issued: a fresh lease binds the new generation.
+                throw new Error('preview: the app restarted; open it again');
+            }
+            const record = surfaceOffers.resolve(lease.offerHandle);
+            const path = record.offer.kind === 'browser-local' ? record.offer.path : '/';
+            return {
+                origin: endpoint.origin,
+                generation: endpoint.generation,
+                path,
+                bootstrap: gateway.mintBootstrap({ id: lease.id, deviceId: lease.deviceId }, endpoint, path),
+            };
+        },
+        // Relayed to the browser service, which is the sole authority. The
+        // device identity is the request context's, never a field. A device
+        // may act only on a session it holds control authority for; the
+        // service enforces ownership generation, the take barrier and, for
+        // signal, the browser-service grant this host cannot read.
+        'browser.session.status': async (params, context) =>
+            browserSessionCall(context.deviceId, () => browserSessions.status(params.session, context.deviceId)),
+        'browser.session.take': async (params, context) =>
+            browserSessionCall(context.deviceId, () => browserSessions.take(params, context.deviceId)),
+        'browser.session.pause': async (params, context) =>
+            browserSessionCall(context.deviceId, () => browserSessions.pause(params, context.deviceId)),
+        'browser.session.resume': async (params, context) =>
+            browserSessionCall(context.deviceId, () => browserSessions.resume(params, context.deviceId)),
+        'browser.session.return': async (params, context) =>
+            browserSessionCall(context.deviceId, () => browserSessions.return(params, context.deviceId)),
+        'browser.session.signal': async (params, context) =>
+            browserSessionCall(context.deviceId, () => browserSessions.signal(params, context.deviceId)),
+        // Enrollment is the owner's own device asking for its grant: gated
+        // on live control authority like every session call, bound to the
+        // authenticated device identity, never to a field.
+        'browser.session.enroll': async (params, context) => {
+            if (typeof params.devicePublicKey !== 'string' || params.devicePublicKey.length > 128) {
+                throw new Error('browser: enrollment needs this device\'s public key');
+            }
+            return browserSessionCall(context.deviceId, () => browserSessions.enroll(params.devicePublicKey, context.deviceId));
+        },
+        'preview.attach': async (params, context) => {
+            // Legacy path: the caller names a port (takeover streams and the
+            // typed dev-server preview). The lease path below never does.
+            if (params.lease === undefined) {
+                return useCaseData(await openPreview({
+                    ...(options.relayUrl === undefined ? {} : { relayUrl: options.relayUrl }),
+                    machineId,
+                    ...(options.token === undefined ? {} : { token: options.token }),
+                    ...(options.requirePreviewEncryption === undefined ? {} : { requireEncryption: options.requirePreviewEncryption }),
+                    attach: attachPreview,
+                }, { channel: params.channel, port: params.port as number, ...(params.key === undefined ? {} : { key: params.key }), ...(params.mode === undefined ? {} : { mode: params.mode }) }));
+            }
+            if (params.port !== undefined || params.mode !== undefined) {
+                throw new Error('preview: a surface names its lease, not a port');
+            }
+            if (options.relayUrl === undefined) throw new Error('preview: host has no relay url');
+            if (options.requirePreviewEncryption === true && params.key === undefined) {
+                throw new Error('preview: update the app to use encrypted preview');
+            }
+            if (params.key === undefined) throw new Error('preview: a leased surface requires an encrypted tunnel');
+            // Ownership before the await: the claim supersedes any tunnel
+            // already on the lease, and a lease released, expired or
+            // re-claimed while the relay dial ran loses below.
+            const claim = previewLeases.claim(params.lease, context.deviceId);
+            // A catalog that changed under the lease, or one this host cannot
+            // read at all, is the same answer: do not open the tunnel.
+            const snapshot = await pluginSnapshot(context.deviceId).catch(() => undefined);
+            if (snapshot === undefined || !providerStillApproved(claim, snapshot)) {
+                throw new Error('preview: the plugin snapshot changed; open the surface again');
+            }
+            const owner = { close: (): void => {}, dead: false };
+            const handle = (): void => owner.close();
+            const teardown = await attachPreview({
+                relayUrl: options.relayUrl,
+                machineId,
+                channel: params.channel,
+                port: claim.port,
+                ...(params.key === undefined ? {} : { key: params.key }),
+                ...(options.token === undefined ? {} : { token: options.token }),
+                // Re-read before every new upstream dial: a revoked device or
+                // a lease that lost standing opens no further connections.
+                authorize: () => previewLeases.stands(claim.id, context.deviceId),
+                onChannelClose: () => {
+                    owner.dead = true;
+                    previewLeases.releaseHeld(claim.id, handle);
+                },
+            });
+            owner.close = teardown;
+            // The relay dial gave revocation a window: recheck live standing
+            // after it, before handing anything over.
+            if (!(await previewLeases.standsLive(claim.id, context.deviceId)) || !previewLeases.settle(claim, handle)) {
+                teardown();
+                throw new Error('preview: that surface is no longer open; open it again');
+            }
+            if (owner.dead) {
+                owner.close();
+                throw new Error('preview: the tunnel closed before it was ready');
+            }
+            return null;
+        },
         'terminal.attach': async (params) => useCaseData(await openTerminal(options.terminals, params)),
         'terminal.detach': async (params) => {
             await closeTerminal(options.terminals, params);
@@ -245,7 +771,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
     };
 
-    async function dispatchCore(request: ClientRequest, authenticatedSenderId?: string): Promise<RequestResponse> {
+    async function dispatchCore(request: ClientRequest, authenticatedSenderId?: string, peerAdmitted = false): Promise<RequestResponse> {
         const deviceId = authenticatedSenderId ?? 'local';
         const isViewOnlyDevice = observerGrantIsViewOnly(
             options.getDeviceContext?.(deviceId)?.kind,
@@ -277,6 +803,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         if (isPluginExecutionRequest(request)) {
             try {
                 if (request.type === 'plugin.approve') {
+                    // The approval store is the owner: its per-provider
+                    // fence and mutation hook fire inside this call.
                     return fromUseCase(request.requestId, await runPluginAction(source, { action: 'approve', deviceId, ...request.params }));
                 }
                 if (request.type === 'plugin.invoke') {
@@ -307,7 +835,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             );
         }
         try {
-            const data = await handler(request.params, { deviceId, requestId: request.requestId });
+            const data = await handler(request.params, { deviceId, requestId: request.requestId, peerAdmitted });
             return ok(request.requestId, data);
         } catch (error: unknown) {
             return fromCaught(request.requestId, error);
@@ -350,7 +878,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                     context,
                     () => {
                         if (request.type === 'agent.watch') return dispatchPeerWatch(request);
-                        return dispatchCore(request, authenticatedSenderId);
+                        return dispatchCore(request, authenticatedSenderId, true);
                     },
                 );
             }

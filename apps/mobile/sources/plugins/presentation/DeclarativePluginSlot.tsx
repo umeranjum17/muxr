@@ -20,6 +20,7 @@ import { resolvePluginText } from '../domain/pluginText';
 import { t } from '@/text';
 import { ItemList } from './primitives/ItemList';
 import { CapabilityButton } from './primitives/CapabilityButton';
+import { humanError } from '@/utils/errors';
 
 function keyRowSend(key: PluginTerminalKeyRow['keys'][number], ctrl: boolean, shift: boolean): string {
     if (ctrl && shift) return key.ctrlShift ?? key.ctrl ?? key.shift ?? key.send;
@@ -28,13 +29,23 @@ function keyRowSend(key: PluginTerminalKeyRow['keys'][number], ctrl: boolean, sh
     return key.send;
 }
 
+// The count sits beside the icon, never on it: a surface ring keeps it legible
+// against whatever it lands next to.
+const badgeStyle = (theme: { colors: { accent: string; surface: string } }) => ({
+    minWidth: 17, height: 17, paddingHorizontal: 4, borderRadius: 9, alignItems: 'center' as const, justifyContent: 'center' as const,
+    backgroundColor: theme.colors.accent, borderWidth: 2, borderColor: theme.colors.surface,
+});
+const badgeTextStyle = (theme: { colors: { button: { primary: { tint: string } } } }) => ({
+    color: theme.colors.button.primary.tint, fontSize: 11, fontWeight: '700' as const, lineHeight: 13,
+});
+
 function KeyRow({ contribution, channel }: { contribution: PluginTerminalKeyRow; channel?: PluginTerminalChannel }) {
     const { theme } = useUnistyles();
     const [ctrl, setCtrl] = React.useState(false);
     const [shift, setShift] = React.useState(false);
     const style = (selected = false) => ({
         minWidth: 44,
-        minHeight: 40,
+        minHeight: 44,
         justifyContent: 'center' as const,
         alignItems: 'center' as const,
         paddingHorizontal: 10,
@@ -153,21 +164,29 @@ function NavigationItemButton({ contribution, pluginId, manifestHash, active, on
     const label = resolvePluginText(contribution.label);
     const count = useBadgeCount(pluginId, manifestHash, contribution.badge);
     const badge = count > 0 ? `${count > 99 ? '99+' : count}` : undefined;
-    const compactStyle = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: active ? theme.colors.surfaceHigh : 'transparent' };
-    const tabStyle = { flex: 1, alignItems: 'center' as const, paddingTop: 8, paddingBottom: 4 };
+    // The compact pill keeps its 32px look; the pressable around it is 44px.
+    const compactStyle = { minHeight: 44, justifyContent: 'center' as const };
+    const pillStyle = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: active ? theme.colors.surfaceHigh : 'transparent' };
+    const tabStyle = { flex: 1, alignItems: 'center' as const, minHeight: 44, justifyContent: 'center' as const, paddingTop: 8, paddingBottom: 4 };
     let labelColor = theme.colors.text;
     if (active) labelColor = theme.colors.accent;
     else if (compact) labelColor = theme.colors.textSecondary;
-    return <Pressable onPress={onPress} accessibilityRole={compact ? 'button' : 'tab'} accessibilityLabel={`${label}${badge === undefined ? '' : `, ${badge}`}`} hitSlop={compact ? 9 : undefined}
-        accessibilityState={compact ? undefined : { selected: active === true }}
-        style={compact ? compactStyle : tabStyle}>
+    const content = <>
         <View>
             <Ionicons name={contribution.icon as any} size={compact ? 15 : 24} color={active ? theme.colors.accent : theme.colors.textSecondary} />
-            {badge !== undefined && <View accessibilityElementsHidden style={{ position: 'absolute', right: -13, top: -8, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accent }}>
-                <Text style={{ color: theme.colors.button.primary.tint, fontSize: 9, fontWeight: '700' }}>{badge}</Text>
+            {badge !== undefined && !compact && <View accessibilityElementsHidden style={[badgeStyle(theme), { position: 'absolute', right: -18, top: -6 }]}>
+                <Text style={badgeTextStyle(theme)}>{badge}</Text>
             </View>}
         </View>
-        <Text style={{ color: labelColor, fontSize: compact ? 13 : 10, fontWeight: compact ? '600' : '400' }}>{label}</Text>
+        <Text style={{ color: labelColor, fontSize: compact ? 13 : 11, fontWeight: compact ? '600' : '400' }}>{label}</Text>
+        {badge !== undefined && compact && <View accessibilityElementsHidden style={badgeStyle(theme)}>
+            <Text style={badgeTextStyle(theme)}>{badge}</Text>
+        </View>}
+    </>;
+    return <Pressable onPress={onPress} accessibilityRole={compact ? 'button' : 'tab'} accessibilityLabel={`${label}${badge === undefined ? '' : `, ${badge}`}`}
+        accessibilityState={compact ? undefined : { selected: active === true }}
+        style={compact ? compactStyle : tabStyle}>
+        {compact ? <View style={pillStyle}>{content}</View> : content}
     </Pressable>;
 }
 
@@ -181,10 +200,12 @@ function DataCard({ contribution, pluginId, manifestHash, pluginName }: { contri
     const body = <><Text style={{ color: theme.colors.textSecondary, fontSize: 11 }}>{pluginName}</Text><View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>{data.failed && <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />}<Text style={{ flex: 1, color: data.failed ? theme.colors.textDestructive : theme.colors.textSecondary }}>{shown}</Text></View></>;
     if (contribution.presentation === 'sheet') {
         return <View>
-            <Pressable hitSlop={8} onPress={() => { if (data.failed) data.retry(); setOpen(true); }} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : resolvePluginText(contribution.title)}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh }}>
+            <Pressable onPress={() => { if (data.failed) data.retry(); setOpen(true); }} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : resolvePluginText(contribution.title)}
+                style={{ minHeight: 44, justifyContent: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh }}>
                 <Ionicons name="stats-chart-outline" size={15} color={theme.colors.text} />
                 <Text style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>{resolvePluginText(contribution.title)}</Text>
+                </View>
             </Pressable>
             <OptionSheet visible={open} title={resolvePluginText(contribution.title)} options={[]} onSelect={() => {}} onClose={() => setOpen(false)}
                 body={<View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>{body}</View>} />
@@ -359,13 +380,13 @@ export function DeclarativePhoneNavRow({ onSelect }: { onSelect: (pluginId: stri
     </>;
     if (width >= 560) {
         return (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
+            <View testID="phone-nav-row" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
                 {content}
             </View>
         );
     }
     return (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
+        <ScrollView testID="phone-nav-row" horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
             {content}
         </ScrollView>
     );
@@ -373,9 +394,10 @@ export function DeclarativePhoneNavRow({ onSelect }: { onSelect: (pluginId: stri
 
 export function DeclarativeSettingsItems() {
     const router = useRouter();
+    const { theme } = useUnistyles();
     useSlotContributions('settings.items');
-    return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'settings-item' ? [<Item key={`${summary.pluginId}:${contribution.id}`} title={resolvePluginText(contribution.label)} subtitle={contribution.subtitle === undefined ? undefined : resolvePluginText(contribution.subtitle)} icon={<Ionicons name={contribution.icon as any} size={29} color="#666" />} onPress={() => {
+    return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'settings-item' ? [<Item key={`${summary.pluginId}:${contribution.id}`} title={resolvePluginText(contribution.label)} subtitle={contribution.subtitle === undefined ? undefined : resolvePluginText(contribution.subtitle)} icon={<Ionicons name={contribution.icon as any} size={29} color={theme.colors.textSecondary} />} onPress={() => {
         void dispatchPluginAction(contribution.action, { router, pluginId: summary.pluginId, manifestHash: summary.manifestHash, manifest })
-            .catch((error: unknown) => Modal.alert('Plugin action unavailable', error instanceof Error ? error.message : String(error)));
+            .catch((error: unknown) => Modal.alert('Plugin action unavailable', humanError(error).message));
     }} />] : []))}</>;
 }

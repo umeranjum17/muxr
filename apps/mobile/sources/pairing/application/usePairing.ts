@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
-import { hostedPairingAuthority, hostedPairingDisplayName } from './hostedE2ee';
+import { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingLifetime } from './hostedE2ee';
 import { getCachedConnectionSettings } from '@/connection';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
@@ -29,8 +29,8 @@ export function useHostedPairing() {
             const approved = await Modal.confirm(
                 `Pair with ${hostedPairingDisplayName(url)}?`,
                 (Platform.OS === 'web'
-                    ? `This browser receives ${browserAuthority === 'control' ? 'full terminal and agent control' : 'view-only access'} for eight hours. Machine keys stay end-to-end encrypted with WebCrypto in this browser.\n\nOnly continue if you just ran \`${browserAuthority === 'control' ? 'muxr pair --browser' : 'muxr pair --browser-view'}\` there.`
-                    : 'This phone will be able to read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr.\n\nOnly continue if you just ran `muxr setup` or `muxr pair` there.')
+                    ? `This browser receives ${browserAuthority === 'control' ? 'full terminal and agent control' : 'view-only access'} for ${hostedPairingLifetime(url)}. Machine keys stay end-to-end encrypted with WebCrypto in this browser.\n\nOnly continue if you just ran ${browserAuthority === 'control' ? 'muxr pair --browser' : 'muxr pair --browser-view'} there.`
+                    : `This phone gets full control of ${hostedPairingDisplayName(url)} until revoked: it can read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr. Remove it with muxr devices on the computer, or forget the computer here.\n\nOnly continue if you just ran muxr setup or muxr pair there.`)
                 + (switching
                     ? '\n\nThis device is already paired to another machine — pairing switches the active connection to this one. The previous pairing stays saved and you can switch back from Settings.'
                     : ''),
@@ -110,7 +110,7 @@ export function usePairQrScanner(onScanned: (url: string) => void, enabled: bool
         // context reads as suspicious on a security product.
         const primed = await Modal.confirm(
             'Scan your machine QR',
-            'Point the camera at the QR code shown by `muxr setup` or `muxr pair` on your computer. The scan completes an end-to-end encrypted pairing — the image never leaves this phone.',
+            'Point the camera at the QR code shown by muxr setup or muxr pair on your computer. The scan completes an end-to-end encrypted pairing — the image never leaves this phone.',
             { confirmText: 'Open camera' },
         );
         if (!primed) return;

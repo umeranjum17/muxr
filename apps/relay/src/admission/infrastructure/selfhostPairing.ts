@@ -9,8 +9,11 @@ import { readPrivateFile, writeJsonFileAtomic } from '../../platform/persist.js'
  * The self-host analog of the cloud pairSessions/credentials collections.
  */
 
-const PAIR_TTL_MS = 2 * 60_000;
+export const PAIR_TTL_MS = 2 * 60_000;
 const MAX_SESSIONS = 100;
+/** Shared temporary browser grant. Only an explicit owner-authorized personal intent extends it. */
+export const BROWSER_GRANT_TTL_MS = 8 * 60 * 60_000;
+export const BROWSER_PERSONAL_GRANT_TTL_MS = 30 * 24 * 60 * 60_000;
 
 function sessionAuthority(
     deviceKind: Exclude<DeviceKind, 'peer'>,
@@ -31,6 +34,12 @@ export interface SelfhostPairSession {
     machineSlug: string;
     deviceKind: Exclude<DeviceKind, 'peer'>;
     authority?: 'control' | 'observe';
+    /**
+     * Explicit owner-authorized personal browser. Minted only from
+     * `muxr pair --browser-personal`; never inferred client-side. Lifts the
+     * device credential lifetime from 8h to 30d at claim time.
+     */
+    personal?: boolean;
     createdAt: number;
     expiresAt: number;
     usedAt?: number;
@@ -135,7 +144,7 @@ export class SelfhostPairing {
     }
 
     /** CLI side (owner/machine authed at the route): open a two-minute pairing window. */
-    createSession(input: { claim: string; machineSlug: string; deviceKind: Exclude<DeviceKind, 'peer'>; authority?: 'control' | 'observe' }, now = Date.now()): Promise<{ pairId: string; expiresIn: number }> {
+    createSession(input: { claim: string; machineSlug: string; deviceKind: Exclude<DeviceKind, 'peer'>; authority?: 'control' | 'observe'; personal?: boolean }, now = Date.now()): Promise<{ pairId: string; expiresIn: number }> {
         return this.serialized(async () => {
             await this.load();
             this.state.sessions = this.state.sessions
@@ -148,6 +157,9 @@ export class SelfhostPairing {
                 machineSlug: input.machineSlug,
                 deviceKind: input.deviceKind,
                 authority: sessionAuthority(input.deviceKind, input.authority),
+                // The marker rides the owner-created session, never the
+                // browser's claim body — the client cannot select lifetime.
+                ...(input.deviceKind === 'browser' && input.personal === true ? { personal: true } : {}),
                 createdAt: now,
                 expiresAt: now + PAIR_TTL_MS,
             });
@@ -222,6 +234,14 @@ export class SelfhostPairing {
             const deviceId = opaque('dev');
             const credential = opaque('muxr_dc');
             session.deviceId = deviceId;
+            // Credential lifetime comes from the owner-created session, not
+            // the claim body: normal browsers stay 8h, explicit personal
+            // browsers get 30d. Natives carry no relay-side expiry.
+            let credentialExpiresAt = input.expiresAt;
+            if (session.deviceKind === 'browser') {
+                const ttl = session.personal === true ? BROWSER_PERSONAL_GRANT_TTL_MS : BROWSER_GRANT_TTL_MS;
+                credentialExpiresAt = now + ttl;
+            }
             this.state.devices.push({
                 deviceId,
                 credentialHash: hash(credential),
@@ -229,7 +249,7 @@ export class SelfhostPairing {
                 name: input.deviceName,
                 machineSlug: session.machineSlug,
                 createdAt: now,
-                ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
+                ...(credentialExpiresAt === undefined ? {} : { expiresAt: credentialExpiresAt }),
                 authority: claimedAuthority(session),
                 deviceKind: session.deviceKind,
                 credentialVersion: 1,
@@ -453,6 +473,20 @@ export class SelfhostPairing {
             return this.state.devices.some((device) => device.deviceId === deviceId && device.revokedAt === undefined
                 && (credentialVersion === undefined || (device.credentialVersion ?? 1) === credentialVersion)
                 && (device.expiresAt === undefined || device.expiresAt > Date.now()));
+        });
+    }
+
+    /**
+     * Push-delivery authorization: the device must belong to this account's
+     * machine and hold a live (non-revoked, non-expired) grant. Natural
+     * expiry counts as inactive, so delivery prunes it without a revoke.
+     */
+    deviceActiveIn(deviceId: string, machineSlug: string, now = Date.now()): Promise<boolean> {
+        return this.serialized(async () => {
+            await this.load();
+            return this.state.devices.some((device) => device.deviceId === deviceId
+                && device.machineSlug === machineSlug && device.revokedAt === undefined
+                && (device.expiresAt === undefined || device.expiresAt > now));
         });
     }
 

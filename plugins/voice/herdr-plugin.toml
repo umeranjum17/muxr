@@ -1,8 +1,8 @@
 id = "muxr.voice"
-name = "Grok"
+name = "Voice"
 version = "0.1.0"
 min_herdr_version = "0.8.0"
-description = "xAI Grok speech-to-speech behind muxr's provider-neutral stream"
+description = "Installed by muxr — do not install directly. Realtime speech-to-speech behind muxr's provider-neutral stream; the provider is chosen on the host with muxr voice"
 platforms = ["linux", "macos"]
 
 [[panes]]

@@ -9,12 +9,12 @@ import {
     ViewStyle,
 } from 'react-native';
 import Animated, {
-    Easing,
     useAnimatedStyle,
     useSharedValue,
     withSpring,
     withTiming,
 } from 'react-native-reanimated';
+import { MOTION, pressEasing, timing } from '@/constants/motion';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -46,10 +46,7 @@ export const BubblePressable = React.memo(({
     const handlePressIn = React.useCallback((event: GestureResponderEvent) => {
         if (!disabled) {
             setPressed(true);
-            scale.value = withTiming(bubbleScale, {
-                duration: 65,
-                easing: Easing.out(Easing.quad),
-            });
+            scale.value = withTiming(bubbleScale, timing(MOTION.press, pressEasing));
         }
         onPressIn?.(event);
     }, [bubbleScale, disabled, onPressIn, scale]);

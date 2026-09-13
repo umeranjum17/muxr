@@ -3,6 +3,7 @@ export * from './application/RunPluginAction';
 export * from './application/RunPluginShortcut';
 export * from './application/capabilityRegistry';
 export * from './application/pluginDataInvalidation';
+export { openFileViewer } from './application/fileNavigationList';
 export { dispatchPluginAction } from './application/pluginActions';
 export * from './application/pluginStore';
 export * from './application/primitivePresence';

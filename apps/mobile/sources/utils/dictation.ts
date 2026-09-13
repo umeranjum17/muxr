@@ -7,6 +7,7 @@ import { claimDictation, releaseDictation } from '@/conversation/session';
 import { voiceDiagnostic } from '@/conversation/diagnostics';
 import { appendTranscript } from '@/utils/transcription';
 import { transcribePcm16 } from '@/utils/localTranscription';
+import { WEB_SPEECH_UNSUPPORTED, startWebSpeechDictation, webSpeechDictationSupported } from '@/utils/webSpeechDictation';
 
 const stopRecorder = async () => { await LiveAudioStream.stop(); };
 
@@ -22,16 +23,53 @@ export function useDictation(getText: () => string, setText: (text: string) => v
     const chunksRef = React.useRef<string[]>([]);
     const sinkRef = React.useRef({ getText, setText, hint });
     sinkRef.current = { getText, setText, hint };
+    const webSpeechRef = React.useRef<{ stop: () => void } | undefined>(undefined);
 
     React.useEffect(() => () => {
         if (!recordingRef.current) return;
         recordingRef.current = false;
+        if (Platform.OS === 'web') {
+            webSpeechRef.current?.stop();
+            webSpeechRef.current = undefined;
+            releaseDictation();
+            return;
+        }
         void stopRecorder().catch(() => undefined).finally(releaseDictation);
     }, []);
 
     const start = React.useCallback(async () => {
         if (Platform.OS === 'web') {
-            Modal.alert('Dictation unavailable', 'On-device dictation is available in the Android and iOS apps.');
+            // Progressive enhancement: the browser's own recognition edits the
+            // draft. No host, no provider, no realtime session involved.
+            if (!webSpeechDictationSupported()) {
+                Modal.alert('Dictation unavailable', WEB_SPEECH_UNSUPPORTED);
+                return;
+            }
+            const claim = await claimDictation();
+            if (claim === 'already') return;
+            if (claim === 'busy') {
+                Modal.alert('Voice session active', 'End the voice session first.');
+                return;
+            }
+            try {
+                webSpeechRef.current = startWebSpeechDictation({
+                    onFinal: (text) => { const { getText, setText } = sinkRef.current; setText(appendTranscript(getText(), text)); },
+                    onEnd: () => {
+                        if (!recordingRef.current) return;
+                        recordingRef.current = false;
+                        webSpeechRef.current = undefined;
+                        setRecording(false);
+                        releaseDictation();
+                    },
+                    onError: (message) => { Modal.alert('Dictation stopped', message); },
+                });
+                recordingRef.current = true;
+                startedAtRef.current = Date.now();
+                setRecording(true);
+            } catch (error) {
+                releaseDictation();
+                Modal.alert('Dictation failed', error instanceof Error ? error.message : WEB_SPEECH_UNSUPPORTED);
+            }
             return;
         }
 
@@ -83,6 +121,11 @@ export function useDictation(getText: () => string, setText: (text: string) => v
 
     const stop = React.useCallback(async () => {
         if (!recording || stoppingRef.current) return;
+        if (Platform.OS === 'web') {
+            // Stopping lets the final result land through onresult, then onend releases.
+            webSpeechRef.current?.stop();
+            return;
+        }
         stoppingRef.current = true;
         recordingRef.current = false;
         setRecording(false);

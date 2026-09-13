@@ -14,6 +14,16 @@ const herdrSocket = process.env.HERDR_SOCKET_PATH?.trim()
     || join(process.env.HOME?.trim() || homedir(), '.config', 'herdr', 'herdr.sock');
 const hasHerdr = existsSync(herdrSocket);
 
+// The plugin onboarding gate needs docker for its clean systemd container.
+// Without it the gate would fail on environment, not product, so skip.
+import { spawnSync as spawnSyncForDockerCheck } from 'node:child_process';
+let hasDocker = false;
+try {
+    hasDocker = spawnSyncForDockerCheck('docker', ['info'], { stdio: 'ignore', timeout: 15_000 }).status === 0;
+} catch {
+    hasDocker = false;
+}
+
 const checks = [
     ['typecheck: workspace (strict)', 'npx', ['tsc', '--build', '--force']],
     ['typecheck: mobile (expo/RN)', 'npx', ['tsc', '--noEmit', '--project', 'apps/mobile/tsconfig.json']],
@@ -26,12 +36,17 @@ const checks = [
     ['unit: relay pairing (expiry, cap, validation)', 'node', ['apps/relay/dist/selfCheck.js']],
     ['unit: layout snapshot round-trip', 'node', ['apps/host/dist/agent/infrastructure/layoutSelfCheck.js']],
     ['unit: setup domain (pairing/connection/crypto)', 'node', ['scripts/setup/domain/dist/selfCheck.js']],
+    ['unit: operator config (precedence, malformed/unknown, --mode)', 'node', ['scripts/setup/infrastructure/operatorConfig.selfcheck.mjs']],
+    ['unit: desired-state plan/apply (config schema, matrix, canaries)', 'node', ['scripts/setup/application/applyConfigSelfcheck.mjs']],
+    ['policy: generated doc blocks match the config schema and release facts', 'node', ['scripts/release/application/generateConfigDocs.mjs', '--check']],
+    ['policy: docs gate (links, commands, placeholders, byte-identical install commands, lifetimes, next steps)', 'node', ['scripts/diagnostics/application/checkDocs.mjs']],
     ['policy: host/relay architecture', 'npx', ['vitest', 'run', 'apps/host/src/architecture.test.ts', 'apps/relay/src/architecture.test.ts']],
     ['unit: all vitest flows', 'npx', ['vitest', 'run', '--root', '.']],
     ['policy: mobile architecture', 'npx', ['vitest', 'run', 'apps/mobile/sources/architecture.spec.ts', '--config', 'apps/mobile/vitest.config.ts']],
     ['policy: store/direct mobile commerce builds', 'node', ['scripts/diagnostics/application/checkMobileCommerceBuilds.mjs']],
     ['e2e: device pairing through relay', 'node', ['scripts/diagnostics/application/checkPairing.mjs']],
     ['e2e: durable self-host device revocation', 'node', ['scripts/diagnostics/application/checkSelfhostRevocation.mjs']],
+    ['e2e: self-host web push (device auth, levels, revoke)', 'node', ['scripts/diagnostics/application/checkWebPush.mjs']],
     ['e2e: shared remote relay isolation', 'node', ['scripts/diagnostics/application/checkRemoteRelay.mjs']],
     ['e2e: multi-provider usage aggregation', 'node', ['scripts/diagnostics/application/checkUsageStatus.mjs']],
     ['e2e: tailscale ingress ownership', 'node', ['scripts/diagnostics/application/checkTailscaleIngress.mjs']],
@@ -40,7 +55,10 @@ const checks = [
     ['e2e: strict auth (local fixture exposure)', 'node', ['scripts/diagnostics/application/checkStrictAuth.mjs']],
     ['e2e: second host retires the first', 'node', ['scripts/diagnostics/application/checkHostTakeover.mjs']],
     ['e2e: wire + RPC (all event types)', 'node', ['scripts/diagnostics/application/runSkeletonCheck.mjs']],
-    ['e2e: graphical takeover tunnel', 'node', ['scripts/diagnostics/application/checkPreviewTunnel.mjs']],
+    ['e2e: browser preview tunnel', 'node', ['scripts/diagnostics/application/checkPreviewTunnel.mjs']],
+    ['e2e: browser wrapping-key race + preview response isolation (headless Chromium)', 'node', ['scripts/diagnostics/application/checkBrowserSecurity.mjs'], undefined, 240000],
+    ['gate: herdr plugin onboarding (clean systemd container)', 'node', ['scripts/diagnostics/application/checkPluginOnboarding.mjs'], 'docker', 1500000],
+    ['unit: takeover control arbitration (control, observe, release)', 'node', ['apps/host/dist/requests/infrastructure/previewArbitration.selfCheck.js']],
     ['e2e: herdr backend loop (live server)', 'node', ['scripts/diagnostics/application/checkHerdrE2E.mjs'], 'herdr', 180000],
     ['e2e: worktree session (live stack)', 'node', ['scripts/diagnostics/application/checkWorktreeE2E.mjs'], 'herdr'],
     ['package: curl installer wrapper', 'node', ['scripts/diagnostics/application/checkInstallScript.mjs']],
@@ -50,6 +68,10 @@ const checks = [
     ['release: public channel catalog flow', 'node', ['scripts/diagnostics/application/checkReleaseCatalog.mjs']],
     ['policy: core purity (no cloud refs in OSS)', 'node', ['scripts/diagnostics/application/checkCorePurity.mjs']],
     ['policy: tooling architecture (named use cases, layers, no nested ternaries)', 'node', ['scripts/diagnostics/application/checkArchitecture.mjs']],
+    ['package: web export (manifest, MIME, cache, secrets, budget)', 'node', ['scripts/diagnostics/application/checkWebExport.mjs']],
+    ['e2e: web serving delivery (live relay + static server)', 'node', ['scripts/diagnostics/application/checkWebServing.mjs']],
+    ['e2e: demo replay loop (production /demo in headless Chromium)', 'node', ['scripts/diagnostics/application/checkDemoFlow.mjs'], undefined, 240000],
+    ['security: export chain isolation (canary export + full scan)', 'node', ['scripts/diagnostics/application/checkExportIsolation.mjs'], undefined, 420000],
     ['security: tracked/package secret scan', 'node', ['scripts/diagnostics/application/checkNoSecrets.mjs']],
 ];
 
@@ -100,6 +122,11 @@ for (const [name, cmd, args, needs, timeoutMs] of checks) {
         process.stdout.write(`SKIP  ${name}  (no herdr server)\n`);
         continue;
     }
+    if (needs === 'docker' && !hasDocker) {
+        skipped += 1;
+        process.stdout.write(`SKIP  ${name}  (no docker)\n`);
+        continue;
+    }
     await run(name, cmd, args, timeoutMs);
     // e2e checks bind ports; let them release before the next one.
     await new Promise((r) => setTimeout(r, 500));
@@ -107,7 +134,7 @@ for (const [name, cmd, args, needs, timeoutMs] of checks) {
 
 const failed = results.filter((r) => r.code !== 0);
 const total = (results.reduce((sum, r) => sum + r.ms, 0) / 1000).toFixed(1);
-const skipNote = skipped > 0 ? `, ${skipped} skipped (no herdr server)` : '';
+const skipNote = skipped > 0 ? `, ${skipped} skipped (missing herdr server or docker)` : '';
 process.stdout.write(`\n=== ${results.length - failed.length}/${results.length} passed in ${total}s${skipNote} ===\n`);
 if (failed.length > 0) {
     process.stdout.write(`failed: ${failed.map((r) => r.name).join(', ')}\n`);

@@ -107,6 +107,27 @@ export interface SessionSource {
     pluginList(deviceId: string): Promise<PluginSummary[]>;
     pluginManifest(options: { pluginId: string; manifestHash: string }): Promise<PluginManifestV1>;
     pluginApprove(options: { deviceId: string; pluginId: string; manifestHash: string; approved: boolean }): Promise<void>;
+    /**
+     * Synchronous approval authority revision for a device, from the store
+     * that mutates it: moves before any approval persistence starts, and
+     * is undefined while a mutation is in flight. Standing checks capture
+     * it before their reads and compare it before use.
+     */
+    pluginApprovalRevision?(deviceId: string, pluginId?: string): number | undefined;
+    /**
+     * Synchronous hook fired by the approval store at the start of every
+     * approval mutation, with the exact device and plugin. Consumers close
+     * what stands on that approval in the same event turn.
+     */
+    onPluginApprovalMutation?(listener: (deviceId: string, pluginId: string) => void): () => void;
+    /**
+     * Authoritative catalog change from the catalog diff owner: the
+     * complete set of changed plugin ids, delivered synchronously before
+     * the bounded `plugins.invalidated` wire frame is published -- so
+     * authority consumers see every changed provider even when the wire
+     * frame had to omit ids.
+     */
+    onPluginCatalogChange?(listener: (changedPluginIds: readonly string[]) => void): () => void;
     pluginInvoke(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; sessionId: string; idempotencyKey: string }): Promise<void>;
     pluginCall(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; input?: unknown; idempotencyKey?: string }): Promise<unknown>;
     /** Declared RPC mode for a catalog contribution, so read-only devices can be allowed through read paths only. */

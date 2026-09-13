@@ -1,4 +1,6 @@
 export { updateCli } from './application/updateCli.mjs';
+export { releaseFacts } from './application/releaseFacts.mjs';
+export { checkConfigDocs, generateConfigDocs } from './application/generateConfigDocs.mjs';
 export { packageInfoFromPath, packagePathFromInput } from './infrastructure/audit.mjs';
 export { prepareChangelog, reportFiles, selectChangelogEntry } from './application/prepareChangelog.mjs';
 export { sealRelease } from './application/sealRelease.mjs';

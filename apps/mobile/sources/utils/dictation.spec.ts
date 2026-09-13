@@ -5,6 +5,7 @@ import { useDictation } from '@/utils/dictation';
 import { pcm16ChunksToArrayBuffer } from '@/utils/transcription';
 import { wakeAndReport } from '@/watch/application/wakeAndReport';
 import { usePluginEvents } from '@/plugins/events';
+import { useRealtimeTurns } from '@/conversation/session';
 import { cancelRealtimeReportWait, configureVadStandby, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, retryVadStandby, startRealtimeSession, stopRealtimeSession, useRealtimeMuted } from '@/conversation/session';
 
 const mocks = vi.hoisted(() => ({
@@ -212,8 +213,9 @@ describe('on-device dictation flow', () => {
     it('starts notification Talk on the pane last used on the phone, not a stale desk focus', async () => {
         const tree = {
             workspaces: [
-                { focused: true, tabs: [{ focused: true, panes: [{ sessionId: 'session-a', focused: true, agentStatus: 'idle' }] }] },
-                { focused: false, tabs: [{ focused: true, panes: [{ sessionId: 'session-b', focused: true, agentStatus: 'working' }] }] },
+                // A focused plain shell is never a voice target: it has no agent to talk to.
+                { focused: true, tabs: [{ focused: true, panes: [{ sessionId: 'shell:pane-x', focused: true, agentStatus: 'unknown' }, { sessionId: 'session-a', focused: false, agentKind: 'claude', agentStatus: 'idle' }] }] },
+                { focused: false, tabs: [{ focused: true, panes: [{ sessionId: 'session-b', focused: true, agentKind: 'claude', agentStatus: 'working' }] }] },
             ],
         };
         mocks.syncRequest.mockImplementation(async (method: string) => method === 'herdr.tree'
@@ -318,7 +320,7 @@ describe('on-device dictation flow', () => {
             'historical-session': { id: 'historical-session', activeAt: 99, updatedAt: 99 },
         };
         mocks.syncRequest.mockImplementation(async (method: string) => method === 'herdr.tree'
-            ? { workspaces: [{ focused: true, tabs: [{ focused: true, panes: [{ sessionId: 'live-session', focused: true, agentStatus: 'idle' }] }] }] }
+            ? { workspaces: [{ focused: true, tabs: [{ focused: true, panes: [{ sessionId: 'live-session', focused: true, agentKind: 'claude', agentStatus: 'idle' }] }] }] }
             : method === 'session.list' ? [{ id: 'live-session' }] : { text: 'unused' });
 
         await expect(resolveRealtimeTarget()).resolves.toEqual({ machineId: '', sessionId: 'live-session' });
@@ -328,6 +330,27 @@ describe('on-device dictation flow', () => {
             ? { workspaces: [{ tabs: [{ panes: [null] }] }] }
             : [{ id: 'live-session' }]);
         await expect(resolveRealtimeTarget()).resolves.toBeNull();
+    });
+
+    it('replaces a cumulative interim user transcript instead of stacking corrections', async () => {
+        const live = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
+        mocks.startRealtimeSession.mockReturnValue(live);
+        startRealtimeSession('session-a');
+        const provider = mocks.startRealtimeSession.mock.calls[0]![0] as {
+            onTurn: (role: 'user' | 'agent', text: string, final: boolean) => void;
+        };
+        let seen: Array<[string, string, boolean]> = [];
+        function Probe() { seen = useRealtimeTurns().map((turn) => [turn.role, turn.text, turn.final]); return null; }
+        await act(async () => { TestRenderer.create(React.createElement(Probe)); });
+        await act(async () => {
+            provider.onTurn('user', 'ship the', false);
+            provider.onTurn('user', 'ship the build', false);
+            provider.onTurn('user', 'Ship the build.', true);
+            provider.onTurn('agent', 'Shipping now.', true);
+            provider.onTurn('user', 'and', false);
+        });
+        expect(seen).toEqual([['user', 'Ship the build.', true], ['agent', 'Shipping now.', true], ['user', 'and', false]]);
+        stopRealtimeSession();
     });
 
     it('keeps live-session standby enabled and arms it once realtime ends', async () => {
@@ -365,6 +388,31 @@ describe('on-device dictation flow', () => {
         mocks.startVoiceService.mockReturnValue(false);
         await expect(configureVadStandby(true)).resolves.toBe(false);
         expect(mocks.vadStandbyEnabled).toBe(false);
+    });
+
+    it('releases standby-only capture when the tab hides and refuses to arm while hidden', async () => {
+        const listeners: Array<() => void> = [];
+        const fakeDocument = { hidden: false, addEventListener: vi.fn((_type: string, listener: () => void) => { listeners.push(listener); }) };
+        vi.stubGlobal('document', fakeDocument);
+        try {
+            // Standby armed with no realtime call ever started.
+            await expect(configureVadStandby(true)).resolves.toBe(true);
+            await vi.waitFor(() => expect(mocks.liveAudio.start).toHaveBeenCalledOnce());
+            expect(micOwners()).toEqual(['vad']);
+            expect(fakeDocument.addEventListener).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+            fakeDocument.hidden = true;
+            for (const listener of listeners) listener();
+            await vi.waitFor(() => expect(micOwners()).toEqual([]));
+            // Hidden: a retry must not reacquire the microphone.
+            await expect(retryVadStandby()).resolves.toBe(false);
+            expect(micOwners()).toEqual([]);
+            fakeDocument.hidden = false;
+            for (const listener of listeners) listener();
+            await vi.waitFor(() => expect(micOwners()).toEqual(['vad']));
+            await expect(configureVadStandby(false)).resolves.toBe(true);
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 
     it('retains and serializes prioritized reports until delivery, then sleeps after drain', async () => {

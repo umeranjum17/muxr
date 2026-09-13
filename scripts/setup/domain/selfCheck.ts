@@ -1,7 +1,7 @@
 import { advertisedUrlForMode, parseConnection } from './connection.js';
 import { parseEnrollment } from './enrollment.js';
 import { parseDevice, parseMachineCrypto, validMachineCrypto } from './machineCrypto.js';
-import { pairingIntent } from './pairing.js';
+import { BROWSER_PERSONAL_GRANT_TTL_MS, consentMachineName, pairingIntent, pairingIntentFromDevice, pairingIntentFromHostedFlags } from './pairing.js';
 
 function assert(condition: boolean, message: string): asserts condition {
     if (!condition) throw new Error(message);
@@ -29,6 +29,41 @@ function runSelfCheck(): void {
     const controlBrowser = pairingIntent({ kind: 'browser', authority: 'control' });
     assert(controlBrowser.authority === 'control', 'owner can grant browser control');
     assert(controlBrowser.promptLine().includes('control'), 'prompt names the authority');
+    assert(!controlBrowser.personal, 'shared browser grants stay eight-hour by default');
+    assert(controlBrowser.grantDurationLabel() === 'eight hours', 'default duration copy is eight hours');
+
+    // Explicit personal-browser opt-in: longer renewable lifetime through the
+    // same intent machinery, never inferred from install state.
+    const personal = pairingIntent({ kind: 'browser', authority: 'control', personal: true });
+    assert(personal.personal, 'personal opt-in is explicit');
+    assert(personal.grantExpiresAt(1_000) === 1_000 + BROWSER_PERSONAL_GRANT_TTL_MS, 'personal grants last thirty days');
+    assert(personal.grantDurationLabel() === '30 days', 'personal duration copy is thirty days');
+    const personalRecord = personal.deviceRecord({ deviceId: 'device-9', devicePublicKey: 'k', ingressKey: 'i', expiresAt: 1_000 });
+    assert(personalRecord.personal === true, 'personal marker rides the stored device record');
+    assert(pairingIntentFromDevice({ kind: 'browser', authority: 'control', personal: true }).grantExpiresAt(1_000) === 1_000 + BROWSER_PERSONAL_GRANT_TTL_MS, 'stored personal marker restores the longer refresh clamp');
+    assert(pairingIntentFromDevice({ kind: 'browser', authority: 'control' }).grantExpiresAt(1_000) === 1_000 + 8 * 60 * 60_000, 'stored shared grants keep the safe default');
+    const flagPersonal = pairingIntentFromHostedFlags(['--browser-personal']);
+    assert(flagPersonal.personal && flagPersonal.kind === 'browser' && flagPersonal.authority === 'control', '--browser-personal mints an explicit personal control grant');
+    const flagDefault = pairingIntentFromHostedFlags(['--browser']);
+    assert(!flagDefault.personal && flagDefault.grantDurationLabel() === 'eight hours', '--browser keeps the eight-hour default');
+    assert(!personal.matchesPending({ deviceKind: 'browser', authority: 'control' }), 'personal intent never reuses a shared pending session');
+    assert(!controlBrowser.matchesPending({ deviceKind: 'browser', authority: 'control', personal: true }), 'shared intent never reuses a personal pending session');
+    // Recovered pending sessions rebuild their intent from the stored record,
+    // personal marker included — the consent copy must not fall back to 8h.
+    const recoveredPending = { deviceKind: 'browser', authority: 'control', personal: true };
+    const recoveredIntent = pairingIntent({ kind: recoveredPending.deviceKind, authority: recoveredPending.authority, personal: recoveredPending.personal });
+    assert(recoveredIntent.grantDurationLabel() === '30 days', 'recovered personal pending keeps its consent copy');
+
+    // The printed locator carries the computer's name for consent; unsafe or
+    // oversized names are dropped rather than echoed, and the short shape
+    // otherwise stays exactly pair (+ role/personal for browsers).
+    const nativeLocator = new URL(native.pairingLocator('ws://127.0.0.1:8792', 'ABCDE-FGHIJ', 'Android-Cert'));
+    assert(nativeLocator.searchParams.get('name') === 'Android-Cert' && [...nativeLocator.searchParams.keys()].join(',') === 'pair,name', 'native locator names the computer');
+    const browserLocator = new URL(personal.pairingLocator('wss://relay.example.test', 'ABCDE-FGHIJ', "  Umer's   MacBook  "));
+    assert(browserLocator.pathname === '/pair' && [...browserLocator.searchParams.keys()].join(',') === 'pair,role,personal,name' && browserLocator.searchParams.get('name') === "Umer's MacBook", 'browser locator carries role, lifetime and a collapsed name');
+    assert(consentMachineName('evil\u202edrocer') === undefined && consentMachineName('a@b') === undefined && consentMachineName('') === undefined, 'control, bidi and userinfo-like names are dropped');
+    assert(consentMachineName('x'.repeat(80))?.length === 40, 'names are bounded');
+    assert(!new URL(native.pairingLocator('ws://127.0.0.1:8792', 'ABCDE-FGHIJ', 'bad\u0007name')).searchParams.has('name'), 'an unsafe name is omitted, never echoed');
 
     const enrollment = parseEnrollment('not-a-link');
     assert(!enrollment.ok, 'malformed enrollment is rejected');

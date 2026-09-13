@@ -45,6 +45,10 @@ export const AgentGlyph = React.memo(
         const color = selected || theme.dark ? theme.colors.text : theme.colors.textSecondary;
         return (
             <View
+                // Decorative: every row that shows a glyph already names the agent.
+                accessible={false}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
                 style={{
                     width: size,
                     height: size,
@@ -66,6 +70,7 @@ export const AgentGlyph = React.memo(
                 ) : (
                     <Image
                         source={image}
+                        accessibilityLabel={name}
                         contentFit="contain"
                         tintColor={color}
                         style={{ width: size, height: size }}

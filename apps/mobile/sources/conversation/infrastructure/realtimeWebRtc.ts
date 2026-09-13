@@ -67,6 +67,9 @@ function boundedSdp(value: unknown, label: string): string {
 export async function startRealtimeWebRtc(
     dataChannelLabel: string,
     callbacks: RealtimeWebRtcCallbacks,
+    // The owner's cancellation: aborting during permission or ICE stops
+    // whatever was acquired so far and frees the singleton for a new call.
+    cancel?: AbortSignal,
 ): Promise<RealtimeWebRtcHandle> {
     if (activeSession !== undefined) throw new Error('A realtime WebRTC session is already active.');
     if (!/^[A-Za-z0-9._-]{1,64}$/.test(dataChannelLabel)) throw new Error('Invalid WebRTC data channel.');
@@ -130,6 +133,11 @@ export async function startRealtimeWebRtc(
         stop,
     };
     activeSession = handle;
+    if (cancel?.aborted) {
+        stop();
+        throw new Error('Realtime WebRTC session stopped before startup.');
+    }
+    cancel?.addEventListener('abort', stop, { once: true });
 
     channel.onopen = () => {
         if (stopped) return;
@@ -172,8 +180,14 @@ export async function startRealtimeWebRtc(
         callbacks.onConnectionState('connecting');
         await ensureForegroundMicrophoneService();
         if (!routeVoiceAudio()) throw new Error('This device could not route realtime audio.');
-        localStream = await mediaDevices.getUserMedia({ audio: true, video: false });
-        if (stopped) throw new Error('Realtime WebRTC session stopped during microphone startup.');
+        const acquired = await mediaDevices.getUserMedia({ audio: true, video: false });
+        if (stopped) {
+            // Cancelled while permission was pending: the tracks granted
+            // after stop() must not outlive the ended call.
+            for (const track of acquired.getTracks()) track.stop();
+            throw new Error('Realtime WebRTC session stopped during microphone startup.');
+        }
+        localStream = acquired;
         const inputTrack = localStream.getAudioTracks()[0];
         if (!inputTrack) throw new Error('Realtime WebRTC microphone track is unavailable.');
         inputTrack.onmute = () => callbacks.onInterruption(true);

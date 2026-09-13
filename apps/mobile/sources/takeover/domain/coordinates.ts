@@ -1,24 +1,13 @@
 /**
- * Takeover coordinate mapping.
+ * Agent-browser coordinate mapping.
  *
- * Two spaces meet on the takeover screen: the screencast space the frames
- * arrive in (`metadata.deviceWidth` x `metadata.deviceHeight` device pixels)
- * and the display space the phone renders them in (the on-screen size of the
- * <Image>). Every tap and keystroke target has to cross that gap or clicks
- * land in the wrong place -- the classic takeover bug. The frame is drawn
- * with resizeMode "contain", so the mapping goes through the letterboxed
- * rect, and browser input events want CSS pixels, so device pixels divide by
- * `pageScaleFactor` and pick up the scroll/chrome offsets.
+ * The video track shows the service's viewport, letterboxed with `contain`
+ * inside the display box. A tap crosses two spaces: display points to the
+ * contained video rectangle, then normalized position to **viewport CSS
+ * coordinates** -- never document coordinates, because the service injects
+ * input at the viewport and the page owns its own scroll. Letterbox taps
+ * are rejected, not clamped: nothing sits under them.
  */
-
-export interface StreamFrameMetadata {
-    deviceWidth: number;
-    deviceHeight: number;
-    pageScaleFactor: number;
-    offsetTop: number;
-    scrollOffsetX: number;
-    scrollOffsetY: number;
-}
 
 export interface Size {
     width: number;
@@ -32,7 +21,7 @@ export interface Point {
 
 export interface Rect extends Point, Size {}
 
-/** The rect a `contain`-rendered frame actually occupies inside its container, letterbox offsets included. */
+/** The rect a `contain`-rendered frame occupies inside its container, letterbox offsets included. */
 export function containRect(container: Size, frame: Size): Rect {
     if (container.width <= 0 || container.height <= 0 || frame.width <= 0 || frame.height <= 0) {
         return { x: 0, y: 0, width: 0, height: 0 };
@@ -48,21 +37,17 @@ export function containRect(container: Size, frame: Size): Rect {
     };
 }
 
-function clamp01(value: number): number {
-    return Math.min(1, Math.max(0, value));
-}
-
 /**
- * Map a tap in display space to the CSS-pixel coordinates the browser input
- * protocol expects. Taps in the letterbox bars clamp to the nearest frame
- * edge rather than firing into the void.
+ * Map a display-space point into viewport CSS coordinates. `frame` is the
+ * decoded video size, `viewport` the CSS size the service reported for the
+ * same target generation; they share an aspect ratio, so only the
+ * normalized position crosses. Returns undefined outside the video.
  */
-export function mapDisplayToInput(tap: Point, display: Size, metadata: StreamFrameMetadata): Point {
-    const rect = containRect(display, { width: metadata.deviceWidth, height: metadata.deviceHeight });
-    if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0 };
-    const scale = metadata.pageScaleFactor === 0 ? 1 : metadata.pageScaleFactor;
-    return {
-        x: Math.round(clamp01((tap.x - rect.x) / rect.width) * metadata.deviceWidth / scale + metadata.scrollOffsetX),
-        y: Math.round(clamp01((tap.y - rect.y) / rect.height) * metadata.deviceHeight / scale + metadata.offsetTop + metadata.scrollOffsetY),
-    };
+export function mapDisplayToViewport(tap: Point, display: Size, frame: Size, viewport: Size): Point | undefined {
+    const rect = containRect(display, frame);
+    if (rect.width === 0 || rect.height === 0 || viewport.width <= 0 || viewport.height <= 0) return undefined;
+    const nx = (tap.x - rect.x) / rect.width;
+    const ny = (tap.y - rect.y) / rect.height;
+    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return undefined;
+    return { x: Math.round(nx * viewport.width), y: Math.round(ny * viewport.height) };
 }

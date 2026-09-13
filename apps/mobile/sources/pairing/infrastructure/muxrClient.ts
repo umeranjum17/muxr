@@ -21,6 +21,8 @@ import {
     type SessionEvent,
     issueWsTicket,
     isPluginsInvalidatedFrame,
+    isSurfaceOfferHostFrame,
+    type SurfaceOfferHostFrame,
     ticketSocketUrl,
     WsTicketError,
 } from '@muxr/contract';
@@ -47,7 +49,13 @@ export interface MuxrClientOptions {
     /** A ticket refusal triggers separate account-session validation; it is not itself a logout signal. */
     onTicketRejected?: () => void;
     /** Permanent self-host credential failures must stop retrying and offer pairing again. */
-    onPermanentError?: (message: string) => void;
+    onPermanentError?: (failure: PermanentTransportFailure) => void;
+}
+
+/** Machine-readable pairing failure: the UI routes expired/revoked grants to re-pairing. */
+export interface PermanentTransportFailure {
+    kind: 'grant-expired' | 'device-revoked';
+    message: string;
 }
 
 interface Pending {
@@ -74,7 +82,32 @@ function requestFailure(type: RequestType, error: string, code?: string): MuxrRe
 type EventListener = (sessionId: string, event: SessionEvent) => void;
 type StateListener = (state: ConnectionState) => void;
 type PluginInvalidationListener = (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void;
+type SurfaceOfferListener = (frame: SurfaceOfferHostFrame) => void;
 const MAX_PENDING_REQUESTS = 128;
+// A backend that never answers is retried on a widening backoff, then given
+// up on: past this many consecutive failures with no host frame the client
+// fails closed to 'stale' (surfaced as an error) instead of reconnecting for
+// ever. A successful host frame resets the count; a manual reconnect (new
+// client) starts fresh. With the 1.5s→30s backoff this is ~75s of trying.
+const MAX_RECONNECT_ATTEMPTS = 6;
+
+/**
+ * The transport surface MuxrSync drives. MuxrClient is the production
+ * implementation; the web-only demo installs a deterministic in-memory one
+ * at this same seam. Structural on purpose: the demo never subclasses the
+ * socket client.
+ */
+export interface MuxrTransport {
+    state: ConnectionState;
+    isLive(): boolean;
+    connect(): void;
+    close(): void;
+    request<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>>;
+    onEvent(listener: EventListener): () => void;
+    onStateChange(listener: StateListener): () => void;
+    onPluginsInvalidated?(listener: PluginInvalidationListener): () => void;
+    onSurfaceOffer?(listener: SurfaceOfferListener): () => void;
+}
 
 export class MuxrClient {
     private socket: WebSocket | undefined;
@@ -82,6 +115,7 @@ export class MuxrClient {
     private readonly eventListeners = new Set<EventListener>();
     private readonly stateListeners = new Set<StateListener>();
     private readonly pluginInvalidationListeners = new Set<PluginInvalidationListener>();
+    private readonly surfaceOfferListeners = new Set<SurfaceOfferListener>();
     private hosted: DeviceV2Crypto | undefined;
     private seq = 0;
     private closed = false;
@@ -181,17 +215,14 @@ export class MuxrClient {
             if (rejected) this.options.onTicketRejected?.();
             if (permanent) {
                 this.options.onPermanentError?.(expired
-                    ? 'This browser grant expired. Pair again from `muxr pair --browser`.'
-                    : 'This device was revoked. Run `muxr pair` on the machine, then re-pair from Settings → Pair another machine on this device.');
+                    ? { kind: 'grant-expired', message: 'This browser grant expired. Pair again from muxr pair --browser.' }
+                    : { kind: 'device-revoked', message: 'This device was revoked. Run muxr pair on the machine, then re-pair from Settings → Pair another machine on this device.' });
                 return;
             }
-            if (!this.closed) {
-                const base = this.options.reconnectDelayMs ?? 1500;
-                const delay = error instanceof WsTicketError && (error.status === 401 || error.status === 403)
-                    ? 30_000
-                    : Math.min(base * 2 ** this.reconnectAttempt++, 30_000);
-                this.reconnectTimer = setTimeout(() => this.connect(), delay);
-            }
+            // A rejected ticket (401/403) waits the full cap before retrying,
+            // but still counts toward the give-up ceiling: a relay that keeps
+            // rejecting is unreachable, not something to poll for ever.
+            this.scheduleReconnect(error instanceof WsTicketError && (error.status === 401 || error.status === 403) ? 30_000 : undefined);
             return;
         }
         if (this.closed || this.socket !== undefined) return;
@@ -201,8 +232,7 @@ export class MuxrClient {
         } catch {
             recordSocketFailure({ stage: 'dial', code: 'dial-network' });
             this.setState('closed');
-            const base = this.options.reconnectDelayMs ?? 1500;
-            this.reconnectTimer = setTimeout(() => this.connect(), Math.min(base * 2 ** this.reconnectAttempt++, 30_000));
+            this.scheduleReconnect();
             return;
         }
         this.socket = socket;
@@ -291,9 +321,26 @@ export class MuxrClient {
         this.socket = undefined;
         this.rejectPending('connection lost');
         this.setState('closed');
+        this.scheduleReconnect();
+    }
+
+    /**
+     * Schedule one reconnect on a widening backoff, or fail closed. Past
+     * MAX_RECONNECT_ATTEMPTS consecutive failures with no host frame the client
+     * stops the internal loop and settles on 'stale' (surfaced as an error) so
+     * the UI can show an actionable "can't reach your computer" instead of
+     * spinning for ever. A successful host frame resets reconnectAttempt; a
+     * fresh client (sync.reconnect) starts the count over.
+     */
+    private scheduleReconnect(floorMs?: number): void {
         if (this.closed) return;
+        if (this.reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+            this.setState('stale');
+            return;
+        }
         const base = this.options.reconnectDelayMs ?? 1500;
-        this.reconnectTimer = setTimeout(() => this.connect(), Math.min(base * 2 ** this.reconnectAttempt++, 30_000));
+        const delay = Math.max(floorMs ?? 0, Math.min(base * 2 ** this.reconnectAttempt++, 30_000));
+        this.reconnectTimer = setTimeout(() => this.connect(), delay);
     }
 
     onEvent(listener: EventListener): () => void {
@@ -309,6 +356,16 @@ export class MuxrClient {
     onPluginsInvalidated(listener: PluginInvalidationListener): () => void {
         this.pluginInvalidationListeners.add(listener);
         return () => this.pluginInvalidationListeners.delete(listener);
+    }
+
+    /**
+     * Host-originated Surface offers. Delivered only after the frame
+     * survived host E2EE decoding and the `surface.offer` shape guard;
+     * anything else never reaches the listener.
+     */
+    onSurfaceOffer(listener: SurfaceOfferListener): () => void {
+        this.surfaceOfferListeners.add(listener);
+        return () => this.surfaceOfferListeners.delete(listener);
     }
 
     request<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> {
@@ -444,6 +501,12 @@ export class MuxrClient {
         if (this.hosted !== undefined && envelope.header.channel !== 'session') return;
         if (isPluginsInvalidatedFrame(frame)) {
             for (const listener of this.pluginInvalidationListeners) listener(frame);
+            return;
+        }
+        // Only host-E2EE-decoded `surface.offer` frames arrive here, and only
+        // the shape guard admits them. Anything else is ignored, never shown.
+        if (isSurfaceOfferHostFrame(frame)) {
+            for (const listener of this.surfaceOfferListeners) listener(frame);
             return;
         }
         if (frame.type === 'session.event') {

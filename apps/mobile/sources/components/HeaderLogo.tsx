@@ -19,6 +19,7 @@ export const HeaderLogo = React.memo(() => {
         }}>
             <Image
                 source={require('@/assets/images/glyph.png')}
+                accessibilityLabel="muxr"
                 contentFit="contain"
                 tintColor={theme.colors.header.tint}
                 style={{ width: 24, height: 16 }}

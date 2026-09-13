@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
-import { storage, useHerdrTree, useLocalSettingMutable, useSession, useSessionGitStatus, useSessions } from '@/catalog/store';
+import { storage, useHerdrTree, useLocalSettingMutable, usePairingFailure, useSession, useSessionGitStatus, useSessions } from '@/catalog/store';
 import { sessionStop } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
 import { resolveMessageModeMeta } from '@/catalog/infrastructure/messageMeta';
@@ -25,18 +25,27 @@ import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/session
 import { SessionMetaLine } from '@/herd/ui';
 import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import type { HerdrTreeTab } from '@muxr/contract';
-import { TerminalView, type TerminalViewControls } from './TerminalView';
+import type { TerminalViewControls } from './TerminalView';
+// The xterm/Ghostty view stays out of the initial load graph: the session
+// shell paints first, the terminal implementation streams in behind it.
+const TerminalView = React.lazy(() => import('./TerminalView').then((module) => ({ default: module.TerminalView })));
 import { usePaneGestures } from '../application/usePaneGestures';
+import { useWebImeComposing } from '@/components/useWebImeComposing';
+import { useWebBackCloses } from '@/components/useWebBackCloses';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { ActionShortcut } from '@/components/ActionShortcut';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
 import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStatusColor, herdrPaneForSession, isShellLabels } from '@/herd';
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
-import { useImagePicker } from '@/hooks/useImagePicker';
-import { ComposerAttachments, type ComposerAttachment } from '@/components/ComposerAttachments';
-import { readFileBytes } from '@/utils/readFileBytes';
-import { encodeBase64 } from '@/encryption/base64';
+import { ComposerAttachments } from '@/components/ComposerAttachments';
+import { useAttachmentUploads } from '../application/useAttachmentUploads';
+import { Typography } from '@/constants/Typography';
+import { randomUUID } from 'expo-crypto';
+import { targetKey, useSubmissions } from '@/catalog/application/submissions';
+import { ComposerRecovery } from '@/terminal/application/composerRecovery';
+import { composerDraft, useComposerDrafts } from '@/terminal/application/composerDrafts';
+import { failureText, humanError } from '@/utils/errors';
 import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
@@ -46,11 +55,22 @@ import { FloatingTerminalControls } from './FloatingTerminalControls';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins';
-import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
 import { displayLink } from '../domain/TerminalLink';
+import { useTerminalChipLink } from '../application/useTerminalChipLink';
+import { MOTION } from '@/constants/motion';
 
-export const TerminalScreen = React.memo((props: { id: string }) => {
+/** Shown while the terminal implementation streams in behind the shell. */
+function TerminalViewFallback() {
+    const { theme } = useUnistyles();
+    return (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+        </View>
+    );
+}
+
+export const TerminalScreen = React.memo((props: { id: string; machineId: string; onOpenBlankBrowser?: () => void }) => {
     const { theme } = useUnistyles();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canControl = authority === 'control' && !authorityLoading;
@@ -59,6 +79,38 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // inset while it is up double-pads the composer.
     const keyboardVisible = useKeyboardState().isVisible;
     const keyboardHeight = useKeyboardState().height;
+    // The keyboard controller has no native module on web, so the session
+    // follows the visual viewport there instead. Any real keyboard
+    // occlusion moves the layout — the composer, but also raw xterm focus,
+    // which is a supported input path (term.onData) with its own hidden
+    // textarea. Pinch zoom also shrinks the visual viewport, so the zoom
+    // level tells them apart: a keyboard preserves it exactly, a pinch
+    // changes it. The resting zoom is whatever scale reads with no
+    // occlusion (and whatever it reads on the very first update, so a
+    // mount with the keyboard already up still pads). This is the one
+    // geometry system on web: exactly one of the two sources below ever
+    // moves the layout.
+    const [viewportOffset, setViewportOffset] = React.useState(0);
+    const restZoomRef = React.useRef<number | null>(null);
+    React.useEffect(() => {
+        if (Platform.OS !== 'web' || typeof window === 'undefined' || window.visualViewport == null) return;
+        const viewport = window.visualViewport;
+        const update = () => {
+            const occlusion = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+            if (occlusion === 0 || restZoomRef.current === null) restZoomRef.current = viewport.scale;
+            setViewportOffset(viewport.scale === restZoomRef.current ? occlusion : 0);
+        };
+        update();
+        viewport.addEventListener('resize', update);
+        viewport.addEventListener('scroll', update);
+        return () => {
+            viewport.removeEventListener('resize', update);
+            viewport.removeEventListener('scroll', update);
+        };
+    }, []);
+    const keyboardPad = Platform.OS === 'web'
+        ? viewportOffset
+        : (keyboardVisible ? keyboardHeight : 0);
     const session = useSession(props.id);
     const sessions = useSessions();
     const { workspaces } = useHerdrTree();
@@ -85,8 +137,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     }, []);
     const swipeIds = React.useMemo(() => workingAgentSwipeIds(sessions, swipeNow), [sessions, swipeNow]);
     const [status, setStatus] = React.useState('connecting');
-    const [draft, setDraft] = React.useState('');
-    const [attaching, setAttaching] = React.useState(false);
+    const [openAttempt, setOpenAttempt] = React.useState(0);
+    // The unsent draft lives in composerDrafts (per computer + session) so
+    // it survives leaving this screen; this state mirrors it for rendering.
+    const draftTarget = React.useMemo(() => ({ machineId: props.machineId, sessionId: props.id }), [props.machineId, props.id]);
+    const [draft, setDraftState] = React.useState(() => composerDraft(draftTarget));
+    const setDraft = React.useCallback((text: string) => {
+        setDraftState(text);
+        useComposerDrafts.getState().set(draftTarget, text);
+    }, [draftTarget]);
     const [stopping, setStopping] = React.useState(false);
     // Latching modifiers apply to one toolbar key or typed character, then clear.
     // Modal.alert lays buttons out in a row: past three it collapses into
@@ -103,8 +162,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // distance the panel is allowed to grow.
     const [bottomBlockTop, setBottomBlockTop] = React.useState(0);
     const [accessoryBottom, setAccessoryBottom] = React.useState(0);
-    const [attachedImages, setAttachedImages] = React.useState<ComposerAttachment[]>([]);
-    const attachedPaths = attachedImages.flatMap((image) => image.path === undefined ? [] : [image.path]);
+    const { attaching, selectedImages, attachedImages, setAttachedImages, attachedPaths, failed: failedImages, retryFailed, discardFailed, pickImages, addImages } = useAttachmentUploads(
+        props.machineId,
+        props.id,
+        (error) => Modal.alert('Attachment failed', `${humanError(error).message} The files are kept below; retry when the connection is back.`),
+    );
     // Other openable panes in this session's tab, in layout order. A pane only
     // gets a sessionId once herdr detects an agent in it, so bare shells are
     // absent -- they have nothing for the app to attach to.
@@ -114,7 +176,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const draftRef = React.useRef(draft);
     draftRef.current = draft;
 
-    const { selectedImages, pickImages, clearImages } = useImagePicker();
+    const composerRef = React.useRef<TextInput>(null);
+    // Same IME hazard as the home dock: Enter confirms composition on web.
+    // The composer mounts only under control and hosted authority resolves
+    // after mount, so attachment follows canControl — a constant true would
+    // attach to nothing and never re-run when the composer appears.
+    const isComposingRef = useWebImeComposing(composerRef, canControl);
+
 
     const graphicsOwnsScroll = React.useRef(false);
     const stopWatchingGraphics = React.useRef<(() => void) | undefined>(undefined);
@@ -256,6 +324,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         hintTimer.current = setTimeout(() => setGestureHint(null), 1400);
     }, []);
 
+    const { chipLink, chipKind, openChipLink } = useTerminalChipLink(props.id);
+
     const showRecentLinks = React.useCallback((action: 'open' | 'copy') => {
         const links = recentTerminalLinks(props.id);
         if (links.length === 0) return;
@@ -292,6 +362,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         return () => subscription.remove();
     }, []);
 
+    // Browser Back and Escape close the menu instead of leaving the session.
+    const closeActions = React.useCallback(() => setActionsOpen(false), []);
+    useWebBackCloses(actionsOpen, closeActions, 'muxrSessionActions');
+    const closeMenu = React.useCallback(() => setMenu(null), []);
+    useWebBackCloses(menu !== null, closeMenu, 'muxrSessionMenu');
+
     // The action menu is a plain absolute View, not a modal, so Android's
     // hardware back would leave the screen instead of dismissing it.
     React.useEffect(() => {
@@ -304,6 +380,34 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         return () => subscription.remove();
     }, [actionsOpen, menu]);
 
+    // Submissions live outside this screen (submissions.ts), partitioned by
+    // computer + session; ComposerRecovery owns, for this screen opening,
+    // which one the composer holds and what a Send retries. Late outcomes
+    // for a target that is not open wait for its own screen.
+    const target = React.useMemo(() => ({ machineId: props.machineId, sessionId: props.id }), [props.machineId, props.id]);
+    const submissions = useSubmissions((state) => state.byTarget[targetKey(target)]);
+    const recovery = React.useMemo(() => new ComposerRecovery(target, {
+        restore: (submission) => {
+            // Recovery-owned text: shown, but not stored as a typed draft, so
+            // a reopened screen restores the same submission (same identity)
+            // instead of finding "typed" text it cannot attribute.
+            draftRef.current = [submission.draft, draftRef.current].filter((part) => part !== '').join('\n');
+            setDraftState(draftRef.current);
+            setAttachedImages((previous) => [...submission.attachments, ...previous]);
+            // Previews that never reached the host are uploaded afresh.
+            if (submission.pendingUploads.length > 0) addImages(submission.pendingUploads);
+        },
+        clear: () => {
+            draftRef.current = '';
+            setDraft('');
+            setAttachedImages([]);
+        },
+    }), [addImages, setAttachedImages, target]);
+    React.useEffect(() => () => recovery.dispose(), [recovery]);
+    // Attachments and previews occupy the composer as much as text does.
+    const composerEmpty = draft === '' && attachedImages.length === 0 && selectedImages.length === 0 && !attaching;
+    React.useEffect(() => { recovery.reconcile(composerEmpty); }, [composerEmpty, recovery, submissions]);
+
     // The agent is a TUI: it can only reach a file by having the path in its
     // prompt. But splicing that path into the draft the moment you attach
     // lands it in the middle of whatever you were typing, so paths ride as
@@ -312,21 +416,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         // A booting agent is not a refusal: the host holds the prompt until it
         // can accept it, so let the composer stay live and let the host answer.
         if (attaching || selectedImages.length > 0) return;
-        const text = [draftRef.current.trim(), ...attachedPaths].filter((part) => part !== '').join(' ');
-        if (text === '') return;
-        const previousDraft = draftRef.current;
-        const previousImages = attachedImages;
-        draftRef.current = '';
-        setDraft('');
-        setAttachedImages([]);
-        void sync.sendMessage(props.id, text).catch((error: unknown) => {
-            const restoredDraft = [previousDraft, draftRef.current].filter(Boolean).join('\n');
-            draftRef.current = restoredDraft;
-            setDraft(restoredDraft);
-            setAttachedImages((current) => [...previousImages, ...current]);
-            Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
-        });
-    }, [attachedImages, attachedPaths, attaching, selectedImages.length, panePromptable, props.id]);
+        void recovery.send(draftRef.current, attachedImages);
+    }, [attachedImages, attaching, selectedImages.length, panePromptable, recovery]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);
 
@@ -336,42 +427,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         await pickImages();
     }, [pickImages]);
 
-    React.useEffect(() => {
-        if (selectedImages.length === 0 || attaching) return;
-        setAttaching(true);
-        void (async () => {
-            try {
-                const attachments = [];
-                for (const image of selectedImages) {
-                    attachments.push({
-                        name: image.name,
-                        mimeType: image.mimeType,
-                        data: encodeBase64(await readFileBytes(image.uri)),
-                    });
-                }
-                const result = await sync.request('session.saveAttachments', {
-                    sessionId: props.id,
-                    attachments,
-                });
-                if (result.savedPaths.length !== selectedImages.length) throw new Error('The host did not confirm every image. Please attach them again.');
-                if (result.savedPaths.length > 0) {
-                    setAttachedImages((previous) => [...previous, ...result.savedPaths.map((path, index) => ({
-                        id: selectedImages[index]!.id,
-                        uri: selectedImages[index]!.uri,
-                        name: selectedImages[index]!.name,
-                        path,
-                    }))]);
-                }
-            } catch (error) {
-                Modal.alert('Attachment failed', error instanceof Error ? error.message : 'Could not send the file to the host.');
-            } finally {
-                // In finally, not after the request: a failed upload with the
-                // images still queued would re-fire this effect forever.
-                clearImages();
-                setAttaching(false);
-            }
-        })();
-    }, [selectedImages, attaching, clearImages, props.id]);
 
     const labels = agentLabels(currentPane);
     const shell = isShellLabels(labels);
@@ -402,7 +457,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             })
             .catch((error: unknown) => {
                 setStopping(false);
-                Modal.alert(failureTitle, error instanceof Error ? error.message : String(error), [
+                Modal.alert(failureTitle, failureText(error), [
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Retry', onPress: () => stopSession() },
                 ]);
@@ -422,12 +477,37 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const contextTitle = labels.taskTitle;
     const headerLifecycle = terminalPaneStatus(currentPane);
     const headerStatus = agentStatusColor(headerLifecycle, theme);
-    // Working and done carry their lifecycle colour. Idle shares the
-    // disconnected grey, which reads as dead on a ready agent.
-    const sendColor = headerLifecycle === 'idle' ? theme.colors.accent : headerStatus.color;
+    // "Go" is the accent, never a lifecycle or destructive colour: red on
+    // this screen means needs-you or stop, and the send button is neither.
+    const sendColor = canSend ? theme.colors.accent : theme.colors.textSecondary;
     const paneIndex = siblings.indexOf(props.id);
     const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
     const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting';
+    // A dead grant cannot be retried into life: the pill routes to re-pairing
+    // instead. Everything else keeps the transport vocabulary, and raw open
+    // failures read as a sentence.
+    const pairingFailure = usePairingFailure();
+    const grantFailure = pairingFailure === 'device-revoked' ? 'revoked'
+        : pairingFailure === 'grant-expired' || /grant expired/i.test(status) ? 'expired'
+            : undefined;
+    // Only what the channel can vouch for: 'live' means frames flow with
+    // nothing known wrong, so it reads as connected, never as health; a known
+    // timeout or lost route reads unconfirmed until the host answers again.
+    const statusText = grantFailure === 'expired' ? 'Access expired · Pair again'
+        : grantFailure === 'revoked' ? 'Access removed · Pair again'
+            : status === 'live' ? 'connected'
+                : status === 'unconfirmed' ? 'Connection unconfirmed'
+                    : /^(connecting|reconnecting|closed|disconnected)$/.test(status) || status.includes('another device') ? status
+                        : `${failureText(status)} Tap to retry.`;
+    const retryTerminal = React.useCallback(() => {
+        if (grantFailure !== undefined) {
+            router.push(`/pair?source=settings&reason=${grantFailure}` as never);
+            return;
+        }
+        // No channel means the first open failed; only a fresh open can help.
+        if (channelRef.current === undefined) setOpenAttempt((attempt) => attempt + 1);
+        else channelRef.current.reconnect(true);
+    }, [grantFailure]);
 
     // Same shape as KeyboardAvoidingView, minus the animation: that padding
     // moves frame by frame and Ghostty reflows its whole grid on every size
@@ -455,7 +535,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 }}
             >
                 <HeaderBackButton onPress={() => router.back()} style={{ marginLeft: -6 }} />
-                <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} hitSlop={6} accessibilityRole="button" accessibilityLabel={overlayLabel} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, paddingVertical: 4 }}>
+                <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} accessibilityRole="button" accessibilityLabel={overlayLabel} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 44, paddingVertical: 4 }}>
                     <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={18} />
                     <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
                         <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
@@ -494,7 +574,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             {Platform.OS === 'web' && !canControl && (
                 <View style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
                     <Text style={{ color: theme.colors.textSecondary, fontSize: 12, textAlign: 'center' }}>
-                        View-only browser · terminal input and agent controls are disabled · access expires eight hours after pairing
+                        View-only browser · terminal input and agent controls are disabled · expiry is shown in Settings › Connection
                     </Text>
                 </View>
             )}
@@ -507,7 +587,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 onTouchEnd={paneGestures.onTouchEnd}
                 style={{ flex: 1 }}
             >
-                <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} />
+                <React.Suspense fallback={<TerminalViewFallback />}>
+                    <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} attempt={openAttempt} />
+                </React.Suspense>
+                {/* Connection changes are announced, not only coloured: the pill
+                    is visual, this one line is for assistive tech. */}
+                <Text accessibilityLiveRegion="polite" style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}>
+                    {`Terminal ${statusText}`}
+                </Text>
                 {gestureHint !== null && (
                     <View
                         pointerEvents="none"
@@ -550,10 +637,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 )}
                 {showRetryStatus && (
                         <Pressable
-                            onPress={() => channelRef.current?.reconnect(true)}
+                            onPress={retryTerminal}
                             hitSlop={8}
                             accessibilityRole="button"
-                            accessibilityLabel={status.includes('another device') ? 'Take control from another device' : `Reconnect terminal. ${status}`}
+                            accessibilityLabel={grantFailure !== undefined ? statusText : status.includes('another device') ? 'Take control from another device' : `Reconnect terminal. ${statusText}`}
                             style={({ pressed }) => ({
                                 position: 'absolute',
                                 top: 12,
@@ -570,7 +657,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 opacity: pressed ? 0.7 : 1,
                             })}
                         >
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{status}</Text>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{statusText}</Text>
                             <Ionicons name="refresh-outline" size={12} color={theme.colors.textSecondary} />
                         </Pressable>
                 )}
@@ -597,6 +684,41 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     >
                         <Ionicons name="arrow-down" size={18} color={theme.colors.text} />
                     </Pressable>
+                )}
+                {canControl && chipLink !== undefined && chipKind !== undefined && (
+                    <Animated.View
+                        entering={FadeIn.duration(MOTION.base).reduceMotion(ReduceMotion.System)}
+                        exiting={FadeOut.duration(MOTION.exit).reduceMotion(ReduceMotion.System)}
+                        style={{ position: 'absolute', left: 12, right: showJump ? 64 : 12, bottom: 8, alignItems: 'flex-start' }}
+                    >
+                        <Pressable
+                            onPress={openChipLink}
+                            onLongPress={() => void Clipboard.setStringAsync(chipLink).then(() => showGestureHint('Link copied'))}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${chipKind === 'preview' ? 'Preview' : 'Open'} ${chipLink}`}
+                            style={({ pressed }) => ({
+                                maxWidth: '100%',
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                                paddingHorizontal: 9,
+                                paddingVertical: 6,
+                                borderRadius: 14,
+                                backgroundColor: theme.colors.surfaceHigh,
+                                borderWidth: 1,
+                                borderColor: theme.colors.divider,
+                                opacity: pressed ? 0.6 : 1,
+                            })}
+                        >
+                            <Ionicons name={chipKind === 'preview' ? 'globe-outline' : 'open-outline'} size={12} color={theme.colors.textSecondary} />
+                            <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>
+                                {chipKind === 'preview' ? 'Preview' : 'Open'}
+                            </Text>
+                            <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, flexShrink: 1 }}>
+                                {displayLink(chipLink, 80)}
+                            </Text>
+                        </Pressable>
+                    </Animated.View>
                 )}
             </View>
 
@@ -657,6 +779,20 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 </ScrollView>
             </View>
 
+            {failedImages.length > 0 && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
+                    <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />
+                    <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 12 }}>
+                        {failedImages.length === 1 ? `${failedImages[0]!.name} didn't upload` : `${failedImages.length} files didn't upload`}
+                    </Text>
+                    <Pressable onPress={retryFailed} accessibilityRole="button" accessibilityLabel="Retry the failed uploads" hitSlop={8} style={{ minHeight: 32, justifyContent: 'center', paddingHorizontal: 8 }}>
+                        <Text style={{ color: theme.colors.textLink, fontSize: 13, ...Typography.default('semiBold') }}>Retry</Text>
+                    </Pressable>
+                    <Pressable onPress={discardFailed} accessibilityRole="button" accessibilityLabel="Discard the failed uploads" hitSlop={8} style={{ minHeight: 32, justifyContent: 'center', paddingHorizontal: 8 }}>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Discard</Text>
+                    </Pressable>
+                </View>
+            )}
             <ComposerAttachments
                 images={[...attachedImages, ...selectedImages.filter((image) => !attachedImages.some((attached) => attached.id === image.id))]}
                 onRemove={(id) => setAttachedImages((previous) => previous.filter((image) => image.id !== id))}
@@ -669,19 +805,22 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     gap: 8,
                     paddingHorizontal: 12,
                     paddingVertical: 8,
-                    paddingBottom: (keyboardVisible ? 0 : insets.bottom) + 8,
+                    paddingBottom: (keyboardPad > 0 ? 0 : insets.bottom) + 8,
                     backgroundColor: theme.colors.surface,
                     borderTopWidth: StyleSheet.hairlineWidth,
                     borderTopColor: theme.colors.divider,
                 }}
             >
-                <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ opacity: attaching ? 0.4 : 1 }}>
+                <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ opacity: attaching ? 0.4 : 1, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
                     <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={24} color={theme.colors.textSecondary} />
                 </Pressable>
                 <TextInput
+                    ref={composerRef}
                     value={draft}
                     onChangeText={handleDraftChange}
-                    onSubmitEditing={sendPrompt}
+                    onSubmitEditing={() => {
+                        if (!isComposingRef.current) sendPrompt();
+                    }}
                     returnKeyType="send"
                     blurOnSubmit
                     submitBehavior="blurAndSubmit"
@@ -689,6 +828,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     placeholderTextColor={theme.colors.textSecondary}
                     style={{
                         flex: 1,
+                        minHeight: 44,
                         color: theme.colors.text,
                         backgroundColor: theme.colors.surfaceHigh,
                         borderRadius: 8,
@@ -697,9 +837,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     }}
                 />
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
+                    <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, hasAgent: currentPane?.agentKind !== undefined, getText: () => draftRef.current, setText: setDraft }} />
                 </View>
-                <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
+                <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
                     <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
                 </Pressable>
             </View>
@@ -729,11 +869,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             {/* Secondary actions belong to the header; view controls stay with the terminal. */}
             {actionsOpen && (
                 <Animated.View
-                    exiting={FadeOut.duration(160).reduceMotion(ReduceMotion.System)}
+                    exiting={FadeOut.duration(MOTION.exit).reduceMotion(ReduceMotion.System)}
                     accessibilityViewIsModal
                     style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, alignItems: 'flex-end', justifyContent: 'flex-start' }}
                 >
-                    <Animated.View pointerEvents="none" entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.18)' }} />
+                    <Animated.View pointerEvents="none" entering={FadeIn.duration(MOTION.fast).reduceMotion(ReduceMotion.System)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.18)' }} />
                     <Pressable onPress={() => setActionsOpen(false)} accessibilityLabel="Close pane actions" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
                     <AnimatedPopup style={{
                         flexShrink: 1,
@@ -754,6 +894,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         elevation: 12,
                     }}>
                         <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
+                            {props.onOpenBlankBrowser !== undefined && (
+                                <Pressable onPress={() => { const open = props.onOpenBlankBrowser; setActionsOpen(false); open?.(); }} accessibilityRole="button" accessibilityLabel="Open a blank browser"
+                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                    <Ionicons name="globe-outline" size={18} color={theme.colors.textSecondary} />
+                                    <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Open blank browser</Text>
+                                </Pressable>
+                            )}
                             {(paneActions.length > 0 || recentTerminalLinks(props.id).length > 0) && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>}
                             <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />
                             {recentTerminalLinks(props.id).length > 0 && <>
@@ -783,7 +930,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         contributionId: button.id,
                                         sessionId: props.id,
                                         idempotencyKey: randomUUID(),
-                                    }).catch((error) => Modal.alert(`${button.name} failed`, error instanceof Error ? error.message : String(error)))
+                                    }).catch((error) => Modal.alert(`${button.name} failed`, humanError(error).message))
                                         .finally(() => setExtensionActionBusy(undefined));
                                 }} disabled={pluginActionBusy !== undefined} accessibilityRole="button" accessibilityLabel={resolvePluginText(button.label)} accessibilityState={{ busy: pluginActionBusy === key, disabled: pluginActionBusy !== undefined }}
                                     style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>

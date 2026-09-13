@@ -9,7 +9,6 @@ import Animated, {
     FadeOut,
     useAnimatedStyle,
     useSharedValue,
-    withSpring,
     withTiming,
 } from 'react-native-reanimated';
 import { RealtimeConversation } from '@/conversation/ui';
@@ -26,6 +25,7 @@ import {
     useRealtimeWatching,
     stopRealtimeSession,
 } from '@/conversation/session';
+import { MOTION, pressEasing, reduceMotion, timing } from '@/constants/motion';
 
 const WIDTH = 154;
 const HEIGHT = 58;
@@ -68,8 +68,8 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
     React.useEffect(() => {
         const maxX = Math.max(MARGIN, width - WIDTH - MARGIN);
         const maxY = Math.max(safeArea.top + MARGIN, height - HEIGHT - safeArea.bottom - MARGIN);
-        x.value = withSpring(Math.min(Math.max(x.value, MARGIN), maxX), { damping: 18 });
-        y.value = withSpring(Math.min(Math.max(y.value, safeArea.top + MARGIN), maxY), { damping: 18 });
+        x.value = withTiming(Math.min(Math.max(x.value, MARGIN), maxX), timing(MOTION.slow));
+        y.value = withTiming(Math.min(Math.max(y.value, safeArea.top + MARGIN), maxY), timing(MOTION.slow));
     }, [height, safeArea.bottom, safeArea.top, width, x, y]);
 
     const drag = React.useMemo(
@@ -85,17 +85,17 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
                 })
                 .onEnd(() => {
                     const toLeft = x.value + WIDTH / 2 < width / 2;
-                    x.value = withSpring(toLeft ? MARGIN : Math.max(MARGIN, width - WIDTH - MARGIN), { damping: 18 });
+                    x.value = withTiming(toLeft ? MARGIN : Math.max(MARGIN, width - WIDTH - MARGIN), timing(MOTION.slow));
                     const maxY = Math.max(safeArea.top + MARGIN, height - HEIGHT - safeArea.bottom - MARGIN);
-                    y.value = withSpring(Math.min(Math.max(y.value, safeArea.top + MARGIN), maxY), { damping: 18 });
+                    y.value = withTiming(Math.min(Math.max(y.value, safeArea.top + MARGIN), maxY), timing(MOTION.slow));
                 }),
         [height, safeArea.bottom, safeArea.top, startX, startY, width, x, y],
     );
 
     const press = useSharedValue(1);
     const tap = React.useMemo(() => Gesture.Tap()
-        .onBegin(() => { press.value = withTiming(0.97, { duration: 80 }); })
-        .onFinalize(() => { press.value = withTiming(1, { duration: 160 }); })
+        .onBegin(() => { press.value = withTiming(0.97, timing(MOTION.press, pressEasing)); })
+        .onFinalize(() => { press.value = withTiming(1, timing(MOTION.fast)); })
         .onEnd(openRealtimeConversation)
         .runOnJS(true), [press]);
 
@@ -111,8 +111,8 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
                 <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
                     <GestureDetector gesture={Gesture.Race(drag, tap)}>
                         <Animated.View
-                            entering={FadeIn.duration(180)}
-                            exiting={FadeOut.duration(140)}
+                            entering={FadeIn.duration(MOTION.base).reduceMotion(reduceMotion)}
+                            exiting={FadeOut.duration(MOTION.exit).reduceMotion(reduceMotion)}
                             accessible
                             accessibilityRole="button"
                             accessibilityLabel={`${sessionLabel}. ${t('plugins.openConversation')}`}

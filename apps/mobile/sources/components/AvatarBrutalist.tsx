@@ -1,6 +1,7 @@
 import * as React from "react";
 import { View } from "react-native";
 import { Image } from "expo-image";
+import { useUnistyles } from 'react-native-unistyles';
 import { avatarHash, type GeneratedAvatarProps } from '@/components/generatedAvatar';
 
 
@@ -447,14 +448,16 @@ const colorPairs = [
 
 export const AvatarBrutalist = React.memo((props: GeneratedAvatarProps) => {
     const { id, size = 32, square = false, monochrome = false } = props;
+    const { theme } = useUnistyles();
 
     const imageIndex = avatarHash(id) % allImages.length;
     const colorIndex = avatarHash(`${id}color`) % colorPairs.length;
 
     const imageSource = allImages[imageIndex];
     const colorPair = colorPairs[colorIndex];
-    const tintColor = monochrome ? '#999999' : colorPair.tint;
-    const backgroundColor = monochrome ? '#F0F0F0' : colorPair.background;
+    // A disconnected session's avatar is greyed onto the list's own surface.
+    const tintColor = monochrome ? theme.colors.textSecondary : colorPair.tint;
+    const backgroundColor = monochrome ? theme.colors.surfaceHighest : colorPair.background;
 
     const dimension = size;
     const borderRadius = square ? 0 : size / 2;
@@ -474,6 +477,7 @@ export const AvatarBrutalist = React.memo((props: GeneratedAvatarProps) => {
         >
             <Image
                 source={imageSource}
+                accessibilityLabel="Avatar"
                 style={{
                     width: dimension * 0.8,
                     height: dimension * 0.8,

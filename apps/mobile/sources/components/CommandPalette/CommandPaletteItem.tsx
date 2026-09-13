@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
+import { View, Text, Pressable, Platform } from 'react-native';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Command } from '@/components/CommandPalette/types';
 import { Typography } from '@/constants/Typography';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,6 +13,7 @@ interface CommandPaletteItemProps {
 }
 
 export function CommandPaletteItem({ command, isSelected, onPress, onHover }: CommandPaletteItemProps) {
+    const { theme } = useUnistyles();
     const [isHovered, setIsHovered] = React.useState(false);
     
     const handleMouseEnter = React.useCallback(() => {
@@ -51,7 +53,7 @@ export function CommandPaletteItem({ command, isSelected, onPress, onHover }: Co
                         <Ionicons 
                             name={command.icon as any} 
                             size={20} 
-                            color={isSelected ? '#007AFF' : '#666'} 
+                            color={isSelected ? theme.colors.textLink : theme.colors.textSecondary}
                         />
                     </View>
                 )}
@@ -77,7 +79,7 @@ export function CommandPaletteItem({ command, isSelected, onPress, onHover }: Co
     );
 }
 
-const styles = StyleSheet.create({
+const styles = StyleSheet.create((theme) => ({
     container: {
         paddingHorizontal: 24,
         paddingVertical: 12,
@@ -89,14 +91,14 @@ const styles = StyleSheet.create({
         borderColor: 'transparent',
     },
     selected: {
-        backgroundColor: '#F0F7FF',
-        borderColor: '#007AFF20',
+        backgroundColor: theme.colors.surfaceSelected,
+        borderColor: theme.colors.accentSubtle,
     },
     pressed: {
-        backgroundColor: '#F5F5F5',
+        backgroundColor: theme.colors.surfacePressed,
     },
     hovered: {
-        backgroundColor: '#F8F8F8',
+        backgroundColor: theme.colors.surfaceHigh,
     },
     content: {
         flexDirection: 'row',
@@ -107,7 +109,7 @@ const styles = StyleSheet.create({
         width: 32,
         height: 32,
         borderRadius: 8,
-        backgroundColor: 'rgba(0, 0, 0, 0.04)',
+        backgroundColor: theme.colors.accentFaint,
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 12,
@@ -118,24 +120,24 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 15,
-        color: '#000',
+        color: theme.colors.text,
         marginBottom: 2,
         letterSpacing: -0.2,
     },
     subtitle: {
         fontSize: 13,
-        color: '#666',
+        color: theme.colors.textSecondary,
         letterSpacing: -0.1,
     },
     shortcutContainer: {
         paddingHorizontal: 10,
         paddingVertical: 5,
-        backgroundColor: 'rgba(0, 0, 0, 0.04)',
+        backgroundColor: theme.colors.accentFaint,
         borderRadius: 6,
     },
     shortcut: {
         fontSize: 12,
-        color: '#666',
+        color: theme.colors.textSecondary,
         fontWeight: '500',
     },
-});
+}));

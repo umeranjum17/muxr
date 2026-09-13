@@ -295,3 +295,75 @@ describe('unknown request type guard', () => {
         expect(error).toContain('bogus.request');
     });
 });
+
+describe('preview surface authority', () => {
+    it('gives a surface lease to a live control grant and refuses everything else', async () => {
+        let catalogFails = false;
+        const source = {
+            async pluginList() {
+                if (catalogFails) throw new Error('catalog unavailable');
+                return [];
+            },
+        } as unknown as SessionSource;
+        // What hosted mode wires: an explicit "this device holds a live control
+        // grant right now", not "nobody wrote down that it is view-only".
+        const grants = new Set(['control-device', 'other-control-device']);
+        const { dispatch } = createRequestDispatcher({
+            source,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+            relayUrl: 'ws://relay.test',
+            canMutateDevice: (deviceId: string) => deviceId !== 'view-only-device',
+            getDeviceContext: (deviceId: string) => ({ kind: deviceId === 'view-only-device' ? 'browser' as const : 'native' as const }),
+            surfaceAuthority: (deviceId: string) => grants.has(deviceId),
+        });
+        const lease = async (deviceId: string): Promise<{ ok: boolean; data?: { lease: string }; error?: string }> =>
+            await dispatch({
+                type: 'preview.lease',
+                requestId: `r-${deviceId}`,
+                params: { kind: 'browser', access: 'developer', port: 4321 },
+            } as never, deviceId) as never;
+
+        const granted = await lease('control-device');
+        expect(granted).toMatchObject({ ok: true });
+        const id = granted.data!.lease;
+        expect(id.startsWith('pvl_')).toBe(true);
+
+        // A browser/observer grant may watch this machine but never open a
+        // surface on it.
+        const refused = await lease('view-only-device');
+        expect(refused).toMatchObject({ ok: false });
+        expect(String(refused.error)).toContain('view-only');
+
+        // The one the old predicate got wrong: a device whose grant was removed
+        // leaves no authority entry behind, and an absent entry is not
+        // permission. It must be refused, not admitted by default.
+        const stranger = await lease('device-with-no-grant');
+        expect(stranger).toMatchObject({ ok: false });
+        expect(String(stranger.error)).toMatch(/may not open a surface/);
+
+        // A leased surface rides an encrypted tunnel or none at all.
+        const clear = await dispatch({
+            type: 'preview.attach',
+            requestId: 'r2',
+            params: { channel: 'c1', lease: id },
+        } as never, 'control-device');
+        expect(clear).toMatchObject({ ok: false });
+        expect(String((clear as { error: string }).error)).toContain('encrypted');
+
+        // Another control device cannot attach to a lease it was not issued.
+        const stolen = await dispatch({
+            type: 'preview.attach',
+            requestId: 'r3',
+            params: { channel: 'c1', lease: id, key: 'k' },
+        } as never, 'other-control-device');
+        expect(stolen).toMatchObject({ ok: false });
+        expect(String((stolen as { error: string }).error)).toContain('another device');
+
+        // A catalog this host cannot read is not an empty catalog: no lease is
+        // issued under a digest of nothing.
+        catalogFails = true;
+        expect(await lease('control-device')).toMatchObject({ ok: false });
+    });
+});

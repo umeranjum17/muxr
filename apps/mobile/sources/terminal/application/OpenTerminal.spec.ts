@@ -20,7 +20,7 @@ vi.mock('@/connection', () => ({
 }));
 
 vi.mock('@/catalog/sync', () => ({
-    sync: { request: mocks.request },
+    sync: { request: mocks.request, currentMachineId: () => mocks.settings.machineId },
 }));
 
 vi.mock('@/pairing/e2ee', () => ({
@@ -32,7 +32,13 @@ vi.mock('@react-navigation/native', () => ({ useIsFocused: () => mocks.focused }
 vi.mock('expo-router', () => ({ router: { replace: mocks.replace } }));
 vi.mock('@/catalog/store', async () => {
     const React = await import('react');
-    return { useHerdrTree: () => React.useSyncExternalStore(
+    const { create } = await import('zustand');
+    // The machine transport's word on the host, as sync.ts records it.
+    const storage = create<{ socketStatus: string; setSocketStatus: (socketStatus: string) => void }>()((set) => ({
+        socketStatus: 'connected',
+        setSocketStatus: (socketStatus) => set({ socketStatus }),
+    }));
+    return { storage, useHerdrTree: () => React.useSyncExternalStore(
         (listener) => { mocks.catalogListeners.add(listener); return () => { mocks.catalogListeners.delete(listener); }; },
         () => mocks.catalog,
     ) };
@@ -368,6 +374,49 @@ describe('openTerminal reconnect ownership', () => {
             expect.objectContaining({ event: 'terminal.channel', phase: 'live', outcome: 'ok' }),
             expect.objectContaining({ event: 'terminal.channel', phase: 'reconnecting', outcome: 'ok' }),
         ]));
+    });
+
+    it('stops vouching for an open pane after a known transport failure until the host answers again', async () => {
+        const { storage } = await import('@/catalog/store');
+        mocks.request.mockResolvedValue({});
+        const channel = await openTerminal({ agentRoute: 'session', size: { cols: 80, rows: 24 } });
+        const states: string[] = [];
+        channel.onState((state) => states.push(state));
+        await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
+        const socket = FakeWebSocket.instances[0]!;
+        socket.open();
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'paint' }) });
+        await vi.waitFor(() => expect(states.at(-1)).toBe('live'));
+
+        // Relay paused: a request on the machine transport timed out while this
+        // pane's socket stayed open. Nobody can say the host is there.
+        storage.getState().setSocketStatus('error');
+        expect(states.at(-1)).toBe('unconfirmed');
+        // The transport re-establishing its route is not evidence yet.
+        storage.getState().setSocketStatus('connecting');
+        expect(states.at(-1)).toBe('unconfirmed');
+        // An authenticated host frame on the transport is.
+        storage.getState().setSocketStatus('connected');
+        expect(states.at(-1)).toBe('live');
+
+        // A lost route, then this pane painting again, clears it just the same.
+        storage.getState().setSocketStatus('disconnected');
+        expect(states.at(-1)).toBe('unconfirmed');
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'more' }) });
+        await vi.waitFor(() => expect(states.at(-1)).toBe('live'));
+
+        // An actual re-attach of this pane reads as reconnecting, never as unconfirmed.
+        storage.getState().setSocketStatus('error');
+        vi.useFakeTimers();
+        socket.drop();
+        expect(states.at(-1)).toBe('reconnecting');
+        vi.useRealTimers();
+
+        channel.close();
+        const settled = states.length;
+        storage.getState().setSocketStatus('connected');
+        expect(states).toHaveLength(settled);
+        expect(states).toEqual(['reconnecting', 'live', 'unconfirmed', 'live', 'unconfirmed', 'live', 'unconfirmed', 'reconnecting']);
     });
 
     it('keeps the open pane usable across agent exit, shell input and a new agent', async () => {

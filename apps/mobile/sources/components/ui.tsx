@@ -12,10 +12,11 @@
 
 import * as React from 'react';
 import { Text, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
-import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import type { Theme } from '@/theme';
+import { MOTION, timing } from '@/constants/motion';
 
 export const ui = {
     radius: { card: 12, control: 10, meter: 2 },
@@ -65,7 +66,7 @@ export function Meter({ ratio, emphasis = 1, delay = 0, style }: { ratio: number
     const target = Math.max(0, Math.min(1, ratio));
     const width = useSharedValue(reduceMotion ? target : 0);
     React.useEffect(() => {
-        width.value = reduceMotion ? target : withDelay(delay, withTiming(target, { duration: 380, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
+        width.value = reduceMotion ? target : withDelay(delay, withTiming(target, timing(MOTION.slow)));
     }, [delay, reduceMotion, target, width]);
     const animated = useAnimatedStyle(() => ({ width: `${width.value * 100}%` }));
     return (

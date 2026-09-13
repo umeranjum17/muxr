@@ -1,20 +1,22 @@
-import { Ionicons } from '@expo/vector-icons';
 import type { LifecycleNotificationLevel } from '@muxr/contract';
-import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
+import { SegmentedControl } from '@/components/SegmentedControl';
 import { useLocalSettingMutable } from '@/catalog/store';
 import { updateNativePushNotificationLevel } from '@/utils/nativePushNotifications';
 
-const OPTIONS: ReadonlyArray<{
-    key: LifecycleNotificationLevel;
-    title: string;
-    summary: string;
-}> = [
-    { key: 'off', title: 'Off', summary: 'No agent lifecycle alerts' },
-    { key: 'important', title: 'Important', summary: 'Blocked and failed agents' },
-    { key: 'all', title: 'All activity', summary: 'Blocked, failed, and completed agents' },
-];
+const OPTIONS = [
+    { key: 'off', label: 'Off' },
+    { key: 'important', label: 'Important' },
+    { key: 'all', label: 'All activity' },
+] as const satisfies ReadonlyArray<{ key: LifecycleNotificationLevel; label: string }>;
+
+// The current choice, explained in one line under the control.
+const EXPLAINED: Record<LifecycleNotificationLevel, string> = {
+    off: 'No agent lifecycle alerts. Applies now on this device.',
+    important: 'Blocked and failed agents. Applies now on this device.',
+    all: 'Blocked, failed and completed agents. Applies now on this device.',
+};
 
 export default function NotificationSettingsScreen() {
     const [level, setLevel] = useLocalSettingMutable('lifecycleNotificationLevel');
@@ -29,24 +31,9 @@ export default function NotificationSettingsScreen() {
         <ItemList style={{ paddingTop: 0 }}>
             <ItemGroup
                 title="Lifecycle alerts"
-                footer="While You Were Away still shows blocked, failed, and completed activity at every level."
+                footer={`${EXPLAINED[level]} While You Were Away still shows blocked, failed, and completed activity at every level.`}
             >
-                {OPTIONS.map((option) => {
-                    const selected = option.key === level;
-                    return (
-                        <Item
-                            key={option.key}
-                            title={option.title}
-                            subtitle={option.summary}
-                            icon={<Ionicons name="notifications-outline" size={29} color="#FF9500" />}
-                            rightElement={selected ? <Ionicons name="checkmark" size={20} color="#007AFF" /> : null}
-                            selected={selected}
-                            showChevron={false}
-                            onPress={() => select(option.key)}
-                            accessibilityLabel={`${option.title}. ${option.summary}`}
-                        />
-                    );
-                })}
+                <SegmentedControl accessibilityLabel="Lifecycle alerts" options={OPTIONS} value={level} onChange={select} />
             </ItemGroup>
         </ItemList>
     );

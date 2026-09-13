@@ -148,4 +148,26 @@ describe('provider-neutral realtime WebRTC kernel', () => {
         expect(mocks.service.stopVoiceService).toHaveBeenCalledOnce();
         expect(errors).toEqual([]);
     });
+
+    it('cancels during the permission prompt: granted tracks stop and a new call is not blocked', async () => {
+        const callbacks = { onOffer: vi.fn(), onData: vi.fn(), onConnectionState: vi.fn(), onRemoteAudio: vi.fn(), onInterruption: vi.fn(), onError: vi.fn() };
+        let grant: ((stream: InstanceType<typeof mocks.Stream>) => void) | undefined;
+        const lateStream = new mocks.Stream();
+        mocks.mediaDevices.getUserMedia.mockImplementationOnce(() => new Promise((resolve) => { grant = resolve; }));
+        const cancel = new AbortController();
+        const pending = startRealtimeWebRtc('events-channel', callbacks, cancel.signal);
+        for (let tick = 0; tick < 50 && grant === undefined; tick += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+        expect(grant).toBeTypeOf('function');
+        // The owner ends the call while the prompt is still up.
+        cancel.abort();
+        expect(mocks.Peer.latest.closed).toBe(true);
+        // A fresh call may start now: the stale attempt no longer holds the singleton.
+        const fresh = startRealtimeWebRtc('events-channel', callbacks);
+        grant!(lateStream);
+        await expect(pending).rejects.toThrow(/stopped/);
+        expect(lateStream.track.stopped).toBe(true);
+        const handle = await fresh;
+        expect(mocks.Peer.latest.closed).toBe(false);
+        handle.stop();
+    });
 });

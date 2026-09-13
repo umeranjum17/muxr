@@ -118,6 +118,7 @@ export const AvatarGradient = React.memo((props: GeneratedAvatarProps) => {
     return (
         <Image
             source={gradientImage}
+            accessibilityLabel="Avatar"
             style={{
                 width: size,
                 height: size,

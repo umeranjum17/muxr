@@ -27,8 +27,11 @@ export {
 export {
     hostedPairingAuthority,
     hostedPairingDisplayName,
+    parseBrowserPairingQr,
     parsePairingString,
     prepareHostedPairingInput,
+    type BrowserPairingQr,
+    type BrowserPairingQrParse,
     type PairingString,
     type PairingStringParse,
 } from './domain/pairingString';

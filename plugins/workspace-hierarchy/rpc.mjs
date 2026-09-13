@@ -57,8 +57,11 @@ function runTree() {
         const children = sessions.flatMap((session, sessionIndex) => {
             const id = clean(session?.sessionId, 80);
             if (id === undefined) return [];
-            const agentName = clean(session.agentName, 80) ?? 'Unnamed agent';
-            const agentKind = clean(session.agentKind, 40) ?? 'Unknown provider';
+            // No agent kind means a plain shell pane: label it the way the
+            // session header does, never as an unknown agent.
+            const kind = clean(session.agentKind, 40);
+            const agentName = clean(session.agentName, 80) ?? (kind === undefined ? 'Shell' : 'Unnamed agent');
+            const agentKind = kind ?? 'Terminal';
             const displayAgent = clean(session.displayAgent, 80);
             return [{
                 id: `session-${tabIndex + 1}-${sessionIndex + 1}`,

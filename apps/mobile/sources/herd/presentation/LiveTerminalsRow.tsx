@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { AppState, Pressable, ScrollView, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { AppState, Platform, Pressable, ScrollView, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useIsFocused } from '@react-navigation/native';
 import { Text } from '@/components/StyledText';
@@ -21,6 +21,7 @@ import { AgentGlyph } from '@/components/AgentGlyph';
 import { TerminalPreview } from '@/terminal/ui';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { RecentActivity } from './RecentActivity';
+import { Typography } from '@/constants/Typography';
 
 const CARD_WIDTH = 300;
 const CARD_HEIGHT = 200;
@@ -37,9 +38,11 @@ const stylesheet = StyleSheet.create((theme) => ({
         gap: 8,
     },
     heading: { color: theme.colors.groupped.sectionTitle, fontSize: 11, fontWeight: '700', letterSpacing: 1.2 },
-    attentionIndicator: { width: 18, height: 28, alignItems: 'center', justifyContent: 'center' },
+    // 44px box inside a shorter caption row: the negative margin keeps the row height.
+    // A word beside the dot: colour never carries the state alone.
+    attentionIndicator: { minWidth: 44, height: 44, marginVertical: -8, marginLeft: -6, paddingHorizontal: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
     attentionDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: theme.colors.status.error },
-    reconnecting: { marginLeft: 'auto', color: theme.colors.textSecondary, fontSize: 10 },
+    attentionText: { ...Typography.default('semiBold'), fontSize: 11, color: theme.colors.status.error },
     zeroState: {
         height: 96,
         marginHorizontal: STRIP_GUTTER,
@@ -63,18 +66,18 @@ const stylesheet = StyleSheet.create((theme) => ({
         borderColor: theme.colors.divider,
     },
     attentionCard: { borderWidth: 1.5, borderColor: theme.colors.status.error },
-    cardBody: { flex: 1, backgroundColor: '#0c0c0b' },
+    cardBody: { flex: 1, backgroundColor: theme.colors.terminal.background },
     endedBody: { opacity: 0.48 },
     cardFooter: { minHeight: 48, paddingHorizontal: 10, paddingVertical: 6 },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     footerCopy: { flex: 1, minWidth: 0, gap: 2 },
     title: { color: theme.colors.text, fontSize: 12, lineHeight: 15, fontWeight: '600' },
-    identity: { color: theme.colors.textSecondary, fontSize: 10, lineHeight: 13 },
+    identity: { color: theme.colors.textSecondary, fontSize: 11, lineHeight: 14 },
     status: {
         flexShrink: 0,
         marginLeft: 8,
     },
-    statusText: { fontSize: 10, lineHeight: 13, fontVariant: ['tabular-nums'] },
+    statusText: { fontSize: 11, lineHeight: 14, fontVariant: ['tabular-nums'] },
 }));
 
 interface CardProps {
@@ -182,6 +185,7 @@ export const LiveTerminalsRow = React.memo(({
         return () => subscription.remove();
     }, []);
     const attentionIndex = cards.findIndex((card) => liveTerminalBucket(card.agentStatus) === 'attention');
+    const attentionCount = cards.filter((card) => liveTerminalBucket(card.agentStatus) === 'attention').length;
     const commitVisibleIndex = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const x = event.nativeEvent.contentOffset.x;
         scrollXRef.current = x;
@@ -247,18 +251,18 @@ export const LiveTerminalsRow = React.memo(({
     return (
         <View style={stylesheet.strip} onLayout={handleLayout}>
             <View style={stylesheet.header}>
-                <Text style={stylesheet.heading}>{t('liveTerminals.title')}</Text>
+                <Text accessibilityRole="header" aria-level={2} style={stylesheet.heading}>{t('liveTerminals.title')}</Text>
                 {attentionIndex === -1 ? null : (
                     <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel="Show the first agent needing attention"
+                        accessibilityLabel={`${attentionCount} need${attentionCount === 1 ? 's' : ''} you. Show the first agent needing attention`}
                         onPress={() => scrollToCard(cards[attentionIndex]!.id)}
                         style={stylesheet.attentionIndicator}
                     >
                         <View style={stylesheet.attentionDot} />
+                        <Text style={stylesheet.attentionText}>{`${attentionCount} need${attentionCount === 1 ? 's' : ''} you`}</Text>
                     </Pressable>
                 )}
-                {socketStatus === 'connected' ? null : <Text style={stylesheet.reconnecting}>Reconnecting…</Text>}
             </View>
             {cards.length === 0 ? (
                 showZeroState ? (
@@ -273,6 +277,10 @@ export const LiveTerminalsRow = React.memo(({
                     showsHorizontalScrollIndicator={false}
                     onMomentumScrollEnd={commitVisibleIndex}
                     onScrollEndDrag={commitVisibleIndex}
+                    // react-native-web never emits drag/momentum end, so the
+                    // browser tracks the visible index from the throttled
+                    // scroll stream; the setter is already change-guarded.
+                    {...(Platform.OS === 'web' ? { onScroll: commitVisibleIndex, scrollEventThrottle: 100 } : {})}
                     snapToInterval={cardWidth + CARD_GAP}
                     decelerationRate="fast"
                     contentContainerStyle={{ gap: CARD_GAP, paddingHorizontal: STRIP_GUTTER }}

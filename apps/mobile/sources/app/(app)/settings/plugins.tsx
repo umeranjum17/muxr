@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { ActivityIndicator, Switch } from 'react-native';
+import { ActivityIndicator } from 'react-native';
+import { Switch } from '@/components/Switch';
 import { MUXR_UI_VERSION, pluginCompatibilityError, type PluginManifestV1, type PluginSummary } from '@muxr/contract';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -13,6 +14,7 @@ import { resolvePluginText } from '@/plugins';
 import { pluginCatalogLoaded, pluginCatalogSnapshot, refreshPlugins, subscribePlugins } from '@/plugins';
 import { sourceLabel } from '@/plugins';
 import { t } from '@/text';
+import { humanError } from '@/utils/errors';
 
 export default function PluginsScreen() {
     const { status } = useSocketStatus();
@@ -22,7 +24,7 @@ export default function PluginsScreen() {
     React.useEffect(() => subscribePlugins(redraw), []);
     React.useEffect(() => {
         if (status !== 'connected') return;
-        void refreshPlugins().then(() => setLoadError(undefined)).catch((error: unknown) => setLoadError(error instanceof Error ? error.message : String(error)));
+        void refreshPlugins().then(() => setLoadError(undefined)).catch((error: unknown) => setLoadError(humanError(error).message));
     }, [status]);
 
     const entries = pluginCatalogSnapshot();
@@ -41,7 +43,7 @@ export default function PluginsScreen() {
                 try {
                     await sync.request('plugin.approve', { pluginId: plugin.pluginId, manifestHash: plugin.manifestHash!, approved });
                 } catch (error) {
-                    failures.push(`${plugin.name}: ${error instanceof Error ? error.message : String(error)}`);
+                    failures.push(`${plugin.name}: ${humanError(error).message}`);
                     setOptimistic((current) => ({ ...current, [plugin.pluginId]: plugin.approved }));
                 }
             }
@@ -98,7 +100,7 @@ export default function PluginsScreen() {
                             subtitle={[...(blocked === undefined ? [] : [t('plugins.unavailableLabel')]), blocked ?? plugin.description ?? describe(manifests[plugin.pluginId]), trust, requestedContexts(manifests[plugin.pluginId])].filter(Boolean).join(' · ')}
                             subtitleLines={2}
                             showChevron={false}
-                            rightElement={<Switch value={plugin.approved} onValueChange={(next) => void setApproved([plugin], next)} />}
+                            rightElement={<Switch value={plugin.approved} onValueChange={(next) => void setApproved([plugin], next)} accessibilityLabel={plugin.name} />}
                         />;
                     })}
                 </ItemGroup>

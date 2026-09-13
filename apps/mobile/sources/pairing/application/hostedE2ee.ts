@@ -26,13 +26,15 @@ import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectio
 import {
     expandCompactPairingPayload,
     hostedPairingDisplayName,
+    hostedPairingLifetime,
     pairingSearchParams,
     prepareHostedPairingInput,
+    reviewedConsentMismatch,
 } from '../domain/pairingString';
-import { acceptVerifiedGrant, grantRejectsDowngrade, type DeviceAuthority } from '../domain/hostedGrant';
+import { acceptVerifiedGrant, grantRejectsDowngrade, reviewedGrantCeiling, type DeviceAuthority } from '../domain/hostedGrant';
 import { restoreConnection } from './restoreConnection';
 
-export { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '../domain/pairingString';
+export { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingLifetime, prepareHostedPairingInput } from '../domain/pairingString';
 
 const DEVICE_KEY = 'muxr.hosted-e2ee.device.v2';
 const REPLAY_KEY = 'muxr.hosted-e2ee.replay.v2';
@@ -297,7 +299,7 @@ async function json(base: string, path: string, options: RequestInit = {}): Prom
         const message = String(body.error ?? `request failed (${response.status})`);
         throw new Error(friendlyRelayError(message));
     } catch (cause) {
-        if (cause instanceof Error && cause.name === 'AbortError') throw new Error('The relay did not respond. Check the network, then run `muxr doctor` on the machine.');
+        if (cause instanceof Error && cause.name === 'AbortError') throw new Error('The relay did not respond. Check the network, then run muxr doctor on the machine.');
         throw cause;
     } finally {
         if (timeout !== undefined) clearTimeout(timeout);
@@ -344,10 +346,18 @@ interface PendingHostedPair {
     relayUrl: string;
     machineName: string;
     expectedAuthority?: 'control' | 'observe';
+    /** Reviewed browser lifetime ceiling (epoch ms); the grant may not outlive it. */
+    expiresNoLaterThan?: number;
     source?: 'selfhost';
 }
 
 async function completePendingHostedPair(pending: PendingHostedPair, wait: boolean): Promise<StoredHostedGrant | undefined> {
+    // A browser claim must carry the lifetime the person reviewed; one
+    // persisted without it (an older build) is discarded, not completed.
+    if (Platform.OS === 'web' && (pending.expiresNoLaterThan === undefined || !Number.isFinite(pending.expiresNoLaterThan))) {
+        await secretDelete(PENDING_PAIR_KEY);
+        throw new Error('This browser pairing started without a confirmed access lifetime and was discarded. Pair again with a fresh link.');
+    }
     const keys = await getOrCreateHostedDeviceKey();
     let sealed: SealedDeviceGrant | undefined;
     const deadline = wait ? Date.now() + 5 * 60_000 : Date.now();
@@ -389,9 +399,12 @@ async function completePendingHostedPair(pending: PendingHostedPair, wait: boole
         pendingMachineId: pending.machineId,
         verifiedAuthority: verified.authority as DeviceAuthority | undefined,
         expectedAuthority: pending.expectedAuthority,
+        verifiedExpiresAt: verified.expiresAt,
+        ...(pending.expiresNoLaterThan === undefined ? {} : { expiresNoLaterThan: pending.expiresNoLaterThan }),
         platform: Platform.OS,
     });
     if (!accepted.ok && accepted.error === 'machine-substitution') throw new Error('pairing machine substitution rejected');
+    if (!accepted.ok && accepted.error === 'lifetime-substitution') throw new Error('pairing lifetime substitution rejected: the grant lasts longer than you agreed to');
     if (!accepted.ok) throw new Error('pairing authority substitution rejected');
     const authority = accepted.authority;
     const stored: StoredHostedGrant = {
@@ -452,6 +465,11 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
     if (expectedAuthority !== null && expectedAuthority !== 'control' && expectedAuthority !== 'observe') {
         throw new Error('pairing link has an invalid browser role');
     }
+    // What the person reviewed on the public link is bound to what the sealed
+    // code says before anything is claimed: the computer's name and, for a
+    // browser link, whether it asked for the personal 30-day lifetime.
+    const reviewedName = hostedPairingDisplayName(url);
+    const reviewedLifetime = hostedPairingLifetime(url);
     if ((initial.protocol === 'https:' || initial.protocol === 'http:') && initial.pathname === '/pair' && initial.searchParams.has('pair')) {
         const locator = new URL(initial.origin);
         locator.protocol = initial.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -472,6 +490,9 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
     // deep-link routers may drop #-fragments — self-host links use ? instead.
     const fragment = pairingSearchParams(url);
     expandCompactPairingPayload(fragment);
+    // Every accepted form: what was reviewed must be what the sealed payload says.
+    const mismatch = reviewedConsentMismatch({ name: reviewedName, lifetime: reviewedLifetime }, fragment);
+    if (mismatch !== undefined) throw new Error(mismatch);
     const payloadAuthority = fragment.get('authority');
     if (expectedAuthority === null && (payloadAuthority === 'control' || payloadAuthority === 'observe')) {
         expectedAuthority = payloadAuthority;
@@ -541,6 +562,8 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
         relayUrl: selfhostRelay ?? parsed.origin.replace(/^http/i, 'ws'),
         machineName: hostedPairingDisplayName(url),
         ...((expectedAuthority === 'control' || expectedAuthority === 'observe') ? { expectedAuthority } : {}),
+        // Browsers reviewed a lifetime; native pairing is until revoked.
+        ...(Platform.OS === 'web' ? { expiresNoLaterThan: reviewedGrantCeiling(reviewedLifetime, Date.now()) } : {}),
         ...(selfhostRelay !== null ? { source: 'selfhost' as const } : {}),
     };
     // Claim is one-shot. Persist its credential and binding before waiting so

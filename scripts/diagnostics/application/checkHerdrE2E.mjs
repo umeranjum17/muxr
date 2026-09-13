@@ -15,7 +15,7 @@
  */
 
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
@@ -175,7 +175,7 @@ socket.on('message', (raw) => {
         const entry = pending.get(frame.requestId);
         if (entry === undefined) return;
         pending.delete(frame.requestId);
-        frame.ok ? entry.resolve(frame.data) : entry.reject(new Error(frame.error ?? 'request failed'));
+        frame.ok ? entry.resolve(frame.data) : entry.reject(Object.assign(new Error(frame.error ?? 'request failed'), frame.code === undefined ? {} : { code: frame.code }));
         return;
     }
     if (frame?.type === 'session.event') {
@@ -345,26 +345,13 @@ async function run() {
     await waitFor(() => frames.length > 0, 'terminal.frame stream');
     console.log(`ok: terminal stream live (${frames.length} frame(s))`);
 
-    // 4. input round-trip: type into the pane and look for the echo in frames
-    const framesBeforeInput = frames.length;
+    // 4. input round-trip: type into the pane and look for the echo in frames.
+    // Bounded poll, not a fixed sleep: the echo window starved under
+    // parallel-suite load. The marker must still arrive or this fails.
     const marker = `e2e${Date.now().toString(36)}`;
     term.send(JSON.stringify({ type: 'terminal.input', text: marker }));
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    const text = Buffer.concat(frames.map((frame) => Buffer.from(frame.bytes, 'base64'))).toString('utf8');
-    if (!text.includes(marker)) {
-        const stream = closedReason === undefined || closedReason === null
-            ? (socketClosed ? 'socket closed' : 'open')
-            : `closed: ${closedReason}`;
-        let paneScreen;
-        try {
-            paneScreen = runHerdr(['pane', 'read', attached.paneId, '--source', 'visible'], 5_000).includes(marker)
-                ? 'marker reached the pane screen'
-                : 'marker never reached the pane screen';
-        } catch (cause) {
-            paneScreen = `pane screen unreadable: ${cause instanceof Error ? cause.message : String(cause)}`;
-        }
-        fail(`typed input never echoed back (${framesBeforeInput} frame(s) before input, ${frames.length} after, ${text.length} bytes, stream ${stream}, ${paneScreen})`);
-    }
+    const frameText = () => Buffer.concat(frames.map((frame) => Buffer.from(frame.bytes, 'base64'))).toString('utf8');
+    await waitFor(() => frameText().includes(marker), 'typed echo', 20_000);
     console.log('ok: input echoed back through the terminal stream');
 
     // Graphics needs cell metrics on attach; Herdr then forwards the pane's
@@ -424,13 +411,38 @@ async function run() {
         previousWorkspaceId = undefined;
     }
 
-    // 5. prompt + abort round-trip (ack-only requests)
-    await request(socket, 'session.prompt', { sessionId: newId, text: 'say nothing' });
+    // 5. prompt + abort round-trip (ack-only requests). Every client
+    // submission carries an identity the host runs at most once: the same
+    // id resent to the real shell pane lands one line, a different text
+    // under that id is refused, and an unidentified prompt (an older
+    // client) is refused before it reaches Herdr.
+    const submission = { promptId: `e2e-${Date.now().toString(36)}-once`, promptNotValidAfter: Date.now() + 60_000 };
+    await request(socket, 'session.prompt', { sessionId: newId, text: 'say nothing', ...submission });
     console.log('ok: session.prompt acked');
+    const onceMarker = join(workdir, 'prompt-once.txt');
+    const onceCommand = `printf 'once\\n' >> ${onceMarker}`;
+    const shellSubmission = { promptId: `e2e-${Date.now().toString(36)}-shell`, promptNotValidAfter: Date.now() + 60_000 };
+    // The Kitty step above left the terminal's graphics reply on the shell's
+    // input line (no client consumed it after detach); start from a clean line.
+    runHerdr(['pane', 'send-keys', kittyAttached.paneId, 'c-c']);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await request(socket, 'session.prompt', { sessionId: shellId, text: onceCommand, ...shellSubmission });
+    await request(socket, 'session.prompt', { sessionId: shellId, text: onceCommand, ...shellSubmission });
+    const conflict = await request(socket, 'session.prompt', { sessionId: shellId, text: 'echo other', ...shellSubmission }).then(() => undefined, (error) => error);
+    if (conflict?.code !== 'prompt-conflict') fail(`a reused prompt id with different text was not refused (${conflict?.message ?? 'accepted'})`);
+    const unidentified = await request(socket, 'session.prompt', { sessionId: shellId, text: onceCommand }).then(() => undefined, (error) => error);
+    if (unidentified?.code !== 'prompt-id-required') fail(`an unidentified prompt was not refused (${unidentified?.message ?? 'accepted'})`);
+    await waitFor(() => existsSync(onceMarker), 'the identified shell prompt to run');
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    const onceLines = readFileSync(onceMarker, 'utf8');
+    if (onceLines !== 'once\n') fail(`the resent shell prompt ran ${onceLines.split('\n').filter(Boolean).length} times (${JSON.stringify(onceLines)})`);
+    console.log('ok: same-id resend ran the shell command exactly once; conflicting and unidentified prompts refused');
     await request(socket, 'session.abort', { sessionId: newId });
     console.log('ok: session.abort acked');
 
-    // 6. detach + stop
+    // 6. detach + stop (stop needs the close contract; skipped honestly
+    // when the live server carries a foreign plugin root — finish() still
+    // closes this run's own workspace through the herdr CLI).
     term.close();
     await request(socket, 'terminal.detach', { sessionId: newId, channel });
     const closable = packagedCloseAvailable();

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { ViewStyle } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, ReduceMotion } from 'react-native-reanimated';
+import { MOTION } from '@/constants/motion';
 
 export interface StatusDotProps {
     color: string;
@@ -15,14 +16,14 @@ export const StatusDot = React.memo(({ color, isPulsing, size = 6, style }: Stat
     React.useEffect(() => {
         if (isPulsing) {
             opacity.value = withRepeat(
-                withTiming(0.3, { duration: 1000, reduceMotion: ReduceMotion.System }),
+                withTiming(0.3, { duration: MOTION.pulse, reduceMotion: ReduceMotion.System }),
                 -1, // infinite
                 true, // reverse
                 undefined,
                 ReduceMotion.System
             );
         } else {
-            opacity.value = withTiming(1, { duration: 200, reduceMotion: ReduceMotion.System });
+            opacity.value = withTiming(1, { duration: MOTION.base, reduceMotion: ReduceMotion.System });
         }
     }, [isPulsing]);
 

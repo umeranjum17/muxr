@@ -15,13 +15,14 @@ import { storage } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
-import { buildSpaceRows, workspaceName, type HerdRow } from '../domain/herdTree';
-import { agentIdentityLine, agentLabels, isShellLabels } from '../domain/agentPresentation';
+import { buildSpaceRows, spacesVerdict, workspaceName, type HerdRow, type SpaceGroup } from '../domain/herdTree';
+import { HERD_STATUS_LABELS, agentLabels, isShellLabels, spaceRowLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { layout } from '@/components/layout';
 import { useDeviceAuthority } from '@/pairing';
+import { humanError } from '@/utils/errors';
 
 const stylesheet = StyleSheet.create((theme) => ({
     contentContainer: {
@@ -104,7 +105,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         maxWidth: 140,
     },
     branchPillText: {
-        fontSize: 10,
+        fontSize: 11,
         color: theme.colors.textSecondary,
         ...Typography.default(),
     },
@@ -165,6 +166,43 @@ const stylesheet = StyleSheet.create((theme) => ({
         backgroundColor: theme.colors.divider,
         marginLeft: 43,
     },
+    groupHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 16,
+        paddingTop: 12,
+        paddingBottom: 4,
+        minHeight: 36,
+    },
+    groupHeaderCompact: {
+        paddingHorizontal: 12,
+    },
+    groupTitle: {
+        fontSize: 11,
+        letterSpacing: 0.6,
+        textTransform: 'uppercase',
+        color: theme.colors.textSecondary,
+        ...Typography.default('semiBold'),
+    },
+    groupCount: {
+        fontSize: 11,
+        color: theme.colors.textSecondary,
+        ...Typography.default(),
+    },
+    verdict: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 16,
+        paddingTop: 4,
+        paddingBottom: 2,
+    },
+    verdictText: {
+        fontSize: 15,
+        color: theme.colors.text,
+        ...Typography.default('semiBold'),
+    },
     empty: {
         paddingHorizontal: 16,
         paddingVertical: 18,
@@ -192,6 +230,7 @@ interface SpacesTreeProps {
 
 const AgentRow = React.memo(({
     pane,
+    tabLabel,
     first,
     onClose,
     compact,
@@ -199,6 +238,7 @@ const AgentRow = React.memo(({
     canClose,
 }: {
     pane: HerdrTreePane;
+    tabLabel?: string;
     first?: boolean;
     onClose: () => void;
     compact: boolean;
@@ -212,8 +252,7 @@ const AgentRow = React.memo(({
     const labels = agentLabels(pane);
     const sessionId = pane.sessionId;
     const shell = isShellLabels(labels);
-    const title = labels.taskTitle;
-    const subtitle = agentIdentityLine(labels);
+    const { title, subtitle } = spaceRowLabels(pane, tabLabel);
 
     return (
         <View style={[styles.agentRow, compact && styles.agentRowCompact]}>
@@ -231,7 +270,7 @@ const AgentRow = React.memo(({
                 android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                accessibilityLabel={[`Open ${title}`, subtitle].filter(Boolean).join(', ')}
+                accessibilityLabel={[`Open ${title}`, subtitle, shell ? undefined : HERD_STATUS_LABELS[pane.agentStatus]].filter(Boolean).join(', ')}
             >
                 <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
                 <View style={styles.agentText}>
@@ -244,11 +283,35 @@ const AgentRow = React.memo(({
     );
 });
 
+/** A state group's header: its colour, its name, its count, and a fold for the noisy ones. */
+const GroupHeader = React.memo(({ group, folded, onToggle, compact }: { group: SpaceGroup; folded: boolean; onToggle: () => void; compact: boolean }) => {
+    const { theme } = useUnistyles();
+    const styles = stylesheet;
+    const status = group.key === 'attention' ? 'blocked' : group.key === 'working' ? 'working' : group.key === 'done' ? 'done' : 'unknown';
+    const dot = agentStatusColor(status, theme);
+    return (
+        <Pressable
+            onPress={onToggle}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: !folded }}
+            accessibilityLabel={`${group.title}, ${group.panes.length}`}
+            style={[styles.groupHeader, compact && styles.groupHeaderCompact]}
+        >
+            <StatusDot color={dot.color} isPulsing={false} size={7} />
+            <Text style={styles.groupTitle}>{group.title}</Text>
+            <Text style={styles.groupCount}>({group.panes.length})</Text>
+            <View style={{ marginLeft: 'auto' }}>
+                <Ionicons name={folded ? 'chevron-forward' : 'chevron-down'} size={14} color={theme.colors.groupped.chevron} />
+            </View>
+        </Pressable>
+    );
+});
+
 const WorkspaceCard = React.memo(({
     workspace,
     expanded,
     agentCount,
-    panes,
+    groups,
     onToggle,
     onClose,
     onClosePane,
@@ -259,7 +322,7 @@ const WorkspaceCard = React.memo(({
     workspace: HerdrTreeWorkspace;
     expanded: boolean;
     agentCount: number;
-    panes: HerdrTreePane[];
+    groups: SpaceGroup[];
     onToggle: () => void;
     onClose: () => void;
     onClosePane: (pane: HerdrTreePane) => void;
@@ -271,6 +334,14 @@ const WorkspaceCard = React.memo(({
     const styles = stylesheet;
     const dot = agentStatusColor(workspace.agentStatus, theme);
     const branch = workspace.worktree?.branch;
+    // Folds are per group and remembered while the card lives; the noisy
+    // groups start folded, the attention group never folds.
+    const [unfolded, setUnfolded] = React.useState<ReadonlySet<string>>(() => new Set());
+    const toggleGroup = React.useCallback((key: string) => setUnfolded((previous) => {
+        const next = new Set(previous);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+    }), []);
 
     return (
         <View style={[styles.card, compact && styles.cardCompact]}>
@@ -285,7 +356,7 @@ const WorkspaceCard = React.memo(({
                 ]}
                 android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
                 accessibilityRole="button"
-                accessibilityLabel={`${workspaceName(workspace)} workspace, ${agentCount} agent${agentCount === 1 ? '' : 's'}`}
+                accessibilityLabel={`${workspaceName(workspace)} workspace, ${agentCount} agent${agentCount === 1 ? '' : 's'}, ${HERD_STATUS_LABELS[workspace.agentStatus]}`}
             >
                 <View style={styles.chevron}>
                     <Ionicons
@@ -309,17 +380,26 @@ const WorkspaceCard = React.memo(({
                     </Text>
                 )}
             </Pressable>
-            {expanded && panes.map((pane, index) => (
-                <AgentRow
-                    key={pane.paneId}
-                    pane={pane}
-                    first={index === 0}
-                    onClose={() => onClosePane(pane)}
-                    compact={compact}
-                    selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
-                    canClose={canClose}
-                />
-            ))}
+            {expanded && groups.map((group) => {
+                const folded = group.foldedByDefault !== unfolded.has(group.key);
+                return (
+                    <React.Fragment key={group.key}>
+                        <GroupHeader group={group} folded={folded} onToggle={() => toggleGroup(group.key)} compact={compact} />
+                        {!folded && group.panes.map(({ pane, tabLabel }, index) => (
+                            <AgentRow
+                                key={pane.paneId}
+                                pane={pane}
+                                tabLabel={tabLabel}
+                                first={index === 0}
+                                onClose={() => onClosePane(pane)}
+                                compact={compact}
+                                selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
+                                canClose={canClose}
+                            />
+                        ))}
+                    </React.Fragment>
+                );
+            })}
         </View>
     );
 });
@@ -377,7 +457,7 @@ export const SpacesTree = React.memo(({
                     sync.request('workspace.close', { workspaceId: workspace.workspaceId })
                         .then(refresh)
                         .catch((cause) => {
-                            Modal.alert('Close failed', cause instanceof Error ? cause.message : String(cause));
+                            Modal.alert('Close failed', humanError(cause).message);
                             void refresh();
                         });
                 },
@@ -406,7 +486,7 @@ export const SpacesTree = React.memo(({
                     sync.request('pane.close', { sessionId })
                         .then(refresh)
                         .catch((cause) => {
-                            Modal.alert('Close failed', cause instanceof Error ? cause.message : String(cause));
+                            Modal.alert('Close failed', humanError(cause).message);
                             void refresh();
                         });
                 },
@@ -418,13 +498,20 @@ export const SpacesTree = React.memo(({
         () => [{ key: 'spaces', title: 'spaces', data: buildSpaceRows(workspaces, expanded, searchQuery) }],
         [expanded, searchQuery, workspaces],
     );
+    // The list answers "do I need to act" before any row is read. Blocked
+    // agents are the ones that get missed, so they lead the line and its
+    // colour; failed ones are named next; a quiet list says so.
+    const verdict = React.useMemo(() => spacesVerdict(workspaces), [workspaces]);
+    const { theme } = useUnistyles();
+    const attention = verdict.blocked > 0 || verdict.failed > 0;
+    const verdictColor = attention ? theme.colors.status.error : theme.colors.status.done;
 
     const renderItem = React.useCallback(({ item }: { item: HerdRow }) => (
         <WorkspaceCard
             workspace={item.workspace}
             expanded={item.expanded}
             agentCount={item.agentCount}
-            panes={item.panes}
+            groups={item.groups}
             onToggle={() => toggleWorkspace(item.workspace.workspaceId)}
             onClose={() => confirmCloseWorkspace(item.workspace)}
             onClosePane={confirmClosePane}
@@ -441,9 +528,17 @@ export const SpacesTree = React.memo(({
                 keyExtractor={(item) => `ws-${item.workspace.workspaceId}`}
                 renderItem={renderItem}
                 renderSectionHeader={({ section }) => (
-                    <View style={[styles.sectionHeader, compact && styles.sectionHeaderCompact]}>
-                        <Text style={styles.sectionTitle}>{section.title}</Text>
-                    </View>
+                    <>
+                        <View style={[styles.sectionHeader, compact && styles.sectionHeaderCompact]}>
+                            <Text accessibilityRole="header" aria-level={2} style={styles.sectionTitle}>{section.title}</Text>
+                        </View>
+                        {workspaces.length > 0 && (
+                            <View style={styles.verdict} accessibilityLiveRegion="polite">
+                                <Ionicons name={attention ? 'alert-circle' : 'checkmark'} size={18} color={verdictColor} />
+                                <Text style={[styles.verdictText, attention && { color: verdictColor }]}>{verdict.text}</Text>
+                            </View>
+                        )}
+                    </>
                 )}
                 stickySectionHeadersEnabled={false}
                 ListHeaderComponent={listHeaderComponent === undefined ? undefined : <>{listHeaderComponent}</>}

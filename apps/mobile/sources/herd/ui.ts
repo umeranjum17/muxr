@@ -2,6 +2,7 @@
 export * from './presentation/ActiveSessionsGroupCompact';
 export * from './presentation/EmptySessionsTablet';
 export * from './presentation/HerdView';
+export * from './presentation/FirstRunSetupCard';
 export * from './presentation/HomeHeader';
 export * from './presentation/KernelNotifications';
 export * from './presentation/LiveTerminalsRow';
@@ -14,5 +15,4 @@ export * from './presentation/SessionsList';
 export * from './presentation/SidebarNavigator';
 export * from './presentation/SidebarView';
 export * from './presentation/SpacesTree';
-export * from './presentation/TabBar';
 export * from './presentation/attentionPresentation';

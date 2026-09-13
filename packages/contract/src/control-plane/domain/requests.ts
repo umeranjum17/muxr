@@ -24,6 +24,7 @@ export type LayoutSnapshot =
           second: LayoutSnapshot;
       };
 
+import type { BrowserSessionStatus } from './surface.js';
 import type {
     MachineInfo,
     SessionSnapshot,
@@ -174,6 +175,14 @@ export type PeerRequestResult<T extends PeerRequestType> = PeerRequestMap[T]['re
 export type PeerClientRequest = {
     [K in PeerRequestType]: { type: K; requestId: string; params: PeerRequestParams<K> };
 }[PeerRequestType];
+
+/** A mutating ownership call: what it expects and which command it is. */
+export interface BrowserSessionTransition {
+    session: string;
+    expectedGeneration: number;
+    /** Idempotent command identity; a repeat with the same id reconciles. */
+    command: string;
+}
 
 export interface RequestMap extends PeerRequestMap {
     // --- lifecycle ----------------------------------------------------------
@@ -374,6 +383,16 @@ export interface RequestMap extends PeerRequestMap {
             text: string;
             attachments?: PromptAttachment[];
             streamingBehavior?: StreamingBehavior;
+            /**
+             * Stable identity of one composer submission (8-64 chars of
+             * [A-Za-z0-9_-]). A resend after a lost answer carries the same id
+             * and input; a host advertising HOST_CAPABILITY_PROMPT_RECEIPTS runs
+             * it at most once per device and refuses conflicting reuse. Required
+             * from clients; peers carry `peerMutation` instead.
+             */
+            promptId?: string;
+            /** Epoch ms after which the submission may no longer be admitted or retried. */
+            promptNotValidAfter?: number;
             /** Required by the peer dispatcher; ordinary trusted clients omit it. */
             peerMutation?: PeerMutationMetadata;
         };
@@ -457,11 +476,152 @@ export interface RequestMap extends PeerRequestMap {
 
     // --- preview tunnel -----------------------------------------------------
     /**
-     * Ask the host to join `channel` and forward it to `port`. Native takeover
-     * callers send a per-preview key through this encrypted request; local
-     * development may omit it when the relay is trusted.
+     * What content-type a loopback port answers with, probed on the host
+     * (where the port is). `text/html` marks a web app worth a Preview chip;
+     * anything else is an API the phone should only open externally.
+     * `contentType` is null when nothing HTTP answers.
      */
-    'preview.attach': { params: { channel: string; port: number; key?: string }; result: null };
+    'preview.probe': { params: { port: number }; result: { contentType: string | null } };
+    /**
+     * Register an endpoint this device may reach through a preview tunnel.
+     *
+     * The lease, not the caller, names the endpoint from here on: the host
+     * records machine, device, surface kind, access, provider, context, the
+     * plugin snapshot it was issued under and an expiry, and `preview.attach`
+     * can only dial an endpoint the host itself wrote down. Expiry, a device
+     * whose grant has gone, a provider that is no longer enabled, or a catalog
+     * the host cannot read all close the live tunnel and its connections. A
+     * lease with a live tunnel that still passes every one of those checks is
+     * renewed, so a surface does not die mid-read.
+     *
+     * `access` says how the endpoint was chosen and is never a formality:
+     * `developer` is an operator typing a loopback port inside muxr's own
+     * chrome, and it reaches anything listening on that machine, so it stays a
+     * named diagnostic operation. `product` binds the lease to the capability
+     * provider and the worktree/context it belongs to; the provider is an
+     * opaque id checked against the catalog, never one this contract names.
+     */
+    'preview.lease': {
+        params: {
+            kind: 'browser';
+            access: 'developer' | 'product';
+            /**
+             * Developer path only: the operator-typed loopback port. Product
+             * callers name an offer handle instead; a product port, provider
+             * or context submitted by the caller is refused.
+             */
+            port?: number;
+            provider?: string;
+            context?: string;
+            /**
+             * Product path names a current local Browser offer handle. The
+             * host resolves port, provider and context from its own offer
+             * table; a product caller never submits those fields directly.
+             */
+            offer?: string;
+        };
+        result: {
+            lease: string;
+            expiresAt: number;
+            kind: 'browser';
+        };
+    };
+
+    /** Give a lease back early. Idempotent: an unknown lease is already gone. */
+    'preview.release': { params: { lease: string }; result: null };
+
+    /**
+     * Renew a held product lease from the device that holds it. This is the
+     * lease's authenticated liveness: the call itself, over the encrypted
+     * control plane, proves the holder is still present. The host
+     * re-validates the exact offer generation, the receiving device's
+     * provider approval, and the grant before extending anything, and renews
+     * the bound offer alongside the lease. Calls inside the minimum interval
+     * return the current expiry unchanged. Developer leases do not renew
+     * here; their typed-port diagnostic keeps holder-based renewal.
+     */
+    'preview.renew': { params: { lease: string }; result: { expiresAt: number } };
+
+    /**
+     * Turn a held product lease into a real HTTPS preview the renderer can
+     * load: the approved public origin the host allocated for that
+     * endpoint, the endpoint generation it belongs to, and a one-use POST
+     * bootstrap. The renderer submits the body to `origin + path` exactly
+     * once; the host gateway answers with a Secure, HttpOnly, host-only
+     * `__Host-` admission cookie and a redirect to the app. The body is
+     * private: it travels only inside this encrypted result, never in a
+     * URL, a log line or anything the page can read. A second submission,
+     * an expired body or one from another lease is refused. Renewal
+     * extends admission server-side; a fresh bootstrap is needed only when
+     * the cookie itself is gone.
+     */
+    'preview.bootstrap': {
+        params: { lease: string };
+        result: {
+            origin: string;
+            generation: number;
+            bootstrap: { path: string; body: string; expiresAt: number };
+            /** Relative path the app opens at after admission. */
+            path: string;
+        };
+    };
+
+    // --- agent browser sessions ---------------------------------------------
+    /**
+     * Ownership of one broker-owned browser session. The browser service is
+     * the sole authority; the host relays. `session` is the opaque handle a
+     * `browser-session` offer carries; every mutating call names the
+     * generation it expects and an idempotent command identity, so a
+     * repeat after a dropped reply is reconciled, never replayed.
+     */
+    'browser.session.status': { params: { session: string }; result: BrowserSessionStatus };
+    /** Take control: barrier the agent, then hand the seat to this device. */
+    'browser.session.take': { params: BrowserSessionTransition; result: BrowserSessionStatus };
+    /** Human pause while owning (background, visibility loss): input locks, seat stays. */
+    'browser.session.pause': { params: BrowserSessionTransition; result: BrowserSessionStatus };
+    /** Resume control after a pause, with fresh media and permits. */
+    'browser.session.resume': { params: BrowserSessionTransition; result: BrowserSessionStatus };
+    /** Give back deliberately: settle, scrub, reopen agent observation. */
+    'browser.session.return': { params: BrowserSessionTransition; result: BrowserSessionStatus };
+    /**
+     * Private signaling and control between this device and the browser
+     * service: a sealed message under the browser-service grant (SDP,
+     * ICE, input permits, field focus). Opaque to the host, which relays
+     * it; nothing here is readable with the shared session root. Expires
+     * with the device grant and the session.
+     */
+    'browser.session.signal': {
+        params: { session: string; generation: number; message: string };
+        result: { message?: string };
+    };
+    /**
+     * Enroll this device with the browser service: the service mints the
+     * separately pinned browser-service grant, sealed to the device's own
+     * X25519 key and signed by the service identity. Only a device holding
+     * control authority may enroll, and only for itself. Pairing pins the
+     * same grant in hosted deployments; this is the owner re-enrolling an
+     * already trusted device, never an agent command.
+     */
+    'browser.session.enroll': {
+        params: { devicePublicKey: string };
+        result: { grant: unknown; serviceId: string; signingPublicKey: string; expiresAt: number };
+    };
+
+    /**
+     * Ask the host to join `channel` and forward it to an endpoint. `lease`
+     * names an endpoint the host wrote down; `port` is the legacy
+     * takeover/preview path. Exactly one of them is given. Native callers
+     * send a per-preview key through this encrypted request; local legacy web
+     * preview may omit it because the browser cannot decrypt a raw TCP listener.
+     *
+     * Takeover callers claim `mode`: exactly one `control` holder per port may
+     * send input, while `observe` watchers receive frames read-only. Callers
+     * that omit it (dev-server previews, leased surfaces) share the port as before.
+     */
+    'preview.attach': {
+        params: { channel: string; port?: number; lease?: string; key?: string; mode?: 'observe' | 'control' };
+        result: null;
+    };
 
     // --- worktrees ----------------------------------------------------------
     /**
@@ -517,6 +677,14 @@ export type RequestResponse =
     | { type: 'result'; requestId: string; ok: false; error: string; code?: string };
 
 /** session.start marker for a cwd that does not exist; clients prompt to create it. */
+/** Advertised by hosts that keep durable per-device prompt receipts. */
+export const HOST_CAPABILITY_PROMPT_RECEIPTS = 'prompt-receipts';
+/** Longest submission validity a client may declare; receipts live at least this long. */
+export const PROMPT_SUBMISSION_MAX_TTL_MS = 2 * 60 * 60_000;
+/** Accepted producer clock skew on `promptNotValidAfter`. */
+export const PROMPT_SUBMISSION_CLOCK_SKEW_MS = 5 * 60_000;
+export const PROMPT_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
+
 export const MISSING_CWD_ERROR_PREFIX = 'cwd-does-not-exist:';
 
 /** Normalize both old-host crashes and current structured result errors. */
@@ -527,6 +695,16 @@ const E2EE_REQUEST_TYPES = new Set([
     'plugin.stream',
     'herdr.cli',
     'host.update',
+    // The bootstrap body and every session transition/signal are private to
+    // the device: they ride only under E2EE.
+    'preview.bootstrap',
+    'browser.session.status',
+    'browser.session.take',
+    'browser.session.pause',
+    'browser.session.resume',
+    'browser.session.return',
+    'browser.session.signal',
+    'browser.session.enroll',
 ]);
 
 export function requestRequiresE2ee(type: string): boolean {

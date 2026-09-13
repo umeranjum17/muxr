@@ -29,7 +29,7 @@ type StablePluginStream = Omit<PluginStream, 'send'> & {
 export function startRealtimeSession(options: {
     target: { machineId: string; sessionId: string };
     onStatus: (status: RealtimeStatus, detail?: string) => void;
-    onTurn: (role: 'user' | 'agent', text: string) => void;
+    onTurn: (role: 'user' | 'agent', text: string, final: boolean) => void;
     onActivity?: () => void;
 }): RealtimeHandle {
     const { target, onStatus, onTurn, onActivity } = options;
@@ -44,6 +44,9 @@ export function startRealtimeSession(options: {
     let captureStart: Promise<void> | undefined;
     let webRtc: RealtimeWebRtcHandle | undefined;
     let webRtcStart: Promise<void> | undefined;
+    // Cancels a WebRTC startup that has not returned its handle yet
+    // (permission prompt, ICE gathering); a fresh controller per attempt.
+    let webRtcCancel: AbortController | undefined;
     const pendingSpeech: string[] = [];
     let reconnects = 0;
     let connectFlight: Promise<void> | undefined;
@@ -76,6 +79,8 @@ export function startRealtimeSession(options: {
         }
         reconnectTimer = stableTimer = micRetry = speechRetry = undefined;
         stopCapture();
+        webRtcCancel?.abort();
+        webRtcCancel = undefined;
         webRtc?.stop();
         webRtc = undefined;
         webRtcStart = undefined;
@@ -185,6 +190,8 @@ export function startRealtimeSession(options: {
     };
     const startWebRtc = (label: string, next: StablePluginStream): Promise<void> => {
         if (webRtcStart !== undefined) return webRtcStart;
+        const cancel = new AbortController();
+        webRtcCancel = cancel;
         webRtcStart = startRealtimeWebRtc(label, {
             onOffer: (sdp) => {
                 if (stopped || stream !== next) return;
@@ -213,7 +220,8 @@ export function startRealtimeSession(options: {
                 else onStatus('connected');
             },
             onError: fail,
-        }).then((handle) => {
+        }, cancel.signal).then((handle) => {
+            if (webRtcCancel === cancel) webRtcCancel = undefined;
             if (stopped || stream !== next) {
                 handle.stop();
                 return;
@@ -304,7 +312,7 @@ export function startRealtimeSession(options: {
                         onStatus(frame.state, frame.detail);
                         return;
                     case 'realtime.transcript':
-                        onTurn(frame.role, frame.text);
+                        onTurn(frame.role, frame.text, frame.final);
                         return;
                     case 'realtime.app.request':
                         void (async () => {
@@ -333,6 +341,8 @@ export function startRealtimeSession(options: {
             next.onClose((reason) => {
                 if (stopped || stream !== next) return;
                 const hadWebRtc = webRtc !== undefined || webRtcStart !== undefined;
+                webRtcCancel?.abort();
+                webRtcCancel = undefined;
                 webRtc?.stop();
                 webRtc = undefined;
                 webRtcStart = undefined;

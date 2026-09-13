@@ -88,7 +88,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     badgeText: {
         ...Typography.mono(),
         color: theme.colors.textSecondary,
-        fontSize: 10,
+        fontSize: 11,
         fontWeight: '700',
     },
 }));

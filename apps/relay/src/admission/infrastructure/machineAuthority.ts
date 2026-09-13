@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { readPrivateFile, writeJsonFileAtomic } from '../../platform/persist.js';
 
-const ENROLLMENT_TTL_MS = 5 * 60_000;
+export const ENROLLMENT_TTL_MS = 5 * 60_000;
 const MACHINE_TTL_MS = 365 * 24 * 60 * 60_000;
 const hash = (value: string): string => createHash('sha256').update(value).digest('base64url');
 const opaque = (prefix: string): string => `${prefix}_${randomBytes(24).toString('base64url')}`;

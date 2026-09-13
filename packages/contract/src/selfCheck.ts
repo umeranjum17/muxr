@@ -20,6 +20,13 @@ import {
 } from './herd/index.js';
 import { interpretWorktreeLanding, landNeedsConsent, landSucceeded } from './worktree/index.js';
 import { parsePluginId, parsePluginManifest, pluginIsCompatible } from './plugins/index.js';
+import {
+    isSurfaceOfferHandle,
+    isSurfaceOfferHostFrame,
+    isPublishableSurfaceSession,
+    parseSurfaceOfferInput,
+    resolveSurfaceProvider,
+} from './control-plane/index.js';
 
 function assert(condition: boolean, message: string): asserts condition {
     if (!condition) throw new Error(message);
@@ -165,6 +172,76 @@ function demo(): void {
     assert(interpretWorktreeLanding({ status: 'blocked-dirty-base', files: ['a.ts'] }).kind === 'needs-consent', 'dirty base needs consent');
     assert(landSucceeded({ status: 'already-landed', branch: 'feat', into: 'main' }) && landNeedsConsent({ status: 'blocked-dirty-base', files: ['a.ts'] }), 'worktree landing states are decisions');
     assert(parsePluginId('example.muxr-ui').ok && !parsePluginId('bad id').ok, 'plugin identity rejects display-like names');
+    const direct = parseSurfaceOfferInput({ kind: 'browser-direct', capability: 'surface.browser.open', name: 'docs', url: 'https://example.com/guide', provider: 'muxr.browser' });
+    assert(direct.kind === 'browser-direct' && direct.provider === 'muxr.browser', 'direct HTTPS offers validate with a host-resolved provider');
+    for (const bad of [
+        { kind: 'browser-direct', capability: 'surface.browser.open', name: 'docs', url: 'http://example.com/', provider: 'muxr.browser' },
+        { kind: 'browser-direct', capability: 'surface.browser.open', name: 'docs', url: 'https://user:pass@example.com/', provider: 'muxr.browser' },
+        { kind: 'browser-direct', capability: 'surface.browser.open', name: 'docs', url: 'file:///etc/passwd', provider: 'muxr.browser' },
+        { kind: 'browser-direct', capability: 'surface.browser.open', name: 'docs', url: 'https://example.com/' },
+        { kind: 'code-review', capability: 'surface.code.open', name: 'review', path: '../outside.ts', provider: 'muxr.code' },
+    ]) {
+        let rejected = false;
+        try {
+            parseSurfaceOfferInput(bad);
+        } catch {
+            rejected = true;
+        }
+        assert(rejected, `unsafe surface input is rejected: ${JSON.stringify(bad).slice(0, 80)}`);
+    }
+    const local = parseSurfaceOfferInput({ kind: 'browser-local', capability: 'surface.browser.open', name: 'app', port: 3000, label: 'App', context: '/repo', provider: 'muxr.browser' });
+    assert(local.kind === 'browser-local', 'host-local offers validate');
+    const blank = parseSurfaceOfferInput({ kind: 'browser-direct', capability: 'surface.browser.open', name: 'home', url: 'about:blank', provider: 'muxr.browser' });
+    assert(blank.kind === 'browser-direct', 'the honest blank tab validates');
+    assert(isPublishableSurfaceSession('pp_route') && !isPublishableSurfaceSession('shell:w1:p1'), 'companions bind to agent sessions, never shell routes');
+    const frame = {
+        type: 'surface.offer' as const,
+        operation: 'open' as const,
+        handle: 'sfo_abc12345',
+        sessionId: 'pp_route',
+        revision: 1,
+        expiresAt: Date.now() + 60_000,
+        offer: {
+            version: 1 as const,
+            capability: 'surface.browser.open' as const,
+            name: 'app',
+            title: 'app',
+            placement: 'replace' as const,
+            revision: 1,
+            expiresAt: Date.now() + 60_000,
+            kind: 'browser-direct' as const,
+            url: 'https://example.com/',
+            provider: 'muxr.browser',
+        },
+    };
+    assert(isSurfaceOfferHostFrame(decodePayload(encodePayload(frame))), 'host-originated surface frames round-trip');
+    assert(isSurfaceOfferHostFrame({ ...frame, offer: undefined, operation: 'close' }), 'close frames carry no offer');
+    assert(!isSurfaceOfferHostFrame({ ...frame, handle: 'pvl_123' }), 'lease ids are not offer handles');
+    const sessionOffer = { ...frame.offer, kind: 'browser-session' as const, capability: 'surface.browser.control-host-session' as const, session: 'bsn_0123456789abcdef', site: 'accounts.example.com' };
+    assert(isSurfaceOfferHostFrame({ ...frame, offer: sessionOffer }), 'agent browser session frames validate');
+    assert(!isSurfaceOfferHostFrame({ ...frame, offer: { ...sessionOffer, site: 'https://x/?q=1' } }), 'a session site is a bare hostname');
+    assert(!isSurfaceOfferHostFrame({ ...frame, offer: { ...sessionOffer, capability: 'surface.browser.open' } }), 'a session offer needs host-session authority');
+    assert(!isSurfaceOfferHostFrame({ ...frame, offer: { ...frame.offer, provider: '' } }), 'provider-less offers are malformed');
+    assert(!isSurfaceOfferHostFrame({ ...frame, operation: 'visible' }), 'only host operations validate');
+    assert(isSurfaceOfferHostFrame({ ...frame, command: 7 }), 'commands ride the frame');
+    assert(!isSurfaceOfferHostFrame({ ...frame, command: 0 }), 'commands are positive integers');
+    assert(!isSurfaceOfferHostFrame({ ...frame, command: 'seven' }), 'commands are numbers');
+    const review = parseSurfaceOfferInput({ kind: 'code-review', capability: 'surface.code.open', name: 'review', path: 'src/index.ts', provider: 'muxr.code' });
+    assert(review.kind === 'code-review' && review.destination === 'file', 'code open defaults to the file destination explicitly');
+    const diff = parseSurfaceOfferInput({ kind: 'code-review', capability: 'surface.code.open', name: 'review', path: 'src/index.ts', destination: 'diff', provider: 'muxr.code' });
+    assert(diff.kind === 'code-review' && diff.destination === 'diff', 'code diff preserves its destination explicitly');
+    const reviewFrame = { ...frame, offer: { version: 1 as const, capability: 'surface.code.open' as const, name: 'review', title: 'review', placement: 'replace' as const, revision: 1, expiresAt: Date.now() + 60_000, kind: 'code-review' as const, path: 'src/index.ts', destination: 'diff' as const, mode: 'review' as const, provider: 'muxr.code' } };
+    assert(isSurfaceOfferHostFrame(reviewFrame), 'code frames carry an explicit destination');
+    assert(!isSurfaceOfferHostFrame({ ...reviewFrame, offer: { ...reviewFrame.offer, destination: undefined } }), 'code frames without a destination are malformed');
+    assert(!isSurfaceOfferHandle('pvl_123'), 'lease ids are not offer handles');
+    assert(resolveSurfaceProvider({ capability: 'surface.browser.open', claimants: ['muxr.browser'] }) === 'muxr.browser', 'sole claimant resolves');
+    let ambiguous = false;
+    try {
+        resolveSurfaceProvider({ capability: 'surface.browser.open', claimants: ['a.browser', 'b.browser'] });
+    } catch {
+        ambiguous = true;
+    }
+    assert(ambiguous, 'ambiguous providers fail visibly');
     assert(parsePluginManifest({ source: { schemaVersion: 1, pluginId: 'example.muxr-ui', contributions: [] } }).ok, 'parse plugin manifest admits a current graph');
     assert(pluginIsCompatible({ schemaVersion: 1, pluginId: 'example.muxr-ui', contributions: [] }), 'current manifests are compatible');
     process.stdout.write(`PASS: contract selfCheck (${events.length} event types, plugin frames, peer allowlist)\n`);

@@ -446,3 +446,57 @@ it('delivers frames sent while relay ticket authentication is pending without ro
         await rm(root, { recursive: true, force: true });
     }
 });
+
+it('ends every client route when its machine host disconnects or is replaced, so clients renegotiate with the next host', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'muxr-host-replacement-'));
+    const relay = await startRelay({
+        port: 0,
+        host: '127.0.0.1',
+        config: { dataDir: root, authMode: 'strict', e2eeMode: 'off', localAuthority: false, developmentApi: false, advertiseMdns: false },
+        consumeTicket: async (ticket) => ticket === 'host'
+            ? { role: 'machine', machineSlug: 'target', accountId: 'account', transport: 'relay' }
+            : ticket === 'client' ? { role: 'client', machineSlug: 'target', accountId: 'account', transport: 'relay' } : undefined,
+    });
+    const sockets: WebSocket[] = [];
+    const url = `ws://127.0.0.1:${relay.port}/relay`;
+    const open = async (ticket: string): Promise<WebSocket> => {
+        const socket = new WebSocket(`${url}?ticket=${ticket}`);
+        sockets.push(socket);
+        await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
+        return socket;
+    };
+    const closed = (socket: WebSocket) => new Promise<number>((resolve) => socket.once('close', resolve));
+    try {
+        // A supported host and a client that negotiated with it.
+        const firstHost = await open('host');
+        const client = await open('client');
+        const clientClosed = closed(client);
+        await vi.waitFor(async () => {
+            const response = await fetch(`http://127.0.0.1:${relay.port}/health`);
+            await expect(response.json()).resolves.toMatchObject({ connectedPeers: 2 });
+        });
+        // The host is replaced (the older implementation restarts behind the
+        // same relay): the old host is closed as replaced, and the client's
+        // route ends too, before it can send anything under the old
+        // negotiation. Its reconnect is what renegotiates.
+        const firstHostClosed = closed(firstHost);
+        const secondHost = await open('host');
+        await expect(firstHostClosed).resolves.toBe(4000);
+        await expect(clientClosed).resolves.toBe(4001);
+
+        // A reconnected client rides the replacement host; when that host simply
+        // disconnects, the client route ends the same way.
+        const reconnected = await open('client');
+        const reconnectedClosed = closed(reconnected);
+        secondHost.close();
+        await expect(reconnectedClosed).resolves.toBe(4001);
+        await vi.waitFor(async () => {
+            const response = await fetch(`http://127.0.0.1:${relay.port}/health`);
+            await expect(response.json()).resolves.toMatchObject({ connectedPeers: 0 });
+        });
+    } finally {
+        for (const socket of sockets) socket.close();
+        await relay.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});

@@ -95,7 +95,8 @@ function promptSession(socket: WebSocket, id: string): void {
         {
             type: 'session.prompt',
             requestId: nextRequestId('probe'),
-            params: { sessionId: id, text: 'widen the event projection' },
+            // Every client submission is identified so the host can run it at most once.
+            params: { sessionId: id, text: 'widen the event projection', promptId: nextRequestId('probe-prompt'), promptNotValidAfter: Date.now() + 60_000 },
         },
         id,
     );

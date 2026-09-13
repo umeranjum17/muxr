@@ -12,7 +12,7 @@ import {
     statSync,
     writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { packageInfoFromPath, packagePathFromInput } from '../infrastructure/audit.mjs';
@@ -152,6 +152,7 @@ const copyContext = (name) => {
     cpSync(join(root, 'scripts', name), join(out, name), {
         recursive: true,
         filter: (src) => {
+            if (src.endsWith('.test.mjs')) return false;
             if (src.endsWith('.ts') || src.endsWith('tsconfig.json') || src.endsWith('.tsbuildinfo')) return false;
             if (name !== 'diagnostics' || !src.endsWith('.mjs')) return true;
             const base = src.split(/[\\/]/).pop();
@@ -160,7 +161,7 @@ const copyContext = (name) => {
     });
 };
 copyFileSync(join(root, 'scripts', 'cli.mjs'), join(out, 'cli.mjs'));
-for (const context of ['setup', 'plugin', 'release', 'diagnostics']) copyContext(context);
+for (const context of ['setup', 'plugin', 'release', 'diagnostics', 'surface']) copyContext(context);
 if (!existsSync(join(out, 'setup', 'domain', 'dist', 'index.js'))) {
     throw new Error('setup domain was not compiled; run yarn build before packing');
 }
@@ -171,6 +172,18 @@ const extensionSource = readFileSync(join(out, 'plugin', 'application', 'checkPl
 if (!extensionSource.includes("from '@muxr/contract'")) throw new Error('plugin validator import changed; update the package rewrite');
 writeFileSync(join(out, 'plugin', 'application', 'checkPlugin.mjs'), extensionSource.replace("from '@muxr/contract'", "from '../../contract.mjs'"));
 cpSync(join(root, 'plugins'), join(out, 'plugins'), { recursive: true });
+// Shipped plugins run from the package, where the workspace packages are the
+// bundled crypto.js / contract.mjs at the root, not resolvable bare names.
+for (const file of readdirSync(join(out, 'plugins'), { recursive: true })) {
+    const path = join(out, 'plugins', String(file));
+    if (!path.endsWith('.mjs') || !statSync(path).isFile()) continue;
+    const source = readFileSync(path, 'utf8');
+    if (!/from '@muxr\/(crypto|contract)'/.test(source)) continue;
+    const toRoot = relative(dirname(path), out) || '.';
+    writeFileSync(path, source
+        .replaceAll("from '@muxr/crypto'", `from '${toRoot}/crypto.js'`)
+        .replaceAll("from '@muxr/contract'", `from '${toRoot}/contract.mjs'`));
+}
 cpSync(join(root, 'skills', 'muxr'), join(out, 'skills', 'muxr'), { recursive: true });
 const webDist = join(root, 'apps', 'mobile', 'dist');
 if (!existsSync(join(webDist, 'index.html'))) {
@@ -181,7 +194,7 @@ const newestMtime = (path) => {
     if (!info.isDirectory()) return info.mtimeMs;
     return Math.max(info.mtimeMs, ...readdirSync(path).map((name) => newestMtime(join(path, name))));
 };
-const webInputs = ['apps/mobile/sources', 'apps/mobile/app.config.js', 'apps/mobile/package.json']
+const webInputs = ['apps/mobile/sources', 'apps/mobile/public', 'apps/mobile/app.config.js', 'apps/mobile/package.json']
     .map((path) => join(root, path));
 const sourceMtime = Math.max(...webInputs.map(newestMtime));
 if (statSync(join(webDist, 'index.html')).mtimeMs < sourceMtime) {
@@ -230,6 +243,7 @@ const pkg = {
         'plugin/',
         'release/',
         'diagnostics/',
+        'surface/',
         'host.js',
         'relay.js',
         'crypto.js',

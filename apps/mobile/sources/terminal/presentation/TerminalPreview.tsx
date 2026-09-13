@@ -11,6 +11,7 @@
 
 import * as React from 'react';
 import { AppState, Text, View } from 'react-native';
+import { useUnistyles } from 'react-native-unistyles';
 import { sync } from '@/catalog/sync';
 
 // ponytail: fixed interval, no backoff. Make it adaptive if tile counts grow
@@ -27,6 +28,7 @@ function tail(text: string): string {
 }
 
 export const TerminalPreview = React.memo((props: { sessionId: string; paused?: boolean; live?: boolean }) => {
+    const { theme } = useUnistyles();
     const [text, setText] = React.useState('');
 
     React.useEffect(() => {
@@ -73,13 +75,21 @@ export const TerminalPreview = React.memo((props: { sessionId: string; paused?: 
     }, [props.live, props.paused, props.sessionId]);
 
     return (
-        <View style={{ flex: 1, backgroundColor: '#0c0c0b', overflow: 'hidden' }} pointerEvents="none">
+        // A thumbnail of the last frame: one image to assistive tech, and its
+        // text stays at the 11px floor rather than a 7px texture.
+        <View
+            accessibilityRole="image"
+            accessibilityLabel="Terminal preview"
+            importantForAccessibility="no-hide-descendants"
+            style={{ flex: 1, backgroundColor: theme.colors.terminal.background, overflow: 'hidden' }}
+            pointerEvents="none"
+        >
             <Text
                 style={{
-                    color: '#d8d8d2',
+                    color: theme.colors.terminal.stdout,
                     fontFamily: 'Menlo, Monaco, Courier New, monospace',
-                    fontSize: 7,
-                    lineHeight: 9,
+                    fontSize: 11,
+                    lineHeight: 14,
                 }}
             >
                 {text}

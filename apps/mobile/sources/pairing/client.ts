@@ -1,1 +1,1 @@
-export { MuxrClient } from './infrastructure/muxrClient';
+export { MuxrClient, type MuxrTransport } from './infrastructure/muxrClient';

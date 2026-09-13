@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { parseConnection, publicRelayUrl } from '../domain/dist/index.js';
 import { relayEntry } from './paths.mjs';
 import {
-    atomicWrite,
     env,
     executable,
     flagValue,
@@ -34,36 +33,27 @@ export function runTailscale(args, options = {}) {
     });
 }
 
-export const selfhostPath = () => join(stateDir(), 'selfhost.json');
-
-export function readSelfhostState() {
-    try {
-        if (!existsSync(selfhostPath())) return undefined;
-        const parsed = JSON.parse(readFileSync(selfhostPath(), 'utf8'));
-        return parsed?.version === 1 ? parsed : undefined;
-    } catch {
-        // A truncated selfhost.json must not kill `muxr`/`muxr doctor` — the
-        // command whose job is diagnosing a broken install.
-        return undefined;
-    }
-}
-
-/**
- * True when selfhost.json exists but does not parse. Corrupt is not "not
- * configured": setup must never mint a new machine identity over it (that
- * destroys every pairing), so callers distinguish the two.
- */
-export function selfhostStateUnreadable() {
-    if (!existsSync(selfhostPath())) return false;
-    try {
-        JSON.parse(readFileSync(selfhostPath(), 'utf8'));
-        return false;
-    } catch {
-        return true;
-    }
-}
-
-export function selfhostConfigured() { return readSelfhostState() !== undefined; }
+// The pure selfhost.json v2 file model lives in the dependency-free
+// selfhostFile.mjs so the light operator resolver can read desired state
+// without loading the crypto/QR stack. Re-exported here so existing callers of
+// selfhost.mjs are unaffected; the live-relay helpers below use them directly.
+import {
+    mergeSelfhostRuntime,
+    readSelfhostState,
+} from './selfhostFile.mjs';
+export {
+    EXPLICIT_RELAY_URL_MODES,
+    migrateSelfhostToV2,
+    mergeSelfhostRuntime,
+    readDesiredConfig,
+    readSelfhostFile,
+    readSelfhostState,
+    selfhostConfigured,
+    selfhostPath,
+    selfhostStateUnreadable,
+    writeDesiredConfig,
+    writeSelfhostState,
+} from './selfhostFile.mjs';
 
 export function selfhostControlBase(state) {
     const parsed = parseConnection(state);
@@ -89,10 +79,6 @@ export async function advertisedRelayHealthy(state) {
     if (relay === undefined) return false;
     const base = relay.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:');
     return fetch(`${base}/health`, { signal: AbortSignal.timeout(10_000) }).then((response) => response.ok).catch(() => false);
-}
-
-export function writeSelfhostState(state) {
-    atomicWrite(selfhostPath(), `${JSON.stringify(state, null, 2)}\n`);
 }
 
 export function tailscaleDnsName(value) {
@@ -174,9 +160,10 @@ export function inspectTailscaleServeRoot(port, dnsName, expectedProxy, timeout 
 
 export function persistOwnedServeIngress(state, ingress) {
     if (ingress?.kind !== 'tailscale-serve') return state;
-    const next = { ...state, ingress };
-    writeSelfhostState(next);
-    return next;
+    // Ingress ownership is generated state: it lives in runtime and never
+    // rewrites a desired value. Callers keep the flat applied view.
+    mergeSelfhostRuntime({ ingress });
+    return { ...state, ingress };
 }
 
 export function cloudflaredAlive(ingress) {

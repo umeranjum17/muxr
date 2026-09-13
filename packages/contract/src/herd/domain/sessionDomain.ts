@@ -68,4 +68,6 @@ export interface MachineInfo {
     lastSeenAt?: string;
     hostVersion?: string;
     platform?: string;
+    /** Host features a client must not assume (e.g. HOST_CAPABILITY_PROMPT_RECEIPTS). */
+    capabilities?: string[];
 }

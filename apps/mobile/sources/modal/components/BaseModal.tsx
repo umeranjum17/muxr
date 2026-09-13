@@ -9,6 +9,9 @@ import {
     Platform
 } from 'react-native';
 import { AnimatedBlurBackdrop } from '@/components/AnimatedOverlay';
+import { MOTION } from '@/constants/motion';
+import { useReducedMotion } from 'react-native-reanimated';
+import { useWebBackCloses } from '@/components/useWebBackCloses';
 
 // On web, stop events from propagating to expo-router's modal overlay
 // which intercepts clicks when it applies pointer-events: none to body
@@ -38,18 +41,23 @@ export function BaseModal({
     align = 'center'
 }: BaseModalProps) {
     const fadeAnim = useRef(new Animated.Value(0)).current;
+    const reducedMotion = useReducedMotion();
+    // Browser Back and Escape dismiss the modal instead of the screen under
+    // it; an alert without an onClose stays until answered.
+    const close = React.useCallback(() => { onClose?.(); }, [onClose]);
+    useWebBackCloses(visible && onClose !== undefined, close, 'muxrModal');
 
     useEffect(() => {
         if (visible) {
             Animated.timing(fadeAnim, {
                 toValue: 1,
-                duration: 200,
+                duration: reducedMotion ? 0 : MOTION.base,
                 useNativeDriver: true
             }).start();
         } else {
             Animated.timing(fadeAnim, {
                 toValue: 0,
-                duration: 200,
+                duration: reducedMotion ? 0 : MOTION.exit,
                 useNativeDriver: true
             }).start();
         }

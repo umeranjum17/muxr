@@ -21,4 +21,6 @@ export type NativeSettingsMenuProps = {
     style?: StyleProp<ViewStyle>;
     /** Render all options directly in the root menu instead of nesting by group. */
     flat?: boolean;
+    /** Inert trigger: no menu opens (read-only contexts). */
+    disabled?: boolean;
 };

@@ -1,7 +1,7 @@
 # 0003 — Browser access is a short-lived paired device
 
 Tier: T3 (credential storage and command authority)
-Status: implemented
+Status: implemented · amended by 0006 (shipped control browsers reconciled; 8h default retained)
 Date: 2026-08-13
 Decider: Umer
 

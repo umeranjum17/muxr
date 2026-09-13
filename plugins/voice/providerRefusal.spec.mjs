@@ -716,6 +716,99 @@ describe('providerRefusal', () => {
         }
     }, 10_000);
 
+    it('round-trips one spoken turn through the real xAI adapter boundary in generic frames only', async () => {
+        // Contract under test is the documented xAI realtime protocol
+        // (docs.x.ai speech-to-speech + REST reference): session.update with
+        // audio/pcm 24k json both ways, server_vad, input transcription via
+        // grok-transcribe with cumulative `updated` then `completed`,
+        // input_audio_buffer.append, response.output_audio.delta.
+        const muxrHome = await mkdtemp(join(tmpdir(), 'muxr-voice-roundtrip-'));
+        const key = 'xai-test-only-key-ROUNDTRIP';
+        await writeFile(join(muxrHome, 'xai.key'), `${key}\n`, { mode: 0o600 });
+        const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+        await new Promise((resolve, reject) => { server.once('listening', resolve); server.once('error', reject); });
+        const address = server.address();
+        if (address === null || typeof address === 'string') throw new Error('provider fixture did not bind a TCP port');
+        let provider;
+        server.on('connection', (socket, request) => {
+            provider = { socket, frames: [], url: request.url, auth: request.headers.authorization };
+            socket.on('message', (data) => provider.frames.push(JSON.parse(String(data))));
+        });
+        const child = spawn(process.execPath, [fileURLToPath(new URL('./stream.mjs', import.meta.url))], {
+            cwd: fileURLToPath(new URL('../..', import.meta.url)),
+            env: { ...process.env, NODE_ENV: 'test', MUXR_HOME: muxrHome, MUXR_PLUGIN_STATE_DIR: await providerStateDir('xai'), MUXR_TEST_XAI_REALTIME_URL: `ws://127.0.0.1:${address.port}` },
+            stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        // Every host frame goes through the shared contract parser: this is
+        // exactly what the device will accept, nothing provider-shaped.
+        const frames = [];
+        const stderr = [];
+        createInterface({ input: child.stdout }).on('line', (line) => frames.push(parseRealtimeHostFrame(JSON.parse(line))));
+        createInterface({ input: child.stderr }).on('line', (line) => stderr.push(line));
+        const sendClient = (frame) => child.stdin.write(`${JSON.stringify(frame)}\n`);
+        const sendProvider = (frame) => provider.socket.send(JSON.stringify(frame));
+        const transcripts = () => frames.filter((frame) => frame.type === 'realtime.transcript').map((frame) => [frame.role, frame.text, frame.final]);
+        try {
+            sendClient({ type: 'realtime.open', paneId: 'voice-roundtrip' });
+            await waitFor(() => provider, 'provider connection was not opened');
+            expect(provider.auth).toBe(`Bearer ${key}`);
+            const setup = await waitFor(() => provider.frames.find((frame) => frame.type === 'session.update'), 'session.update was not sent');
+            expect(setup.session.voice).toBe('ara');
+            expect(setup.session.reasoning).toEqual({ effort: 'none' });
+            expect(setup.session.turn_detection.type).toBe('server_vad');
+            expect(setup.session.audio.input).toMatchObject({ format: { type: 'audio/pcm', rate: 24_000 }, transport: 'json', transcription: { model: 'grok-transcribe' } });
+            expect(setup.session.audio.output).toMatchObject({ format: { type: 'audio/pcm', rate: 24_000 }, transport: 'json' });
+            const ready = await waitFor(() => frames.find((frame) => frame.type === 'realtime.ready'), 'ready frame was not emitted');
+            expect(ready).toMatchObject({ inputRate: 24_000, outputRate: 24_000 });
+
+            // Device microphone PCM -> provider append, byte for byte.
+            const pcm = Buffer.alloc(960, 7).toString('base64');
+            sendClient({ type: 'realtime.audio', data: pcm });
+            const appended = await waitFor(() => provider.frames.find((frame) => frame.type === 'input_audio_buffer.append'), 'microphone audio did not reach the provider');
+            expect(appended.audio).toBe(pcm);
+
+            // Cumulative user transcription: interim, corrected interim, final.
+            sendProvider({ type: 'input_audio_buffer.speech_started' });
+            sendProvider({ type: 'conversation.item.input_audio_transcription.updated', transcript: 'ship the' });
+            sendProvider({ type: 'conversation.item.input_audio_transcription.updated', transcript: 'ship the build' });
+            sendProvider({ type: 'conversation.item.input_audio_transcription.completed', transcript: 'Ship the build.' });
+            await waitFor(() => transcripts().length === 3, 'user transcripts were not forwarded');
+            expect(transcripts()).toEqual([['user', 'ship the', false], ['user', 'ship the build', false], ['user', 'Ship the build.', true]]);
+
+            // Provider answer: state, audio, transcript, done.
+            sendProvider({ type: 'response.created' });
+            await waitFor(() => frames.some((frame) => frame.type === 'realtime.state' && frame.state === 'thinking'), 'thinking state was not emitted');
+            const audio = Buffer.alloc(4_800, 9).toString('base64');
+            sendProvider({ type: 'response.output_audio.delta', delta: audio });
+            const spoken = await waitFor(() => frames.find((frame) => frame.type === 'realtime.audio'), 'provider audio did not reach the device');
+            expect(Buffer.from(spoken.data, 'base64').equals(Buffer.alloc(4_800, 9))).toBe(true);
+            sendProvider({ type: 'response.output_audio_transcript.done', transcript: 'Shipping now.' });
+            sendProvider({ type: 'response.done' });
+            await waitFor(() => transcripts().length === 4, 'agent transcript was not forwarded');
+            expect(transcripts().at(-1)).toEqual(['agent', 'Shipping now.', true]);
+            const thinkingAt = frames.findIndex((frame) => frame.type === 'realtime.state' && frame.state === 'thinking');
+            await waitFor(() => frames.some((frame, index) => index > thinkingAt && frame.type === 'realtime.state' && frame.state === 'connected'), 'connected state after response.done was not emitted');
+
+            // Playback drained, then the user hangs up: clean close, exit 0.
+            sendClient({ type: 'realtime.control', action: 'output_drained' });
+            sendClient({ type: 'realtime.control', action: 'stop' });
+            const closed = await waitFor(() => frames.find((frame) => frame.type === 'realtime.closed'), 'stop did not close the stream');
+            expect(closed.reason).toBe('ended');
+            const exit = await waitFor(() => child.exitCode !== null ? { code: child.exitCode } : undefined, `adapter did not exit: ${stderr.join('\n')}`);
+            expect(exit.code).toBe(0);
+            await waitFor(() => provider.socket.readyState === provider.socket.CLOSED, 'provider socket was not closed on stop');
+
+            // Nothing provider- or credential-shaped crosses to the device.
+            const visible = JSON.stringify(frames);
+            for (const term of [key, 'Bearer', 'x.ai', 'xai', 'grok', 'input_audio_buffer', 'output_audio']) expect(visible).not.toContain(term);
+        } finally {
+            if (child.exitCode === null) child.kill('SIGKILL');
+            provider?.socket.terminate();
+            await new Promise((resolve) => server.close(resolve));
+            await rm(muxrHome, { recursive: true, force: true });
+        }
+    }, 10_000);
+
     it('keeps Codex OAuth host-only while bounding signaling and lifecycle frames', async () => {
         const requests = [];
         const planningRequests = [];

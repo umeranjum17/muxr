@@ -1,0 +1,344 @@
+/**
+ * Browser preview, device half.
+ *
+ * Product Preview (a leased `browser-local` offer) is ordinary HTTPS: the
+ * host allocates an origin, the device asks for a one-use bootstrap and the
+ * renderer posts it into its own frame; cookies, WebSockets and HMR then ride
+ * plain HTTP to the host gateway. Nothing on that path dials the E2EE preview
+ * tunnel. `attachPreviewTunnel` below remains for the takeover stream and the
+ * legacy typed-port preview screen, which still speak over the sealed tunnel.
+ */
+
+import { newPreviewKey } from '@muxr/crypto';
+import { issueWsTicket, newPreviewChannel, ticketSocketUrl, type RequestResult } from '@muxr/contract';
+import { getCachedConnectionSettings } from '@/connection';
+import { getCachedHostedGrant } from '@/pairing/e2ee';
+import { sync } from '@/catalog/sync';
+import type { PreviewChannel } from '../infrastructure/previewChannel';
+
+const READY_TIMEOUT_MS = 15_000;
+
+export interface OpenPreview {
+    url: string;
+    close: () => void;
+}
+
+export type OpenPreviewCommand = {
+    port: number;
+    onIosSimulator?: boolean;
+};
+
+export interface PreviewTunnel {
+    hostname: string;
+    port: number;
+    close: () => void;
+    /**
+     * Loadable URL on web, where the bridge serves same-origin through a
+     * service worker instead of a loopback listener. Absent for raw-TCP
+     * tunnels (native bridge, relay-side port, takeover stream).
+     */
+    url?: string;
+    /**
+     * Raw sealed frame channel for consumers that speak their own protocol
+     * over the tunnel (the takeover stream). Present only on the bridge path
+     * when the caller asked for it; the HTTP preview bridge consumes its own
+     * socket instead.
+     */
+    wsChannel?: PreviewChannel;
+}
+
+/** Regex, not `new URL`: React Native's URL is partial and this is one field. */
+function relayHostname(relayUrl: string): string | undefined {
+    return /^wss?:\/\/(\[[^\]]+\]|[^/:?#]+)/i.exec(relayUrl)?.[1]?.toLowerCase();
+}
+
+
+function waitForRelay(socket: WebSocket, type: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            socket.close();
+            reject(new Error('The relay did not pair the preview in time.'));
+        }, READY_TIMEOUT_MS);
+        socket.onmessage = (event) => {
+            try {
+                if ((JSON.parse(String(event.data)) as { type?: string }).type !== type) return;
+            } catch { return; }
+            clearTimeout(timer);
+            resolve();
+        };
+        socket.onclose = () => { clearTimeout(timer); reject(new Error('The relay closed the preview before it was ready.')); };
+        socket.onerror = () => { clearTimeout(timer); reject(new Error('Could not reach the relay to open a preview.')); };
+    });
+}
+
+/**
+ * A leased surface names an endpoint the host wrote down; a plain port is
+ * the legacy takeover/typed-preview path. The device never sends a port
+ * alongside a lease.
+ */
+export type PreviewTarget = number | { lease: string };
+
+/**
+ * Join a preview channel to a loopback port and hold it open. The relay
+ * listener carries raw TCP without parsing it, so anything that speaks over a
+ * socket -- HTTP for previews, a WebSocket for the takeover stream -- can
+ * ride the same tunnel.
+ */
+export async function attachPreviewTunnel(target: PreviewTarget, options?: { rawTcp?: boolean; wsStream?: boolean; mode?: 'observe' | 'control'; onClosed?: () => void }): Promise<PreviewTunnel> {
+    const { previewBridgeAvailable, startPreviewBridge } = await import('../infrastructure/previewBridge');
+    // The raw-TCP takeover stream needs the byte tunnel, never the web HTTP
+    // bridge; the wsStream takeover variant speaks over sealed frames instead.
+    const bridgeAvailable = options?.rawTcp === true ? false : previewBridgeAvailable;
+    const settings = getCachedConnectionSettings();
+    if (!bridgeAvailable && settings.mode !== 'local') {
+        throw new Error(
+            'Browser preview needs a secure context with service workers (https or localhost). '
+            + 'Open this page over https, or use the Android/iOS app.',
+        );
+    }
+    const hostname = relayHostname(settings.relayUrl);
+    if (hostname === undefined) {
+        throw new Error(`Cannot read a host from the relay URL "${settings.relayUrl}".`);
+    }
+
+    const channel = newPreviewChannel();
+    const key = bridgeAvailable ? newPreviewKey() : undefined;
+    // Hosted browser grants carry no settings.token (always ''), so resolve
+    // the exact-machine device grant first — same shape as the terminal — and
+    // fail before attach: a takeover attach registers the controller, and a
+    // ticket failure after it would strand the port. Tickets live 60s; mint,
+    // attach, and connect back-to-back.
+    const grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
+    if (settings.mode === 'hosted' && grant === undefined) {
+        throw new Error('preview: hosted machine grant is missing; pair this browser again');
+    }
+    if (grant !== undefined && grant.expiresAt <= Date.now()) {
+        throw new Error('preview: device grant expired; pair this browser again');
+    }
+    const ticketInput = grant !== undefined
+        ? { relayUrl: grant.relayUrl, credential: grant.credential }
+        : settings.token !== '' && !settings.token.startsWith('acctok_')
+            ? { relayUrl: settings.relayUrl, credential: settings.token }
+            : undefined;
+    if (ticketInput === undefined) {
+        throw new Error('preview: relay ticket required');
+    }
+    const ticket = await issueWsTicket({
+        relayUrl: ticketInput.relayUrl,
+        credential: ticketInput.credential,
+        machineId: settings.machineId,
+        role: 'client',
+        transport: 'preview',
+        channel,
+    });
+    // The per-preview key crosses inside the existing E2EE request. The relay
+    // sees connection ids for multiplexing, never the frontend bytes.
+    // Takeover callers claim a mode so the host arbitrates control.
+    if (typeof target !== 'number' && key === undefined) {
+        throw new Error('preview: a surface needs the encrypted preview bridge. Open this page over https, or use the muxr app.');
+    }
+    await sync.request('preview.attach', {
+        channel,
+        ...(typeof target === 'number' ? { port: target } : { lease: target.lease }),
+        ...(key === undefined ? {} : { key }),
+        ...(options?.mode === undefined ? {} : { mode: options.mode }),
+    });
+
+    const socketUrl = ticketSocketUrl(ticketInput.relayUrl, ticket, 'preview', previewBridgeAvailable);
+    const socket = new WebSocket(socketUrl);
+    // The relay closes this side when the host ends the tunnel (revocation,
+    // expiry, host death). The owner learns it here rather than from a
+    // page that stops answering.
+    if (options?.onClosed !== undefined) {
+        const onClosed = options.onClosed;
+        socket.addEventListener('close', () => onClosed());
+    }
+
+    // A failure after this point must not leave the socket open and
+    // unreferenced: the relay would hold the pair and, for takeover, the
+    // host would hold the port forever.
+    try {
+        if (bridgeAvailable) {
+            socket.binaryType = 'arraybuffer';
+            await waitForRelay(socket, 'preview.bridge');
+            if (key === undefined) throw new Error('Encrypted preview key unavailable.');
+            if (options?.wsStream === true) {
+                // The takeover stream speaks WebSocket itself over sealed frames;
+                // hand over the socket untouched instead of starting the HTTP bridge.
+                const { createPreviewChannel } = await import('../infrastructure/previewChannel');
+                return { hostname: '', port: 0, close: () => socket.close(), wsChannel: createPreviewChannel(socket, key) };
+            }
+            const bridge = await startPreviewBridge(socket, key, channel);
+            if (bridge.url !== undefined) {
+                return { hostname: '', port: 0, url: bridge.url, close: bridge.close };
+            }
+            return { hostname: '127.0.0.1', port: bridge.port, close: bridge.close };
+        }
+
+        const previewPort = await new Promise<number>((resolve, reject) => {
+            const timer = setTimeout(() => {
+                socket.close();
+                reject(new Error('The relay did not open a preview port in time.'));
+            }, READY_TIMEOUT_MS);
+
+            socket.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(String(event.data)) as { type?: string; port?: number };
+                    if (message.type !== 'preview.ready' || typeof message.port !== 'number') return;
+                    clearTimeout(timer);
+                    resolve(message.port);
+                } catch {
+                    /* not the frame we are waiting for */
+                }
+            };
+            socket.onclose = () => {
+                clearTimeout(timer);
+                reject(new Error('The relay closed the preview before it was ready.'));
+            };
+            socket.onerror = () => {
+                clearTimeout(timer);
+                reject(new Error('Could not reach the relay to open a preview.'));
+            };
+        });
+
+        // Always http: the preview port carries raw TCP with no TLS in front of it.
+        return { hostname, port: previewPort, close: () => socket.close() };
+    } catch (error) {
+        try {
+            socket.close();
+        } catch {
+            // The original failure already explains the outcome.
+        }
+        throw error;
+    }
+}
+
+export async function openPreview(command: OpenPreviewCommand): Promise<OpenPreview> {
+    const port = command.port;
+    // The iOS simulator shares the Mac's loopback. Bypass the native TCP bridge
+    // only for an explicit local-development connection to that same loopback:
+    // a paired remote machine may expose the same port on a different host.
+    if (command.onIosSimulator === true) {
+        const settings = getCachedConnectionSettings();
+        const hostname = relayHostname(settings.relayUrl);
+        if (
+            settings.mode === 'local'
+            && (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]')
+        ) {
+            return { url: `http://127.0.0.1:${port}/`, close: () => undefined };
+        }
+        throw new Error(
+            'Preview from a remote machine is unavailable in the iOS Simulator. '
+            + 'Use a physical device, or connect the simulator to a host running on this Mac through a loopback relay.',
+        );
+    }
+    const tunnel = await attachPreviewTunnel(port);
+    if (tunnel.url !== undefined) return { url: tunnel.url, close: tunnel.close };
+    return {
+        url: `http://${tunnel.hostname}:${tunnel.port}/`,
+        close: tunnel.close,
+    };
+}
+
+/** A product surface lease the host issued for one current local offer. */
+export interface PreviewSurfaceLease {
+    lease: string;
+    expiresAt: number;
+}
+
+/**
+ * Resolve an approved local Browser offer into an expiring host lease. The
+ * device names the offer handle and nothing else: the host resolves port,
+ * provider and context from its own offer table.
+ */
+export async function requestProductSurfaceLease(offerHandle: string): Promise<PreviewSurfaceLease> {
+    if (offerHandle === '') throw new Error('preview: that surface is no longer open; open it again');
+    const granted = await sync.request('preview.lease', { kind: 'browser', access: 'product', offer: offerHandle });
+    return { lease: granted.lease, expiresAt: granted.expiresAt };
+}
+
+export async function releaseSurfaceLease(lease: string): Promise<void> {
+    await sync.request('preview.release', { lease }).catch(() => undefined);
+}
+
+/** What `preview.bootstrap` hands the renderer: where the app is and how to be admitted once. */
+export type PreviewAdmission = RequestResult<'preview.bootstrap'>;
+
+/**
+ * Turn a held lease into a loadable HTTPS preview. The body inside is a
+ * one-use credential that travels only over the encrypted control plane; the
+ * renderer posts it exactly once and never sees it again. Ask again only when
+ * the admission cookie itself is gone (eviction, a refused probe): the host
+ * issues a fresh body under the same lease.
+ */
+export async function requestPreviewBootstrap(lease: string): Promise<PreviewAdmission> {
+    return sync.request('preview.bootstrap', { lease });
+}
+
+/**
+ * Authenticated device liveness for one mounted product surface: the lease
+ * TTL is 10 minutes and holder existence is not liveness, so while its
+ * surface stays mounted the device sends `preview.renew` every 4 minutes
+ * over the encrypted control plane. The host re-reads approval, offer and
+ * session standing before extending anything; admission extends server-side
+ * and the frame is never navigated for it. A rejection or a transport
+ * deadline stops the loop and reaches `onLost`; a stopped loop never fires
+ * again. `pause` holds the timer (native background); `resume` renews at
+ * once to re-check standing before the interval restarts.
+ */
+export const SURFACE_RENEW_INTERVAL_MS = 4 * 60_000;
+
+export interface SurfaceRenewLoop {
+    stop: () => void;
+    pause: () => void;
+    resume: () => void;
+}
+
+export function startSurfaceRenewLoop(
+    lease: string,
+    options: { intervalMs?: number; onLost?: (reason: string) => void } = {},
+): SurfaceRenewLoop {
+    const interval = options.intervalMs ?? SURFACE_RENEW_INTERVAL_MS;
+    let stopped = false;
+    let inFlight = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const renew = (): void => {
+        if (stopped || inFlight) return;
+        inFlight = true;
+        sync.request('preview.renew', { lease }).then(
+            () => {
+                inFlight = false;
+            },
+            (error: unknown) => {
+                inFlight = false;
+                if (stopped) return;
+                stopped = true;
+                if (timer !== null) clearInterval(timer);
+                options.onLost?.(error instanceof Error ? error.message : String(error));
+            },
+        );
+    };
+    const arm = (): void => {
+        if (stopped || timer !== null) return;
+        timer = setInterval(renew, interval);
+        (timer as unknown as { unref?: () => void }).unref?.();
+    };
+    const pause = (): void => {
+        if (timer === null) return;
+        clearInterval(timer);
+        timer = null;
+    };
+    arm();
+    return {
+        stop: () => {
+            stopped = true;
+            pause();
+        },
+        pause,
+        resume: () => {
+            if (stopped || timer !== null) return;
+            renew();
+            arm();
+        },
+    };
+}

@@ -1,0 +1,198 @@
+/**
+ * Web-export release diagnostic.
+ *
+ * Source-level checks always run (manifest, install metadata, relay
+ * MIME/cache rules, secret hygiene). When apps/mobile/dist exists — CI
+ * exports first — it additionally verifies real dist properties: the gzip
+ * size of the JS/CSS directly referenced by dist/index.html against the
+ * initial-transfer regression budget, and that no marketing origin leaked
+ * into the self-host export.
+ */
+import { gzipSync } from 'node:zlib';
+import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const failures = [];
+const check = (name, ok, detail = '') => {
+    const mark = ok ? 'ok' : 'FAIL';
+    const suffix = detail === '' ? '' : ` — ${detail}`;
+    process.stdout.write(`${mark}  ${name}${suffix}\n`);
+    if (!ok) failures.push(name);
+};
+
+const mobile = join(root, 'apps', 'mobile');
+const read = (path) => readFileSync(path, 'utf8');
+
+// 1. Manifest: valid, installable, icons resolve.
+const manifestPath = join(mobile, 'public', 'manifest.webmanifest');
+let manifest;
+try {
+    manifest = JSON.parse(read(manifestPath));
+    check('manifest parses', true);
+} catch (cause) {
+    check('manifest parses', false, cause instanceof Error ? cause.message : String(cause));
+}
+if (manifest !== undefined) {
+    check('manifest display standalone', manifest.display === 'standalone');
+    check('manifest has name', typeof manifest.name === 'string' && manifest.name.length > 0);
+    check('manifest start_url', manifest.start_url === '/');
+    const sizes = new Set((manifest.icons ?? []).map((icon) => `${icon.sizes}:${icon.purpose ?? 'any'}`));
+    check('manifest 192 + 512 any icons', sizes.has('192x192:any') && sizes.has('512x512:any'));
+    check('manifest maskable icons', sizes.has('192x192:maskable') && sizes.has('512x512:maskable'));
+    for (const icon of manifest.icons ?? []) {
+        const file = join(mobile, 'public', String(icon.src).replace(/^\//, ''));
+        check(`manifest icon ${icon.src} ships`, existsSync(file));
+    }
+}
+
+// 2. Install metadata in the web shell + Expo config.
+// The shell metadata is written into the built index.html by
+// finalizeWebExport (expo's "single" output ignores any +html.tsx), so it
+// is asserted on the artifact below, never on source.
+check('web:export finalizes index.html', read(join(root, 'package.json')).includes('finalizeWebExport.mjs'));
+const appConfig = read(join(mobile, 'app.config.js'));
+check('app.config web display standalone', appConfig.includes('display: "standalone"') || appConfig.includes("display: 'standalone'"));
+check('app.config web themeColor', appConfig.includes('themeColor'));
+
+// 3. Relay delivery rules are proven behaviorally by checkWebServing (live
+// relay + static server over HTTP), not by asserting source strings here.
+// This file keeps artifact checks: manifest, shell metadata, config.
+// Every production export must install the lazy WASM/PDF payload into
+// public/ first — dist without canvaskit.wasm fails at runtime with
+// WebAssembly magic-word errors. Asserted on the export script contract;
+// checkExportIsolation proves the chain end to end with canaries.
+const packageJson = read(join(root, 'package.json'));
+check('web:export installs canvaskit before exporting', packageJson.includes('setup-canvaskit') && packageJson.includes('npx expo export'));
+check('web:export installs the pdf worker before exporting', packageJson.includes('setup-pdfjs'));
+check('web:export installs the mermaid script before exporting', packageJson.includes('setup-mermaid'));
+
+// 4. Secret hygiene: the exportable surface must not carry credentials.
+const secretPattern = /(acctok_|EXPO_PUBLIC_MUXR_TOKEN\s*=\s*['"][^'"]+['"]|mint-secret|BEGIN (?:OPENSSH|EC|RSA) PRIVATE KEY)/;
+for (const file of ['public/sw.js', 'public/manifest.webmanifest']) {
+    const body = read(join(mobile, file));
+    check(`no secrets in mobile/${file}`, !secretPattern.test(body));
+}
+const deploy = read(join(root, 'scripts', 'deployWebExport.sh'));
+check('deploy uses the credential-free selfhost export', deploy.includes('web:export:selfhost'));
+check('deploy does not bake marketing origin', deploy.includes('-u MUXR_PUBLIC_BASE_URL') || read(join(root, 'package.json')).includes('"web:export:selfhost": "npm run web:export"'));
+const mergeAt = deploy.indexOf('Fingerprinted assets first');
+const entriesAt = deploy.indexOf('Mutable entries last');
+check('deploy merges assets before replacing entries', mergeAt !== -1 && entriesAt !== -1 && mergeAt < entriesAt);
+check('deploy needs no rsync and never deletes the live root', !/^rsync /m.test(deploy) && !deploy.includes('--delete') && !deploy.includes('mv "$DOC_ROOT"'));
+check('deploy stages entries as doc-root siblings then renames', deploy.includes('.new-$$') && deploy.includes('mv "$tmp" "$DOC_ROOT/$entry"'));
+check('deploy prunes only aged orphans', deploy.includes('-mtime') && deploy.includes('PRUNE_DAYS'));
+
+// 5. Unhashed entry payload: icons + manifest + worker stay small. This is
+// NOT the initial bundle budget — hashed JS/CSS is measured against dist
+// below. The known lazy payload (canvaskit.wasm, pdf.worker, mermaid) is
+// excluded: it loads on demand, never as startup transfer.
+const BUDGET_BYTES = 512 * 1024;
+let rootBytes = 0;
+for (const name of readdirSync(join(mobile, 'public'))) {
+    if (name.endsWith('.wasm') || name === 'pdf.worker.min.mjs' || name === 'mermaid.min.js') continue;
+    const info = statSync(join(mobile, 'public', name));
+    if (info.isFile()) rootBytes += info.size;
+}
+check(`public entry payload ≤ ${BUDGET_BYTES} bytes`, rootBytes <= BUDGET_BYTES, `${rootBytes} bytes`);
+
+// 6. The 57MB Whisper model must never enter the web bundle. It lives in
+// sources/assets (native-only), and Metro platform resolution shadows the
+// only importer: localTranscription.web.ts wins over localTranscription.ts
+// on web, so `require('@/assets/models/*.bin')` never enters the web graph.
+// Assert the shadow exists for every .bin importer, and that public/ (copied
+// verbatim into dist) holds no model binary.
+const binImporters = [];
+const walkImports = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) { walkImports(path); continue; }
+        if (!/\.(ts|tsx|js)$/.test(entry.name) || entry.name.endsWith('.spec.ts') || entry.name.endsWith('.web.ts')) continue;
+        const body = readFileSync(path, 'utf8');
+        if (/require\(['"][^'"]*\.bin['"]\)|from ['"][^'"]*\.bin['"]/.test(body)) binImporters.push(path);
+    }
+};
+walkImports(join(mobile, 'sources'));
+for (const importer of binImporters) {
+    const shadow = importer.replace(/\.tsx?$/, '.web.ts').replace(/\.js$/, '.web.js');
+    const shadowed = existsSync(shadow);
+    check(`web shadow keeps model out (${importer.replace(`${root}/`, '')})`, shadowed, shadowed ? '' : `missing ${shadow.replace(`${root}/`, '')}`);
+}
+const publicModels = readdirSync(join(mobile, 'public')).filter((name) => /\.bin$|\.pt$|\.onnx$/i.test(name));
+check('no model binaries in public/', publicModels.length === 0, publicModels.slice(0, 5).join(', '));
+
+// 7. Dist properties (only when an export exists — CI exports first).
+// Usable load is the gzip of JS/CSS dist/index.html references directly:
+// CanvasKit is lazy (never root-awaited, loaded on first Canvas use), so it
+// is excluded by construction, and lazy chunks (mermaid languages, pdf
+// worker) load on demand. The 2.0 MiB compressed usable-screen target is
+// enforced directly: it was met once Metro's eager __common chunk stopped
+// carrying the diff/mermaid subtrees (shikiSlim.ts, mermaidBundle.ts).
+const distIndex = join(mobile, 'dist', 'index.html');
+if (!existsSync(distIndex)) {
+    process.stdout.write('..  dist export absent — skipping dist budget/origin checks (CI exports first)\n');
+} else {
+    const distHtml = read(distIndex);
+    check('dist index links the manifest', distHtml.includes('<link rel="manifest" href="/manifest.webmanifest">'));
+    check('dist index theme-color', distHtml.includes('name="theme-color"'));
+    check('dist index iOS web-app metadata', distHtml.includes('apple-mobile-web-app-capable') && distHtml.includes('rel="apple-touch-icon" href="/icon-192.png"'));
+    check('dist index viewport resizes content for the keyboard', /<meta name="viewport" content="[^"]*interactive-widget=resizes-content[^"]*"/.test(distHtml));
+    check('dist index has exactly one viewport meta', (distHtml.match(/<meta name="viewport"/g) ?? []).length === 1);
+    check('dist index carries no inline scripts (CSP script-src self)', !/<script(?![^>]*\bsrc=)[^>]*>[^<]/.test(distHtml));
+    const refs = [...new Set(
+        [...distHtml.matchAll(/(?:src|href)="(\/[^"]+\.(?:js|css))"/g)].map((match) => match[1]),
+    )];
+    check('dist index references initial JS/CSS', refs.length > 0);
+    check('dist initial refs exclude wasm (CanvasKit is lazy)', refs.every((ref) => !ref.endsWith('.wasm')));
+    let initialGzip = 0;
+    for (const ref of refs) {
+        const file = join(mobile, 'dist', ref.replace(/^\//, ''));
+        if (!existsSync(file)) {
+            check(`dist asset ships (${ref})`, false);
+            continue;
+        }
+        initialGzip += gzipSync(readFileSync(file)).length;
+    }
+    const USABLE_GZIP_CEILING = Math.round(2.0 * 1024 * 1024);
+    check(`dist usable gzip ≤ 2.0 MiB usable-screen target`, initialGzip <= USABLE_GZIP_CEILING, `${(initialGzip / 1024 / 1024).toFixed(2)} MiB`);
+    // The eager common chunk must stay a stub: anything shared between two
+    // lazy chunks lands here and loads before the first paint.
+    const commonRef = refs.find((ref) => ref.includes('__common'));
+    const commonGzip = commonRef === undefined ? 0 : gzipSync(readFileSync(join(mobile, 'dist', commonRef.replace(/^\//, '')))).length;
+    check('dist __common chunk stays under 64 KiB gzip', commonGzip <= 64 * 1024, `${(commonGzip / 1024).toFixed(1)} KiB`);
+    const distText = [distHtml, ...refs.map((ref) => {
+        const file = join(mobile, 'dist', ref.replace(/^\//, ''));
+        return existsSync(file) ? readFileSync(file, 'utf8') : '';
+    })].join('\n');
+    check('dist initial payload has no marketing origin', !distText.includes('https://trymuxr.com'));
+    check('dist initial payload carries no mermaid engine', !distText.includes('__esbuild_esm_mermaid_nm'));
+    check('dist ships mermaid.min.js for on-demand diagrams', existsSync(join(mobile, 'dist', 'mermaid.min.js')));
+    // CanvasKit is fetched lazily by Skia at runtime; without it the app
+    // dies in Error initializing. Observed ~8.0 MB; anything under 1 MB is
+    // a stub or a truncation, not the engine.
+    const canvaskitDist = join(mobile, 'dist', 'canvaskit.wasm');
+    const canvaskitBytes = existsSync(canvaskitDist) ? statSync(canvaskitDist).size : 0;
+    check('dist ships a full canvaskit.wasm', canvaskitBytes > 1024 * 1024, `${canvaskitBytes} bytes`);
+    // The browser QR scanner's decoder WASM ships as a hashed same-origin
+    // export asset and loads only when scanning starts (never a CDN, never
+    // the entry payload).
+    const zxingAssets = [];
+    const walkAssets = (dir) => {
+        if (!existsSync(dir)) return;
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            const path = join(dir, entry.name);
+            if (entry.isDirectory()) walkAssets(path);
+            else if (/^zxing_reader\.[0-9a-f]{32}\.wasm$/.test(entry.name)) zxingAssets.push(path);
+        }
+    };
+    walkAssets(join(mobile, 'dist', 'assets'));
+    check('dist ships the hashed zxing reader WASM as an export asset', zxingAssets.length === 1 && statSync(zxingAssets[0]).size > 512 * 1024, zxingAssets.map((path) => path.replace(`${mobile}/`, '')).join(', ') || 'missing');
+    check('dist initial payload never names the decoder CDN', !distText.includes('jsdelivr'));
+}
+
+if (failures.length > 0) {
+    process.stderr.write(`checkWebExport: ${failures.length} failing check(s)\n`);
+    process.exit(1);
+}
+process.stdout.write('checkWebExport: all web-export checks passed\n');

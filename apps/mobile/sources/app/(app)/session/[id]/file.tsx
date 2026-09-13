@@ -37,6 +37,10 @@ export default React.memo(function FileScreen() {
     const columnParam = searchParams.column as string | undefined;
     const requestedLine = lineParam ? Number.parseInt(lineParam, 10) : null;
     const requestedColumn = columnParam ? Number.parseInt(columnParam, 10) : null;
+    // Explicit bounded initial viewer mode from a Code offer destination.
+    // Anything else keeps the viewer's own default; never a magic string.
+    const modeParam = searchParams.mode as string | undefined;
+    const initialMode = modeParam === 'file' || modeParam === 'diff' ? modeParam : undefined;
     // `storage.getState()` is a snapshot, not a subscription. On a cold start
     // the catalog has not hydrated yet, so this read returned undefined and
     // nothing ever told React to look again - `sessionPath` stayed null for
@@ -233,6 +237,7 @@ export default React.memo(function FileScreen() {
             document={document}
             loading={isLoading}
             error={error}
+            initialMode={initialMode}
             onNavigate={(path) => {
                 if (sessionId === undefined) return;
                 router.replace(openFileViewer({

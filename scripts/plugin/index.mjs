@@ -13,6 +13,7 @@ export {
     showPluginDocs,
 } from './application/checkPlugin.mjs';
 export {
+    herdrPlugins,
     installPlugin,
     listPlugins,
     parseNpmSpec,

@@ -301,6 +301,30 @@ export async function prompt(message, initial = '') {
     return typeof answer === 'string' ? answer.trim() || initial : undefined;
 }
 
+/** Hidden-input prompt for a secret: echo off, never logged, never in argv. */
+export async function promptSecret(message) {
+    if (!interactive()) return undefined;
+    if (fullscreen) process.stdout.write('\x1b[?25h');
+    process.stdout.write(`${bold(`◆ ${message}`)} ${dim('(typing is hidden)')}\n  › `);
+    const reader = createInterface({ input: process.stdin, terminal: true });
+    // Swallow the echo: readline writes what it reads unless the output is muted.
+    reader._writeToOutput = () => {};
+    const answer = await new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+        };
+        reader.once('SIGINT', () => setupSession ? process.exit(130) : finish(undefined));
+        reader.question('', finish);
+    });
+    reader.close();
+    process.stdout.write('\n');
+    if (fullscreen) process.stdout.write('\x1b[?25l');
+    return typeof answer === 'string' ? answer.trim() : undefined;
+}
+
 export async function withSpinner(label, task) {
     if (!richInteractive()) {
         process.stdout.write(`  … ${label}\n`);

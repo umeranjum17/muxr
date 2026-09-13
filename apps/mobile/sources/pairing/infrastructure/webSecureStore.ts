@@ -35,13 +35,49 @@ async function transact<T>(mode: IDBTransactionMode, operation: (store: IDBObjec
 
 let wrapKeyPending: Promise<CryptoKey> | undefined;
 
+/**
+ * Get-or-create the one wrapping key inside a single readwrite transaction.
+ * IndexedDB serializes readwrite transactions on a store across every tab and
+ * module realm of the origin, so the first writer wins and every later
+ * contender reads that persisted key instead of overwriting it with its own.
+ * The candidate key is generated up front: awaiting WebCrypto inside the
+ * transaction would let it auto-commit between the read and the write.
+ */
+async function claimWrapKey(candidate: CryptoKey): Promise<CryptoKey> {
+    const database = await openDatabase();
+    return new Promise((resolve, reject) => {
+        const transaction = database.transaction(STORE_NAME, 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        let winner: CryptoKey | undefined;
+        const read = store.get(WRAP_KEY);
+        read.onsuccess = () => {
+            const stored = read.result as CryptoKey | undefined;
+            if (stored !== undefined) {
+                winner = stored;
+                return;
+            }
+            // `add`, not `put`: a key that appeared since the read is a
+            // constraint error that aborts this transaction rather than a
+            // silent overwrite of another tab's secrets.
+            const write = store.add(candidate, WRAP_KEY);
+            write.onsuccess = () => { winner = candidate; };
+        };
+        transaction.oncomplete = () => {
+            database.close();
+            if (winner === undefined) reject(new Error('Browser secure store lost the wrapping key'));
+            else resolve(winner);
+        };
+        transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error('Browser secure store transaction failed')); };
+        transaction.onabort = () => { database.close(); reject(transaction.error ?? new Error('Browser secure store transaction aborted')); };
+    });
+}
+
 async function wrapKey(): Promise<CryptoKey> {
     wrapKeyPending ??= (async () => {
         const stored = await transact<CryptoKey | undefined>('readonly', (store) => store.get(WRAP_KEY));
         if (stored !== undefined) return stored;
-        const created = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-        await transact('readwrite', (store) => store.put(created, WRAP_KEY));
-        return created;
+        const candidate = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+        return claimWrapKey(candidate);
     })();
     try { return await wrapKeyPending; }
     catch (cause) { wrapKeyPending = undefined; throw cause; }
