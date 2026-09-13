@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
-import { storage, useHerdrTree, useLocalSettingMutable, usePairingFailure, useSession, useSessionGitStatus, useSessions } from '@/catalog/store';
+import { storage, useHerdrTree, useLocalSettingMutable, usePairingFailure, useSession, useSessionGitStatus, useSessions, useSocketStatus } from '@/catalog/store';
 import { sessionStop } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
 import { resolveMessageModeMeta } from '@/catalog/infrastructure/messageMeta';
@@ -53,6 +53,7 @@ import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import type { SessionMenu } from '@/plugins';
 import { FOOTER_ROW_HEIGHT, TOOLS_TRIGGER_MARGIN, TOOLS_TRIGGER_SIZE, TerminalToolsPanel, TerminalToolsTrigger } from './FloatingTerminalControls';
+import { FindOutputSheet } from './FindOutputSheet';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins';
@@ -174,6 +175,13 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     // open, it takes the composer and keys' place and never the terminal's.
     const [toolsOpen, setToolsOpen] = React.useState(false);
     const [toolsBlocked, setToolsBlocked] = React.useState(false);
+    // Find in recent output: a sheet over the session, opened from the panel.
+    const [findOpen, setFindOpen] = React.useState(false);
+    // Focus in Herdr: one request, the menu stays open while it is pending,
+    // a failure stays on the row until the next tap; nothing replays itself.
+    const socketConnected = useSocketStatus().status === 'connected';
+    const [focusPending, setFocusPending] = React.useState(false);
+    const [focusFailure, setFocusFailure] = React.useState<string | null>(null);
     const [toolsSide, setToolsSide] = useLocalSettingMutable('terminalToolsSide');
     const { height: windowHeight } = useWindowDimensions();
     const { attaching, selectedImages, attachedImages, setAttachedImages, attachedPaths, failed: failedImages, retryFailed, discardFailed, pickImages, addImages } = useAttachmentUploads(
@@ -392,6 +400,13 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     const keyboardUpRef = React.useRef(false);
     keyboardUpRef.current = keyboardPad > 0 || keyboardVisible;
     React.useEffect(() => { if (!keyboardUpRef.current) setToolsBlocked(false); }, [keyboardPad, keyboardVisible]);
+    const openFind = React.useCallback(() => {
+        setToolsOpen(false);
+        setActionsOpen(false);
+        setOverviewOpen(false);
+        setMenu(null);
+        setFindOpen(true);
+    }, []);
     const openTools = React.useCallback(() => {
         setActionsOpen(false);
         setOverviewOpen(false);
@@ -517,6 +532,17 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
         ).then((confirmed) => { if (confirmed) stopSession(); });
     }, [shell, labels.taskTitle, stopSession]);
 
+    const focusInHerdr = React.useCallback(() => {
+        if (focusPending) return;
+        setFocusPending(true);
+        setFocusFailure(null);
+        void sync.request('pane.focus', { sessionId: props.id })
+            .then(() => { setActionsOpen(false); showGestureHint('Focused in Herdr'); })
+            .catch((error: unknown) => setFocusFailure(humanError(error).message))
+            .finally(() => setFocusPending(false));
+    }, [focusPending, props.id, showGestureHint]);
+    React.useEffect(() => { if (!actionsOpen) setFocusFailure(null); }, [actionsOpen]);
+
     const canSend = !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
 
     // Where this session sits and how it is allowed to act, in one quiet row.
@@ -583,6 +609,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 />
             ))}
             <DeclarativeSessionActions actions={quickActions} sessionId={props.id} onNavigate={closeTools} presentation="shortcut" />
+            <ActionShortcut label="Find in recent output" onPress={openFind} />
             {recentLinks.length > 0 && <>
                 <ActionShortcut label="Open link" icon="open-outline" onPress={() => showRecentLinks('open')} />
                 <ActionShortcut label="Copy link" icon="copy-outline" onPress={() => showRecentLinks('copy')} />
@@ -971,6 +998,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
             </View>
 
             <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} machineId={props.machineId} onClose={() => setOverviewOpen(false)} />
+            <FindOutputSheet visible={findOpen} sessionId={props.id} keyboardPad={keyboardPad} onClose={() => setFindOpen(false)} />
 
             {/* Secondary actions belong to the header; view controls stay with the terminal. */}
             {actionsOpen && (
@@ -1014,6 +1042,20 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                             )}
                             {paneActions.length > 0 && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>}
                             <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />
+                            {/* Returning the computer to this pane rearranges the
+                                desktop: occasional, deliberate, and only with control. */}
+                            <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Computer</Text>
+                            <Pressable onPress={focusInHerdr} disabled={!socketConnected || focusPending} accessibilityRole="button"
+                                accessibilityLabel={socketConnected ? 'Focus in Herdr' : 'Focus in Herdr, unavailable: not connected'}
+                                accessibilityState={{ disabled: !socketConnected || focusPending, busy: focusPending }}
+                                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: socketConnected ? 1 : 0.5 })}>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={{ color: theme.colors.text, fontSize: 15 }}>Focus in Herdr</Text>
+                                    {!socketConnected && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>Not connected</Text>}
+                                    {focusFailure !== null && <Text style={{ color: theme.colors.status.error, fontSize: 12, marginTop: 2 }}>{`Could not focus: ${focusFailure}. Tap to retry.`}</Text>}
+                                </View>
+                                {focusPending && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
+                            </Pressable>
                             {pluginButtons.length > 0 && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Layout</Text>}
                             {pluginButtons.map((button) => {
                                 const key = `${button.pluginId}:${button.id}`;
