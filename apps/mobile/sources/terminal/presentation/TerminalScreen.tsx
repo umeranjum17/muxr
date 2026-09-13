@@ -25,6 +25,7 @@ import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/session
 import { SessionMetaLine } from '@/herd/ui';
 import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import type { HerdrTreeTab } from '@muxr/contract';
+import { PaneOverviewSheet } from '@/herd/ui';
 import type { TerminalViewControls } from './TerminalView';
 // The xterm/Ghostty view stays out of the initial load graph: the session
 // shell paints first, the terminal implementation streams in behind it.
@@ -35,7 +36,7 @@ import { useWebBackCloses } from '@/components/useWebBackCloses';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { ActionShortcut } from '@/components/ActionShortcut';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStatusColor, herdrPaneForSession, isShellLabels } from '@/herd';
+import { agentLabels, agentNameLine, agentStatusColor, herdrPaneForSession, herdrTabForSession, isShellLabels, resolveTabPane, rememberPaneSelection, tabLabel, useNavigateToSession } from '@/herd';
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { ComposerAttachments } from '@/components/ComposerAttachments';
@@ -49,7 +50,6 @@ import { failureText, humanError } from '@/utils/errors';
 import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
-import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
 import { FloatingTerminalControls } from './FloatingTerminalControls';
 import { recentTerminalLinks } from '../application/recentOutput';
@@ -170,10 +170,6 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
         props.id,
         (error) => Modal.alert('Attachment failed', `${humanError(error).message} The files are kept below; retry when the connection is back.`),
     );
-    // Other openable panes in this session's tab, in layout order. A pane only
-    // gets a sessionId once herdr detects an agent in it, so bare shells are
-    // absent -- they have nothing for the app to attach to.
-    const [siblings, setSiblings] = React.useState<string[]>([]);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
     const [channel, setChannel] = React.useState<TerminalChannel>();
     const draftRef = React.useRef(draft);
@@ -262,40 +258,45 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
         [props.id],
     );
 
-    const tabId = session?.metadata?.tabId;
-    const [tabs, setTabs] = React.useState<readonly HerdrTreeTab[]>([]);
-    const [treeOpen, setTreeOpen] = React.useState(false);
-    const overlayContributions = useSlotContributions('session.overlay');
-    const hasOverlay = overlayContributions.length > 0;
-    const overlayLabel = overlayContributions[0]?.type === 'native' && overlayContributions[0].title !== undefined
-        ? resolvePluginText(overlayContributions[0].title)
-        : 'Session tools';
-    const loadSiblings = React.useCallback(() => {
-        if (tabId === undefined || tabId === '') return;
-        void sync
-            .request('herdr.tree', {})
-            .then((tree) => {
-                const tab = tree.workspaces.flatMap((workspace) => workspace.tabs).find((entry) => entry.tabId === tabId);
-                setSiblings(
-                    (tab?.panes ?? [])
-                        .map((pane) => pane.sessionId)
-                        .filter((id): id is string => id !== undefined),
-                );
-                const workspace = tree.workspaces.find((entry) => entry.workspaceId === session?.metadata?.workspaceId);
-                // All tabs, shells included: the hierarchy sheet shows the
-                // workspace as it is (agent-less tabs render dimmed).
-                setTabs(workspace?.tabs ?? []);
-            })
-            .catch(() => undefined);
-    }, [tabId, session?.metadata?.workspaceId]);
+    // The header counts and the strip switches from the live tree, the same
+    // store the sidebar and the pane overview read; nothing here fetches its
+    // own copy. One refresh on focus keeps a long-open session current.
+    const { loaded: treeLoaded } = useHerdrTree();
+    const located = herdrTabForSession(workspaces, props.id);
+    const currentTab = located?.tab;
+    const workspaceTabs = located?.workspace.tabs ?? [];
+    const siblings = React.useMemo(
+        () => (currentTab?.panes ?? []).map((pane) => pane.sessionId).filter((id): id is string => id !== undefined),
+        [currentTab],
+    );
+    const [overviewOpen, setOverviewOpen] = React.useState(false);
+    const currentPane = storedPane;
+    const showGestureHintRef = React.useRef<(text: string) => void>(() => undefined);
+    const navigateToSession = useNavigateToSession();
+    const tabStripRef = React.useRef<ScrollView>(null);
+    const activeChipX = React.useRef(0);
+    // A tab tap goes straight to a pane; a tab with nothing to open yet asks
+    // the tree again instead of guessing.
+    const openTab = React.useCallback((tab: HerdrTreeTab) => {
+        if (located === undefined) return;
+        const target = resolveTabPane(tab, { machineId: props.machineId, workspaceId: located.workspace.workspaceId });
+        if (target === undefined) {
+            showGestureHintRef.current(tab.panes.length === 0 ? 'Unavailable' : 'Starting…');
+            void sync.refreshHerdTree().catch(() => undefined);
+            return;
+        }
+        navigateToSession(target);
+    }, [located, props.machineId, navigateToSession]);
+    // Remember the pane this device is on, so its tab returns here.
     React.useEffect(() => {
-        loadSiblings();
-    }, [loadSiblings, session?.metadata?.promptable]);
-    const storedWorkspaceTabs = workspaces.find((entry) => entry.workspaceId === session?.metadata?.workspaceId)?.tabs;
-    const currentTab = tabs.find((tab) => tab.tabId === tabId)
-        ?? storedWorkspaceTabs?.find((tab) => tab.tabId === tabId);
-    const fetchedPane = currentTab?.panes.find((pane) => pane.sessionId === props.id);
-    const currentPane = fetchedPane ?? storedPane;
+        if (located === undefined) return;
+        rememberPaneSelection({ machineId: props.machineId, workspaceId: located.workspace.workspaceId, tabId: located.tab.tabId }, props.id);
+    }, [located, props.machineId, props.id]);
+    // The active chip comes into view without reordering the strip.
+    React.useEffect(() => {
+        const timer = setTimeout(() => tabStripRef.current?.scrollTo({ x: Math.max(0, activeChipX.current - 48), animated: false }), 0);
+        return () => clearTimeout(timer);
+    }, [currentTab?.tabId, workspaceTabs.length]);
     const panePromptable = currentPane?.promptable === true;
     const paneKind = currentPane?.agentKind;
     const paneLifecycle = currentPane?.agentStatus;
@@ -326,6 +327,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
         if (hintTimer.current !== null) clearTimeout(hintTimer.current);
         hintTimer.current = setTimeout(() => setGestureHint(null), 1400);
     }, []);
+    showGestureHintRef.current = showGestureHint;
 
     const { chipLink, chipKind, openChipLink } = useTerminalChipLink(props.id);
 
@@ -352,10 +354,8 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     useFocusEffect(
         React.useCallback(() => {
             channelRef.current?.reconnect();
-            loadSiblings();
-            const timer = setInterval(loadSiblings, 15_000);
-            return () => clearInterval(timer);
-        }, [loadSiblings]),
+            void sync.refreshHerdTree().catch(() => undefined);
+        }, []),
     );
 
     React.useEffect(() => {
@@ -538,7 +538,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 }}
             >
                 <HeaderBackButton onPress={() => router.back()} style={{ marginLeft: -6 }} />
-                <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} accessibilityRole="button" accessibilityLabel={overlayLabel} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 44, paddingVertical: 4 }}>
+                <View accessible accessibilityLabel={`${contextTitle}. ${agentNameLine(labels)}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 44, paddingVertical: 4 }}>
                     <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={18} />
                     <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
                         <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
@@ -548,10 +548,22 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                             {agentNameLine(labels)}
                         </Text>
                     </View>
-                    {paneIndex !== -1 && siblings.length > 1 && (
-                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, flexShrink: 0 }}>· {paneIndex + 1}/{siblings.length}</Text>
-                    )}
-                    {hasOverlay && <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />}
+                </View>
+                {/* Position in the tab and the way into the pane overview: its own
+                    44dp target, present even for a one-pane tab so a new pane
+                    stays reachable. Loading shows as such, never as 0/0. */}
+                <Pressable
+                    onPress={() => { setActionsOpen(false); setOverviewOpen(true); }}
+                    disabled={!treeLoaded}
+                    accessibilityRole="button"
+                    accessibilityLabel={treeLoaded ? `Pane ${Math.max(paneIndex, 0) + 1} of ${Math.max(siblings.length, 1)}. Open panes.` : 'Panes loading'}
+                    accessibilityState={{ expanded: overviewOpen, disabled: !treeLoaded }}
+                    style={({ pressed }) => ({ minWidth: 44, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 6, borderRadius: 12, backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}
+                >
+                    {treeLoaded
+                        ? <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600' }}>{Math.max(paneIndex, 0) + 1}/{Math.max(siblings.length, 1)}</Text>
+                        : <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
+                    <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />
                 </Pressable>
                 {canControl && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel="Pane actions"
                     accessibilityState={{ expanded: actionsOpen }} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
@@ -725,28 +737,31 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 )}
             </View>
 
-            {canControl && <View onLayout={({ nativeEvent }) => setBottomBlockTop(nativeEvent.layout.y)} style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
-            {siblings.length > 1 && (
+            {/* The workspace's tabs, for anyone who can look: a tap opens that
+                tab's last pane this device chose, else its focused pane, else
+                its first. Same chip, same place; only the data changed. */}
+            {workspaceTabs.length > 0 && (
                 <ScrollView
+                    ref={tabStripRef}
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     keyboardShouldPersistTaps="always"
-                    style={{ maxHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider }}
+                    style={{ maxHeight: 44, backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}
                     contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 8 }}
                 >
-                    {siblings.map((siblingId) => {
-                        const siblingPane = currentTab?.panes.find((pane) => pane.sessionId === siblingId);
-                        const siblingLabels = agentLabels(siblingPane);
-                        const siblingShell = isShellLabels(siblingLabels);
-                        const siblingStatus = terminalPaneStatus(siblingPane);
-                        const siblingTone = agentStatusColor(siblingStatus, theme);
-                        const active = siblingId === props.id;
+                    {workspaceTabs.map((tab, index) => {
+                        const active = tab.tabId === currentTab?.tabId;
+                        const single = tab.panes.length === 1 ? tab.panes[0] : undefined;
+                        const singleLabels = single === undefined ? undefined : agentLabels(single);
+                        const tone = agentStatusColor(tab.agentStatus, theme);
+                        const label = tabLabel(tab, index);
                         return (
                             <Pressable
-                                key={siblingId}
-                                onPress={active ? undefined : () => router.replace(`/session/${encodeURIComponent(siblingId)}`)}
+                                key={tab.tabId}
+                                onLayout={active ? ({ nativeEvent }) => { activeChipX.current = nativeEvent.layout.x; } : undefined}
+                                onPress={active ? undefined : () => openTab(tab)}
                                 accessibilityRole="button"
-                                accessibilityLabel={`${active ? 'Current' : 'Open'} ${agentAccessibilityLabel(siblingLabels, siblingStatus)}`}
+                                accessibilityLabel={`${active ? 'Current tab' : 'Open tab'} ${label}, ${tab.panes.length === 1 ? '1 pane' : `${tab.panes.length} panes`}`}
                                 accessibilityState={{ selected: active }}
                                 style={({ pressed }) => ({
                                     minHeight: 44,
@@ -761,15 +776,19 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                                     opacity: pressed ? 0.65 : 1,
                                 })}
                             >
-                                <AgentGlyph name={siblingShell ? 'shell' : siblingLabels.agentKind ?? siblingLabels.agentName} size={16} />
-                                <Text numberOfLines={1} style={{ flexShrink: 1, color: siblingTone.color, fontSize: 11, fontWeight: active ? '600' : '400' }}>
-                                    {siblingLabels.taskTitle}
+                                {singleLabels !== undefined
+                                    ? <AgentGlyph name={isShellLabels(singleLabels) ? 'shell' : singleLabels.agentKind ?? singleLabels.agentName} size={16} />
+                                    : <Ionicons name="grid-outline" size={14} color={theme.colors.textSecondary} />}
+                                <Text numberOfLines={1} style={{ flexShrink: 1, color: tone.color, fontSize: 11, fontWeight: active ? '600' : '400' }}>
+                                    {label}
                                 </Text>
                             </Pressable>
                         );
                     })}
                 </ScrollView>
             )}
+
+            {canControl && <View onLayout={({ nativeEvent }) => setBottomBlockTop(nativeEvent.layout.y)} style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
             <View onLayout={({ nativeEvent }) => setAccessoryBottom(nativeEvent.layout.y + nativeEvent.layout.height)} style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center' }}>
                 <ScrollView
                     horizontal
@@ -860,14 +879,11 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                         commands={viewControls.commands}
                         dismissKeyboard={viewControls.dismissKeyboard}
                         renderQuickActions={canControl && (Platform.OS !== 'web' || quickActions.length > 0) ? renderQuickActions : undefined}
-                        hidden={actionsOpen || treeOpen} />
+                        hidden={actionsOpen || overviewOpen} />
                 </View>;
             })()}
 
-            <PluginSlot
-                slot="session.overlay"
-                context={{ sessionId: props.id, visible: treeOpen, onClose: () => setTreeOpen(false), openMenu: setMenu, showHint: showGestureHint }}
-            />
+            <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} machineId={props.machineId} onClose={() => setOverviewOpen(false)} />
 
             {/* Secondary actions belong to the header; view controls stay with the terminal. */}
             {actionsOpen && (
