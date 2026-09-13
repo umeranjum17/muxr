@@ -4,7 +4,6 @@ import { getCachedConnectionSettings } from '@/connection';
 import { listPairedGrants } from '@/pairing/e2ee';
 import { demoClient } from './demoClient';
 import { activateDemoTransport as activate } from './demoTransport';
-import { isDemoPathname } from './demoGuard';
 
 /**
  * Web demo runtime. Ephemeral by construction: read-only checks against
@@ -14,7 +13,12 @@ import { isDemoPathname } from './demoGuard';
  * pathname; this gate decides whether the route may show it.
  */
 export async function ensureDemoRuntime(): Promise<boolean> {
-    if (Platform.OS !== 'web' || !isDemoPathname()) return false;
+    // The /demo route component is the only caller, so its mount is proof we
+    // are on the demo route; reading window.location here instead races
+    // router.push('/demo') (the History API updates a tick after the screen
+    // mounts), so a button tap would read the old pathname, return false and
+    // bounce home. The unpaired-only property below is what actually gates.
+    if (Platform.OS !== 'web') return false;
     const [credentials, grants] = await Promise.all([
         TokenStorage.getCredentials().catch(() => null),
         listPairedGrants().catch(() => []),

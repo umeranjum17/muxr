@@ -254,6 +254,19 @@ try {
     const firstPage = firstTabs.find((tab) => tab.type === 'page');
     if (!firstPage) throw new Error('no page target');
     const journey = await drive(firstPage);
+    // Front door FIRST: the owner enters by tapping the landing button, not a
+    // deep link. router.push('/demo') mounts the route a tick before the
+    // History API updates window.location, so a pathname-race regression in the
+    // demo gate bounces straight back to '/' and strands the demo bar over the
+    // landing. That shipped once precisely because this check only ever
+    // deep-linked /demo below and never tapped the button.
+    await journey.send('Page.navigate', { url: `http://127.0.0.1:${port}/` });
+    await journey.waitFor('landing', (text) => text.includes('Try interactive demo'));
+    await journey.evaluate(`[...document.querySelectorAll('*')].find((el) => el.children.length === 0 && el.innerText === 'Try interactive demo')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const fromButton = await journey.waitFor('demo opens from the landing button', (text) => text.includes('Rebase release branch onto main'));
+    check('landing "Try interactive demo" opens the demo, no bounce home', (await journey.evaluate('window.location.pathname')) === '/demo');
+    check('demo button does not strand the landing under the demo bar', !fromButton.includes('Run your agents from this browser'));
+
     await journey.send('Page.navigate', { url: `http://127.0.0.1:${port}/demo` });
     // Real hidden→visible transition BEFORE asserting the herd: the demo
     // must not perform a socket visibility reconnect (tearing down the
