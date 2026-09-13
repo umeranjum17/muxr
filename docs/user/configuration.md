@@ -2,6 +2,34 @@
 
 One file describes the whole setup of a computer: `~/.muxr/config.env`, plain `KEY=value` lines, no secrets, safe to keep in dotfiles. Interactive setup writes it; you or an agent can write it; `muxr setup --apply-config` makes the computer match it.
 
+## Service ownership and a second instance
+
+`MUXR_HOME` changes the state directory; it does **not** give a managed service a
+new identity. In this version, the same OS user still has `muxr.service` on Linux
+or `com.muxr.host` on macOS. A different state directory or port alone does not
+isolate `muxr restart`, setup, update or uninstall from that registered service.
+
+Before changing services, inspect the registered executable and state directory:
+
+```bash
+# Linux
+systemctl --user cat muxr.service
+# macOS
+plutil -p "$HOME/Library/LaunchAgents/com.muxr.host.plist"
+```
+
+Only operate on the instance those values identify. A process name, PID or successful
+`/health` response alone does not establish ownership. Keep another application's
+listener and HTTPS mapping intact. Use another OS account or computer for a second
+managed installation, with its own state, available port, private HTTPS route and
+LAN discovery name. Do not use internal test bypasses as an isolation mechanism.
+
+Keep the state directory path short. Local Unix sockets append paths such as
+`host/peer/broker.sock` or `host/surface/broker.sock`; the **whole socket path**, in bytes, must fit the OS limit.
+Aim below 100 bytes to leave room across platforms. A long worktree or attachments
+path is a poor state root. Choose a short owner-only directory before initial setup;
+changing `MUXR_HOME` later does not relocate credentials or update a registered service.
+
 ## Attributes
 
 <!-- config-attributes:start -->

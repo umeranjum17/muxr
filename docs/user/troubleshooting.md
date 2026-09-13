@@ -9,9 +9,11 @@ Each row: what you see → the safe check → what it should say → what to do 
 | A Herdr pane says "no muxr runtime" or "not the recorded version" | `muxr doctor --json` (look at `identity.herdrPlugin`) | `bin` and `version` match `muxr version` | run `muxr update`, or rerun the exact plugin install command with the pinned ref |
 | Setup proposes "native app only" | `muxr setup --inspect` | one of: Tailscale connected with Serve free, `cloudflared` installed, or your own `wss://` origin | add one of those routes, then `muxr setup --apply-config` (or `muxr`); the native app works now with `muxr pair --native` |
 | `muxr pair --browser` says browser hosting is off | `muxr config` | `MUXR_CONNECTION` is tailscale, cloudflare or external and `MUXR_WEB=true` | set them in `~/.muxr/config.env`, then `muxr setup --apply-config`, then pair again |
-| Tailscale Serve is occupied or disabled during Apply | `tailscale serve status` | free, or clearly yours | free the Serve root (or enable Serve in the Tailscale admin), then `muxr setup --apply-config`; the reviewed plan is kept in `config.env` |
+| Tailscale Serve is occupied or disabled during Apply | `tailscale serve status --json` | muxr owns its target, or it is unused | leave foreign mappings intact. If Serve is disabled, use the exact admin link printed by muxr, then retry `muxr setup --apply-config`. If occupied, choose another private route; never reset another application’s Serve root |
 | `muxr doctor` says the relay is not reachable | `curl --max-time 3 http://127.0.0.1:8792/health` | `{"ok":true}` | `muxr daemon restart`, then `muxr doctor` |
-| The relay port is in use | `ss -ltnp 'sport = :8792'` (Linux) or `lsof -nP -iTCP:8792 -sTCP:LISTEN` (macOS) | your `muxr` relay, or nothing | stop only a process you recognise, or change `MUXR_RELAY_PORT` and reapply |
+| The relay port is in use | use the port shown by `muxr config`; for 8792: `ss -ltnp 'sport = :8792'` (Linux) or `lsof -nP -iTCP:8792 -sTCP:LISTEN` (macOS) | listener matches the registered executable and state directory, or the port is free | confirm [service ownership](configuration.md#service-ownership-and-a-second-instance). Leave a foreign listener running and select an unused port through the installed configuration command; a PID or healthy `/health` alone is not ownership |
+| A second instance changes the first, or discovery says the name is in use | inspect the [registered service, state path and route](configuration.md#service-ownership-and-a-second-instance) | separate service identity, available port, private route and discovery name | keep the working instance running. Use another OS account or computer for a separate managed installation; `MUXR_HOME` alone is not isolation |
+| `listen EINVAL` under a long state path | read the socket path named by the error; check its complete byte length | a short owner-only path, including the appended socket filename | use a shorter path for a disposable installation; preserve identity and service registration when relocating an existing one. See [socket-path limits](configuration.md#service-ownership-and-a-second-instance) |
 | The host service is not running | `muxr daemon status` | active | `muxr daemon start`, then `muxr doctor`; on Linux confirm `loginctl show-user $USER -p Linger` is `yes` for reboot survival |
 | The link says the grant expired or access was removed | (in the browser) status pill | **Pair again** | `muxr pair --browser` on the computer, then **Scan QR to pair** in that browser (or open the new link) |
 | The pairing page cannot open the camera | the browser's site settings for your computer's address | Camera allowed | allow the camera and tap **Scan QR to pair** again; or scan the QR with your phone's camera app; or **Enter pairing link manually** (the QR is the same link) |
@@ -27,6 +29,19 @@ Each row: what you see → the safe check → what it should say → what to do 
 | `muxr setup --apply-config` exits 1 | read the first line | the key and rule (never the value) | fix that key in `config.env`; `muxr config --schema` lists every allowed value |
 | `muxr update` ended with a warning about the plugin runtime record | `muxr doctor --json` | `identity.herdrPlugin.version` equals `identity.cli.version` | rerun `muxr update --yes`; if it persists, rerun the plugin install command with the pinned ref |
 | Doctor reports corrupt or incomplete state | the file it names | — | stop; back up that exact file before moving it aside. It holds machine identity and pairing authority. `muxr uninstall` is destructive recovery, not first aid |
+
+For the default surface socket, this read-only check prints its path length in bytes:
+
+```bash
+printf '%s' "${MUXR_HOME:-$HOME/.muxr}/host/surface/broker.sock" | wc -c
+```
+
+Use the actual path from the failure if it differs. Keep the entire path below
+100 bytes for room across platforms; changing the relay port cannot fix this error.
+Check the registered service's executable and state directory before a repair.
+A normal `muxr restart` addresses that service, even if a different `MUXR_HOME`
+is set in the terminal. Internal service-command test bypasses are not an
+operator isolation recipe.
 
 ## Report an issue
 
