@@ -8,8 +8,7 @@
 
 import * as React from 'react';
 import { AppState, Pressable, View } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
-import { Ionicons } from '@expo/vector-icons';
+import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Typography } from '@/constants/Typography';
@@ -137,7 +136,7 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                 accessibilityState={{ disabled: !canMutate || tab === undefined }}
                 style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, borderRadius: 12, backgroundColor: theme.colors.surfaceHigh, opacity: !canMutate ? 0.45 : pressed ? 0.6 : 1 })}
             >
-                <Ionicons name="add" size={18} color={theme.colors.text} />
+                {/* A named action is words: no leading glyph. */}
                 <Text style={{ ...Typography.default('semiBold'), color: theme.colors.text }}>New pane</Text>
             </Pressable>
             <Pressable onPress={close} accessibilityRole="button" accessibilityLabel="Done" style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', borderRadius: 12, opacity: pressed ? 0.6 : 1 })}>
@@ -146,8 +145,12 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
         </View>
     );
 
+    // A sheet over the session paints from the dark surface whatever the app
+    // is set to; the scope sits here, in this sheet's own render, so what it
+    // mounts on its own state (the agent picker, pending cards) reads it too.
     if (mode === 'agent') {
         return (
+            <ScopedTheme name="dark">
             <OptionSheet
                 visible={props.visible}
                 title="New pane"
@@ -156,9 +159,11 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                 onSelect={splitPane}
                 onClose={() => setMode('panes')}
             />
+            </ScopedTheme>
         );
     }
     return (
+        <ScopedTheme name="dark">
         <OptionSheet
             visible={props.visible}
             title=""
@@ -179,8 +184,12 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                     header={header}
                     emptyText={loaded ? 'No panes in this tab' : 'Loading panes…'}
                     active={props.visible && foreground}
+                    // A sheet over the session: its cards paint from the dark
+                    // surface, whatever the app is set to.
+                    surfaceTheme="dark"
                 />
             )}
         />
+        </ScopedTheme>
     );
 }

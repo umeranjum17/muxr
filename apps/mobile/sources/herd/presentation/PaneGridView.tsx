@@ -12,7 +12,7 @@
 
 import * as React from 'react';
 import { FlatList, Pressable, View, useWindowDimensions, type ViewToken } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/StyledText';
 import { StatusDot } from '@/components/StatusDot';
@@ -121,7 +121,7 @@ const PaneCard = React.memo(function PaneCard(props: {
                     accessibilityState={{ disabled: !props.canClose || props.pending }}
                     style={({ pressed }) => ({ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', opacity: !props.canClose ? 0.35 : pressed ? 0.6 : 1 })}
                 >
-                    <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
+                    <Ionicons name="close-outline" size={20} color={theme.colors.textSecondary} />
                 </Pressable>
             </View>
             {shownSurface !== undefined ? (
@@ -161,6 +161,17 @@ export interface PaneGridViewProps {
     emptyText: string;
     /** When false (sheet closed, app backgrounded) no card reads anything. */
     active?: boolean;
+    /**
+     * The surface the cards sit on, when it is not the app's: over the
+     * terminal they paint dark. Cards mount on this list's own layout and
+     * scroll passes, outside any scope above it, so the list names the
+     * theme per card.
+     */
+    surfaceTheme?: 'dark';
+}
+
+function CardSurface({ name, children }: { name?: 'dark'; children: React.ReactNode }): React.JSX.Element {
+    return name === undefined ? <>{children}</> : <ScopedTheme name={name}>{children}</ScopedTheme>;
 }
 
 /** The cards, virtualized; the caller owns the tab, the sheet and the actions. */
@@ -195,6 +206,7 @@ export function PaneGridView(props: PaneGridViewProps): React.JSX.Element {
                     windowSize={3}
                     keyboardShouldPersistTaps="always"
                     renderItem={({ item }) => (
+                        <CardSurface name={props.surfaceTheme}>
                         <PaneCard
                             pane={item}
                             width={cardWidth}
@@ -206,6 +218,7 @@ export function PaneGridView(props: PaneGridViewProps): React.JSX.Element {
                             onOpen={props.onOpen}
                             onClose={props.onClose}
                         />
+                        </CardSurface>
                     )}
                 />
             )}

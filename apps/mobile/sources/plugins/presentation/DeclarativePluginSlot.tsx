@@ -260,12 +260,12 @@ function DataActionRow({ contribution, pluginId, manifestHash, presentation }: {
             onPress={retryOrOpen} />;
     } else {
         const style = ({ pressed = false } = {}) => ({ minHeight: 44, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh });
+        // A named action row is words; the declared glyph stays metadata.
         const body = <>
-            <Ionicons name={(contribution.icon ?? 'stats-chart-outline') as never} size={18} color={theme.colors.textSecondary} />
             <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{label}</Text>
             {data.failed && <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />}
             <Text numberOfLines={1} style={{ maxWidth: 120, color: data.failed ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 12 }}>{shown}</Text>
-            {contribution.presentation === 'sheet' && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
+            {contribution.presentation === 'sheet' && <Ionicons name="chevron-forward-outline" size={14} color={theme.colors.textSecondary} />}
         </>;
         trigger = contribution.presentation !== 'sheet' && !data.failed
             ? <View style={style()}>{body}</View>
