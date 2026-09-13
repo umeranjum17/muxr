@@ -11,7 +11,8 @@ import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
-import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
+import { useUnistyles } from 'react-native-unistyles';
+import { SurfaceTheme } from '@/components/SurfaceTheme';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { Modal } from '@/modal';
@@ -72,10 +73,12 @@ function TerminalViewFallback() {
 
 /**
  * The session is one dark surface: the terminal paints dark whatever the app
- * theme, so everything around it -- header, strip, composer, keys, Tools and
- * every sheet they open -- reads the dark theme too. The scope sits at this
- * screen's own render root and the theme is read beneath it, so each render of
- * the screen (and everything it mounts) paints from the same palette.
+ * theme, so everything around it -- header, strip, composer, keys, the
+ * quick-actions panel and every sheet they open -- reads the dark theme too.
+ * The surface is named at this screen's own render root (SurfaceTheme, so a
+ * sheet or dialog mounting later below it can re-apply it where it mounts)
+ * and the theme is read beneath it, so each render of the screen and
+ * everything it mounts paints from the same palette.
  */
 function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();
@@ -585,7 +588,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     );
 
     return (
-        <ScopedTheme name="dark"><DarkSurface>{(theme) => {
+        <SurfaceTheme name="dark"><DarkSurface>{(theme) => {
         const headerStatus = agentStatusColor(headerLifecycle, theme);
         // "Go" is the accent, never a lifecycle or destructive colour: red on
         // this screen means needs-you or stop, and the send button is neither.
@@ -1076,6 +1079,6 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
             )}
         </View>
         );
-        }}</DarkSurface></ScopedTheme>
+        }}</DarkSurface></SurfaceTheme>
     );
 });
