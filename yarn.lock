@@ -8529,10 +8529,10 @@ vfile@^6.0.0:
     "@types/unist" "^3.0.0"
     vfile-message "^4.0.0"
 
-victory-native@^41.26.0:
-  version "41.26.0"
-  resolved "https://registry.yarnpkg.com/victory-native/-/victory-native-41.26.0.tgz#4940a88bd66b0869513349249e4f70be8cfd8166"
-  integrity sha512-NCRPQKdK99cIREXvtefEnGlOf29gd3RBMb5qVQ49+weY+mG6UHbBu4Wru7TObDyZo0NgywPWZP4dno9K8bz+Cg==
+victory-native@^42.0.1:
+  version "42.0.1"
+  resolved "https://registry.yarnpkg.com/victory-native/-/victory-native-42.0.1.tgz#f77afd6400a5c8fd720df11b05bc23a7ee00b212"
+  integrity sha512-W3dNBMeRtZ8AQGBkV1PrYYKLFSstTy6uulmlJJFch4hvPX/R1xH1VJXzZopK6GGbcq/ejcr8WwntWwhqTo0lzA==
   dependencies:
     d3-scale "^4.0.2"
     d3-shape "^3.2.0"
