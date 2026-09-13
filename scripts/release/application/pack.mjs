@@ -12,7 +12,7 @@ import {
     statSync,
     writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { packageInfoFromPath, packagePathFromInput } from '../infrastructure/audit.mjs';
@@ -172,6 +172,18 @@ const extensionSource = readFileSync(join(out, 'plugin', 'application', 'checkPl
 if (!extensionSource.includes("from '@muxr/contract'")) throw new Error('plugin validator import changed; update the package rewrite');
 writeFileSync(join(out, 'plugin', 'application', 'checkPlugin.mjs'), extensionSource.replace("from '@muxr/contract'", "from '../../contract.mjs'"));
 cpSync(join(root, 'plugins'), join(out, 'plugins'), { recursive: true });
+// Shipped plugins run from the package, where the workspace packages are the
+// bundled crypto.js / contract.mjs at the root, not resolvable bare names.
+for (const file of readdirSync(join(out, 'plugins'), { recursive: true })) {
+    const path = join(out, 'plugins', String(file));
+    if (!path.endsWith('.mjs') || !statSync(path).isFile()) continue;
+    const source = readFileSync(path, 'utf8');
+    if (!/from '@muxr\/(crypto|contract)'/.test(source)) continue;
+    const toRoot = relative(dirname(path), out) || '.';
+    writeFileSync(path, source
+        .replaceAll("from '@muxr/crypto'", `from '${toRoot}/crypto.js'`)
+        .replaceAll("from '@muxr/contract'", `from '${toRoot}/contract.mjs'`));
+}
 cpSync(join(root, 'skills', 'muxr'), join(out, 'skills', 'muxr'), { recursive: true });
 const webDist = join(root, 'apps', 'mobile', 'dist');
 if (!existsSync(join(webDist, 'index.html'))) {
