@@ -131,6 +131,12 @@ export default function ComputerCollaborationScreen() {
     const selectionChanged = intent !== undefined
         && [...selected].sort().join('\0') !== [...intent.selectedMachineIds].sort().join('\0');
     const collaborationEnabled = intent !== undefined && intent.selectedMachineIds.length >= 2;
+    // Why the permission cannot move right now, on the row itself.
+    const controlPairings = rows.filter((row) => row.grant?.authority !== 'observe' && row.grant !== undefined).length;
+    const permissionBlocked = collaborationEnabled ? undefined
+        : rows.length < 2 ? 'Pair at least two computers with this phone first.'
+            : controlPairings < 2 ? 'Two computers need a phone pairing with control; observe-only pairings cannot authorize collaboration.'
+                : selected.length < 2 ? 'Select at least two computers above.' : undefined;
     const pendingCollaboration = intent !== undefined && hasPendingCollaboration(intent);
     const disconnecting = intent?.edges.some((edge) => edge.disconnect !== undefined && edge.disconnect.repair !== true) === true;
 
@@ -279,12 +285,13 @@ export default function ComputerCollaborationScreen() {
             <ItemGroup title="Permission" footer={`Turn this off to revoke access; it applies on the selected computers now. Starting new agents is not available yet. Shell, terminal takeover, destructive actions, and arbitrary plugin calls are never included.${Platform.OS === 'web' ? ' Browser observe-only pairings cannot authorize collaboration; use the muxr phone app or a control pairing.' : ''}`}>
                 <Item
                     title="Agent collaboration"
-                    subtitle="Read agent output, watch completion, and send prompts"
+                    subtitle={permissionBlocked === undefined ? 'Selected computers read agent output, watch completion, and send prompts' : `Selected computers read agent output, watch completion, and send prompts. ${permissionBlocked}`}
+                    subtitleLines={0}
                     icon={<Ionicons name="shield-checkmark-outline" size={28} color={theme.colors.textSecondary} />}
                     rightElement={(
                         <Switch
                             value={collaborationEnabled}
-                            disabled={busy}
+                            disabled={busy || permissionBlocked !== undefined}
                             accessibilityLabel="Allow agent collaboration"
                             onValueChange={(enabled) => void togglePermission(enabled).catch(showCollaborationError)}
                         />

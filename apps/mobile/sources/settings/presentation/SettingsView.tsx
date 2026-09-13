@@ -11,7 +11,7 @@ import { forgetMachine as forgetPairedMachine, isMachineOnline } from '@/pairing
 import { formatOSPlatform } from '@/herd';
 import { useAuth } from '@/account/ui';
 import { ItemList } from '@/components/ItemList';
-import { useLocalSettingMutable } from '@/catalog/store';
+import { useLocalSettingMutable, useSettingMutable } from '@/catalog/store';
 import { Modal } from '@/modal';
 import { useAllMachines } from '@/catalog/store';
 import { useUnistyles } from 'react-native-unistyles';
@@ -76,6 +76,9 @@ export const SettingsView = React.memo(function SettingsView({
     useRealtimeAppControl('Preferences', openPreferences, '/settings');
     useRealtimeAppControl('Agent notifications', openNotifications, '/settings');
     const lifecycleNotificationLevel = useLocalSettingMutable('lifecycleNotificationLevel')[0];
+    // The hub rows carry the value their page holds, so a glance answers the question.
+    const themePreference = useLocalSettingMutable('themePreference')[0];
+    const sortSessionsByActivity = useSettingMutable('sortSessionsByActivity')[0];
     const [showOfflineMachines, setShowOfflineMachines] = React.useState(false);
     const allMachinesWithOffline = useAllMachines({ includeOffline: true });
     const offlineMachineCount = React.useMemo(
@@ -380,13 +383,15 @@ export const SettingsView = React.memo(function SettingsView({
                 <DeclarativeSettingsItems />
                 <Item
                     title="Appearance"
-                    subtitle={t('settings.appearanceSubtitle')}
+                    subtitle="Theme, language, avatars and terminal text"
+                    detail={t(`settingsAppearance.themeOptions.${themePreference}` as 'settingsAppearance.themeOptions.adaptive')}
                     icon={<Ionicons name="color-palette-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={openAppearance}
                 />
                 <Item
                     title="Preferences"
-                    subtitle="Recent activity and inactive sessions"
+                    subtitle="Session order, inactive sessions and keyboard"
+                    detail={sortSessionsByActivity ? 'Recent activity' : 'Created'}
                     icon={<Ionicons name="options-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={openPreferences}
                 />
@@ -435,9 +440,10 @@ export const SettingsView = React.memo(function SettingsView({
                         title={pushState === 'subscribed' ? 'Notifications' : 'Turn on notifications'}
                         subtitle={pushSubtitle}
                         subtitleLines={0}
-                        detail={pushState === 'subscribed' ? t('plugins.on') : undefined}
+                        detail={pushState === 'subscribed' ? t('plugins.on') : pushState === 'denied' || pushState === 'unsupported' ? 'Unavailable' : undefined}
                         icon={<Ionicons name="notifications-outline" size={29} color={theme.colors.textSecondary} />}
-                        onPress={pushState === 'subscribed' ? undefined : handlePushToggle}
+                        onPress={pushState === 'subscribed' || pushState === 'denied' || pushState === 'unsupported' ? undefined : handlePushToggle}
+                        disabled={pushState === 'denied' || pushState === 'unsupported'}
                         showChevron={false}
                         loading={pushBusy}
                     />

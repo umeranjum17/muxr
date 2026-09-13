@@ -16,6 +16,7 @@ import { knownHostVersion, versionsMismatch } from '@/utils/versionStatus';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { t } from '@/text';
 import { useHostUpdate } from './useHostUpdate';
+import { useDeviceAuthority } from '@/pairing';
 
 /** One destination for installed versions, update guidance and connection evidence. */
 export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?: string }) {
@@ -26,6 +27,8 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
     const release = knownHostVersion(appConfig.releaseVersion);
     const exactRelease = release?.split('-')[0] === appVersion.split('-')[0] ? release : undefined;
     const update = useHostUpdate(exactRelease ?? 'unknown');
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
+    const installBlocked = !authorityLoading && authority !== 'control' ? 'View-only access can compare versions here but cannot install on the computer.' : undefined;
     const hostVersion = knownHostVersion(reportedHost);
     const mismatch = versionsMismatch(appVersion, hostVersion);
     const [details, setDetails] = React.useState<string>();
@@ -35,9 +38,22 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
         setDevModeEnabled(!devModeEnabled);
         Modal.alert(t('modals.developerMode'), devModeEnabled ? t('modals.developerModeDisabled') : t('modals.developerModeEnabled'));
     }, { requiredClicks: 10, resetTimeout: 2000 });
+    // What the app was built from: the commit and that commit's date (the
+    // metadata records the source date, never the build time). Missing
+    // metadata reads unavailable; the phone's clock never stands in.
+    const sourceCommit = appConfig.buildCommitSha?.trim().slice(0, 12) || undefined;
+    const sourceDate = (() => {
+        const stamp = appConfig.buildCommitTimestamp?.trim();
+        if (!stamp) return undefined;
+        const parsed = new Date(stamp);
+        return Number.isNaN(parsed.getTime()) ? undefined : `${parsed.toISOString().slice(0, 10)} UTC`;
+    })();
+    const sourceLine = sourceCommit === undefined && sourceDate === undefined
+        ? 'Source unavailable'
+        : `${sourceCommit ?? 'commit unavailable'} · source date ${sourceDate ?? 'unavailable'}`;
     const diagnosticText = () => [
         `App ${appVersion}${build ? ` / build ${build}` : ''}; host ${hostVersion ?? 'unknown'}`,
-        appConfig.buildCommitSha ? `App source ${appConfig.buildCommitSha.slice(0, 12)}` : undefined,
+        `App source ${sourceLine}`,
         formatConnectionDiagnosticsForReport(),
     ].filter(Boolean).join('\n');
     return <>
@@ -47,11 +63,12 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
             <Item title={mismatch ? 'App and host versions differ' : 'Check compatibility / align host'}
                 icon={mismatch ? <Ionicons name="warning-outline" size={24} color={theme.colors.box.warning.border} /> : undefined}
                 subtitle={update.message ?? (mismatch
-                    ? `App ${appVersion} · host ${hostVersion}. This does not by itself mean the connection is broken. If features behave differently, update the older component using the same release channel. Installing restarts the host; the connection pauses while it does.`
-                    : 'Keep this app and check for a compatible host release. Any installation requires confirmation; installing restarts the host.')}
-                subtitleLines={0} loading={update.busy} onPress={() => void update.check()} />
+                    ? `App ${appVersion} · host ${hostVersion}. This does not by itself mean the connection is broken. If features behave differently, update the older component using the same release channel. Installing restarts the host; the connection pauses while it does.${installBlocked === undefined ? '' : ` ${installBlocked}`}`
+                    : `Keep this app and check for a compatible host release. Any installation requires confirmation; installing restarts the host.${installBlocked === undefined ? '' : ` ${installBlocked}`}`)}
+                subtitleLines={0} loading={update.busy} disabled={installBlocked !== undefined} onPress={installBlocked === undefined ? () => void update.check() : undefined} />
             <Item title={Platform.OS === 'web' ? 'Web app' : 'Installed app'} subtitle={`${exactRelease ?? appVersion}${build ? ` · build ${build}` : ''}`} mono
                 subtitleLines={0} onPress={versionClick} showChevron={false} />
+            <Item title="Source" subtitle={sourceLine} mono={sourceCommit !== undefined || sourceDate !== undefined} subtitleLines={0} />
             <Item title="Connected host" subtitle={hostVersion ?? 'Unavailable until the host reports it'} mono={hostVersion !== undefined} subtitleLines={0} />
             <Item title="Get mobile builds" subtitle="Choose the stable or nightly release you want to test" subtitleLines={0}
                 onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/releases')} />

@@ -8,6 +8,7 @@ import { ItemList } from '@/components/ItemList';
 import { Modal } from '@/modal';
 import { sync } from '@/catalog/sync';
 import { useSocketStatus } from '@/catalog/store';
+import { useDeviceAuthority } from '@/pairing';
 import { invalidateSessionPlugins } from '@/plugins';
 import { invalidatePlugins } from '@/plugins';
 import { resolvePluginText } from '@/plugins';
@@ -18,6 +19,9 @@ import { humanError } from '@/utils/errors';
 
 export default function PluginsScreen() {
     const { status } = useSocketStatus();
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
+    // Approval changes the computer: only a connected Control pairing may.
+    const changeBlocked = status !== 'connected' ? 'Connect to change plugins.' : authorityLoading ? 'Checking access.' : authority !== 'control' ? 'View-only access cannot change plugins.' : undefined;
     const [, redraw] = React.useReducer((value) => value + 1, 0);
     const [optimistic, setOptimistic] = React.useState<Record<string, boolean>>({});
     const [loadError, setLoadError] = React.useState<string>();
@@ -78,9 +82,9 @@ export default function PluginsScreen() {
             <ItemGroup title={t('plugins.settingsTitle')} footer={loadError ?? (withUi.length === 0
                 ? (status === 'connected' ? t('plugins.linkHost') : t('plugins.waitingHost'))
                 : `${enabledCount}/${withUi.length} ${t('plugins.enabled')}`)}>
-                <Item title={t('plugins.enableAll')} detail={withUi.length - enabledCount > 0 ? `${withUi.length - enabledCount} ${t('plugins.off')}` : undefined}
-                    onPress={() => void enableAll()} showChevron={false} disabled={withUi.length - enabledCount === 0} />
-                <Item title={t('plugins.disableAll')} onPress={() => void setApproved(withUi, false)} showChevron={false} disabled={enabledCount === 0} />
+                <Item title={t('plugins.enableAll')} subtitle={changeBlocked} detail={withUi.length - enabledCount > 0 ? `${withUi.length - enabledCount} ${t('plugins.off')}` : undefined}
+                    onPress={changeBlocked === undefined ? () => void enableAll() : undefined} showChevron={false} disabled={withUi.length - enabledCount === 0 || changeBlocked !== undefined} />
+                <Item title={t('plugins.disableAll')} subtitle={changeBlocked} onPress={changeBlocked === undefined ? () => void setApproved(withUi, false) : undefined} showChevron={false} disabled={enabledCount === 0 || changeBlocked !== undefined} />
             </ItemGroup>
             {([
                 ['both', t('plugins.herdrAndMuxr'), t('plugins.herdrAndMuxrFooter'), withUi.filter((plugin) => plugin.herdrBackend)],
@@ -100,7 +104,7 @@ export default function PluginsScreen() {
                             subtitle={[...(blocked === undefined ? [] : [t('plugins.unavailableLabel')]), blocked ?? plugin.description ?? describe(manifests[plugin.pluginId]), trust, requestedContexts(manifests[plugin.pluginId])].filter(Boolean).join(' · ')}
                             subtitleLines={2}
                             showChevron={false}
-                            rightElement={<Switch value={plugin.approved} onValueChange={(next) => void setApproved([plugin], next)} accessibilityLabel={plugin.name} />}
+                            rightElement={<Switch value={plugin.approved} disabled={changeBlocked !== undefined} onValueChange={changeBlocked === undefined ? (next) => void setApproved([plugin], next) : undefined} accessibilityLabel={plugin.name} />}
                         />;
                     })}
                 </ItemGroup>

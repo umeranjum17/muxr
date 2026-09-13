@@ -71,6 +71,10 @@ export default function VoiceReadinessScreen() {
 
     if (status === 'connected' && !loaded) return <ActivityIndicator style={{ flex: 1 }} />;
 
+    // The prerequisite, in one line, on the control that lacks it.
+    const wakeBlocked = status !== 'connected' ? 'Connect to a computer first.'
+        : disabled ? 'Enable the voice plugin first.'
+            : ready?.configured !== true ? 'Set up realtime voice on the computer first (muxr voice).' : undefined;
     const readinessFooter = error
         ?? (disabled ? 'Realtime voice is turned off for this device. Enable it from Plugins if you want it back.' : undefined)
         ?? (status === 'connected'
@@ -107,10 +111,11 @@ export default function VoiceReadinessScreen() {
             >
                 <Item
                     title="Wake on speech"
-                    subtitle="Reconnect realtime voice when someone starts talking"
+                    subtitle={wakeBlocked !== undefined && !vadStandbyEnabled ? `Reconnects realtime voice when someone starts talking. ${wakeBlocked}` : 'Reconnects realtime voice when someone starts talking'}
+                    subtitleLines={0}
                     icon={<Ionicons name="ear-outline" size={28} color={theme.colors.textSecondary} />}
                     showChevron={false}
-                    rightElement={<Switch value={vadStandbyEnabled} onValueChange={(value) => void setVadStandby(value)} />}
+                    rightElement={<Switch value={vadStandbyEnabled} disabled={wakeBlocked !== undefined && !vadStandbyEnabled} accessibilityLabel="Wake on speech" onValueChange={(value) => void setVadStandby(value)} />}
                 />
             </ItemGroup>
         </ItemList>

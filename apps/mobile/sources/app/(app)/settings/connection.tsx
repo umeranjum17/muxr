@@ -20,6 +20,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { Stack, useRouter } from 'expo-router';
 import { getCachedHostedGrant } from '@/pairing/e2ee';
+import { useDeviceAuthority } from '@/pairing';
 import { ConnectionSupport } from '@/settings/presentation/ConnectionSupport';
 import { formatLatestConnectionFailure } from '@/catalog/infrastructure/connectionDiagnostics';
 
@@ -73,6 +74,7 @@ export default function ConnectionSettingsScreen() {
         : undefined;
     const [restartCopied, setRestartCopied] = React.useState(false);
     const [urlCopied, setUrlCopied] = React.useState(false);
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
 
     const { theme } = useUnistyles();
     const [scheme, setScheme] = React.useState<'ws' | 'wss'>(() => splitRelayUrl(initial.relayUrl).scheme);
@@ -105,10 +107,23 @@ export default function ConnectionSettingsScreen() {
     if (initial.mode === 'hosted') {
         const route = pairingTransport(initial.relayUrl) ?? 'Relay';
         const secure = initial.relayUrl.startsWith('wss://');
-        const browserGrant = Platform.OS === 'web' ? getCachedHostedGrant(initial.machineId) : undefined;
-        const browserExpiresAt = browserGrant?.expiresAt;
-        const browserRole = browserGrant?.authority === 'control' ? 'Control' : 'View only';
-        const browserMinutes = browserExpiresAt === undefined ? undefined : Math.max(0, Math.ceil((browserExpiresAt - clock) / 60_000));
+        // This device's access, in the consent's own terms: the verified
+        // authority and the grant's real lifetime. A native grant is durable
+        // until revoked; a browser grant (personal ones too) carries its real
+        // expiry. Missing data is said, never guessed; revoked or expired
+        // wins over anything saved; unverified while offline reads "saved".
+        const grant = getCachedHostedGrant(initial.machineId);
+        const grantMinutes = grant === undefined ? undefined : Math.max(0, Math.ceil((grant.expiresAt - clock) / 60_000));
+        const accessRole = pairAgainReason === 'revoked' ? 'Revoked'
+            : pairAgainReason === 'expired' ? 'Expired'
+                : authorityLoading ? undefined
+                    : authority === 'control' ? 'Control' : 'View only';
+        const accessLifetime = pairAgainReason !== undefined ? 'Pair again to restore access.'
+            : authorityLoading ? 'Checking access'
+                : Platform.OS !== 'web' ? 'Until revoked'
+                    : grant === undefined || grantMinutes === undefined ? 'Unavailable'
+                        : `Expires in ${Math.floor(grantMinutes / 60)}h ${grantMinutes % 60}m · ${new Date(grant.expiresAt).toLocaleString()}`;
+        const accessSaved = status !== 'connected' && pairAgainReason === undefined && !authorityLoading ? 'Saved on this device; verified when connected. ' : '';
         return (
             <ItemList>
                 <ItemGroup title="Status">
@@ -144,22 +159,23 @@ export default function ConnectionSettingsScreen() {
                     )}
                 </ItemGroup>
 
-                <ItemGroup title="This computer" footer="Route, port and relay URL are connectionMode, relayPort and relayUrl in selfhost.json on the computer. Change them with muxr setup there: each restarts the relay and host, and a new relay URL means pairing every device again. This app cannot change them.">
-                    <Item title="Route" subtitle={`${secure ? 'HTTPS/WSS' : 'WS'}, end-to-end encrypted either way. Inferred from the relay URL.`} subtitleLines={0} detail={route} />
+                <ItemGroup title="This device's access" footer="Terminal traffic between this device and your computer is end-to-end encrypted. Manage or revoke this device from muxr on the computer.">
+                    <Item title="Access" detail={accessRole} subtitle={`${accessSaved}${accessLifetime}`} subtitleLines={0} loading={authorityLoading} />
+                </ItemGroup>
+
+                <ItemGroup title="This computer" footer="Route, port and relay URL are connectionMode, relayPort and relayUrl in muxr's configuration on the computer; change them with muxr setup there. Each restarts the relay and host, and changing a relay endpoint requires pairing devices again. This app cannot change them.">
+                    <Item title="Route" subtitle={`${secure ? 'HTTPS/WSS' : 'WS'}. Inferred from the relay URL.`} subtitleLines={0} detail={route} />
                     <Item title="Relay URL" subtitle={initial.relayUrl} subtitleLines={0} mono showChevron={false} detail={urlCopied ? 'Copied' : 'Copy'}
                         onPress={() => void Clipboard.setStringAsync(initial.relayUrl).then((ok) => {
                             if (ok === false) return;
                             setUrlCopied(true);
                             setTimeout(() => setUrlCopied(false), 2000);
                         }).catch(() => {})} accessibilityLabel="Relay URL, tap to copy" />
-                    {Platform.OS === 'web' && <Item title="Browser access" detail={browserRole} subtitle={browserExpiresAt === undefined || browserMinutes === undefined
-                        ? 'Pair again when it expires'
-                        : `Expires in ${Math.floor(browserMinutes / 60)}h ${browserMinutes % 60}m. Pair again after that.`} />}
                 </ItemGroup>
 
                 <ConnectionSupport hostVersion={machine?.metadata?.muxrCliVersion} />
 
-                <ItemGroup title="Connection actions" footer="To stop this device reaching a computer, revoke it from the interactive muxr menu on that computer.">
+                <ItemGroup title="Connection actions">
                     <Item title="Reconnect now" subtitle="Drops the socket and dials again" onPress={() => void syncReconnect()} />
                     <Item title="Pair another machine" subtitle={Platform.OS === 'web' ? 'Paste the link printed by muxr pair --browser' : 'Scan the QR or enter the short string from muxr pair'} onPress={() => router.push('/pair?source=settings')} />
                 </ItemGroup>
