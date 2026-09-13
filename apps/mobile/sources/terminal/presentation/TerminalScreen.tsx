@@ -184,7 +184,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     const [focusPending, setFocusPending] = React.useState(false);
     const [focusFailure, setFocusFailure] = React.useState<string | null>(null);
     const [toolsSide, setToolsSide] = useLocalSettingMutable('terminalToolsSide');
-    const { height: windowHeight } = useWindowDimensions();
+    const { height: windowHeight, width: windowWidth } = useWindowDimensions();
     const { attaching, selectedImages, attachedImages, setAttachedImages, attachedPaths, failed: failedImages, retryFailed, discardFailed, pickImages, addImages } = useAttachmentUploads(
         props.machineId,
         props.id,
@@ -545,6 +545,11 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     React.useEffect(() => { if (!actionsOpen) setFocusFailure(null); }, [actionsOpen]);
 
     const canSend = !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
+    // The phone's 270dp class: under 340 wide (the same line settings uses)
+    // the five-across composer leaves ~46dp for the input and the
+    // placeholder reads 'Typ'. There the input takes its own line; at 340
+    // and up the single row below renders exactly as before.
+    const compactComposer = windowWidth < 340;
 
     // Where this session sits and how it is allowed to act, in one quiet row.
     // Connection stays out of it: subtitle/send color and the reconnect pill
@@ -910,11 +915,25 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
             </View>
             )}
 
-            {/* Footer: the composer (for those who may type) and then the bottommost
-                row of accessory keys -- keys above the composer, the composer
-                last, and neither moves when the card is open: the card floats
-                over the terminal above. */}
-            <View style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
+            {/* Footer: the key row, then the composer (for those who may type)
+                last -- the keys never go below the input, and neither moves
+                when the card is open: the card floats over the terminal
+                above. */}
+            <View style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider, paddingBottom: keyboardPad > 0 ? 0 : insets.bottom }}>
+            {/* The key row sits above the composer and never below it. The
+                bottom inset lives on the footer itself, so it holds whichever
+                row is bottommost. */}
+            {canControl && (
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    keyboardShouldPersistTaps="always"
+                    style={{ maxHeight: FOOTER_ROW_HEIGHT }}
+                    contentContainerStyle={{ minHeight: FOOTER_ROW_HEIGHT, alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 6 }}
+                >
+                    <DeclarativeTerminalKeySlot channel={channel} />
+                </ScrollView>
+            )}
             {canControl && <>
             {failedImages.length > 0 && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
@@ -935,6 +954,56 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 onRemove={(id) => setAttachedImages((previous) => previous.filter((image) => image.id !== id))}
             />
 
+            {compactComposer ? (
+            <View
+                style={{
+                    paddingHorizontal: 12,
+                    paddingTop: 8,
+                    paddingBottom: 8,
+                    gap: 8,
+                    backgroundColor: theme.colors.surface,
+                    borderTopWidth: StyleSheet.hairlineWidth,
+                    borderTopColor: theme.colors.divider,
+                }}
+            >
+                <TextInput
+                    ref={composerRef}
+                    value={draft}
+                    onChangeText={handleDraftChange}
+                    onSubmitEditing={() => {
+                        if (!isComposingRef.current) sendPrompt();
+                    }}
+                    returnKeyType="send"
+                    blurOnSubmit
+                    submitBehavior="blurAndSubmit"
+                    placeholder="Type a prompt…"
+                    placeholderTextColor={theme.colors.textSecondary}
+                    style={{
+                        minHeight: 44,
+                        color: theme.colors.text,
+                        backgroundColor: theme.colors.surfaceHigh,
+                        borderRadius: 8,
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                    }}
+                />
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ opacity: attaching ? 0.4 : 1, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                        <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={20} color={theme.colors.textSecondary} />
+                    </Pressable>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, hasAgent: currentPane?.agentKind !== undefined, getText: () => draftRef.current, setText: setDraft }} />
+                    </View>
+                    {/* The one filled control on the screen is the primary action's
+                        button; the glyph in it stays in the outline register. */}
+                    <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginLeft: 'auto' }}>
+                        <View style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: canSend ? sendColor : theme.colors.surfaceHigh }}>
+                            <Ionicons name="arrow-up-outline" size={20} color={canSend ? theme.colors.button.primary.tint : theme.colors.textSecondary} />
+                        </View>
+                    </Pressable>
+                </View>
+            </View>
+            ) : (
             <View
                 style={{
                     flexDirection: 'row',
@@ -986,18 +1055,8 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                     </View>
                 </Pressable>
             </View>
-            </>}
-            {canControl && (
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    keyboardShouldPersistTaps="always"
-                    style={{ maxHeight: FOOTER_ROW_HEIGHT + (keyboardPad > 0 ? 0 : insets.bottom) }}
-                    contentContainerStyle={{ minHeight: FOOTER_ROW_HEIGHT, alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 6, paddingBottom: 6 + (keyboardPad > 0 ? 0 : insets.bottom) }}
-                >
-                    <DeclarativeTerminalKeySlot channel={channel} />
-                </ScrollView>
             )}
+            </>}
             </View>
 
             <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} machineId={props.machineId} onClose={() => setOverviewOpen(false)} />
