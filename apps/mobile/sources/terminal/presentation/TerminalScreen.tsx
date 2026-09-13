@@ -52,6 +52,7 @@ import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import type { SessionMenu } from '@/plugins';
 import { FOOTER_ROW_HEIGHT, TOOLS_TRIGGER_INSET, TerminalToolsPanel, TerminalToolsTrigger } from './FloatingTerminalControls';
+import { DictationStrip } from './DictationStrip';
 import { FindOutputSheet } from './FindOutputSheet';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
@@ -927,6 +928,9 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                     <DeclarativeTerminalKeySlot channel={channel} />
                 </ScrollView>
             )}
+            {/* The voice status strip: listening bars while dictating,
+                frozen bars + spinner while transcribing. Gone when idle. */}
+            {canControl && <DictationStrip />}
             {canControl && <>
             {failedImages.length > 0 && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>

@@ -56,6 +56,8 @@ export const ru: TranslationStructure = {
         nothingToShow: 'Нечего показывать.',
         treeUnavailable: 'Дерево недоступно.',
         dictate: 'Диктовать',
+        dictating: 'Listening…',
+        transcribing: 'Transcribing…',
         unavailableSuffix: 'недоступно',
         needsAgentSuffix: '— нужна сессия агента; эта панель — обычная оболочка',
         showingStale: 'показаны устаревшие данные',

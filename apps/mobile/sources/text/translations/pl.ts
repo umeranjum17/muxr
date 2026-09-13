@@ -56,6 +56,8 @@ export const pl: TranslationStructure = {
         nothingToShow: 'Brak danych do wyświetlenia.',
         treeUnavailable: 'Drzewo jest niedostępne.',
         dictate: 'Dyktuj',
+        dictating: 'Listening…',
+        transcribing: 'Transcribing…',
         unavailableSuffix: 'niedostępne',
         needsAgentSuffix: '— wymaga sesji agenta; ten panel to zwykła powłoka',
         showingStale: 'pokazano nieaktualne dane',

@@ -47,6 +47,8 @@ export const zhHans: TranslationStructure = {
         nothingToShow: '没有可显示的内容。',
         treeUnavailable: '树不可用。',
         dictate: '听写',
+        dictating: 'Listening…',
+        transcribing: 'Transcribing…',
         unavailableSuffix: '不可用',
         needsAgentSuffix: '— 需要代理会话；此窗格只是普通 shell',
         showingStale: '正在显示旧数据',
