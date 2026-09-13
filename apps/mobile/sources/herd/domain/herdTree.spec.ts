@@ -1,9 +1,9 @@
 import { herdPanes } from './herd';
 import { selectLiveTerminalCards } from '../application/liveTerminalOrder';
 import { describe, expect, it, vi } from 'vitest';
-import { buildSpaceRows, middleTruncate, workspaceName } from './herdTree';
+import { buildSpaceRows, groupSpacePanes, middleTruncate, spacesVerdict, workspaceName } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
-import { agentIdentityLine, agentKindLabel, agentLabels, agentNameLine, isShellLabels } from './agentPresentation';
+import { agentIdentityLine, agentKindLabel, agentLabels, agentNameLine, isShellLabels, spaceRowLabels } from './agentPresentation';
 
 const pane = (id: string, agentKind?: string, extra: Partial<ContractPane> = {}): ContractPane => ({ paneId: id, tabId: 't1', agentStatus: 'idle', promptable: false, focused: false, agentKind, ...extra });
 const ws = (id: string, label: string | undefined, tabs: HerdrTreeTab[]): ContractWorkspace => ({ workspaceId: id, label, focused: false, agentStatus: 'idle', tabs });
@@ -61,6 +61,44 @@ describe('visible herd tree flow', () => {
         expect(isShellLabels(labels)).toBe(false);
         expect(buildSpaceRows([ws('w2', 'repo-b', [tab('1', undefined, [shell])])], new Set(), '')[0])
             .toMatchObject({ agentCount: 0, expanded: false });
+    });
+
+    it('groups a workspace by the state it already tracks, attention first, and names rows by what a person called them', () => {
+        const blocked = pane('p-b', 'claude', { sessionId: 's-b', agentName: 'ux_native', agentStatus: 'blocked', taskTitle: 'you-are-the-specialized-native-app', label: 'you-are-the-specialized-native-app' });
+        const failed = pane('p-f', 'pi', { sessionId: 's-f', agentName: 'gate', agentStatus: 'failed', taskTitle: 'do-not-edit-files' });
+        const working = pane('p-w', 'codex', { sessionId: 's-w', agentName: 'astra_director', agentStatus: 'working', taskTitle: 'you-are-astra-acting-as-read' });
+        const done = pane('p-d', 'pi', { sessionId: 's-d', agentName: 'grouse', agentStatus: 'done', taskTitle: 'there-was-one-agent-working-on' });
+        const shellA = pane('p-sa', undefined, { sessionId: 'sh-a', cwd: '/home/umer/.herdr/worktrees/pockit/feat-pwa-primary-channel', terminalTitle: 'umer@extreme:~/.herdr/worktrees/pockit/feat-pwa-primary-channel' });
+        const shellB = pane('p-sb', undefined, { sessionId: 'sh-b', cwd: '/home/umer/.herdr/worktrees/pockit/feat-pwa-surfaces', terminalTitle: 'umer@extreme:~/.herdr/worktrees/pockit/feat-pwa-surfaces' });
+        const workspaces = [ws('w1', 'pockit', [
+            tab('t1', 'UX — native app', [blocked]),
+            tab('t2', '1', [failed, done]),
+            tab('t3', 'ASTRA — direction', [working]),
+            tab('t4', 'pwa-build', [shellA]),
+            tab('t5', undefined, [shellB]),
+        ])];
+        const [row] = buildSpaceRows(workspaces, new Set(['w1']), '');
+        expect(row.groups.map((group) => [group.key, group.panes.map((item) => item.pane.paneId), group.foldedByDefault])).toEqual([
+            ['attention', ['p-b', 'p-f'], false],
+            ['working', ['p-w'], false],
+            ['done', ['p-d'], true],
+            ['shells', ['p-sa', 'p-sb'], true],
+        ]);
+        // A card whose first group is the noisy one still opens it.
+        expect(groupSpacePanes([{ pane: done }, { pane: shellA }]).map((group) => group.foldedByDefault)).toEqual([false, true]);
+        expect(spacesVerdict(workspaces)).toMatchObject({ blocked: 1, failed: 1, working: 1, text: '1 needs you · 1 failed · 1 working' });
+        expect(spacesVerdict([ws('w2', 'quiet', [tab('t', 'x', [done, shellA])])]).text).toBe('Nothing needs you');
+        // The tab's name leads; herdr's prompt-slug pane label is not a name; the prompt is the second line.
+        expect(spaceRowLabels(blocked, 'UX — native app')).toEqual({ title: 'UX — native app', subtitle: 'claude/ux_native · you-are-the-specialized-native-app' });
+        expect(spaceRowLabels(done, '1')).toEqual({ title: 'grouse', subtitle: 'pi · there-was-one-agent-working-on' });
+        // Two shells in different worktrees never read the same: the path collapses around the middle, keeping the end.
+        const a = spaceRowLabels(shellA, 'pwa-build');
+        const b = spaceRowLabels(shellB);
+        expect(a.title).toBe('pwa-build');
+        expect(b.title).toBe('feat-pwa-surfaces');
+        expect(a.subtitle).toMatch(/^Shell · ~\/\.herdr\/work.*primary-channel$/);
+        expect(b.subtitle).toMatch(/pwa-surfaces$/);
+        expect(a.subtitle).not.toBe(b.subtitle);
     });
 
     it('keeps workspace labels readable in the card and path UI', () => {

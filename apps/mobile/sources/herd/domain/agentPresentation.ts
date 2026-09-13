@@ -105,6 +105,45 @@ export function agentIdentityLine(labels: AgentLabels): string {
     return agentNameLine(labels);
 }
 
+/** `~`-relative, collapsed around the middle so the last segment -- the worktree -- survives. */
+function shortPath(cwd: string, max = 36): string {
+    const home = cwd.replace(/^\/(?:home|Users)\/[^/]+(?=\/|$)/, '~').replace(/\/+$/, '');
+    if (home.length <= max) return home;
+    const half = Math.floor((max - 1) / 2);
+    return `${home.slice(0, half)}…${home.slice(-half)}`;
+}
+
+/**
+ * What a Spaces row leads with. A pane's own label, then the tab's -- the
+ * names people gave them -- then the agent's name; the prompt an agent was
+ * started with is a sentence, not a name, so it is the second line at most.
+ * A shell leads with the same labels, else its folder (the worktree), and
+ * its second line keeps the path collapsed around the middle so two shells
+ * in different worktrees never read the same.
+ */
+export function spaceRowLabels(pane: HerdrTreePane, tabLabel?: string): { title: string; subtitle: string } {
+    const labels = agentLabels(pane);
+    // herdr labels an agent's pane with its prompt slug; that is the prompt
+    // again, not a name, so only a label that differs from it counts.
+    const paneLabel = pane.label?.trim();
+    const ownLabel = paneLabel !== undefined && paneLabel !== '' && paneLabel !== pane.taskTitle?.trim() ? paneLabel : undefined;
+    // A tab herdr numbered itself ("1") is not a name either.
+    const tabName = tabLabel?.trim();
+    const given = ownLabel ?? (tabName !== undefined && tabName !== '' && !/^\d+$/.test(tabName) ? tabName : undefined);
+    if (isShellLabels(labels)) {
+        const folder = pane.cwd?.replace(/\/+$/, '').split('/').pop();
+        const title = given ?? folder ?? labels.taskTitle;
+        const where = pane.cwd !== undefined ? shortPath(pane.cwd) : pane.terminalTitle?.trim();
+        return { title, subtitle: uniqueLabels(['Shell', where === title ? undefined : where]).join(' · ') };
+    }
+    const named = labels.agentName === 'Unnamed agent' ? undefined : labels.agentName;
+    const title = given ?? named ?? agentKindLabel(labels.agentKind) ?? labels.taskTitle;
+    const kind = agentKindSlug(labels.agentKind);
+    const identity = named !== undefined && named !== title ? (kind === undefined ? named : `${kind}/${named}`) : kind;
+    const prompt = labels.taskTitle === title ? undefined : labels.taskTitle;
+    return { title, subtitle: uniqueLabels([identity, prompt]).join(' · ') };
+}
+
 export function agentStateLabel(status: AgentLifecycle, changedAt?: number, now = Date.now()): string {
     const label = HERD_STATUS_LABELS[status];
     if (status === 'working' || status === 'starting' || changedAt === undefined) return label;
