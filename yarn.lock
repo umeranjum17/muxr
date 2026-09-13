@@ -4896,10 +4896,10 @@ expo-router@55.0.7, expo-router@~55.0.7:
     use-latest-callback "^0.2.1"
     vaul "^1.1.2"
 
-expo-secure-store@55.0.9, expo-secure-store@~55.0.0:
-  version "55.0.9"
-  resolved "https://registry.yarnpkg.com/expo-secure-store/-/expo-secure-store-55.0.9.tgz#c07006de1c0dfadf2e09fef047e3bb0a96f80ce3"
-  integrity sha512-TIPGjM73LKlebpXwgAu/yL7lNWr6RQYmFw3vgYHOqLFYQMpsBqkQmopovbNX3c/0+RCE9KZlLAkcz8r6detILQ==
+expo-secure-store@57.0.3, expo-secure-store@~57.0.3:
+  version "57.0.3"
+  resolved "https://registry.yarnpkg.com/expo-secure-store/-/expo-secure-store-57.0.3.tgz#fa09026f3b44c0973e09942b6c23462796a21be2"
+  integrity sha512-w7XkSQeUiYXPoKXo1jSrQqql7pyCSyIzOp2k0apsZZBE+RkoLTQIMjcbqc181y6KgupfNnYxkaKe+4MEg94+SA==
 
 expo-server@^55.0.6:
   version "55.0.11"
