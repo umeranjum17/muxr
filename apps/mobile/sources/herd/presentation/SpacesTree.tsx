@@ -103,6 +103,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingHorizontal: 6,
         paddingVertical: 2,
         maxWidth: 140,
+        flexShrink: 1,
     },
     branchPillText: {
         fontSize: 11,
@@ -111,6 +112,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     agentCount: {
         marginLeft: 'auto',
+        flexShrink: 0,
         fontSize: 12,
         fontWeight: '600',
         color: theme.colors.textSecondary,
@@ -369,13 +371,15 @@ const WorkspaceCard = React.memo(({
                 <Text numberOfLines={1} style={[styles.cardTitle, compact && styles.cardTitleCompact]}>
                     {workspaceName(workspace)}
                 </Text>
-                {branch !== undefined && (
+                {/* The narrow sidebar keeps the name and the count; the branch pill
+                    would only push the name into an ellipsis there. */}
+                {branch !== undefined && !compact && (
                     <View style={styles.branchPill}>
                         <Text numberOfLines={1} style={styles.branchPillText}>{branch}</Text>
                     </View>
                 )}
                 {agentCount > 0 && (
-                    <Text style={styles.agentCount}>
+                    <Text numberOfLines={1} style={styles.agentCount}>
                         {agentCount} agent{agentCount === 1 ? '' : 's'}
                     </Text>
                 )}
