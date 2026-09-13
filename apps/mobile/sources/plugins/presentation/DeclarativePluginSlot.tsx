@@ -43,15 +43,25 @@ function KeyRow({ contribution, channel }: { contribution: PluginTerminalKeyRow;
     const { theme } = useUnistyles();
     const [ctrl, setCtrl] = React.useState(false);
     const [shift, setShift] = React.useState(false);
-    const style = (selected = false) => ({
-        minWidth: 44,
-        minHeight: 44,
+    // Moshi-measured caps: fixed 51dp wide (shift 56dp for its longer label),
+    // 46dp tall with 12dp rounded corners -- an even grid, never
+    // content-hugging. The fill is the same surfaceHighest the Tools quick
+    // keys use, so both rows read as one family. Labels are 15dp medium,
+    // lowercase, centered, single-line.
+    const style = (selected = false, width = 51) => ({
+        width,
+        height: 46,
         justifyContent: 'center' as const,
         alignItems: 'center' as const,
-        paddingHorizontal: 10,
-        paddingVertical: 9,
-        borderRadius: 6,
-        backgroundColor: selected ? theme.colors.accent : theme.colors.surfaceHigh,
+        paddingHorizontal: 4,
+        borderRadius: 12,
+        backgroundColor: selected ? theme.colors.accent : theme.colors.surfaceHighest,
+    });
+    const labelStyle = (tint: string) => ({
+        color: tint,
+        fontSize: 15,
+        fontWeight: '500' as const,
+        textAlign: 'center' as const,
     });
     return (
         <>
@@ -62,16 +72,16 @@ function KeyRow({ contribution, channel }: { contribution: PluginTerminalKeyRow;
                 accessibilityState={{ selected: ctrl }}
                 style={({ pressed }) => [style(ctrl), pressed && { opacity: 0.6 }]}
             >
-                <Text style={{ color: ctrl ? theme.colors.button.primary.tint : theme.colors.text }}>ctrl</Text>
+                <Text numberOfLines={1} style={labelStyle(ctrl ? theme.colors.button.primary.tint : theme.colors.text)}>ctrl</Text>
             </Pressable>
             <Pressable
                 onPress={() => setShift(!shift)}
                 accessibilityRole="button"
                 accessibilityLabel="Shift"
                 accessibilityState={{ selected: shift }}
-                style={({ pressed }) => [style(shift), pressed && { opacity: 0.6 }]}
+                style={({ pressed }) => [style(shift, 56), pressed && { opacity: 0.6 }]}
             >
-                <Text style={{ color: shift ? theme.colors.button.primary.tint : theme.colors.text }}>shift</Text>
+                <Text numberOfLines={1} style={labelStyle(shift ? theme.colors.button.primary.tint : theme.colors.text)}>shift</Text>
             </Pressable>
             {contribution.keys.map((key) => (
                 <Pressable
@@ -85,7 +95,7 @@ function KeyRow({ contribution, channel }: { contribution: PluginTerminalKeyRow;
                     }}
                     style={({ pressed }) => [style(), pressed && { opacity: 0.6 }]}
                 >
-                    <Text style={{ color: theme.colors.text }}>{resolvePluginText(key.label)}</Text>
+                    <Text numberOfLines={1} style={labelStyle(theme.colors.text)}>{resolvePluginText(key.label)}</Text>
                 </Pressable>
             ))}
         </>
