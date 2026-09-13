@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useUnistyles } from 'react-native-unistyles';
+import { UnistylesRuntime, useUnistyles } from 'react-native-unistyles';
 import { useRealtimeSessionState } from '@/conversation/session';
 import { RealtimeGlyph } from '@/conversation/ui';
 import { withAlpha } from '@/components/ui';
@@ -15,8 +15,11 @@ import { t } from '@/text';
 
 /** Generic icon control for one declared phone capability. */
 export function CapabilityButton({ context, contribution, pluginId, manifestHash, onNavigate, presentation }: PrimitiveProps & { onNavigate?: () => void; presentation?: 'shortcut' }) {
-    const { theme } = useUnistyles();
-    const panel = panelPalette({ ...theme, dark: true });
+    const { theme: appTheme } = useUnistyles();
+    // As a panel row this paints in the terminal's dark register regardless
+    // of the app theme; elsewhere it follows the app.
+    const theme = presentation === 'shortcut' ? UnistylesRuntime.getTheme('dark') : appTheme;
+    const panel = panelPalette(theme);
     const realtime = useRealtimeSessionState();
     const capability = contribution.capability!;
     const manifest = pluginSnapshot().find((entry) => entry.summary.pluginId === pluginId && entry.summary.manifestHash === manifestHash)?.manifest;

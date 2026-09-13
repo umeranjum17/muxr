@@ -11,7 +11,7 @@ import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
-import { useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { Modal } from '@/modal';
@@ -68,6 +68,19 @@ function TerminalViewFallback() {
             <ActivityIndicator size="small" color={theme.colors.textSecondary} />
         </View>
     );
+}
+
+/**
+ * A sheet over the terminal keeps the terminal's dark register whatever the
+ * app theme. The scope is applied at the sheet's own mount and the theme is
+ * read beneath it, so inline styles here paint from the dark palette too.
+ */
+function DarkSheet({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
+    return <ScopedTheme name="dark"><DarkSheetBody>{children}</DarkSheetBody></ScopedTheme>;
+}
+function DarkSheetBody({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
+    const { theme } = useUnistyles();
+    return <>{children(theme)}</>;
 }
 
 /** One open surface (or the blank browser) as the session's pane actions list it. */
@@ -950,6 +963,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 >
                     <Animated.View pointerEvents="none" entering={FadeIn.duration(MOTION.fast).reduceMotion(ReduceMotion.System)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.18)' }} />
                     <Pressable onPress={() => setActionsOpen(false)} accessibilityLabel="Close pane actions" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+                    <DarkSheet>{(theme) => (
                     <AnimatedPopup style={{
                         flexShrink: 1,
                         minWidth: 236,
@@ -978,7 +992,6 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                                 <Pressable onPress={() => { setActionsOpen(false); setTerminalKeyboardDisabled(!terminalKeyboardDisabled); }} accessibilityRole="button"
                                     accessibilityLabel={terminalKeyboardDisabled ? 'Enable keyboard on tap' : 'Disable keyboard on tap'}
                                     style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                    <Ionicons name="keypad-outline" size={18} color={theme.colors.textSecondary} />
                                     <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{terminalKeyboardDisabled ? 'Enable keyboard on tap' : 'Disable keyboard on tap'}</Text>
                                 </Pressable>
                             )}
@@ -1012,11 +1025,11 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                         {!stopping && (
                             <Pressable onPress={() => { setActionsOpen(false); confirmStop(); }} accessibilityRole="button" accessibilityLabel={shell ? 'Close pane' : 'Stop agent'}
                                 style={({ pressed }) => ({ minHeight: 44, marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                <Ionicons name="stop-circle-outline" size={18} color={theme.colors.status.error} />
                                 <Text style={{ flex: 1, color: theme.colors.status.error, fontSize: 15 }}>{shell ? 'Close pane' : 'Stop agent'}</Text>
                             </Pressable>
                         )}
                     </AnimatedPopup>
+                    )}</DarkSheet>
                 </Animated.View>
             )}
 
@@ -1025,6 +1038,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                     onPress={() => setMenu(null)}
                     style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40, backgroundColor: theme.colors.scrim, justifyContent: 'flex-end' }}
                 >
+                    <DarkSheet>{(theme) => (
                     <View style={{ backgroundColor: theme.colors.surface, paddingBottom: insets.bottom + 8, borderTopLeftRadius: 14, borderTopRightRadius: 14 }}>
                         <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 }}>
                             <Text style={{ color: theme.colors.text, fontWeight: '600', fontSize: 16 }}>{menu.title}</Text>
@@ -1053,6 +1067,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                             <Text style={{ color: theme.colors.textSecondary, fontSize: 15 }}>Cancel</Text>
                         </Pressable>
                     </View>
+                    )}</DarkSheet>
                 </Pressable>
             )}
         </View>
