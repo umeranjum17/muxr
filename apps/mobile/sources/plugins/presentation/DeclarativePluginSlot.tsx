@@ -334,7 +334,9 @@ export function DeclarativeSessionActions({ actions, sessionId, onNavigate, pres
                 <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
             </Pressable>;
         }
-        if (action.kind === 'list') return <ItemList key={action.key} context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} presentation={presentation ?? 'action-row'} />;
+        // A chosen list replaces the panel that offered it: when its sheet
+        // closes, the panel is gone too, never a second tappable layer.
+        if (action.kind === 'list') return <ItemList key={action.key} context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} presentation={presentation ?? 'action-row'} onDismiss={presentation === 'shortcut' ? onNavigate : undefined} />;
         if (action.kind === 'capability') {
             if (presentation !== undefined) return <CapabilityButton key={action.key} context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} onNavigate={onNavigate} presentation={presentation} />;
             return <View key={action.key} style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>

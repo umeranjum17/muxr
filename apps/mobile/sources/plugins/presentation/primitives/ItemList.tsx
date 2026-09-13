@@ -115,7 +115,7 @@ function SheetActions({ actions, busyId, onAction }: {
 }
 
 /** Lazy action list: the plugin declares every tap; there are no feature fallbacks. */
-export function ItemList({ context, pluginId, manifestHash, contribution, presentation = 'pill' }: PrimitiveProps & { presentation?: 'pill' | 'action-row' | 'shortcut' }) {
+export function ItemList({ context, pluginId, manifestHash, contribution, presentation = 'pill', onDismiss }: PrimitiveProps & { presentation?: 'pill' | 'action-row' | 'shortcut'; onDismiss?: () => void }) {
     const { theme } = useUnistyles();
     const { width } = useWindowDimensions();
     const router = useRouter();
@@ -328,7 +328,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
             <Text style={[styles.count, { color: badgeColor }]}>{count}</Text>
             {presentation === 'action-row' && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
         </Pressable>}
-        <OptionSheet visible={open} title={title} options={[]} onSelect={() => {}} onClose={() => setOpen(false)} virtualizedBody={galleryImages.length > 0} virtualizedBodyHeight={sheetBodyHeight} body={
+        <OptionSheet visible={open} title={title} options={[]} onSelect={() => {}} onClose={() => { setOpen(false); onDismiss?.(); }} virtualizedBody={galleryImages.length > 0} virtualizedBodyHeight={sheetBodyHeight} body={
             galleryImages.length > 0
                 ? <FlatList
                     data={sheetRows}

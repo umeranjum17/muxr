@@ -36,6 +36,8 @@ export type PanelGlyphName = keyof typeof GLYPHS;
 
 /** Icon-set names that the design draws itself. Names, never plugin ids. */
 const DESIGN_GLYPH: Record<string, PanelGlyphName> = {
+    // The panel's own glyph names pass straight through.
+    keyboard: 'keyboard', minus: 'minus', plus: 'plus', reset: 'reset', close: 'close', branch: 'branch', tools: 'tools',
     'git-branch-outline': 'branch', 'git-branch': 'branch',
     'git-compare-outline': 'branch', 'git-compare': 'branch',
     'git-network-outline': 'branch', 'git-network': 'branch',

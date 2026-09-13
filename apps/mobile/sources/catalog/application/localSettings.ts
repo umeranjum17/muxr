@@ -21,6 +21,7 @@ export const LocalSettingsSchema = z.object({
     terminalFontSize: z.union([z.literal(11), z.literal(12), z.literal(13), z.literal(14), z.literal(16), z.literal(18)]).describe('Browser terminal font size in px'),
     lifecycleNotificationLevel: z.enum(LIFECYCLE_NOTIFICATION_LEVELS).describe('Which agent lifecycle events may emit notifications'),
     surfaceSplitRatio: z.number().min(0).max(1).nullable().describe('Agent pane fraction of the agent/surface companion split; unset follows the window width'),
+    terminalToolsSide: z.enum(['left', 'right']).describe('Which footer edge the terminal Tools control docks to, for the hand that holds the phone'),
     // Herd tab: bucket the agents section under workspace subheaders (herdr's "grouped" toggle).
     // Saved herdr tab layouts (split tree + agent kind per pane), newest first.
     savedLayouts: z
@@ -59,6 +60,7 @@ export const localSettingsDefaults: LocalSettings = {
     terminalFontSize: 13,
     lifecycleNotificationLevel: 'important',
     surfaceSplitRatio: null,
+    terminalToolsSide: 'right',
     savedLayouts: [],
 };
 Object.freeze(localSettingsDefaults);
