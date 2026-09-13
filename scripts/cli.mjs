@@ -25,6 +25,7 @@ import {
     manageMachines,
     pairDevice,
     printOperatorConfig,
+    runConfig,
     prompt,
     revokeDevice,
     revokeMachine,
@@ -63,7 +64,8 @@ Get started
   muxr diagnostics               show bounded redacted host history for agents
   muxr report                    prepare a local redacted bug report draft
   muxr pair [--browser|--browser-view|--browser-personal|--native] pair this browser (Control, default), a view-only or personal browser, or the native app
-  muxr config [--json|--schema]  show effective desired state and where each value came from
+  muxr config [show] [--json|--schema]  effective desired state, its source and whether it is applied
+  muxr config export             print the portable desired document (no identity or runtime)
   muxr connect --enrollment ...  connect this agent machine to a shared relay
   muxr shared-relay              host an always-on relay for other machines
 
@@ -118,7 +120,7 @@ const COMMAND_HELP = {
     'plugin update': `muxr plugin update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nReplace plugin files transactionally while preserving its enabled state.\n`,
     'plugin remove': `muxr plugin remove <plugin-id> [--yes]\n\nDisable, unlink, and remove muxr-managed plugin files.\n`,
     pair: `muxr pair [--browser|--browser-view|--browser-personal|--native]\n\nWith no flag, MUXR_PAIRING_DEFAULT decides (default: --browser). --browser: an eight-hour Control link for this browser; --browser-view: eight-hour View-only; --browser-personal: 30-day Control for a browser only you use; --native: a two-minute one-use QR/string for the native app. Every link is one-use and expires in two minutes.\n`,
-    config: `muxr config\n\nPrint the effective operator intent (~/.muxr/config.env values overlaid by MUXR_* env and CLI flags) with provenance per value. Read-only; the setup wizard writes the file when you Apply.\n`,
+    config: `muxr config [show] [--json|--schema]\nmuxr config export\n\nShow each editable setting's effective value, where it came from (flag > MUXR_* env > selfhost.json desired > default) and whether it is applied or pending. The editable desired configuration is the top level of ~/.muxr/selfhost.json; identity and observed state live under its "runtime" block and are never shown here. export prints the portable desired document (no runtime, no identity). Read-only. A legacy ~/.muxr/config.env still wins until you fold it in with \`muxr setup --apply-config\`.\n`,
     doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
     diagnostics: `muxr diagnostics\n\nPrint seven days of bounded redacted host, client, relay, collaboration, and broker history as JSON. No prompts, terminal output, paths, secrets, or internal ids are recorded.\n`,
     report: `muxr report > muxr-report.md\n\nPrepare a local GitHub issue draft with environment versions, redacted doctor check names, and the latest 50 bounded diagnostic events. The command only prints a draft. Review every line, add what happened, and explicitly decide whether to post it; muxr never opens or submits an issue.\n`,
@@ -503,7 +505,7 @@ async function dispatch(command, args = []) {
         }
     }
     if (command === 'pair') return pairDevice(args);
-    if (command === 'config') return printOperatorConfig(args);
+    if (command === 'config') return runConfig(args);
     if (command === 'surface' || command === 'browser' || command === 'code') {
         try {
             return await runSurfaceCli([command, ...args]);

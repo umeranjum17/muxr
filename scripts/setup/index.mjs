@@ -123,6 +123,7 @@ export {
     operatorReportLines,
     planToArgs,
     printOperatorConfig,
+    runConfig,
     resolveOperatorConfig,
     resolveSetupPlan,
     validateSetupPlan,

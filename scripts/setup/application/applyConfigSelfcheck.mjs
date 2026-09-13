@@ -17,7 +17,7 @@ import { CONFIG_ATTRIBUTES } from '../infrastructure/configSchema.mjs';
 import { checkConfigDocs } from '../../release/index.mjs';
 
 const HOME = mkdtempSync(join(tmpdir(), 'muxr-apply-config-check-'));
-const INTENT_KEYS = ['MUXR_CONNECTION', 'MUXR_RELAY_PORT', 'MUXR_WEB', 'MUXR_ADVERTISE_URL', 'MUXR_INTEGRATIONS_SYNC', 'MUXR_NOTIFY_EMAIL'];
+const INTENT_KEYS = ['MUXR_CONNECTION', 'MUXR_RELAY_PORT', 'MUXR_BIND_HOST', 'MUXR_WEB', 'MUXR_ADVERTISE_URL', 'MUXR_INTEGRATIONS_SYNC', 'MUXR_NOTIFY_EMAIL'];
 const savedEnv = new Map(INTENT_KEYS.concat(['MUXR_HOME']).map((key) => [key, process.env[key]]));
 
 function cleanEnv() {
@@ -104,7 +104,7 @@ export async function applyConfigSelfcheck() {
         const plan = JSON.parse(planJson.out.slice(planJson.out.indexOf('{')));
         assert.equal(plan.ok, true);
         assert.equal(plan.dryRun, true);
-        assert.deepEqual(plan.attributes.filter((entry) => entry.changed).map((entry) => entry.key), ['MUXR_SETUP_ROLE', 'MUXR_CONNECTION', 'MUXR_RELAY_PORT', 'MUXR_WEB']);
+        assert.deepEqual(plan.attributes.filter((entry) => entry.changed).map((entry) => entry.key), ['MUXR_SETUP_ROLE', 'MUXR_CONNECTION', 'MUXR_RELAY_PORT', 'MUXR_BIND_HOST', 'MUXR_WEB']);
         assert.ok(plan.steps.some((step) => step.id === 'relay-host'));
         assert.equal(snapshotHome(), before);
         assert.equal(snapshotHome(), before);
@@ -285,6 +285,7 @@ export async function applyConfigSelfcheck() {
         setupRole: 'single-machine',
         connection: 'lan',
         relayPort: 8792,
+        bindHost: 'auto',
         web: false,
         advertiseUrl: 'ws://192.168.1.5:8792',
         integrationsSync: 'on',

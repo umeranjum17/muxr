@@ -1,17 +1,23 @@
 /**
- * Operator-intent config: the human-editable `~/.muxr/config.env`.
+ * The operator-intent resolver. The editable desired configuration now lives
+ * at the top level of `~/.muxr/selfhost.json` (public JSON names); this module
+ * resolves the effective value of each attribute with one precedence rule
+ * everywhere: CLI flag > process env > persisted desired > probed/default.
  *
- * Holds only stable intent (connection, port, web, integrations) — never
- * credentials, keys, or machine-owned state, which stay in selfhost.json
- * (owner-only, machine-written). One precedence rule everywhere:
- * CLI flag > process env > operator config > probed/default value.
+ * Persisted desired is read from selfhost.json's desired block (crypto-free,
+ * via selfhostFile.mjs). Legacy `~/.muxr/config.env` is still honoured as a
+ * higher-priority source until it is migrated in and retired; once selfhost.json
+ * is version 2, a config.env beside it is a conflict, not a second source.
+ * Secrets, keys and machine-owned state never appear here — they stay under
+ * selfhost.json's `runtime`.
  */
 import { parseEnv } from 'node:util';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { BROWSER_CAPABLE_CONNECTIONS, CONFIG_ATTRIBUTES, CONFIG_KEYS, attributeByKey, attributeByName, configSchema, formatAttribute, validateCrossAttributes } from './configSchema.mjs';
+import { BROWSER_CAPABLE_CONNECTIONS, CONFIG_ATTRIBUTES, CONFIG_KEYS, DESIRED_JSON_KEYS, attributeByKey, attributeByName, configSchema, formatAttribute, jsonNameOf, validateCrossAttributes } from './configSchema.mjs';
+import { readDesiredConfig, readSelfhostFile, selfhostPath, selfhostStateUnreadable } from './selfhostFile.mjs';
 
 // Dependency-free on purpose: operator intent must resolve without the
 // crypto/QR stack (runtime.mjs) so `muxr config` and --apply-config stay light.
@@ -81,12 +87,22 @@ function readConfigFile() {
     };
 }
 
-function pick({ flag, envName, file, fallback, parse }) {
-    if (flag !== undefined) return { value: parse(flag, 'flag'), provenance: 'flag' };
-    const fromEnv = env(envName);
-    if (fromEnv !== undefined) return { value: parse(fromEnv, 'env'), provenance: 'env' };
-    if (file !== undefined) return { value: parse(file, 'config'), provenance: 'config' };
-    return { value: fallback.value, provenance: fallback.provenance };
+/**
+ * The persisted-desired value for one attribute. Legacy config.env (MUXR_*
+ * keys, strings) wins over the selfhost.json desired seed so an un-migrated
+ * operator's explicit intent is preserved until migration retires config.env;
+ * a v2 file has no config.env beside it. A desired value is typed and
+ * re-validated through the schema (format→parse round-trip); null means
+ * "auto/unset". Provenance is the tier 'config' for either file — never a
+ * filename — so setupWizard's flag/env/config checks and the plan display keep
+ * working unchanged.
+ */
+function configTier(attribute, desired, legacyValues) {
+    const legacyRaw = legacyValues[attribute.key];
+    if (legacyRaw !== undefined) return { value: attribute.parse(legacyRaw, 'config'), provenance: 'config' };
+    const typed = desired[jsonNameOf(attribute)];
+    if (typed === undefined || typed === null) return undefined;
+    return { value: attribute.parse(formatAttribute(attribute, typed), 'config'), provenance: 'config' };
 }
 
 /**
@@ -117,9 +133,23 @@ export function parseExternalAdvertiseUrl(raw, from = 'operator config') {
  * stays undefined with a 'default'/'probed' provenance note.
  */
 export function resolveOperatorConfig({ args = [], probed = {} } = {}) {
-    const file = readConfigFile();
-    if (file.error !== undefined) throw new Error(file.error);
-    const fileValues = file.values;
+    // Corruption is not a fresh install: never resolve (and never let a caller
+    // reset) a selfhost.json that exists but does not parse.
+    if (selfhostStateUnreadable()) {
+        throw new Error(`${selfhostPath()} is present but not valid JSON — fix it; muxr will not reset it (that would destroy every pairing)`);
+    }
+    const desired = readDesiredConfig() ?? {};
+    const unknown = Object.keys(desired).filter((key) => !DESIRED_JSON_KEYS.includes(key));
+    if (unknown.length > 0) {
+        throw new Error(`unsupported editable key(s) in ${selfhostPath()}: ${unknown.join(', ')} — supported: ${DESIRED_JSON_KEYS.join(', ')} (generated state lives under "runtime")`);
+    }
+    const legacy = readConfigFile();
+    if (legacy.error !== undefined) throw new Error(legacy.error);
+    // After migration to v2 the file is authoritative; a config.env beside it
+    // is conflicting legacy input, never a silently-honoured second source.
+    if (readSelfhostFile()?.version === 2 && existsSync(operatorConfigPath())) {
+        throw new Error(`${operatorConfigPath()} exists beside a version-2 ${selfhostPath()} — config.env is no longer a config source (its values were migrated once, with a backup kept). Remove it, or fold changes in with \`muxr config set\``);
+    }
     // Per-attribute flag spellings that are not `--<flag> value`.
     let webFlag;
     if (args.includes('--web')) webFlag = 'true';
@@ -139,13 +169,13 @@ export function resolveOperatorConfig({ args = [], probed = {} } = {}) {
         const fallback = probedValue !== undefined
             ? { value: probedValue, provenance: 'probed' }
             : { value: attribute.default, provenance: 'default' };
-        const picked = pick({
-            flag: flagFor(attribute),
-            envName: attribute.key,
-            file: fileValues[attribute.key],
-            fallback,
-            parse: (raw, from) => attribute.parse(raw, from),
-        });
+        // flag > env > persisted desired (config.env or selfhost.json) > probed/default.
+        const flag = flagFor(attribute);
+        const fromEnv = env(attribute.key);
+        let picked;
+        if (flag !== undefined) picked = { value: attribute.parse(flag, 'flag'), provenance: 'flag' };
+        else if (fromEnv !== undefined) picked = { value: attribute.parse(fromEnv, 'env'), provenance: 'env' };
+        else picked = configTier(attribute, desired, legacy.values) ?? fallback;
         if (picked.value !== undefined) values[attribute.name] = picked.value;
         // Defaults for optional attributes are recorded once they resolve to
         // something; an unset optional stays absent rather than "(default)".
@@ -235,19 +265,58 @@ export function planToArgs(plan, { reconfigure = true } = {}) {
     return argv;
 }
 
-/** Non-secret effective values with provenance, as `muxr config --json` prints them. */
+/** Deep value equality for schema-typed values (scalars, and same-source-ordered maps/lists). */
+function sameValue(a, b) {
+    if (a === b) return true;
+    if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+    return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Where an effective desired value stands against what the machine last
+ * applied: 'not configured', 'runtime unavailable' (no selfhost.json runtime
+ * yet), 'applied' (matches the last applied config) or 'pending apply' (differs
+ * — a service start/restart or `muxr config apply` will make it live).
+ */
+function appliedStatus(attribute, value) {
+    if (value === undefined) return 'not configured';
+    const runtime = readSelfhostFile()?.runtime;
+    if (runtime === undefined) return 'runtime unavailable';
+    const appliedValue = (runtime.appliedConfig ?? {})[jsonNameOf(attribute)];
+    if (appliedValue === undefined || appliedValue === null) return 'pending apply';
+    return sameValue(appliedValue, value) ? 'applied' : 'pending apply';
+}
+
+/** Non-secret effective values with provenance and applied status, as `muxr config --json` prints them. */
 export function operatorConfigJson(resolved) {
     const values = {};
     const provenance = {};
+    const status = {};
     for (const attribute of CONFIG_ATTRIBUTES) {
         const value = resolved.values[attribute.name];
         values[attribute.key] = value === undefined ? null : value;
         if (resolved.provenance[attribute.name] !== undefined) provenance[attribute.key] = resolved.provenance[attribute.name];
+        status[attribute.key] = appliedStatus(attribute, value);
     }
-    return { schemaVersion: configSchema().version, file: operatorConfigPath(), present: existsSync(operatorConfigPath()), values, provenance };
+    return { schemaVersion: configSchema().version, file: selfhostPath(), present: existsSync(selfhostPath()), values, provenance, status };
 }
 
-/** `muxr config [--json|--schema]`: effective desired state with provenance. Read-only. */
+/**
+ * The portable, versioned desired document — editable JSON names only, never
+ * runtime identity/observations. `muxr config apply --file` replays it into any
+ * machine's own selfhost.json (omitted keys fall back to schema defaults).
+ */
+export function exportDesiredConfig() {
+    const desired = readDesiredConfig() ?? {};
+    const doc = { version: 2 };
+    for (const attribute of CONFIG_ATTRIBUTES) {
+        const jsonName = jsonNameOf(attribute);
+        if (desired[jsonName] !== undefined) doc[jsonName] = desired[jsonName];
+    }
+    return doc;
+}
+
+/** `muxr config [show] [--json|--schema]`: effective desired state, provenance and applied status. Read-only. */
 export function printOperatorConfig(args = []) {
     const print = (text = '') => process.stdout.write(`${text}\n`);
     if (args.includes('--schema')) {
@@ -267,15 +336,33 @@ export function printOperatorConfig(args = []) {
         print(JSON.stringify({ ok: true, ...operatorConfigJson(resolved) }, null, 2));
         return 0;
     }
-    print(`desired state: ${operatorConfigPath()}${existsSync(operatorConfigPath()) ? '' : ' (missing — defaults and probes apply)'}`);
+    print(`desired config: ${selfhostPath()}${existsSync(selfhostPath()) ? '' : ' (missing — defaults and probes apply until setup)'}`);
     for (const attribute of CONFIG_ATTRIBUTES) {
         const value = resolved.values[attribute.name];
         if (value === undefined) continue;
-        print(`  ${attribute.key}=${formatAttribute(attribute, value)} (${resolved.provenance[attribute.name]})`);
+        const state = appliedStatus(attribute, value);
+        print(`  ${jsonNameOf(attribute)}=${formatAttribute(attribute, value)} (${resolved.provenance[attribute.name]}${state === 'applied' ? '' : `, ${state}`})`);
     }
-    print('precedence: CLI flag > MUXR_* env > config.env > probed/default · secrets live in selfhost.json, never here');
-    print('plan it: muxr setup --apply-config --dry-run --json · schema: muxr config --schema');
+    if (existsSync(operatorConfigPath())) {
+        print(`legacy: ${operatorConfigPath()} still present — its explicit values win until migrated; run \`muxr setup --apply-config\` to fold them in`);
+    }
+    print('precedence: CLI flag > MUXR_* env > selfhost.json desired > probed/default · identity and observations live under "runtime", never edited by hand');
+    print('edit selfhost.json then `muxr setup --apply-config` · export: muxr config export · schema: muxr config --schema');
     return 0;
+}
+
+/** `muxr config [show|export]` (set/apply arrive with the lifecycle parcel). Read-only here. */
+export function runConfig(args = []) {
+    const sub = args[0] !== undefined && !args[0].startsWith('-') ? args[0] : undefined;
+    if (sub === 'export') {
+        process.stdout.write(`${JSON.stringify(exportDesiredConfig(), null, 2)}\n`);
+        return 0;
+    }
+    if (sub === 'set' || sub === 'apply') {
+        process.stderr.write(`muxr config ${sub}: not in this build yet — edit ${selfhostPath()} (or set MUXR_* env / flags) and run \`muxr setup --apply-config\` to validate, apply and verify.\n`);
+        return 1;
+    }
+    return printOperatorConfig(sub === 'show' ? args.slice(1) : args);
 }
 
 export { BROWSER_CAPABLE_CONNECTIONS, attributeByKey };
