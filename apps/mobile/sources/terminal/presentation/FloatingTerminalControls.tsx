@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { BackHandler, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { panelPalette, type PanelGlyphName } from '@/components/ActionShortcut';
 
@@ -81,16 +81,30 @@ export function TerminalToolsKey({ side, onSideChange, onPress, blocked, expande
  * a third of the screen tall, with Done pinned below the rows. Longer lists
  * scroll inside; rows never shrink to fit.
  */
-export function TerminalToolsPanel({ side, bottomInset, onClose, children }: {
+export function TerminalToolsPanel(props: {
+    side: ToolsSide;
+    bottomInset: number;
+    onClose: () => void;
+    children: React.ReactNode;
+}) {
+    // The panel stands where the terminal's dark content ends, whatever the
+    // app theme: dark content, dark sheet. The scope sits at the panel's own
+    // mount so every row beneath reads the dark theme.
+    return (
+        <ScopedTheme name="dark">
+            <ToolsPanelSurface {...props} />
+        </ScopedTheme>
+    );
+}
+
+function ToolsPanelSurface({ side, bottomInset, onClose, children }: {
     side: ToolsSide;
     bottomInset: number;
     onClose: () => void;
     children: React.ReactNode;
 }) {
     const { theme } = useUnistyles();
-    // The panel stands where the terminal's dark content ends, whatever
-    // the app theme: dark content, dark sheet.
-    const panel = panelPalette({ ...theme, dark: true });
+    const panel = panelPalette(theme);
     const { width, height } = useWindowDimensions();
     const panelWidth = Math.min(PANEL_WIDTH, width - 32);
     const maxHeight = Math.max(ROW * 2 + PANEL_PADDING * 2, Math.min(PANEL_MAX_HEIGHT, height / 3 - bottomInset - 8));

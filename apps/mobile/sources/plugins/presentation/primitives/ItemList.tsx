@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
-import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, StyleSheet, UnistylesRuntime, useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
 import { ActionShortcut } from '@/components/ActionShortcut';
 import { hapticsError, hapticsLight } from '@/components/haptics';
@@ -45,9 +45,8 @@ registerPluginDataCacheInvalidator((pluginIds) => {
     else for (const pluginId of pluginIds) clearPluginCache(cache, pluginId);
 });
 
-function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
+function SheetRow({ item, busy, index, onPress }: {
     item: PluginItemListItem;
-    fallbackIcon: string;
     busy: boolean;
     index: number;
     onPress?: () => void;
@@ -61,10 +60,13 @@ function SheetRow({ item, fallbackIcon, busy, index, onPress }: {
     const settled = (item.progress?.tone ?? primary?.tone) === 'positive';
     const content = <View style={{ opacity: settled ? 0.75 : 1 }}>
         <View style={styles.itemRow}>
+            {/* A declared item glyph identifies content and stays; a list's
+                generic fallback would be decoration, so an item without one
+                is its words. */}
             {busy
                 ? <ActivityIndicator size="small" color={theme.colors.textSecondary} style={styles.iconTile} />
-                : <View style={[styles.iconTile, { backgroundColor: theme.colors.accentSubtle }]}>
-                    <Ionicons name={(item.icon ?? fallbackIcon) as never} size={16} color={theme.colors.textSecondary} />
+                : item.icon !== undefined && <View style={[styles.iconTile, { backgroundColor: theme.colors.accentSubtle }]}>
+                    <Ionicons name={item.icon as never} size={16} color={theme.colors.textSecondary} />
                 </View>}
             <View style={{ flex: 1 }}>
                 <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 15, fontWeight: '500' }}>{item.title}</Text>
@@ -116,7 +118,7 @@ function SheetActions({ actions, busyId, onAction }: {
 
 /** Lazy action list: the plugin declares every tap; there are no feature fallbacks. */
 export function ItemList({ context, pluginId, manifestHash, contribution, presentation = 'pill', onDismiss }: PrimitiveProps & { presentation?: 'pill' | 'action-row' | 'shortcut'; onDismiss?: () => void }) {
-    const { theme } = useUnistyles();
+    const { theme: appTheme } = useUnistyles();
     const { width } = useWindowDimensions();
     const router = useRouter();
     const isFocused = useIsFocused();
@@ -240,6 +242,9 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
     const icon = contribution.icon ?? 'document-outline';
     const accessibilityLabel = contribution.accessibilityLabel === undefined ? title : resolvePluginText(contribution.accessibilityLabel);
     const shortcut = presentation === 'shortcut';
+    // Opened from the terminal's Tools panel the list is a sheet over dark
+    // content and paints from the dark theme even when the app is light.
+    const theme = shortcut ? UnistylesRuntime.getTheme('dark') : appTheme;
     // Order-preserving grouping; ungrouped items render in one silent section.
     const groups = React.useMemo(() => {
         const found: { name?: string; items: { item: PluginItemListItem; index: number }[] }[] = [];
@@ -308,7 +313,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
         if (shortcut) return <ActionShortcut label={title} accessibilityLabel={`${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}`} icon="warning-outline" onPress={() => load(true)} />;
         return <Pressable onPress={failed ? () => load(true) : undefined} disabled={!failed} accessibilityRole="button" accessibilityLabel={failed ? `${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}` : `${accessibilityLabel}, no items`} hitSlop={11}
             style={({ pressed }) => [presentation === 'action-row' ? styles.actionRow : styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider, opacity: failed || presentation === 'pill' ? 1 : 0.55 }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
-            <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={presentation === 'action-row' ? 18 : 11} color={failed ? theme.colors.textDestructive : theme.colors.textSecondary} />
+            {presentation !== 'action-row' && <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={11} color={failed ? theme.colors.textDestructive : theme.colors.textSecondary} />}
             {presentation === 'action-row' && <Text style={[styles.actionLabel, { color: theme.colors.text }]}>{title}</Text>}
             <Text style={[styles.count, { color: failed ? theme.colors.textDestructive : theme.colors.textSecondary }]}>{failed ? '!' : '0'}</Text>
         </Pressable>;
@@ -323,11 +328,15 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
             onPress={() => { setOpen(true); load(true); }} /> :
         <Pressable onPress={() => { setOpen(true); load(true); }} accessibilityRole="button" accessibilityLabel={`${accessibilityLabel}${failed ? `, ${t('plugins.showingStale')}. ${t('plugins.retry')}` : ''}`} hitSlop={11}
             style={({ pressed }) => [presentation === 'action-row' ? styles.actionRow : styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: failed ? theme.colors.textDestructive : theme.colors.divider }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
-            <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={presentation === 'action-row' ? 18 : 11} color={badgeColor} />
+            {/* A named action row is words: the pill keeps its small glyph. */}
+            {presentation !== 'action-row' && <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={11} color={badgeColor} />}
             {presentation === 'action-row' && <Text style={[styles.actionLabel, { color: theme.colors.text }]}>{title}</Text>}
             <Text style={[styles.count, { color: badgeColor }]}>{count}</Text>
-            {presentation === 'action-row' && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
         </Pressable>}
+        {/* Opened from the terminal's Tools panel, the list keeps the panel's
+            dark register: the scope is applied at the sheet's own mount, not
+            assumed from the trigger. */}
+        <ScopedTheme {...(shortcut ? { name: 'dark' as const } : { reset: true as const })}>
         <OptionSheet visible={open} title={title} options={[]} onSelect={() => {}} onClose={() => { setOpen(false); onDismiss?.(); }} virtualizedBody={galleryImages.length > 0} virtualizedBodyHeight={sheetBodyHeight} body={
             galleryImages.length > 0
                 ? <FlatList
@@ -350,7 +359,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
                         const last = row.rowIndex === row.rowCount - 1;
                         return <View style={[styles.virtualRow, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }, first && styles.virtualRowFirst, last && styles.virtualRowLast, row.spaced && styles.spacedRow]}>
                             {!first && <View style={[styles.rowDivider, { backgroundColor: theme.colors.divider }]} />}
-                            <SheetRow item={row.item} fallbackIcon={icon} busy={busyId === `item:${row.item.id}`} index={row.index}
+                            <SheetRow item={row.item} busy={busyId === `item:${row.item.id}`} index={row.index}
                                 {...(row.item.action === undefined ? {} : { onPress: () => void onAction(row.item.action, `item:${row.item.id}`) })} />
                         </View>;
                     }}
@@ -362,7 +371,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
                         <View style={[cardStyle(theme), { overflow: 'hidden' }]}>
                             {group.items.map(({ item, index }, rowIndex) => <React.Fragment key={item.id}>
                                 {rowIndex > 0 && <View style={[styles.rowDivider, { backgroundColor: theme.colors.divider }]} />}
-                                <SheetRow item={item} fallbackIcon={icon} busy={busyId === `item:${item.id}`} index={index}
+                                <SheetRow item={item} busy={busyId === `item:${item.id}`} index={index}
                                     {...(item.action === undefined ? {} : { onPress: () => void onAction(item.action, `item:${item.id}`) })} />
                             </React.Fragment>)}
                         </View>
@@ -370,6 +379,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
                     {partial}
                 </View>
         } />
+        </ScopedTheme>
         {documentPreview !== undefined && sessionId !== undefined && <RichAttachmentPreview key={`${sessionId}:${documentPreview.id}`} sessionId={sessionId} attachment={documentPreview} onClose={() => setDocumentPreview(undefined)} />}
         {galleryIndex !== undefined && <AttachmentGallery sessionId={sessionId!} images={galleryImages} initialIndex={galleryIndex} onClose={() => setGalleryIndex(undefined)} />}
     </>;

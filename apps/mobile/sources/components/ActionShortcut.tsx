@@ -1,17 +1,15 @@
 import * as React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useUnistyles } from 'react-native-unistyles';
+import { UnistylesRuntime, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import type { Theme } from '@/theme';
 import type { PluginItemMetadata } from '@/plugins/domain/itemListModel';
 import { toneColor } from '@/plugins/domain/pluginTone';
 
 /**
- * The command panel is its own overlay surface in the selected design, with a
- * palette that does not follow the app's chrome tokens: a white (not raised
- * grey) card, slate rather than pure-black text, and the darker signed totals
- * that stay legible on white.
+ * The panel's ink and surfaces, one mapping from the theme in force. Over the
+ * terminal that theme is the dark one, applied by the sheet's own scope.
  */
 export function panelPalette(theme: Theme) {
     return theme.dark
@@ -40,10 +38,12 @@ export function ActionShortcut({ label, accessibilityLabel = label, badge, metad
     disabled?: boolean;
     onPress: () => void;
 }) {
-    const { theme } = useUnistyles();
-    // Rows live in the Tools panel, which keeps the terminal's dark register
-    // in every app theme.
-    const panel = panelPalette({ ...theme, dark: true });
+    // Panel rows mount late (a plugin list resolving) outside any scope's
+    // render pass, so the row names its register itself: the terminal's
+    // dark theme, whatever the app is set to. Subscribed for re-renders.
+    useUnistyles();
+    const theme = UnistylesRuntime.getTheme('dark');
+    const panel = panelPalette(theme);
     const hasMetadata = metadata !== undefined && metadata.length > 0;
     const metadataLabel = metadata?.map((entry) => entry.label === undefined ? entry.value : `${entry.label} ${entry.value}`).join(', ');
     const metadataColor = (tone: PluginItemMetadata['tone']): string => {
