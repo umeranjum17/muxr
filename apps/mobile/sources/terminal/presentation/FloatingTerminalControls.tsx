@@ -2,7 +2,7 @@ import * as React from 'react';
 import { BackHandler, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import { PanelGlyph, panelPalette, type PanelGlyphName } from '@/components/ActionShortcut';
+import { panelPalette, type PanelGlyphName } from '@/components/ActionShortcut';
 
 export type TerminalCommand = {
     label: string;
@@ -25,10 +25,11 @@ const PANEL_PADDING = 4;
 const FLIP_DISTANCE = 40;
 
 /**
- * The Tools key: a labelled control in the footer's reserved slot, docked to
- * the side the holding hand prefers. It never floats over the terminal.
- * Dragging it sideways moves it to the other edge; the same move is offered
- * as an accessibility action.
+ * The Tools key: a typographic key in the footer's reserved slot, set like
+ * the ctrl/shift/esc keys beside it -- a word, not a glyph, because the row
+ * is a row of words. Docked to the side the holding hand prefers; it never
+ * floats over the terminal. Dragging it sideways moves it to the other
+ * edge; the same move is offered as an accessibility action.
  */
 export function TerminalToolsKey({ side, onSideChange, onPress, blocked, expanded }: {
     side: ToolsSide;
@@ -39,7 +40,6 @@ export function TerminalToolsKey({ side, onSideChange, onPress, blocked, expande
     expanded: boolean;
 }) {
     const { theme } = useUnistyles();
-    const panel = panelPalette(theme);
     const sideRef = React.useRef(side);
     sideRef.current = side;
     const changeRef = React.useRef(onSideChange);
@@ -64,15 +64,12 @@ export function TerminalToolsKey({ side, onSideChange, onPress, blocked, expande
                 onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'move') onSideChange(other); }}
                 onPress={onPress}
                 style={({ pressed }) => ({
-                    height: KEY_HEIGHT, minWidth: 68, paddingHorizontal: 10, borderRadius: 12,
-                    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    backgroundColor: pressed ? panel.pressed : panel.surface,
-                    borderWidth: StyleSheet.hairlineWidth, borderColor: panel.border,
-                    elevation: 2,
+                    height: KEY_HEIGHT, minWidth: 68, paddingHorizontal: 12, borderRadius: 6,
+                    alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: expanded ? theme.colors.accent : pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh,
                 })}
             >
-                <PanelGlyph name="tools" size={18} color={panel.text} />
-                <Text style={{ ...Typography.default('semiBold'), fontSize: 13, color: panel.text }}>Tools</Text>
+                <Text style={{ ...Typography.default('semiBold'), color: expanded ? theme.colors.button.primary.tint : theme.colors.text }}>Tools</Text>
             </Pressable>
         </View>
     );
@@ -91,7 +88,9 @@ export function TerminalToolsPanel({ side, bottomInset, onClose, children }: {
     children: React.ReactNode;
 }) {
     const { theme } = useUnistyles();
-    const panel = panelPalette(theme);
+    // The panel stands where the terminal's dark content ends, whatever
+    // the app theme: dark content, dark sheet.
+    const panel = panelPalette({ ...theme, dark: true });
     const { width, height } = useWindowDimensions();
     const panelWidth = Math.min(PANEL_WIDTH, width - 32);
     const maxHeight = Math.max(ROW * 2 + PANEL_PADDING * 2, Math.min(PANEL_MAX_HEIGHT, height / 3 - bottomInset - 8));
@@ -101,7 +100,7 @@ export function TerminalToolsPanel({ side, bottomInset, onClose, children }: {
         return () => subscription.remove();
     }, [onClose]);
     return (
-        <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: bottomInset + 8, alignItems: side === 'left' ? 'flex-start' : 'flex-end', backgroundColor: theme.colors.surface }}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: bottomInset + 8, alignItems: side === 'left' ? 'flex-start' : 'flex-end', backgroundColor: theme.colors.terminal.background }}>
             <View accessibilityRole="menu" accessibilityLabel="Tools"
                 style={{ width: panelWidth, maxHeight, borderRadius: 16, padding: PANEL_PADDING, backgroundColor: panel.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: panel.border, elevation: 8, overflow: 'hidden' }}>
                 <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="always" nestedScrollEnabled>

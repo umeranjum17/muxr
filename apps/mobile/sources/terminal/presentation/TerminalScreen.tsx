@@ -832,12 +832,13 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                                     opacity: pressed ? 0.65 : 1,
                                 })}
                             >
-                                {singleLabels !== undefined
-                                    ? <AgentGlyph name={isShellLabels(singleLabels) ? 'shell' : singleLabels.agentKind ?? singleLabels.agentName} size={16} />
-                                    : <Ionicons name="grid-outline" size={14} color={theme.colors.textSecondary} />}
+                                {singleLabels !== undefined && <AgentGlyph name={isShellLabels(singleLabels) ? 'shell' : singleLabels.agentKind ?? singleLabels.agentName} size={16} />}
                                 <Text numberOfLines={1} style={{ flexShrink: 1, color: tone.color, fontSize: 11, fontWeight: active ? '600' : '400' }}>
                                     {label}
                                 </Text>
+                                {/* A split tab says how many panes it holds; no symbol
+                                    that another row already uses for something else. */}
+                                {singleLabels === undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 11 }}>· {tab.panes.length}</Text>}
                             </Pressable>
                         );
                     })}

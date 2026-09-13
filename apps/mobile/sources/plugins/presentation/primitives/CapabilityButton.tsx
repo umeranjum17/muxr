@@ -5,7 +5,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { useRealtimeSessionState } from '@/conversation/session';
 import { RealtimeGlyph } from '@/conversation/ui';
 import { withAlpha } from '@/components/ui';
-import { PanelIcon, panelPalette } from '@/components/ActionShortcut';
+import { panelPalette } from '@/components/ActionShortcut';
 import { Typography } from '@/constants/Typography';
 import type { PrimitiveProps } from '../../domain/primitiveTypes'
 import { capabilityFor } from '../../application/capabilityRegistry';
@@ -16,7 +16,7 @@ import { t } from '@/text';
 /** Generic icon control for one declared phone capability. */
 export function CapabilityButton({ context, contribution, pluginId, manifestHash, onNavigate, presentation }: PrimitiveProps & { onNavigate?: () => void; presentation?: 'shortcut' }) {
     const { theme } = useUnistyles();
-    const panel = panelPalette(theme);
+    const panel = panelPalette({ ...theme, dark: true });
     const realtime = useRealtimeSessionState();
     const capability = contribution.capability!;
     const manifest = pluginSnapshot().find((entry) => entry.summary.pluginId === pluginId && entry.summary.manifestHash === manifestHash)?.manifest;
@@ -62,11 +62,13 @@ export function CapabilityButton({ context, contribution, pluginId, manifestHash
         {/* The realtime control is a pulse line: the mic beside it is what you
             speak into, and a second audio glyph there would read as a second
             way to dictate. */}
-        <View style={shortcut ? { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' } : undefined}>
+        {/* A panel row is a plain word like its neighbours; the realtime
+            pulse is the one state that has to stay visible there. */}
+        {(!shortcut || showsRealtime) && <View style={shortcut ? { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' } : undefined}>
             {showsRealtime
                 ? <RealtimeGlyph size={22} state={realtime.state} color={tint} />
-                : shortcut ? <PanelIcon icon={icon} color={tint} /> : <Ionicons name={icon as never} size={22} color={tint} />}
-        </View>
+                : <Ionicons name={icon as never} size={22} color={tint} />}
+        </View>}
         {/* Wraps like every other panel row: at large font sizes a truncated
             plugin label hides the row's whole point. */}
         {shortcut && <Text style={{ flex: 1, color: panel.text, fontSize: 15, lineHeight: 20, ...Typography.mono('regular') }}>{label}</Text>}

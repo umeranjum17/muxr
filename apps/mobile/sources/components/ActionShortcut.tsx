@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { SvgXml } from 'react-native-svg';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import type { Theme } from '@/theme';
@@ -20,55 +19,21 @@ export function panelPalette(theme: Theme) {
         : { surface: '#ffffff', text: '#111827', secondary: '#6b7280', divider: '#e5e7eb', border: 'rgba(0,0,0,0.08)', pressed: '#f0f0f2', positive: '#15803d', danger: '#b91c1c', keyFill: '#111827', keyTint: '#ffffff' };
 }
 
-// The design's own glyphs, verbatim, so the panel's icon weight is the
-// reference's 1.9 stroke rather than whatever the icon set ships.
-const GLYPHS = {
-    keyboard: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/>',
-    minus: '<path d="M5 12h14"/>',
-    plus: '<path d="M12 5v14M5 12h14"/>',
-    reset: '<path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v5h5"/>',
-    close: '<path d="M6 6l12 12M18 6L6 18"/>',
-    branch: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 7v10M18 11c0 3-4 3-7 4-2 .6-3 1.5-3 3"/>',
-    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
-    tools: '<path d="M14.5 6.5a4 4 0 0 0 5 5L9 22l-3-3L16.5 8.5a4 4 0 0 1-2-2z"/><path d="M14.5 6.5L18 3l3 3-3.5 3.5"/>',
-} as const;
-export type PanelGlyphName = keyof typeof GLYPHS;
-
-/** Icon-set names that the design draws itself. Names, never plugin ids. */
-const DESIGN_GLYPH: Record<string, PanelGlyphName> = {
-    // The panel's own glyph names pass straight through.
-    keyboard: 'keyboard', minus: 'minus', plus: 'plus', reset: 'reset', close: 'close', branch: 'branch', tools: 'tools',
-    'git-branch-outline': 'branch', 'git-branch': 'branch',
-    'git-compare-outline': 'branch', 'git-compare': 'branch',
-    'git-network-outline': 'branch', 'git-network': 'branch',
-    'folder-outline': 'folder', 'folder': 'folder', 'folder-open-outline': 'folder',
-    'construct-outline': 'tools', 'construct': 'tools',
-    'build-outline': 'tools', 'build': 'tools',
-    'hammer-outline': 'tools', 'hammer': 'tools',
-};
-
-export const PanelGlyph = React.memo(function PanelGlyph({ name, color, size = 24 }: { name: PanelGlyphName; color: string; size?: number }) {
-    return <SvgXml width={size} height={size} color={color}
-        xml={`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${GLYPHS[name]}</svg>`} />;
-});
-
-/** The design's glyph for an icon-set name, or that icon set's own drawing. */
-export function PanelIcon({ icon, color, size = 24 }: { icon: string; color: string; size?: number }) {
-    const glyph = DESIGN_GLYPH[icon];
-    if (glyph !== undefined) return <PanelGlyph name={glyph} color={color} size={size} />;
-    return <Ionicons name={icon as never} size={size} color={color} />;
-}
+/** Names the terminal's own commands use for their glyphs; rows show the label. */
+export type PanelGlyphName = 'keyboard' | 'minus' | 'plus' | 'reset' | 'close' | 'branch' | 'folder' | 'tools';
 
 /**
- * One full-width labelled quick-action row: a fixed icon column and label that
- * never move, with the action's data confined to the trailing column so row
- * width no longer depends on the values. The plain count is a secondary line,
- * never a badge over the icon.
+ * One full-width labelled quick-action row: the label leads and never moves,
+ * with the action's data confined to the trailing column so row width never
+ * depends on the values. Rows carry no glyph: the panel's items come from
+ * several plugins with several icon registers, and a list of plain words
+ * reads as one thing where four mismatched drawings do not.
  */
-export function ActionShortcut({ label, accessibilityLabel = label, icon, badge, metadata, disabled = false, onPress }: {
+export function ActionShortcut({ label, accessibilityLabel = label, badge, metadata, disabled = false, onPress }: {
     label: string;
     accessibilityLabel?: string;
-    icon: React.ComponentProps<typeof Ionicons>['name'];
+    /** Accepted for callers that declare one; never drawn. */
+    icon?: React.ComponentProps<typeof Ionicons>['name'] | string;
     /** Plain count; under the metadata values when both exist. */
     badge?: string | number;
     metadata?: readonly PluginItemMetadata[];
@@ -76,7 +41,9 @@ export function ActionShortcut({ label, accessibilityLabel = label, icon, badge,
     onPress: () => void;
 }) {
     const { theme } = useUnistyles();
-    const panel = panelPalette(theme);
+    // Rows live in the Tools panel, which keeps the terminal's dark register
+    // in every app theme.
+    const panel = panelPalette({ ...theme, dark: true });
     const hasMetadata = metadata !== undefined && metadata.length > 0;
     const metadataLabel = metadata?.map((entry) => entry.label === undefined ? entry.value : `${entry.label} ${entry.value}`).join(', ');
     const metadataColor = (tone: PluginItemMetadata['tone']): string => {
@@ -89,13 +56,10 @@ export function ActionShortcut({ label, accessibilityLabel = label, icon, badge,
         disabled={disabled} onPress={onPress}
         style={({ pressed }) => ({
             minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12,
-            paddingHorizontal: 10, borderRadius: 10,
+            paddingHorizontal: 14, borderRadius: 10,
             backgroundColor: pressed ? panel.pressed : 'transparent',
             opacity: disabled ? 0.4 : 1,
         })}>
-        <View style={{ width: 24, height: 24, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }}>
-            <PanelIcon icon={icon} color={panel.text} />
-        </View>
         {/* Label wraps to a second line instead of ellipsizing: at large font
             sizes a truncated title hides the row's whole point. */}
         <Text style={{ flex: 1, flexShrink: 1, color: panel.text, fontSize: 15, lineHeight: 20, ...Typography.mono('regular') }}>{label}</Text>
