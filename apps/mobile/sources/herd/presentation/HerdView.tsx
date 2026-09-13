@@ -220,8 +220,14 @@ export const HerdView = React.memo(({
     // nothing is queued for replay; the data stays as last known.
     const recovery = herdrConnected === false
         ? <RecoveryBanner text="This computer is online, but its agent runtime (herdr) is not answering, so what you see may be stale. Run this on the computer:" command="herdr server" />
-        : (socketStatus === 'disconnected' || socketStatus === 'error') && loaded
-            ? <RecoveryBanner text="Offline. Showing what was last known." />
+        : (socketStatus === 'disconnected' || socketStatus === 'error')
+            // loaded: we had the herd, so show it as last-known. Not loaded: we
+            // never reached the computer — say so plainly instead of a bare
+            // spinner or a misleading "no agents yet". The client fails closed
+            // after its backoff and this device keeps a slow foreground retry.
+            ? <RecoveryBanner text={loaded
+                ? "Offline. Showing what was last known."
+                : "Can't reach your computer. Check it's on, connected, and running muxr — this device keeps trying."} />
             : null;
 
     // "No agents anywhere" hides the whole list in favour of the friendly empty
