@@ -83,7 +83,7 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
                     void Clipboard.setStringAsync(details).then(() => setCopied(true)).catch(() => Modal.alert('Copy failed', 'Please try again.'));
                 }} />
             </>}
-            {appConfig.publicBaseUrl && <Item title="Troubleshooting guide" onPress={() => openExternalUrl(`${appConfig.publicBaseUrl}/docs/troubleshooting`)} />}
+            {appConfig.publicBaseUrl && <Item title="Troubleshooting guide" subtitle="Symptoms, causes and the command that fixes them, in the browser" onPress={() => openExternalUrl(`${appConfig.publicBaseUrl}/docs/troubleshooting`)} />}
         </ItemGroup>
     </>;
 }

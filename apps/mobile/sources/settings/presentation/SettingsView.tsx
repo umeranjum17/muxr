@@ -24,6 +24,8 @@ import { getAppVersion } from '@/utils/appVersion';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
 import { DeclarativeSettingsItems } from '@/plugins/ui';
+import { pluginCatalogSnapshot, subscribePlugins } from '@/plugins';
+import { useChangelog } from '@/changelog/application/useChangelog';
 import {
     canPostPromotedNotifications,
     openBackgroundActivitySettings,
@@ -79,6 +81,14 @@ export const SettingsView = React.memo(function SettingsView({
     // The hub rows carry the value their page holds, so a glance answers the question.
     const themePreference = useLocalSettingMutable('themePreference')[0];
     const socketStatus = useSocketStatus().status;
+    // The plugin count the Plugins page shows, from the same catalog snapshot.
+    const countPlugins = () => {
+        const withUi = pluginCatalogSnapshot().map((entry) => entry.summary).filter((plugin) => plugin.manifestHash !== undefined);
+        return { on: withUi.filter((plugin) => plugin.approved).length, total: withUi.length };
+    };
+    const [pluginCount, setPluginCount] = React.useState(countPlugins);
+    React.useEffect(() => subscribePlugins(() => setPluginCount(countPlugins())), []);
+    const { hasUnread: changelogUnread } = useChangelog();
     const sortSessionsByActivity = useSettingMutable('sortSessionsByActivity')[0];
     const [showOfflineMachines, setShowOfflineMachines] = React.useState(false);
     const allMachinesWithOffline = useAllMachines({ includeOffline: true });
@@ -129,6 +139,7 @@ export const SettingsView = React.memo(function SettingsView({
         !promotedNotificationsSupported || canPostPromotedNotifications(),
     );
     const [iosNotificationsEnabled, setIosNotificationsEnabled] = React.useState(false);
+    const notificationPermissionExists = Platform.OS === 'ios' || (Platform.OS === 'android' && Number(Platform.Version) >= 33);
     const auth = useAuth();
     const activeMachineId = getCachedConnectionSettings().machineId;
     const versionMismatch = versionsMismatch(appVersion, allMachinesWithOffline.find((machine) => machine.id === activeMachineId)?.metadata?.muxrCliVersion);
@@ -217,11 +228,11 @@ export const SettingsView = React.memo(function SettingsView({
             if (!cancelled) setPushState(state);
         });
         if (promotedNotificationsSupported) setPromotedNotificationsEnabled(canPostPromotedNotifications());
-        if (Platform.OS === 'ios') void requestNotificationPermission(false).then(setIosNotificationsEnabled);
+        if (notificationPermissionExists) void requestNotificationPermission(false).then(setIosNotificationsEnabled);
         const subscription = AppState.addEventListener('change', (state) => {
             if (state !== 'active') return;
             if (promotedNotificationsSupported) setPromotedNotificationsEnabled(canPostPromotedNotifications());
-            if (Platform.OS === 'ios') void requestNotificationPermission(false).then(setIosNotificationsEnabled);
+            if (notificationPermissionExists) void requestNotificationPermission(false).then(setIosNotificationsEnabled);
         });
         return () => {
             cancelled = true;
@@ -232,7 +243,7 @@ export const SettingsView = React.memo(function SettingsView({
     const handleIosNotifications = async () => {
         const granted = await requestNotificationPermission();
         setIosNotificationsEnabled(granted);
-        if (granted) void registerNativePushNotifications();
+        if (granted && Platform.OS === 'ios') void registerNativePushNotifications();
         if (!granted && await Modal.confirm(
             'Enable notifications?',
             'Open iOS Settings to allow agent completion and attention alerts.',
@@ -368,6 +379,7 @@ export const SettingsView = React.memo(function SettingsView({
                 <Item
                     title="Plugins"
                     subtitle="Native UI and capabilities installed through Herdr on the computer"
+                    detail={pluginCount.total === 0 ? undefined : `${pluginCount.on}/${pluginCount.total} on`}
                     icon={<Ionicons name="extension-puzzle-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={openPlugins}
                 />
@@ -425,14 +437,14 @@ export const SettingsView = React.memo(function SettingsView({
                         title="Live agent updates"
                         subtitle={liveUpdatesCopy(promotedNotificationsEnabled)}
                         detail={promotedNotificationsEnabled ? t('plugins.on') : t('plugins.off')}
-                        icon={<Ionicons name="pulse-outline" size={29} color={theme.colors.textSecondary} />}
+                        icon={<Ionicons name="radio-outline" size={29} color={theme.colors.textSecondary} />}
                         onPress={openPromotedNotificationSettings}
                     />
                 )}
-                {Platform.OS === 'ios' && (
+                {notificationPermissionExists && (
                     <Item
                         title="Notification permission"
-                        subtitle="Allow lifecycle alerts in iOS Settings"
+                        subtitle={Platform.OS === 'ios' ? 'Allow lifecycle alerts in iOS Settings' : 'Allow lifecycle alerts in Android settings'}
                         detail={iosNotificationsEnabled ? t('plugins.on') : t('plugins.off')}
                         icon={<Ionicons name="notifications-outline" size={29} color={theme.colors.textSecondary} />}
                         onPress={() => void handleIosNotifications()}
@@ -464,6 +476,7 @@ export const SettingsView = React.memo(function SettingsView({
                 <Item
                     title={t('settings.whatsNew')}
                     subtitle="Release notes for this version"
+                    detail={changelogUnread ? 'New' : undefined}
                     icon={<Ionicons name="sparkles-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={() => router.push('/changelog')}
                 />
@@ -480,7 +493,7 @@ export const SettingsView = React.memo(function SettingsView({
                 <Item
                     title={t('settingsAccount.logout')}
                     subtitle={t('settingsAccount.logoutSubtitle')}
-                    icon={<Ionicons name="log-out-outline" size={29} color={theme.colors.textDestructive} />}
+                    destructive
                     onPress={() => void confirmLogout()}
                     showChevron={false}
                 />

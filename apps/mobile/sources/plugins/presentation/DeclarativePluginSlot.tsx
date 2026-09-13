@@ -407,7 +407,7 @@ export function DeclarativeSettingsItems() {
     const router = useRouter();
     const { theme } = useUnistyles();
     useSlotContributions('settings.items');
-    return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'settings-item' ? [<Item key={`${summary.pluginId}:${contribution.id}`} title={resolvePluginText(contribution.label)} subtitle={contribution.subtitle === undefined ? undefined : resolvePluginText(contribution.subtitle)} icon={<Ionicons name={contribution.icon as any} size={29} color={theme.colors.textSecondary} />} onPress={() => {
+    return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'settings-item' ? [<Item key={`${summary.pluginId}:${contribution.id}`} title={resolvePluginText(contribution.label)} subtitle={contribution.subtitle === undefined ? `${summary.name} · Plugin` : resolvePluginText(contribution.subtitle)} icon={<Ionicons name={contribution.icon as any} size={29} color={theme.colors.textSecondary} />} onPress={() => {
         void dispatchPluginAction(contribution.action, { router, pluginId: summary.pluginId, manifestHash: summary.manifestHash, manifest })
             .catch((error: unknown) => Modal.alert('Plugin action unavailable', humanError(error).message));
     }} />] : []))}</>;

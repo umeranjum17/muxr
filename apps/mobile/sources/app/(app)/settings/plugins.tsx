@@ -84,7 +84,8 @@ export default function PluginsScreen() {
                 : `${enabledCount}/${withUi.length} ${t('plugins.enabled')}`)}>
                 <Item title={t('plugins.enableAll')} subtitle={changeBlocked} detail={withUi.length - enabledCount > 0 ? `${withUi.length - enabledCount} ${t('plugins.off')}` : undefined}
                     onPress={changeBlocked === undefined ? () => void enableAll() : undefined} showChevron={false} disabled={withUi.length - enabledCount === 0 || changeBlocked !== undefined} />
-                <Item title={t('plugins.disableAll')} subtitle={changeBlocked} onPress={changeBlocked === undefined ? () => void setApproved(withUi, false) : undefined} showChevron={false} disabled={enabledCount === 0 || changeBlocked !== undefined} />
+                <Item title={t('plugins.disableAll')} subtitle={changeBlocked ?? (enabledCount === 0 ? 'No plugin is on' : 'Turns off every plugin on this computer')} detail={enabledCount > 0 ? `${enabledCount} ${t('plugins.on')}` : undefined}
+                    onPress={changeBlocked === undefined ? () => void setApproved(withUi, false) : undefined} showChevron={false} disabled={enabledCount === 0 || changeBlocked !== undefined} />
             </ItemGroup>
             {([
                 ['both', t('plugins.herdrAndMuxr'), t('plugins.herdrAndMuxrFooter'), withUi.filter((plugin) => plugin.herdrBackend)],

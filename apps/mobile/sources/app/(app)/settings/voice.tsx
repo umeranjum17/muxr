@@ -95,8 +95,10 @@ export default function VoiceReadinessScreen() {
                     <Item
                         title="Realtime voice"
                         subtitle={ready === undefined ? 'Unavailable' : ready.statusLabel}
+                        detail="Check again"
                         icon={<Ionicons name={ready?.configured ? 'checkmark-circle-outline' : 'alert-circle-outline'} size={28} color={ready?.configured ? theme.colors.success : theme.colors.textSecondary} />}
                         showChevron={false}
+                        loading={status === 'connected' && !loaded}
                         onPress={() => void load()}
                     />
                 )}

@@ -307,7 +307,6 @@ export default function ComputerCollaborationScreen() {
                         subtitle={selectionChanged && selected.length < 2
                             ? 'Select at least two computers, or turn off Agent collaboration'
                             : disconnecting ? 'Finish revoking access when the computers are reachable' : 'Try again when every selected computer is reachable'}
-                        icon={<Ionicons name={disconnecting ? 'unlink-outline' : 'refresh-outline'} size={28} color={theme.colors.textSecondary} />}
                         loading={busy}
                         disabled={busy || selectionChanged && selected.length < 2}
                         showChevron={false}

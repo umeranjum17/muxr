@@ -82,11 +82,6 @@ export default function LanguageSettingsScreen() {
                         key={option.key}
                         title={option.title}
                         subtitle={option.subtitle}
-                        icon={<Ionicons 
-                            name="language-outline" 
-                            size={29} 
-                            color={theme.colors.textSecondary}
-                        />}
                         rightElement={
                             currentSelection === option.key ? (
                                 <Ionicons 
