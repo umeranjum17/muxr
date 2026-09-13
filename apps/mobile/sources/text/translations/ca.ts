@@ -45,6 +45,8 @@ export const ca: TranslationStructure = {
         nothingToShow: 'No hi ha res per mostrar.',
         treeUnavailable: 'L’arbre no està disponible.',
         dictate: 'Dicta',
+        dictating: 'Listening…',
+        transcribing: 'Transcribing…',
         unavailableSuffix: 'no disponible',
         needsAgentSuffix: "— necessita una sessió d'agent; aquest panell és un shell simple",
         showingStale: 'mostrant dades anteriors',

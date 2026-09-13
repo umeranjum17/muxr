@@ -31,7 +31,9 @@ export function DictateButton({ context }: PrimitiveProps) {
             accessibilityState={{ busy: dictation.transcribing, selected: dictation.recording, disabled: unavailable }}
         >
             {dictation.transcribing
-                ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                // The transcribing vocabulary is teal, matching the arc
+                // spinner in the listening strip above the composer.
+                ? <ActivityIndicator size="small" color={theme.colors.success} />
                 : <Ionicons
                     name={dictation.recording ? 'stop-circle-outline' : 'mic-outline'}
                     size={20}

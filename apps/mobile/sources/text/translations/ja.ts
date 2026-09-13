@@ -48,6 +48,8 @@ export const ja: TranslationStructure = {
         nothingToShow: '表示するものがありません。',
         treeUnavailable: 'ツリーを利用できません。',
         dictate: '音声入力',
+        dictating: 'Listening…',
+        transcribing: 'Transcribing…',
         unavailableSuffix: '利用不可',
         needsAgentSuffix: '— エージェントセッションが必要です。このペインはただのシェルです',
         showingStale: '古いデータを表示中',

@@ -45,6 +45,8 @@ export const en = {
         nothingToShow: 'Nothing to show.',
         treeUnavailable: 'Tree unavailable.',
         dictate: 'Dictate',
+        dictating: 'Listening…',
+        transcribing: 'Transcribing…',
         unavailableSuffix: 'unavailable',
         needsAgentSuffix: '— needs an agent session; this pane is a plain shell',
         showingStale: 'showing stale data',

@@ -45,6 +45,8 @@ export const es: TranslationStructure = {
         nothingToShow: 'Nada que mostrar.',
         treeUnavailable: 'El árbol no está disponible.',
         dictate: 'Dictar',
+        dictating: 'Listening…',
+        transcribing: 'Transcribing…',
         unavailableSuffix: 'no disponible',
         needsAgentSuffix: '— necesita una sesión de agente; este panel es un shell simple',
         showingStale: 'mostrando datos anteriores',

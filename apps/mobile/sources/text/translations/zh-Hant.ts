@@ -47,6 +47,8 @@ export const zhHant: TranslationStructure = {
         nothingToShow: '沒有可顯示的內容。',
         treeUnavailable: '樹狀結構無法使用。',
         dictate: '聽寫',
+        dictating: 'Listening…',
+        transcribing: 'Transcribing…',
         unavailableSuffix: '無法使用',
         needsAgentSuffix: '— 需要代理程式工作階段；此窗格只是普通 shell',
         showingStale: '正在顯示舊資料',
