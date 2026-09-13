@@ -1,4 +1,4 @@
-import { type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeWorkspace } from '@muxr/contract';
+import { type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace } from '@muxr/contract';
 
 export interface AgentLabels {
     taskTitle: string;
@@ -19,6 +19,27 @@ export function herdrPaneForSession(
         }
     }
     return undefined;
+}
+
+/** The workspace and tab a session's pane lives in, from the live tree. */
+export function herdrTabForSession(
+    workspaces: readonly HerdrTreeWorkspace[],
+    sessionId: string,
+): { workspace: HerdrTreeWorkspace; tab: HerdrTreeTab } | undefined {
+    for (const workspace of workspaces) {
+        for (const tab of workspace.tabs) {
+            if (tab.panes.some((candidate) => candidate.sessionId === sessionId)) return { workspace, tab };
+        }
+    }
+    return undefined;
+}
+
+/** A tab's name for people: its label, else its position. Never an id. */
+export function tabLabel(tab: HerdrTreeTab, index: number): string {
+    const label = tab.label?.trim() ?? '';
+    if (label === '') return `Tab ${index + 1}`;
+    // A bare number is herdr's default label; say what it counts.
+    return /^\d+$/.test(label) ? `Tab ${label}` : label;
 }
 
 export const HERD_STATUS_LABELS: Record<AgentLifecycle, string> = {

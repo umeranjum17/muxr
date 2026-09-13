@@ -2,3 +2,5 @@
 export * from './application/OpenPreview';
 export * from './infrastructure/previewBridge';
 export * from './domain/previewOrigin';
+export * from './application/surfaceFocus';
+export * from './application/surfaceLabels';

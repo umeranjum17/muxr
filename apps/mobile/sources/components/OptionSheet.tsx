@@ -55,6 +55,7 @@ export function OptionSheet({
     virtualizedBodyHeight,
     onSubmitCustom,
     searchPlaceholder,
+    maxWidth,
 }: {
     visible: boolean;
     title: string;
@@ -73,6 +74,8 @@ export function OptionSheet({
     // Lets the search field double as free-text entry (custom project paths).
     onSubmitCustom?: (value: string) => void;
     searchPlaceholder?: string;
+    /** A wider sheet for a body that lays out in columns; others keep the default. */
+    maxWidth?: number;
 }) {
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
@@ -161,6 +164,7 @@ export function OptionSheet({
                 </TouchableWithoutFeedback>
                 <View style={[
                     styles.sheet,
+                    maxWidth === undefined ? null : { maxWidth },
                     // A body sheet has no rows to measure, so it grows with its content
                     // and the inner ScrollView takes the cap instead.
                     body
@@ -176,7 +180,7 @@ export function OptionSheet({
                     <View style={styles.handleRow}>
                         <View style={styles.handle} />
                     </View>
-                    <Text style={styles.title}>{title}</Text>
+                    {title !== '' && <Text style={styles.title}>{title}</Text>}
 
                     {body ? (
                         virtualizedBody
