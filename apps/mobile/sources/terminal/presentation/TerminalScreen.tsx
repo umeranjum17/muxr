@@ -51,7 +51,7 @@ import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import type { SessionMenu } from '@/plugins';
-import { FOOTER_ROW_HEIGHT, TOOLS_SLOT_WIDTH, TerminalToolsKey, TerminalToolsPanel } from './FloatingTerminalControls';
+import { FOOTER_ROW_HEIGHT, TOOLS_TRIGGER_MARGIN, TOOLS_TRIGGER_SIZE, TerminalToolsPanel, TerminalToolsTrigger } from './FloatingTerminalControls';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins';
@@ -71,14 +71,13 @@ function TerminalViewFallback() {
 }
 
 /**
- * A sheet over the terminal keeps the terminal's dark register whatever the
- * app theme. The scope is applied at the sheet's own mount and the theme is
- * read beneath it, so inline styles here paint from the dark palette too.
+ * The session is one dark surface: the terminal paints dark whatever the app
+ * theme, so everything around it -- header, strip, composer, keys, Tools and
+ * every sheet they open -- reads the dark theme too. The scope sits at this
+ * screen's own render root and the theme is read beneath it, so each render of
+ * the screen (and everything it mounts) paints from the same palette.
  */
-function DarkSheet({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
-    return <ScopedTheme name="dark"><DarkSheetBody>{children}</DarkSheetBody></ScopedTheme>;
-}
-function DarkSheetBody({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
+function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();
     return <>{children(theme)}</>;
 }
@@ -87,7 +86,6 @@ function DarkSheetBody({ children }: { children: (theme: ReturnType<typeof useUn
 export interface SurfaceAction { key: string; icon: string; label: string; shown: boolean; disabledReason?: string; onPress: () => void }
 
 export const TerminalScreen = React.memo((props: { id: string; machineId: string; surfaceActions?: SurfaceAction[] }) => {
-    const { theme } = useUnistyles();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canControl = authority === 'control' && !authorityLoading;
     const insets = useSafeAreaInsets();
@@ -338,6 +336,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     showGestureHintRef.current = showGestureHint;
 
     const { chipLink, chipKind, openChipLink } = useTerminalChipLink(props.id);
+    const showLinkChip = canControl && chipLink !== undefined && chipKind !== undefined;
 
     const showRecentLinks = React.useCallback((action: 'open' | 'copy') => {
         const links = recentTerminalLinks(props.id);
@@ -522,10 +521,6 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
     const contextTitle = labels.taskTitle;
     const headerLifecycle = terminalPaneStatus(currentPane);
-    const headerStatus = agentStatusColor(headerLifecycle, theme);
-    // "Go" is the accent, never a lifecycle or destructive colour: red on
-    // this screen means needs-you or stop, and the send button is neither.
-    const sendColor = canSend ? theme.colors.accent : theme.colors.textSecondary;
     const paneIndex = siblings.indexOf(props.id);
     const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
     const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting';
@@ -563,8 +558,9 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     // above the IME, and it measures the gap below itself to do it, so a bar
     // that floats over it gets counted as empty space and lands on the output.
     // What repeats while working, at the thumb: the pane's surfaces first,
-    // then the declared quick actions (Files, Changes, Applications), the
-    // terminal's own keyboard and zoom, and the recent links.
+    // then the declared quick actions (Files, Changes, Applications) and the
+    // recent links; the terminal's own keyboard and zoom are the panel's
+    // quick keys above these rows.
     const recentLinks = recentTerminalLinks(props.id);
     const toolsRows = (
         <>
@@ -579,10 +575,6 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 />
             ))}
             <DeclarativeSessionActions actions={quickActions} sessionId={props.id} onNavigate={closeTools} presentation="shortcut" />
-            {viewControls.commands.map((command) => (
-                <ActionShortcut key={command.label} label={command.label} icon={command.icon as never} disabled={command.disabled === true}
-                    onPress={() => { if (command.dismiss) closeTools(); command.run(); }} />
-            ))}
             {recentLinks.length > 0 && <>
                 <ActionShortcut label="Open link" icon="open-outline" onPress={() => showRecentLinks('open')} />
                 <ActionShortcut label="Copy link" icon="copy-outline" onPress={() => showRecentLinks('copy')} />
@@ -591,6 +583,12 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     );
 
     return (
+        <ScopedTheme name="dark"><DarkSurface>{(theme) => {
+        const headerStatus = agentStatusColor(headerLifecycle, theme);
+        // "Go" is the accent, never a lifecycle or destructive colour: red on
+        // this screen means needs-you or stop, and the send button is neither.
+        const sendColor = canSend ? theme.colors.accent : theme.colors.textSecondary;
+        return (
         // The keyboard's space comes off the bottom on both platforms -- the
         // native inset or the PWA's visual-viewport occlusion -- so the footer
         // and its Tools key stay immediately above the IME.
@@ -637,7 +635,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                     {treeLoaded
                         ? <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600' }}>{Math.max(paneIndex, 0) + 1}/{Math.max(siblings.length, 1)}</Text>
                         : <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
-                    <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />
+                    <Ionicons name="chevron-down-outline" size={14} color={theme.colors.textSecondary} />
                 </Pressable>
                 {canControl && <Pressable onPress={() => { setToolsOpen(false); setActionsOpen((open) => !open); }} accessibilityRole="button" accessibilityLabel="Pane actions"
                     accessibilityState={{ expanded: actionsOpen }} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
@@ -759,7 +757,8 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                         style={({ pressed }) => ({
                             position: 'absolute',
                             right: 14,
-                            bottom: 14,
+                            // Above the trigger when they share a corner.
+                            bottom: toolsSide === 'right' ? TOOLS_TRIGGER_MARGIN * 2 + TOOLS_TRIGGER_SIZE : 14,
                             width: 38,
                             height: 38,
                             borderRadius: 19,
@@ -771,56 +770,28 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                             opacity: pressed ? 0.7 : 1,
                         })}
                     >
-                        <Ionicons name="arrow-down" size={18} color={theme.colors.text} />
+                        <Ionicons name="arrow-down-outline" size={20} color={theme.colors.text} />
                     </Pressable>
                 )}
-                {canControl && chipLink !== undefined && chipKind !== undefined && (
-                    <Animated.View
-                        entering={FadeIn.duration(MOTION.base).reduceMotion(ReduceMotion.System)}
-                        exiting={FadeOut.duration(MOTION.exit).reduceMotion(ReduceMotion.System)}
-                        style={{ position: 'absolute', left: 12, right: showJump ? 64 : 12, bottom: 8, alignItems: 'flex-start' }}
-                    >
-                        <Pressable
-                            onPress={openChipLink}
-                            onLongPress={() => void Clipboard.setStringAsync(chipLink).then(() => showGestureHint('Link copied'))}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${chipKind === 'preview' ? 'Preview' : 'Open'} ${chipLink}`}
-                            style={({ pressed }) => ({
-                                maxWidth: '100%',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 4,
-                                paddingHorizontal: 9,
-                                paddingVertical: 6,
-                                borderRadius: 14,
-                                backgroundColor: theme.colors.surfaceHigh,
-                                borderWidth: 1,
-                                borderColor: theme.colors.divider,
-                                opacity: pressed ? 0.6 : 1,
-                            })}
-                        >
-                            <Ionicons name={chipKind === 'preview' ? 'globe-outline' : 'open-outline'} size={12} color={theme.colors.textSecondary} />
-                            <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>
-                                {chipKind === 'preview' ? 'Preview' : 'Open'}
-                            </Text>
-                            <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, flexShrink: 1 }}>
-                                {displayLink(chipLink, 80)}
-                            </Text>
-                        </Pressable>
-                    </Animated.View>
-                )}
+                {/* The way to this terminal's controls, where the thumb already
+                    is. A mark at the edge, not a disc over the output; it dims
+                    while the output is being read back. */}
+                <TerminalToolsTrigger side={toolsSide} onSideChange={setToolsSide} onPress={toolsOpen ? closeTools : openTools}
+                    blocked={toolsBlocked} expanded={toolsOpen} dimmed={showJump} />
             </View>
 
             {/* The workspace's tabs, for anyone who can look: a tap opens that
                 tab's last pane this device chose, else its focused pane, else
-                its first. Same chip, same place; only the data changed. */}
-            {workspaceTabs.length > 0 && (
+                its first. The link the output is showing sits at the strip's
+                end, in the chrome: nothing floats over terminal rows. */}
+            {(workspaceTabs.length > 0 || showLinkChip) && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
                 <ScrollView
                     ref={tabStripRef}
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     keyboardShouldPersistTaps="always"
-                    style={{ maxHeight: 44, backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}
+                    style={{ flex: 1, maxHeight: 44 }}
                     contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 8 }}
                 >
                     {workspaceTabs.map((tab, index) => {
@@ -861,19 +832,48 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                         );
                     })}
                 </ScrollView>
+                {showLinkChip && (
+                    <Animated.View
+                        entering={FadeIn.duration(MOTION.base).reduceMotion(ReduceMotion.System)}
+                        exiting={FadeOut.duration(MOTION.exit).reduceMotion(ReduceMotion.System)}
+                        style={{ maxWidth: '55%', paddingRight: 8, paddingLeft: 4 }}
+                    >
+                        <Pressable
+                            onPress={openChipLink}
+                            onLongPress={() => void Clipboard.setStringAsync(chipLink!).then(() => showGestureHint('Link copied'))}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${chipKind === 'preview' ? 'Preview' : 'Open'} ${chipLink}`}
+                            style={({ pressed }) => ({
+                                minHeight: 44,
+                                justifyContent: 'center',
+                                opacity: pressed ? 0.6 : 1,
+                            })}
+                        >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: theme.colors.surfaceHigh, borderWidth: 1, borderColor: theme.colors.divider }}>
+                                <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>
+                                    {chipKind === 'preview' ? 'Preview' : 'Open'}
+                                </Text>
+                                <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, flexShrink: 1 }}>
+                                    {displayLink(chipLink!, 48)}
+                                </Text>
+                            </View>
+                        </Pressable>
+                    </Animated.View>
+                )}
+            </View>
             )}
 
             {/* Footer: the composer (for those who may type) and then the bottommost
-                row -- accessory keys scrolling beside the reserved Tools slot,
-                on whichever side the hand prefers. Open, Tools takes this
-                block's place; the terminal above keeps every row it had. */}
+                row of accessory keys. Open, Tools takes the composer's place
+                directly above the keys, at every width; the key row stays
+                keys, and the terminal above keeps every row it had while
+                typing. */}
             <View style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
             {toolsOpen ? (
-                <TerminalToolsPanel side={toolsSide} bottomInset={keyboardPad > 0 ? 0 : insets.bottom} onClose={closeTools}>
+                <TerminalToolsPanel commands={viewControls.commands} bottomInset={keyboardPad > 0 ? 0 : insets.bottom} onClose={closeTools}>
                     {toolsRows}
                 </TerminalToolsPanel>
-            ) : (<>
-            {canControl && <>
+            ) : canControl && <>
             {failedImages.length > 0 && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
                     <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />
@@ -906,7 +906,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 }}
             >
                 <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ opacity: attaching ? 0.4 : 1, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
-                    <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={24} color={theme.colors.textSecondary} />
+                    <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={20} color={theme.colors.textSecondary} />
                 </Pressable>
                 <TextInput
                     ref={composerRef}
@@ -922,6 +922,9 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                     placeholderTextColor={theme.colors.textSecondary}
                     style={{
                         flex: 1,
+                        // A web input has an intrinsic width; without this floor
+                        // it refuses to shrink and pushes Send off a 390 screen.
+                        minWidth: 0,
                         minHeight: 44,
                         color: theme.colors.text,
                         backgroundColor: theme.colors.surfaceHigh,
@@ -933,28 +936,26 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, hasAgent: currentPane?.agentKind !== undefined, getText: () => draftRef.current, setText: setDraft }} />
                 </View>
-                <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
-                    <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
+                {/* The one filled control on the screen is the primary action's
+                    button; the glyph in it stays in the outline register. */}
+                <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: canSend ? sendColor : theme.colors.surfaceHigh }}>
+                        <Ionicons name="arrow-up-outline" size={20} color={canSend ? theme.colors.button.primary.tint : theme.colors.textSecondary} />
+                    </View>
                 </Pressable>
             </View>
             </>}
-            <View style={{ minHeight: FOOTER_ROW_HEIGHT, flexDirection: toolsSide === 'left' ? 'row-reverse' : 'row', alignItems: 'center', paddingBottom: keyboardPad > 0 ? 0 : insets.bottom }}>
-                {canControl ? (
-                    <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        keyboardShouldPersistTaps="always"
-                        style={{ flex: 1, maxHeight: FOOTER_ROW_HEIGHT }}
-                        contentContainerStyle={{ alignItems: 'center', gap: 6, paddingLeft: 8, paddingRight: 6, paddingVertical: 6 }}
-                    >
-                        <DeclarativeTerminalKeySlot channel={channel} />
-                    </ScrollView>
-                ) : <View style={{ flex: 1 }} />}
-                <View style={{ width: TOOLS_SLOT_WIDTH, alignItems: 'center', justifyContent: 'center' }}>
-                    <TerminalToolsKey side={toolsSide} onSideChange={setToolsSide} onPress={openTools} blocked={toolsBlocked} expanded={toolsOpen} />
-                </View>
-            </View>
-            </>)}
+            {canControl && (
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    keyboardShouldPersistTaps="always"
+                    style={{ maxHeight: FOOTER_ROW_HEIGHT + (keyboardPad > 0 ? 0 : insets.bottom) }}
+                    contentContainerStyle={{ minHeight: FOOTER_ROW_HEIGHT, alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 6, paddingBottom: 6 + (keyboardPad > 0 ? 0 : insets.bottom) }}
+                >
+                    <DeclarativeTerminalKeySlot channel={channel} />
+                </ScrollView>
+            )}
             </View>
 
             <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} machineId={props.machineId} onClose={() => setOverviewOpen(false)} />
@@ -968,7 +969,6 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 >
                     <Animated.View pointerEvents="none" entering={FadeIn.duration(MOTION.fast).reduceMotion(ReduceMotion.System)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.18)' }} />
                     <Pressable onPress={() => setActionsOpen(false)} accessibilityLabel="Close pane actions" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
-                    <DarkSheet>{(theme) => (
                     <AnimatedPopup style={{
                         flexShrink: 1,
                         minWidth: 236,
@@ -1034,7 +1034,6 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                             </Pressable>
                         )}
                     </AnimatedPopup>
-                    )}</DarkSheet>
                 </Animated.View>
             )}
 
@@ -1043,7 +1042,6 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                     onPress={() => setMenu(null)}
                     style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40, backgroundColor: theme.colors.scrim, justifyContent: 'flex-end' }}
                 >
-                    <DarkSheet>{(theme) => (
                     <View style={{ backgroundColor: theme.colors.surface, paddingBottom: insets.bottom + 8, borderTopLeftRadius: 14, borderTopRightRadius: 14 }}>
                         <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 }}>
                             <Text style={{ color: theme.colors.text, fontWeight: '600', fontSize: 16 }}>{menu.title}</Text>
@@ -1072,9 +1070,10 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                             <Text style={{ color: theme.colors.textSecondary, fontSize: 15 }}>Cancel</Text>
                         </Pressable>
                     </View>
-                    )}</DarkSheet>
                 </Pressable>
             )}
         </View>
+        );
+        }}</DarkSurface></ScopedTheme>
     );
 });

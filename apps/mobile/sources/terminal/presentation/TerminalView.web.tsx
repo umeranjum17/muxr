@@ -14,7 +14,7 @@ import '@xterm/xterm/css/xterm.css';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import { beginViewportCapture, recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { isDemoTerminalSession } from '@/demo/demoTransport';
-import { useLocalSetting } from '@/catalog/store';
+import { useLocalSetting, useLocalSettingMutable } from '@/catalog/store';
 import { t } from '@/text';
 import {
     createKittyDecoderState,
@@ -30,9 +30,8 @@ export interface TerminalViewProps {
     onChannel?: (channel: TerminalChannel | undefined) => void;
     /** Bump to reopen after a failed first attach; a live channel reconnects itself. */
     attempt?: number;
-    /** Same contract as the native view; the browser has no view commands and
-     *  no terminal IME, so the pane keeps its own keyboard fallback and the
-     *  panel is Close plus the quick-action rows. */
+    /** Same contract as the native view: the browser's terminal keyboard is
+     *  xterm's own focus, and zoom steps the stored font size. */
     onViewControls?: (controls: { commands: TerminalCommand[]; dismissKeyboard: () => void }) => void;
 }
 
@@ -56,6 +55,10 @@ function visibleTerminalText(term: Terminal): string {
     }
     return lines.join('\n').replace(/\s+$/, '');
 }
+
+/** The stored font sizes, in zoom order; the one Settings offers as the default. */
+const FONT_SIZES = [11, 12, 13, 14, 16, 18] as const;
+const DEFAULT_FONT_SIZE = 13;
 
 // ponytail: one flat cap, 4 MiB of base64 (~3 MiB ANSI); a full herdr screen is a few KB.
 const PENDING_FRAME_BYTES_MAX = 4 * 1024 * 1024;
@@ -83,8 +86,28 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     // persisted preference, never the default. Both preferences apply to the
     // live terminal in place: the channel, cwd and buffer are untouched.
     const screenReaderMode = useLocalSetting('terminalScreenReader');
-    const fontSize = useLocalSetting('terminalFontSize');
+    const [fontSize, setFontSize] = useLocalSettingMutable('terminalFontSize');
     const termRef = React.useRef<Terminal | null>(null);
+    // The panel's quick keys: the same commands the native view offers,
+    // owned here because only this view holds the terminal. Zoom walks the
+    // stored font size, so it is the same setting Settings shows and it
+    // survives the session; the keyboard is xterm's own focus, which on a
+    // phone raises the IME, and dismissal is its blur.
+    const { onViewControls } = props;
+    React.useEffect(() => {
+        const step = FONT_SIZES.indexOf(fontSize);
+        const zoom = (direction: -1 | 1): void => { const next = FONT_SIZES[step + direction]; if (next !== undefined) setFontSize(next); };
+        onViewControls?.({
+            dismissKeyboard: () => termRef.current?.blur(),
+            commands: [
+                { label: 'Open terminal keyboard', icon: 'keyboard', dismiss: true, run: () => termRef.current?.focus() },
+                { label: 'Zoom out', icon: 'minus', run: () => zoom(-1), disabled: step <= 0 },
+                { label: 'Zoom in', icon: 'plus', run: () => zoom(1), disabled: step >= FONT_SIZES.length - 1 },
+                { label: 'Reset zoom', icon: 'reset', run: () => setFontSize(DEFAULT_FONT_SIZE), disabled: fontSize === DEFAULT_FONT_SIZE },
+            ],
+        });
+    }, [fontSize, onViewControls, setFontSize]);
+    React.useEffect(() => () => onViewControls?.({ commands: [], dismissKeyboard: () => {} }), [onViewControls]);
     const resizeRef = React.useRef<() => void>(() => undefined);
     React.useEffect(() => {
         const term = termRef.current;

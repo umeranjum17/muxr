@@ -1,12 +1,10 @@
 import * as React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { UnistylesRuntime, useUnistyles } from 'react-native-unistyles';
+import { useUnistyles } from 'react-native-unistyles';
 import { useRealtimeSessionState } from '@/conversation/session';
 import { RealtimeGlyph } from '@/conversation/ui';
 import { withAlpha } from '@/components/ui';
-import { panelPalette } from '@/components/ActionShortcut';
-import { Typography } from '@/constants/Typography';
 import type { PrimitiveProps } from '../../domain/primitiveTypes'
 import { capabilityFor } from '../../application/capabilityRegistry';
 import { resolvePluginText } from '../../domain/pluginText';
@@ -15,11 +13,7 @@ import { t } from '@/text';
 
 /** Generic icon control for one declared phone capability. */
 export function CapabilityButton({ context, contribution, pluginId, manifestHash, onNavigate, presentation }: PrimitiveProps & { onNavigate?: () => void; presentation?: 'shortcut' }) {
-    const { theme: appTheme } = useUnistyles();
-    // As a panel row this paints in the terminal's dark register regardless
-    // of the app theme; elsewhere it follows the app.
-    const theme = presentation === 'shortcut' ? UnistylesRuntime.getTheme('dark') : appTheme;
-    const panel = panelPalette(theme);
+    const { theme } = useUnistyles();
     const realtime = useRealtimeSessionState();
     const capability = contribution.capability!;
     const manifest = pluginSnapshot().find((entry) => entry.summary.pluginId === pluginId && entry.summary.manifestHash === manifestHash)?.manifest;
@@ -39,7 +33,7 @@ export function CapabilityButton({ context, contribution, pluginId, manifestHash
     // neighbouring row; elsewhere it stays the composer's secondary control.
     let tint = theme.colors.textSecondary;
     if (active) tint = theme.colors.accent;
-    else if (shortcut) tint = panel.text;
+    else if (shortcut) tint = theme.colors.text;
     return <Pressable
         onPress={() => { if (handler !== undefined) { onNavigate?.(); void handler({ sessionId, status: '', from: '' }); } }}
         disabled={!available}
@@ -49,8 +43,8 @@ export function CapabilityButton({ context, contribution, pluginId, manifestHash
         accessibilityState={{ busy: connecting, selected: active, disabled: !available }}
         style={({ pressed }) => shortcut ? ({
             minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12,
-            paddingHorizontal: 10, borderRadius: 10,
-            backgroundColor: pressed ? panel.pressed : 'transparent',
+            paddingHorizontal: 16,
+            backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent',
             opacity: available ? (pressed ? 0.7 : 1) : 0.4,
         }) : ({
             width: 44, height: 44, borderRadius: 22,
@@ -69,11 +63,11 @@ export function CapabilityButton({ context, contribution, pluginId, manifestHash
             pulse is the one state that has to stay visible there. */}
         {(!shortcut || showsRealtime) && <View style={shortcut ? { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' } : undefined}>
             {showsRealtime
-                ? <RealtimeGlyph size={22} state={realtime.state} color={tint} />
-                : <Ionicons name={icon as never} size={22} color={tint} />}
+                ? <RealtimeGlyph size={20} state={realtime.state} color={tint} />
+                : <Ionicons name={icon as never} size={20} color={tint} />}
         </View>}
         {/* Wraps like every other panel row: at large font sizes a truncated
             plugin label hides the row's whole point. */}
-        {shortcut && <Text style={{ flex: 1, color: panel.text, fontSize: 15, lineHeight: 20, ...Typography.mono('regular') }}>{label}</Text>}
+        {shortcut && <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15, lineHeight: 20 }}>{label}</Text>}
     </Pressable>;
 }

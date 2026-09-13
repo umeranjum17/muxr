@@ -133,10 +133,21 @@ export function stripTerminalEscapes(input: string): string {
     return visible;
 }
 
+// A TUI repaint moves the cursor instead of printing newlines and spaces, so
+// stripping the moves glues one row's URL to the next row's prose. A move to
+// another row is a line break (unwrapTerminalLinks rejoins a full-width wrap);
+// a move along the row, or an erase, is at least a space.
+const CSI_ROW_MOVES = 'ABEFHfd';
+const CSI_COLUMN_MOVES = 'CDGJK';
+
 function appendVisible(state: TailState, input: string): string {
     let visible = '';
     for (const char of input) {
-        if (feedEscape(state, char.charCodeAt(0), char)) visible += char;
+        const code = char.charCodeAt(0);
+        const csiFinal = state.escape === 'csi' && code >= 0x40 && code <= 0x7e ? char : undefined;
+        if (feedEscape(state, code, char)) visible += char;
+        else if (csiFinal !== undefined && CSI_ROW_MOVES.includes(csiFinal)) visible += '\n';
+        else if (csiFinal !== undefined && CSI_COLUMN_MOVES.includes(csiFinal)) visible += ' ';
     }
     if (visible !== '') {
         state.chunks.push(visible);

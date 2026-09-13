@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
-import { ScopedTheme, StyleSheet, UnistylesRuntime, useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
 import { ActionShortcut } from '@/components/ActionShortcut';
 import { hapticsError, hapticsLight } from '@/components/haptics';
@@ -29,6 +29,11 @@ import { richPreviewKind } from '@/utils/richAttachmentPreview';
 import { RichAttachmentPreview } from '@/components/attachment/RichAttachmentPreview';
 
 const EMPTY_MODEL: PluginItemListModel = { items: [], actions: [] };
+
+/** The session's dark surface, re-asserted by a list that mounts on its own loads. */
+function SurfaceScope({ dark, children }: { dark: boolean; children: React.ReactNode }): React.JSX.Element {
+    return dark ? <ScopedTheme name="dark">{children}</ScopedTheme> : <>{children}</>;
+}
 const MAX_ACTIVE_THUMBNAILS = 4;
 
 type SheetListEntry =
@@ -118,7 +123,7 @@ function SheetActions({ actions, busyId, onAction }: {
 
 /** Lazy action list: the plugin declares every tap; there are no feature fallbacks. */
 export function ItemList({ context, pluginId, manifestHash, contribution, presentation = 'pill', onDismiss }: PrimitiveProps & { presentation?: 'pill' | 'action-row' | 'shortcut'; onDismiss?: () => void }) {
-    const { theme: appTheme } = useUnistyles();
+    const { theme } = useUnistyles();
     const { width } = useWindowDimensions();
     const router = useRouter();
     const isFocused = useIsFocused();
@@ -242,9 +247,12 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
     const icon = contribution.icon ?? 'document-outline';
     const accessibilityLabel = contribution.accessibilityLabel === undefined ? title : resolvePluginText(contribution.accessibilityLabel);
     const shortcut = presentation === 'shortcut';
-    // Opened from the terminal's Tools panel the list is a sheet over dark
-    // content and paints from the dark theme even when the app is light.
-    const theme = shortcut ? UnistylesRuntime.getTheme('dark') : appTheme;
+    // A row (Tools panel or pane actions) only ever sits on the session's
+    // dark surface; the pill follows whatever screen shows it. The list
+    // mounts its row and opens its sheet on its own loads, outside the
+    // screen's render pass, so it names the surface's theme itself for what
+    // it mounts then. Scopes are render-phase only, hence per mount here.
+    const overTerminal = presentation !== 'pill';
     // Order-preserving grouping; ungrouped items render in one silent section.
     const groups = React.useMemo(() => {
         const found: { name?: string; items: { item: PluginItemListItem; index: number }[] }[] = [];
@@ -310,7 +318,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
     const badgeColor = failed ? theme.colors.textDestructive : badgeTone === undefined ? theme.colors.textSecondary : toneColor(theme, badgeTone);
     if (items.length === 0 && model.actions.length === 0) {
         if (!failed) return null;
-        if (shortcut) return <ActionShortcut label={title} accessibilityLabel={`${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}`} icon="warning-outline" onPress={() => load(true)} />;
+        if (shortcut) return <SurfaceScope dark={overTerminal}><ActionShortcut label={title} accessibilityLabel={`${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}`} icon="warning-outline" onPress={() => load(true)} /></SurfaceScope>;
         return <Pressable onPress={failed ? () => load(true) : undefined} disabled={!failed} accessibilityRole="button" accessibilityLabel={failed ? `${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}` : `${accessibilityLabel}, no items`} hitSlop={11}
             style={({ pressed }) => [presentation === 'action-row' ? styles.actionRow : styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider, opacity: failed || presentation === 'pill' ? 1 : 0.55 }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
             {presentation !== 'action-row' && <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={11} color={failed ? theme.colors.textDestructive : theme.colors.textSecondary} />}
@@ -320,7 +328,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
     }
     const count = model.badge?.value ?? model.total ?? items.length;
     const partial = model.total === undefined ? null : <Text style={[styles.partialNote, { color: theme.colors.textSecondary }]}>{t('plugins.partialList', { shown: items.length, total: model.total })}</Text>;
-    return <>
+    return <SurfaceScope dark={overTerminal}>
         {/* Only a declared badge trails a panel row: an inferred item count is
             the pill's affordance, not the panel's secondary line. */}
         {shortcut ? <ActionShortcut label={title} accessibilityLabel={`${accessibilityLabel}${failed ? `, ${t('plugins.showingStale')}. ${t('plugins.retry')}` : ''}`}
@@ -333,10 +341,6 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
             {presentation === 'action-row' && <Text style={[styles.actionLabel, { color: theme.colors.text }]}>{title}</Text>}
             <Text style={[styles.count, { color: badgeColor }]}>{count}</Text>
         </Pressable>}
-        {/* Opened from the terminal's Tools panel, the list keeps the panel's
-            dark register: the scope is applied at the sheet's own mount, not
-            assumed from the trigger. */}
-        <ScopedTheme {...(shortcut ? { name: 'dark' as const } : { reset: true as const })}>
         <OptionSheet visible={open} title={title} options={[]} onSelect={() => {}} onClose={() => { setOpen(false); onDismiss?.(); }} virtualizedBody={galleryImages.length > 0} virtualizedBodyHeight={sheetBodyHeight} body={
             galleryImages.length > 0
                 ? <FlatList
@@ -379,10 +383,9 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
                     {partial}
                 </View>
         } />
-        </ScopedTheme>
         {documentPreview !== undefined && sessionId !== undefined && <RichAttachmentPreview key={`${sessionId}:${documentPreview.id}`} sessionId={sessionId} attachment={documentPreview} onClose={() => setDocumentPreview(undefined)} />}
         {galleryIndex !== undefined && <AttachmentGallery sessionId={sessionId!} images={galleryImages} initialIndex={galleryIndex} onClose={() => setGalleryIndex(undefined)} />}
-    </>;
+    </SurfaceScope>;
 }
 
 const styles = StyleSheet.create({

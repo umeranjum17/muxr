@@ -33,8 +33,8 @@ export function DictateButton({ context }: PrimitiveProps) {
             {dictation.transcribing
                 ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                 : <Ionicons
-                    name={dictation.recording ? 'stop-circle' : 'mic-outline'}
-                    size={22}
+                    name={dictation.recording ? 'stop-circle-outline' : 'mic-outline'}
+                    size={20}
                     color={dictation.recording ? theme.colors.status.error : theme.colors.textSecondary}
                 />}
         </BubblePressable>
