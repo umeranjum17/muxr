@@ -18,6 +18,8 @@ import { Stack, useRouter } from 'expo-router';
 import { getCachedHostedGrant } from '@/pairing/e2ee';
 import { ConnectionSupport } from '@/settings/presentation/ConnectionSupport';
 import { formatLatestConnectionFailure } from '@/catalog/infrastructure/connectionDiagnostics';
+import * as Clipboard from 'expo-clipboard';
+import { Modal } from '@/modal';
 
 const stylesheet = StyleSheet.create((theme) => ({
     label: {
@@ -115,6 +117,11 @@ export default function ConnectionSettingsScreen() {
     const latestFailure = status === 'disconnected' || status === 'error'
         ? formatLatestConnectionFailure()
         : undefined;
+    // The one public command that restarts a background muxr, offered beside
+    // a network failure only: a dead grant needs Pair again, not a restart.
+    const [restartCopied, setRestartCopied] = React.useState(false);
+    const offerRestart = latestFailure !== undefined && pairAgainReason === undefined;
+    React.useEffect(() => { if (!offerRestart) setRestartCopied(false); }, [offerRestart]);
 
     const [relayUrl, setRelayUrl] = React.useState(initial.relayUrl);
     const [machineId, setMachineId] = React.useState(initial.machineId);
@@ -157,6 +164,13 @@ export default function ConnectionSettingsScreen() {
                         leftElement={<View style={[styles.dot, statusDot]} />}
                         loading={status === 'connecting'}
                     />
+                    {offerRestart && <>
+                        <Item title="Can't reach your computer" subtitle="Check this device's connection and that the computer is awake. If muxr was set up as a background service, run this on that computer:" subtitleLines={0} showChevron={false} />
+                        <Item title="muxr restart" subtitle={restartCopied ? 'Copied' : 'Copy the command'} showChevron={false}
+                            accessibilityLabel={restartCopied ? 'muxr restart, copied' : 'Copy muxr restart'}
+                            onPress={() => { void Clipboard.setStringAsync('muxr restart').then(() => setRestartCopied(true)).catch(() => Modal.alert('Copy failed', 'Please try again.')); }} />
+                        <Text style={styles.hint}>Otherwise, restart muxr from the terminal where you started it. Copying never runs anything on the computer.</Text>
+                    </>}
                     {pairAgainReason !== undefined && (
                         <Item
                             title="Pair again"

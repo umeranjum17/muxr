@@ -28,7 +28,8 @@ import { ActionButton } from '@/components/ActionButton';
 import { LiveTerminalsRow } from './LiveTerminalsRow';
 import { SpacesTree } from './SpacesTree';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
-import { useSocketStatus } from '@/catalog/store';
+import { usePairingFailure, useSocketStatus } from '@/catalog/store';
+import { Modal } from '@/modal';
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
 import { LoadingHairline } from '@/components/LoadingHairline';
@@ -155,28 +156,38 @@ const stylesheet = StyleSheet.create((theme) => ({
 
 
 /** Warning row with the copyable command chip the setup card already uses. */
-function RecoveryBanner({ text, command }: { text: string; command?: string }) {
+/**
+ * One banner for a herd that may be stale, with the exact command that
+ * brings the computer back when there is one. The command stays selectable;
+ * Copy says Copied only once the clipboard actually took it, and copying
+ * never runs anything anywhere.
+ */
+function RecoveryBanner({ text, command, lead, trail }: { text: string; command?: string; lead?: string; trail?: string }) {
     const { theme } = useUnistyles();
     const styles = stylesheet;
+    const [copied, setCopied] = React.useState(false);
+    React.useEffect(() => { setCopied(false); }, [command]);
     return (
         <View style={styles.banner} accessibilityRole="alert">
             <Ionicons name="warning-outline" size={16} color={theme.colors.box.warning.text} />
             <View style={{ flex: 1, gap: 4 }}>
                 <Text style={[styles.bannerText, { color: theme.colors.box.warning.text }]}>{text}</Text>
+                {lead !== undefined && <Text style={[styles.bannerText, { color: theme.colors.textSecondary }]}>{lead}</Text>}
                 {command !== undefined && (
                     <View style={styles.commandRow}>
                         <Text style={styles.setupCommand} selectable>{command}</Text>
                         <Pressable
                             accessibilityRole="button"
-                            accessibilityLabel={`Copy ${command}`}
+                            accessibilityLabel={copied ? `${command} copied` : `Copy ${command}`}
                             hitSlop={10}
                             style={styles.copyButton}
-                            onPress={() => void Clipboard.setStringAsync(command)}
+                            onPress={() => void Clipboard.setStringAsync(command).then(() => setCopied(true)).catch(() => Modal.alert('Copy failed', 'Please try again.'))}
                         >
-                            <Ionicons name="copy-outline" size={17} color={theme.colors.textSecondary} />
+                            <Text style={{ ...Typography.default('semiBold'), fontSize: 13, color: copied ? theme.colors.textSecondary : theme.colors.textLink }}>{copied ? 'Copied' : 'Copy'}</Text>
                         </Pressable>
                     </View>
                 )}
+                {trail !== undefined && <Text style={[styles.bannerText, { color: theme.colors.textSecondary }]}>{trail}</Text>}
             </View>
         </View>
     );
@@ -214,14 +225,23 @@ export const HerdView = React.memo(({
     const processPairLink = useHostedPairing();
     const scanPairQr = usePairQrScanner((url) => void processPairLink(url));
     const { status: socketStatus } = useSocketStatus();
+    // A dead grant is not a network problem: its own recovery (Pair again,
+    // with the exact reason) already speaks, and restart advice would be wrong.
+    const grantFailure = usePairingFailure();
     // One banner under the header for everything that makes the herd below
     // stale: the machine's runtime not answering (with the command that
-    // brings it back), or this device being offline. Nothing is hidden and
-    // nothing is queued for replay; the data stays as last known.
+    // brings it back), or this device unable to reach the computer, with
+    // the one public command that restarts a background muxr -- conditional
+    // advice, not a diagnosis. Nothing is hidden and nothing is queued for
+    // replay; the data stays as last known.
     const recovery = herdrConnected === false
         ? <RecoveryBanner text="This computer is online, but its agent runtime (herdr) is not answering, so what you see may be stale. Run this on the computer:" command="herdr server" />
-        : (socketStatus === 'disconnected' || socketStatus === 'error') && loaded
-            ? <RecoveryBanner text="Offline. Showing what was last known." />
+        : (socketStatus === 'disconnected' || socketStatus === 'error') && loaded && grantFailure === null
+            ? <RecoveryBanner
+                text="Can't reach your computer. Check this device's connection and that the computer is awake. Showing what was last known."
+                lead="If muxr was set up as a background service, run this on that computer:"
+                command="muxr restart"
+                trail="Otherwise, restart muxr from the terminal where you started it." />
             : null;
 
     // "No agents anywhere" hides the whole list in favour of the friendly empty
