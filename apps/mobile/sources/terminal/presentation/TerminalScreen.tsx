@@ -986,7 +986,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                     </View>
                 </Pressable>
             </View>
-            </View>}
+            </>}
             {canControl && (
                 <ScrollView
                     horizontal
