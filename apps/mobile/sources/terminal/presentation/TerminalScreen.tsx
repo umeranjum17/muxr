@@ -7,7 +7,7 @@
  */
 
 import * as React from 'react';
-import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
@@ -51,7 +51,7 @@ import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import type { SessionMenu } from '@/plugins';
-import { FloatingTerminalControls } from './FloatingTerminalControls';
+import { FOOTER_ROW_HEIGHT, TOOLS_SLOT_WIDTH, TerminalToolsKey, TerminalToolsPanel } from './FloatingTerminalControls';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins';
@@ -121,17 +121,14 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     const gitStatus = useSessionGitStatus(props.id);
     const pluginButtons = useSessionPlugins();
     const declaredActions = useDeclarativeSessionActions(session?.metadata?.path);
-    const quickActions = React.useMemo(() => declaredActions.filter((action) => action.quickAction), [declaredActions]);
+    // Tools order is fixed by the brief -- Files, Changes, then the
+    // Applications launcher -- whatever order the plugins were installed in.
+    const quickActions = React.useMemo(() => {
+        const rank = (label: string): number => (label === 'Files' ? 0 : label === 'Changes' ? 1 : 2);
+        return declaredActions.filter((action) => action.quickAction).sort((left, right) => rank(left.label) - rank(right.label));
+    }, [declaredActions]);
     const paneActions = React.useMemo(() => declaredActions.filter((action) => !action.quickAction), [declaredActions]);
     const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
-    const renderQuickActions = React.useCallback((close: () => void) => <>
-        {Platform.OS !== 'web' && <ActionShortcut
-            label={terminalKeyboardDisabled ? 'Enable keyboard on tap' : 'Disable keyboard on tap'}
-            icon="keypad-outline"
-            onPress={() => { setTerminalKeyboardDisabled(!terminalKeyboardDisabled); close(); }}
-        />}
-        <DeclarativeSessionActions actions={quickActions} sessionId={props.id} onNavigate={close} presentation="shortcut" />
-    </>, [props.id, quickActions, setTerminalKeyboardDisabled, terminalKeyboardDisabled]);
     const [pluginActionBusy, setExtensionActionBusy] = React.useState<string>();
     const [swipeNow, setSwipeNow] = React.useState(Date.now);
     React.useEffect(() => {
@@ -156,15 +153,13 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     const [menu, setMenu] = React.useState<SessionMenu | null>(null);
     const [actionsOpen, setActionsOpen] = React.useState(false);
     const [headerBottom, setHeaderBottom] = React.useState(0);
-    // The command panel is hosted by the pane, not by the terminal, so it can
-    // cover the accessory key row while leaving the composer alone.
     const [viewControls, setViewControls] = React.useState<TerminalViewControls>({ commands: [], dismissKeyboard: () => {} });
-    const [terminalBox, setTerminalBox] = React.useState<{ top: number; width: number; height: number }>();
-    // Where the accessory key row ends, in pane coordinates. A sibling tab
-    // strip can sit between it and the terminal, so its own height is not the
-    // distance the panel is allowed to grow.
-    const [bottomBlockTop, setBottomBlockTop] = React.useState(0);
-    const [accessoryBottom, setAccessoryBottom] = React.useState(0);
+    // Tools lives in the footer's reserved slot, docked to the hand's side;
+    // open, it takes the composer and keys' place and never the terminal's.
+    const [toolsOpen, setToolsOpen] = React.useState(false);
+    const [toolsBlocked, setToolsBlocked] = React.useState(false);
+    const [toolsSide, setToolsSide] = useLocalSettingMutable('terminalToolsSide');
+    const { height: windowHeight } = useWindowDimensions();
     const { attaching, selectedImages, attachedImages, setAttachedImages, attachedPaths, failed: failedImages, retryFailed, discardFailed, pickImages, addImages } = useAttachmentUploads(
         props.machineId,
         props.id,
@@ -335,6 +330,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
         const links = recentTerminalLinks(props.id);
         if (links.length === 0) return;
         setActionsOpen(false);
+        setToolsOpen(false);
         setMenu({
             title: action === 'open' ? 'Open link' : 'Copy link',
             note: 'From the recent terminal output',
@@ -370,18 +366,43 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     useWebBackCloses(actionsOpen, closeActions, 'muxrSessionActions');
     const closeMenu = React.useCallback(() => setMenu(null), []);
     useWebBackCloses(menu !== null, closeMenu, 'muxrSessionMenu');
+    const closeTools = React.useCallback(() => setToolsOpen(false), []);
+    useWebBackCloses(toolsOpen, closeTools, 'muxrTerminalTools');
+    // Opening Tools first takes the keyboard down -- the terminal's IME and
+    // the composer's focus -- and shows the panel once the viewport has
+    // settled, so it lands in the space the keyboard held and never over
+    // output. A keyboard that will not go says so on the key instead.
+    const keyboardUpRef = React.useRef(false);
+    keyboardUpRef.current = keyboardPad > 0 || keyboardVisible;
+    React.useEffect(() => { if (!keyboardUpRef.current) setToolsBlocked(false); }, [keyboardPad, keyboardVisible]);
+    const openTools = React.useCallback(() => {
+        setActionsOpen(false);
+        setOverviewOpen(false);
+        setMenu(null);
+        viewControls.dismissKeyboard();
+        Keyboard.dismiss();
+        composerRef.current?.blur();
+        const started = Date.now();
+        const settle = (): void => {
+            if (!keyboardUpRef.current) { setToolsBlocked(false); setToolsOpen(true); return; }
+            if (Date.now() - started > 600) { setToolsBlocked(true); return; }
+            setTimeout(settle, 50);
+        };
+        setTimeout(settle, 50);
+    }, [viewControls]);
 
     // The action menu is a plain absolute View, not a modal, so Android's
     // hardware back would leave the screen instead of dismissing it.
     React.useEffect(() => {
-        if ((menu === null && !actionsOpen) || Platform.OS !== 'android') return;
+        if ((menu === null && !actionsOpen && !toolsOpen) || Platform.OS !== 'android') return;
         const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
             setMenu(null);
             setActionsOpen(false);
+            setToolsOpen(false);
             return true;
         });
         return () => subscription.remove();
-    }, [actionsOpen, menu]);
+    }, [actionsOpen, menu, toolsOpen]);
 
     // Submissions live outside this screen (submissions.ts), partitioned by
     // computer + session; ComposerRecovery owns, for this screen opening,
@@ -466,6 +487,15 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 ]);
             });
     }, [props.id, siblings, shell]);
+    // Ending work is the one deliberate act here: name what stops, ask once.
+    // A broader close herdr insists on still asks its own, different question.
+    const confirmStop = React.useCallback(() => {
+        void Modal.confirm(
+            shell ? `Close ${labels.taskTitle}?` : `Stop ${labels.taskTitle}?`,
+            shell ? 'The shell running in this pane closes.' : 'The agent running in this pane stops and its pane closes.',
+            { cancelText: 'Cancel', confirmText: shell ? 'Close pane' : 'Stop agent', destructive: true },
+        ).then((confirmed) => { if (confirmed) stopSession(); });
+    }, [shell, labels.taskTitle, stopSession]);
 
     const canSend = !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
 
@@ -514,8 +544,39 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     // The bar has to stay in flow below the terminal: Ghostty pads itself to sit
     // above the IME, and it measures the gap below itself to do it, so a bar
     // that floats over it gets counted as empty space and lands on the output.
+    // What repeats while working, at the thumb: the pane's surfaces first,
+    // then the declared quick actions (Files, Changes, Applications), the
+    // terminal's own keyboard and zoom, and the recent links.
+    const recentLinks = recentTerminalLinks(props.id);
+    const toolsRows = (
+        <>
+            {(props.surfaceActions ?? []).map((action) => (
+                <ActionShortcut
+                    key={action.key}
+                    label={action.label}
+                    accessibilityLabel={`${action.shown ? 'Open' : 'Show'} ${action.label}${action.disabledReason === undefined ? '' : `, unavailable: ${action.disabledReason}`}`}
+                    icon={action.icon as never}
+                    disabled={action.disabledReason !== undefined}
+                    onPress={() => { closeTools(); action.onPress(); }}
+                />
+            ))}
+            <DeclarativeSessionActions actions={quickActions} sessionId={props.id} onNavigate={closeTools} presentation="shortcut" />
+            {viewControls.commands.map((command) => (
+                <ActionShortcut key={command.label} label={command.label} icon={command.icon as never} disabled={command.disabled === true}
+                    onPress={() => { if (command.dismiss) closeTools(); command.run(); }} />
+            ))}
+            {recentLinks.length > 0 && <>
+                <ActionShortcut label="Open link" icon="open-outline" onPress={() => showRecentLinks('open')} />
+                <ActionShortcut label="Copy link" icon="copy-outline" onPress={() => showRecentLinks('copy')} />
+            </>}
+        </>
+    );
+
     return (
-        <View style={{ flex: 1, backgroundColor: theme.colors.terminal.background, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
+        // The keyboard's space comes off the bottom on both platforms -- the
+        // native inset or the PWA's visual-viewport occlusion -- so the footer
+        // and its Tools key stay immediately above the IME.
+        <View style={{ flex: 1, backgroundColor: theme.colors.terminal.background, paddingTop: insets.top, paddingBottom: keyboardPad }}>
 
             <View
                 onLayout={(event) => { if (!hasStatusRow) setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height); }}
@@ -548,7 +609,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                     44dp target, present even for a one-pane tab so a new pane
                     stays reachable. Loading shows as such, never as 0/0. */}
                 <Pressable
-                    onPress={() => { setActionsOpen(false); setOverviewOpen(true); }}
+                    onPress={() => { setActionsOpen(false); setToolsOpen(false); setOverviewOpen(true); }}
                     disabled={!treeLoaded}
                     accessibilityRole="button"
                     accessibilityLabel={treeLoaded ? `Pane ${Math.max(paneIndex, 0) + 1} of ${Math.max(siblings.length, 1)}. Open panes.` : 'Panes loading'}
@@ -560,7 +621,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                         : <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
                     <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />
                 </Pressable>
-                {canControl && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel="Pane actions"
+                {canControl && <Pressable onPress={() => { setToolsOpen(false); setActionsOpen((open) => !open); }} accessibilityRole="button" accessibilityLabel="Pane actions"
                     accessibilityState={{ expanded: actionsOpen }} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
                     <Ionicons name="ellipsis-vertical" size={20} color={theme.colors.textSecondary} />
                 </Pressable>}
@@ -591,7 +652,6 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
 
             <View
                 ref={paneGestures.ref}
-                onLayout={({ nativeEvent }) => setTerminalBox({ top: nativeEvent.layout.y, width: nativeEvent.layout.width, height: nativeEvent.layout.height })}
                 onTouchStart={paneGestures.onTouchStart}
                 onTouchMove={paneGestures.onTouchMove}
                 onTouchEnd={paneGestures.onTouchEnd}
@@ -600,6 +660,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 <React.Suspense fallback={<TerminalViewFallback />}>
                     <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} attempt={openAttempt} />
                 </React.Suspense>
+                {toolsOpen && <Pressable accessibilityLabel="Close Tools" onPress={closeTools} style={StyleSheet.absoluteFill} />}
                 {/* Connection changes are announced, not only coloured: the pill
                     is visual, this one line is for assistive tech. */}
                 <Text accessibilityLiveRegion="polite" style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}>
@@ -783,19 +844,17 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 </ScrollView>
             )}
 
-            {canControl && <View onLayout={({ nativeEvent }) => setBottomBlockTop(nativeEvent.layout.y)} style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
-            <View onLayout={({ nativeEvent }) => setAccessoryBottom(nativeEvent.layout.y + nativeEvent.layout.height)} style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center' }}>
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    keyboardShouldPersistTaps="always"
-                    style={{ flex: 1, maxHeight: 52 }}
-                    contentContainerStyle={{ alignItems: 'center', gap: 6, paddingLeft: 8, paddingRight: 6, paddingVertical: 6 }}
-                >
-                    <DeclarativeTerminalKeySlot channel={channel} />
-                </ScrollView>
-            </View>
-
+            {/* Footer: the composer (for those who may type) and then the bottommost
+                row -- accessory keys scrolling beside the reserved Tools slot,
+                on whichever side the hand prefers. Open, Tools takes this
+                block's place; the terminal above keeps every row it had. */}
+            <View style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
+            {toolsOpen ? (
+                <TerminalToolsPanel side={toolsSide} bottomInset={keyboardPad > 0 ? 0 : insets.bottom} onClose={closeTools}>
+                    {toolsRows}
+                </TerminalToolsPanel>
+            ) : (<>
+            {canControl && <>
             {failedImages.length > 0 && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
                     <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />
@@ -822,7 +881,6 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                     gap: 8,
                     paddingHorizontal: 12,
                     paddingVertical: 8,
-                    paddingBottom: (keyboardPad > 0 ? 0 : insets.bottom) + 8,
                     backgroundColor: theme.colors.surface,
                     borderTopWidth: StyleSheet.hairlineWidth,
                     borderTopColor: theme.colors.divider,
@@ -860,23 +918,25 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                     <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
                 </Pressable>
             </View>
-            </View>}
-
-            {/* Terminal plus the accessory key row: the panel may cover the
-                keys, which go inert beneath it, and never the composer. */}
-            {terminalBox !== undefined && (viewControls.commands.length > 0 || canControl) && (() => {
-                const overlayHeight = canControl
-                    ? Math.max(terminalBox.height, bottomBlockTop + accessoryBottom - terminalBox.top)
-                    : terminalBox.height;
-                return <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: terminalBox.top, height: overlayHeight }}>
-                    <FloatingTerminalControls width={terminalBox.width} height={terminalBox.height}
-                        overlayHeight={overlayHeight}
-                        commands={viewControls.commands}
-                        dismissKeyboard={viewControls.dismissKeyboard}
-                        renderQuickActions={canControl && (Platform.OS !== 'web' || quickActions.length > 0) ? renderQuickActions : undefined}
-                        hidden={actionsOpen || overviewOpen} />
-                </View>;
-            })()}
+            </>}
+            <View style={{ minHeight: FOOTER_ROW_HEIGHT, flexDirection: toolsSide === 'left' ? 'row-reverse' : 'row', alignItems: 'center', paddingBottom: keyboardPad > 0 ? 0 : insets.bottom }}>
+                {canControl ? (
+                    <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        keyboardShouldPersistTaps="always"
+                        style={{ flex: 1, maxHeight: FOOTER_ROW_HEIGHT }}
+                        contentContainerStyle={{ alignItems: 'center', gap: 6, paddingLeft: 8, paddingRight: 6, paddingVertical: 6 }}
+                    >
+                        <DeclarativeTerminalKeySlot channel={channel} />
+                    </ScrollView>
+                ) : <View style={{ flex: 1 }} />}
+                <View style={{ width: TOOLS_SLOT_WIDTH, alignItems: 'center', justifyContent: 'center' }}>
+                    <TerminalToolsKey side={toolsSide} onSideChange={setToolsSide} onPress={openTools} blocked={toolsBlocked} expanded={toolsOpen} />
+                </View>
+            </View>
+            </>)}
+            </View>
 
             <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} machineId={props.machineId} onClose={() => setOverviewOpen(false)} />
 
@@ -896,6 +956,9 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                         marginRight: 8,
                         marginLeft: 16,
                         marginTop: headerBottom + 8,
+                        // Below the header and inside the upper two-thirds: the
+                        // deliberate menu never becomes a second bottom sheet.
+                        maxHeight: Math.max(200, windowHeight * 2 / 3 - headerBottom - 8),
                         marginBottom: (keyboardVisible ? keyboardHeight : insets.bottom) + 8,
                         borderRadius: 14,
                         overflow: 'hidden',
@@ -908,36 +971,19 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                         elevation: 12,
                     }}>
                         <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
-                            {(props.surfaceActions ?? []).map((action) => (
-                                <Pressable key={action.key} onPress={() => { setActionsOpen(false); if (action.disabledReason === undefined) action.onPress(); }} accessibilityRole="button"
-                                    accessibilityLabel={`${action.shown ? 'Open' : 'Show'} ${action.label}${action.disabledReason === undefined ? '' : `, unavailable: ${action.disabledReason}`}`}
-                                    accessibilityState={{ selected: action.shown, disabled: action.disabledReason !== undefined }}
-                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: action.disabledReason === undefined ? 1 : 0.5 })}>
-                                    <Ionicons name={action.icon as never} size={18} color={action.shown ? theme.colors.accent : theme.colors.textSecondary} />
-                                    <View style={{ flex: 1, minWidth: 0 }}>
-                                        <Text style={{ color: action.shown ? theme.colors.accent : theme.colors.text, fontSize: 15 }} numberOfLines={1}>{action.label}</Text>
-                                        {action.disabledReason !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }} numberOfLines={1}>{action.disabledReason}</Text>}
-                                    </View>
-                                    {action.shown && <Ionicons name="checkmark" size={16} color={theme.colors.accent} />}
+                            {/* Occasional setup and inspection. Repeated work lives in the
+                                footer's Tools; surfaces and links moved there. */}
+                            {Platform.OS !== 'web' && (
+                                <Pressable onPress={() => { setActionsOpen(false); setTerminalKeyboardDisabled(!terminalKeyboardDisabled); }} accessibilityRole="button"
+                                    accessibilityLabel={terminalKeyboardDisabled ? 'Enable keyboard on tap' : 'Disable keyboard on tap'}
+                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                    <Ionicons name="keypad-outline" size={18} color={theme.colors.textSecondary} />
+                                    <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{terminalKeyboardDisabled ? 'Enable keyboard on tap' : 'Disable keyboard on tap'}</Text>
                                 </Pressable>
-                            ))}
-                            {(paneActions.length > 0 || recentTerminalLinks(props.id).length > 0) && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>}
+                            )}
+                            {paneActions.length > 0 && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>}
                             <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />
-                            {recentTerminalLinks(props.id).length > 0 && <>
-                                <Pressable onPress={() => showRecentLinks('open')} accessibilityRole="button" accessibilityLabel="Open recent terminal link"
-                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                    <Ionicons name="open-outline" size={18} color={theme.colors.textSecondary} />
-                                    <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Open link</Text>
-                                    <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                                </Pressable>
-                                <Pressable onPress={() => showRecentLinks('copy')} accessibilityRole="button" accessibilityLabel="Copy recent terminal link"
-                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                    <Ionicons name="copy-outline" size={18} color={theme.colors.textSecondary} />
-                                    <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Copy link</Text>
-                                    <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                                </Pressable>
-                            </>}
-                            {pluginButtons.length > 0 && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Pane controls</Text>}
+                            {pluginButtons.length > 0 && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Layout</Text>}
                             {pluginButtons.map((button) => {
                                 const key = `${button.pluginId}:${button.id}`;
                                 return <Pressable key={key} onPress={() => {
@@ -954,7 +1000,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                                         .finally(() => setExtensionActionBusy(undefined));
                                 }} disabled={pluginActionBusy !== undefined} accessibilityRole="button" accessibilityLabel={resolvePluginText(button.label)} accessibilityState={{ busy: pluginActionBusy === key, disabled: pluginActionBusy !== undefined }}
                                     style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                    {pluginActionBusy === key ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Ionicons name="extension-puzzle-outline" size={18} color={theme.colors.textSecondary} />}
+                                    {pluginActionBusy === key && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
                                     <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{resolvePluginText(button.label)}</Text>
                                 </Pressable>;
                             })}
@@ -963,8 +1009,8 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                             something, so it never scrolls away and never sits in
                             the run of things you were only going to look at. */}
                         {!stopping && (
-                            <Pressable onPress={() => { setActionsOpen(false); stopSession(); }} accessibilityRole="button" accessibilityLabel={shell ? 'Close pane' : 'Stop agent'}
-                                style={({ pressed }) => ({ minHeight: 44, marginTop: 5, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                            <Pressable onPress={() => { setActionsOpen(false); confirmStop(); }} accessibilityRole="button" accessibilityLabel={shell ? 'Close pane' : 'Stop agent'}
+                                style={({ pressed }) => ({ minHeight: 44, marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                 <Ionicons name="stop-circle-outline" size={18} color={theme.colors.status.error} />
                                 <Text style={{ flex: 1, color: theme.colors.status.error, fontSize: 15 }}>{shell ? 'Close pane' : 'Stop agent'}</Text>
                             </Pressable>

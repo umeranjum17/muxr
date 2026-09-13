@@ -447,7 +447,7 @@ export function AgentSurfaceWorkspace(props: { id: string }): React.JSX.Element 
                 onPress: () => { if (entry.offer.kind === 'code-review') openCodeEntry(entry); else focusSurfaceName(entry.offer.name); },
             }];
         }),
-        { key: 'blank', icon: 'globe-outline', label: 'Open blank browser', shown: blankOpen, onPress: openBlank },
+        { key: 'blank', icon: 'globe-outline', label: 'Browser', shown: blankOpen, onPress: openBlank },
     ], [entries, approvals, selection, blankOpen, openCodeEntry, focusSurfaceName, openBlank]);
     React.useEffect(() => {
         reportShownSurface(props.id, focus === 'surface' || wide ? selection : null);
