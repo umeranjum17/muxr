@@ -1,44 +1,75 @@
-# Surfaces: browser and code review targets
+# Surfaces: Browser, Code and terminal tools
 
-## When to use
-Use when the workflow needs a real WebView browser (ordinary HTTPS or a
-host-local dev server) or a native code review anchor, instead of
-terminal graphics. With muxr available and `HERDR_PANE_ID` present, use
-these commands; they are the only Browser/Code entry points.
+## Open from the owning pane
 
-## Procedure
-1. From an open terminal (so `HERDR_PANE_ID` and the cwd resolve against live
-   Herdr state), open the target:
-   `muxr browser open https://example.com/guide` for public HTTPS, or
-   `muxr browser open http://localhost:3000/app` for a host-local app, or
-   `muxr browser home` for an honest blank tab (the only non-HTTPS target).
-   The host-local port, provider and worktree always come from host state —
-   never type a port, provider or context on the phone, and never print one.
-2. Optional flags: `--beside` or `--focus` (placement intent only),
-   `--name NAME` (logical surface name), `--provider ID` (only when more than
-   one surface provider is enabled; ambiguity fails visibly).
-3. `muxr browser update [URL]`, `muxr browser reload` and `muxr browser close`
-   act on the named surface; `muxr surface list` shows what is open.
-4. `muxr code open <path[:line[:column]]>` and `muxr code diff [path]` open
-   native Files/Changes/History review targets. Mode is review: opening Code
-   grants no editing authority, and paths outside the resolved worktree fail.
+Use the live Herdr pane and its real worktree. The host resolves context and provider;
+a stale pane, unrelated directory or ambiguous provider fails visibly.
 
-## Pitfalls
-- `HERDR_PANE_ID` is a context hint, not a credential. A stale pane id, a
-  moved terminal, or an ambiguous directory fails instead of opening the
-  surface in the wrong place — run from the terminal that owns the work.
-- Remote plain-HTTP URLs, credentialed URLs (`user:pass@`), `file:` URLs and
-  other unsupported schemes fail closed. Host-profile sessions (cookies,
-  login, 2FA) stay on the explicitly labeled takeover route, never in the
-  WebView.
-- A launch creates or updates a visible surface and only foregrounds when the
-  controlling device enabled that preference.
-- No relay token, tunnel key, IDE password, internal id or capability secret
-  enters agent output or environment. Replies name the logical surface only.
-- A surface that is expired, closed or replaced fails closed: open it again
-  and retry once.
+```bash
+muxr browser open https://example.com/guide
+muxr browser open http://localhost:3000/app
+muxr browser home
+muxr code open src/main.ts:20
+muxr code diff
+muxr surface list
+```
 
-## Verification
-1. `muxr surface capabilities` lists the provider-neutral capabilities.
-2. `muxr surface list` shows the opened surface by logical name after `open`.
-3. `muxr browser close` removes it; listing again shows it gone.
+Browser can open public HTTPS, a host-local HTTP app through a leased private HTTPS
+endpoint, or a blank page. Remote plain HTTP, credentialed URLs, file/debug schemes
+and paths outside the permitted worktree are rejected. Code opens review targets;
+it does not grant file-editing authority. `--name NAME` selects a logical surface;
+`--provider ID` resolves an actual provider ambiguity. `--beside`/`--focus` express
+placement, and do not override the controlling device's foreground preference.
+
+Use `muxr browser update URL --name NAME`, `muxr browser reload --name NAME` and
+`muxr browser close --name NAME` for the selected Browser surface. The host owns
+local endpoints and routes; never ask the phone user to type a broker port or secret.
+For the agent's existing login context, use the separate
+[browser-session handoff](browser-takeover.md), not a new WebView.
+
+## Where the controls are
+
+The terminal's footer **Tools** contains open Browser/Code surfaces, declared quick
+actions such as Files/Changes/Applications, **Find in recent output** and link actions.
+It dismisses the keyboard before opening and leaves the unsent draft in place.
+Terminal sheets follow the session's dark surface. The header **Pane actions**
+keeps inspection, layout, closing and other occasional actions.
+
+A surface's **Return to agent** returns to the same terminal. In an agent browser,
+**Give back** separately returns control; leaving a private browser can pause it.
+Rotation refits the surface; it does not transfer ownership or submit text.
+
+## Find retained output
+
+Choose **Tools → Find in recent output**. One host read supplies recent unwrapped
+output, capped at 1,000 lines and 256 KiB. The query is trimmed, case-insensitive
+literal text, not regex. Up to 200 matching lines are shown with one adjacent line
+on either side; overlapping context is combined. The sheet states retained count,
+capture time and truncation. It is not an archive or full conversation search.
+
+**Refresh** deliberately requests another snapshot. Typing makes no host request.
+A failed refresh keeps the old snapshot and its time. **Done** or dismissal drops
+the query/snapshot; Return only dismisses the keyboard. Search does not send input,
+move the live terminal or rewrite the draft.
+
+## Focus the same pane in Herdr
+
+Use **Pane actions → Focus in Herdr** with a Control grant and a live connection.
+The request selects that workspace/tab/pane in Herdr. The menu remains open while
+pending and reports failure for an explicit retry. **Focused in Herdr** appears
+after success. This does not launch Herdr or raise/focus an OS desktop window.
+
+## Symptom → cause → command
+
+| Symptom | Cause to check | Command / next action |
+|---|---|---|
+| Browser/Code is absent from Tools | No offer in this pane, missing capability/provider, or approval needed | `muxr surface capabilities`, then `muxr surface list` from the owning pane; open the actual target there. |
+| Local app stopped answering | Upstream dev server stopped or its lease/generation changed | Restore that dev server, then `muxr browser open http://localhost:3000/app` from its pane, using its real port. A relay restart does not restart the app. |
+| Surface expired, closed or replaced | The previous handle is no longer valid | List current surfaces; reopen the intended target once and use its new offer. |
+| No matching text in this snapshot | Query does not match retained lines | Change the literal query or **Refresh**. Older output and a complete transcript are outside this search. |
+| First 200 matches shown | Query is too broad | Narrow the query; there is no automatic next page of matches. |
+| Refresh failed | Host read failed; displayed data may be old | Read the capture time, restore the connection, then press **Refresh** once. |
+| Could not focus / Not connected | Focus request failed or the host disconnected | Restore the connection and deliberately retry **Focus in Herdr**. Repeated automatic focus is not a recovery. |
+
+Keep broker addresses, internal identifiers, capabilities and credentials out of
+agent replies. Report logical surface names and the actual outcome.

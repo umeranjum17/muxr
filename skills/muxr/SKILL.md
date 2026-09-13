@@ -50,6 +50,7 @@ work.
 | You want to | Load |
 |---|---|
 | Install, pair a phone or browser, self-host, update, uninstall, diagnose | `muxr skill onboarding` · [source](references/onboarding.md) |
+| Inspect desired/runtime configuration, change effects or service ownership | [configuration reference](references/configuration.md) · `muxr config --schema` |
 | Create panes/tabs/workspaces/worktrees, run and read agents, socket API | `muxr skill herdr` · [source](references/herdr.md) |
 | Connect computers; list, read, watch, or prompt a remote agent; voice | `muxr skill collaboration` · [source](references/collaboration.md) |
 | Hand a browser login, 2FA, or CAPTCHA to the phone | `muxr skill browser-takeover` · [source](references/browser-takeover.md) |

@@ -43,9 +43,9 @@ Setup is three interactions on a fresh computer:
 
 1. **Check this computer.** It reads Herdr, your agents and your network routes. Nothing changes.
 2. **One recommended route.** Setup proposes the best browser-capable route it found (Tailscale Serve, then cloudflared, then your own HTTPS origin). If it found only a native-only route (same Wi-Fi, a private overlay, direct Tailscale) it says so and names the exact prerequisite for the browser app. **Choose another way** lists every route.
-3. **Review, then Apply.** Review shows the plan and the exact `~/.muxr/config.env` it will write. Nothing changes until you choose **Apply setup**. Apply starts the relay and host as a user service, verifies them, and never says "complete" while a check fails.
+3. **Review, then Apply.** Review shows the planned connection and service changes; inspect the current desired settings with `muxr config`. Nothing changes until you choose **Apply setup**. Apply starts the relay and host as a user service, verifies them, and never says "complete" while a check fails.
 
-No add-on, provider or theme question appears before Apply. Those live in [Configuration](configuration.md) and in `muxr` later.
+Configuration is documented here, beside installation: [desired settings, runtime and supported changes](configuration.md). Version-2 `selfhost.json` contains both editable fields and private runtime identity; do not treat the whole file as a portable config. The existing `muxr setup --apply-config` planner is distinct from the still-unavailable `muxr config set/apply` commands.
 
 ## Pair this browser
 

@@ -2,11 +2,11 @@
 
 ## End-to-end encryption
 
-Terminal output, keystrokes, prompts, files, attachments, plugin streams, preview and takeover traffic are sealed on your computer and opened only on a paired device. Every session, terminal, attachment, plugin-stream, preview and takeover payload is encrypted; there is no plaintext mode.
+Terminal output, keystrokes, prompts, files, attachments and plugin messages are sealed between your computer and the paired device. Browser pages use HTTPS; host-local Browser content passes through a leased HTTPS gateway, and the agent browser uses a private WebRTC connection for viewing and control. Those surface connections have their own transport and are not terminal relay envelopes.
 
 ## What the relay sees
 
-The relay routes ciphertext and connection metadata (which device talks to which computer, when, how much). It never holds keys, prompts, terminal content or provider credentials, and it cannot read what it carries. When you run it yourself on the same computer, that is the whole story; a shared relay on a server you run sees the same nothing.
+The relay routes encrypted terminal/plugin traffic and connection metadata: which device talks to which computer, when and how much. It cannot decrypt that terminal content. A shared relay you operate still sees this metadata; self-hosting does not make metadata disappear.
 
 ## Browser access: roles and lifetimes
 
@@ -22,7 +22,9 @@ A Control grant can type into the agents' terminals and open shells on that comp
 
 ## Preview and takeover isolation
 
-A previewed dev server runs inside the app in a sandbox with no access to the app's storage, cookies or opener, and it cannot navigate the app; opening a preview URL as a top-level page is refused. One device controls a takeover at a time; a stale or failed controller releases control.
+A host-local Browser surface uses a separate approved origin and a bounded lease. Its application cookies and storage are supported; the gateway strips its own admission cookie before forwarding upstream. Keep the route private and run local applications you trust. A separate port is not a separate cookie boundary.
+
+An agent browser has one controller at a time. During **Take control**, the agent's viewing and input are paused. Leaving or disconnecting can leave **Paused · Private**: the human must choose **Resume control** or **Give back**. **Return to agent** only changes the visible screen. After handback, the agent continues in the same browser context; do not export cookies to transfer the login.
 
 ## Revocation
 
@@ -30,11 +32,11 @@ A previewed dev server runs inside the app in a sandbox with no access to the ap
 
 ## Provider data
 
-Realtime voice and dictation providers are configured on the computer (`muxr voice`). Audio goes from your device to the provider through your computer's plugin; the app never learns which provider, which account or which key. Coding-agent credentials and model subscriptions are the agents' own and never leave the computer.
+Configure realtime voice on the computer with `muxr voice`; provider credentials stay there. The selected provider receives the audio and requests needed for voice. Transport depends on the provider: audio may pass through the host plugin or use a device-to-provider WebRTC connection. Browser dictation uses the browser's speech-recognition service separately. Coding agents use their own configured model services and credentials.
 
 ## If a device is compromised
 
-A compromised paired browser or phone can reach what its grant allows on the computers it is paired with: those sessions, for that role, until the grant expires or you revoke it. It cannot reach other computers, other devices' keys, the relay's owner secret or anything on the computer beyond the agents' terminals. Revoke it from the computer; nothing else needs to change.
+A compromised paired browser or phone can exercise its grant until expiry or revocation. Control includes shell access with your computer user's permissions; it is not containment to one terminal or repository. Revoke the device from the computer. If it executed commands or exposed credentials, assess those effects too; revoking a grant does not undo them.
 
 <!-- release-facts:start -->
 | Fact | Value |

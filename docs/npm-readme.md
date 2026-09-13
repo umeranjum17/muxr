@@ -29,7 +29,7 @@ muxr
 ## First run
 
 1. Setup checks the computer, recommends one browser-capable route (Tailscale Serve, cloudflared, or your own HTTPS origin) and names the prerequisite when it found only a native-only route.
-2. Review shows the plan and the exact `~/.muxr/config.env` it writes. Nothing changes before **Apply setup**.
+2. Review shows the planned changes; `muxr config` inspects current desired values. Nothing changes before **Apply setup**.
 3. Open the printed pairing link in the browser you want to use; consent shows the computer, the role and the expiry. The native apps are optional and pair with `muxr pair --native`.
 
 ## Commands
@@ -48,7 +48,7 @@ muxr uninstall --yes
 muxr --skill                   # compact agent skill; muxr skill onboarding for the reference
 ```
 
-muxr never installs skills or edits agent instruction files. State lives under `~/.muxr` unless `MUXR_HOME` is set; secrets never live in `config.env`.
+muxr never installs skills or edits agent instruction files. State lives under `~/.muxr` unless `MUXR_HOME` is set. Version-2 `selfhost.json` separates desired settings from private `runtime`; the whole file contains credentials. [Configuration](https://github.com/umeranjum17/muxr/blob/main/skills/muxr/references/configuration.md) names every setting and supported change path. `config set/apply` still report unavailable; `config export` emits stored desired fields only. A second state directory does not isolate the registered service.
 
 ## Build a plugin
 
