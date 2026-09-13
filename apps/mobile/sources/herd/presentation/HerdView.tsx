@@ -158,6 +158,17 @@ const stylesheet = StyleSheet.create((theme) => ({
 function RecoveryBanner({ text, command }: { text: string; command?: string }) {
     const { theme } = useUnistyles();
     const styles = stylesheet;
+    // Copy is local and shows Copied only after the clipboard confirms; the
+    // command stays selectable and nothing runs on the computer from here.
+    const [copied, setCopied] = React.useState(false);
+    const copy = React.useCallback(() => {
+        if (command === undefined) return;
+        void Clipboard.setStringAsync(command).then((ok) => {
+            if (ok === false) return;
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }).catch(() => {});
+    }, [command]);
     return (
         <View style={styles.banner} accessibilityRole="alert">
             <Ionicons name="warning-outline" size={16} color={theme.colors.box.warning.text} />
@@ -168,12 +179,12 @@ function RecoveryBanner({ text, command }: { text: string; command?: string }) {
                         <Text style={styles.setupCommand} selectable>{command}</Text>
                         <Pressable
                             accessibilityRole="button"
-                            accessibilityLabel={`Copy ${command}`}
+                            accessibilityLabel={copied ? 'Copied' : `Copy ${command}`}
                             hitSlop={10}
                             style={styles.copyButton}
-                            onPress={() => void Clipboard.setStringAsync(command)}
+                            onPress={copy}
                         >
-                            <Ionicons name="copy-outline" size={17} color={theme.colors.textSecondary} />
+                            <Ionicons name={copied ? 'checkmark-outline' : 'copy-outline'} size={20} color={theme.colors.textSecondary} />
                         </Pressable>
                     </View>
                 )}
@@ -221,13 +232,13 @@ export const HerdView = React.memo(({
     const recovery = herdrConnected === false
         ? <RecoveryBanner text="This computer is online, but its agent runtime (herdr) is not answering, so what you see may be stale. Run this on the computer:" command="herdr server" />
         : (socketStatus === 'disconnected' || socketStatus === 'error')
-            // loaded: we had the herd, so show it as last-known. Not loaded: we
-            // never reached the computer — say so plainly instead of a bare
-            // spinner or a misleading "no agents yet". The client fails closed
-            // after its backoff and this device keeps a slow foreground retry.
-            ? <RecoveryBanner text={loaded
-                ? "Offline. Showing what was last known."
-                : "Can't reach your computer. Check it's on, connected, and running muxr — this device keeps trying."} />
+            // Conditional recovery advice, not a diagnosis: the computer may
+            // just be asleep or off-network. Carry the actual repair command
+            // (muxr restart already picks systemd or launchd) with Copy, and
+            // name the terminal-run case too. loaded keeps the last-known note.
+            ? <RecoveryBanner
+                text={`Can't reach your computer. Check this device's connection and that the computer is awake.${loaded ? ' Showing what was last known.' : ''} If muxr runs as a background service there, restart it with the command below; if you started it in a terminal, restart it there.`}
+                command="muxr restart" />
             : null;
 
     // "No agents anywhere" hides the whole list in favour of the friendly empty

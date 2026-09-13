@@ -1,4 +1,5 @@
 import * as React from 'react';
+import * as Clipboard from 'expo-clipboard';
 import { Platform, Text, TextInput, View } from 'react-native';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -115,6 +116,7 @@ export default function ConnectionSettingsScreen() {
     const latestFailure = status === 'disconnected' || status === 'error'
         ? formatLatestConnectionFailure()
         : undefined;
+    const [restartCopied, setRestartCopied] = React.useState(false);
 
     const [relayUrl, setRelayUrl] = React.useState(initial.relayUrl);
     const [machineId, setMachineId] = React.useState(initial.machineId);
@@ -164,6 +166,19 @@ export default function ConnectionSettingsScreen() {
                                 ? 'This grant expired — claim a fresh link to reconnect'
                                 : 'This device was revoked — claim a fresh link to reconnect'}
                             onPress={() => router.push(`/pair?source=settings&reason=${pairAgainReason}` as never)}
+                        />
+                    )}
+                    {latestFailure !== undefined && pairAgainReason === undefined && (
+                        <Item
+                            title="If it stays offline"
+                            subtitle="Check this device's connection and that the computer is awake. If muxr runs as a background service there, copy and run muxr restart; if you started it in a terminal, restart it there."
+                            subtitleLines={0}
+                            detail={restartCopied ? 'Copied' : 'Copy muxr restart'}
+                            onPress={() => void Clipboard.setStringAsync('muxr restart').then((ok) => {
+                                if (ok === false) return;
+                                setRestartCopied(true);
+                                setTimeout(() => setRestartCopied(false), 2000);
+                            }).catch(() => {})}
                         />
                     )}
                     <Item title="Transport" subtitle={transport} subtitleLines={0} detail="Self-host" />
