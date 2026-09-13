@@ -110,15 +110,19 @@ const stylesheet = StyleSheet.create((theme) => ({
     quiet: {
         backgroundColor: 'transparent',
     },
+    // The label clips inside the pill on a narrow screen instead of
+    // escaping it; a centred row otherwise keeps its intrinsic width.
     content: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
+        maxWidth: '100%',
     },
     text: {
         ...Typography.default('semiBold'),
         fontSize: 17,
         includeFontPadding: false,
+        flexShrink: 1,
     },
     primaryText: {
         color: theme.colors.button.primary.tint,

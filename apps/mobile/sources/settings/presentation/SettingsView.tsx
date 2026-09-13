@@ -25,7 +25,7 @@ import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
 import { DeclarativeSettingsItems } from '@/plugins/ui';
 import { pluginCatalogSnapshot, subscribePlugins } from '@/plugins';
-import { useChangelog } from '@/changelog/application/useChangelog';
+import { useChangelog } from '@/changelog';
 import {
     canPostPromotedNotifications,
     openBackgroundActivitySettings,

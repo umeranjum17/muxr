@@ -451,7 +451,7 @@ export default function PairScreen() {
                             <BrowserPairQrScanner title="Scan QR to pair" onScanned={(qr) => reviewPairing(qr.url)} />
                         )}
                         {webScanner && !manualEntry && (
-                            <ActionButton title="Enter pairing link manually" variant="secondary" icon="keypad-outline" onPress={() => setManualEntry(true)} />
+                            <ActionButton title="Enter the link" variant="secondary" icon="keypad-outline" onPress={() => setManualEntry(true)} />
                         )}
                         {manualEntry && (
                         <>

@@ -137,6 +137,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     command: {
         ...Typography.mono(),
         flex: 1,
+        minWidth: 0,
         fontSize: 12,
         color: theme.colors.text,
     },

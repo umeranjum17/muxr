@@ -332,8 +332,9 @@ const WorkspaceCard = React.memo(({
     selectedSessionId?: string;
     canClose: boolean;
 }) => {
-    const { theme } = useUnistyles();
+    const { theme, rt } = useUnistyles();
     const styles = stylesheet;
+    const narrow = rt.screen.width < 340;
     const dot = agentStatusColor(workspace.agentStatus, theme);
     const branch = workspace.worktree?.branch;
     // Folds are per group and remembered while the card lives; the noisy
@@ -371,9 +372,9 @@ const WorkspaceCard = React.memo(({
                 <Text numberOfLines={1} style={[styles.cardTitle, compact && styles.cardTitleCompact]}>
                     {workspaceName(workspace)}
                 </Text>
-                {/* The narrow sidebar keeps the name and the count; the branch pill
+                {/* A narrow row keeps the name and the count; the branch pill
                     would only push the name into an ellipsis there. */}
-                {branch !== undefined && !compact && (
+                {branch !== undefined && !compact && !narrow && (
                     <View style={styles.branchPill}>
                         <Text numberOfLines={1} style={styles.branchPillText}>{branch}</Text>
                     </View>

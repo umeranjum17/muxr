@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Pressable, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-import { StyleSheet } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { hapticsLight } from '@/components/haptics';
 
@@ -24,8 +24,11 @@ export function SegmentedControl<K extends string>({ options, value, onChange, a
     /** Inside a Field the field owns the margins. */
     style?: StyleProp<ViewStyle>;
 }) {
+    // Under 340 wide three single-word segments cannot hold 15px text and
+    // 8px pads; tighter pills and a smaller label keep every word whole.
+    const narrow = useUnistyles().rt.screen.width < 340;
     return (
-        <View accessibilityRole="radiogroup" accessibilityLabel={accessibilityLabel} style={[styles.track, disabled && styles.disabled, style]}>
+        <View accessibilityRole="radiogroup" accessibilityLabel={accessibilityLabel} style={[styles.track, narrow && styles.trackNarrow, disabled && styles.disabled, style]}>
             {options.map((option) => {
                 const checked = option.key === value;
                 const off = disabled || option.disabled === true;
@@ -37,9 +40,9 @@ export function SegmentedControl<K extends string>({ options, value, onChange, a
                         accessibilityState={{ checked, disabled: off }}
                         disabled={off}
                         onPress={() => { if (!checked) { hapticsLight(); onChange(option.key); } }}
-                        style={({ pressed }) => [styles.segment, checked && styles.segmentChecked, pressed && !checked && styles.segmentPressed, option.disabled && styles.disabled]}
+                        style={({ pressed }) => [styles.segment, narrow && styles.segmentNarrow, checked && styles.segmentChecked, pressed && !checked && styles.segmentPressed, option.disabled && styles.disabled]}
                     >
-                        <Text numberOfLines={1} style={[styles.label, checked && styles.labelChecked]}>{option.label}</Text>
+                        <Text numberOfLines={1} style={[styles.label, narrow && styles.labelNarrow, checked && styles.labelChecked]}>{option.label}</Text>
                     </Pressable>
                 );
             })}
@@ -65,6 +68,16 @@ const styles = StyleSheet.create((theme) => ({
         paddingHorizontal: 8,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: 'transparent',
+    },
+    trackNarrow: {
+        marginHorizontal: 8,
+    },
+    segmentNarrow: {
+        paddingHorizontal: 3,
+    },
+    labelNarrow: {
+        fontSize: 13,
+        lineHeight: 18,
     },
     segmentChecked: {
         backgroundColor: theme.colors.surface,

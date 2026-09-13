@@ -25,7 +25,8 @@ import { ConnectionSupport } from '@/settings/presentation/ConnectionSupport';
 import { formatLatestConnectionFailure } from '@/catalog/infrastructure/connectionDiagnostics';
 
 const stylesheet = StyleSheet.create((theme) => ({
-    row: { flexDirection: 'row', gap: 10, paddingHorizontal: 16 },
+    // Host and port share a line while both fit; a narrow screen drops the port under the host.
+    row: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16 },
     dot: { width: 9, height: 9, borderRadius: 5 },
     dotOn: { backgroundColor: theme.colors.success },
     dotBusy: { backgroundColor: theme.colors.warning },
@@ -252,9 +253,9 @@ export default function ConnectionSettingsScreen() {
                     <SegmentedControl accessibilityLabel="Transport" options={TRANSPORTS} value={scheme} onChange={setScheme} style={{ marginHorizontal: 0, marginVertical: 0 }} />
                 </Field>
                 <View style={styles.row}>
-                    <Field label="Host" style={{ flex: 3, paddingHorizontal: 0 }} value={host} onChangeText={setHost} placeholder="The computer's LAN address, not 127.0.0.1" keyboardType="url"
+                    <Field label="Host" style={{ flexBasis: 160, flexGrow: 1, paddingHorizontal: 0 }} value={host} onChangeText={setHost} placeholder="The computer's LAN address, not 127.0.0.1" keyboardType="url"
                         error={error?.field === 'host' ? error.text : undefined} />
-                    <Field label="Port" style={{ flex: 1, paddingHorizontal: 0 }} value={port} onChangeText={setPort} placeholder="8792" keyboardType="number-pad"
+                    <Field label="Port" style={{ flexBasis: 96, flexGrow: 0, paddingHorizontal: 0 }} value={port} onChangeText={setPort} placeholder="8792" keyboardType="number-pad"
                         error={error?.field === 'port' ? error.text : undefined} />
                 </View>
                 <Field label="Machine name" value={machineId} onChangeText={setMachineId} placeholder="Exactly as the computer reports it"

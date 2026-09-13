@@ -68,6 +68,22 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         flex: 1,
         justifyContent: 'center',
     },
+    // Narrow rows: the value shares the title's line so the subtitle keeps
+    // the whole width instead of wrapping one word per line beside it.
+    titleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    titleNarrow: {
+        flex: 1,
+    },
+    detailNarrow: {
+        fontSize: 15,
+        flexShrink: 1,
+        maxWidth: '60%',
+        textAlign: 'right',
+    },
     title: {
         ...Typography.default('regular'),
         fontSize: Platform.select({ ios: 17, default: 16 }),
@@ -115,9 +131,13 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     },
 }));
 
+/** Below this width a row cannot hold a title column and a value side by side. */
+const NARROW_ROW_WIDTH = 340;
+
 export const Item = React.memo<ItemProps>((props) => {
-    const { theme } = useUnistyles();
+    const { theme, rt } = useUnistyles();
     const styles = stylesheet;
+    const narrow = rt.screen.width < NARROW_ROW_WIDTH;
     
     // Platform-specific measurements
     const isIOS = Platform.OS === 'ios';
@@ -189,6 +209,52 @@ export const Item = React.memo<ItemProps>((props) => {
 
     const titleColor = destructive ? styles.titleDestructive : (selected ? styles.titleSelected : styles.titleNormal);
     const containerPadding = subtitle ? styles.containerWithSubtitle : styles.containerWithoutSubtitle;
+
+    // The value, spinner and custom control: beside the title column on a
+    // wide row, on the title's own line on a narrow one. The chevron stays
+    // centred on the row either way.
+    const value = (
+        <>
+            {detail && !rightElement && (
+                <Text 
+                    style={[
+                        styles.detail, 
+                        mono && styles.mono,
+                        { marginRight: showAccessory && !narrow ? 6 : 0 },
+                        narrow && styles.detailNarrow,
+                        detailStyle
+                    ]}
+                    numberOfLines={narrow ? 2 : 1}
+                >
+                    {detail}
+                </Text>
+            )}
+            {loading && (
+                <ActivityIndicator 
+                    size="small" 
+                    color={theme.colors.textSecondary}
+                    style={{ marginRight: showAccessory && !narrow ? 6 : 0 }}
+                />
+            )}
+            {rightElement}
+        </>
+    );
+    const titleText = (
+        <Text 
+            style={[styles.title, titleColor, narrow && styles.titleNarrow, titleStyle]}
+            numberOfLines={2}
+        >
+            {title}
+        </Text>
+    );
+    const accessory = showAccessory && (
+        <Ionicons 
+            name="chevron-forward" 
+            size={chevronSize} 
+            color={theme.colors.groupped.chevron}
+            style={{ marginLeft: 4 }}
+        />
+    );
     
     const content = (
         <>
@@ -202,17 +268,14 @@ export const Item = React.memo<ItemProps>((props) => {
 
                 {/* Center Section */}
                 <View style={styles.centerContent}>
-                    <Text 
-                        style={[styles.title, titleColor, titleStyle]}
-                        numberOfLines={subtitle ? 1 : 2}
-                    >
-                        {title}
-                    </Text>
+                    {narrow ? <View style={styles.titleRow}>{titleText}{value}</View> : titleText}
                     {subtitle && (() => {
-                        // Allow multiline when requested or when content contains line breaks
+                        // Allow multiline when requested or when content contains
+                        // line breaks; a narrow row wraps the whole subtitle rather
+                        // than clipping the sentence that explains the control.
                         const effectiveLines = subtitleLines !== undefined
                             ? (subtitleLines <= 0 ? undefined : subtitleLines)
-                            : (typeof subtitle === 'string' && subtitle.indexOf('\n') !== -1 ? undefined : 2);
+                            : (narrow || (typeof subtitle === 'string' && subtitle.indexOf('\n') !== -1) ? undefined : 2);
                         return (
                             <Text
                                 style={[styles.subtitle, mono && styles.mono, subtitleStyle]}
@@ -225,37 +288,12 @@ export const Item = React.memo<ItemProps>((props) => {
                 </View>
 
                 {/* Right Section */}
-                <View style={styles.rightSection}>
-                    {detail && !rightElement && (
-                        <Text 
-                            style={[
-                                styles.detail, 
-                                mono && styles.mono,
-                                { marginRight: showAccessory ? 6 : 0 },
-                                detailStyle
-                            ]}
-                            numberOfLines={1}
-                        >
-                            {detail}
-                        </Text>
-                    )}
-                    {loading && (
-                        <ActivityIndicator 
-                            size="small" 
-                            color={theme.colors.textSecondary}
-                            style={{ marginRight: showAccessory ? 6 : 0 }}
-                        />
-                    )}
-                    {rightElement}
-                    {showAccessory && (
-                        <Ionicons 
-                            name="chevron-forward" 
-                            size={chevronSize} 
-                            color={theme.colors.groupped.chevron}
-                            style={{ marginLeft: 4 }}
-                        />
-                    )}
-                </View>
+                {(!narrow || showAccessory) && (
+                    <View style={styles.rightSection}>
+                        {!narrow && value}
+                        {accessory}
+                    </View>
+                )}
             </View>
 
             {/* Divider */}
