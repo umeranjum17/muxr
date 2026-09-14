@@ -230,6 +230,7 @@ const pkg = {
         'plugin/',
         'release/',
         'diagnostics/',
+        'surface/',
         'host.js',
         'relay.js',
         'crypto.js',
