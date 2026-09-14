@@ -143,13 +143,14 @@ export function TerminalToolsTrigger({ side, onSideChange, onPress, blocked, exp
  * glyph keys; a hairline; then the labelled rows with their data inline,
  * one line each, sized to content. The card has no internal scroll region:
  * every rendered row contributes to its height, even when the available
- * terminal area is short. A tap on the terminal, Back and Escape close it
- * too.
+ * terminal area is short. Its bottom edge remains tied to the mark, so the
+ * card grows upward into the available surface without pushing its rows into
+ * the tabs or footer. A tap on the terminal, Back and Escape close it too.
  */
 export function TerminalToolsPanel({ commands, side, onClose, children }: {
     commands: readonly TerminalCommand[];
     side: ToolsSide;
-    /** Retained for the shared caller while the footer owns terminal geometry; the card sizes to content. */
+    /** Retained for the shared caller; the card deliberately sizes to content. */
     maxHeight: number;
     onClose: () => void;
     children: React.ReactNode;
