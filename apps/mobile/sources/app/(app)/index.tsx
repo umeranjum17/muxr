@@ -96,8 +96,7 @@ function NotAuthenticated() {
         return (
             <View style={styles.screen}>
                 <ScrollView ref={setupScrollRef} style={styles.hostedScroll} contentContainerStyle={styles.hostedContent}
-                    keyboardShouldPersistTaps="handled"
-                    onContentSizeChange={() => { if (setupCopyStatus) setupScrollRef.current?.scrollToEnd({ animated: false }); }}>
+                    keyboardShouldPersistTaps="handled">
                     <View style={[styles.hero, styles.hostedHero]}>
                         <Wordmark width={128} />
                         <Text style={[styles.title, styles.hostedTitle]}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : 'Run your agents from your phone.'}</Text>
@@ -112,8 +111,13 @@ function NotAuthenticated() {
                                 ? '3. For this browser, choose Tailscale Serve, Cloudflare, or your own WSS server. Enable web access, then open the pairing link.'
                                 : '3. Pair this phone with the QR or short string setup shows. Only this device receives its key grant.'}</Text>
                             <Text selectable style={styles.setupCommands}>{setupCommands}</Text>
-                            <ActionButton title="Copy computer commands" icon="copy-outline" variant="secondary" onPress={() => void copySetupCommands()} />
-                            {setupCopyStatus && <Text accessibilityLiveRegion="polite" style={styles.copyStatus}>{setupCopyStatus}</Text>}
+                            <ActionButton title="Copy both" accessibilityLabel="Copy computer setup commands" icon="copy-outline" variant="secondary" onPress={() => void copySetupCommands()} />
+                            {setupCopyStatus && (
+                                <Text accessibilityLiveRegion="polite" style={styles.copyStatus}
+                                    onLayout={() => setupScrollRef.current?.scrollToEnd({ animated: true })}>
+                                    {setupCopyStatus}
+                                </Text>
+                            )}
                         </View>
                     </View>
                 </ScrollView>
