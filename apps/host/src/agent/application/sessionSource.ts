@@ -107,6 +107,12 @@ export interface SessionSource {
     pluginList(deviceId: string): Promise<PluginSummary[]>;
     pluginManifest(options: { pluginId: string; manifestHash: string }): Promise<PluginManifestV1>;
     pluginApprove(options: { deviceId: string; pluginId: string; manifestHash: string; approved: boolean }): Promise<void>;
+    /** Synchronous approval fence, undefined while the named device/provider is changing. */
+    pluginApprovalRevision?(deviceId: string, pluginId?: string): number | undefined;
+    /** Fired before an approval mutation can reach persistence. */
+    onPluginApprovalMutation?(listener: (deviceId: string, pluginId: string) => void): () => void;
+    /** Complete changed provider identities, before the bounded wire invalidation. */
+    onPluginCatalogChange?(listener: (changedPluginIds: readonly string[]) => void): () => void;
     pluginInvoke(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; sessionId: string; idempotencyKey: string }): Promise<void>;
     pluginCall(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; input?: unknown; idempotencyKey?: string }): Promise<unknown>;
     /** Declared RPC mode for a catalog contribution, so read-only devices can be allowed through read paths only. */

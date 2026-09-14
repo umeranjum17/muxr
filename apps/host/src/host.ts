@@ -7,8 +7,8 @@
  */
 
 import type { ClientFrame, ClientRequest, SessionEvent, SessionEventBody } from '@muxr/contract';
-import { connectToRelay, deviceTableCanMutate, type RelayLink, type RelayStateCode, type HostedMachineKeys } from './machine/index.js';
-import { createRequestDispatcher } from './requests/index.js';
+import { connectToRelay, deviceTableCanMutate, deviceTableHoldsControl, type RelayLink, type RelayStateCode, type HostedMachineKeys } from './machine/index.js';
+import { createRequestDispatcher, surfaceOfferFrame, type RequestDispatcherOptions, type SurfaceOfferEvent } from './requests/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
 import type { PeerRuntime } from './peer/index.js';
 import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/index.js';
@@ -44,6 +44,9 @@ export interface HostOptions {
     terminals?: TerminalManager;
     hostVersion?: string;
     connectionMode?: string;
+    surfaceOffers?: RequestDispatcherOptions['surfaceOffers'];
+    previewEndpoints?: RequestDispatcherOptions['previewEndpoints'];
+    previewGateway?: RequestDispatcherOptions['previewGateway'];
     onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced', code?: RelayStateCode) => void;
     /** Mandatory strict v2 endpoint keys for hosted mode. */
     hostedE2ee?: HostedMachineKeys;
@@ -68,6 +71,7 @@ export function startHost(options: HostOptions): Host {
         hostedDispatcherOptions = {
             requirePreviewEncryption: true,
             canMutateDevice: (deviceId: string) => deviceTableCanMutate(hosted.deviceAuthorities, deviceId),
+            surfaceAuthority: (deviceId: string) => deviceTableHoldsControl(hosted, deviceId),
             getDeviceContext: (deviceId: string) => {
                 const kind = hosted.deviceKinds?.[deviceId];
                 if (kind === undefined) return undefined;
@@ -91,6 +95,9 @@ export function startHost(options: HostOptions): Host {
         ...(options.hostedE2ee === undefined ? {} : { pairedDeviceCount: () => Object.entries(options.hostedE2ee!.deviceKinds ?? {})
             .filter(([id, kind]) => kind !== 'peer' && (options.hostedE2ee!.deviceExpiresAt?.[id] ?? 0) > Date.now()).length }),
         relayUrl: options.relayUrl,
+        ...(options.surfaceOffers === undefined ? {} : { surfaceOffers: options.surfaceOffers }),
+        ...(options.previewEndpoints === undefined ? {} : { previewEndpoints: options.previewEndpoints }),
+        ...(options.previewGateway === undefined ? {} : { previewGateway: options.previewGateway }),
         ...(options.terminals === undefined ? {} : { terminals: options.terminals }),
         ...(options.token === undefined ? {} : { token: options.token }),
         ...(options.peerRuntime === undefined ? {} : { peerRuntime: options.peerRuntime }),
@@ -101,6 +108,15 @@ export function startHost(options: HostOptions): Host {
         const seq = (seqBySession.get(sessionId) ?? 0) + 1;
         seqBySession.set(sessionId, seq);
         return seq;
+    }
+
+    function emitSurfaceOffer(operation: SurfaceOfferEvent['operation'], record: SurfaceOfferEvent['record']): void {
+        const frame = surfaceOfferFrame({ operation, record });
+        if (frame === undefined || record.sessionId === undefined) return;
+        link?.send(frame, record.sessionId, 'session');
+    }
+    if (options.surfaceOffers !== undefined) {
+        options.surfaceOffers.onEvent = (event) => emitSurfaceOffer(event.operation, event.record);
     }
 
     async function handleClientFrame(frame: ClientFrame, authenticatedSenderId?: string): Promise<void> {
@@ -125,6 +141,7 @@ export function startHost(options: HostOptions): Host {
                 }
             }
             if (peerRecipient === undefined) source.resendCumulativeState?.();
+            for (const record of options.surfaceOffers?.records() ?? []) emitSurfaceOffer('open', record);
             return;
         }
 
@@ -168,6 +185,7 @@ export function startHost(options: HostOptions): Host {
                 // Clients do not reconnect when the host restarts, so waiting
                 // for client.hello never rescues them.
                 source.resendCumulativeState?.();
+                for (const record of options.surfaceOffers?.records() ?? []) emitSurfaceOffer('open', record);
             }
         },
         onClientFrame: (frame, authenticatedSenderId) => {
