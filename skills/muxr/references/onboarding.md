@@ -35,9 +35,8 @@ Node itself.
 Run `muxr` with no arguments for the interactive setup and maintenance menu.
 The onboarding inspects the machine without changing it. It shows all six
 connection routes together, explains their requirements, and recommends a
-healthy current route or a detected route. Choose a route, then browser access,
-agent integrations, optional plugins, and managed
-services. Nothing changes before a final **Apply setup** confirmation. Setup
+healthy current route or a detected route. Choose a route, browser access, and
+agent integrations. Nothing changes before a final **Apply setup** confirmation. Setup
 then starts the selected relay and host, runs the pairing flow (scan the
 one-use QR from the phone app), and verifies the connection and managed
 services without printing credentials.

@@ -35,6 +35,7 @@ function NotAuthenticated() {
     const insets = useSafeAreaInsets();
     const hosted = getCachedConnectionSettings().mode === 'hosted';
     const pairing = React.useRef(false);
+    const setupScrollRef = React.useRef<ScrollView>(null);
     const [setupCopyStatus, setSetupCopyStatus] = React.useState<string | undefined>();
     const setupCommands = 'npm install -g --ignore-scripts @trymuxr/cli@latest\nmuxr setup';
     const copySetupCommands = async () => {
@@ -289,7 +290,7 @@ const styles = StyleSheet.create((theme) => ({
         backgroundColor: theme.colors.surfaceHigh,
         borderWidth: 1,
         borderColor: theme.colors.divider,
-        gap: 8,
+        gap: 7,
         marginBottom: 8,
     },
     setupHeading: {
@@ -300,14 +301,14 @@ const styles = StyleSheet.create((theme) => ({
     },
     setupStep: {
         ...Typography.default(),
-        fontSize: 13,
-        lineHeight: 18,
+        fontSize: 14,
+        lineHeight: 21,
         color: theme.colors.textSecondary,
     },
     setupCommands: {
         ...Typography.mono(),
-        fontSize: 12,
-        lineHeight: 18,
+        fontSize: 13,
+        lineHeight: 19,
         color: theme.colors.text,
         backgroundColor: theme.colors.surfaceHighest,
         padding: 10,
@@ -315,8 +316,8 @@ const styles = StyleSheet.create((theme) => ({
     },
     copyStatus: {
         ...Typography.default(),
-        fontSize: 12,
-        lineHeight: 17,
+        fontSize: 13,
+        lineHeight: 19,
         color: theme.colors.textSecondary,
     },
     // Landscape styles
