@@ -716,7 +716,7 @@ export async function inspectSetup() {
             if (existsSync(definition.path)) {
                 if ((await runDaemon(['restart'])) !== 0) throw new Error('muxr daemon restart failed');
             } else {
-                await ensureSelfhostRelay(selfhost.relayPort, selfhost.webRoot, selfhost.bindHost, selfhost.webOrigin);
+                await ensureSelfhostRelay(selfhost.relayPort, selfhost.webRoot, selfhost.bindHost, selfhost.webOrigin, relayDiscovery(selfhost));
             }
         } }
         : undefined;
