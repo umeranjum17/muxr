@@ -68,7 +68,7 @@ const styles = StyleSheet.create((theme) => ({
     },
     phoneHeader: {
         zIndex: 10,
-        backgroundColor: Platform.OS === 'web' ? theme.colors.groupped.background : 'transparent',
+        backgroundColor: theme.colors.groupped.background,
     },
     phoneHeaderOverlay: {
         position: 'absolute',
@@ -82,6 +82,7 @@ const styles = StyleSheet.create((theme) => ({
         right: 0,
         bottom: 0,
         zIndex: 30,
+        backgroundColor: theme.colors.groupped.background,
     },
     tabletDashboard: {
         flex: 1,
@@ -426,23 +427,25 @@ export const MainView = React.memo(() => {
     const [hasPairedGrant, setHasPairedGrant] = React.useState(false);
     const [retryingHome, setRetryingHome] = React.useState(false);
     const [splitRetryFailed, setSplitRetryFailed] = React.useState(false);
+    const [splitHostRequestFailed, setSplitHostRequestFailed] = React.useState(false);
     const [homeRecoveryFeedback, setHomeRecoveryFeedback] = React.useState('');
     const [splitHerdrConnected, setSplitHerdrConnected] = React.useState<boolean | undefined>();
     React.useEffect(() => {
-        if (!useSplitView || socketStatus.status !== 'connected') return;
+        if (!useSplitView || !hasPairedGrant || socketStatus.status === 'error' || socketStatus.status === 'disconnected') return;
         let cancelled = false;
         const refresh = () => {
             void sync.refreshHerdTree().then((result) => {
                 if (!cancelled) {
                     setSplitHerdrConnected(result.herdrConnected);
+                    setSplitHostRequestFailed(storage.getState().socketStatus !== 'connected');
                     if (result.herdrConnected !== false) setSplitRetryFailed(false);
                 }
-            }).catch(() => undefined);
+            }).catch(() => { if (!cancelled) setSplitHostRequestFailed(true); });
         };
         refresh();
         const interval = setInterval(refresh, 5_000);
         return () => { cancelled = true; clearInterval(interval); };
-    }, [socketStatus.status, useSplitView]);
+    }, [hasPairedGrant, socketStatus.status, useSplitView]);
     React.useEffect(() => {
         let cancelled = false;
         void listPairedGrants().then((grants) => {
@@ -452,7 +455,7 @@ export const MainView = React.memo(() => {
     }, [socketStatus.status]);
     const splitHostOffline = useSplitView && hasPairedGrant
         && getCachedConnectionSettings().mode === 'hosted'
-        && (socketStatus.status === 'error' || socketStatus.status === 'disconnected');
+        && (socketStatus.status === 'error' || socketStatus.status === 'disconnected' || splitHostRequestFailed);
     const splitRuntimeOffline = useSplitView && hasPairedGrant && socketStatus.status === 'connected' && splitHerdrConnected === false;
     const retrySplitConnection = React.useCallback(async () => {
         if (retryingHome) return;

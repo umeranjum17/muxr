@@ -211,7 +211,8 @@ export const HerdView = React.memo(({
     // grants can tell "never paired" from "paired but the machine is off".
     const neverPaired = connection.mode === 'hosted' && hasPairedGrant === false;
     const hostOffline = connection.mode === 'hosted' && hasPairedGrant === true && attempted
-        && (socketStatus.status === 'error' || socketStatus.status === 'disconnected');
+        && (socketStatus.status === 'error' || socketStatus.status === 'disconnected'
+            || (socketStatus.status === 'connecting' && error !== null));
     const runtimeOffline = connection.mode === 'hosted' && hasPairedGrant === true
         && socketStatus.status === 'connected' && herdrConnected === false;
     React.useEffect(() => {
