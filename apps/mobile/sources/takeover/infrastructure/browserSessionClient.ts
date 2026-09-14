@@ -33,8 +33,8 @@ export interface BrowserPeerCallbacks {
 }
 
 export interface BrowserPeer {
-    /** Web: a MediaStream for `<video>`; native: the stream URL for RTCView. */
-    media: { stream?: unknown; streamURL?: string };
+    /** Web: a MediaStream for `<video>`; native: the stream URL for RTCView once a track is attached. */
+    media: { stream?: unknown; streamURL?: string } | undefined;
     /** Local SDP after ICE gathering: one round trip carries everything. */
     offer: () => Promise<string>;
     accept: (answerSdp: string) => Promise<void>;
@@ -60,6 +60,10 @@ export async function createBrowserPeer(callbacks: BrowserPeerCallbacks): Promis
     const pointer = peer.createDataChannel('pointer', { ordered: false, maxRetransmits: 0 });
     let closed = false;
     let remoteTrack: MediaStreamTrack | undefined;
+    // Android RTCView resolves a stream URL once. Do not publish the native
+    // URL while its MediaStream is empty: the later ontrack event updates the
+    // stream, but RTCView does not retry its initial lookup.
+    let media: BrowserPeer['media'];
 
     const transceiver: RTCRtpTransceiver = peer.addTransceiver('video', { direction: 'recvonly' });
     try {
@@ -76,6 +80,7 @@ export async function createBrowserPeer(callbacks: BrowserPeerCallbacks): Promis
         for (const old of stream.getTracks()) stream.removeTrack(old);
         stream.addTrack(track);
         remoteTrack = track;
+        media = { streamURL: stream.toURL() };
         callbacks.onTrack();
     };
     peer.onconnectionstatechange = () => {
@@ -105,7 +110,7 @@ export async function createBrowserPeer(callbacks: BrowserPeerCallbacks): Promis
     });
 
     return {
-        media: { streamURL: stream.toURL() },
+        get media() { return media; },
         offer: async () => {
             const offer = await peer.createOffer();
             await peer.setLocalDescription(offer);

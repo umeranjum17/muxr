@@ -36,10 +36,10 @@ export function HostBrowserVideo(props: HostBrowserVideoProps): React.JSX.Elemen
     }, []);
     const streamURL = props.media?.streamURL;
     const { mediaGeneration, onPresented, onFrame } = props;
-    const presentedRef = React.useRef(false);
+    const presentedForRef = React.useRef<number | null>(null);
     const markPresented = React.useCallback(() => {
-        if (presentedRef.current) return;
-        presentedRef.current = true;
+        if (presentedForRef.current === mediaGeneration) return;
+        presentedForRef.current = mediaGeneration;
         onPresented(mediaGeneration);
     }, [mediaGeneration, onPresented]);
     if (View === null || streamURL === undefined) return null;

@@ -44,7 +44,7 @@ export interface TakeoverSnapshot {
     /** Every gate holds: input may leave the device. */
     inputUnlocked: boolean;
     field: FocusedField | null;
-    /** Media for the current generation; the view re-attaches when `mediaGeneration` changes. */
+    /** Media for the current generation once its received track is attached; the view re-attaches when `mediaGeneration` changes. */
     media: BrowserPeer['media'] | undefined;
     mediaGeneration: number;
     /** A fresh frame of the current media has been presented. */
