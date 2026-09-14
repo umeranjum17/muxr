@@ -35,7 +35,6 @@ function NotAuthenticated() {
     const insets = useSafeAreaInsets();
     const hosted = getCachedConnectionSettings().mode === 'hosted';
     const pairing = React.useRef(false);
-    const setupScrollRef = React.useRef<ScrollView>(null);
     const [setupCopyStatus, setSetupCopyStatus] = React.useState<string | undefined>();
     const [showOtherWays, setShowOtherWays] = React.useState(false);
     const setupCommands = 'npm install -g --ignore-scripts @trymuxr/cli@latest\nmuxr setup';
