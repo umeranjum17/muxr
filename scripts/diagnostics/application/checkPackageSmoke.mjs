@@ -429,6 +429,7 @@ try {
     assert.ok(listing.includes('package/plugin/application/installPlugin.mjs'), 'plugin install use case missing from npm artifact');
     assert.ok(listing.includes('package/setup/application/promptPeerAgent.mjs'), 'peer CLI client missing from npm artifact');
     assert.ok(listing.includes('package/diagnostics/application/dumpDiagnostics.mjs'), 'host diagnostics CLI missing from npm artifact');
+    assert.ok(listing.includes('package/surface/index.mjs'), 'CLI surface missing from npm artifact');
     assert.ok(listing.includes('package/plugins/control/run.mjs'), 'control plugin missing from npm artifact');
     assert.ok(listing.includes('package/plugins/code/muxr-ui.json'), 'Code plugin missing from npm artifact');
     assert.ok(!listing.includes('package/plugins/code/runbook.mjs'), 'retired Code Runbook file shipped in npm artifact');
