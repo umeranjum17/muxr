@@ -52,9 +52,9 @@ const styles = StyleSheet.create({
         backgroundColor: '#FAFAFA',
     },
     input: {
-        paddingHorizontal: 32,
-        paddingVertical: 24,
-        fontSize: 20,
+        paddingHorizontal: Platform.OS === 'web' ? 32 : 16,
+        paddingVertical: Platform.OS === 'web' ? 24 : 12,
+        fontSize: Platform.OS === 'web' ? 20 : 16,
         color: '#000',
         letterSpacing: -0.3,
         // Remove outline on web

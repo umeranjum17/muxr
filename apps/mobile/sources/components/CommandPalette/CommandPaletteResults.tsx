@@ -120,10 +120,10 @@ const styles = StyleSheet.create({
         letterSpacing: -0.2,
     },
     categoryTitle: {
-        paddingHorizontal: 32,
-        paddingTop: 16,
+        paddingHorizontal: Platform.OS === 'web' ? 32 : 16,
+        paddingTop: Platform.OS === 'web' ? 16 : 8,
         paddingBottom: 8,
-        fontSize: 12,
+        fontSize: 13,
         color: '#999',
         textTransform: 'uppercase',
         letterSpacing: 0.8,

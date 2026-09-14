@@ -7,7 +7,7 @@
  */
 
 import * as React from 'react';
-import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
@@ -61,6 +61,7 @@ import { useTerminalQuickReplies } from '@/plugins/ui';
 
 export const TerminalScreen = React.memo((props: { id: string }) => {
     const { theme } = useUnistyles();
+    const compactComposer = useWindowDimensions().width < 380;
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const isFocused = useIsFocused();
     const socketStatus = useSocketStatus();
@@ -490,6 +491,31 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const paneIndex = siblings.indexOf(props.id);
     const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
     const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting';
+    const attachmentAction = <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ opacity: attaching ? 0.4 : 1 }}>
+        <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={24} color={theme.colors.textSecondary} />
+    </Pressable>;
+    const commandAction = <Pressable onPress={openAgentCommands} accessibilityRole="button" accessibilityLabel="Agent commands" hitSlop={8}
+        style={({ pressed }) => ({ width: 32, minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
+        <Text style={{ color: theme.colors.textSecondary, fontSize: 23, fontWeight: '500' }}>/</Text>
+    </Pressable>;
+    const composerInput = <TextInput
+        ref={composerRef}
+        value={draft}
+        onChangeText={handleDraftChange}
+        onSubmitEditing={sendPrompt}
+        returnKeyType="send"
+        blurOnSubmit
+        submitBehavior="blurAndSubmit"
+        placeholder="Type a prompt…"
+        placeholderTextColor={theme.colors.textSecondary}
+        style={{ flex: 1, color: theme.colors.text, backgroundColor: theme.colors.surfaceHigh, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 16 }}
+    />;
+    const composerPlugins = <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
+    </View>;
+    const sendAction = <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
+        <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
+    </Pressable>;
 
     // Same shape as KeyboardAvoidingView, minus the animation: that padding
     // moves frame by frame and Ghostty reflows its whole grid on every size
@@ -731,8 +757,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
 
             <View
                 style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
+                    flexDirection: compactComposer ? 'column' : 'row',
+                    alignItems: compactComposer ? 'stretch' : 'center',
                     gap: 8,
                     paddingHorizontal: 12,
                     paddingVertical: 8,
@@ -742,38 +768,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     borderTopColor: theme.colors.divider,
                 }}
             >
-                <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ opacity: attaching ? 0.4 : 1 }}>
-                    <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={24} color={theme.colors.textSecondary} />
-                </Pressable>
-                <Pressable onPress={openAgentCommands} accessibilityRole="button" accessibilityLabel="Agent commands" hitSlop={8}
-                    style={({ pressed }) => ({ width: 32, minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 23, fontWeight: '500' }}>/</Text>
-                </Pressable>
-                <TextInput
-                    ref={composerRef}
-                    value={draft}
-                    onChangeText={handleDraftChange}
-                    onSubmitEditing={sendPrompt}
-                    returnKeyType="send"
-                    blurOnSubmit
-                    submitBehavior="blurAndSubmit"
-                    placeholder="Type a prompt…"
-                    placeholderTextColor={theme.colors.textSecondary}
-                    style={{
-                        flex: 1,
-                        color: theme.colors.text,
-                        backgroundColor: theme.colors.surfaceHigh,
-                        borderRadius: 8,
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                    }}
-                />
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
-                </View>
-                <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
-                    <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
-                </Pressable>
+                {compactComposer ? <>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>{composerInput}{sendAction}</View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, paddingTop: 4 }}>
+                        {attachmentAction}{commandAction}<View style={{ flex: 1 }} />{composerPlugins}
+                    </View>
+                </> : <>{attachmentAction}{commandAction}{composerInput}{composerPlugins}{sendAction}</>}
             </View>
             </View>}
 
@@ -913,7 +913,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     </View>
                 </Pressable>
             )}
-            {findOpen && <FindOutputSheet sessionId={props.id} onClose={() => setFindOpen(false)} />}
+            {findOpen && <FindOutputSheet sessionId={props.id} keyboardOffset={Platform.OS === 'web' || !keyboardVisible ? 0 : keyboardHeight} onClose={() => setFindOpen(false)} />}
         </View>
     );
 });
