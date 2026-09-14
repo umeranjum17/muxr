@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Text, View, Pressable } from 'react-native';
+import { Text, View, Pressable, TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePathname, useRouter } from 'expo-router';
 import { useHeaderHeight } from '@/utils/responsive';
@@ -71,6 +71,12 @@ const stylesheet = StyleSheet.create((theme) => ({
         fontSize: 12,
         ...Typography.default(),
     },
+    treeSearch: {
+        minHeight: 44, marginHorizontal: 16, marginTop: 6, paddingHorizontal: 12,
+        borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.surface, color: theme.colors.text, fontSize: 13,
+        ...Typography.default(),
+    },
     toolsSection: {
         paddingHorizontal: 10,
         paddingTop: 14,
@@ -120,9 +126,9 @@ export const SidebarView = React.memo(() => {
         attempted,
         error,
         herdrConnected,
-        defaultExpandedWorkspaceIds,
         refresh,
     } = useHerdTreeLive();
+    const [searchQuery, setSearchQuery] = React.useState('');
     const selectedSessionId = pathname.startsWith('/session/')
         ? pathname.split('/')[2]
         : undefined;
@@ -162,12 +168,16 @@ export const SidebarView = React.memo(() => {
                 </Pressable>
             </View>
 
+            <TextInput value={searchQuery} onChangeText={setSearchQuery} placeholder="Find repository, worktree, agent"
+                placeholderTextColor={stylesheet.treeNotice.color} style={styles.treeSearch}
+                accessibilityLabel="Search repositories, worktrees and agents" autoCorrect={false} />
+
             <SpacesTree
                 workspaces={workspaces}
-                defaultExpandedWorkspaceIds={defaultExpandedWorkspaceIds}
                 refresh={refresh}
                 density="compact"
                 selectedSessionId={selectedSessionId}
+                searchQuery={searchQuery}
                 emptyText={emptyText}
                 listHeaderComponent={error !== null || herdrConnected === false ? (
                     <Text style={styles.treeNotice}>

@@ -124,7 +124,8 @@ export function herdPanes(sessions: Session[], workspaces: readonly HerdrTreeWor
                 ...(pane.displayAgent === undefined ? {} : { displayAgent: pane.displayAgent }),
                 agentStatus: pane.agentStatus,
                 promptable: pane.promptable,
-                changedAt: session?.metadata?.lifecycleStateSince ?? session?.updatedAt,
+                changedAt: pane.changedAt ?? (session?.metadata?.agentStatus === pane.agentStatus
+                    ? session.metadata.lifecycleStateSince : undefined),
                 doing: '',
             }];
         });

@@ -166,6 +166,7 @@ export const HerdView = React.memo(({
     onScroll,
     onRecoveryChange,
     searchQuery = '',
+    selectedSessionId,
     maxContentWidth = layout.maxWidth,
 }: {
     topContentInset?: number;
@@ -174,6 +175,7 @@ export const HerdView = React.memo(({
     onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
     onRecoveryChange?: (active: boolean) => void;
     searchQuery?: string;
+    selectedSessionId?: string;
     maxContentWidth?: number;
 }) => {
     const { theme } = useUnistyles();
@@ -187,7 +189,6 @@ export const HerdView = React.memo(({
         error,
         herdrConnected,
         hasPairedGrant,
-        defaultExpandedWorkspaceIds,
         refresh,
         refreshStatus,
     } = useHerdTreeLive();
@@ -384,9 +385,9 @@ export const HerdView = React.memo(({
             ) : null}
             <SpacesTree
                 workspaces={workspaces}
-                defaultExpandedWorkspaceIds={defaultExpandedWorkspaceIds}
                 refresh={refresh}
                 searchQuery={searchQuery}
+                selectedSessionId={selectedSessionId}
                 listHeaderComponent={<>
                     <VersionNotice />
                     {header}

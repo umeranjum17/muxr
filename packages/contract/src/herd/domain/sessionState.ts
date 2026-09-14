@@ -115,6 +115,8 @@ export interface HerdrTreePane extends AgentInfo {
     cwd?: string;
     terminalTitle?: string;
     focused: boolean;
+    /** Host-observed lifecycle transition time, only when it matches the live status. */
+    changedAt?: number;
     /** Agent Route, or an explicit ephemeral Shell route for a bare pane. */
     sessionId?: string;
 }
@@ -132,7 +134,16 @@ export interface HerdrTreeWorkspace {
     label?: string;
     focused: boolean;
     agentStatus: AgentLifecycle;
-    worktree?: { repo: string; branch?: string; path: string };
+    worktree?: {
+        repo: string;
+        branch?: string;
+        path: string;
+        /** Canonical git common-dir and checkout top-level; absent when unverified. */
+        repoKey?: string;
+        checkoutKey?: string;
+        repoPath?: string;
+        isLinkedWorktree?: boolean;
+    };
     tabs: HerdrTreeTab[];
 }
 

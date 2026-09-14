@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
-import { agentNameLine, compactAge, isShellLabels } from '../domain/agentPresentation';
+import { agentNameLine, compactAge, isGenericLaunchTitle, isShellLabels } from '../domain/agentPresentation';
 import { recentActivityStatus, type RecentActivityRow } from '../domain/recentActivity';
 import { AgentGlyph } from '@/components/AgentGlyph';
 
@@ -15,8 +15,8 @@ const styles = StyleSheet.create((theme) => ({
     header: { minHeight: 28, flexDirection: 'row', alignItems: 'center', gap: 7 },
     title: {
         color: theme.colors.groupped.sectionTitle,
-        fontSize: 11,
-        letterSpacing: 1.5,
+        fontSize: 13,
+        letterSpacing: 0.5,
         textTransform: 'uppercase',
         ...Typography.default('semiBold'),
     },
@@ -32,8 +32,8 @@ const styles = StyleSheet.create((theme) => ({
         borderBottomColor: theme.colors.divider,
     },
     copy: { flex: 1, minWidth: 0, gap: 2 },
-    task: { color: theme.colors.text, fontSize: 12, ...Typography.default('semiBold') },
-    meta: { color: theme.colors.textSecondary, fontSize: 11, ...Typography.default() },
+    task: { color: theme.colors.text, fontSize: 14, lineHeight: 18, ...Typography.default('semiBold') },
+    meta: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 16, ...Typography.default() },
     more: { minHeight: 38, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 7 },
     moreText: { color: theme.colors.textSecondary, fontSize: 11, ...Typography.default('semiBold') },
 }));
@@ -69,19 +69,20 @@ export const RecentActivity = React.memo((props: {
                     };
                     const shell = isShellLabels(labels);
                     const identity = agentNameLine(labels);
-                    const meta = [identity || undefined, recentActivityStatus(row), compactAge(Date.now() - row.at)].filter(Boolean).join(' · ');
+                    const title = isGenericLaunchTitle(row.taskTitle) ? identity || row.agentName || 'Agent' : row.taskTitle;
+                    const meta = [title === identity ? undefined : identity || undefined, recentActivityStatus(row), compactAge(Date.now() - row.at)].filter(Boolean).join(' · ');
                     return (
                         <Pressable
                             key={row.eventId}
                             accessibilityRole="button"
-                            accessibilityLabel={`${row.taskTitle}. ${meta}`}
+                            accessibilityLabel={`${title}. ${meta}`}
                             onPress={() => props.onSelect(row)}
                             style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
                         >
                             <Ionicons name={icon(row)} size={16} color={color} />
                             <AgentGlyph name={shell ? 'shell' : row.agentKind ?? row.agentName ?? row.taskTitle} size={16} />
                             <View style={styles.copy}>
-                                <Text numberOfLines={1} style={styles.task}>{row.taskTitle}</Text>
+                                <Text numberOfLines={1} style={styles.task}>{title}</Text>
                                 <Text numberOfLines={1} style={styles.meta}>{meta}</Text>
                             </View>
                             <Ionicons name="arrow-forward" size={14} color={theme.colors.groupped.chevron} />

@@ -20,7 +20,7 @@ export function selectLiveTerminalCards(
     panes: readonly HerdPane[],
 ): LiveTerminalOrderCard[] {
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
-    return panes.map((pane) => {
+    return panes.filter((pane) => pane.agentKind !== undefined || pane.agentName !== undefined).map((pane) => {
         const session = sessionsById.get(pane.id);
         return {
             id: pane.id,
@@ -44,10 +44,19 @@ export function liveTerminalBucket(status: AgentLifecycle): LiveTerminalBucket {
     return 'offline';
 }
 
-/** A terminal is a place, not an event: lifecycle changes never move its card. */
-export function orderLiveTerminalCards(cards: readonly LiveTerminalOrderCard[]): LiveTerminalOrderCard[] {
-    return [...cards].sort((left, right) =>
-        (left.createdAt ?? Number.MAX_SAFE_INTEGER) - (right.createdAt ?? Number.MAX_SAFE_INTEGER));
+function priority(card: LiveTerminalOrderCard, unseen: ReadonlySet<string>): number {
+    if (card.agentStatus === 'blocked' || card.agentStatus === 'failed') return 0;
+    if (unseen.has(card.id)) return 1;
+    if (card.agentStatus === 'working' || card.agentStatus === 'starting') return 2;
+    if (card.agentStatus === 'done' || card.agentStatus === 'idle') return 3;
+    return 4;
+}
+
+/** Verified lifecycle and unseen activity put agents needing a look before active and settled agents. */
+export function orderLiveTerminalCards(cards: readonly LiveTerminalOrderCard[], unseen: ReadonlySet<string> = new Set()): LiveTerminalOrderCard[] {
+    return [...cards].sort((left, right) => priority(left, unseen) - priority(right, unseen)
+        || (right.changedAt ?? 0) - (left.changedAt ?? 0)
+        || left.id.localeCompare(right.id));
 }
 
 function sameCard(left: LiveTerminalOrderCard, right: LiveTerminalOrderCard): boolean {
@@ -63,25 +72,18 @@ function sameCard(left: LiveTerminalOrderCard, right: LiveTerminalOrderCard): bo
 }
 
 /**
- * Preserve every surviving slot when metadata arrives or lifecycle changes.
- * New panes append in creation order, so a late catalog join cannot reshuffle
- * the strip the user is already looking at.
+ * Preserve unchanged card objects while placing live cards in priority order.
  */
 export function reconcileLiveTerminalCards(
     previous: readonly LiveTerminalOrderCard[],
     current: readonly LiveTerminalOrderCard[],
+    unseen: ReadonlySet<string> = new Set(),
 ): readonly LiveTerminalOrderCard[] {
-    const currentById = new Map(current.map((card) => [card.id, card]));
-    const existing = previous.flatMap((card) => {
-        const updated = currentById.get(card.id);
-        if (updated === undefined) return [];
-        currentById.delete(card.id);
-        // One changed session used to hand every card a new object, so every
-        // React.memo card re-rendered on each host info frame. Cards that did
-        // not change keep their previous object and stay memoized.
-        return [sameCard(card, updated) ? card : updated];
+    const previousById = new Map(previous.map((card) => [card.id, card]));
+    const next = orderLiveTerminalCards(current, unseen).map((card) => {
+        const before = previousById.get(card.id);
+        return before !== undefined && sameCard(before, card) ? before : card;
     });
-    const next = [...existing, ...orderLiveTerminalCards([...currentById.values()])];
     const unchanged = next.length === previous.length
         && next.every((card, index) => card === previous[index]);
     return unchanged ? previous : next;

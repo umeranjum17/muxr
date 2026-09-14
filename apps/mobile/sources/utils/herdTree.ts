@@ -4,5 +4,5 @@ export {
     middleTruncate,
     workspaceName,
     type HerdRow,
-    type HerdSpaceRow,
+    type HerdOtherRow,
 } from '@/herd/model';

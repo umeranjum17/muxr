@@ -77,6 +77,7 @@ import {
 import { rollupLifecycle } from '../domain/lifecycle.js';
 import { reportAgentOutcome } from '../application/reportAgentOutcome.js';
 import { agentKindsFromManifests } from '../domain/agentKinds.js';
+import { createGitCheckoutIdentityCache, type GitCheckoutIdentity } from './gitCheckoutIdentity.js';
 
 const PROMPT_READY_TIMEOUT_MS = 30_000;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
@@ -627,6 +628,7 @@ export async function createHerdrSessionSource(
     const launchSeedByPane = new Map<string, { pane: PaneRecord; agent: AgentRecord }>();
 
     const workspacesById = new Map<string, WorkspaceRecord>();
+    const gitIdentityForCwds = createGitCheckoutIdentityCache();
     const tabsById = new Map<string, TabRecord>();
     /** Local lifecycle epochs stop an older in-flight snapshot replacing a newer status event. */
     const lifecycleEpochByPane = new Map<string, number>();
@@ -2387,8 +2389,25 @@ export async function createHerdrSessionSource(
 
         async herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean }> {
             const workspaces: HerdrTreeWorkspace[] = [];
+            const gitByCwd = await gitIdentityForCwds([
+                ...[...panesById.values()].map((pane) => pane.foreground_cwd ?? pane.cwd ?? ''),
+                ...[...workspacesById.values()].map((workspace) => workspace.worktree?.checkout_path ?? ''),
+            ]);
             for (const workspace of workspacesById.values()) {
                 const panes = [...panesById.values()].filter((pane) => pane.workspace_id === workspace.workspace_id);
+                const paneIdentities = panes.flatMap((pane) => {
+                    const identity = gitByCwd.get(pane.foreground_cwd ?? pane.cwd ?? '');
+                    return identity === undefined ? [] : [identity];
+                });
+                const unresolvedPaneCwd = panes.some((pane) => {
+                    const cwd = pane.foreground_cwd ?? pane.cwd;
+                    return typeof cwd === 'string' && cwd !== '' && !gitByCwd.has(cwd);
+                });
+                const distinctCheckouts = new Set(paneIdentities.map((identity) => `${identity.repoKey}\0${identity.checkoutKey}`));
+                const gitIdentity: GitCheckoutIdentity | undefined = distinctCheckouts.size > 1 || unresolvedPaneCwd
+                    ? undefined
+                    : paneIdentities[0] ?? gitByCwd.get(workspace.worktree?.checkout_path ?? '');
+                const mixedCheckouts = distinctCheckouts.size > 1 || unresolvedPaneCwd;
                 const tabIds = [...new Set(panes.map((pane) => pane.tab_id).filter((tabId): tabId is string => tabId !== undefined))];
                 const tabs = tabIds.map((tabId) => {
                     const tabLabel = tabsById.get(tabId)?.label;
@@ -2399,6 +2418,9 @@ export async function createHerdrSessionSource(
                         const agentKind = session?.agent?.agent ?? undefined;
                         const cwd = pane.foreground_cwd ?? pane.cwd ?? undefined;
                         const listedName = publicListedName(session?.agent);
+                        const agentStatus = lifecycleForPane(pane.pane_id);
+                        const latest = session === undefined ? undefined : options.lifecycle?.latestFor(session.sessionId);
+                        const changedAt = latest?.state === agentStatus ? Date.parse(latest.at) : Number.NaN;
                         return {
                             paneId: pane.pane_id,
                             tabId,
@@ -2412,7 +2434,8 @@ export async function createHerdrSessionSource(
                                 ? {}
                                 : { displayAgent: session.agent.display_agent }),
                             ...(taskTitle === undefined ? {} : { taskTitle }),
-                            agentStatus: lifecycleForPane(pane.pane_id),
+                            agentStatus,
+                            ...(Number.isFinite(changedAt) ? { changedAt } : {}),
                             promptable: agentPromptable(session),
                             ...(pane.terminal_title_stripped === undefined || pane.terminal_title_stripped === null
                                 ? {}
@@ -2430,12 +2453,36 @@ export async function createHerdrSessionSource(
                     };
                 });
                 const worktree = workspace.worktree;
+                let treeWorktree: HerdrTreeWorkspace['worktree'];
+                if (!mixedCheckouts && gitIdentity !== undefined) {
+                    treeWorktree = {
+                        repo: gitIdentity.repo,
+                        repoKey: gitIdentity.repoKey,
+                        repoPath: gitIdentity.repoPath,
+                        checkoutKey: gitIdentity.checkoutKey,
+                        path: gitIdentity.checkoutKey,
+                        ...(gitIdentity.branch === undefined ? {} : { branch: gitIdentity.branch }),
+                        isLinkedWorktree: gitIdentity.isLinkedWorktree,
+                    };
+                } else if (!mixedCheckouts && worktree?.repo_key && worktree.checkout_path) {
+                    try {
+                        const checkoutKey = realpathSync(worktree.checkout_path);
+                        treeWorktree = {
+                            repo: worktree.repo_name ?? basename(worktree.repo_root ?? checkoutKey),
+                            repoKey: `herdr:${worktree.repo_key}`,
+                            repoPath: worktree.repo_root ?? checkoutKey,
+                            checkoutKey,
+                            path: checkoutKey,
+                            ...(worktree.is_linked_worktree === undefined ? {} : { isLinkedWorktree: worktree.is_linked_worktree }),
+                        };
+                    } catch { /* The checkout vanished; keep the workspace in Other spaces. */ }
+                }
                 workspaces.push({
                     workspaceId: workspace.workspace_id,
                     ...(workspace.label === undefined ? {} : { label: workspace.label }),
                     focused: workspace.focused === true,
                     agentStatus: rollupLifecycle(tabs.map((tab) => tab.agentStatus)),
-                    ...mappedWorktree(worktree, workspace.label),
+                    ...(treeWorktree === undefined ? {} : { worktree: treeWorktree }),
                     tabs,
                 });
             }

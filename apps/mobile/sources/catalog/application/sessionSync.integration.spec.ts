@@ -335,7 +335,9 @@ describe('session sync flow', () => {
 
         const stage = (status: AgentLifecycle) => {
             const tree = canonicalTree(status);
-            const spacesStatus = buildSpaceRows(tree, new Set(['workspace-a']), '')[0].panes[0].agentStatus;
+            const space = buildSpaceRows(tree, new Set(['workspace:workspace-a']), '')[0];
+            if (space?.type !== 'workspace') throw new Error('Expected the non-git workspace');
+            const spacesStatus = space.panes[0].pane.agentStatus;
             const notificationPanes = sortHerd([session], tree);
             const liveStatus = selectLiveTerminalCards([session], notificationPanes)[0].agentStatus;
             expect({ spacesStatus, liveStatus, notificationStatus: notificationPanes[0].agentStatus }).toEqual({
@@ -402,10 +404,11 @@ describe('session sync flow', () => {
                 focused: false,
             },
         );
-        const space = buildSpaceRows(mixedTree, new Set(['workspace-a']), '')[0];
+        const space = buildSpaceRows(mixedTree, new Set(['workspace:workspace-a']), '')[0];
+        if (space?.type !== 'workspace') throw new Error('Expected the non-git workspace');
         const cards = selectLiveTerminalCards([session], herdPanes([session], mixedTree));
         expect({
-            agentCount: space.agentCount,
+            agentCount: space.counts.agents,
             expandedPaneCount: space.panes.length,
             terminalCards: cards.map((card) => [
                 card.id,
@@ -417,7 +420,6 @@ describe('session sync flow', () => {
             expandedPaneCount: 3,
             terminalCards: [
                 ['session-a', 'Maria', 'pi'],
-                ['shell-route', 'Shell', undefined],
             ],
         });
 
@@ -807,6 +809,7 @@ describe('session sync flow', () => {
         });
         const panes = ['a', 'b'].map((id) => ({
             id,
+            agentKind: 'pi',
             agentStatus: 'working' as const,
             promptable: true,
             doing: '',
