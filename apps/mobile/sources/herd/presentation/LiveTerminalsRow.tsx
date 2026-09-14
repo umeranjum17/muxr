@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { AppState, Pressable, ScrollView, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { AppState, FlatList, Pressable, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useIsFocused } from '@react-navigation/native';
 import { Text } from '@/components/StyledText';
@@ -147,13 +147,19 @@ export const LiveTerminalsRow = React.memo(({
     const { workspaces } = useHerdrTree();
     const { status: socketStatus } = useSocketStatus();
     const { ready, seenEventIds, markSeen } = useActivityAcknowledgements();
-    const scrollRef = React.useRef<ScrollView>(null);
+    const scrollRef = React.useRef<FlatList<LiveTerminalOrderCard>>(null);
     const scrollXRef = React.useRef(0);
     const [foreground, setForeground] = React.useState(AppState.currentState === 'active');
     const [stripWidth, setStripWidth] = React.useState(0);
     const [firstVisible, setFirstVisible] = React.useState(0);
     const handleLayout = React.useCallback((event: LayoutChangeEvent) => setStripWidth(event.nativeEvent.layout.width), []);
     const cardWidth = Math.min(CARD_WIDTH, Math.max(240, stripWidth - STRIP_GUTTER - 24));
+    const cardInterval = cardWidth + CARD_GAP;
+    const getItemLayout = React.useCallback((_: ArrayLike<LiveTerminalOrderCard> | null | undefined, index: number) => ({
+        length: cardInterval,
+        offset: cardInterval * index,
+        index,
+    }), [cardInterval]);
     const panes = React.useMemo(() => herdPanes(sessions, workspaces), [sessions, workspaces]);
     const liveTitles = React.useMemo(() => {
         const titles = new Map<string, string>();
@@ -188,19 +194,19 @@ export const LiveTerminalsRow = React.memo(({
         const x = event.nativeEvent.contentOffset.x;
         scrollXRef.current = x;
         setFirstVisible((current) => {
-            const next = Math.max(0, Math.floor(x / (cardWidth + CARD_GAP)));
+            const next = Math.max(0, Math.floor(x / cardInterval));
             return next === current ? current : next;
         });
-    }, [cardWidth]);
+    }, [cardInterval]);
     React.useEffect(() => {
-        setFirstVisible(Math.max(0, Math.floor(scrollXRef.current / (cardWidth + CARD_GAP))));
-    }, [cardWidth]);
+        setFirstVisible(Math.max(0, Math.floor(scrollXRef.current / cardInterval)));
+    }, [cardInterval]);
     const scrollToCard = React.useCallback((sessionId: string): boolean => {
         const index = cards.findIndex((card) => card.id === sessionId);
         if (index === -1) return false;
-        scrollRef.current?.scrollTo({ x: index * (cardWidth + CARD_GAP), animated: true });
+        scrollRef.current?.scrollToIndex({ index, animated: true });
         return true;
-    }, [cardWidth, cards]);
+    }, [cards]);
     const selectActivity = React.useCallback((row: RecentActivityRow) => {
         markSeen([row.eventId]);
         if (!scrollToCard(row.sessionId)) navigateToSession(row.sessionId);
@@ -235,16 +241,15 @@ export const LiveTerminalsRow = React.memo(({
         };
     }, [activityRows, cardWidth, cards, firstVisible, foreground, markSeen, screenFocused, stripWidth, visibilityBottomInset, visibilityTop, windowHeight]);
 
-    const renderedCards = cards.map((card, index) => (
+    const renderCard = ({ item: card, index }: { item: LiveTerminalOrderCard; index: number }) => (
         <LiveTerminalCard
-            key={card.id}
             card={card}
             width={cardWidth}
             height={CARD_HEIGHT}
             paused={Math.abs(index - firstVisible) > 2}
             disconnected={socketStatus !== 'connected'}
         />
-    ));
+    );
 
     return (
         <View style={stylesheet.strip} onLayout={handleLayout}>
@@ -269,18 +274,26 @@ export const LiveTerminalsRow = React.memo(({
                     </View>
                 ) : null
             ) : (
-                <ScrollView
+                <FlatList
                     ref={scrollRef}
+                    data={cards}
+                    keyExtractor={(card) => card.id}
+                    renderItem={renderCard}
+                    getItemLayout={getItemLayout}
                     horizontal
                     showsHorizontalScrollIndicator={false}
+                    initialNumToRender={3}
+                    maxToRenderPerBatch={6}
+                    windowSize={3}
+                    onScroll={commitVisibleIndex}
+                    scrollEventThrottle={32}
                     onMomentumScrollEnd={commitVisibleIndex}
                     onScrollEndDrag={commitVisibleIndex}
-                    snapToInterval={cardWidth + CARD_GAP}
+                    snapToInterval={cardInterval}
                     decelerationRate="fast"
-                    contentContainerStyle={{ gap: CARD_GAP, paddingHorizontal: STRIP_GUTTER }}
-                >
-                    {renderedCards}
-                </ScrollView>
+                    ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
+                    contentContainerStyle={{ paddingHorizontal: STRIP_GUTTER }}
+                />
             )}
             <RecentActivity
                 rows={activityRows}
