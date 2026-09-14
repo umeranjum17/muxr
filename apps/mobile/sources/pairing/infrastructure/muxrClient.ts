@@ -53,7 +53,7 @@ export interface MuxrClientOptions {
     /** A ticket refusal triggers separate account-session validation; it is not itself a logout signal. */
     onTicketRejected?: () => void;
     /** Permanent self-host credential failures must stop retrying and offer pairing again. */
-    onPermanentError?: (message: string) => void;
+    onPermanentError?: (failure: { kind: 'grant-expired' | 'device-revoked'; message: string }) => void;
 }
 
 interface Pending {

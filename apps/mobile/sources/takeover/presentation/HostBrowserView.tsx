@@ -5,9 +5,11 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { useUnistyles } from 'react-native-unistyles';
+import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
+import { usePairingFailure } from '@/catalog';
 import { useWebImeComposing } from '@/components/useWebImeComposing';
 import { setBrowserPrivate } from '@/../modules/browser-privacy';
 import type { SurfaceBrowserSessionOffer } from '@muxr/contract';
@@ -94,8 +96,13 @@ export function HostBrowserView(props: {
     onClose: () => void;
 }): React.JSX.Element {
     const { theme } = useUnistyles();
+    const router = useRouter();
+    const pairingFailure = usePairingFailure();
+    const accessRemoved = pairingFailure === 'device-revoked' || pairingFailure === 'grant-expired';
     const [takeover, snapshot] = useTakeover(props.machineId, props.offer.session);
-    const { state, status, inputUnlocked, field } = snapshot;
+    const { status, field } = snapshot;
+    const state = accessRemoved ? 'needs-pairing' : snapshot.state;
+    const inputUnlocked = !accessRemoved && snapshot.inputUnlocked;
     const strip = ownershipStrip(state);
     const isPrivate = PRIVATE_STATES.has(state);
     const owning = status?.owner === 'self';
@@ -303,7 +310,7 @@ export function HostBrowserView(props: {
                 {snapshot.transition === undefined && owning && (state === 'you-control' || state === 'taking-control') && (
                     <Action label="Return to live" icon="return-down-back-outline" compact={display.width < 360} onPress={() => void giveBack()} />
                 )}
-                {snapshot.transition === undefined && (state === 'checking' || snapshot.failure !== undefined) && (
+                {snapshot.transition === undefined && !accessRemoved && (state === 'checking' || snapshot.failure !== undefined) && (
                     <Action label="Retry" icon="refresh" onPress={() => void takeover.refresh()} />
                 )}
             </View>
@@ -318,7 +325,14 @@ export function HostBrowserView(props: {
     const covered = pageHidden || !snapshot.presented || loadIssue || state === 'paused' || state === 'checking' || state === 'ended' || state === 'needs-pairing' || state === 'giving-back';
     let coverBody: React.ReactNode = null;
     if (state === 'needs-pairing') {
-        coverBody = <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center' }}>Agent browser needs a fresh pairing. Pair this device with your computer again to continue.</Text>;
+        coverBody = (
+            <>
+                <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center' }}>
+                    {pairingFailure === 'device-revoked' ? 'Access to this computer was removed.' : 'Agent browser needs a fresh pairing.'} Pair this device again to continue.
+                </Text>
+                <Action label="Pair again" icon="key-outline" onPress={() => router.push(`/pair?source=settings&reason=${pairingFailure === 'device-revoked' ? 'revoked' : 'expired'}` as never)} />
+            </>
+        );
     } else if (state === 'ended') {
         coverBody = <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center' }}>{status?.reason ?? 'The agent browser session ended.'}</Text>;
     } else if (loadIssue) {
