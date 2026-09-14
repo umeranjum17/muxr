@@ -21,7 +21,6 @@ import { versionsMismatch } from '@/utils/versionStatus';
 import { getAppVersion } from '@/utils/appVersion';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
-import { DeclarativeSettingsItems } from '@/plugins/ui';
 import {
     canPostPromotedNotifications,
     openBackgroundActivitySettings,
@@ -371,11 +370,10 @@ export const SettingsView = React.memo(function SettingsView({
                 />
                 <Item
                     title="Plugins"
-                    subtitle="Native UI and capabilities installed through Herdr"
+                    subtitle="Installed extensions and settings"
                     icon={<Ionicons name="extension-puzzle-outline" size={29} color="#5856D6" />}
                     onPress={openPlugins}
                 />
-                <DeclarativeSettingsItems />
                 <Item
                     title="Appearance"
                     subtitle={t('settings.appearanceSubtitle')}
@@ -441,6 +439,7 @@ export const SettingsView = React.memo(function SettingsView({
             </ItemGroup>
 
             <ItemGroup title="Help">
+                <Item title="Plugin guide" subtitle="Setup and permissions" icon={<Ionicons name="extension-puzzle-outline" size={29} color="#5856D6" />} onPress={() => router.push('/settings/plugins/guide' as never)} />
                 <Item title="Contact support" subtitle="Public issue tracker" icon={<Ionicons name="chatbubble-ellipses-outline" size={29} color="#34C759" />} onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/issues')} />
                 {docsBase && <Item title="Privacy and deletion" subtitle="Policy, revocation and data removal" icon={<Ionicons name="shield-checkmark-outline" size={29} color="#5856D6" />} onPress={() => openExternalUrl(`${docsBase}/docs/privacy#retention-and-deletion`)} />}
                 <Item

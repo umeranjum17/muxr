@@ -77,7 +77,12 @@ describe('plugin catalog flow', () => {
             { ...plugin(root), enabled: false },
             { ...plugin(competingRoot), plugin_id: 'example.competing' },
         ]);
-        expect(catalog.list(() => true).map(({ pluginId }) => pluginId)).toEqual(['example.competing']);
+        expect(catalog.list(() => true).map(({ pluginId }) => pluginId)).toEqual(['example.competing', 'example.muxr-ui']);
+        const disabled = catalog.list(() => true)[1]!;
+        expect(disabled).toMatchObject({ enabled: false, approved: true });
+        expect(disabled.manifestHash).toBeUndefined();
+        expect(catalog.manifest(disabled.pluginId, disabled.installedManifestHash!).pluginId).toBe(disabled.pluginId);
+        expect(() => catalog.call(disabled.pluginId, disabled.installedManifestHash!, 'close')).toThrow('unavailable');
         expect(catalog.trustedCapabilityCallTarget({
             pluginRoot: await realpath(root),
             capability: 'agent.close',

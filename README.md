@@ -158,7 +158,7 @@ muxr connects to sessions [Herdr](https://github.com/herdrdev/herdr) already run
 
 Add phone-native controls, screens, files, diffs, metrics, shortcuts, and realtime streams through the public extension API.
 
-[Extension guide →](https://trymuxr.com/docs/plugins) · [Bundled examples →](plugins/)
+[Use plugins →](docs/USING-PLUGINS.md) · [Build a plugin →](docs/PLUGINS.md) · [Bundled examples →](plugins/)
 
 ## Development
 

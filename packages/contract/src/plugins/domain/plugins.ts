@@ -744,6 +744,10 @@ export interface PluginSummary {
     description?: string;
     source: PluginSource;
     manifestHash?: string;
+    /** Installed but disabled contributions are inspectable, never executable. */
+    installedManifestHash?: string;
+    /** Older hosts omit this field and only listed enabled plugins. */
+    enabled?: boolean;
     approved: boolean;
     capabilities: Record<string, string>;
     hasBackend: boolean;

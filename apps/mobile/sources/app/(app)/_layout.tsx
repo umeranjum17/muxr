@@ -141,6 +141,8 @@ export default function RootLayout() {
                     headerTitle: t('plugins.settingsTitle'),
                 }}
             />
+            <Stack.Screen name="settings/plugins/[pluginId]" options={{ headerTitle: 'Plugin details' }} />
+            <Stack.Screen name="settings/plugins/guide" options={{ headerTitle: 'Plugin guide' }} />
             <Stack.Screen
                 name="settings/voice"
                 options={{

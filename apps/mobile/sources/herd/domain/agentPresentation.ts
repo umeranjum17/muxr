@@ -53,8 +53,10 @@ export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'labe
     const kind = pane?.agentKind?.trim();
     const hasAgent = named !== undefined && named !== '' || kind !== undefined && kind !== '';
     const agentName = named || (hasAgent ? 'Unnamed agent' : 'Shell');
-    const shellTitle = pane?.label?.trim() || pane?.terminalTitle?.trim() || pane?.taskTitle?.trim()
-        || pane?.cwd?.replace(/\/+$/, '').split('/').pop() || 'Shell';
+    const terminalTitle = pane?.terminalTitle?.trim();
+    const meaningfulTerminalTitle = terminalTitle !== undefined && !/^(?:[^@\s]+@[^:\s]+:|[~/])/.test(terminalTitle)
+        ? terminalTitle : undefined;
+    const shellTitle = pane?.label?.trim() || pane?.taskTitle?.trim() || meaningfulTerminalTitle || 'Shell';
     return {
         taskTitle: hasAgent ? pane?.taskTitle?.trim() || agentName : shellTitle,
         agentName,

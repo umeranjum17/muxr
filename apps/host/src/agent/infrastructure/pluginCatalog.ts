@@ -20,6 +20,24 @@ import {
 const MANIFEST_NAME = 'muxr-ui.json';
 const MAX_MANIFEST_BYTES = 64 * 1024;
 const MAX_TEXT = 200;
+/** Herdr can retain registration copy across an in-place package upgrade. */
+function currentManifestCopy(plugin: HerdrPlugin): HerdrPlugin {
+    if (!plugin.plugin_id.startsWith('muxr.')) return plugin;
+    try {
+        const file = join(plugin.plugin_root, 'herdr-plugin.toml');
+        const stat = lstatSync(file);
+        if (!stat.isFile() || stat.size > 16 * 1024) return plugin;
+        const header = readFileSync(file, 'utf8').split(/^\s*\[\[/m, 1)[0] ?? '';
+        const read = (field: 'name' | 'description'): string | undefined => {
+            const match = new RegExp(`^${field}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*")\\s*$`, 'm').exec(header);
+            if (!match) return undefined;
+            const value: unknown = JSON.parse(match[1]!);
+            return typeof value === 'string' ? value : undefined;
+        };
+        const description = read('description') ?? plugin.description;
+        return { ...plugin, name: read('name') ?? plugin.name, ...(description === undefined ? {} : { description }) };
+    } catch { return plugin; }
+}
 export type HerdrPlugin = {
     plugin_id: string;
     name: string;
@@ -119,10 +137,11 @@ export class PluginCatalog {
         const digests = new Map<string, string>();
         const usedProjectionKeys = new Set<string>();
         for (const plugin of plugins) {
+            const displayPlugin = currentManifestCopy(plugin);
             // Disabled manifests stay inert, but parsing their cached projection
             // lets generic capability pickers show installed alternatives.
-            const loaded = await loadPlugin(plugin, this.parsedProjections, usedProjectionKeys).catch((error) => backendOnly(
-                plugin,
+            const loaded = await loadPlugin(displayPlugin, this.parsedProjections, usedProjectionKeys).catch((error) => backendOnly(
+                displayPlugin,
                 `muxr UI rejected: ${error instanceof Error ? error.message : String(error)}`,
             ));
             const summary = loaded.summary;
@@ -156,17 +175,27 @@ export class PluginCatalog {
     }
 
     list(isApproved: (pluginId: string, hash: string) => boolean): PluginSummary[] {
-        return [...this.active]
-            .map(([pluginId, hash]) => {
-                const summary = this.snapshots.get(pluginId)!.summary;
-                return { ...summary, approved: hash !== '' && isApproved(pluginId, hash) };
+        return [...this.installed]
+            .map(([pluginId, { snapshot, enabled }]) => {
+                const { manifestHash, ...summary } = snapshot.summary;
+                const hash = manifestHash ?? '';
+                return {
+                    ...summary,
+                    enabled,
+                    ...(enabled && hash !== '' ? { manifestHash: hash } : {}),
+                    ...(!enabled && hash !== '' ? { installedManifestHash: hash } : {}),
+                    approved: hash !== '' && isApproved(pluginId, hash),
+                };
             })
             .sort((a, b) => a.pluginId.localeCompare(b.pluginId));
     }
 
     manifest(pluginId: string, manifestHash: string): PluginManifestV1 {
-        this.assertActive(pluginId, manifestHash);
-        return this.snapshots.get(pluginId)!.manifest;
+        const installed = this.installed.get(pluginId);
+        if (installed?.snapshot.summary.manifestHash !== manifestHash || manifestHash === '') {
+            throw new Error('plugin manifest unavailable or changed');
+        }
+        return installed.snapshot.manifest;
     }
 
     action(pluginId: string, manifestHash: string, contributionId: string): string {
@@ -563,6 +592,9 @@ export function runPluginProcess(options: RunPluginProcessOptions): Promise<unkn
                 ...(options.trustedTaskTitlesConfigDir === undefined
                     ? {}
                     : { MUXR_TASK_TITLES_CONFIG_DIR: options.trustedTaskTitlesConfigDir }),
+                ...(options.trustedTaskTitlesConfigDir === undefined || process.env.HERDR_BIN_PATH === undefined
+                    ? {}
+                    : { HERDR_BIN_PATH: process.env.HERDR_BIN_PATH }),
                 MUXR_PLUGIN_ID: options.pluginId,
                 MUXR_PLUGIN_STATE_DIR: options.stateDir,
             },

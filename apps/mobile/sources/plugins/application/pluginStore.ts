@@ -42,13 +42,16 @@ export function refreshPlugins(): Promise<void> {
             queued = false;
             const plugins = await sync.request('plugin.list', {}) as PluginSummary[];
             const previous = new Map(snapshot.map((entry) => [cacheKey(entry.summary.pluginId, entry.summary.manifestHash), entry]));
-            const withManifest = plugins.filter((plugin): plugin is PluginSummary & { manifestHash: string } => plugin.manifestHash !== undefined);
-            const activeKeys = new Set(withManifest.map((summary) => cacheKey(summary.pluginId, summary.manifestHash)));
-            const manifests = new Map(await Promise.all(withManifest.map(async (summary) => {
-                const key = cacheKey(summary.pluginId, summary.manifestHash);
+            const withManifest = plugins.flatMap((summary) => {
+                const hash = summary.manifestHash ?? summary.installedManifestHash;
+                return hash === undefined ? [] : [{ summary, hash }];
+            });
+            const activeKeys = new Set(withManifest.map(({ summary, hash }) => cacheKey(summary.pluginId, hash)));
+            const manifests = new Map(await Promise.all(withManifest.map(async ({ summary, hash }) => {
+                const key = cacheKey(summary.pluginId, hash);
                 let manifest = manifestCache.get(key);
                 if (manifest === undefined) {
-                    manifest = await sync.request('plugin.manifest', { pluginId: summary.pluginId, manifestHash: summary.manifestHash }) as PluginManifestV1;
+                    manifest = await sync.request('plugin.manifest', { pluginId: summary.pluginId, manifestHash: hash }) as PluginManifestV1;
                     manifestCache.set(key, manifest);
                 }
                 return [summary.pluginId, manifest] as const;
@@ -61,8 +64,8 @@ export function refreshPlugins(): Promise<void> {
                 return reason === undefined ? [] : [[summary.pluginId, reason] as const];
             }));
             for (const [pluginId, reason] of unavailable) console.warn(`[plugin ${pluginId}] ${reason}`);
-            snapshot = withManifest.flatMap((summary) => {
-                if (!summary.approved || unavailable.has(summary.pluginId)) return [];
+            snapshot = withManifest.flatMap(({ summary }) => {
+                if (summary.enabled === false || summary.manifestHash === undefined || !summary.approved || unavailable.has(summary.pluginId)) return [];
                 const manifest = manifests.get(summary.pluginId)!;
                 const existing = previous.get(cacheKey(summary.pluginId, summary.manifestHash));
                 return [existing !== undefined && sameSummary(existing.summary, summary) ? existing : { summary, manifest }];
