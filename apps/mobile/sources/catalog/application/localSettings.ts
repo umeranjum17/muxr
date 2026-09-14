@@ -26,6 +26,7 @@ export const LocalSettingsSchema = z.object({
     savedLayouts: z
         .array(z.object({ name: z.string(), snapshot: z.unknown() }))
         .describe('Saved herdr layouts, newest first'),
+    herdTreeDisclosure: z.record(z.string(), z.array(z.string())).describe('Expanded checkout and space keys by machine'),
 });
 
 //
@@ -57,6 +58,7 @@ export const localSettingsDefaults: LocalSettings = {
     vadStandbyEnabled: false,
     lifecycleNotificationLevel: 'important',
     savedLayouts: [],
+    herdTreeDisclosure: {},
 };
 Object.freeze(localSettingsDefaults);
 

@@ -15,7 +15,7 @@ import {
     type LiveTerminalOrderCard,
 } from '../application/liveTerminalOrder';
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
-import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
+import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, isGenericLaunchTitle } from '../domain/agentPresentation';
 import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { TerminalPreview } from '@/terminal/ui';
@@ -36,7 +36,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         alignItems: 'center',
         gap: 8,
     },
-    heading: { color: theme.colors.groupped.sectionTitle, fontSize: 11, fontWeight: '700', letterSpacing: 1.2 },
+    heading: { color: theme.colors.groupped.sectionTitle, fontSize: 13, fontWeight: '700', letterSpacing: 0.5 },
     attentionIndicator: { width: 18, height: 28, alignItems: 'center', justifyContent: 'center' },
     attentionDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: theme.colors.status.error },
     reconnecting: { marginLeft: 'auto', color: theme.colors.textSecondary, fontSize: 10 },
@@ -68,13 +68,13 @@ const stylesheet = StyleSheet.create((theme) => ({
     cardFooter: { minHeight: 48, paddingHorizontal: 10, paddingVertical: 6 },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     footerCopy: { flex: 1, minWidth: 0, gap: 2 },
-    title: { color: theme.colors.text, fontSize: 12, lineHeight: 15, fontWeight: '600' },
-    identity: { color: theme.colors.textSecondary, fontSize: 10, lineHeight: 13 },
+    title: { color: theme.colors.text, fontSize: 14, lineHeight: 18, fontWeight: '600' },
+    identity: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 16 },
     status: {
         flexShrink: 0,
         marginLeft: 8,
     },
-    statusText: { fontSize: 10, lineHeight: 13, fontVariant: ['tabular-nums'] },
+    statusText: { fontSize: 12, lineHeight: 16, fontVariant: ['tabular-nums'] },
 }));
 
 interface CardProps {
@@ -95,12 +95,13 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
     const labels = agentLabels(card);
     const dot = agentStatusColor(card.agentStatus, theme);
     const live = terminalIsLive(card);
-    const shell = isShellLabels(labels);
+    const genericTitle = isGenericLaunchTitle(labels.taskTitle);
+    const title = genericTitle ? agentNameLine(labels) || labels.agentName : labels.taskTitle;
     return (
         <Pressable
             onPress={() => navigateToSession(card.id)}
             accessibilityRole="button"
-            accessibilityLabel={agentAccessibilityLabel(labels, card.agentStatus, card.changedAt)}
+            accessibilityLabel={agentAccessibilityLabel({ ...labels, taskTitle: title }, card.agentStatus, card.changedAt)}
             style={({ pressed }) => [
                 stylesheet.card,
                 liveTerminalBucket(card.agentStatus) === 'attention' && stylesheet.attentionCard,
@@ -112,10 +113,10 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
             </View>
             <View style={stylesheet.cardFooter}>
                 <View style={stylesheet.titleRow}>
-                    <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
+                    <AgentGlyph name={labels.agentKind ?? labels.agentName} size={16} />
                     <View style={stylesheet.footerCopy}>
-                        <Text numberOfLines={1} style={stylesheet.title}>{labels.taskTitle}</Text>
-                        <Text numberOfLines={1} style={stylesheet.identity}>{agentNameLine(labels)}</Text>
+                        <Text numberOfLines={1} style={stylesheet.title}>{title}</Text>
+                        {!genericTitle && <Text numberOfLines={1} style={stylesheet.identity}>{agentNameLine(labels)}</Text>}
                     </View>
                     <View style={stylesheet.status}>
                         <Text numberOfLines={1} style={[stylesheet.statusText, { color: dot.color }]}>
@@ -154,16 +155,6 @@ export const LiveTerminalsRow = React.memo(({
     const handleLayout = React.useCallback((event: LayoutChangeEvent) => setStripWidth(event.nativeEvent.layout.width), []);
     const cardWidth = Math.min(CARD_WIDTH, Math.max(240, stripWidth - STRIP_GUTTER - 24));
     const panes = React.useMemo(() => herdPanes(sessions, workspaces), [sessions, workspaces]);
-    const candidateCards = React.useMemo(
-        () => selectLiveTerminalCards(sessions, panes),
-        [panes, sessions],
-    );
-    const cardsRef = React.useRef<readonly LiveTerminalOrderCard[]>([]);
-    const cards = React.useMemo(() => {
-        const next = reconcileLiveTerminalCards(cardsRef.current, candidateCards);
-        cardsRef.current = next;
-        return next;
-    }, [candidateCards]);
     const liveTitles = React.useMemo(() => {
         const titles = new Map<string, string>();
         for (const pane of panes) {
@@ -175,6 +166,17 @@ export const LiveTerminalsRow = React.memo(({
         () => ready ? unseenActivityRows(lifecycleEvents, seenEventIds, Date.now(), 8, liveTitles) : [],
         [lifecycleEvents, liveTitles, ready, seenEventIds],
     );
+    const unseenAgentIds = React.useMemo(() => new Set(activityRows.map((row) => row.sessionId)), [activityRows]);
+    const candidateCards = React.useMemo(
+        () => selectLiveTerminalCards(sessions, panes),
+        [panes, sessions],
+    );
+    const cardsRef = React.useRef<readonly LiveTerminalOrderCard[]>([]);
+    const cards = React.useMemo(() => {
+        const next = reconcileLiveTerminalCards(cardsRef.current, candidateCards, unseenAgentIds);
+        cardsRef.current = next;
+        return next;
+    }, [candidateCards, unseenAgentIds]);
 
     React.useEffect(() => {
         setForeground(AppState.currentState === 'active');

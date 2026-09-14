@@ -49,7 +49,7 @@ export const HERD_STATUS_LABELS: Record<AgentLifecycle, string> = {
     done: 'Done',
     failed: 'Failed',
     idle: 'Idle',
-    unknown: 'Offline',
+    unknown: 'Status unknown',
 };
 
 const AGENT_KIND_LABELS: Readonly<Record<string, string>> = {
@@ -86,6 +86,11 @@ export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'labe
 
 export function isShellLabels(labels: AgentLabels): boolean {
     return labels.agentKind === undefined && labels.agentName === 'Shell';
+}
+
+/** Firstmate's generic launch wrapper is not a useful task label on the phone. */
+export function isGenericLaunchTitle(title: string): boolean {
+    return /^(?:(?:FIRSTMATE_OP:\s*)?v1[ -]launch-brief|firstmate-op-v1-launch-brief)(?:[: -]|$)/i.test(title);
 }
 
 function uniqueLabels(values: readonly (string | undefined)[]): string[] {

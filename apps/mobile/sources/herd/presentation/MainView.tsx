@@ -395,17 +395,17 @@ const HeaderRight = React.memo(({
                 </View>
             );
         }
-        return authority === 'control' && !authorityLoading ? (
-            <View style={styles.headerActions}>
-                <Pressable
-                    onPress={() => router.navigate('/new-agent')}
-                    hitSlop={15}
-                    style={styles.headerButton}
-                >
-                    <Ionicons name="add-outline" size={28} color={theme.colors.header.tint} />
-                </Pressable>
-            </View>
-        ) : null;
+        return <View style={styles.headerActions}>
+            <Pressable onPress={onSearchPress} hitSlop={15} style={styles.headerButton}
+                accessibilityRole="button" accessibilityLabel={searchActive ? 'Close search' : 'Search spaces'}>
+                <Ionicons name={searchActive ? 'close' : 'search'} size={22} color={theme.colors.header.tint} />
+            </Pressable>
+            {authority === 'control' && !authorityLoading && <Pressable
+                onPress={() => router.navigate('/new-agent')} hitSlop={15} style={styles.headerButton}
+                accessibilityRole="button" accessibilityLabel="New agent">
+                <Ionicons name="add-outline" size={28} color={theme.colors.header.tint} />
+            </Pressable>}
+        </View>;
     }
 
     if (activeTab === 'settings') {
@@ -664,7 +664,7 @@ export const MainView = React.memo(() => {
     const phoneHeader = (
         <View style={[styles.phoneHeader, Platform.OS !== 'web' && styles.phoneHeaderOverlay]}>
             <Header
-                title={searchActive && Platform.OS !== 'web'
+                title={searchActive
                     ? <HeaderSearch value={searchQuery} onChangeText={setSearchQuery} />
                     : <HeaderTitle activeTab={activeTab} pluginTitle={pluginTab?.label} homeRecovering={phoneHomeRecovering} />}
                 headerRight={showHeaderRight ? () => (
@@ -701,6 +701,7 @@ export const MainView = React.memo(() => {
                             onScroll={handleContentScroll}
                             onRecoveryChange={setPhoneHomeRecovering}
                             searchQuery={searchQuery}
+                            selectedSessionId={lastTerminal?.machineId === getCachedConnectionSettings().machineId ? lastTerminal.sessionId : undefined}
                         />
                     </View>
                 )}

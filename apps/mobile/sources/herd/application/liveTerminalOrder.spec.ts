@@ -39,16 +39,16 @@ function card(
 }
 
 describe('agent lifecycle presentation', () => {
-    it('keeps terminal slots in creation order across lifecycle changes and old completions', () => {
+    it('puts agents needing attention before working and settled agents, with unseen completion next', () => {
         const cards = orderLiveTerminalCards([
             card('done', 900, 'done', 100),
             card('blocked', 800, 'blocked', 300),
             card('working', 1_000, 'working', 200),
         ]);
 
-        expect(cards.map((item) => item.id)).toEqual(['done', 'working', 'blocked']);
-        expect(orderLiveTerminalCards(cards.map((item) => ({ ...item, agentStatus: 'done' })))
-            .map((item) => item.id)).toEqual(['done', 'working', 'blocked']);
+        expect(cards.map((item) => item.id)).toEqual(['blocked', 'working', 'done']);
+        expect(orderLiveTerminalCards(cards, new Set(['done'])).map((item) => item.id))
+            .toEqual(['blocked', 'done', 'working']);
     });
 
     it('keeps terminal slots stable through catalog joins and equivalent snapshots', () => {
