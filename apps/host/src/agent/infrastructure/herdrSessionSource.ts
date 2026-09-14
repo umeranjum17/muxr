@@ -1573,6 +1573,11 @@ export async function createHerdrSessionSource(
         return agentRouteError('agent-unavailable');
     }
 
+    function sessionGenerationKey(session: CurrentSession): string {
+        const reference = agentSession(session.agent);
+        return `${session.paneId}\u0000${reference === undefined ? 'shell' : herdrAgentSessionKey(reference)}`;
+    }
+
     async function resolvePane(sessionId: string): Promise<CurrentSession> {
         // An unreadable snapshot says nothing about the route. Fail closed as a
         // temporary outage: only a snapshot that actually came back may claim
@@ -2513,6 +2518,7 @@ export async function createHerdrSessionSource(
             ansi?: boolean;
         }): Promise<{ text: string; truncated: boolean }> {
             const record = await resolvePane(readOptions.sessionId);
+            const generation = sessionGenerationKey(record);
             // herdr nests the payload under `read`, unlike pane.split's `pane`.
             const result = await client.call<{ read?: { text?: string; truncated?: boolean } }>('pane.read', {
                 pane_id: record.paneId,
@@ -2521,6 +2527,10 @@ export async function createHerdrSessionSource(
                 format: readOptions.ansi === true ? 'ansi' : 'text',
                 strip_ansi: readOptions.ansi !== true,
             });
+            // A route may be rebound while Herdr is serving the read. Never
+            // return text from the old pane/generation to the new route.
+            const current = await resolvePane(readOptions.sessionId);
+            if (sessionGenerationKey(current) !== generation) throw agentUnavailable();
             return { text: result.read?.text ?? '', truncated: result.read?.truncated === true };
         },
 

@@ -34,6 +34,7 @@ import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStatusColor, 
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
+import { useDraft } from '@/hooks/useDraft';
 import { ComposerAttachments, type ComposerAttachment } from '@/components/ComposerAttachments';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
@@ -85,6 +86,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const swipeIds = React.useMemo(() => workingAgentSwipeIds(sessions, swipeNow), [sessions, swipeNow]);
     const [status, setStatus] = React.useState('connecting');
     const [draft, setDraft] = React.useState('');
+    const { clearDraft } = useDraft(props.id, draft, setDraft);
     const [attaching, setAttaching] = React.useState(false);
     const [stopping, setStopping] = React.useState(false);
     // Latching modifiers apply to one toolbar key or typed character, then clear.
@@ -135,6 +137,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const { selectedImages, pickImages, clearImages } = useImagePicker();
 
     const graphicsOwnsScroll = React.useRef(false);
+    const netScrollBack = React.useRef(0);
+    const [showJump, setShowJump] = React.useState(false);
+    const [restoreScrollBack, setRestoreScrollBack] = React.useState(0);
     const stopWatchingGraphics = React.useRef<(() => void) | undefined>(undefined);
     React.useEffect(() => () => stopWatchingGraphics.current?.(), []);
 
@@ -142,9 +147,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         stopWatchingGraphics.current?.();
         stopWatchingGraphics.current = undefined;
         graphicsOwnsScroll.current = false;
-        netScrollBack.current = 0;
-        setShowJump(false);
-        if (channel !== undefined) {
+        if (channel === undefined) {
+            // The route stays mounted while history is open. Keep the remote
+            // viewport offset so the next attach can restore the same place.
+            setRestoreScrollBack(netScrollBack.current);
+        } else {
+            netScrollBack.current = 0;
+            setShowJump(false);
             stopWatchingGraphics.current = channel.onGraphics((active) => {
                 if (active === graphicsOwnsScroll.current) return;
                 graphicsOwnsScroll.current = active;
@@ -165,15 +174,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         channelRef.current = channel;
         setChannel(channel);
     }, []);
-
-    const netScrollBack = React.useRef(0);
-    const [showJump, setShowJump] = React.useState(false);
     const jumpToBottom = React.useCallback(() => {
         const channel = channelRef.current;
         if (channel === undefined || graphicsOwnsScroll.current) return;
         // Overshoot on purpose: herdr clamps the scroll at the live edge.
         channel.scroll(-(netScrollBack.current + 5000));
         netScrollBack.current = 0;
+        setRestoreScrollBack(0);
         setShowJump(false);
     }, []);
 
@@ -358,6 +365,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         const previousImages = attachedImages;
         draftRef.current = '';
         setDraft('');
+        clearDraft();
         setAttachedImages([]);
         void sync.sendMessage(props.id, text).catch((error: unknown) => {
             const restoredDraft = [previousDraft, draftRef.current].filter(Boolean).join('\n');
@@ -366,7 +374,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             setAttachedImages((current) => [...previousImages, ...current]);
             Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
         });
-    }, [attachedImages, attachedPaths, attaching, selectedImages.length, panePromptable, props.id]);
+    }, [attachedImages, attachedPaths, attaching, clearDraft, selectedImages.length, panePromptable, props.id]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);
 
@@ -539,7 +547,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
                     <Ionicons name="search" size={19} color={theme.colors.textSecondary} />
                 </Pressable>
-                {canControl && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel="Pane actions"
+                {!authorityLoading && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel="Pane actions"
                     accessibilityState={{ expanded: actionsOpen }} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
                     <Ionicons name="ellipsis-vertical" size={20} color={theme.colors.textSecondary} />
                 </Pressable>}
@@ -576,7 +584,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 onTouchEnd={paneGestures.onTouchEnd}
                 style={{ flex: 1 }}
             >
-                <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} />
+                <TerminalView sessionId={props.id} initialScrollBack={restoreScrollBack} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} />
                 {gestureHint !== null && (
                     <View
                         pointerEvents="none"
@@ -802,8 +810,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         elevation: 12,
                     }}>
                         <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
-                            {(paneActions.length > 0 || recentTerminalLinks(props.id).length > 0) && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>}
-                            <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />
+                            <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>
+                            <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/history`); }} accessibilityRole="button" accessibilityLabel="Conversation history"
+                                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                <Ionicons name="document-text-outline" size={18} color={theme.colors.textSecondary} />
+                                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Conversation history</Text>
+                                <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                            </Pressable>
+                            {canControl && <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />}
                             {recentTerminalLinks(props.id).length > 0 && <>
                                 <Pressable onPress={() => showRecentLinks('open')} accessibilityRole="button" accessibilityLabel="Open recent terminal link"
                                     style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
@@ -818,8 +832,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                 </Pressable>
                             </>}
-                            {pluginButtons.length > 0 && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Pane controls</Text>}
-                            {pluginButtons.map((button) => {
+                            {canControl && pluginButtons.length > 0 && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Pane controls</Text>}
+                            {canControl && pluginButtons.map((button) => {
                                 const key = `${button.pluginId}:${button.id}`;
                                 return <Pressable key={key} onPress={() => {
                                     if (pluginActionBusy !== undefined) return;
@@ -843,7 +857,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         {/* Closing the pane is the one row here that destroys
                             something, so it never scrolls away and never sits in
                             the run of things you were only going to look at. */}
-                        {!stopping && (
+                        {canControl && !stopping && (
                             <Pressable onPress={() => { setActionsOpen(false); stopSession(); }} accessibilityRole="button" accessibilityLabel={shell ? 'Close pane' : 'Stop agent'}
                                 style={({ pressed }) => ({ minHeight: 44, marginTop: 5, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                 <Ionicons name="stop-circle-outline" size={18} color={theme.colors.status.error} />

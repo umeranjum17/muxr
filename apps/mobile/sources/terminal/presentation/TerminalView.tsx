@@ -58,6 +58,8 @@ const GRAPHICS_ZOOM_STEPS = [1, 1.25, 1.5, 2] as const;
 
 export interface TerminalViewProps {
     sessionId: string;
+    /** Restore the real Herdr scrollback after a history route returns. */
+    initialScrollBack?: number;
     onStatus?: (status: string) => void;
     onChannel?: (channel: TerminalChannel | undefined) => void;
     /** The pane hosts the control, so the panel can cover the accessory row. */
@@ -90,12 +92,14 @@ function combineTextFrames(frames: readonly string[]): string {
 }
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
-    const { sessionId, onStatus, onChannel } = props;
+    const { sessionId, initialScrollBack = 0, onStatus, onChannel } = props;
     const focused = useIsFocused();
     const [viewport, setViewport] = React.useState({ width: 0, height: 0 });
     const terminalKeyboardDisabled = useLocalSetting('terminalKeyboardDisabled');
     const termRef = React.useRef<TerminalViewRef>(null);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
+    const initialScrollBackRef = React.useRef(initialScrollBack);
+    initialScrollBackRef.current = initialScrollBack;
     const openAbortRef = React.useRef<AbortController | undefined>(undefined);
     const openedRef = React.useRef(false);
     const lastSizeRef = React.useRef<{ cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number } | null>(null);
@@ -300,6 +304,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     channelRef.current = channel;
                     void writePumpRef.current?.cancel();
                     let recoveryRequested = false;
+                    let restoredScroll = false;
                     writePumpRef.current = createTerminalWritePump({
                         write: async (bytes, graphics) => {
                             const view = termRef.current;
@@ -335,6 +340,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // update independent placements or delete an earlier image;
                     // they cannot be coalesced merely because graphics is true.
                     channel.onData((base64, graphics) => {
+                        if (!restoredScroll && graphics !== true && initialScrollBackRef.current > 3) {
+                            restoredScroll = true;
+                            requestAnimationFrame(() => {
+                                if (channelRef.current !== channel) return;
+                                channel.scroll(Math.min(initialScrollBackRef.current, 5_000));
+                            });
+                        }
                         if (graphics !== true) recordTerminalOutput(sessionId, base64);
                         releaseScroll();
                         writePumpRef.current?.push(
