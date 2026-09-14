@@ -36,6 +36,7 @@ function NotAuthenticated() {
     const pairing = React.useRef(false);
     const setupScrollRef = React.useRef<ScrollView>(null);
     const [setupCopyStatus, setSetupCopyStatus] = React.useState<string | undefined>();
+    const [showOtherWays, setShowOtherWays] = React.useState(false);
     const setupCommands = 'npm install -g --ignore-scripts @trymuxr/cli@latest\nmuxr setup';
     const copySetupCommands = async () => {
         try {
@@ -104,14 +105,27 @@ function NotAuthenticated() {
                     </View>
                     <View style={styles.actions}>
                         <View style={styles.setupCard}>
-                            <Text style={styles.setupHeading}>First time? Start on your computer</Text>
+                            <Text style={styles.setupHeading}>Recommended · start on your computer</Text>
                             <Text style={styles.setupStep}>1. Install Node.js 22 or newer on Linux, macOS, or WSL.</Text>
-                            <Text style={styles.setupStep}>2. Run the commands below. Setup checks your computer, lets you choose a connection route, and starts your self-hosted relay.</Text>
+                            <Text style={styles.setupStep}>2. Run the commands below. Setup checks your computer, recommends a reachable route, and lets you review it before applying changes.</Text>
                             <Text style={styles.setupStep}>{Platform.OS === 'web'
                                 ? '3. For this browser, choose Tailscale Serve, Cloudflare, or your own WSS server. Enable web access, then open the pairing link.'
                                 : '3. Pair this phone with the QR or short string setup shows. Only this device receives its key grant.'}</Text>
                             <Text selectable style={styles.setupCommands}>{setupCommands}</Text>
                             <ActionButton title="Copy both" accessibilityLabel="Copy computer setup commands" icon="copy-outline" variant="secondary" onPress={() => void copySetupCommands()} />
+                            <Text style={styles.setupHeading}>What happens</Text>
+                            <Text style={styles.setupStep}>The computer shows a one-time QR or link. This device claims it, then verifies a key grant sealed for this device only.</Text>
+                            <ActionButton title={showOtherWays ? 'Hide other ways' : 'Other ways to connect'} variant="secondary"
+                                onPress={() => setShowOtherWays((visible) => !visible)} />
+                            {showOtherWays && <View accessibilityLabel="Other supported connection routes">
+                                <Text style={styles.setupStep}>Choose in muxr setup on the computer. Availability depends on its network:</Text>
+                                <Text style={styles.setupStep}>Tailscale Serve · private HTTPS; browser or native app.</Text>
+                                <Text style={styles.setupStep}>Direct Tailscale · same tailnet; native app only.</Text>
+                                <Text style={styles.setupStep}>Private network · NetBird, WireGuard, or ZeroTier; native app only.</Text>
+                                <Text style={styles.setupStep}>Same Wi-Fi · trusted local network; native app only.</Text>
+                                <Text style={styles.setupStep}>Temporary Cloudflare tunnel · public HTTPS; address can change.</Text>
+                                <Text style={styles.setupStep}>Your own WSS server · an existing relay or reverse proxy you manage.</Text>
+                            </View>}
                             {setupCopyStatus && (
                                 <Text accessibilityLiveRegion="polite" style={styles.copyStatus}
                                     onLayout={() => setupScrollRef.current?.scrollToEnd({ animated: true })}>

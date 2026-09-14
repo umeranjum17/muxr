@@ -293,10 +293,26 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         }
         const connectionChoices = choices(found, tailscalePlanned, serveRoot).map((choice) => ({
             ...choice,
-            title: `${choice.title}${choice.value === current?.connectionMode ? ' · current' : ''}${choice.value === proposal?.mode ? ' · recommended' : ''}`,
+            title: `${choice.title}${choice.value === current?.connectionMode ? ' · current' : ''}`,
         }));
-        const initial = Math.max(0, connectionChoices.findIndex((choice) => choice.value === proposal?.mode));
-        mode = await select('Choose a connection route', connectionChoices, initial);
+        const preferred = connectionChoices.find((choice) => choice.value === proposal?.mode && !choice.disabled);
+        if (preferred === undefined) {
+            const initial = Math.max(0, connectionChoices.findIndex((choice) => !choice.disabled));
+            mode = await select('Choose a connection route', connectionChoices, initial);
+        } else {
+            for (;;) {
+                const first = await select('How should this computer connect?', [
+                    { value: preferred.value, title: `Use ${preferred.title} · recommended`, description: proposal.description },
+                    { value: 'other', title: 'Other ways to connect', description: 'Compare all six supported routes and their requirements' },
+                ]);
+                if (first !== 'other') { mode = first; break; }
+                const other = await select('Other connection routes', connectionChoices,
+                    connectionChoices.findIndex((choice) => choice.value === preferred.value));
+                if (other === BACK) continue;
+                mode = other;
+                break;
+            }
+        }
     }
     if (aborted(mode)) return undefined;
     if (mode === 'lan') {
