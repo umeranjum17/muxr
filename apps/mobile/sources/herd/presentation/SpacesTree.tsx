@@ -94,6 +94,12 @@ const stylesheet = StyleSheet.create((theme) => ({
         borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider,
     },
     workspaceSubheaderText: { flex: 1, fontSize: 13, color: theme.colors.textSecondary, ...Typography.default() },
+    shellDisclosure: {
+        flexDirection: 'row', alignItems: 'center', minHeight: 44,
+        paddingLeft: 32, paddingRight: 16,
+        borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider,
+    },
+    shellDisclosureText: { flex: 1, fontSize: 13, color: theme.colors.textSecondary, ...Typography.default() },
     closeSpace: { minWidth: 44, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
     cardHeaderPressed: {
         backgroundColor: theme.colors.surfacePressedOverlay,
@@ -276,12 +282,13 @@ function statusForCounts(counts: SpaceCounts): HerdrTreePane['agentStatus'] {
 }
 
 const WorktreeChild = React.memo(({
-    row, compact, searchActive, selectedSessionId, canClose, onToggle, onCloseWorkspace, onClosePane,
+    row, compact, searchActive, selectedSessionId, shellExpanded, canClose, onToggle, onCloseWorkspace, onClosePane,
 }: {
     row: HerdWorktreeRow;
     compact: boolean;
     searchActive: boolean;
     selectedSessionId?: string;
+    shellExpanded: boolean;
     canClose: boolean;
     onToggle: (key: string) => void;
     onCloseWorkspace: (workspace: HerdrTreeWorkspace) => void;
@@ -297,6 +304,24 @@ const WorktreeChild = React.memo(({
     })).filter((group) => !searchActive || group.panes.length > 0)
         .sort((left, right) => row.panes.findIndex((entry) => entry.workspace.workspaceId === left.workspace.workspaceId)
             - row.panes.findIndex((entry) => entry.workspace.workspaceId === right.workspace.workspaceId));
+    const agentGroups = workspaceGroups.map((group) => ({ ...group, panes: group.panes.filter(({ pane }) => pane.agentKind !== undefined) }))
+        .filter((group) => group.panes.length > 0);
+    const shellGroups = workspaceGroups.map((group) => ({ ...group, panes: group.panes.filter(({ pane }) => pane.agentKind === undefined) }))
+        .filter((group) => group.panes.length > 0);
+    const selectedShell = selectedSessionId !== undefined && row.workspaces.some((workspace) => workspace.tabs.some((tab) =>
+        tab.panes.some((pane) => pane.sessionId === selectedSessionId && pane.agentKind === undefined)));
+    const groupShells = !searchActive && agentGroups.length > 0 && shellGroups.length > 0;
+    const showShells = !groupShells || shellExpanded || selectedShell;
+    const renderGroups = (groups: typeof workspaceGroups) => groups.map(({ workspace, panes }) => <React.Fragment key={workspace.workspaceId}>
+        {row.workspaces.length > 1 && <View style={styles.workspaceSubheader}>
+            <Text numberOfLines={1} style={styles.workspaceSubheaderText}>{workspaceName(workspace)}</Text>
+            {canClose && <Pressable onPress={() => onCloseWorkspace(workspace)} style={styles.closeSpace} accessibilityRole="button" accessibilityLabel={`Close ${workspaceName(workspace)} workspace`}>
+                <Ionicons name="close-outline" size={18} color={theme.colors.textSecondary} />
+            </Pressable>}
+        </View>}
+        {panes.map(({ pane }, index) => <AgentRow key={pane.paneId} pane={pane} first={index === 0} onClose={() => onClosePane(pane)} compact={compact}
+            selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId} canClose={canClose} />)}
+    </React.Fragment>);
     return <>
         <Pressable
             onPress={searchActive ? undefined : () => onToggle(row.key)}
@@ -315,18 +340,19 @@ const WorktreeChild = React.memo(({
                 <Text numberOfLines={2} style={styles.summary}>{spaceSummary(row.counts)}</Text>
             </View>
         </Pressable>
-        {row.expanded && workspaceGroups.map(({ workspace, panes }) => <React.Fragment key={workspace.workspaceId}>
-            {row.workspaces.length > 1 && <View style={styles.workspaceSubheader}>
-                <Text numberOfLines={1} style={styles.workspaceSubheaderText}>{workspaceName(workspace)}</Text>
-                {canClose && <Pressable onPress={() => onCloseWorkspace(workspace)} style={styles.closeSpace} accessibilityRole="button" accessibilityLabel={`Close ${workspaceName(workspace)} workspace`}>
-                    <Ionicons name="close-outline" size={18} color={theme.colors.textSecondary} />
-                </Pressable>}
-            </View>}
-            {panes.map(({ pane }, index) => <AgentRow key={pane.paneId} pane={pane} first={index === 0} onClose={() => onClosePane(pane)} compact={compact}
-                selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId} canClose={canClose} />)}
-        </React.Fragment>)}
+        {row.expanded && renderGroups(agentGroups)}
+        {row.expanded && groupShells && <Pressable onPress={() => onToggle(shellDisclosureKey(row.key))}
+            style={({ pressed }) => [styles.shellDisclosure, pressed && styles.cardHeaderPressed]}
+            accessibilityRole="button" accessibilityState={{ expanded: showShells }}
+            accessibilityLabel={`${row.counts.shells} shell${row.counts.shells === 1 ? '' : 's'}, ${showShells ? 'expanded' : 'collapsed'}`}>
+            <Text style={styles.shellDisclosureText}>{row.counts.shells} shell{row.counts.shells === 1 ? '' : 's'}</Text>
+            <Ionicons name={showShells ? 'chevron-down' : 'chevron-forward'} size={15} color={theme.colors.groupped.chevron} />
+        </Pressable>}
+        {row.expanded && showShells && renderGroups(shellGroups)}
     </>;
 });
+
+const shellDisclosureKey = (checkoutKey: string) => `shells:${checkoutKey}`;
 
 function initialDisclosure(workspaces: readonly HerdrTreeWorkspace[], selectedSessionId?: string): Set<string> {
     const rows = buildSpaceRows(workspaces, new Set(), '', selectedSessionId);
@@ -391,7 +417,10 @@ export const SpacesTree = React.memo(({
         const valid = new Set<string>();
         for (const row of buildSpaceRows(workspaces, new Set(), '')) {
             if (row.type === 'repository') {
-                for (const child of row.worktrees) valid.add(child.key);
+                for (const child of row.worktrees) {
+                    valid.add(child.key);
+                    if (child.counts.agents && child.counts.shells) valid.add(shellDisclosureKey(child.key));
+                }
             } else valid.add(`workspace:${row.workspace.workspaceId}`);
         }
         const preferences = new Map((savedKeys ?? []).filter((entry) => entry.length > 1).map((entry) => [entry.slice(1), entry[0]]));
@@ -474,7 +503,8 @@ export const SpacesTree = React.memo(({
                 <Text numberOfLines={2} style={styles.repoSummary}>{spaceSummary(item.counts, item.totalWorktrees)}{filtered}</Text>
             </View>
             {item.worktrees.map((child) => <View key={child.key} style={[styles.card, compact && styles.cardCompact]}><WorktreeChild row={child} compact={compact}
-                searchActive={searchActive} selectedSessionId={selectedSessionId} canClose={canClose} onToggle={toggle}
+                searchActive={searchActive} selectedSessionId={selectedSessionId} shellExpanded={expanded.has(shellDisclosureKey(child.key))}
+                canClose={canClose} onToggle={toggle}
                 onCloseWorkspace={confirmCloseWorkspace} onClosePane={confirmClosePane} /></View>)}
         </View>;
     };
