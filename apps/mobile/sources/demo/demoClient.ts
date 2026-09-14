@@ -61,6 +61,8 @@ import {
 
 type EventListener = (sessionId: string, event: SessionEvent) => void;
 type StateListener = (state: ConnectionState) => void;
+type TranscriptChange = 'append' | 'reset';
+type TranscriptListener = (sessionId: string, lines: string[], change: TranscriptChange) => void;
 
 const DEMO_TOKENS = { input: 1200, output: 340, cacheRead: 0, cacheWrite: 0, total: 1540 };
 
@@ -98,7 +100,7 @@ class DemoClient implements MuxrTransport {
         [DEMO_SESSION_BLOCKED]: [...DEMO_TRANSCRIPTS[DEMO_SESSION_BLOCKED]!],
         [DEMO_SESSION_DONE]: [...DEMO_TRANSCRIPTS[DEMO_SESSION_DONE]!],
     };
-    private readonly transcriptListeners = new Set<(sessionId: string, lines: string[]) => void>();
+    private readonly transcriptListeners = new Set<TranscriptListener>();
     /**
      * Fired when a scripted transition completes (blocked → done). The demo
      * shell uses it to re-read tree-pane state through the production
@@ -147,11 +149,19 @@ class DemoClient implements MuxrTransport {
         this.timers.forEach(clearTimeout);
         this.timers = [];
         this.blockedPhase = 'blocked';
+        const resetSessionIds = Object.keys(this.transcripts);
         for (const created of this.created) delete this.transcripts[created.id];
         this.created = [];
         this.transcripts[DEMO_SESSION_WORKING] = [...DEMO_TRANSCRIPTS[DEMO_SESSION_WORKING]!];
         this.transcripts[DEMO_SESSION_BLOCKED] = [...DEMO_TRANSCRIPTS[DEMO_SESSION_BLOCKED]!];
         this.transcripts[DEMO_SESSION_DONE] = [...DEMO_TRANSCRIPTS[DEMO_SESSION_DONE]!];
+        // Reset replaces the whole replay buffer. Terminal channels must hear
+        // that replacement, including sessions removed by the reset, or an
+        // already-mounted xterm keeps rendering the old terminal tail.
+        for (const sessionId of resetSessionIds) {
+            const lines = this.transcripts[sessionId] ?? [];
+            for (const listener of [...this.transcriptListeners]) listener(sessionId, [...lines], 'reset');
+        }
         // A reset with a never-opened transport must still bring the herd up:
         // connect() replays the initial catalog on open.
         if (this.state === 'open') this.emitInitial();
@@ -166,7 +176,7 @@ class DemoClient implements MuxrTransport {
         return this.transcripts[sessionId] !== undefined;
     }
 
-    onTranscript(listener: (sessionId: string, lines: string[]) => void): () => void {
+    onTranscript(listener: TranscriptListener): () => void {
         this.transcriptListeners.add(listener);
         return () => {
             this.transcriptListeners.delete(listener);
@@ -575,7 +585,7 @@ class DemoClient implements MuxrTransport {
         const buffer = this.transcripts[sessionId];
         if (buffer === undefined) return;
         buffer.push(...lines);
-        for (const listener of [...this.transcriptListeners]) listener(sessionId, [...buffer]);
+        for (const listener of [...this.transcriptListeners]) listener(sessionId, [...buffer], 'append');
     }
 
     private setState(state: ConnectionState): void {

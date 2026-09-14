@@ -15,6 +15,12 @@ function toBase64Line(line: string): string {
     return encodeBase64(new TextEncoder().encode(`${line}\r\n`), 'base64');
 }
 
+function toBase64Text(text: string): string {
+    return encodeBase64(new TextEncoder().encode(text), 'base64');
+}
+
+const CLEAR_TERMINAL = toBase64Text('\u001b[2J\u001b[3J\u001b[H');
+
 export function isDemoTerminalSession(sessionId: string): boolean {
     return demoClient.knows(sessionId);
 }
@@ -32,8 +38,15 @@ export function openDemoTerminalChannel(command: OpenTerminalCommand): Promise<T
     };
 
     // A fresh attach replays the backlog, then tails live appends.
-    const offTranscript = demoClient.onTranscript((changedId, lines) => {
+    const offTranscript = demoClient.onTranscript((changedId, lines, change) => {
         if (closed || changedId !== sessionId) return;
+        if (change === 'reset') {
+            for (const listener of [...dataListeners]) listener(CLEAR_TERMINAL);
+            for (const line of lines) {
+                for (const listener of [...dataListeners]) listener(toBase64Line(line));
+            }
+            return;
+        }
         const latest = lines[lines.length - 1];
         if (latest === undefined) return;
         for (const listener of [...dataListeners]) listener(toBase64Line(latest));
