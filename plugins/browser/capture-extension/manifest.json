@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "muxr browser capture",
+  "description": "Captures exactly one registered tab of the muxr browser service into a WebRTC track for the owner's device. Loaded only by the service; never installed in a personal browser.",
+  "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAm7+kbWMrYuEgiYAXllDefQH+VpLk7K/txPwCK8gRsqywnaTxeEkMT21ra43JUFEXiKtu0+vzLl5XDj0aWdsQ3qsEZOjcFnHn33893Ff0OJc+uvqO/5Bo345bWZk8stfHn8h1yuPlZ2YJEHM2NGizfrXrYmKO1r/xk06TqoWBqD4LP+1Ak4wMUsfejkuK6Jt/bPiOqtJg3SQ0aJByeQyn5WyBoo3g5M8M4lirK2UzBfPC1XTPJy13DXdaVjTTxgXEDGHlsdOYo8pD22kNDtswX5tw5PUArx1o70/kCyxp/th/zOjc39NSblNNP//VHaYPqQa/aLDn8CcodVQMTfMb+QIDAQAB",
+  "permissions": ["tabCapture", "tabs"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "muxr: allow capture of this tab" },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Ctrl+Shift+9" },
+      "description": "Invoke muxr capture on the current tab"
+    }
+  }
+}
