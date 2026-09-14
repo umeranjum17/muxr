@@ -146,6 +146,8 @@ export async function reportHerdrActionFailure(
 }
 const MAX_PLUGIN_INVOCATIONS_PER_SCOPE = 64;
 const MAX_PLUGIN_INVOCATIONS_TOTAL = 1_024;
+/** Covers agent.start and both confirmation gates while Herdr detects the process. */
+const ACTIVE_LAUNCH_MS = 200_000;
 
 function publicAgentKind(kind: string | undefined): string | undefined {
     return kind === undefined || kind === 'shell' ? undefined : kind;
@@ -624,6 +626,7 @@ export async function createHerdrSessionSource(
     const paneByAgentRoute = new Map<string, string>();
     const pendingCreatedRoutes = new Set<string>();
     const pendingLaunchByPane = new Map<string, HerdrAgentSessionRef>();
+    const activeLaunchUntil = new Map<string, number>();
     const seenLaunchPane = new Set<string>();
     const launchSeedByPane = new Map<string, { pane: PaneRecord; agent: AgentRecord }>();
 
@@ -669,6 +672,7 @@ export async function createHerdrSessionSource(
 
     function forgetLaunch(paneId: string): void {
         pendingLaunchByPane.delete(paneId);
+        activeLaunchUntil.delete(paneId);
         seenLaunchPane.delete(paneId);
         launchSeedByPane.delete(paneId);
     }
@@ -747,6 +751,19 @@ export async function createHerdrSessionSource(
         if (agent === undefined || agentSession(agent) === undefined) return false;
         if (typeof agent.name === 'string' && agent.name.length > 0) return true;
         return pendingLaunchByPane.has(agent.pane_id) || publishedAgentSession(agent) !== undefined;
+    }
+
+    /** Herdr's detected kind wins; a requested kind stands in only during a live launch. */
+    function agentKindFor(session: CurrentSession | undefined): string | undefined {
+        if (session?.agent === undefined) return undefined;
+        if (session.agent.agent !== undefined && session.agent.agent !== null) return session.agent.agent;
+        const until = activeLaunchUntil.get(session.paneId);
+        if (until === undefined) return undefined;
+        if (Date.now() > until) {
+            activeLaunchUntil.delete(session.paneId);
+            return undefined;
+        }
+        return pendingLaunchByPane.get(session.paneId)?.agent;
     }
 
     function namedAgent(agent: AgentRecord | undefined): agent is AgentRecord {
@@ -979,7 +996,7 @@ export async function createHerdrSessionSource(
         const tabLabel = tabId === undefined ? undefined : tabsById.get(tabId)?.label;
         const worktree = workspace?.worktree;
         const taskTitle = taskTitleForSession(session);
-        const agentKind = session.agent?.agent ?? undefined;
+        const agentKind = agentKindFor(session);
         const displayAgent = session.agent?.display_agent ?? undefined;
         // The terminal title is deliberately absent: a working agent animates it
         // several times a second, and every client reads placement and identity
@@ -1297,8 +1314,10 @@ export async function createHerdrSessionSource(
     }
 
     function rememberLaunch(paneId: string, kind: string, launchName: string): HerdrAgentSessionRef {
-        const pending = muxrLaunchSession(publicAgentKind(kind) ?? 'agent', launchName);
+        const requested = publicAgentKind(kind);
+        const pending = muxrLaunchSession(requested ?? 'agent', launchName);
         pendingLaunchByPane.set(paneId, pending);
+        if (requested !== undefined) activeLaunchUntil.set(paneId, Date.now() + ACTIVE_LAUNCH_MS);
         return pending;
     }
 
@@ -2430,7 +2449,7 @@ export async function createHerdrSessionSource(
                     const treePanes = tabPanes.map((pane) => {
                         const session = currentSessionByPane(pane.pane_id);
                         const taskTitle = session === undefined ? undefined : taskTitleForSession(session);
-                        const agentKind = session?.agent?.agent ?? undefined;
+                        const agentKind = agentKindFor(session);
                         const cwd = pane.foreground_cwd ?? pane.cwd ?? undefined;
                         const listedName = publicListedName(session?.agent);
                         const agentStatus = lifecycleForPane(pane.pane_id);

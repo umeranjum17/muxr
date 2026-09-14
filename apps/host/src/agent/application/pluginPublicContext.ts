@@ -51,6 +51,15 @@ function text(value: string | undefined, max: number): string | undefined {
     return clean === '' ? undefined : clean;
 }
 
+/** Validate Herdr-owned presentation fields without rewriting their visible value. */
+function herdrText(value: string | undefined, max: number): string | undefined {
+    if (value === undefined || value.trim() === '' || Buffer.byteLength(value, 'utf8') > max) return undefined;
+    if (sanitizeDisplayText(value) !== value || /[\0-\x1F\x7F]/.test(value)) return undefined;
+    if (/[\\`]|&&|\|\||\b(?:token|password|secret|credential)\s*=/i.test(value)) return undefined;
+    if (/:\/\/|(?:^|[\s(])(?:\/\S|~\/|\.\.?\/)/.test(value)) return undefined;
+    return value;
+}
+
 function iso(value: string | undefined, fallback = new Date(0).toISOString()): string {
     if (value === undefined) return fallback;
     const clean = text(value, 40);
@@ -84,9 +93,9 @@ export function buildPluginPublicContext(
             const workspaceLabel = text(session.workspaceLabel, 80);
             const tabLabel = text(session.tabLabel, 80);
             const agentKind = text(session.agentKind, 40);
-            const displayAgent = text(session.displayAgent, 80);
-            const agentName = text(session.agentName, 80);
-            const taskTitle = text(session.taskTitle, 120);
+            const displayAgent = herdrText(session.displayAgent, 80);
+            const agentName = herdrText(session.agentName, 80);
+            const taskTitle = herdrText(session.taskTitle, 120);
             return {
                 sessionId: session.sessionId,
                 label: text(session.label, 80) ?? 'session',
@@ -135,9 +144,9 @@ export function buildPluginPublicContext(
                     const id = session.sessionId === undefined ? undefined : sessionId(session.sessionId);
                     if (session.sessionId !== undefined && id === undefined) return [];
                     const agentKind = text(session.agentKind, 40);
-                    const displayAgent = text(session.displayAgent, 80);
-                    const agentName = text(session.agentName, 80);
-                    const taskTitle = text(session.taskTitle, 120);
+                    const displayAgent = herdrText(session.displayAgent, 80);
+                    const agentName = herdrText(session.agentName, 80);
+                    const taskTitle = herdrText(session.taskTitle, 120);
                     return [{
                         ...(id === undefined ? {} : { sessionId: id }),
                         label: text(session.label, 80) ?? 'session',
