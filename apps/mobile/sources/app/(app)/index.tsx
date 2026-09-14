@@ -34,7 +34,6 @@ function NotAuthenticated() {
     const insets = useSafeAreaInsets();
     const hosted = getCachedConnectionSettings().mode === 'hosted';
     const pairing = React.useRef(false);
-    const setupScrollRef = React.useRef<ScrollView>(null);
     const [setupCopyStatus, setSetupCopyStatus] = React.useState<string | undefined>();
     const [showOtherWays, setShowOtherWays] = React.useState(false);
     const setupCommands = 'npm install -g --ignore-scripts @trymuxr/cli@latest\nmuxr setup';
@@ -96,7 +95,7 @@ function NotAuthenticated() {
     if (hosted) {
         return (
             <View style={styles.screen}>
-                <ScrollView ref={setupScrollRef} style={styles.hostedScroll} contentContainerStyle={styles.hostedContent}
+                <ScrollView style={styles.hostedScroll} contentContainerStyle={styles.hostedContent}
                     keyboardShouldPersistTaps="handled">
                     <View style={[styles.hero, styles.hostedHero]}>
                         <Wordmark width={128} />
@@ -106,13 +105,14 @@ function NotAuthenticated() {
                     <View style={styles.actions}>
                         <View style={styles.setupCard}>
                             <Text style={styles.setupHeading}>Recommended · start on your computer</Text>
-                            <Text style={styles.setupStep}>1. Install Node.js 22 or newer on Linux, macOS, or WSL.</Text>
-                            <Text style={styles.setupStep}>2. Run the commands below. Setup checks your computer, recommends a reachable route, and lets you review it before applying changes.</Text>
-                            <Text style={styles.setupStep}>{Platform.OS === 'web'
-                                ? '3. For this browser, choose Tailscale Serve, Cloudflare, or your own WSS server. Enable web access, then open the pairing link.'
-                                : '3. Pair this phone with the QR or short string setup shows. Only this device receives its key grant.'}</Text>
+                            <Text style={styles.setupStep}>Node.js 22+ · Linux, macOS, or WSL</Text>
+                            <Text style={styles.setupStep}>Run these commands. Setup recommends a reachable route for your client and asks before applying changes.</Text>
                             <Text selectable style={styles.setupCommands}>{setupCommands}</Text>
                             <ActionButton title="Copy both" accessibilityLabel="Copy computer setup commands" icon="copy-outline" variant="secondary" onPress={() => void copySetupCommands()} />
+                            {setupCopyStatus && <Text accessibilityLiveRegion="polite" style={styles.copyStatus}>{setupCopyStatus}</Text>}
+                            <Text style={styles.setupStep}>{Platform.OS === 'web'
+                                ? 'Browser access needs Tailscale Serve, a Cloudflare tunnel, or your own HTTPS/WSS server.'
+                                : 'Then scan the one-time QR, or enter the short pairing string.'}</Text>
                             <Text style={styles.setupHeading}>What happens</Text>
                             <Text style={styles.setupStep}>The computer shows a one-time QR or link. This device claims it, then verifies a key grant sealed for this device only.</Text>
                             <ActionButton title={showOtherWays ? 'Hide other ways' : 'Other ways to connect'} variant="secondary"
@@ -126,12 +126,6 @@ function NotAuthenticated() {
                                 <Text style={styles.setupStep}>Temporary Cloudflare tunnel · public HTTPS; address can change.</Text>
                                 <Text style={styles.setupStep}>Your own WSS server · an existing relay or reverse proxy you manage.</Text>
                             </View>}
-                            {setupCopyStatus && (
-                                <Text accessibilityLiveRegion="polite" style={styles.copyStatus}
-                                    onLayout={() => setupScrollRef.current?.scrollToEnd({ animated: true })}>
-                                    {setupCopyStatus}
-                                </Text>
-                            )}
                         </View>
                     </View>
                 </ScrollView>
