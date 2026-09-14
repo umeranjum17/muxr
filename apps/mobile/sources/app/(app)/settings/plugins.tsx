@@ -12,24 +12,7 @@ import { invalidateSessionPlugins } from '@/plugins';
 import { invalidatePlugins } from '@/plugins';
 import { resolvePluginText } from '@/plugins';
 import { pluginCatalogLoaded, pluginCatalogSnapshot, refreshPlugins, subscribePlugins } from '@/plugins';
-
-const GROUPS = [
-    { title: 'Files & changes', ids: ['muxr.code', 'muxr.attachments'] },
-    { title: 'Terminal & layout', ids: ['muxr.panes', 'muxr.control', 'muxr.workspace-hierarchy', 'muxr.terminal-keys'] },
-    { title: 'Voice & input', ids: ['muxr.voice', 'muxr.dictation'] },
-    { title: 'Usage & machine', ids: ['muxr.status'] },
-] as const;
-const SHORT_DESCRIPTIONS: Record<string, string> = {
-    'muxr.code': 'Browse files, diffs, and git history',
-    'muxr.attachments': 'Open shared files and images',
-    'muxr.panes': 'Open shells and plugin tools',
-    'muxr.control': 'Control panes and tabs',
-    'muxr.workspace-hierarchy': 'Browse workspaces, tabs, and agents',
-    'muxr.terminal-keys': 'Extra keys above the phone keyboard',
-    'muxr.voice': 'Live speech-to-speech with an agent',
-    'muxr.dictation': 'Speak a prompt on your device',
-    'muxr.status': 'Usage, limits, and machine health',
-};
+import { BUILTIN_GROUPS, BUILTIN_IDS, PluginCatalogRow } from '@/plugins/presentation/PluginCatalogRow';
 
 export default function PluginsScreen() {
     const router = useRouter();

@@ -108,7 +108,7 @@ const COMMAND_HELP = {
     'plugin install': `muxr plugin install <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nMaterialize, validate, confirm, and enable a plugin.\n`,
     'plugin update': `muxr plugin update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nReplace plugin files transactionally while preserving its enabled state.\n`,
     'plugin remove': `muxr plugin remove <plugin-id> [--yes]\n\nDisable, unlink, and remove muxr-managed plugin files.\n`,
-    pair: `muxr pair [--browser|--browser-view]\n\nCreate a two-minute native QR/string, an eight-hour control-browser link (--browser), or an eight-hour view-only browser link (--browser-view).\n`,
+    pair: `muxr pair [--browser|--browser-view]\n\nCreate a two-minute native QR/string, a control-browser link (--browser), or an eight-hour view-only browser link (--browser-view). Self-hosted control browsers stay paired until revoked; hosted links show their finite lifetime before pairing.\n`,
     doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
     diagnostics: `muxr diagnostics\n\nPrint seven days of bounded redacted host, client, relay, collaboration, and broker history as JSON. No prompts, terminal output, paths, secrets, or internal ids are recorded.\n`,
     report: `muxr report > muxr-report.md\n\nPrepare a local GitHub issue draft with environment versions, redacted doctor check names, and the latest 50 bounded diagnostic events. The command only prints a draft. Review every line, add what happened, and explicitly decide whether to post it; muxr never opens or submits an issue.\n`,
@@ -533,7 +533,7 @@ async function devicesMenu() {
     for (;;) {
         const choice = await select('Phones and browsers', [
             { value: 'pair', title: 'Pair a phone', description: 'show a two-minute QR and short pairing string' },
-            { value: 'pair-browser', title: 'Pair a control browser', description: 'full terminal and agent control for eight hours' },
+            { value: 'pair-browser', title: 'Pair a control browser', description: 'full control; self-hosted access lasts until revoked' },
             { value: 'pair-browser-view', title: 'Pair a view-only browser', description: 'observe agents without control for eight hours' },
             { value: 'list', title: 'List paired devices', description: 'names and pairing dates' },
             { value: 'revoke', title: 'Revoke a device', description: 'disconnect a phone or browser' },
