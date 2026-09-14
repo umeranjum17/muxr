@@ -541,9 +541,10 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
 
     const canSend = !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
     // Short-chrome mode, agreed with the mark-band owner: keyboard up and the
-    // terminal squeezed under 200dp. Tabs, keys and composer chrome collapse
-    // so the user still sees the terminal being typed into. Computed once
-    // here; both halves key off this. Never true with the keyboard down.
+    // terminal squeezed under 200dp. Tabs and the composer chrome collapse so
+    // the user still sees the terminal being typed into; the key strip stays
+    // present, losing only its outer vertical padding. Computed once here;
+    // both halves key off this. Never true with the keyboard down.
     const shortChrome = (keyboardPad > 0 || keyboardVisible) && terminalHeight < 200;
     // The phone's 270dp class: under 340 wide (the same line settings uses)
     // the five-across composer leaves ~46dp for the input and the
@@ -560,6 +561,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     const compactTools = terminalHeight > 0 && terminalInset < TOOLS_TRIGGER_INSET;
     const hasTabStrip = workspaceTabs.length > 0 || showLinkChip;
     const showTabStrip = hasTabStrip && !shortChrome;
+    const keyRowHeight = shortChrome ? 46 : FOOTER_ROW_HEIGHT;
 
     // Where this session sits and how it is allowed to act, in one quiet row.
     // Connection stays out of it: subtitle/send color and the reconnect pill
@@ -939,21 +941,21 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 when the card is open: the card floats over the terminal
                 above. */}
             <View style={{ position: 'relative', backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider, paddingBottom: keyboardPad > 0 ? 0 : insets.bottom }}>
-            {/* The key row sits above the composer and never below it. The
-                bottom inset lives on the footer itself, so it holds whichever
-                row is bottommost. Hidden in short-chrome mode: its 52dp buys
-                three more terminal rows when every row counts. */}
-            {canControl && !shortChrome && (
+            {/* The key row sits above the composer and never below it. It stays
+                visible while the IME is up because ctrl, Esc, Tab, ^C and ^D
+                are typing actions. Short chrome drops only the row's outer
+                6dp vertical padding; its Moshi caps remain 46dp. */}
+            {canControl && (
                 <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     keyboardShouldPersistTaps="always"
-                    style={{ maxHeight: FOOTER_ROW_HEIGHT }}
+                    style={{ maxHeight: keyRowHeight }}
                     // Moshi-measured strip: 7dp gaps, 10dp row inset, 58dp
                     // pitch. Single-row horizontal scroll, never wraps -- the
                     // content runs past the edge with a visible mid-cap cut,
                     // so more keys are never hidden without a cue.
-                    contentContainerStyle={{ minHeight: FOOTER_ROW_HEIGHT, alignItems: 'center', gap: 7, paddingHorizontal: 10, paddingVertical: 6 }}
+                    contentContainerStyle={{ minHeight: keyRowHeight, alignItems: 'center', gap: 7, paddingHorizontal: 10, paddingVertical: shortChrome ? 0 : 6 }}
                 >
                     <DeclarativeTerminalKeySlot channel={channel} />
                 </ScrollView>
@@ -1137,7 +1139,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 it in the footer chrome. It remains above the IME and outside
                 terminal output; the trigger and panel contract are unchanged. */}
             {compactTools && !showTabStrip && (
-                <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 }}>
+                <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: keyRowHeight, zIndex: 10 }}>
                     {renderJump(true)}
                     <TerminalToolsTrigger side={toolsSide} onSideChange={setToolsSide} onPress={toolsOpen ? closeTools : openTools}
                         blocked={toolsBlocked} expanded={toolsOpen} dimmed={showJump} />
