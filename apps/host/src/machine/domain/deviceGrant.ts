@@ -52,7 +52,13 @@ export class DeviceGrant {
     }
 
     grantExpiresAtMs(now: number, durableNativeExpiresAt: number): number {
-        if (this.kind() === 'browser') return Math.min(Date.parse(this.record.expiresAt), now + 8 * 60 * 60_000);
+        if (this.kind() === 'browser') {
+            if (this.authority() === 'control' && this.record.durable === true) {
+                return Math.min(Date.parse(this.record.expiresAt), durableNativeExpiresAt);
+            }
+            const cap = this.record.personal === true ? 30 * 24 * 60 * 60_000 : 8 * 60 * 60_000;
+            return Math.min(Date.parse(this.record.expiresAt), now + cap);
+        }
         if (this.isPeer()) return Date.parse(this.record.expiresAt);
         return durableNativeExpiresAt;
     }

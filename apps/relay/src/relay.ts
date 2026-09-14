@@ -612,12 +612,14 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                         return;
                     }
                     const deviceAuthority = deviceKind === 'browser' && requestedAuthority === 'observe' ? 'observe' : 'control';
+                    const personal = deviceKind === 'browser' && body?.personal === true;
+                    const durable = deviceKind === 'browser' && deviceAuthority === 'control' && body?.durable === true;
                     if (claim.length < 43 || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(machineSlug) || deviceKind === undefined) {
                         writeJsonError(res, 400, 'claim, machineSlug and deviceKind are required');
                         return;
                     }
                     if (!(await machineAuthority?.isMachineAllowed(machineSlug))) { writeJsonError(res, 403, 'machine is revoked or expired'); return; }
-                    const session = await localPairing.createSession({ claim, machineSlug, deviceKind, authority: deviceAuthority });
+                    const session = await localPairing.createSession({ claim, machineSlug, deviceKind, authority: deviceAuthority, ...(personal ? { personal: true } : {}), ...(durable ? { durable: true } : {}) });
                     writeJson(res, 201, { pair_id: session.pairId, expires_in: session.expiresIn });
                     return;
                 }
@@ -650,14 +652,12 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     const deviceName = typeof body?.device_name === 'string' ? body.device_name.slice(0, 120) : '';
                     const mailbox = typeof body?.mailbox === 'string' ? body.mailbox : '';
                     const deviceKind = body?.device_kind === 'browser' ? 'browser' : 'native';
-                    const browserExpiresAt = deviceKind === 'browser' ? Date.now() + 8 * 60 * 60_000 : undefined;
                     if (claim === '' || devicePublicKey === '' || deviceName === '' || mailbox === '' || mailbox.length > 16 * 1024) {
                         writeJsonError(res, 400, 'claim, device_public_key, device_name and mailbox are required');
                         return;
                     }
                     const result = await localPairing.claim(claimMatch[1], {
                         claim, devicePublicKey, deviceName, deviceKind, mailbox,
-                        ...(browserExpiresAt === undefined ? {} : { expiresAt: browserExpiresAt }),
                     });
                     if (result.state === 'issued') {
                         writeJson(res, 201, { device_id: result.deviceId, device_credential: result.credential });

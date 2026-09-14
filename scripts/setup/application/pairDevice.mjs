@@ -4,8 +4,9 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import nacl from 'tweetnacl';
 import {
+    consentMachineName,
     pairingIntent,
-    pairingIntentFromHostedFlags,
+    pairingIntentFromPairFlags,
 } from '../domain/dist/index.js';
 import {
     api,
@@ -38,8 +39,8 @@ import {
     withSelfhostRotationLock,
 } from '../infrastructure/selfhostRelay.mjs';
 
-export async function mintDeviceGrant(state, requestedKind = 'native', requestedAuthority = 'control') {
-    const intent = pairingIntent({ kind: requestedKind, authority: requestedAuthority });
+export async function mintDeviceGrant(state, requestedKind = 'native', requestedAuthority = 'control', requestedPersonal = false, requestedDurable) {
+    const intent = pairingIntent({ kind: requestedKind, authority: requestedAuthority, personal: requestedPersonal, durable: requestedDurable });
     const base = selfhostControlBase(state);
     const authHeaders = { authorization: `Bearer ${selfhostCredential(state)}` };
     let pending = state.machine.crypto.pendingPair;
@@ -72,7 +73,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         const created = await api(base, '/v1/selfhost/pair-sessions', {
             method: 'POST',
             headers: authHeaders,
-            body: JSON.stringify({ claim, machineSlug: state.machine.id, deviceKind: requestedKind, authority: requestedAuthority }),
+            body: JSON.stringify({ claim, machineSlug: state.machine.id, deviceKind: requestedKind, authority: requestedAuthority, ...(intent.personal ? { personal: true } : {}), ...(intent.durable ? { durable: true } : {}) }),
         });
         if (!created.response.ok) throw new Error(created.body.error || `pair session failed (${created.response.status})`);
         const payload = Buffer.from(JSON.stringify({
@@ -82,10 +83,12 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             claim,
             pair: pairSecret,
             machine: state.machine.id,
-            name: state.machine.name ?? 'self-host',
+            name: consentMachineName(state.machine.name) ?? 'this machine',
             machinePk: state.machine.crypto.signingPublicKey,
             r: state.relayUrl,
             authority: requestedAuthority,
+            ...(intent.personal ? { personal: '1' } : {}),
+            ...(intent.durable ? { durable: '1' } : {}),
         })).toString('base64url');
         const code = newPairingCode();
         const published = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(created.body.pair_id)}/code`, {
@@ -94,7 +97,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             body: JSON.stringify({ code_hash: pairingCodeHash(code), payload: sealPairingCodePayload(payload, code) }),
         });
         if (!published.response.ok) throw new Error(published.body.error || 'pairing code publication failed');
-        const pairString = intent.pairingLocator(state.relayUrl, code);
+        const pairString = intent.pairingLocator(state.relayUrl, code, state.machine.name);
         pending = {
             pairId: created.body.pair_id,
             pairSecret,
@@ -103,6 +106,8 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             expiresAt: Date.now() + Number(created.body.expires_in ?? 120) * 1000,
             deviceKind: requestedKind,
             authority: requestedAuthority,
+            personal: intent.personal,
+            durable: intent.durable,
         };
         state.machine.crypto.pendingPair = pending;
         writeSelfhostState(state);
@@ -117,7 +122,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             state.machine.crypto.pendingPair = pending;
             writeSelfhostState(state);
         }
-        if (pairingIntent({ kind: pending.deviceKind, authority: pending.authority }).requiresWebHosting) {
+        if (pairingIntent({ kind: pending.deviceKind, authority: pending.authority, personal: pending.personal, durable: pending.durable === true }).requiresWebHosting) {
             const deadline = Date.now() + 2 * 60_000;
             let acknowledged = false;
             while (Date.now() < deadline) {
@@ -140,7 +145,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
 
     if (recoveredPoll === undefined) {
         print('');
-        const waiting = pairingIntent({ kind: pending.deviceKind, authority: pending.authority });
+        const waiting = pairingIntent({ kind: pending.deviceKind, authority: pending.authority, personal: pending.personal, durable: pending.durable === true });
         if (!waiting.requiresWebHosting) {
             print('Open the muxr app on your phone before scanning.');
             print('  Android: https://github.com/umeranjum17/muxr/releases/latest');
@@ -163,7 +168,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             : 'Pairing string (expires in two minutes):');
         print(pairValue);
         if (!waiting.requiresWebHosting) print('If the QR is hidden, enter the exact pairing string in the phone app. An expired QR is replaced automatically.');
-        if (waiting.requiresWebHosting) print('Browser access expires after eight hours.');
+        if (waiting.requiresWebHosting) print(waiting.durable ? 'Browser access lasts until you revoke this device.' : `Browser access expires after ${waiting.grantDurationLabel()}.`);
         const pairFile = join(stateDir(), 'pairing-string.txt');
         writeFileSync(pairFile, `${pairValue}\n`, { mode: 0o600 });
         // wl-copy/xclip stay alive as clipboard owners and can freeze setup in a
@@ -189,7 +194,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             if (requestedKind === 'native') {
                 print('Pairing QR expired — creating a fresh one…');
                 // ponytail: one promise frame per renewal; use an outer loop if unattended pairing lasts hours.
-                return mintDeviceGrant(state, requestedKind);
+                return mintDeviceGrant(state, requestedKind, requestedAuthority, requestedPersonal, requestedDurable);
             }
             throw new Error('browser pairing session expired; run `muxr pair --browser` for a fresh link');
         }
@@ -215,7 +220,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             throw new Error(`pairing mailbox substitution rejected (${mismatch} key mismatch)`);
         }
         const ingressKey = base64(nacl.randomBytes(32));
-        const claimed = pairingIntent({ kind: pending.deviceKind, authority: pending.authority });
+        const claimed = pairingIntent({ kind: pending.deviceKind, authority: pending.authority, personal: pending.personal, durable: pending.durable === true });
         if (polled.body.authority !== undefined && polled.body.authority !== claimed.authority) {
             throw new Error('pairing authority substitution rejected');
         }
@@ -236,7 +241,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         }));
         state.machine.crypto.pendingPair = pending;
         writeSelfhostState(state);
-        return mintDeviceGrant(state, claimed.kind, claimed.authority);
+        return mintDeviceGrant(state, claimed.kind, claimed.authority, claimed.personal, claimed.durable);
     }
 }
 
@@ -246,7 +251,7 @@ export async function pairDevice(args = []) {
         if (state?.machine?.crypto === undefined || typeof selfhostCredential(state) !== 'string') {
             throw new Error('muxr is not set up yet; run `muxr setup` first');
         }
-        const pair = pairingIntentFromHostedFlags(args);
+        const pair = pairingIntentFromPairFlags(args);
         if (pair.requiresWebHosting && !browserHostingReady()) throw new Error('browser hosting is off. Run `muxr`, choose Pair or manage devices, then Pair a control browser — muxr can enable browser access on your current secure connection.');
         let healthy = await selfhostRelayHealthy(state);
         if (!healthy) {
@@ -256,7 +261,7 @@ export async function pairDevice(args = []) {
             healthy = await selfhostRelayHealthy(state);
         }
         if (!healthy) throw new Error('the relay could not restart; run `muxr doctor` for the exact failing check');
-        return await withSelfhostRotationLock(() => mintDeviceGrant(state, pair.kind, pair.authority));
+        return await withSelfhostRotationLock(() => mintDeviceGrant(state, pair.kind, pair.authority, pair.personal, pair.durable));
     } catch (cause) {
         error(cause instanceof Error ? cause.message : String(cause));
         return 1;

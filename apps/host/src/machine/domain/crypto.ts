@@ -10,6 +10,10 @@ export interface MachineDeviceRecord {
     /** Omitted kind means native; auth files never persist `kind: 'native'`. */
     kind?: 'browser' | 'peer';
     authority?: 'control' | 'observe';
+    /** Owner-approved personal browser with the legacy extended finite lifetime. */
+    personal?: boolean;
+    /** New browser Control consent lasting until explicit revocation. */
+    durable?: boolean;
     capabilities?: PeerCapability[];
     allowedCwds?: string[];
 }

@@ -23,20 +23,51 @@ export function defaultDeviceAuthority(platform: string): DeviceAuthority {
 
 export type VerifiedGrantDecision =
     | { ok: true; authority: DeviceAuthority }
-    | { ok: false; error: 'machine-substitution' | 'authority-substitution' };
+    | { ok: false; error: 'machine-substitution' | 'authority-substitution' | 'lifetime-substitution' };
 
-/** Stable machine id authorizes; display name never does. */
+/** Reviewed browser lifetimes; the host mints the real expiry and this caps it. */
+export const BROWSER_GRANT_TTL_MS = 8 * 60 * 60_000;
+export const BROWSER_PERSONAL_GRANT_TTL_MS = 30 * 24 * 60 * 60_000;
+export const DURABLE_GRANT_EXPIRES_AT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
+/** Slack for a grant minted a little before the claim completed. */
+const GRANT_LIFETIME_SLACK_MS = 10 * 60_000;
+
+export function reviewedGrantCeiling(lifetime: 'eight hours' | '30 days' | 'until revoked', claimedAt: number): number {
+    if (lifetime === 'until revoked') return DURABLE_GRANT_EXPIRES_AT;
+    return claimedAt + (lifetime === '30 days' ? BROWSER_PERSONAL_GRANT_TTL_MS : BROWSER_GRANT_TTL_MS) + GRANT_LIFETIME_SLACK_MS;
+}
+
+/**
+ * Stable machine id authorizes; display name never does. Authority and
+ * lifetime may only be what the person reviewed at consent.
+ */
 export function acceptVerifiedGrant(args: {
     verifiedMachineId: string;
     pendingMachineId: string;
     verifiedAuthority: DeviceAuthority | undefined;
     expectedAuthority: DeviceAuthority | undefined;
+    verifiedExpiresAt?: number;
+    /** Latest acceptable expiry for a browser grant; absent for native (until revoked). */
+    expiresNoLaterThan?: number;
     platform: string;
 }): VerifiedGrantDecision {
     if (args.verifiedMachineId !== args.pendingMachineId) return { ok: false, error: 'machine-substitution' };
     const authority = args.verifiedAuthority ?? defaultDeviceAuthority(args.platform);
     if (args.expectedAuthority !== undefined && authority !== args.expectedAuthority) {
         return { ok: false, error: 'authority-substitution' };
+    }
+    // A browser reviewed an explicit lifetime; a claim without a ceiling, or
+    // a grant beyond it, is refused. Native reviewed "until revoked".
+    const ceiling = args.expiresNoLaterThan;
+    if (args.platform === 'web' && (ceiling === undefined || !Number.isFinite(ceiling))) return { ok: false, error: 'lifetime-substitution' };
+    if (ceiling !== undefined
+        && (args.verifiedExpiresAt === undefined || !Number.isFinite(args.verifiedExpiresAt) || args.verifiedExpiresAt > ceiling)) {
+        return { ok: false, error: 'lifetime-substitution' };
+    }
+    // "Until revoked" is a promise of durable access, not merely an upper
+    // bound that would also accept an old eight-hour grant.
+    if (args.platform === 'web' && ceiling === DURABLE_GRANT_EXPIRES_AT && args.verifiedExpiresAt !== ceiling) {
+        return { ok: false, error: 'lifetime-substitution' };
     }
     return { ok: true, authority };
 }

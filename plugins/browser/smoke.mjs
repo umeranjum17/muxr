@@ -199,7 +199,8 @@ try {
     fixture.close();
     service.kill('SIGTERM');
     await new Promise((resolve) => { service.once('exit', resolve); setTimeout(resolve, 5_000); });
-    rmSync(dir, { recursive: true, force: true });
+    // Chrome may still be closing profile files after the service exits.
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }
 if (failed) {
     process.stderr.write(`browser session smoke: ${failed.message}\n`);

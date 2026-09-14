@@ -41,8 +41,8 @@ function pairingReceiptLabel(pairing, browserPairFailed) {
 function browserGrantNote(pairing, { planned = false, failed = false } = {}) {
     const browserPair = pairing === 'browser' || pairing === 'browser-view' || pairing === 'both';
     if (!browserPair || failed) return '';
-    if (planned) return ' · browser access expires after eight hours';
-    return ' · browser expires in eight hours';
+    if (pairing === 'browser-view') return planned ? ' · view-only access expires after eight hours' : ' · view-only browser expires in eight hours';
+    return ' · control browser access lasts until revoked';
 }
 
 function value(args, name) {
@@ -386,7 +386,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         }] : []),
         { value: 'phone', title: 'Phone', description: 'pair the native app first' },
         ...(web ? [
-            { value: 'browser', title: 'Control browser', description: 'full terminal and agent control for eight hours' },
+            { value: 'browser', title: 'Control browser', description: 'full terminal and agent control until revoked' },
             { value: 'browser-view', title: 'View-only browser', description: 'observe agents without control for eight hours' },
             { value: 'both', title: 'Phone, then control browser', description: 'complete both pairing steps' },
         ] : []),
@@ -662,7 +662,7 @@ export async function hostSharedRelay() {
     heading('Review shared relay');
     note([
         `Public connection: ${connectionLabel(mode, endpoint, port)}`,
-        `Browser client: ${web ? 'web app over HTTPS; control and view-only grants expire after eight hours' : 'off'}`,
+        `Browser client: ${web ? 'web app over HTTPS; control lasts until revoked, view-only expires after eight hours' : 'off'}`,
         `Ingress: ${ingressPlan(mode, tailscalePlanned, { shared: true })}`,
         'Service: supervised relay-only systemd/launchd service with Linux boot persistence; no Herdr or agent host on this server',
         'Authority: owner state remains on this server; enrolled machines receive scoped credentials only',
@@ -738,7 +738,7 @@ export async function connectRemoteRelay() {
     const pairingChoices = [
         { value: 'phone', title: 'Phone', description: 'pair the native app after the host connects' },
         ...(enrollment.web ? [
-            { value: 'browser', title: 'Control browser', description: 'full terminal and agent control for eight hours' },
+            { value: 'browser', title: 'Control browser', description: 'full terminal and agent control until revoked' },
             { value: 'browser-view', title: 'View-only browser', description: 'observe agents without control for eight hours' },
             { value: 'both', title: 'Phone, then control browser', description: 'complete both pairing steps' },
         ] : []),

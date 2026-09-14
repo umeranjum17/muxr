@@ -36,8 +36,25 @@ import { createServer as createHttpServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import {
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+// The release packs this file under plugins/browser beside crypto.js; a
+// checkout keeps compiled crypto under packages/crypto/dist. Resolve either
+// layout without depending on a workspace-only package alias.
+function cryptoModuleUrl() {
+    let directory = dirname(fileURLToPath(import.meta.url));
+    for (let depth = 0; depth < 8; depth += 1) {
+        for (const relative of ['crypto.js', 'packages/crypto/dist/index.js']) {
+            const candidate = join(directory, relative);
+            if (existsSync(candidate)) return pathToFileURL(candidate).href;
+        }
+        const parent = dirname(directory);
+        if (parent === directory) break;
+        directory = parent;
+    }
+    throw new Error('muxr browser crypto runtime is missing; build or reinstall muxr');
+}
+const {
     deriveBrowserSessionKeys,
     generateKeyPair,
     generateSigningKeyPair,
@@ -46,7 +63,7 @@ import {
     newV2SenderState,
     openBrowserSessionMessage,
     sealBrowserSessionMessage,
-} from '@muxr/crypto';
+} = await import(cryptoModuleUrl());
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXTENSION_DIR = join(HERE, 'capture-extension');
