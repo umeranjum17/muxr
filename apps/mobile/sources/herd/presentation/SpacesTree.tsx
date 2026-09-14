@@ -331,20 +331,17 @@ const WorktreeChild = React.memo(({
 function initialDisclosure(workspaces: readonly HerdrTreeWorkspace[], selectedSessionId?: string): Set<string> {
     const rows = buildSpaceRows(workspaces, new Set(), '', selectedSessionId);
     const open = new Set<string>();
-    const repos = rows.filter((row) => row.type === 'repository');
-    const preferred = repos.find((row) => row.selected)
-        ?? repos.find((row) => row.counts.blocked || row.counts.failed)
-        ?? repos.find((row) => row.counts.working || row.counts.starting)
-        ?? repos[0];
-    for (const repo of repos) {
-        if (repo !== preferred && !repo.selected) continue;
-        const child = repo.worktrees.find((row) => row.selected)
-            ?? repo.worktrees.find((row) => row.counts.blocked || row.counts.failed)
-            ?? repo.worktrees.find((row) => row.counts.working || row.counts.starting)
-            ?? repo.worktrees[0];
-        if (child !== undefined) open.add(child.key);
+    for (const row of rows) {
+        if (row.type === 'repository') {
+            for (const child of row.worktrees) {
+                if (child.selected || child.counts.blocked || child.counts.failed || child.counts.working || child.counts.starting) {
+                    open.add(child.key);
+                }
+            }
+        } else if (row.selected || row.counts.blocked || row.counts.failed || row.counts.working || row.counts.starting) {
+            open.add(`workspace:${row.workspace.workspaceId}`);
+        }
     }
-    for (const row of rows) if (row.type === 'workspace' && row.selected) open.add(`workspace:${row.workspace.workspaceId}`);
     return open;
 }
 
