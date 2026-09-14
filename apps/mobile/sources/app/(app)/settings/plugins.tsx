@@ -10,14 +10,12 @@ import { useSocketStatus } from '@/catalog/store';
 import { pluginCatalogLoaded, pluginCatalogSnapshot, refreshPlugins, subscribePlugins } from '@/plugins';
 
 const GROUPS = [
-    { title: 'Agent workflow', ids: ['muxr.task-titles'] },
     { title: 'Files & changes', ids: ['muxr.code', 'muxr.attachments'] },
     { title: 'Terminal & layout', ids: ['muxr.panes', 'muxr.control', 'muxr.workspace-hierarchy', 'muxr.terminal-keys'] },
     { title: 'Voice & input', ids: ['muxr.voice', 'muxr.dictation'] },
     { title: 'Usage & machine', ids: ['muxr.status'] },
 ] as const;
 const SHORT_DESCRIPTIONS: Record<string, string> = {
-    'muxr.task-titles': 'Names new tasks',
     'muxr.code': 'Browse files, diffs, and git history',
     'muxr.attachments': 'Open shared files and images',
     'muxr.panes': 'Open shells and plugin tools',
@@ -51,15 +49,13 @@ export default function PluginsScreen() {
             if (summary?.enabled === false || !summary?.approved || !summary.manifestHash) return undefined;
             return sync.request('plugin.call', { pluginId, manifestHash: summary.manifestHash, contributionId });
         };
-        void Promise.allSettled([read('muxr.task-titles', 'status'), read('muxr.voice', 'provider-list')]).then(([titles, voice]) => {
+        void read('muxr.voice', 'provider-list').then((voice) => {
             if (cancelled) return;
-            const title = titles.status === 'fulfilled' ? titles.value as { enabled?: boolean; status?: string; writers?: Array<{ name: string }> } | undefined : undefined;
-            const provider = voice.status === 'fulfilled' ? voice.value as { selected?: string; providers?: Array<{ id: string; name: string }> } | undefined : undefined;
+            const provider = voice as { selected?: string; providers?: Array<{ id: string; name: string }> } | undefined;
             setEffective({
-                ...(title === undefined ? {} : { 'muxr.task-titles': title.enabled === false ? 'Off' : title.status === 'conflict' ? `Conflict · ${title.writers?.[0]?.name ?? 'title writer'}` : title.status === 'offline' ? 'Host offline' : 'On' }),
                 ...(provider?.selected === undefined ? {} : { 'muxr.voice': `On · ${provider.providers?.find((item) => item.id === provider.selected)?.name ?? provider.selected}` }),
             });
-        });
+        }).catch(() => { if (!cancelled) setEffective({}); });
         return () => { cancelled = true; };
     }, [status, catalogKey]);
     if (!pluginCatalogLoaded() && status === 'connected') return <ActivityIndicator style={{ flex: 1 }} />;
@@ -77,10 +73,9 @@ export default function PluginsScreen() {
             : summary.manifestHash !== undefined && !summary.approved ? 'Approve'
             : summary.warnings.length > 0 ? 'Unavailable'
             : 'On';
-        let value = state === 'On' && (pluginId === 'muxr.task-titles' || pluginId === 'muxr.voice') ? 'Checking…' : state;
+        let value = state === 'On' && pluginId === 'muxr.voice' ? 'Checking…' : state;
         if (state === 'On' && effective[pluginId]) {
-            value = effective[pluginId].startsWith('Conflict') ? 'Conflict'
-                : effective[pluginId].replace(' (experimental)', '');
+            value = effective[pluginId].replace(' (experimental)', '');
         }
         const description = SHORT_DESCRIPTIONS[pluginId] ?? summary.description ?? 'Herdr extension';
         return <Item key={pluginId} title={summary.name} subtitle={`${value}\n${description}`}
@@ -96,7 +91,7 @@ export default function PluginsScreen() {
             {entries.filter(({ summary }) => !known.has(summary.pluginId)).map(({ summary }) => row(summary.pluginId))}
         </ItemGroup>}
         <ItemGroup title="About plugins" footer={error ?? (status === 'connected' ? 'Installed plugins run on this machine. Device approval controls their muxr UI.' : 'Connect to inspect this machine’s plugins.')}>
-            <Item title="Plugin guide" subtitle="Setup, permissions, title conflicts, and removal" detail="Docs" showChevron
+            <Item title="Plugin guide" subtitle="Setup, permissions, and removal" detail="Docs" showChevron
                 onPress={() => router.push('/settings/plugins/guide' as never)} />
         </ItemGroup>
     </ItemList>;

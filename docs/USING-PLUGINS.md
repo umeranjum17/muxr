@@ -1,14 +1,12 @@
 # Using plugins
 
-Connect muxr to a computer first, then open **Settings → Plugins**. The catalog groups built-in plugins by job: agent workflow, files and changes, terminal and layout, voice and input, and usage and machine health. Extra Herdr extensions appear under **Installed extensions**, even when disabled. Open a row to see its source, version, effective state, permissions, and any configuration screen.
+Connect muxr to a computer first, then open **Settings → Plugins**. The catalog groups built-in plugins by job: files and changes, terminal and layout, voice and input, and usage and machine health. Extra Herdr extensions appear under **Installed extensions**, even when disabled. Open a row to see its source, version, effective state, permissions, and any configuration screen.
 
-A plugin has two independent controls. **Herdr enablement** determines whether it runs on the computer. **Allow on this device** grants its muxr UI and host calls to one paired device. Turning device approval off does not uninstall or disable the Herdr plugin. A disabled Herdr plugin stays in the catalog; the detail tells you to run `herdr plugin enable <plugin-id>` on the computer. A view-only browser can inspect the catalog and read-only previews but cannot approve, configure, switch, or revert. Pair a control browser or use the native app for those actions.
+A plugin has two independent controls. **Herdr enablement** determines whether it runs on the computer. **Allow on this device** grants its muxr UI and host calls to one paired device. Turning device approval off does not uninstall or disable the Herdr plugin. A disabled Herdr plugin stays in the catalog; the detail tells you to run `herdr plugin enable <plugin-id>` on the computer. A view-only browser can inspect the catalog but cannot approve or configure plugins. Pair a control browser or use the native app for those actions.
 
-## Task titles
+## Agent names and titles
 
-The bundled **Task titles** plugin gives an agent task a short readable title from its first meaningful user prompt. Agent names still identify the agent. It updates at most once per task and leaves explicit start titles, Herdr renames, muxr manual renames, and existing labels alone. A wrapper-only prompt, uncertain text, missing transcript, or offline host keeps the current title. The **Preview** in its detail uses only the sample you type; it never writes Herdr metadata or stores the prompt.
-
-If another task-title writer such as `herdr-plugin-renamer` or `auto-namer` is active, Task titles reports a conflict and does not write. **Switch to Task titles** turns off that writer only after your confirmation and records its former enabled state. **Restore previous title plugin** reverses the switch. Neither action uninstalls a plugin, removes its configuration, or changes titles already on panes. An identity plugin such as `animal-namer` can coexist. If you prefer an external title writer, leave Task titles off. You can inspect disabled plugins and their actual source in the same catalog.
+muxr displays the agent names and task titles supplied by Herdr. It does not generate or change them. For automatic task titles, you can install an optional third-party Herdr extension such as [Herdr Renamer](https://github.com/wyattjoh/herdr-plugin-renamer) on your computer. Manage its registration and settings in Herdr; muxr shows the extension in **Installed extensions** when connected.
 
 ## Voice and other settings
 

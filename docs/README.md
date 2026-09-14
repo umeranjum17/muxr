@@ -8,7 +8,7 @@ Start here, then follow one path.
 - [Self-hosting](SELF-HOSTING.md) — own relay, pairing, Tailscale/tunnels, Docker
 - [Native Android build](NATIVE-BUILD.md) — local EAS APK; Expo Go will not work
 - [Voice setup](VOICE-SETUP.md) — provider-neutral realtime voice, xAI adapter, dictation, platform bounds
-- [Using plugins](USING-PLUGINS.md) — built-in categories, permissions, Task titles, and troubleshooting
+- [Using plugins](USING-PLUGINS.md) — built-in categories, permissions, optional extensions, and troubleshooting
 
 ## Extend it
 
