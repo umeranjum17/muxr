@@ -677,11 +677,17 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 </Pressable>
             );
         };
-        const compactFooterDock = compactTools && !showTabStrip;
-        const renderCompactFooterDock = (dockSide: ToolsSide): React.JSX.Element | null => {
+        // Compact controls are legal only in the footer's edge slots. The
+        // slots are layout siblings of the key ScrollView, never an overlay
+        // over the tab strip or the full key row.
+        const compactFooterDock = compactTools;
+        const renderCompactFooterDock = (dockSide: ToolsSide, absolute = false): React.JSX.Element | null => {
             if (!compactFooterDock || (dockSide !== toolsSide && !showJump)) return null;
+            const placement = absolute
+                ? { position: 'absolute' as const, top: 0, [dockSide]: 0 }
+                : { position: 'relative' as const };
             return (
-                <View pointerEvents="box-none" style={{ position: 'relative', width: TOOLS_TRIGGER_INSET, height: keyRowHeight, flexShrink: 0, zIndex: 10 }}>
+                <View pointerEvents="box-none" style={{ ...placement, width: TOOLS_TRIGGER_INSET, height: keyRowHeight, flexShrink: 0, zIndex: 10 }}>
                     {dockSide === toolsSide
                         ? <TerminalToolsTrigger side={toolsSide} onSideChange={setToolsSide} onPress={toolsOpen ? closeTools : openTools}
                             blocked={toolsBlocked} expanded={toolsOpen} dimmed={showJump} />
@@ -951,13 +957,6 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                         </Pressable>
                     </Animated.View>
                 )}
-                {compactTools && (
-                    <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 }}>
-                        {renderJump(true)}
-                        <TerminalToolsTrigger side={toolsSide} onSideChange={setToolsSide} onPress={toolsOpen ? closeTools : openTools}
-                            blocked={toolsBlocked} expanded={toolsOpen} dimmed={showJump} />
-                    </View>
-                )}
             </View>
             )}
 
@@ -1170,11 +1169,10 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 compact footer host for the trigger without stealing a key
                 target. Controlled terminals use the sibling slots above. */}
             {compactFooterDock && !canControl && (
-                <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: keyRowHeight, zIndex: 10 }}>
-                    {renderJump(true)}
-                    <TerminalToolsTrigger side={toolsSide} onSideChange={setToolsSide} onPress={toolsOpen ? closeTools : openTools}
-                        blocked={toolsBlocked} expanded={toolsOpen} dimmed={showJump} />
-                </View>
+                <>
+                    {renderCompactFooterDock('left', true)}
+                    {renderCompactFooterDock('right', true)}
+                </>
             )}
             </View>
 
