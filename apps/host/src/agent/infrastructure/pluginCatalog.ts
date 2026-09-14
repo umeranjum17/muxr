@@ -464,6 +464,8 @@ export interface RunPluginProcessOptions {
     signal?: AbortSignal;
     /** Host-only transport context for the pinned Agent close implementation. */
     trustedHerdrSocketPath?: string;
+    /** Host-resolved Herdr config path for the pinned Task titles RPC only. */
+    trustedTaskTitlesConfigDir?: string;
 }
 
 /** Installation-owned recipes grant private context to exact script identities.
@@ -558,6 +560,9 @@ export function runPluginProcess(options: RunPluginProcessOptions): Promise<unkn
                 ...(options.trustedHerdrSocketPath === undefined
                     ? {}
                     : { MUXR_HERDR_SOCKET_PATH: options.trustedHerdrSocketPath }),
+                ...(options.trustedTaskTitlesConfigDir === undefined
+                    ? {}
+                    : { MUXR_TASK_TITLES_CONFIG_DIR: options.trustedTaskTitlesConfigDir }),
                 MUXR_PLUGIN_ID: options.pluginId,
                 MUXR_PLUGIN_STATE_DIR: options.stateDir,
             },
