@@ -74,7 +74,15 @@ function runSelfCheck(): void {
         relayUrl: 'wss://ephemeral.trycloudflare.com',
         relayPort: 8792,
     });
-    assert(cloudflare.ok && !cloudflare.value.canEnableBrowserHosting(), 'quick Cloudflare URLs cannot host the browser');
+    assert(cloudflare.ok && !cloudflare.value.canEnableBrowserHosting(), 'an existing quick Cloudflare URL cannot be kept during a browser-hosting upgrade');
+    assert(cloudflare.value.rejectionForBrowserHosting()?.includes('new public URL') === true, 'the upgrade explains the changed URL');
+    const browserFirstCloudflare = parseConnection({
+        connectionMode: 'cloudflare',
+        relayUrl: 'wss://ephemeral.trycloudflare.com',
+        relayPort: 8792,
+        webEnabled: true,
+    });
+    assert(browserFirstCloudflare.ok && browserFirstCloudflare.value.browserHostingReady(), 'a fresh quick Cloudflare tunnel can host and pair a browser over WSS');
 
     const advertised = advertisedUrlForMode({
         mode: 'lan',

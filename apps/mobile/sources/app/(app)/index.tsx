@@ -36,7 +36,7 @@ function NotAuthenticated() {
     const pairing = React.useRef(false);
     const [setupCopyStatus, setSetupCopyStatus] = React.useState<string | undefined>();
     const [showOtherWays, setShowOtherWays] = React.useState(false);
-    const setupCommands = 'npm install -g --ignore-scripts @trymuxr/cli@latest\nmuxr setup';
+    const setupCommands = `npm install -g --ignore-scripts @trymuxr/cli@latest\nmuxr setup${Platform.OS === 'web' ? ' --client browser' : ''}`;
     const copySetupCommands = async () => {
         try {
             await Clipboard.setStringAsync(setupCommands);
@@ -106,7 +106,9 @@ function NotAuthenticated() {
                         <View style={styles.setupCard}>
                             <Text style={styles.setupHeading}>Recommended · start on your computer</Text>
                             <Text style={styles.setupStep}>Node.js 22+ · Linux, macOS, or WSL</Text>
-                            <Text style={styles.setupStep}>Run these commands. Setup recommends a reachable route for your client and asks before applying changes.</Text>
+                            <Text style={styles.setupStep}>{Platform.OS === 'web'
+                                ? 'Run these commands. Browser (PWA) is preselected; review the secure route and pairing before Apply.'
+                                : 'Run these commands. Setup recommends a reachable route for your phone and asks before applying changes.'}</Text>
                             <Text selectable style={styles.setupCommands}>{setupCommands}</Text>
                             <ActionButton title={setupCopyStatus?.startsWith('Commands copied') ? 'Copied both' : setupCopyStatus ? 'Copy failed · retry' : 'Copy both'}
                                 accessibilityLabel="Copy computer setup commands" icon="copy-outline" variant="secondary" onPress={() => void copySetupCommands()} />

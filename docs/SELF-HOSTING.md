@@ -52,7 +52,11 @@ Serve is unavailable, a detected private overlay, then same Wi-Fi before a
 temporary Cloudflare tunnel. A browser needs HTTPS/WSS: Tailscale Serve, a
 temporary **public** Cloudflare ingress, or your own server. Native-only routes
 stay visible with that reason but cannot be chosen for a browser. Unavailable
-routes explain what to install or connect before retrying.
+routes explain what to install or connect before retrying. The PWA's copied
+`muxr setup --client browser` command preselects Browser (PWA) while keeping the
+route, pairing, and Apply review interactive. A fresh Cloudflare setup can host
+the PWA; enabling it later on an existing quick tunnel requires setup to create
+a new public URL, so devices using the old address may need fresh pairing.
 Automation uses:
 
 | Flag | What happens |

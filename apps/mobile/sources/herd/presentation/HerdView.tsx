@@ -50,6 +50,13 @@ const stylesheet = StyleSheet.create((theme) => ({
         gap: 8,
         padding: 32,
     },
+    emptyScrollContent: {
+        flexGrow: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        paddingHorizontal: 32,
+    },
     banner: {
         flexDirection: 'row',
         alignItems: 'flex-start',
@@ -139,7 +146,8 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     setupCommand: {
         flex: 1,
-        fontSize: 14,
+        fontSize: 12,
+        lineHeight: 18,
         color: theme.colors.text,
         ...Typography.mono(),
     },
@@ -271,37 +279,40 @@ export const HerdView = React.memo(({
         }
         if (neverPaired) {
             return (
-                <View style={[styles.empty, { paddingBottom: safeArea.bottom }]}>
+                <ScrollView style={{ flex: 1 }} onScroll={onScroll} scrollEventThrottle={16} contentContainerStyle={[styles.emptyScrollContent, {
+                    paddingTop: topContentInset + 32,
+                    paddingBottom: bottomContentInset + safeArea.bottom + 32,
+                }]}>
                     <Ionicons name="desktop-outline" size={40} color={theme.colors.textSecondary} />
                     <Text style={styles.setupTitle}>{setup.title}</Text>
                     <View style={styles.setupCard}>
-                        <View style={styles.setupStep}>
+                        <View style={[styles.setupStep, { marginBottom: 0 }]}>
                             <View style={styles.stepBadge}><Text style={styles.stepNumber}>1</Text></View>
                             <View style={styles.stepBody}>
-                                <Text style={styles.stepText}>Run this on your computer</Text>
-                                <View style={styles.commandRow}>
-                                    <Text style={styles.setupCommand}>{setup.command}</Text>
-                                    <Pressable
-                                        accessibilityRole="button"
-                                        accessibilityLabel="Copy setup command"
-                                        hitSlop={10}
-                                        style={styles.copyButton}
-                                        onPress={() => void Clipboard.setStringAsync(setup.command)}
-                                    >
-                                        <Ionicons name="copy-outline" size={17} color={theme.colors.textSecondary} />
-                                    </Pressable>
-                                </View>
+                                <Text style={styles.stepText}>Run these on your computer</Text>
                             </View>
+                            <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel="Copy setup commands"
+                                hitSlop={10}
+                                style={styles.copyButton}
+                                onPress={() => void Clipboard.setStringAsync(setup.command)}
+                            >
+                                <Ionicons name="copy-outline" size={17} color={theme.colors.textSecondary} />
+                            </Pressable>
+                        </View>
+                        <View style={[styles.commandRow, { marginBottom: 16 }]}>
+                            <Text selectable style={styles.setupCommand}>{setup.command}</Text>
                         </View>
                         <View style={styles.setupStep}>
                             <View style={styles.stepBadge}><Text style={styles.stepNumber}>2</Text></View>
                             <Text style={[styles.stepText, styles.stepTextInline]}>
-                                Choose this network, Tailscale, or your secure relay
+                                Choose a connection route in setup
                             </Text>
                         </View>
                         <View style={[styles.setupStep, { marginBottom: 0 }]}>
                             <View style={styles.stepBadge}><Text style={styles.stepNumber}>3</Text></View>
-                            <Text style={[styles.stepText, styles.stepTextInline]}>Scan the QR code with this phone</Text>
+                            <Text style={[styles.stepText, styles.stepTextInline]}>Scan the one-time QR with this phone</Text>
                         </View>
                     </View>
                     <View style={styles.emptyAction}>
@@ -317,7 +328,7 @@ export const HerdView = React.memo(({
                             </>
                         )}
                     </View>
-                </View>
+                </ScrollView>
             );
         }
         return (

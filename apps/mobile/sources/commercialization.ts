@@ -1,5 +1,5 @@
 export const MOBILE_ONBOARDING_CHOICES = ['Scan to connect'] as const;
-export const SETUP_COMMAND = 'node scripts/cli.mjs setup';
+export const SETUP_COMMAND = 'npm install -g --ignore-scripts @trymuxr/cli@latest\nmuxr setup';
 
 export function setupEmptyState(publicBaseUrl?: string): {
     title: string;
