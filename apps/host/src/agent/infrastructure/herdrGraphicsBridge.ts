@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { InlineImageStore, InlineKittyScanner, type InlineKittyBlock } from './inlineKitty.js';
+import { InlineKittyScanner, type InlineKittyBlock } from './inlineKitty.js';
 import { graphicsTrace } from './graphicsTrace.js';
 import { open } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -37,11 +37,6 @@ const MAX_NOTCHES_IN_FLIGHT = 4;
 const MAX_NOTCH_BACKLOG = 8;
 /** Programs that never repaint must still scroll, so a frame is not required. */
 const NOTCH_FALLBACK_MS = 100;
-/** Images a pane may keep on a phone at once: a plot, its legend, an icon. */
-const MAX_LIVE_PLACEMENTS = 16;
-/** Placement work is coalesced before it can grow into a native-write backlog. */
-const MAX_INLINE_QUEUE_FRAMES = 128;
-const MAX_INLINE_QUEUE_BYTES = MAX_MESSAGE_BYTES;
 /** Deflate harder once a frame is large: the phone decrypts every byte in JS. */
 const COMPRESS_HARDER_BYTES = 512 * 1024;
 /** Keep the old switch as a kill switch for the adaptive coarse path. */
@@ -118,19 +113,10 @@ type ServerMessage =
     | { type: 'closed' }
     | { type: 'other' };
 
-/** A producer block waiting for the single inline drain. */
-type InlineBlockWork = { block: InlineKittyBlock; at: number; deleteStamp?: number; refinement?: Refinement };
-/** A queued full-density replay; it is drained in the same order as producer blocks. */
-type InlineRefineWork = { refinePane: string; at: number; reason: 'gesture' | 'source'; sourceRevision: number; sourceQueueVersion: number; fenceRetry: boolean };
-type InlineWork = InlineBlockWork | InlineRefineWork;
-type Refinement = { paneId: string; sourceRevision: number; sourceQueueVersion: number; fenceRetry: boolean };
 type DirectRawFrame = { rgba: Buffer; control: string; imageId: number; transferId: bigint; sourceImageId: number };
-type DirectRefineWork = InlineRefineWork;
+/** A queued full-density replay of a pane's latest image. */
+type DirectRefineWork = { refinePane: string; at: number; reason: 'gesture' | 'source'; sourceRevision: number; sourceQueueVersion: number; fenceRetry: boolean };
 
-/** What a pane is currently showing, keyed by Herdr's own placement key. */
-// The pane rect the block was placed against. An inline placement is encoded in
-// pane-local cells, so a replay without it lands at the block's global column.
-type LivePlacement = { image: PreparedImage; block: InlineKittyBlock; surface: GraphicsSurface; rect?: Rect };
 /**
  * Where a pane stands with Herdr's one active surface. `rect` is its area when
  * it is on that surface; `onActiveSurface: false` means Herdr will render no
@@ -139,28 +125,9 @@ type LivePlacement = { image: PreparedImage; block: InlineKittyBlock; surface: G
  */
 type PaneVisibility = { rect?: Rect; onActiveSurface: boolean };
 
-/** Whether an image is the pane's whole surface or sits inside its text. */
-export type GraphicsSurface = 'full' | 'inline';
-
 /** A gesture's remaining intent, newest direction wins. */
 type ScrollPoint = { x: number; y: number };
 type ScrollIntent = { direction: 'up' | 'down'; notches: number; point: ScrollPoint };
-
-/** One delete deferred behind its already-queued same-surface successor. */
-type DeferredImageDelete = {
-    block: InlineKittyBlock;
-    /** Surface key the successor placement must share. */
-    key: string;
-    /** The presented image id the delete names. */
-    imageId: number;
-    /** The store key of that image, for retransmission lookups. */
-    rawId: string;
-    /** Uppercase scope: the resident pixels die, not just a placement. */
-    deletesImage: boolean;
-    /** Store stamp captured when the delete was scanned; forgetImage must
-     *  never remove transmissions admitted after it. */
-    deleteStamp: number;
-};
 
 
 /** Aggregate, identifier-free account of what the pipeline did. */
@@ -211,22 +178,6 @@ export class HerdrGraphicsBridge {
     private processTimer: ReturnType<typeof setInterval> | undefined;
     private pollingProcesses = false;
     private readonly inlineScanner = new InlineKittyScanner();
-    private readonly inlineImages = new InlineImageStore();
-    /** Last inline placement forwarded per placement, so repaints are not resent. */
-    private readonly inlinePlaced = new Map<string, string>();
-    private readonly livePlacements = new Map<string, Map<string, LivePlacement>>();
-    /**
-     * Deletes of a pane's presented image whose successor placement for the
-     * same surface key was already queued: a coalescing replacement. Entries
-     * keep their emission order and their exact scope (an uppercase image
-     * delete is never downgraded to a placement hide). Each settles when its
-     * candidate successor's frame lands -- a genuinely new image, a
-     * retransmission of the same id, or the replay that fulfills a lowercase
-     * hide -- and executes untouched, real-delete semantics, when its
-     * candidate fails or the ordered drain exhausts. Nothing here waits on a
-     * clock, and a pane clear or a close always discards them.
-     */
-    private readonly deferredDeletes = new Map<string, DeferredImageDelete[]>();
     /** Notches a pane has yet to answer, and the intent still owed to it. */
     private readonly scrollInFlight = new Map<string, number>();
     private readonly scrollBacklog = new Map<string, ScrollIntent>();
@@ -242,14 +193,6 @@ export class HerdrGraphicsBridge {
     private directRefinementBytes = 0;
     private readonly directRefineQueue: DirectRefineWork[] = [];
     private sourceQueueVersion = 0;
-    /**
-     * Producer frames wait here in arrival order. Only one is prepared at a
-     * time and any placement a newer one supersedes is dropped before it costs
-     * a layout probe, a decode, or a compression.
-     */
-    private readonly inlineQueue: InlineWork[] = [];
-    private inlineQueueBytes = 0;
-    private inlineDraining = false;
     private readonly latencies: number[] = [];
     private readonly frameBytes: number[] = [];
     private readonly framePixels: number[] = [];
@@ -310,38 +253,11 @@ export class HerdrGraphicsBridge {
         this.layoutCache.delete(registration.paneId);
         this.workspaceCache = undefined;
         if (!this.paneProcessGroups.has(registration.paneId)) this.processProbeAttempted.delete(registration.paneId);
-        // A phone joining late is owed everything the pane is showing, not just
-        // the last image to arrive.
-        const live = this.livePlacements.get(registration.paneId);
+        // A phone joining late is owed whatever the pane is showing.
         const latest = this.latestByPane.get(registration.paneId);
         void this.announceOffSurfacePanes();
-        if (live !== undefined && live.size > 0) {
-            // Geometry is per placement; takeover metadata is the pane's. Each
-            // replayed frame is drawn at its own placement's size, but every
-            // one of them reports what the pane as a whole owns -- otherwise a
-            // small placement replayed last tells the phone the surface is
-            // inline while a full one is still resident, and the phone hands
-            // back scroll ownership on arrival.
-            const paneSurface = this.survivingSurface(registration.paneId);
-            for (const placement of live.values()) {
-                registration.write(terminalFrame(
-                    encodeKitty(placement.image, registration, 'none', placement.block, placement.rect, placement.surface),
-                    registration,
-                    true,
-                    undefined,
-                    paneSurface,
-                ));
-            }
-            // A direct successor owns the pane's presented surface without
-            // being a live inline placement; the phone is owed it too,
-            // placed without a clear so the placements above survive.
-            if (latest !== undefined && ![...live.values()].some((placement) => placement.image.imageId === latest.imageId)) {
-                registration.write(terminalFrame(encodeKitty(latest, registration, 'none'), registration, true, undefined, 'full'));
-            }
-            return true;
-        }
         if (latest !== undefined) {
-            registration.write(terminalFrame(encodeKitty(latest, registration, 'all'), registration, true, undefined, 'full'));
+            registration.write(terminalFrame(encodeKitty(latest, registration, 'all'), registration, true));
         }
         return true;
     }
@@ -352,12 +268,6 @@ export class HerdrGraphicsBridge {
         if (removed !== undefined) {
             this.layoutCache.delete(removed.paneId);
             if (![...this.registrations.values()].some((item) => item.paneId === removed.paneId)) {
-                // Deferred deletes are pending commands, not per-phone state:
-                // the last channel leaving must not drop them, or a successor
-                // that fails afterwards loses the delete and its deleted
-                // pixels replay to the next registration. They still settle
-                // through the usual paths -- the queued successor, its
-                // failure, or the ordered drain's idle flush.
                 this.clearScrollState(removed.paneId);
             }
         }
@@ -373,14 +283,7 @@ export class HerdrGraphicsBridge {
     ownsScroll(channel: string): boolean {
         const registration = this.registrations.get(channel);
         if (registration === undefined) return false;
-        return this.survivingSurface(registration.paneId) === 'full';
-    }
-
-    /** True while the pane still owns an image: a live placement, or a
-     *  resident direct image that a lowercase hide kept for its replay. */
-    private paneOwnsGraphics(paneId: string): boolean {
-        return (this.livePlacements.get(paneId)?.size ?? 0) > 0
-            || this.latestByPane.has(paneId);
+        return this.latestByPane.has(registration.paneId);
     }
 
     /**
@@ -396,7 +299,7 @@ export class HerdrGraphicsBridge {
         const rows = Math.max(0, Math.trunc(lines));
         if (rows === 0) return [];
         const paneId = registration.paneId;
-        const image = this.latestByPane.get(paneId) ?? [...(this.livePlacements.get(paneId)?.values() ?? [])].pop()?.image;
+        const image = this.latestByPane.get(paneId);
         if (image === undefined) return [];
         const sourceWidth = image.sourceWidth ?? image.width;
         const sourceHeight = image.sourceHeight ?? image.height;
@@ -508,9 +411,9 @@ export class HerdrGraphicsBridge {
     }
 
     /**
-     * Fence attribution for the trace. Inline and direct admission bumps happen
-     * before routing, so their pane is genuinely unknown; report nothing rather
-     * than labelling an unknown bump as another pane's.
+     * Fence attribution for the trace. A direct admission bump happens before
+     * routing, so its pane is genuinely unknown; report nothing rather than
+     * labelling an unknown bump as another pane's.
      */
     private fenceProvenance(paneId: string): Record<string, string | boolean> {
         if (this.fenceBumpPane === undefined) return {};
@@ -532,7 +435,7 @@ export class HerdrGraphicsBridge {
     }
 
     /** Which pane last moved the shared fence, so a reject can name the cause. */
-    private bumpSourceQueueVersion(paneId: string | undefined, path: 'inline' | 'direct' | 'clear'): void {
+    private bumpSourceQueueVersion(paneId: string | undefined, path: 'direct' | 'clear'): void {
         this.sourceQueueVersion += 1;
         this.fenceBumpPane = paneId;
         graphicsTrace?.add('fence.bump', { pane: paneId, path, fence: this.sourceQueueVersion });
@@ -575,25 +478,15 @@ export class HerdrGraphicsBridge {
                 sourceQueueVersion: this.sourceQueueVersion,
                 fenceRetry,
             } satisfies DirectRefineWork;
-            const direct = this.directRawByPane.get(paneId);
-            const latest = this.latestByPane.get(paneId);
-            const path = direct !== undefined && latest?.imageId === direct.imageId && latest.transferId === direct.transferId
-                ? 'direct' as const
-                : 'inline' as const;
             graphicsTrace?.add('refine.fire', {
                 pane: paneId,
                 reason,
-                path,
+                path: 'direct',
                 lateMs: Date.now() - (armedAt + Math.max(0, delay)),
                 fence: this.sourceQueueVersion,
             });
-            if (path === 'direct') {
-                this.directRefineQueue.push(work);
-                if (!this.draining) void this.drain();
-            } else {
-                this.inlineQueue.push(work);
-                if (!this.inlineDraining) void this.drainInline();
-            }
+            this.directRefineQueue.push(work);
+            if (!this.draining) void this.drain();
         }, Math.max(0, delay));
         timer.unref();
         this.refineTimers.set(paneId, timer);
@@ -605,61 +498,8 @@ export class HerdrGraphicsBridge {
         this.refineTimers.delete(paneId);
     }
 
-    private async refinePane(work: InlineRefineWork): Promise<void> {
-        const { refinePane: paneId } = work;
-        graphicsTrace?.add('refine.dequeue', { pane: paneId, path: 'inline', reason: work.reason });
-        if (this.closed || !ADAPTIVE_DENSITY || this.gestureActive(paneId)) {
-            graphicsTrace?.add('refine.reject', {
-                pane: paneId, path: 'inline', why: this.closed ? 'closed' : this.gestureActive(paneId) ? 'gesture' : 'disabled', rearmed: false,
-            });
-            return;
-        }
-        if (!work.fenceRetry && work.sourceQueueVersion !== this.sourceQueueVersion) {
-            // Another pane's traffic moved a shared counter. The rearm is fence
-            // exempt, or a streaming neighbour can starve this pane forever.
-            const rearmed = this.rearmAfterFenceLoss(paneId, work.sourceRevision);
-            graphicsTrace?.add('refine.reject', {
-                pane: paneId, path: 'inline', why: 'fence', rearmed,
-                expected: work.sourceQueueVersion, actual: this.sourceQueueVersion,
-                ...this.fenceProvenance(paneId),
-            });
-            return;
-        }
-        if (!this.sourceQuiet(paneId)) {
-            const last = this.lastSourceAt.get(paneId) ?? Date.now();
-            graphicsTrace?.add('refine.reject', { pane: paneId, path: 'inline', why: 'not-quiet', rearmed: true, quietForMs: Date.now() - last });
-            this.armRefine(paneId, work.reason);
-            return;
-        }
-        const live = this.livePlacements.get(paneId);
-        const settled = live === undefined ? undefined
-            : [...live.entries()].find(([, item]) => item.surface === 'full' && item.image.sourceWidth !== undefined);
-        if (settled === undefined) {
-            graphicsTrace?.add('refine.reject', { pane: paneId, path: 'inline', why: 'no-candidate', rearmed: false });
-            return;
-        }
-        const [, placement] = settled;
-        await this.forwardInlineBlock({
-            block: placement.block,
-            at: work.at,
-            refinement: {
-                paneId, sourceRevision: work.sourceRevision, sourceQueueVersion: work.sourceQueueVersion, fenceRetry: work.fenceRetry,
-            },
-        }, false);
-    }
-
-    // A rearmed retry ignores only the shared fence counter, which a busy
-    // sibling can move forever. Every same-pane guard still applies.
-    private refinementCurrent(refinement: Refinement, paneId: string): boolean {
-        return refinement.paneId === paneId
-            && !this.gestureActive(paneId)
-            && (this.sourceRevision.get(paneId) ?? 0) === refinement.sourceRevision
-            && (refinement.fenceRetry || this.sourceQueueVersion === refinement.sourceQueueVersion);
-    }
-
     private wheelReport(paneId: string, direction: 'up' | 'down', point: ScrollPoint): Buffer | undefined {
-        const image = this.latestByPane.get(paneId)
-            ?? [...(this.livePlacements.get(paneId)?.values() ?? [])].pop()?.image;
+        const image = this.latestByPane.get(paneId);
         if (image === undefined) return undefined;
         const button = direction === 'up' ? 64 : 65;
         const x = Math.max(1, Math.min(image.sourceWidth ?? image.width, point.x));
@@ -693,9 +533,6 @@ export class HerdrGraphicsBridge {
         }
         this.registrations.clear();
         this.latestByPane.clear();
-        this.livePlacements.clear();
-        this.inlinePlaced.clear();
-        this.deferredDeletes.clear();
         this.imageOwners.clear();
         for (const timer of this.scrollTimers.values()) clearTimeout(timer);
         this.scrollTimers.clear();
@@ -715,8 +552,6 @@ export class HerdrGraphicsBridge {
         this.directRawByPane.clear();
         this.directRefinementBytes = 0;
         this.directRefineQueue.length = 0;
-        this.inlineQueue.length = 0;
-        this.inlineQueueBytes = 0;
         this.nextGeneration += 1;
         this.workspaceCache = undefined;
         if (this.processTimer !== undefined) clearInterval(this.processTimer);
@@ -771,400 +606,65 @@ export class HerdrGraphicsBridge {
         }
     }
 
-    private queueInlineWork(work: InlineBlockWork): void {
-        const action = work.block.keys.a ?? 'p';
-        const key = placementKey(work.block);
-        if (key !== undefined && action !== 'd') {
-            for (let index = this.inlineQueue.length - 1; index >= 0; index -= 1) {
-                const queued = this.inlineQueue[index];
-                if (queued === undefined || !('block' in queued) || (queued.block.keys.a ?? 'p') === 'd' || placementKey(queued.block) !== key) continue;
-                this.inlineQueueBytes = Math.max(0, this.inlineQueueBytes - queued.block.bytes.length);
-                this.inlineQueue.splice(index, 1);
-                this.supersededFrames += 1;
-            }
-        }
-        const bytes = work.block.bytes.length;
-        if (bytes > MAX_INLINE_QUEUE_BYTES) {
-            if (action === 'd') this.close();
-            else this.supersededFrames += 1;
-            return;
-        }
-        while (this.inlineQueue.length >= MAX_INLINE_QUEUE_FRAMES
-            || this.inlineQueueBytes + bytes > MAX_INLINE_QUEUE_BYTES) {
-            const index = this.inlineQueue.findIndex((queued) => 'block' in queued && (queued.block.keys.a ?? 'p') !== 'd');
-            if (index < 0) {
-                if (action === 'd') this.close();
-                else this.supersededFrames += 1;
-                return;
-            }
-            const dropped = this.inlineQueue.splice(index, 1)[0]!;
-            if ('block' in dropped) this.inlineQueueBytes = Math.max(0, this.inlineQueueBytes - dropped.block.bytes.length);
-            this.supersededFrames += 1;
-        }
-        this.inlineQueue.push(work);
-        this.inlineQueueBytes += bytes;
-    }
-
     /**
-     * Herdr writes a program's own Kitty images into the app output stream,
-     * positioned by the cursor. Pixels are transmitted once per image and
-     * placed separately, and a program transmits long before a phone attaches,
-     * so image data is always learned; only placements need a live pane.
-     *
-     * Scanning is synchronous so arrival order is preserved; the work itself is
-     * drained by one worker, because a producer repainting an animation emits
-     * frames far faster than a phone can be given them.
+     * Herdr transmits a direct-graphics image's pixels as a leased file, but
+     * places and deletes it with Kitty APC commands written into the app
+     * output stream. Pixels a program writes to its own PTY are not supported
+     * and their transmissions are ignored; only placement and delete commands
+     * naming an image this bridge delivered are acted on.
      */
     private queueInline(bytes: Buffer): void {
         if (this.closed) return;
         const at = Date.now();
         for (const block of this.inlineScanner.scan(bytes)) {
             if (this.closed) return;
-            if (this.inlineImages.admit(block)) continue;
             if (this.registrations.size === 0) continue;
             const action = block.keys.a ?? 'p';
-            if (action !== 'd' && action !== 'p' && action !== 'T') continue;
-            // The stamp is captured in scan order: it names the bytes resident
-            // at the delete, never a transmission admitted later in the chunk.
-            const rawId = rawImageId(block);
-            const deleteStamp = action === 'd' ? this.residentDeleteStamp(rawId) : undefined;
-            this.queueInlineWork({ block, at, ...(deleteStamp === undefined ? {} : { deleteStamp }) });
-            this.bumpSourceQueueVersion(undefined, 'inline');
-        }
-        if (!this.inlineDraining) void this.drainInline();
-    }
-
-    /**
-     * Stamp naming the bytes resident at a delete: an id-less delete targets
-     * the current transmission, an id-bearing one that id's own stamp.
-     */
-    private residentDeleteStamp(rawId: string | undefined): number | undefined {
-        if (rawId === undefined) return this.inlineImages.currentTransmissionStamp();
-        return this.inlineImages.stampOf(rawId);
-    }
-
-    private async drainInline(): Promise<void> {
-        this.inlineDraining = true;
-        try {
-            while (!this.closed) {
-                const work = this.inlineQueue.shift();
-                if (work === undefined) break;
-                if ('block' in work) this.inlineQueueBytes = Math.max(0, this.inlineQueueBytes - work.block.bytes.length);
-                if ('refinePane' in work) await this.refinePane(work);
-                else await this.forwardInlineBlock(work);
-            }
-            // The ordered drain has exhausted every queued block. A deferred
-            // delete still waiting here had no successor land: it is a real
-            // delete and executes now, untouched. Successors that fail while
-            // other output keeps the queue busy settle earlier, at their own
-            // failure point, so nothing waits on global idleness.
-            for (const [paneId, entries] of [...this.deferredDeletes]) {
-                this.deferredDeletes.delete(paneId);
-                if (this.closed) continue;
-                for (const entry of entries) {
-                    await this.forwardInlineBlock({ block: entry.block, at: Date.now(), deleteStamp: entry.deleteStamp }, false);
-                }
-            }
-        } finally {
-            this.inlineDraining = false;
-            if (!this.closed && this.inlineQueue.length > 0) void this.drainInline();
+            if (action !== 'd' && action !== 'p') continue;
+            this.forwardControlBlock(block, at);
         }
     }
 
-    private async forwardInlineBlock(work: InlineBlockWork, allowDeleteDeferral = true): Promise<void> {
-        const { block, at } = work;
-        const refinement = work.refinement;
+    /** Translate one of Herdr's control commands to the ids the phone holds. */
+    private forwardControlBlock(block: InlineKittyBlock, at: number): void {
         const action = block.keys.a ?? 'p';
-        // Inline images retain Herdr's ids. Direct images and their one
-        // pane-filling placement are renumbered, so route their deletes only
-        // to the owning pane and preserve placement-vs-image deletion.
         if (action === 'd') {
-            // A delete of the pane's presented image whose successor
-            // placement for the same surface key is already queued is the
-            // front half of a coalescing replacement: defer it until that
-            // successor settles or the ordered drain exhausts. Every other
-            // delete is real and executes now. Distinct commands keep their
-            // order and scope; only a byte-identical repeat merges.
-            const presented = this.presentedPlacementFor(Number(block.keys.i ?? block.keys.I));
-            if (allowDeleteDeferral && presented !== undefined && this.queuedSuccessorFor(presented.key)) {
-                this.deferPresentedDelete(presented.paneId, block, presented.key, work.deleteStamp ?? 0);
-                return;
-            }
             const direct = this.forgetPlacements(block);
-            // An executed uppercase delete kills the resident pixels it named:
-            // no later placement-only replay may revive them from the cache,
-            // and transmissions admitted after the delete stay untouched.
-            this.inlineImages.forgetImage(block, work.deleteStamp ?? 0);
             for (const registration of this.registrations.values()) {
                 // The delete frame's metadata must report what the pane still
                 // owns, never an unconditional end: a lowercase hide keeps the
                 // resident image (Herdr replays it with a placement-only
                 // command), so takeover and the phone's magnifier survive the
                 // repaint that hid it. Only a pane left owning nothing really
-                // lost its image and ends the phone's takeover -- and a pane
-                // left with only a small image must hand takeover back.
-                const graphics = this.paneOwnsGraphics(registration.paneId);
-                const surface = graphics ? this.survivingSurface(registration.paneId) : undefined;
-                if (direct.length === 0) registration.write(terminalFrame(wrapAtOrigin(block.bytes), registration, graphics, undefined, surface));
+                // lost its image.
+                const graphics = this.latestByPane.has(registration.paneId);
+                // A delete naming every image needs no translation; one naming
+                // a single image carries Herdr's source id, which cannot
+                // address the id this bridge re-numbered it to.
+                if (direct.length === 0) registration.write(terminalFrame(wrapAtOrigin(block.bytes), registration, graphics));
                 for (const image of direct) {
                     if (registration.paneId !== image.paneId) continue;
                     const placement = block.keys.p === undefined ? '' : `,p=${image.imageId & 0x7fffffff}`;
                     const bytes = Buffer.from(`\u001b_Ga=d,d=${block.keys.d ?? 'a'},i=${image.imageId}${placement},q=2;\u001b\\`);
-                    registration.write(terminalFrame(wrapAtOrigin(bytes), registration, graphics, undefined, surface));
+                    registration.write(terminalFrame(wrapAtOrigin(bytes), registration, graphics));
                 }
             }
             return;
         }
-        if (action === 'p') {
-            const sourceImageId = Number(block.keys.i ?? block.keys.I);
-            let direct = false;
-            for (const owner of this.imageOwners.values()) {
-                if (owner.sourceImageId !== sourceImageId) continue;
-                const image = this.latestByPane.get(owner.paneId);
-                if (image?.imageId !== owner.imageId) continue;
-                direct = true;
-                for (const registration of this.registrations.values()) {
-                    if (registration.paneId !== owner.paneId) continue;
-                    const { row, col, cols, rows } = graphicsPlacement(image, registration);
-                    const bytes = Buffer.from(`\u001b7\u001b[${row + 1};${col + 1}H\u001b_Ga=p,i=${image.imageId},p=${image.imageId & 0x7fffffff},c=${cols},r=${rows},z=0,C=1,q=2;\u001b\\\u001b8`);
-                    const frame = terminalFrame(bytes, registration, true, undefined, 'full');
-                    registration.write(frame);
-                    this.recordFrame(at, frame.length, image.width * image.height);
-                }
+        const sourceImageId = Number(block.keys.i ?? block.keys.I);
+        for (const owner of this.imageOwners.values()) {
+            if (owner.sourceImageId !== sourceImageId) continue;
+            const image = this.latestByPane.get(owner.paneId);
+            if (image?.imageId !== owner.imageId) continue;
+            for (const registration of this.registrations.values()) {
+                if (registration.paneId !== owner.paneId) continue;
+                const { row, col, cols, rows } = graphicsPlacement(image, registration);
+                const bytes = Buffer.from(`\u001b7\u001b[${row + 1};${col + 1}H\u001b_Ga=p,i=${image.imageId},p=${image.imageId & 0x7fffffff},c=${cols},r=${rows},z=0,C=1,q=2;\u001b\\\u001b8`);
+                const frame = terminalFrame(bytes, registration, true);
+                registration.write(frame);
+                this.recordFrame(at, frame.length, image.width * image.height);
             }
-            if (direct) return;
         }
-        const key = placementKey(block);
-        if (key === undefined) return;
-        // Newest wins, per placement. A repaint of this surface makes this frame
-        // worthless, and it is dropped before it costs a layout probe, a base64
-        // decode, or a compression -- but a second image elsewhere in the pane
-        // is not a repaint of this one, and survives.
-        //
-        // Only here. Once a frame has been selected and paid for, it is carried
-        // to the phone: re-checking after the probe, the decode and the rect
-        // discarded every completed frame while a producer kept painting, so a
-        // scrolling browser delivered nothing until the gesture stopped. The
-        // drain is serial, so a delivered frame is never overtaken by an older
-        // one, and the repaints queued behind this one still coalesce here.
-        if (this.superseded(key)) return;
-        // A refinement is already bound to the pane whose placement it sharpens.
-        // Routing it again would re-probe every registered pane's layout for an
-        // answer this work already carries, and that probe -- not the encode --
-        // is what delays a settled frame. Producer work still routes normally.
-        const paneId = refinement?.paneId ?? await this.sourcePane(cursorAt(block));
-        if (paneId === undefined) {
-            // The candidate successor cannot be routed: its deferred front
-            // half is a real delete and executes now.
-            await this.flushUnroutedDeferred(key);
-            return;
-        }
-        if (this.closed) return;
-        if (refinement !== undefined && !this.refinementCurrent(refinement, paneId)) return;
-        // A placement-only replay of an image an uppercase delete deleted --
-        // byte-identical or not -- must never forward the deleted pixels: the
-        // deferred entry and the id's stamp decide before any prepare or
-        // write. A retransmission advances the id's stamp and proceeds.
-        const pending = this.deferredDeletes.get(paneId)?.filter((item) => item.key === key
-            && item.deletesImage && item.imageId === Number(block.keys.i ?? block.keys.I)) ?? [];
-        // Any pending delete for this id whose stamp the candidate has not
-        // advanced past blocks the placement: the candidate is a cached
-        // replay of pixels that delete is still owed.
-        if (pending.some((item) => this.inlineImages.stampOf(item.rawId) <= item.deleteStamp)) {
-            await this.settleDeferredWithoutFrame(paneId, key);
-            return;
-        }
-        // A repainting producer re-places the same image many times a
-        // second; only a changed placement is worth a phone frame.
-        const identity = `${paneId}:${key}:${block.bytes.toString('base64')}`;
-        if (this.inlinePlaced.get(`${paneId}:${key}`) === identity && refinement === undefined) {
-            // A placement-only replay of an already-placed image. It settles a
-            // deferred lowercase hide (the replay re-placed the surface), but
-            // it is not a new transmission, so an uppercase image delete still
-            // executes. A genuine retransmission of the same id carries new
-            // pixels and must reach the phone.
-            const entry = this.deferredDeletes.get(paneId)?.find((item) => item.key === key);
-            const candidateId = rawImageId(block);
-            const retransmitted = entry !== undefined && candidateId !== undefined
-                && this.inlineImages.stampOf(candidateId) > entry.deleteStamp;
-            if (entry === undefined || !retransmitted) {
-                await this.settleDeferredWithoutFrame(paneId, key);
-                return;
-            }
-            this.inlinePlaced.delete(`${paneId}:${key}`);
-        }
-        if (refinement === undefined) this.noteSourceActivity(paneId);
-        const imageId = Number(block.keys.i ?? block.keys.I);
-        const halve = refinement === undefined && this.halveFor(paneId);
-        const prepareStartedAt = Date.now();
-        const image = await this.inlineImages.prepared(block, (rgba, control) => prepareKitty(
-            rgba, control, Number.isSafeInteger(imageId) && imageId > 0 ? imageId : this.allocateImageId(), 0n, halve,
-        ), halve ? 'coarse' : 'full');
-        graphicsTrace?.add(refinement === undefined ? 'source.prepare' : 'refine.prepare', {
-            pane: paneId, path: 'inline', durationMs: Date.now() - prepareStartedAt,
-            halved: halve, width: image?.width, height: image?.height, prepared: image !== undefined,
-        });
-        if (image === undefined) {
-            // The candidate successor failed to prepare: its deferred front
-            // half is a real delete and executes now.
-            await this.flushDeferredFor(paneId, key);
-            return;
-        }
-        if (this.closed) return;
-        if (refinement !== undefined && !this.refinementCurrent(refinement, paneId)) {
-            const rearmed = this.rearmAfterFenceLoss(paneId, refinement.sourceRevision);
-            graphicsTrace?.add('refine.reject', {
-                pane: paneId, path: 'inline', why: 'stale-after-prepare', rearmed,
-                ...this.fenceProvenance(paneId),
-            });
-            return;
-        }
-        // The retained placement carries the rect this surface was measured
-        // with. Reusing it keeps `surfaceOf` deciding exactly as it did for the
-        // coarse frame; a placement that is gone is a refinement with nothing
-        // left to sharpen, which fails closed rather than guessing a rect.
-        let rect: Rect | undefined;
-        if (refinement === undefined) {
-            rect = await this.visibleRect(paneId);
-        } else {
-            const retained = this.livePlacements.get(paneId)?.get(key);
-            if (retained === undefined) {
-                graphicsTrace?.add('refine.reject', { pane: paneId, path: 'inline', why: 'placement-gone', rearmed: false });
-                return;
-            }
-            rect = retained.rect;
-        }
-        if (this.closed) return;
-        if (refinement !== undefined && !this.refinementCurrent(refinement, paneId)) {
-            const rearmed = this.rearmAfterFenceLoss(paneId, refinement.sourceRevision);
-            graphicsTrace?.add('refine.reject', {
-                pane: paneId, path: 'inline', why: 'stale-after-rect', rearmed,
-                ...this.fenceProvenance(paneId),
-            });
-            return;
-        }
-        const surface = surfaceOf(block, rect);
-        const live = this.placementsFor(paneId);
-        const previous = live.get(key);
-        live.set(key, { image, block, surface, ...(rect === undefined ? {} : { rect }) });
-        const displaced = this.displaceOldestPlacement(paneId, live, key);
-        this.inlinePlaced.set(`${paneId}:${key}`, identity);
-        const supersededFull = surface === 'full' ? this.supersedeFullImage(paneId, image) : undefined;
-        if (surface === 'full') {
-            this.latestByPane.set(paneId, image);
-            this.dropDirectRefinement(paneId);
-        }
-        // The same split the delete path already makes: this block's own
-        // surface decides how it is drawn, the pane's surviving surface is
-        // what the phone is told. A placement key carries the covered extent,
-        // so a repaint at a different size is a new placement beside the old
-        // one rather than a replacement -- and reporting that one frame's
-        // surface ended the phone's takeover while a full image was still live.
-        const paneSurface = this.survivingSurface(paneId);
-        // encodeKitty writes its clear ahead of the pixels, so naming the
-        // superseded full image there costs nothing. Only when this frame
-        // already clears a different id does the second delete need a frame of
-        // its own; that is the rare case, not the repaint.
-        const atomicClear = replaced(previous, image);
-        const separate: number[] = [];
-        if (displaced !== undefined) separate.push(displaced.imageId);
-        const clear = atomicClear === 'none' && supersededFull !== undefined
-            ? { imageId: supersededFull.imageId }
-            : atomicClear;
-        if (supersededFull !== undefined && clear !== 'none' && clear.imageId !== supersededFull.imageId) {
-            separate.push(supersededFull.imageId);
-        }
-        const deletes = separate.map((imageId) => wrapAtOrigin(Buffer.from(`\u001b_Ga=d,d=I,i=${imageId},q=2;\u001b\\`)));
-        for (const registration of this.registrations.values()) {
-            if (registration.paneId !== paneId) continue;
-            // Anything this frame retires leaves before its successor arrives,
-            // so the phone never holds pixels this pane has stopped tracking.
-            for (const bytes of deletes) {
-                registration.write(terminalFrame(bytes, registration, true, undefined, paneSurface));
-            }
-            const bytes = encodeKitty(image, registration, clear, block, rect, surface);
-            const frame = terminalFrame(bytes, registration, true, undefined, paneSurface);
-            graphicsTrace?.frame('frame.handoff', frame, {
-                pane: paneId, path: 'inline', sharp: image.sourceWidth === undefined,
-                width: image.width, height: image.height, sinceRoutedMs: Date.now() - at,
-            });
-            registration.write(frame);
-            this.recordFrame(at, frame.length, image.width * image.height);
-        }
-        this.offSurfacePanes.delete(paneId);
-        this.settleDeferredAfterFrame(paneId, key, image);
-        if (image.sourceWidth !== undefined && !this.gestureActive(paneId)) this.armRefine(paneId, 'source');
-        // A frame is the honest acknowledgement that this pane kept up, so the
-        // next notch of the gesture goes out now and no faster.
-        this.drainNotch(paneId, 'frame');
-    }
-
-    /**
-     * A pane may keep only so many images on the phone at once, and displacing
-     * the oldest is a real delete rather than a bookkeeping drop. Forgetting it
-     * silently left the phone showing pixels this host no longer tracked, and
-     * left the embedded terminal to reclaim them itself on the next
-     * transmission -- its image storage is 10MB there against a full-size frame
-     * of nearly that, so the eviction was neither rare nor free. Forget it the
-     * way an executed delete does: the placement, its placed identity, and the
-     * pane's presented image if this was it.
-     *
-     * Returns the image the caller owes the phone a delete for, or nothing when
-     * the pane is under its limit or the id is still carried by a surviving
-     * placement -- deleting that would erase the frame being sent.
-     */
-    private displaceOldestPlacement(
-        paneId: string,
-        live: Map<string, LivePlacement>,
-        keep: string,
-    ): PreparedImage | undefined {
-        if (live.size <= MAX_LIVE_PLACEMENTS) return undefined;
-        const oldest = live.keys().next().value;
-        if (oldest === undefined || oldest === keep) return undefined;
-        const placement = live.get(oldest);
-        live.delete(oldest);
-        this.inlinePlaced.delete(`${paneId}:${oldest}`);
-        if (placement === undefined) return undefined;
-        if (this.latestByPane.get(paneId) === placement.image) this.latestByPane.delete(paneId);
-        const stillPlaced = [...live.values()].some((item) => item.image.imageId === placement.image.imageId);
-        return stillPlaced ? undefined : placement.image;
-    }
-
-    /**
-     * One resident full image per pane.
-     *
-     * Nothing else deletes the predecessor. `replaced` only clears when the
-     * same placement key changes image id, and a placement key carries the
-     * covered extent, so a clipped image that scrolls arrives under a new key
-     * every frame and its predecessor is left resident forever. Two full frames
-     * of a phone-sized pane are ~19MB against the embedded terminal's 10MB
-     * image budget, so every transmission had to evict -- and eviction is the
-     * path that leaks a tracked pin in the pinned terminal.
-     *
-     * Scope is deliberate: full surfaces only. An inline image beside a full
-     * one is a separate, legitimate placement and keeps its pixels, and an id
-     * an inline placement still carries is never deleted -- an uppercase delete
-     * would take that placement with it.
-     */
-    private supersedeFullImage(paneId: string, image: PreparedImage): PreparedImage | undefined {
-        const prior = this.latestByPane.get(paneId);
-        if (prior === undefined || prior.imageId === image.imageId) return undefined;
-        const live = this.livePlacements.get(paneId);
-        const sharedWithInline = live !== undefined && [...live.values()]
-            .some((item) => item.image.imageId === prior.imageId && item.surface !== 'full');
-        if (sharedWithInline) return undefined;
-        for (const key of this.retireInlinePlacements(paneId, prior.imageId)) {
-            this.settleDeferredAfterFrame(paneId, key, image);
-        }
-        return prior;
-    }
-
-    private placementsFor(paneId: string): Map<string, LivePlacement> {
-        const existing = this.livePlacements.get(paneId);
-        if (existing !== undefined) return existing;
-        const created = new Map<string, LivePlacement>();
-        this.livePlacements.set(paneId, created);
-        return created;
     }
 
     /**
@@ -1172,30 +672,16 @@ export class HerdrGraphicsBridge {
      * Returns the direct-file images the delete named, per pane, by the image
      * id the phone holds: the verbatim bytes carry Herdr's source id, which
      * cannot address a direct-file image this bridge re-numbered on transfer.
+     *
+     * Lowercase scopes remove placements but keep resident pixels. Herdr
+     * replays those with a=p, without sending the leased image again.
      */
     private forgetPlacements(block: InlineKittyBlock): { paneId: string; imageId: number }[] {
         const scope = block.keys.d ?? 'a';
         const target = Number(block.keys.i ?? block.keys.I);
         const all = scope === 'a' || scope === 'A';
-        // A delete naming a placement removes that one placement; without one it
-        // removes every placement of the image. Dropping them all either way
-        // would stop replaying a second placement the delete never named.
-        const placementTarget = kittyPlacementId(block);
-        const direct: { paneId: string; imageId: number }[] = [];
-        for (const [paneId, live] of this.livePlacements) {
-            for (const [key, placement] of live) {
-                const named = placementTarget === undefined
-                    || kittyPlacementId(placement.block) === placementTarget;
-                if (all || (placement.image.imageId === target && named)) {
-                    live.delete(key);
-                    this.inlinePlaced.delete(`${paneId}:${key}`);
-                    if (this.latestByPane.get(paneId) === placement.image) this.latestByPane.delete(paneId);
-                }
-            }
-        }
-        // Lowercase scopes remove placements but keep resident pixels. Herdr
-        // replays those with a=p, without sending the leased image again.
         const deletesImage = scope === 'I' || scope === 'A';
+        const direct: { paneId: string; imageId: number }[] = [];
         for (const [transferId, owner] of this.imageOwners) {
             if (!all && (owner.sourceImageId !== target || (scope !== 'i' && scope !== 'I'))) continue;
             if (deletesImage) {
@@ -1206,168 +692,6 @@ export class HerdrGraphicsBridge {
             if (!all) direct.push({ paneId: owner.paneId, imageId: owner.imageId });
         }
         return direct;
-    }
-
-    /** Retire the phone's old inline placements; deferred commands, not this
-     * synthetic phone-side replacement, govern source-image cache lifetime. */
-    private retireInlinePlacements(paneId: string, imageId: number): string[] {
-        const live = this.livePlacements.get(paneId);
-        if (live === undefined) return [];
-        const keys: string[] = [];
-        for (const [key, placement] of live) {
-            if (placement.image.imageId !== imageId) continue;
-            live.delete(key);
-            this.inlinePlaced.delete(`${paneId}:${key}`);
-            keys.push(key);
-        }
-        return keys;
-    }
-
-    /**
-     * The live placement of a pane's presented image, by the image id a
-     * delete names, with the surface key its successor must share.
-     */
-    private presentedPlacementFor(imageId: number): { paneId: string; key: string } | undefined {
-        if (!Number.isFinite(imageId)) return undefined;
-        for (const [paneId, live] of this.livePlacements) {
-            for (const [key, placement] of live) {
-                if (placement.image.imageId === imageId && this.latestByPane.get(paneId) === placement.image) {
-                    return { paneId, key };
-                }
-            }
-        }
-        return undefined;
-    }
-
-    /** True when a queued placement still targets the same surface key. */
-    private queuedSuccessorFor(key: string): boolean {
-        return this.inlineQueue.some((queued) => 'block' in queued
-            && (queued.block.keys.a ?? 'p') !== 'd'
-            && placementKey(queued.block) === key);
-    }
-
-    /**
-     * Defers one front half of a coalescing replacement. Distinct commands
-     * keep their emission order and their exact scope -- an uppercase image
-     * delete is never downgraded to a placement hide -- and only a
-     * byte-identical repeat merges with its earlier copy.
-     */
-    private deferPresentedDelete(paneId: string, block: InlineKittyBlock, key: string, deleteStamp: number): void {
-        const entry: DeferredImageDelete = {
-            block,
-            key,
-            imageId: Number(block.keys.i ?? block.keys.I),
-            rawId: rawImageId(block) ?? '',
-            deletesImage: (block.keys.d ?? 'a') === 'I',
-            deleteStamp,
-        };
-        const entries = this.deferredDeletes.get(paneId) ?? [];
-        // Merging needs the same command against the same bytes: a repeat
-        // with a newer delete stamp targets the newer transmission and stays.
-        if (entries.some((item) => item.key === key && item.deleteStamp === entry.deleteStamp
-            && item.block.bytes.equals(entry.block.bytes))) return;
-        this.deferredDeletes.set(paneId, [...entries, entry]);
-    }
-
-    /** What the pane still presents after a delete. Takeover belongs to a
-     *  full surface; a surviving small image must hand the phone's pointer
-     *  and magnifier back. */
-    private survivingSurface(paneId: string): GraphicsSurface | undefined {
-        const live = this.livePlacements.get(paneId);
-        if (live !== undefined && [...live.values()].some((placement) => placement.surface === 'full')) return 'full';
-        if (this.latestByPane.has(paneId)) return 'full';
-        if (live !== undefined && live.size > 0) return 'inline';
-        return undefined;
-    }
-
-    /**
-     * Settles the pane's deferred deletes against a placement frame that just
-     * landed for their surface key. A successor with a different image id, a
-     * retransmitted presentation of the same id, or the replay that completes
-     * a lowercase hide fulfills and subsumes the deferred command; a deferred
-     * delete for another key keeps waiting for its own successor.
-     */
-    private settleDeferredAfterFrame(paneId: string, key: string, image: PreparedImage): void {
-        const entries = this.deferredDeletes.get(paneId);
-        if (entries === undefined) return;
-        const kept: DeferredImageDelete[] = [];
-        for (const entry of entries) {
-            if (entry.key !== key) { kept.push(entry); continue; }
-            const retransmitted = this.inlineImages.stampOf(entry.rawId) > entry.deleteStamp;
-            // Fulfilled: the surface now carries a different image, a
-            // retransmitted presentation of the same id, or the replay that
-            // completes a lowercase hide. The delete is subsumed. A fulfilled
-            // uppercase delete still kills the old resident pixels it names;
-            // a same-id retransmission does not, its bytes are new.
-            if (entry.deletesImage && entry.imageId !== image.imageId) {
-                this.inlineImages.forgetImage(entry.block, entry.deleteStamp);
-                continue;
-            }
-            if (!entry.deletesImage || retransmitted) continue;
-            kept.push(entry);
-        }
-        if (kept.length === entries.length) return;
-        if (kept.length === 0) this.deferredDeletes.delete(paneId);
-        else this.deferredDeletes.set(paneId, kept);
-    }
-
-    /**
-     * Settles the pane's deferred deletes when their candidate successor
-     * turned out to be a placement-only replay: a lowercase hide is fulfilled
-     * by the replay re-placing the surface, while an uppercase image delete
-     * executes, because cached pixels are not a new transmission.
-     */
-    private async settleDeferredWithoutFrame(paneId: string, key: string): Promise<void> {
-        const entries = this.deferredDeletes.get(paneId);
-        if (entries === undefined) return;
-        const matching = entries.filter((entry) => entry.key === key);
-        if (matching.length === 0) return;
-        const kept = entries.filter((entry) => !matching.includes(entry));
-        if (kept.length === 0) this.deferredDeletes.delete(paneId);
-        else this.deferredDeletes.set(paneId, kept);
-        // The replay re-placed the surface in place, which subsumes a
-        // deferred lowercase hide; an uppercase image delete is not fulfilled
-        // by cached pixels and executes now.
-        for (const entry of matching) {
-            if (!entry.deletesImage) continue;
-            await this.forwardInlineBlock({ block: entry.block, at: Date.now(), deleteStamp: entry.deleteStamp }, false);
-        }
-    }
-
-    /** A candidate successor failed for one pane: its deferred deletes are
-     *  real deletes and execute now. */
-    private async flushDeferredFor(paneId: string, key: string): Promise<void> {
-        const entries = this.deferredDeletes.get(paneId);
-        if (entries === undefined) return;
-        const failed = entries.filter((entry) => entry.key === key);
-        if (failed.length === 0) return;
-        const kept = entries.filter((entry) => !failed.includes(entry));
-        if (kept.length === 0) this.deferredDeletes.delete(paneId);
-        else this.deferredDeletes.set(paneId, kept);
-        for (const entry of failed) {
-            await this.forwardInlineBlock({ block: entry.block, at: Date.now(), deleteStamp: entry.deleteStamp }, false);
-        }
-    }
-
-    /** The candidate successor could not even be routed to a pane: every
-     *  deferred delete waiting on this surface key executes now. */
-    private async flushUnroutedDeferred(key: string): Promise<void> {
-        for (const [paneId, entries] of [...this.deferredDeletes]) {
-            if (!entries.some((entry) => entry.key === key)) continue;
-            await this.flushDeferredFor(paneId, key);
-        }
-    }
-
-    /**
-     * A queued placement of the same surface is this one, repainted. Two images
-     * in one pane -- a plot beside its legend -- never supersede each other.
-     */
-    private superseded(key: string): boolean {
-        const newer = this.inlineQueue.some((queued) => 'block' in queued
-            && (queued.block.keys.a ?? 'p') !== 'd'
-            && placementKey(queued.block) === key);
-        if (newer) this.supersededFrames += 1;
-        return newer;
     }
 
     private recordFrame(startedAt: number, bytes: number, pixels: number): void {
@@ -1593,21 +917,11 @@ export class HerdrGraphicsBridge {
             ? 'none' as const
             : { imageId: previous.imageId };
         if (previous !== undefined) this.imageOwners.delete(previous.transferId);
-        // A direct successor owns the pane's full surface. Any inline placements
-        // carrying the predecessor leave the live set before this image arrives.
-        const replacedKeys = previous === undefined ? [] : this.retireInlinePlacements(paneId, previous.imageId);
         this.latestByPane.set(paneId, prepared);
-        for (const key of replacedKeys) this.settleDeferredAfterFrame(paneId, key, prepared);
         this.imageOwners.set(transferId, { paneId, imageId: prepared.imageId, sourceImageId });
         for (const registration of this.registrations.values()) {
             if (registration.paneId !== paneId) continue;
-            const frame = terminalFrame(
-                encodeKitty(prepared, registration, clear),
-                registration,
-                true,
-                undefined,
-                'full',
-            );
+            const frame = terminalFrame(encodeKitty(prepared, registration, clear), registration, true);
             graphicsTrace?.frame('frame.handoff', frame, {
                 pane: paneId, path: 'direct', sharp: prepared.sourceWidth === undefined,
                 width: prepared.width, height: prepared.height, sinceRoutedMs: Date.now() - startedAt,
@@ -1647,16 +961,11 @@ export class HerdrGraphicsBridge {
         this.clearScrollState(paneId);
         this.latestByPane.delete(paneId);
         this.dropDirectRefinement(paneId);
-        this.livePlacements.delete(paneId);
-        for (const key of [...this.inlinePlaced.keys()]) {
-            if (key.startsWith(`${paneId}:`)) this.inlinePlaced.delete(key);
-        }
         this.cancelRefine(paneId);
         this.bumpSourceQueueVersion(paneId, 'clear');
         this.lastSourceAt.delete(paneId);
         this.lastInputAt.delete(paneId);
         this.sourceRevision.delete(paneId);
-        this.deferredDeletes.delete(paneId);
         for (const [transferId, owner] of this.imageOwners) {
             if (owner.paneId === paneId) this.imageOwners.delete(transferId);
         }
@@ -1669,9 +978,6 @@ export class HerdrGraphicsBridge {
     private allocateImageId(): number {
         const used = new Set([...this.imageOwners.values()].map((owner) => owner.imageId));
         for (const image of this.latestByPane.values()) used.add(image.imageId);
-        for (const placements of this.livePlacements.values()) {
-            for (const placement of placements.values()) used.add(placement.image.imageId);
-        }
         while (used.has(this.nextImageId)) this.nextImageId = this.nextImageId % 0x7fffffff + 1;
         const result = this.nextImageId;
         this.nextImageId = this.nextImageId % 0x7fffffff + 1;
@@ -1894,23 +1200,6 @@ export function graphicsPlacement(image: PreparedImage, target: HerdrGraphicsReg
     };
 }
 
-/** The absolute cell an inline block landed on, in the shape `sourcePane` parses. */
-function cursorAt(block: InlineKittyBlock): Buffer {
-    return Buffer.from(`\u001b[${block.row};${block.col}H`);
-}
-
-/** Place a forwarded block at the same cell inside the phone's pane view. */
-function wrapInPane(bytes: Buffer, block: InlineKittyBlock, rect: Rect): Buffer {
-    const row = Math.max(1, block.row - rect.y);
-    const col = Math.max(1, block.col - rect.x);
-    return Buffer.concat([
-        Buffer.from('\u001b7'),
-        Buffer.from(`\u001b[${row};${col}H`),
-        bytes,
-        Buffer.from('\u001b8'),
-    ]);
-}
-
 /** Deletes carry no position; keep the phone's cursor where it was. */
 function wrapAtOrigin(bytes: Buffer): Buffer {
     return Buffer.concat([Buffer.from('\u001b7'), bytes, Buffer.from('\u001b8')]);
@@ -2083,12 +1372,10 @@ function terminalFrame(
     target: Pick<HerdrGraphicsRegistration, 'cols' | 'rows'>,
     graphics?: boolean,
     graphicsReason?: TerminalGraphicsReason,
-    graphicsSurface?: GraphicsSurface,
 ): string {
     return JSON.stringify({ type: 'terminal.frame', seq: 0, encoding: 'ansi', width: target.cols, height: target.rows,
         full: false, bytes: bytes.toString('base64'), ...(graphics === undefined ? {} : { graphics }),
-        ...(graphicsReason === undefined ? {} : { graphicsReason }),
-        ...(graphicsSurface === undefined ? {} : { graphicsSurface }) });
+        ...(graphicsReason === undefined ? {} : { graphicsReason }) });
 }
 
 async function readGraphicsFile(file: GraphicsFile): Promise<Buffer> {
@@ -2194,25 +1481,12 @@ export function encodeKitty(
     image: PreparedImage,
     target: HerdrGraphicsRegistration,
     clear: 'all' | 'none' | { imageId: number },
-    block?: InlineKittyBlock,
-    rect?: Rect,
-    surface: GraphicsSurface = 'full',
 ): Buffer {
     const encoded = image.compressed.toString('base64');
     const chunks: string[] = [];
     for (let offset = 0; offset < encoded.length; offset += KITTY_CHUNK_CHARS) chunks.push(encoded.slice(offset, offset + KITTY_CHUNK_CHARS));
-    // A pane-filling image is refitted to the phone's own grid; an image that
-    // sits inside a program's text keeps the size and cell Herdr gave it, or it
-    // would be blown up to fill a screen it never asked for.
-    const placement = surface === 'inline' && block !== undefined
-        ? inlinePlacement(block, rect)
-        : graphicsPlacement(image, target);
-    const { row, col, cols, rows } = placement;
-    // An inline image keeps Herdr's ids, and its deletes are forwarded
-    // verbatim, so its placement has to keep Herdr's placement id too: a
-    // renumbered one leaves the phone holding a placement no delete can name.
-    // A direct image carries no source block and is renumbered throughout.
-    const placementId = kittyPlacementId(block) ?? (image.imageId & 0x7fffffff);
+    const { row, col, cols, rows } = graphicsPlacement(image, target);
+    const placementId = image.imageId & 0x7fffffff;
     const output: Buffer[] = [Buffer.from('\u001b7')];
     if (clear === 'all') output.push(Buffer.from('\u001b_Ga=d,d=A,q=2;\u001b\\'));
     else if (clear !== 'none') output.push(Buffer.from(`\u001b_Ga=d,d=I,i=${clear.imageId},q=2;\u001b\\`));
@@ -2226,59 +1500,4 @@ export function encodeKitty(
     });
     output.push(Buffer.from('\u001b8'));
     return Buffer.concat(output);
-}
-
-/** A Kitty placement id, which the protocol defines as unsigned 32-bit. */
-function kittyPlacementId(block?: InlineKittyBlock): number | undefined {
-    const value = Number(block?.keys.p ?? Number.NaN);
-    return Number.isInteger(value) && value > 0 && value <= 0xffffffff ? value : undefined;
-}
-
-/** Herdr's own cell and cell span, mapped into the phone's view of the pane. */
-function inlinePlacement(block: InlineKittyBlock, rect?: Rect): GraphicsPlacement {
-    const cols = Math.max(1, Number(block.keys.c ?? '1'));
-    const rows = Math.max(1, Number(block.keys.r ?? '1'));
-    return {
-        cols: Number.isFinite(cols) ? cols : 1,
-        rows: Number.isFinite(rows) ? rows : 1,
-        row: Math.max(0, block.row - 1 - (rect?.y ?? 0)),
-        col: Math.max(0, block.col - 1 - (rect?.x ?? 0)),
-    };
-}
-
-/**
- * How much of the pane this placement covers. A program's small image must not
- * be treated as the pane's whole surface: the phone only takes over pointer and
- * scrolling for a surface that really is the pane.
- */
-function surfaceOf(block: InlineKittyBlock, rect?: Rect): GraphicsSurface {
-    if (rect === undefined) return 'full';
-    const cols = Number(block.keys.c ?? '0');
-    const rows = Number(block.keys.r ?? '0');
-    if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols <= 0 || rows <= 0) return 'full';
-    return cols >= rect.width * 0.9 && rows >= rect.height * 0.9 ? 'full' : 'inline';
-}
-/** The InlineImageStore key an inline block's image id maps to. */
-function rawImageId(block: InlineKittyBlock): string | undefined {
-    return block.keys.i ?? block.keys.I;
-}
-/**
- * The surface a frame belongs to: the cell it lands on and the cells it covers.
- *
- * Not the image id. A repainting producer mints a new image for every frame, so
- * keying by id would mean nothing ever supersedes anything; keying by surface
- * makes a repaint replace its predecessor, while a second image elsewhere in
- * the pane -- a legend beside a plot -- keeps its own slot.
- */
-
-function placementKey(block: InlineKittyBlock): string | undefined {
-    const image = block.keys.i ?? block.keys.I;
-    if (image === undefined || image === '') return undefined;
-    return `${block.row}:${block.col}:${block.keys.c ?? ''}:${block.keys.r ?? ''}`;
-}
-
-/** The image a new frame supersedes, so exactly that one is deleted. */
-function replaced(previous: LivePlacement | undefined, image: PreparedImage): 'none' | { imageId: number } {
-    if (previous === undefined || previous.image.imageId === image.imageId) return 'none';
-    return { imageId: previous.image.imageId };
 }

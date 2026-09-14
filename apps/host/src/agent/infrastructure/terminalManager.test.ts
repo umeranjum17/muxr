@@ -189,7 +189,7 @@ describe('TerminalManager stream exit', () => {
     it('orders initial paint before graphics, preserves updates through backpressure, and bounds overflow', async () => {
         const graphic = (bytes: string, graphics = true) => JSON.stringify({
             type: 'terminal.frame', seq: 0, encoding: 'ansi', width: 100, height: 30,
-            full: false, graphics, graphicsSurface: 'inline', bytes: Buffer.from(bytes).toString('base64'),
+            full: false, graphics, bytes: Buffer.from(bytes).toString('base64'),
         });
         let writeGraphics!: (frame: string) => void;
         const cached = graphic('\x1b_Ga=p,i=9,p=9;\x1b\\');

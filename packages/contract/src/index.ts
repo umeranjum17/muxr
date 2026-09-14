@@ -91,7 +91,6 @@ export type {
     TerminalClientFrame,
     TerminalHostFrame,
     TerminalGraphicsReason,
-    TerminalGraphicsSurface,
     WsTransport,
 } from './control-plane/index.js';
 export {
