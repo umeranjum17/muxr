@@ -15,7 +15,7 @@ export interface LiveTerminalOrderCard extends AgentInfo {
     createdAt?: number;
 }
 
-/** Tree panes are canonical; the session catalog only enriches their previews. */
+/** Tree panes are canonical; the session catalog only enriches their previews. Bare shells never make the strip: LIVE is agents only. */
 export function selectLiveTerminalCards(
     sessions: readonly Session[],
     panes: readonly HerdPane[],

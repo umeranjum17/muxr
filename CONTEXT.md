@@ -47,7 +47,7 @@ The current Herdr Agent title for the live generation. Every surface renders it 
 _Avoid_: cached title, terminal title, name
 
 **Agent Kind**:
-The current Herdr Agent provider (`pi`, `claude`, `codex`). Separate from Agent Name and Task Title.
+The current Herdr Agent provider (`pi`, `claude`, `codex`). Separate from Agent Name and Task Title. A phone-launched Agent carries the requested kind until Herdr detects the process or the launch window expires.
 _Avoid_: agent name, kind label, model
 
 **Agent Route**:
