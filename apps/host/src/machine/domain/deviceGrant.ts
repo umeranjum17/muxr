@@ -129,6 +129,25 @@ export function deviceTableCanMutate(
     return authorities?.[deviceId] !== 'observe';
 }
 
+/** A surface needs a current keyed control grant; an absent table row never authorizes one. */
+export function deviceTableHoldsControl(
+    tables: {
+        ingressKeys?: Readonly<Record<string, string>>;
+        deviceKinds?: Readonly<Record<string, DeviceKindName>>;
+        deviceAuthorities?: Readonly<Record<string, DeviceAuthorityName>>;
+        deviceExpiresAt?: Readonly<Record<string, number>>;
+    },
+    deviceId: string,
+    now = Date.now(),
+): boolean {
+    if (tables.ingressKeys?.[deviceId] === undefined) return false;
+    const expiresAt = tables.deviceExpiresAt?.[deviceId];
+    if (expiresAt === undefined || !Number.isFinite(expiresAt) || expiresAt <= now) return false;
+    const kind = tables.deviceKinds?.[deviceId];
+    if (kind === undefined || kind === 'peer') return false;
+    return tables.deviceAuthorities?.[deviceId] === 'control';
+}
+
 /** Browser/native observe grants. Peers use the peer admission path instead. */
 export function observerGrantIsViewOnly(kind: string | undefined, canMutate: boolean): boolean {
     if (kind === 'peer') return false;

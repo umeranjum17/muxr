@@ -694,6 +694,7 @@ export async function createHerdrSessionSource(
     let pluginPollTimer: NodeJS.Timeout | undefined;
     let pluginDigests: Map<string, string> | undefined;
     let pluginEnabled = new Map<string, boolean>();
+    const catalogChangeListeners = new Set<(changedPluginIds: readonly string[]) => void>();
 
     const knownShells = new Set<string>();
 
@@ -1952,6 +1953,12 @@ export async function createHerdrSessionSource(
             if (frame === undefined) return;
             // A changed/disabled manifest must not leave an old provider process live.
             pluginStreams?.closeAll();
+            const changed = [...new Set([...previousDigests.keys(), ...nextDigests.keys()])]
+                .filter((id) => previousDigests.get(id) !== nextDigests.get(id))
+                .sort();
+            for (const listener of [...catalogChangeListeners]) {
+                try { listener(changed); } catch { /* one consumer cannot block the wire */ }
+            }
             for (const listener of machineListeners) listener(frame);
         });
 
@@ -2232,6 +2239,14 @@ export async function createHerdrSessionSource(
             await refreshPlugins();
             if (approved) catalog.manifest(pluginId, manifestHash);
             await pluginApprovals.set(deviceId, pluginId, approved);
+        },
+
+        pluginApprovalRevision(deviceId, pluginId) {
+            return pluginApprovals.revision(deviceId, pluginId);
+        },
+
+        onPluginApprovalMutation(listener) {
+            return pluginApprovals.onMutation(listener);
         },
 
         async pluginInvoke({ deviceId, pluginId, manifestHash, contributionId, sessionId, idempotencyKey }) {
@@ -3062,6 +3077,11 @@ export async function createHerdrSessionSource(
         subscribeMachine(listener: (frame: PluginsInvalidatedFrame) => void): () => void {
             machineListeners.add(listener);
             return () => machineListeners.delete(listener);
+        },
+
+        onPluginCatalogChange(listener) {
+            catalogChangeListeners.add(listener);
+            return () => catalogChangeListeners.delete(listener);
         },
 
         async dispose(): Promise<void> {
