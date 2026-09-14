@@ -19,7 +19,7 @@ import { ACCENT, AgentGlyph } from '@/components/AgentGlyph';
 import { TerminalPreview } from '@/terminal/ui';
 import { sync } from '@/catalog/sync';
 import { agentStatusColor, type AgentLifecycleStatus } from '../application/sessionUtils';
-import { agentLabels, agentNameLine, isShellLabels } from '../domain/agentPresentation';
+import { agentLabels, agentNameLine, agentTaskLine, isShellLabels } from '../domain/agentPresentation';
 import type { HerdrTreePane, HerdrTreeTab } from '@muxr/contract';
 
 const POLL_MS = 4_000;
@@ -178,16 +178,16 @@ const PaneTile = React.memo((props: { pane: HerdrTreePane; style: object; router
                     <TerminalPreview sessionId={pane.sessionId as string} />
                 ) : (
                     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ color: '#666666', fontSize: 13 }}>{labels.taskTitle}</Text>
+                        <Text style={{ color: '#666666', fontSize: 13 }}>{agentTaskLine(labels)}</Text>
                     </View>
                 )}
             </View>
             <View style={{ paddingHorizontal: 8, paddingVertical: 5, gap: 1, backgroundColor: theme.colors.surface }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                    <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
+                    <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName ?? 'agent'} size={16} />
                     <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
                         <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>
-                            {labels.taskTitle}
+                            {agentTaskLine(labels)}
                         </Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                             <StatusDot color={color} isPulsing={status === 'working' || status === 'blocked'} size={7} />

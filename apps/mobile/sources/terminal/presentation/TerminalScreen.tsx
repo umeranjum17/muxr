@@ -30,7 +30,7 @@ import { usePaneGestures } from '../application/usePaneGestures';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { ActionShortcut } from '@/components/ActionShortcut';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStatusColor, herdrPaneForSession, isShellLabels } from '@/herd';
+import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStatusColor, agentTaskLine, herdrPaneForSession, isShellLabels } from '@/herd';
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -483,7 +483,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const linesAdded = gitStatus !== null && gitStatus.linesAdded > 0 ? `+${gitStatus.linesAdded}` : null;
     const linesRemoved = gitStatus !== null && gitStatus.linesRemoved > 0 ? `−${gitStatus.linesRemoved}` : null;
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
-    const contextTitle = labels.taskTitle;
+    const contextTitle = agentTaskLine(labels);
     const headerLifecycle = terminalPaneStatus(currentPane);
     const headerStatus = agentStatusColor(headerLifecycle, theme);
     // Working and done carry their lifecycle colour. Idle shares the
@@ -546,7 +546,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             >
                 <HeaderBackButton onPress={() => router.back()} style={{ marginLeft: -6 }} />
                 <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} hitSlop={6} accessibilityRole="button" accessibilityLabel={overlayLabel} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, paddingVertical: 4 }}>
-                    <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={18} />
+                    <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName ?? 'agent'} size={18} />
                     <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
                         <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
                             {contextTitle}
@@ -730,9 +730,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     opacity: pressed ? 0.65 : 1,
                                 })}
                             >
-                                <AgentGlyph name={siblingShell ? 'shell' : siblingLabels.agentKind ?? siblingLabels.agentName} size={16} />
+                                <AgentGlyph name={siblingShell ? 'shell' : siblingLabels.agentKind ?? siblingLabels.agentName ?? 'agent'} size={16} />
                                 <Text numberOfLines={1} style={{ flexShrink: 1, color: siblingTone.color, fontSize: 11, fontWeight: active ? '600' : '400' }}>
-                                    {siblingLabels.taskTitle}
+                                    {agentTaskLine(siblingLabels)}
                                 </Text>
                             </Pressable>
                         );

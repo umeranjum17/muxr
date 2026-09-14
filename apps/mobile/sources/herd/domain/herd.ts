@@ -116,10 +116,11 @@ export function herdPanes(sessions: Session[], workspaces: readonly HerdrTreeWor
             if (pane.sessionId === undefined || routes.has(pane.sessionId)) return [];
             routes.add(pane.sessionId);
             const session = sessionsById.get(pane.sessionId);
+            const labels = agentLabels(pane);
             return [{
                 id: pane.sessionId,
-                ...(pane.agentName === undefined ? {} : { agentName: pane.agentName }),
-                taskTitle: agentLabels(pane).taskTitle,
+                ...(labels.agentName === undefined ? {} : { agentName: labels.agentName }),
+                ...(labels.taskTitle === undefined ? {} : { taskTitle: labels.taskTitle }),
                 ...(pane.agentKind === undefined ? {} : { agentKind: pane.agentKind }),
                 ...(pane.displayAgent === undefined ? {} : { displayAgent: pane.displayAgent }),
                 agentStatus: pane.agentStatus,

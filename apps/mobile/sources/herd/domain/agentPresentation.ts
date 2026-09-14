@@ -1,10 +1,11 @@
 import { type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeWorkspace } from '@muxr/contract';
 
 export interface AgentLabels {
-    taskTitle: string;
-    agentName: string;
+    taskTitle?: string;
+    agentName?: string;
     agentKind?: string;
     displayAgent?: string;
+    shellTitle?: string;
 }
 
 
@@ -47,65 +48,45 @@ export function agentKindLabel(kind?: string): string | undefined {
 
 
 
-/** One-to-one live Herdr DTO presentation. Only absent-value placeholders are local. */
+/** Keep valid Herdr copy byte-for-byte; opaque projection names stay private. */
+export function visibleHerdrLabel(value?: string): string | undefined {
+    if (value === undefined || value.trim() === '' || /^(?:pp_|pph_)/.test(value.trim())) return undefined;
+    return value;
+}
+
+/** One-to-one live Herdr DTO presentation. Shell copy is separate from agent fields. */
 export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'label' | 'terminalTitle' | 'cwd'>>): AgentLabels {
-    const named = pane?.agentName?.trim();
-    const kind = pane?.agentKind?.trim();
-    const hasAgent = named !== undefined && named !== '' || kind !== undefined && kind !== '';
-    const agentName = named || (hasAgent ? 'Unnamed agent' : 'Shell');
+    const agentName = visibleHerdrLabel(pane?.agentName);
+    const taskTitle = visibleHerdrLabel(pane?.taskTitle);
+    const agentKind = pane?.agentKind;
+    const hasAgent = agentName !== undefined || agentKind !== undefined;
     const terminalTitle = pane?.terminalTitle?.trim();
     const meaningfulTerminalTitle = terminalTitle !== undefined && !/^(?:[^@\s]+@[^:\s]+:|[~/])/.test(terminalTitle)
         ? terminalTitle : undefined;
-    const shellTitle = pane?.label?.trim() || pane?.taskTitle?.trim() || meaningfulTerminalTitle || 'Shell';
+    const shellTitle = visibleHerdrLabel(pane?.label) ?? taskTitle ?? meaningfulTerminalTitle;
     return {
-        taskTitle: hasAgent ? pane?.taskTitle?.trim() || agentName : shellTitle,
-        agentName,
-        ...(pane?.agentKind === undefined ? {} : { agentKind: pane.agentKind }),
+        ...(taskTitle === undefined ? {} : { taskTitle }),
+        ...(agentName === undefined ? {} : { agentName }),
+        ...(agentKind === undefined ? {} : { agentKind }),
         ...(pane?.displayAgent === undefined ? {} : { displayAgent: pane.displayAgent }),
+        ...(!hasAgent && shellTitle !== undefined ? { shellTitle } : {}),
     };
 }
 
 export function isShellLabels(labels: AgentLabels): boolean {
-    return labels.agentKind === undefined && labels.agentName === 'Shell';
+    return labels.agentKind === undefined && labels.agentName === undefined;
 }
 
-/** Firstmate's generic launch wrapper is not a useful task label on the phone. */
-export function isGenericLaunchTitle(title: string): boolean {
-    return /^(?:(?:FIRSTMATE_OP:\s*)?v1[ -]launch-brief|firstmate-op-v1-launch-brief)(?:[: -]|$)/i.test(title);
-}
-
-function uniqueLabels(values: readonly (string | undefined)[]): string[] {
-    const seen = new Set<string>();
-    return values.flatMap((value) => {
-        const label = value?.trim();
-        if (label === undefined || label === '') return [];
-        const key = label.normalize('NFKC').toLocaleLowerCase('und');
-        if (seen.has(key)) return [];
-        seen.add(key);
-        return [label];
-    });
-}
-
-function distinctAgentName(labels: AgentLabels): string | undefined {
-    const name = labels.agentName.trim();
-    if (name === '') return undefined;
-    if (name.localeCompare(labels.taskTitle, undefined, { sensitivity: 'accent' }) === 0) return undefined;
-    return name;
-}
-
-function agentKindSlug(kind?: string): string | undefined {
-    const value = kind?.trim();
-    if (value === undefined || value === '') return undefined;
-    return value.toLocaleLowerCase('und');
-}
-
-/** Kind and animal name as one token, e.g. `pi/fox`. */
+/** Display-only fallback. A missing Herdr name stays missing in AgentLabels. */
 export function agentNameLine(labels: AgentLabels): string {
     if (isShellLabels(labels)) return 'Shell';
-    const kind = agentKindSlug(labels.agentKind);
-    const name = distinctAgentName(labels);
-    const identity = kind !== undefined && name !== undefined ? `${kind}/${name}` : kind ?? name;
-    return uniqueLabels([identity, labels.displayAgent]).join(' · ');
+    return labels.agentName ?? agentKindLabel(labels.agentKind) ?? 'Agent';
+}
+
+/** Display-only fallback. A missing Herdr title stays missing in AgentLabels. */
+export function agentTaskLine(labels: AgentLabels): string {
+    if (isShellLabels(labels)) return labels.shellTitle ?? 'Shell';
+    return labels.taskTitle ?? 'Untitled task';
 }
 
 export function agentIdentityLine(labels: AgentLabels): string {
@@ -120,7 +101,9 @@ export function agentStateLabel(status: AgentLifecycle, changedAt?: number, now 
 
 export function agentAccessibilityLabel(labels: AgentLabels, status: AgentLifecycle, changedAt?: number): string {
     const state = changedAt === undefined ? HERD_STATUS_LABELS[status] : agentStateLabel(status, changedAt);
-    return [labels.taskTitle, state, agentIdentityLine(labels)]
+    const title = agentTaskLine(labels);
+    const name = agentIdentityLine(labels);
+    return [title, state, title === name ? undefined : name]
         .filter((value): value is string => value !== undefined && value !== '')
         .join('. ');
 }

@@ -15,7 +15,7 @@ import type { HerdrTreeWorkspace } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { TerminalPreview } from '@/terminal/ui';
 import { AgentGlyph } from '@/components/AgentGlyph';
-import { agentLabels, agentNameLine, agentStatusColor, isShellLabels } from '@/herd';
+import { agentLabels, agentNameLine, agentStatusColor, agentTaskLine, isShellLabels } from '@/herd';
 
 export default React.memo(function WorkspaceScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -97,7 +97,7 @@ export default React.memo(function WorkspaceScreen() {
                                                 }}
                                             >
                                                 <Ionicons name="terminal-outline" size={18} color={theme.colors.textSecondary} />
-                                                <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 4 }}>{shell ? 'Shell' : labels.agentName}</Text>
+                                                <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 4 }}>{agentNameLine(labels)}</Text>
                                             </View>
                                         );
                                     }
@@ -118,10 +118,10 @@ export default React.memo(function WorkspaceScreen() {
                                                 <TerminalPreview sessionId={pane.sessionId} />
                                             </View>
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 5 }}>
-                                                <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />
+                                                <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName ?? 'agent'} size={14} />
                                                 <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
                                                     <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 11, fontWeight: '600' }}>
-                                                        {shell ? 'Shell' : labels.taskTitle}
+                                                        {agentTaskLine(labels)}
                                                     </Text>
                                                     <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10 }}>
                                                         {paneIdentity}

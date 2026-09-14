@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
-import { agentNameLine, compactAge, isGenericLaunchTitle, isShellLabels } from '../domain/agentPresentation';
+import { compactAge } from '../domain/agentPresentation';
 import { recentActivityStatus, type RecentActivityRow } from '../domain/recentActivity';
 import { AgentGlyph } from '@/components/AgentGlyph';
 
@@ -62,15 +62,8 @@ export const RecentActivity = React.memo((props: {
             <View style={styles.card}>
                 {visible.map((row) => {
                     const color = row.status === 'done' ? theme.colors.status.done : theme.colors.status.error;
-                    const labels = {
-                        taskTitle: row.taskTitle,
-                        agentName: row.agentName ?? row.taskTitle,
-                        ...(row.agentKind === undefined ? {} : { agentKind: row.agentKind }),
-                    };
-                    const shell = isShellLabels(labels);
-                    const identity = agentNameLine(labels);
-                    const title = isGenericLaunchTitle(row.taskTitle) ? identity || row.agentName || 'Agent' : row.taskTitle;
-                    const meta = [title === identity ? undefined : identity || undefined, recentActivityStatus(row), compactAge(Date.now() - row.at)].filter(Boolean).join(' · ');
+                    const title = row.taskTitle ?? 'Untitled task';
+                    const meta = [row.agentName, recentActivityStatus(row), compactAge(Date.now() - row.at)].filter(Boolean).join(' · ');
                     return (
                         <Pressable
                             key={row.eventId}
@@ -80,7 +73,7 @@ export const RecentActivity = React.memo((props: {
                             style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
                         >
                             <Ionicons name={icon(row)} size={16} color={color} />
-                            <AgentGlyph name={shell ? 'shell' : row.agentKind ?? row.agentName ?? row.taskTitle} size={16} />
+                            <AgentGlyph name={row.agentKind ?? row.agentName ?? 'agent'} size={16} />
                             <View style={styles.copy}>
                                 <Text numberOfLines={1} style={styles.task}>{title}</Text>
                                 <Text numberOfLines={1} style={styles.meta}>{meta}</Text>

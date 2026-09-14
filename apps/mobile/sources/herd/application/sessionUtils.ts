@@ -5,6 +5,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import type { Theme } from '@/theme';
 import { formatLastSeen, formatPathRelativeToHome } from '../domain/sessionIdentity';
 import type { HerdrTreePane } from '@muxr/contract';
+import { agentLabels, agentTaskLine } from '../domain/agentPresentation';
 
 export type SessionState = 'disconnected' | 'thinking' | 'waiting' | 'permission_required';
 
@@ -118,7 +119,7 @@ export function useSessionStatus(session: Session | undefined): SessionStatus {
 
 /** Generic sessions may carry their own summary; Herdr Agent titles come from the tree. */
 export function getSessionName(session: Session, pane?: HerdrTreePane): string {
-    if (pane !== undefined) return pane.taskTitle ?? pane.agentName ?? (pane.agentKind === undefined ? 'Untitled task' : 'Unnamed agent');
+    if (pane !== undefined) return agentTaskLine(agentLabels(pane));
     return session.metadata?.summary?.text?.trim() || t('session.newChat');
 }
 
