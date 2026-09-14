@@ -19,6 +19,7 @@ Start here, then follow one path.
 
 - [Architecture](ARCHITECTURE.md)
 - [ADRs](decisions/README.md)
+- [Competitive study](competitive-study.md) — Moshi and Collie measured against muxr; recommends, does not authorize
 - [Spec board](specs/index.html) ([source](specs/))
 - [npm CLI readme](npm-readme.md) — the packaged CLI
 
