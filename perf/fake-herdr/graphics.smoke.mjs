@@ -112,6 +112,11 @@ function fail(message) {
     throw new Error(message);
 }
 
+/** `GraphicsResult`: the client is done with the leased file. */
+function graphicsResult(message) {
+    return frame(Buffer.concat([uint(10), uint(message.transferId), uint(message.imageId), Buffer.from([1])]));
+}
+
 async function handshake(socketPath) {
     const socket = createConnection(socketPath);
     await new Promise((resolve, reject) => {
@@ -119,7 +124,10 @@ async function handshake(socketPath) {
         socket.once('error', reject);
     });
     const messages = [];
-    readFrames(socket, (message) => messages.push(message));
+    readFrames(socket, (message) => {
+        messages.push(message);
+        if (message.type === 'graphics-file') socket.write(graphicsResult(message));
+    });
     socket.write(frame(clientHello({ cols: 80, rows: 24, cellWidthPx: 8, cellHeightPx: 16 })));
     const deadline = Date.now() + 3000;
     while (Date.now() < deadline) {
@@ -237,9 +245,7 @@ function collectLeased(client) {
         let pixels;
         try { pixels = readFileSync(message.path); } catch { pixels = undefined; }
         frames.push({ pixels, leading: message.leading, control: message.control });
-        client.write(frame(Buffer.concat([
-            uint(10), uint(message.transferId), uint(message.imageId), Buffer.from([1]),
-        ])));
+        client.write(graphicsResult(message));
     });
     return frames;
 }

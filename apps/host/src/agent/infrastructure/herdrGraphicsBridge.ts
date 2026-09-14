@@ -738,6 +738,7 @@ export class HerdrGraphicsBridge {
             if (stale !== undefined) stale.retired = true;
             this.admitted.delete(replaced.transferId);
             this.write(clientGraphicsResult(replaced, true));
+            this.supersededFrames += 1;
         } else {
             this.pendingOrigins.push(origin);
         }

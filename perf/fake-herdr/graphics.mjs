@@ -285,7 +285,7 @@ function readTransferId(payload) {
     return Number.isSafeInteger(value) ? value : undefined;
 }
 
-function createPacer({ socket, bytesPerSecond, timers, isClosed, buildFrame, frameBytes }) {
+function createPacer({ socket, bytesPerSecond, timers, isClosed, buildFrame, frameBytes, canSend }) {
     let queued = 0;
     let written = 0;
     let startedAt = Date.now();
@@ -318,7 +318,7 @@ function createPacer({ socket, bytesPerSecond, timers, isClosed, buildFrame, fra
             clear();
             return;
         }
-        if (queued <= 0) {
+        if (queued <= 0 || !canSend()) {
             pumping = false;
             return;
         }
@@ -331,31 +331,27 @@ function createPacer({ socket, bytesPerSecond, timers, isClosed, buildFrame, fra
         }
         queued -= 1;
         try {
-            const payload = buildFrame();
-            socket.write(payload);
-            written += payload.length;
+            socket.write(buildFrame());
+            written += estimated;
         } catch {
             queued = 0;
-            pumping = false;
             clear();
-            return;
-        }
-        if (queued > 0) {
-            pumping = true;
-            schedule(Math.max(1, Math.ceil(estimated / bytesPerSecond * 1000)));
-            return;
         }
         pumping = false;
+    };
+
+    const kick = () => {
+        if (pumping) return;
+        pumping = true;
+        pump();
     };
 
     return {
         admit() {
             queued += 1;
-            if (!pumping) {
-                pumping = true;
-                pump();
-            }
+            kick();
         },
+        kick,
         stop() {
             queued = 0;
             pumping = false;
@@ -404,6 +400,7 @@ function serveClient(socket, options) {
         // The pixels travel by file, not down this socket, so the pace is the
         // raw frame rather than its base64 inflation.
         frameBytes: imageWidth * imageHeight * 4,
+        canSend: () => lease.outstanding === 0,
         buildFrame: () => {
             const watched = pinPaneId ?? targetPaneId;
             const wanted = watched === undefined
@@ -538,13 +535,17 @@ function serveClient(socket, options) {
                 // this arrives, so it is released here and never before.
                 const done = readTransferId(payload);
                 if (done !== undefined) lease.release(done);
+                pacer.kick();
             } else if (type === 4) {
                 stop();
                 socket.end();
             }
         }
     });
-    socket.on('close', stop);
+    socket.on('close', () => {
+        stop();
+        lease.releaseAll();
+    });
     socket.on('error', stop);
 }
 
@@ -558,7 +559,6 @@ export async function startGraphics({
     inputLogPath,
     enableFile,
     pinPaneId,
-    leaseDir,
 } = {}) {
     try { unlinkSync(socketPath); } catch { /* leftover from a killed run */ }
     const sockets = new Set();
@@ -572,7 +572,7 @@ export async function startGraphics({
     const width = size.width;
     const height = size.height;
     const bps = positiveInt(bytesPerSecond, DEFAULT_BYTES_PER_SECOND);
-    const lease = createLease(leaseDir ?? join(tmpdir(), `fake-herdr-graphics-${process.pid}`));
+    const lease = createLease(join(tmpdir(), `fake-herdr-graphics-${process.pid}`));
 
     let orphanPaneId;
     let orphanOffset;
