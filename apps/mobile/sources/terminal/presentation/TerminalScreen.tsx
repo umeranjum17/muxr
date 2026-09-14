@@ -642,7 +642,9 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
             return (
                 <Pressable
                     onPress={jumpToBottom}
-                    hitSlop={10}
+                    // The compact Jump dock reserves its own 52dp slot beside
+                    // the key strip; keep this target inside that slot too.
+                    hitSlop={compact ? 3 : 10}
                     accessibilityRole="button"
                     accessibilityLabel="Jump to bottom"
                     style={({ pressed }) => ({
@@ -662,6 +664,18 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 >
                     <Ionicons name="arrow-down-outline" size={20} color={theme.colors.text} />
                 </Pressable>
+            );
+        };
+        const compactFooterDock = compactTools && !showTabStrip;
+        const renderCompactFooterDock = (dockSide: ToolsSide): React.JSX.Element | null => {
+            if (!compactFooterDock || (dockSide !== toolsSide && !showJump)) return null;
+            return (
+                <View pointerEvents="box-none" style={{ position: 'relative', width: TOOLS_TRIGGER_INSET, height: keyRowHeight, flexShrink: 0, zIndex: 10 }}>
+                    {dockSide === toolsSide
+                        ? <TerminalToolsTrigger side={toolsSide} onSideChange={setToolsSide} onPress={toolsOpen ? closeTools : openTools}
+                            blocked={toolsBlocked} expanded={toolsOpen} dimmed={showJump} />
+                        : renderJump(true)}
+                </View>
             );
         };
         return (
@@ -946,19 +960,25 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 are typing actions. Short chrome drops only the row's outer
                 6dp vertical padding; its Moshi caps remain 46dp. */}
             {canControl && (
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    keyboardShouldPersistTaps="always"
-                    style={{ maxHeight: keyRowHeight }}
-                    // Moshi-measured strip: 7dp gaps, 10dp row inset, 58dp
-                    // pitch. Single-row horizontal scroll, never wraps -- the
-                    // content runs past the edge with a visible mid-cap cut,
-                    // so more keys are never hidden without a cue.
-                    contentContainerStyle={{ minHeight: keyRowHeight, alignItems: 'center', gap: 7, paddingHorizontal: 10, paddingVertical: shortChrome ? 0 : 6 }}
-                >
-                    <DeclarativeTerminalKeySlot channel={channel} />
-                </ScrollView>
+                <View style={{ flexDirection: 'row', alignItems: 'center', height: keyRowHeight }}>
+                    {renderCompactFooterDock('left')}
+                    <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        keyboardShouldPersistTaps="always"
+                        style={{ flex: 1, maxHeight: keyRowHeight }}
+                        // Moshi-measured strip: 7dp gaps, 10dp row inset, 58dp
+                        // pitch. Single-row horizontal scroll, never wraps -- the
+                        // content runs past the edge with a visible mid-cap cut,
+                        // so more keys are never hidden without a cue. In compact
+                        // mode the mark/Jump slots are layout siblings, not an
+                        // overlay, so no key target sits beneath either control.
+                        contentContainerStyle={{ minHeight: keyRowHeight, alignItems: 'center', gap: 7, paddingHorizontal: 10, paddingVertical: shortChrome ? 0 : 6 }}
+                    >
+                        <DeclarativeTerminalKeySlot channel={channel} />
+                    </ScrollView>
+                    {renderCompactFooterDock('right')}
+                </View>
             )}
             {/* The voice status strip: listening bars while dictating,
                 frozen bars + spinner while transcribing. Gone when idle. */}
@@ -1135,10 +1155,10 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
             </View>
             )}
             </>}
-            {/* When the short viewport has no tab strip to host the mark, dock
-                it in the footer chrome. It remains above the IME and outside
-                terminal output; the trigger and panel contract are unchanged. */}
-            {compactTools && !showTabStrip && (
+            {/* View-only has no key strip to reserve a dock beside; retain the
+                compact footer host for the trigger without stealing a key
+                target. Controlled terminals use the sibling slots above. */}
+            {compactFooterDock && !canControl && (
                 <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: keyRowHeight, zIndex: 10 }}>
                     {renderJump(true)}
                     <TerminalToolsTrigger side={toolsSide} onSideChange={setToolsSide} onPress={toolsOpen ? closeTools : openTools}
