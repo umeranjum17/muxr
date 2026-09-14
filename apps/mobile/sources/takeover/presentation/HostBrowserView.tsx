@@ -107,6 +107,9 @@ export function HostBrowserView(props: {
     const [draft, setDraft] = React.useState('');
     const composerRef = React.useRef<TextInput>(null);
     const isComposingRef = useWebImeComposing(composerRef, field !== null);
+    const [pageHidden, setPageHidden] = React.useState(() => (
+        Platform.OS === 'web' && typeof document !== 'undefined' && document.visibilityState !== 'visible'
+    ));
 
     // Private on screen means private in the switcher and to screen capture.
     React.useEffect(() => {
@@ -122,7 +125,14 @@ export function HostBrowserView(props: {
             else if (owning) void takeover.pause();
         };
         if (Platform.OS === 'web' && typeof document !== 'undefined') {
-            const listener = () => onChange(document.visibilityState === 'visible');
+            const listener = () => {
+                const active = document.visibilityState === 'visible';
+                // Chrome can snapshot a PWA's task before the async authority
+                // pause resolves. Paint a local cover in the visibility event
+                // itself so no private frame remains available to the switcher.
+                setPageHidden(!active);
+                onChange(active);
+            };
             document.addEventListener('visibilitychange', listener);
             return () => document.removeEventListener('visibilitychange', listener);
         }
@@ -284,7 +294,7 @@ export function HostBrowserView(props: {
     // The video is covered whenever nothing current may show: no presented
     // frame yet (a skeleton, never an old private frame), paused, checking,
     // ended or unpaired. The cover names the state and its recovery.
-    const covered = !snapshot.presented || state === 'paused' || state === 'checking' || state === 'ended' || state === 'needs-pairing' || state === 'giving-back';
+    const covered = pageHidden || !snapshot.presented || state === 'paused' || state === 'checking' || state === 'ended' || state === 'needs-pairing' || state === 'giving-back';
     let coverBody: React.ReactNode = null;
     if (state === 'needs-pairing') {
         coverBody = <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center' }}>Agent browser needs a fresh pairing. Pair this device with your computer again to continue.</Text>;
@@ -364,7 +374,7 @@ export function HostBrowserView(props: {
     ) : null;
 
     return (
-        <View style={{ flex: 1, backgroundColor: theme.colors.surface }}>
+        <View style={{ flex: 1, position: 'relative', backgroundColor: theme.colors.surface }}>
             {header}
             <View style={{ flex: 1 }}>
                 {video}
@@ -391,6 +401,16 @@ export function HostBrowserView(props: {
                 )}
             </View>
             {composer}
+            {pageHidden && (
+                <View
+                    pointerEvents="none"
+                    accessibilityLabel="Private session hidden while the app is in the background"
+                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, elevation: 1000, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24, backgroundColor: theme.colors.surface }}
+                >
+                    <Ionicons name="lock-closed" size={32} color={theme.colors.textSecondary} />
+                    <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center' }}>Private session hidden while the app is in the background.</Text>
+                </View>
+            )}
         </View>
     );
 }
