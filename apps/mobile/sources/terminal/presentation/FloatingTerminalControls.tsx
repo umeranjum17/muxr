@@ -143,23 +143,35 @@ export function TerminalToolsTrigger({ side, onSideChange, onPress, blocked, exp
  * glyph keys; a hairline; then the labelled rows with their data inline,
  * one line each, sized to content. The card has no internal scroll region:
  * every rendered row contributes to its height, even when the available
- * terminal area is short. A tap on the terminal, Back and Escape close it
- * too.
+ * terminal area is short. When the rows outgrow the space above the mark,
+ * the card clamps to the container's top instead of pushing its strip (and
+ * Close) off-screen -- it may transiently cover the header, like any menu,
+ * but never clips or scrolls. A tap on the terminal, Back and Escape close
+ * it too.
  */
-export function TerminalToolsPanel({ commands, side, onClose, children }: {
+export function TerminalToolsPanel({ commands, side, maxHeight, onClose, children }: {
     commands: readonly TerminalCommand[];
     side: ToolsSide;
-    /** Retained for the shared caller while the footer owns terminal geometry; the card sizes to content. */
+    /** The terminal container's height: the card clamps to it, never past it. */
     maxHeight: number;
     onClose: () => void;
     children: React.ReactNode;
 }) {
     const { theme } = useUnistyles();
     const { width } = useWindowDimensions();
+    // Inner content height is independent of where the card sits, so this
+    // converges in one pass: clamp only when the rows would push the strip
+    // above the container's top edge.
+    const [topClamped, setTopClamped] = React.useState(false);
+    // Clamped, the card hangs from the container's top over the header and
+    // the footer stays reachable; unclamped, its corner sits on the mark.
+    const anchor = topClamped
+        ? { top: TOOLS_TRIGGER_MARGIN }
+        : { bottom: TOOLS_TRIGGER_MARGIN };
     return (
         <View accessibilityRole="menu" accessibilityLabel="Terminal quick actions"
             style={{
-                position: 'absolute', bottom: TOOLS_TRIGGER_MARGIN, [side]: TOOLS_TRIGGER_MARGIN,
+                position: 'absolute', ...anchor, [side]: TOOLS_TRIGGER_MARGIN,
                 width: Math.min(PANEL_WIDTH, width - 2 * TOOLS_TRIGGER_MARGIN),
                 borderRadius: 14, overflow: 'hidden',
                 backgroundColor: theme.colors.surfaceHigh,
@@ -167,6 +179,12 @@ export function TerminalToolsPanel({ commands, side, onClose, children }: {
                 elevation: 12,
                 shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
             }}>
+            <View
+                onLayout={(event) => {
+                    const need = maxHeight > 0 && event.nativeEvent.layout.height > Math.max(0, maxHeight - 2 * TOOLS_TRIGGER_MARGIN);
+                    setTopClamped((clamped) => (clamped === need ? clamped : need));
+                }}
+            >
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: PANEL_PADDING, paddingVertical: PANEL_PADDING }}>
                 {commands.map((command) => (
                     <StripKey key={command.icon} glyph={command.icon} label={command.label} disabled={command.disabled === true}
@@ -177,6 +195,7 @@ export function TerminalToolsPanel({ commands, side, onClose, children }: {
             <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider }} />
             <View style={{ paddingVertical: PANEL_PADDING }}>
                 {children}
+            </View>
             </View>
         </View>
     );
