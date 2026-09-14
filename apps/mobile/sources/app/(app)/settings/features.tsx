@@ -51,6 +51,15 @@ export default function PreferencesSettingsScreen() {
                     showChevron={false}
                 />
             </ItemGroup>
+            <ItemGroup title="Watching agents" footer="The screen can stay awake only while this app is foregrounded on a working terminal.">
+                <Item
+                    title="Stay awake"
+                    subtitle={!wakeLockSupported ? 'Screen Wake Lock is unavailable in this browser' : Platform.OS === 'web' ? 'While this tab is visible, if the browser permits it' : 'While viewing a working agent'}
+                    icon={<Ionicons name="sunny-outline" size={29} color="#FF9500" />}
+                    rightElement={<Switch value={keepScreenAwakeWhileWatching && wakeLockSupported} disabled={!wakeLockSupported} onValueChange={setKeepScreenAwakeWhileWatching} />}
+                    showChevron={false}
+                />
+            </ItemGroup>
             {Platform.OS !== 'web' && (
                 <ItemGroup title="Terminal keyboard" footer="The keyboard button in each terminal always lets you type. This preference applies on this device.">
                     <Item
