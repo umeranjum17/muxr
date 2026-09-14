@@ -31,6 +31,7 @@ import {
     DEFAULT_CONNECTION,
     getCachedConnectionSettings,
     loadConnectionSettingsAsync,
+    sshTunnelAvailable,
 } from '@/connection';
 import { getCachedHostedGrant, loadHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
 import { storage } from './storage';
@@ -286,6 +287,7 @@ class MuxrSync {
                 token: transportToken,
             } : {}),
             ...(hostedGrant === undefined ? {} : { hostedGrant }),
+            ...(settings.selfhost === true && settings.ssh !== undefined && sshTunnelAvailable() ? { ssh: settings.ssh } : {}),
             ...(settings.mode === 'hosted' ? {
                 onTicketRejected: () => { void this.refreshAccountSession().catch(() => undefined); },
                 onPermanentError: (message: string) => storage.getState().setSocketError(message),

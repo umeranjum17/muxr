@@ -1,6 +1,6 @@
 import { claimHostedPairing, type StoredHostedGrant } from './hostedE2ee';
 import { parsePairingString } from '../domain/pairingString';
-import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
+import { forgetSshCredential, getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
 
 export type PairMachineCommand = {
@@ -20,13 +20,18 @@ async function activateGrant(grant: StoredHostedGrant, endVoiceIfPinned: boolean
         return { ok: false, reason: 'voice-pinned', grant };
     }
     if (!guard.allowed) stopRealtimeSession();
+    const settings = getCachedConnectionSettings();
+    if (settings.machineId !== '' && (settings.machineId !== grant.machineId || settings.selfhost !== (grant.source === 'selfhost'))) {
+        await forgetSshCredential(settings.machineId);
+    }
     await saveConnectionSettings({
-        ...getCachedConnectionSettings(),
+        ...settings,
         mode: 'hosted',
         relayUrl: grant.relayUrl,
         machineId: grant.machineId,
         token: '',
         selfhost: grant.source === 'selfhost' ? true : undefined,
+        ...(settings.selfhost === true && settings.machineId === grant.machineId ? {} : { ssh: undefined }),
     });
     return { ok: true, credential: grant.credential, secretKey: grant.deviceKey.secretKey };
 }
