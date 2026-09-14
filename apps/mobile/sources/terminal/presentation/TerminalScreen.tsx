@@ -101,20 +101,37 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     // which is a supported input path (term.onData) with its own hidden
     // textarea. Pinch zoom also shrinks the visual viewport, so the zoom
     // level tells them apart: a keyboard preserves it exactly, a pinch
-    // changes it. The resting zoom is whatever scale reads with no
-    // occlusion (and whatever it reads on the very first update, so a
-    // mount with the keyboard already up still pads). This is the one
-    // geometry system on web: exactly one of the two sources below ever
-    // moves the layout.
+    // changes it. The resting viewport is captured before the browser IME
+    // opens. Android Chrome's interactive-widget=resizes-content mode
+    // shrinks both the layout and visual viewports, so their difference is
+    // zero even though the keyboard is consuming the lower part of the
+    // screen. The height delta is the web keyboard signal in that mode; the
+    // occlusion remains the layout shift for browsers that overlay the IME.
+    // A scale or width change establishes a new resting viewport instead, so
+    // pinch zoom and rotation do not masquerade as a keyboard. This is the
+    // one geometry system on web: exactly one of the two sources below ever
+    // moves layout.
     const [viewportOffset, setViewportOffset] = React.useState(0);
-    const restZoomRef = React.useRef<number | null>(null);
+    const [webKeyboardVisible, setWebKeyboardVisible] = React.useState(false);
+    const restViewportRef = React.useRef<{ width: number; height: number; scale: number } | null>(null);
     React.useEffect(() => {
         if (Platform.OS !== 'web' || typeof window === 'undefined' || window.visualViewport == null) return;
         const viewport = window.visualViewport;
         const update = () => {
+            const current = { width: viewport.width, height: viewport.height, scale: viewport.scale };
+            const resting = restViewportRef.current;
+            // A pinch or rotation is a new resting geometry, not an IME.
+            if (resting === null || Math.abs(current.scale - resting.scale) > 0.01 || Math.abs(current.width - resting.width) > 1) {
+                restViewportRef.current = current;
+                setWebKeyboardVisible(false);
+                setViewportOffset(0);
+                return;
+            }
+            const keyboard = current.height < resting.height - 80;
             const occlusion = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
-            if (occlusion === 0 || restZoomRef.current === null) restZoomRef.current = viewport.scale;
-            setViewportOffset(viewport.scale === restZoomRef.current ? occlusion : 0);
+            setWebKeyboardVisible(keyboard);
+            setViewportOffset(occlusion);
+            if (!keyboard) restViewportRef.current = current;
         };
         update();
         viewport.addEventListener('resize', update);
@@ -127,6 +144,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     const keyboardPad = Platform.OS === 'web'
         ? viewportOffset
         : (keyboardVisible ? keyboardHeight : 0);
+    const keyboardUp = keyboardPad > 0 || keyboardVisible || webKeyboardVisible;
     const session = useSession(props.id);
     const sessions = useSessions();
     const { workspaces } = useHerdrTree();
@@ -397,8 +415,8 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     // settled, so it lands in the space the keyboard held and never over
     // output. A keyboard that will not go says so on the key instead.
     const keyboardUpRef = React.useRef(false);
-    keyboardUpRef.current = keyboardPad > 0 || keyboardVisible;
-    React.useEffect(() => { if (!keyboardUpRef.current) setToolsBlocked(false); }, [keyboardPad, keyboardVisible]);
+    keyboardUpRef.current = keyboardUp;
+    React.useEffect(() => { if (!keyboardUpRef.current) setToolsBlocked(false); }, [keyboardUp]);
     const openFind = React.useCallback(() => {
         setToolsOpen(false);
         setActionsOpen(false);
@@ -545,7 +563,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     // the user still sees the terminal being typed into; the key strip stays
     // present, losing only its outer vertical padding. Computed once here;
     // both halves key off this. Never true with the keyboard down.
-    const shortChrome = (keyboardPad > 0 || keyboardVisible) && terminalHeight < 200;
+    const shortChrome = keyboardUp && terminalHeight < 200;
     // The phone's 270dp class: under 340 wide (the same line settings uses)
     // the five-across composer leaves ~46dp for the input and the
     // placeholder reads 'Typ'. There the input takes its own line; at 340
