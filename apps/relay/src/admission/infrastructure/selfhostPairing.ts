@@ -11,6 +11,8 @@ import { readPrivateFile, writeJsonFileAtomic } from '../../platform/persist.js'
 
 const PAIR_TTL_MS = 2 * 60_000;
 const MAX_SESSIONS = 100;
+const BROWSER_GRANT_TTL_MS = 8 * 60 * 60_000;
+const BROWSER_PERSONAL_GRANT_TTL_MS = 30 * 24 * 60 * 60_000;
 
 function sessionAuthority(
     deviceKind: Exclude<DeviceKind, 'peer'>,
@@ -31,6 +33,8 @@ export interface SelfhostPairSession {
     machineSlug: string;
     deviceKind: Exclude<DeviceKind, 'peer'>;
     authority?: 'control' | 'observe';
+    personal?: boolean;
+    durable?: boolean;
     createdAt: number;
     expiresAt: number;
     usedAt?: number;
@@ -135,7 +139,7 @@ export class SelfhostPairing {
     }
 
     /** CLI side (owner/machine authed at the route): open a two-minute pairing window. */
-    createSession(input: { claim: string; machineSlug: string; deviceKind: Exclude<DeviceKind, 'peer'>; authority?: 'control' | 'observe' }, now = Date.now()): Promise<{ pairId: string; expiresIn: number }> {
+    createSession(input: { claim: string; machineSlug: string; deviceKind: Exclude<DeviceKind, 'peer'>; authority?: 'control' | 'observe'; personal?: boolean; durable?: boolean }, now = Date.now()): Promise<{ pairId: string; expiresIn: number }> {
         return this.serialized(async () => {
             await this.load();
             this.state.sessions = this.state.sessions
@@ -148,6 +152,8 @@ export class SelfhostPairing {
                 machineSlug: input.machineSlug,
                 deviceKind: input.deviceKind,
                 authority: sessionAuthority(input.deviceKind, input.authority),
+                ...(input.deviceKind === 'browser' && input.personal === true ? { personal: true } : {}),
+                ...(input.deviceKind === 'browser' && input.authority === 'control' && input.durable === true ? { durable: true } : {}),
                 createdAt: now,
                 expiresAt: now + PAIR_TTL_MS,
             });
@@ -222,6 +228,11 @@ export class SelfhostPairing {
             const deviceId = opaque('dev');
             const credential = opaque('muxr_dc');
             session.deviceId = deviceId;
+            let credentialExpiresAt = input.expiresAt;
+            if (session.deviceKind === 'browser') {
+                const ttl = session.personal === true ? BROWSER_PERSONAL_GRANT_TTL_MS : BROWSER_GRANT_TTL_MS;
+                credentialExpiresAt = session.durable === true && claimedAuthority(session) === 'control' ? undefined : now + ttl;
+            }
             this.state.devices.push({
                 deviceId,
                 credentialHash: hash(credential),
@@ -229,7 +240,7 @@ export class SelfhostPairing {
                 name: input.deviceName,
                 machineSlug: session.machineSlug,
                 createdAt: now,
-                ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
+                ...(credentialExpiresAt === undefined ? {} : { expiresAt: credentialExpiresAt }),
                 authority: claimedAuthority(session),
                 deviceKind: session.deviceKind,
                 credentialVersion: 1,

@@ -7,7 +7,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
-import { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '@/pairing/e2ee';
+import { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingLifetime, prepareHostedPairingInput } from '@/pairing/e2ee';
 import { pairMachine, usePairQrScanner } from '@/pairing';
 import { getCachedConnectionSettings } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
@@ -25,17 +25,19 @@ const PHONE_PAIRING_GRANTS = [
     'Start, stop and restart agents — running as the user who launched muxr.',
 ] as const;
 
-const BROWSER_CONTROL_GRANTS = [
+const browserControlGrants = (lifetime: string) => [
     'Read and type into every agent terminal on that computer.',
     'Answer approvals and start or stop agents as the user running muxr.',
-    'Keep machine keys end-to-end encrypted in this browser for eight hours.',
-] as const;
+    lifetime === 'until revoked'
+        ? 'Keep machine keys end-to-end encrypted in this browser until you revoke this device on the computer.'
+        : `Keep machine keys end-to-end encrypted in this browser for ${lifetime}.`,
+];
 
-const BROWSER_OBSERVE_GRANTS = [
+const browserObserveGrants = (lifetime: string) => [
     'Read agent status and terminal output from this browser.',
     'Keep the machine keys end-to-end encrypted in this browser.',
-    'Use this view-only grant for eight hours, then pair again.',
-] as const;
+    `Use this view-only grant for ${lifetime}, then pair again.`,
+];
 
 const PHONE_PAIRING_STEPS = [
     'This phone claims the one-time code from the QR or pairing string.',
@@ -76,8 +78,9 @@ export default function PairScreen() {
     }, []);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
     const browserAuthority = browser && state?.url ? hostedPairingAuthority(state.url) : 'observe';
+    const lifetime = browser && state?.url ? hostedPairingLifetime(state.url) : 'eight hours';
     const grants = browser
-        ? browserAuthority === 'control' ? BROWSER_CONTROL_GRANTS : BROWSER_OBSERVE_GRANTS
+        ? browserAuthority === 'control' ? browserControlGrants(lifetime) : browserObserveGrants(lifetime)
         : PHONE_PAIRING_GRANTS;
     const pairingSteps = browser ? BROWSER_PAIRING_STEPS : PHONE_PAIRING_STEPS;
     const switching = getCachedConnectionSettings().machineId !== '';

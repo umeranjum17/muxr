@@ -28,6 +28,8 @@ function runSelfCheck(): void {
 
     const controlBrowser = pairingIntent({ kind: 'browser', authority: 'control' });
     assert(controlBrowser.authority === 'control', 'owner can grant browser control');
+    assert(controlBrowser.grantExpiresAt(1_000) === native.grantExpiresAt(1_000), 'new self-host browser control is durable');
+    assert(controlBrowser.deviceRecord({ deviceId: 'browser-1', devicePublicKey: 'k', ingressKey: 'i', expiresAt: 1_000 }).durable === true, 'durable consent is stored with the grant');
     assert(controlBrowser.promptLine().includes('control'), 'prompt names the authority');
 
     const enrollment = parseEnrollment('not-a-link');

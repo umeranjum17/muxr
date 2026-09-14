@@ -230,8 +230,11 @@ export default function ConnectionSettingsScreen() {
         else if (grantRefresh === 'failed') trust = 'Could not read this device’s grant. Reopen the screen or pair again on the computer.';
         let browserAccess = 'No active browser grant. Pair again on the computer.';
         if (browserGrant !== undefined && browserExpiresAt !== undefined && browserExpiresAt > clock) {
-            const minutes = Math.ceil((browserExpiresAt - clock) / 60_000);
-            browserAccess = `${browserRole} · expires in ${Math.floor(minutes / 60)}h ${minutes % 60}m · ${new Date(browserExpiresAt).toLocaleString()}`;
+            if (browserExpiresAt - clock > 100 * 365 * 24 * 60 * 60_000) browserAccess = `${browserRole} · until revoked`;
+            else {
+                const minutes = Math.ceil((browserExpiresAt - clock) / 60_000);
+                browserAccess = `${browserRole} · expires in ${Math.floor(minutes / 60)}h ${minutes % 60}m · ${new Date(browserExpiresAt).toLocaleString()}`;
+            }
         } else if (browserGrant !== undefined && browserExpiresAt === undefined) browserAccess = `${browserRole} · pair again every eight hours`;
         else if (grantRefresh === 'loading') browserAccess = 'Checking the saved browser grant…';
         else if (grantRefresh === 'failed') browserAccess = 'Could not read the browser grant. Reopen the screen or pair again.';

@@ -11,7 +11,7 @@ import { parsePushNotification, PushService } from '../push/index.js';
 import { MachineRegistry, SelfhostPairing } from '../admission/index.js';
 import { startRelay } from '../relay.js';
 
-it('keeps a browser grant recoverable until its role and durable client acknowledgement are confirmed', async () => {
+it('keeps a durable control browser paired until revocation while view-only access remains finite', async () => {
     const root = await mkdtemp(join(tmpdir(), 'muxr-browser-pairing-'));
     try {
         const pairing = new SelfhostPairing(root);
@@ -20,6 +20,7 @@ it('keeps a browser grant recoverable until its role and durable client acknowle
             machineSlug: 'machine-a',
             deviceKind: 'browser',
             authority: 'control',
+            durable: true,
         });
         const claimed = await pairing.claim(session.pairId, {
             claim: 'c'.repeat(43),
@@ -37,6 +38,24 @@ it('keeps a browser grant recoverable until its role and durable client acknowle
         await expect(pairing.fetchGrant(session.pairId, claimed.deviceId)).resolves.toBe('sealed-grant');
         await expect(pairing.acknowledgeGrant(session.pairId, claimed.deviceId)).resolves.toBe(true);
         expect(await pairing.poll(session.pairId, 'machine-a')).toMatchObject({ acknowledged: true });
+        const viewSession = await pairing.createSession({
+            claim: 'v'.repeat(43), machineSlug: 'machine-a', deviceKind: 'browser', authority: 'observe',
+        });
+        const viewClaimedAt = Date.now();
+        const viewClaimed = await pairing.claim(viewSession.pairId, {
+            claim: 'v'.repeat(43), devicePublicKey: 'view-public-key', deviceName: 'View browser',
+            deviceKind: 'browser', mailbox: 'sealed-view-mailbox',
+            expiresAt: viewClaimedAt + 365 * 24 * 60 * 60_000,
+        }, viewClaimedAt);
+        expect(viewClaimed.state).toBe('issued');
+        if (viewClaimed.state !== 'issued') return;
+        const saved = JSON.parse(await readFile(join(root, 'selfhost-pairing.json'), 'utf8'));
+        expect(saved.devices.find((device: { deviceId: string }) => device.deviceId === claimed.deviceId).expiresAt).toBeUndefined();
+        expect(saved.devices.find((device: { deviceId: string }) => device.deviceId === viewClaimed.deviceId).expiresAt)
+            .toBe(viewClaimedAt + 8 * 60 * 60_000);
+        await expect(pairing.resolveDeviceCredential(claimed.credential)).resolves.toMatchObject({ deviceId: claimed.deviceId });
+        await expect(pairing.revokeDevice(claimed.deviceId, 'machine-a')).resolves.toEqual({ machineSlug: 'machine-a' });
+        await expect(pairing.resolveDeviceCredential(claimed.credential)).resolves.toBeUndefined();
     } finally {
         await rm(root, { recursive: true, force: true });
     }

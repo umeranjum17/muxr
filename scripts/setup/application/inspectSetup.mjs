@@ -757,7 +757,7 @@ export async function inspectSetup() {
             add(days <= 30 ? 'warn' : 'ok', 'machine credential', credentialDetail);
         }
         if (selfhost.webEnabled === true) add(ingressReady ? 'ok' : 'warn', 'web client', ingressReady
-            ? `${publicRelayUrl(selfhost.relayUrl)?.replace(/^ws/, 'http') ?? 'configured'} · control and view-only browser grants expire after eight hours`
+            ? `${publicRelayUrl(selfhost.relayUrl)?.replace(/^ws/, 'http') ?? 'configured'} · control lasts until revoked; view-only expires after eight hours`
             : 'configured but unreachable until the tunnel is restored');
     }
     if (managedMode !== 'relay' && (selfhost !== undefined || existsSync(authPath()))) {

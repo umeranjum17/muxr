@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { ensureHerdrServer } from '../infrastructure/herdr.mjs';
-import { hostEntry, relayEntry } from '../infrastructure/paths.mjs';
+import { hostEntry, pluginFolder, relayEntry } from '../infrastructure/paths.mjs';
 
 const hostPath = hostEntry();
 const relayPath = relayEntry();
@@ -19,6 +19,42 @@ const HOST_RESTART_DELAYS_MS = (process.env.MUXR_HOST_RESTART_DELAYS?.trim() || 
     .filter((value) => Number.isFinite(value) && value >= 0);
 let hostRestarts = 0;
 let hostRetry;
+let browserRetry;
+let browserRestarts = 0;
+let selfhostState;
+const BROWSER_RESTART_DELAYS_MS = [1000, 2000, 5000, 10000, 30000];
+
+function startBrowserService() {
+    let entry;
+    try { entry = join(pluginFolder('browser'), 'session-service.mjs'); }
+    catch (cause) {
+        process.stderr.write(`muxr browser service unavailable: ${cause instanceof Error ? cause.message : String(cause)}\n`);
+        return;
+    }
+    if (!existsSync(entry)) {
+        process.stderr.write('muxr browser service unavailable: bundled service is missing\n');
+        return;
+    }
+    const child = spawn(process.execPath, [entry], { stdio: 'inherit', env: process.env });
+    children.push(child);
+    const stable = setTimeout(() => { browserRestarts = 0; }, 60_000);
+    stable.unref();
+    child.on('exit', (code, signal) => {
+        clearTimeout(stable);
+        if (stopping) return;
+        process.stderr.write(`muxr browser service exited (${signal ?? code ?? 1})\n`);
+        if (browserRestarts >= BROWSER_RESTART_DELAYS_MS.length) {
+            process.stderr.write('muxr browser service restart budget exhausted; agent browser unavailable until service restart\n');
+            return;
+        }
+        const delay = BROWSER_RESTART_DELAYS_MS[browserRestarts++];
+        browserRetry = setTimeout(() => {
+            browserRetry = undefined;
+            if (!stopping) startBrowserService();
+        }, delay);
+        browserRetry.unref();
+    });
+}
 
 function startHost() {
     const child = start(hostPath, process.env, process.argv.slice(3));
@@ -105,6 +141,7 @@ if (mode === 'selfhost' || mode === 'relay') {
             throw cause;
         }
     }
+    selfhostState = state;
 }
 
 if (mode !== 'relay') {
@@ -115,6 +152,7 @@ if (mode !== 'relay') {
     catch (cause) {
         process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
     }
+    if (selfhostState?.webEnabled === true || process.env.MUXR_BROWSER_SERVICE === '1') startBrowserService();
     startHost();
 }
 
@@ -122,6 +160,7 @@ function stop(signal) {
     if (stopping) return;
     stopping = true;
     if (hostRetry !== undefined) clearTimeout(hostRetry);
+    if (browserRetry !== undefined) clearTimeout(browserRetry);
     for (const child of children) if (child.exitCode === null) child.kill(signal);
     setTimeout(() => {
         for (const child of children) if (child.exitCode === null) child.kill('SIGKILL');

@@ -155,7 +155,7 @@ export async function startSelfHost(args = []) {
             print('Ready — existing paired devices will reconnect automatically.');
             return 0;
         }
-        return await withSelfhostRotationLock(() => mintDeviceGrant(state, pair.kind, pair.authority));
+        return await withSelfhostRotationLock(() => mintDeviceGrant(state, pair.kind, pair.authority, pair.personal, pair.durable));
     } catch (cause) {
         if (pendingIngress && cloudflaredAlive(pendingIngress)) process.kill(Number(pendingIngress.pid), 'SIGTERM');
         error(cause instanceof Error ? cause.message : String(cause));

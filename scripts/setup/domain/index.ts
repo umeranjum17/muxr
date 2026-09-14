@@ -1,11 +1,13 @@
 export { accepted, rejected, type Accepted, type Rejected, type Result } from './result.js';
 export {
     BROWSER_GRANT_TTL_MS,
+    consentMachineName,
     DURABLE_GRANT_EXPIRES_AT,
     defaultAuthorityFor,
     pairingIntent,
     pairingIntentFromDevice,
     pairingIntentFromHostedFlags,
+    pairingIntentFromPairFlags,
     pairingIntentFromSelfhostFlags,
     parseClientKind,
     parseDeviceAuthority,
