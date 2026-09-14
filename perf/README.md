@@ -169,10 +169,10 @@ absorb comes from many panes, not one fast one:
 - 30 of them agent sessions
 - terminal streams at 4 kB/s with periodic full repaints, and a full repaint for
   every scroll and resize, which is Herdr's real cost model
-- inline Kitty frames at 4 Hz through the host's graphics bridge: a Kitty
-  program that repaints on scroll, pane-sized like a phone attach (539x575
-  RGBA per frame, ~1.6 MB uncompressed base64) and paced at the ~3 MB/s the
-  Herdr app-client socket actually sustains
+- leased Herdr graphics frames at 4 Hz through the host's graphics bridge: a
+  direct-graphics producer that repaints on scroll, pane-sized like a phone
+  attach (539x575 RGBA per frame, ~1.24 MB of pixels) and paced at the ~3 MB/s
+  the real transport sustains
 - cap the producer's frame rate where it offers one, e.g. `TERMINAL_BROWSER_FPS=10`:
   fewer paints before anything hits the socket, and it costs no code
 

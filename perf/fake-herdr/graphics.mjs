@@ -11,7 +11,7 @@
  * the ~3 MB/s of pixels the real transport sustains, so a burst of paints
  * queues instead of flushing instantly.
  */
-import { appendFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -225,6 +225,7 @@ function createLease(dir) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const open = new Map();
     return {
+        dir,
         write(transferId, rgba) {
             const path = join(dir, `frame-${transferId}.rgba`);
             writeFileSync(path, rgba, { mode: 0o600 });
@@ -631,6 +632,7 @@ export async function startGraphics({
             for (const socket of sockets) socket.destroy();
             sockets.clear();
             lease.releaseAll();
+            try { rmSync(lease.dir, { recursive: true, force: true }); } catch { /* harness removed its scratch dir */ }
             server.close();
             try { unlinkSync(socketPath); } catch { /* listen never created it */ }
         },
