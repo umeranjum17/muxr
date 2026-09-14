@@ -720,13 +720,13 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
         <View style={{ flex: 1, backgroundColor: theme.colors.terminal.background, paddingTop: insets.top, paddingBottom: keyboardPad }}>
 
             <View
-                onLayout={(event) => { if (!hasStatusRow) setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height); }}
+                onLayout={(event) => { if (!hasStatusRow || shortChrome) setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height); }}
                 style={{
                     flexDirection: 'row',
                     alignItems: 'center',
                     gap: 6,
                     paddingHorizontal: 10,
-                    paddingVertical: 6,
+                    paddingVertical: shortChrome ? 0 : 6,
                     backgroundColor: theme.colors.surface,
                     // Header and status row are one chrome block: the edge
                     // belongs at its bottom, not between its two rows.
@@ -741,9 +741,9 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                         <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
                             {contextTitle}
                         </Text>
-                        <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11 }}>
+                        {!shortChrome && <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11 }}>
                             {agentNameLine(labels)}
-                        </Text>
+                        </Text>}
                     </View>
                 </View>
                 {/* Position in the tab and the way into the pane overview: its own
@@ -768,7 +768,7 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 </Pressable>}
             </View>
 
-            {hasStatusRow && (
+            {hasStatusRow && !shortChrome && (
                 <View onLayout={(event) => setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingBottom: 7, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
                     {branch !== null && <Ionicons name="git-branch-outline" size={12} color={theme.colors.textSecondary} />}
                     <SessionMetaLine
