@@ -49,6 +49,7 @@ import {
 } from './plugin/index.mjs';
 import { dumpDiagnostics, readDiagnostics } from './diagnostics/index.mjs';
 import { updateCli } from './release/index.mjs';
+import { runSurfaceCli } from './surface/index.mjs';
 
 const HELP = `muxr — every coding agent on your phone
 
@@ -79,6 +80,10 @@ Run and maintain
 Agent instructions
   muxr --skill | muxr skill       print the compact muxr agent skill
   muxr skill <topic>              load one reference only when needed
+
+Agent browser
+  muxr browser session open [URL] [--name NAME] [--beside|--focus]
+  muxr browser session snapshot|click|fill|scroll|help|close [--name NAME]
 
 Build plugins
   muxr plugin docs|create|clone|check|dev|call|list|install|update|remove
@@ -415,6 +420,14 @@ async function dispatch(command, args = []) {
             return 0;
         } catch (error) {
             process.stderr.write(`muxr skill: ${error instanceof Error ? error.message : String(error)}\n`);
+            return 1;
+        }
+    }
+    if (command === 'surface' || command === 'browser' || command === 'code') {
+        try {
+            return await runSurfaceCli([command, ...args]);
+        } catch (error) {
+            process.stderr.write(`muxr ${command}: ${error instanceof Error ? error.message : String(error)}\n`);
             return 1;
         }
     }

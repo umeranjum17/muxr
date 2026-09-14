@@ -45,6 +45,7 @@ import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '
 import { promptAgent } from './promptAgent';
 import type { Settings } from './settings';
 import { lifecycleNotificationCopy } from '@/utils/herd';
+import { ingestSurfaceOffer } from './surfaceCoordinator';
 
 /** A shell that never reports back must not pin the promise forever. */
 const SHELL_TIMEOUT_MS = 120_000;
@@ -292,6 +293,7 @@ class MuxrSync {
             } : {}),
         });
         client.onPluginsInvalidated?.((frame) => reconcilePluginCaches(frame));
+        client.onSurfaceOffer((frame) => ingestSurfaceOffer(this.getConnection().machineId, frame));
         client.onStateChange((state) => {
             recordSocketState(state, client.isLive());
             storage.getState().setSocketStatus(socketStatusFromClient(state));

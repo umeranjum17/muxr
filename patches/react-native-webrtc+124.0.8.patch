@@ -1,0 +1,106 @@
+diff --git a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/RTCVideoViewManager.java b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/RTCVideoViewManager.java
+--- a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/RTCVideoViewManager.java
++++ b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/RTCVideoViewManager.java
+@@ -93,6 +93,9 @@
+         Map<String, String> dimensionsChangeEvent = new HashMap<>();
+         dimensionsChangeEvent.put("registrationName", "onDimensionsChange");
+         eventTypeConstants.put("onDimensionsChange", dimensionsChangeEvent);
++        Map<String, String> firstFrameEvent = new HashMap<>();
++        firstFrameEvent.put("registrationName", "onFirstFrameRendered");
++        eventTypeConstants.put("onFirstFrameRendered", firstFrameEvent);
+         return eventTypeConstants;
+     }
+ }
+diff --git a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCView.java b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCView.java
+--- a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCView.java
++++ b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCView.java
+@@ -260,6 +260,18 @@
+         post(() -> {
+             Log.d(TAG, "First frame rendered.");
+             surfaceViewRenderer.setBackgroundColor(Color.TRANSPARENT);
++            // muxr: the renderer presented a frame of the attached stream.
++            // Fires once per attached track (the renderer is re-initialized
++            // per track), so JS can bind it to the track generation it set.
++            try {
++                ReactContext reactContext = (ReactContext) getContext();
++                WritableMap params = Arguments.createMap();
++                params.putString("streamURL", streamURL);
++                reactContext.getJSModule(RCTEventEmitter.class)
++                        .receiveEvent(getId(), "onFirstFrameRendered", params);
++            } catch (Exception e) {
++                Log.e(TAG, "Error calling onFirstFrameRendered callback", e);
++            }
+         });
+     }
+ 
+diff --git a/node_modules/react-native-webrtc/ios/RCTWebRTC/RTCVideoViewManager.m b/node_modules/react-native-webrtc/ios/RCTWebRTC/RTCVideoViewManager.m
+--- a/node_modules/react-native-webrtc/ios/RCTWebRTC/RTCVideoViewManager.m
++++ b/node_modules/react-native-webrtc/ios/RCTWebRTC/RTCVideoViewManager.m
+@@ -68,6 +68,11 @@
+ 
+ @property(nonatomic, copy) RCTDirectEventBlock onDimensionsChange;
+ 
++/** muxr: fires once per attached track when its first real frame reaches the renderer. */
++@property(nonatomic, copy) RCTDirectEventBlock onFirstFrameRendered;
++@property(nonatomic, copy) NSString *streamURL;
++@property(nonatomic) BOOL awaitingFirstFrame;
++
+ @end
+ 
+ @implementation RTCVideoView
+@@ -254,6 +259,7 @@
+ 
+         [_pipController setVideoTrack:videoTrack];
+         _videoTrack = videoTrack;
++        self.awaitingFirstFrame = videoTrack != nil;
+ 
+         // Clear the videoView by rendering a 2x2 blank frame.
+         CVPixelBufferRef pixelBuffer;
+@@ -299,6 +305,17 @@
+ }
+ 
+ - (void)videoView:(id)videoView didChangeVideoSize:(CGSize)size {
++    // muxr: the 2x2 clearing frame is not presentation; the first real frame is.
++    if (self.awaitingFirstFrame && (size.width > 2 || size.height > 2)) {
++        self.awaitingFirstFrame = NO;
++        RCTDirectEventBlock firstFrame = self.onFirstFrameRendered;
++        NSString *streamURL = self.streamURL;
++        if (firstFrame) {
++            dispatch_async(dispatch_get_main_queue(), ^{
++                firstFrame(@{@"streamURL" : streamURL ?: [NSNull null]});
++            });
++        }
++    }
+     // Capture the callback block to avoid accessing it across threads
+     RCTDirectEventBlock callback = self.onDimensionsChange;
+     if (callback) {
+@@ -347,8 +364,10 @@
+ }
+ 
+ RCT_EXPORT_VIEW_PROPERTY(onDimensionsChange, RCTDirectEventBlock)
++RCT_EXPORT_VIEW_PROPERTY(onFirstFrameRendered, RCTDirectEventBlock)
+ 
+ RCT_CUSTOM_VIEW_PROPERTY(streamURL, NSString *, RTCVideoView) {
++    view.streamURL = json;
+     if (!json) {
+         view.videoTrack = nil;
+         return;
+diff --git a/node_modules/react-native-webrtc/lib/typescript/RTCView.d.ts b/node_modules/react-native-webrtc/lib/typescript/RTCView.d.ts
+--- a/node_modules/react-native-webrtc/lib/typescript/RTCView.d.ts
++++ b/node_modules/react-native-webrtc/lib/typescript/RTCView.d.ts
+@@ -80,6 +80,15 @@
+             height: number;
+         };
+     }) => void;
++    /**
++     * muxr: the renderer presented the first frame of the attached stream.
++     * Fires once per attached track; carries the stream URL it belongs to.
++     */
++    onFirstFrameRendered?: (event: {
++        nativeEvent: {
++            streamURL?: string;
++        };
++    }) => void;
+ }
+ export interface RTCIOSPIPOptions {
+     /**

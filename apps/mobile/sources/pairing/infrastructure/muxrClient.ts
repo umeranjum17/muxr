@@ -21,6 +21,8 @@ import {
     type SessionEvent,
     issueWsTicket,
     isPluginsInvalidatedFrame,
+    isSurfaceOfferHostFrame,
+    type SurfaceOfferHostFrame,
     ticketSocketUrl,
     WsTicketError,
 } from '@muxr/contract';
@@ -74,6 +76,7 @@ function requestFailure(type: RequestType, error: string, code?: string): MuxrRe
 type EventListener = (sessionId: string, event: SessionEvent) => void;
 type StateListener = (state: ConnectionState) => void;
 type PluginInvalidationListener = (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void;
+type SurfaceOfferListener = (frame: SurfaceOfferHostFrame) => void;
 const MAX_PENDING_REQUESTS = 128;
 
 export class MuxrClient {
@@ -82,6 +85,7 @@ export class MuxrClient {
     private readonly eventListeners = new Set<EventListener>();
     private readonly stateListeners = new Set<StateListener>();
     private readonly pluginInvalidationListeners = new Set<PluginInvalidationListener>();
+    private readonly surfaceOfferListeners = new Set<SurfaceOfferListener>();
     private hosted: DeviceV2Crypto | undefined;
     private seq = 0;
     private closed = false;
@@ -311,6 +315,11 @@ export class MuxrClient {
         return () => this.pluginInvalidationListeners.delete(listener);
     }
 
+    onSurfaceOffer(listener: SurfaceOfferListener): () => void {
+        this.surfaceOfferListeners.add(listener);
+        return () => this.surfaceOfferListeners.delete(listener);
+    }
+
     request<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> {
         return new Promise<RequestResult<T>>((resolve, reject) => {
             if (requestRequiresE2ee(type) && !this.e2eeEnabled && this.options.mode !== 'local') {
@@ -444,6 +453,10 @@ export class MuxrClient {
         if (this.hosted !== undefined && envelope.header.channel !== 'session') return;
         if (isPluginsInvalidatedFrame(frame)) {
             for (const listener of this.pluginInvalidationListeners) listener(frame);
+            return;
+        }
+        if (isSurfaceOfferHostFrame(frame)) {
+            for (const listener of this.surfaceOfferListeners) listener(frame);
             return;
         }
         if (frame.type === 'session.event') {
