@@ -294,6 +294,7 @@ class MuxrSync {
             } : {}),
         });
         client.onPluginsInvalidated?.((frame) => reconcilePluginCaches(frame));
+        client.onSurfaceOffer((frame) => ingestSurfaceOffer(this.getConnection().machineId, frame));
         client.onStateChange((state) => {
             recordSocketState(state, client.isLive());
             storage.getState().setSocketStatus(socketStatusFromClient(state));

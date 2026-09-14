@@ -66,3 +66,13 @@ export function mapDisplayToInput(tap: Point, display: Size, metadata: StreamFra
         y: Math.round(clamp01((tap.y - rect.y) / rect.height) * metadata.deviceHeight / scale + metadata.offsetTop + metadata.scrollOffsetY),
     };
 }
+
+/** Map a point in a letterboxed live video into the browser session viewport. */
+export function mapDisplayToViewport(tap: Point, display: Size, frame: Size, viewport: Size): Point | undefined {
+    const rect = containRect(display, frame);
+    if (rect.width === 0 || rect.height === 0 || viewport.width <= 0 || viewport.height <= 0) return undefined;
+    const nx = (tap.x - rect.x) / rect.width;
+    const ny = (tap.y - rect.y) / rect.height;
+    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return undefined;
+    return { x: Math.round(nx * viewport.width), y: Math.round(ny * viewport.height) };
+}
