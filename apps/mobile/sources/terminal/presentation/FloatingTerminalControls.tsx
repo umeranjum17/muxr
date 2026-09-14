@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { PanResponder, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import type { PanelGlyphName } from '@/components/ActionShortcut';
@@ -16,7 +16,6 @@ export type ToolsSide = 'left' | 'right';
 
 export const FOOTER_ROW_HEIGHT = 52;
 const KEY = 44;
-const ROW = 44;
 const PANEL_PADDING = 4;
 // A sideways pull past this flips the dock; anything shorter is a tap.
 const FLIP_DISTANCE = 40;
@@ -142,15 +141,15 @@ export function TerminalToolsTrigger({ side, onSideChange, onPress, blocked, exp
  * footer), elevated above the output rows it partly covers. Across its top
  * the strip: the terminal's own keyboard and zoom, then the close, as 44dp
  * glyph keys; a hairline; then the labelled rows with their data inline,
- * one line each, sized to content. It never grows past the terminal's own
- * height; a list longer than that (many open surfaces) scrolls, which is
- * the fallback and not the design. A tap on the terminal, Back and Escape
- * close it too.
+ * one line each, sized to content. The card has no internal scroll region:
+ * every rendered row contributes to its height, even when the available
+ * terminal area is short. A tap on the terminal, Back and Escape close it
+ * too.
  */
-export function TerminalToolsPanel({ commands, side, maxHeight, onClose, children }: {
+export function TerminalToolsPanel({ commands, side, onClose, children }: {
     commands: readonly TerminalCommand[];
     side: ToolsSide;
-    /** The terminal container's height: the card stays inside it. */
+    /** Retained for the shared caller while the footer owns terminal geometry; the card sizes to content. */
     maxHeight: number;
     onClose: () => void;
     children: React.ReactNode;
@@ -162,7 +161,6 @@ export function TerminalToolsPanel({ commands, side, maxHeight, onClose, childre
             style={{
                 position: 'absolute', bottom: TOOLS_TRIGGER_MARGIN, [side]: TOOLS_TRIGGER_MARGIN,
                 width: Math.min(PANEL_WIDTH, width - 2 * TOOLS_TRIGGER_MARGIN),
-                maxHeight: Math.max(KEY + ROW, maxHeight - 2 * TOOLS_TRIGGER_MARGIN),
                 borderRadius: 14, overflow: 'hidden',
                 backgroundColor: theme.colors.surfaceHigh,
                 borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider,
@@ -177,9 +175,9 @@ export function TerminalToolsPanel({ commands, side, maxHeight, onClose, childre
                 <StripKey glyph="close" label="Close terminal quick actions" onPress={onClose} />
             </View>
             <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider }} />
-            <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ paddingVertical: PANEL_PADDING }} keyboardShouldPersistTaps="always" nestedScrollEnabled>
+            <View style={{ paddingVertical: PANEL_PADDING }}>
                 {children}
-            </ScrollView>
+            </View>
         </View>
     );
 }
