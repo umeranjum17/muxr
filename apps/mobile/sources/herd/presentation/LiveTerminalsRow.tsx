@@ -148,6 +148,7 @@ export const LiveTerminalsRow = React.memo(({
     const { status: socketStatus } = useSocketStatus();
     const { ready, seenEventIds, markSeen } = useActivityAcknowledgements();
     const scrollRef = React.useRef<FlatList<LiveTerminalOrderCard>>(null);
+    const stripRef = React.useRef<View>(null);
     const scrollXRef = React.useRef(0);
     const [foreground, setForeground] = React.useState(AppState.currentState === 'active');
     const [stripWidth, setStripWidth] = React.useState(0);
@@ -217,7 +218,7 @@ export const LiveTerminalsRow = React.memo(({
         if (stripWidth <= 0 || activityRows.length === 0 || cards.length === 0) return;
         let cancelled = false;
         const timer = setTimeout(() => {
-            scrollRef.current?.getNativeScrollRef()?.measureInWindow((_x, stripTop, _width, stripHeight) => {
+            stripRef.current?.measureInWindow((_x, stripTop, _width, stripHeight) => {
                 if (cancelled || AppState.currentState !== 'active') return;
                 const eventIds = visibleActivityEventIds(activityRows, cards, {
                     focused: screenFocused,
@@ -274,26 +275,28 @@ export const LiveTerminalsRow = React.memo(({
                     </View>
                 ) : null
             ) : (
-                <FlatList
-                    ref={scrollRef}
-                    data={cards}
-                    keyExtractor={(card) => card.id}
-                    renderItem={renderCard}
-                    getItemLayout={getItemLayout}
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    initialNumToRender={3}
-                    maxToRenderPerBatch={6}
-                    windowSize={3}
-                    onScroll={commitVisibleIndex}
-                    scrollEventThrottle={32}
-                    onMomentumScrollEnd={commitVisibleIndex}
-                    onScrollEndDrag={commitVisibleIndex}
-                    snapToInterval={cardInterval}
-                    decelerationRate="fast"
-                    ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
-                    contentContainerStyle={{ paddingHorizontal: STRIP_GUTTER }}
-                />
+                <View ref={stripRef}>
+                    <FlatList
+                        ref={scrollRef}
+                        data={cards}
+                        keyExtractor={(card) => card.id}
+                        renderItem={renderCard}
+                        getItemLayout={getItemLayout}
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        initialNumToRender={3}
+                        maxToRenderPerBatch={6}
+                        windowSize={3}
+                        onScroll={commitVisibleIndex}
+                        scrollEventThrottle={32}
+                        onMomentumScrollEnd={commitVisibleIndex}
+                        onScrollEndDrag={commitVisibleIndex}
+                        snapToInterval={cardInterval}
+                        decelerationRate="fast"
+                        ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
+                        contentContainerStyle={{ paddingHorizontal: STRIP_GUTTER }}
+                    />
+                </View>
             )}
             <RecentActivity
                 rows={activityRows}
