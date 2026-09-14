@@ -37,6 +37,14 @@ export {
     v2SenderToSnapshot,
 } from './application/envelope.js';
 export { createDeviceGrant, verifyDeviceGrant } from './application/deviceGrant.js';
+export type { BrowserSessionDirection, BrowserSessionKeys, BrowserSessionScope } from './application/browserSession.js';
+export {
+    browserSessionContext,
+    deriveBrowserSessionKeys,
+    mintBrowserServiceGrant,
+    openBrowserSessionMessage,
+    sealBrowserSessionMessage,
+} from './application/browserSession.js';
 export { PEER_DESCRIPTOR_MAX_TTL_MS, createSignedPeerDescriptor, verifySignedPeerDescriptor } from './application/signPeerDescriptor.js';
 export type { PeerInstallBundlePayload } from './application/installPeerBundle.js';
 export { openPeerInstallBundle, sealPeerInstallBundle } from './application/installPeerBundle.js';

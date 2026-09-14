@@ -1,0 +1,25 @@
+id = "muxr.browser"
+name = "Browser"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+platforms = ["linux", "macos"]
+description = "Provider-neutral browser surfaces: host-local web app preview and the broker-owned agent browser session"
+
+# Declared capabilities (also in muxr-ui.json, which the host catalog reads):
+#   surface.browser.open                  -- app preview offers
+#   surface.browser.control-host-session  -- the agent browser session the
+#                                            owner can take over for sign-in
+
+[[actions]]
+id = "open"
+title = "Open Browser"
+description = "Open a blank browser beside the focused agent pane, as a muxr surface (no terminal pane)"
+contexts = ["global"]
+command = ["bash", "open.sh"]
+
+# Declared Surface launch: muxr Tools runs this action in place with the
+# originating agent pane's context (no tab, no shell, no terminal pane) and
+# the action reaches the surface broker with that pane's identity. Herdr
+# itself ignores this section.
+[surface]
+launch = "broker"
