@@ -1030,7 +1030,10 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                     alignItems: 'center',
                     gap: 8,
                     paddingHorizontal: 12,
-                    paddingVertical: 8,
+                    // Keep the 44dp input target, but give the terminal the
+                    // few extra pixels needed for a second xterm row at the
+                    // real 270x215 browser viewport.
+                    paddingVertical: 4,
                     backgroundColor: theme.colors.surface,
                     borderTopWidth: StyleSheet.hairlineWidth,
                     borderTopColor: theme.colors.divider,
