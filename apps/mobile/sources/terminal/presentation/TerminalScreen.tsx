@@ -49,6 +49,11 @@ import { resolvePluginText } from '@/plugins';
 import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
 import { displayLink } from '../domain/TerminalLink';
+import { CommandPalette } from '@/components/CommandPalette';
+import type { Command } from '@/components/CommandPalette/types';
+import { agentCommands } from '../domain/agentCommands';
+import { FindOutputSheet } from './FindOutputSheet';
+import { useTerminalQuickReplies } from '@/plugins/ui';
 
 export const TerminalScreen = React.memo((props: { id: string }) => {
     const { theme } = useUnistyles();
@@ -68,15 +73,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const declaredActions = useDeclarativeSessionActions(session?.metadata?.path);
     const quickActions = React.useMemo(() => declaredActions.filter((action) => action.quickAction), [declaredActions]);
     const paneActions = React.useMemo(() => declaredActions.filter((action) => !action.quickAction), [declaredActions]);
+    const quickReplies = useTerminalQuickReplies();
     const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
-    const renderQuickActions = React.useCallback((close: () => void) => <>
-        {Platform.OS !== 'web' && <ActionShortcut
-            label={terminalKeyboardDisabled ? 'Enable keyboard on tap' : 'Disable keyboard on tap'}
-            icon="keypad-outline"
-            onPress={() => { setTerminalKeyboardDisabled(!terminalKeyboardDisabled); close(); }}
-        />}
-        <DeclarativeSessionActions actions={quickActions} sessionId={props.id} onNavigate={close} presentation="shortcut" />
-    </>, [props.id, quickActions, setTerminalKeyboardDisabled, terminalKeyboardDisabled]);
     const [pluginActionBusy, setExtensionActionBusy] = React.useState<string>();
     const [swipeNow, setSwipeNow] = React.useState(Date.now);
     React.useEffect(() => {
@@ -93,6 +91,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // overlapping mush on a phone. Anything with more options uses this sheet.
     const [menu, setMenu] = React.useState<SessionMenu | null>(null);
     const [actionsOpen, setActionsOpen] = React.useState(false);
+    const [findOpen, setFindOpen] = React.useState(false);
     const [headerBottom, setHeaderBottom] = React.useState(0);
     // The command panel is hosted by the pane, not by the terminal, so it can
     // cover the accessory key row while leaving the composer alone.
@@ -112,7 +111,25 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
     const [channel, setChannel] = React.useState<TerminalChannel>();
     const draftRef = React.useRef(draft);
+    const composerRef = React.useRef<TextInput>(null);
     draftRef.current = draft;
+    const insertDraft = React.useCallback((value: string) => {
+        const next = [draftRef.current.trimEnd(), value].filter(Boolean).join(' ');
+        draftRef.current = next;
+        setDraft(next);
+        // The palette animates out; focus once its input has released the IME.
+        setTimeout(() => composerRef.current?.focus(), 280);
+    }, []);
+    const renderQuickActions = React.useCallback((close: () => void) => <>
+        {Platform.OS !== 'web' && <ActionShortcut
+            label={terminalKeyboardDisabled ? 'Enable keyboard on tap' : 'Disable keyboard on tap'}
+            icon="keypad-outline"
+            onPress={() => { setTerminalKeyboardDisabled(!terminalKeyboardDisabled); close(); }}
+        />}
+        {quickReplies.map((reply, index) => <ActionShortcut key={`${index}:${reply.label}`} label={reply.label} icon="chatbubble-ellipses-outline"
+            accessibilityLabel={`Insert quick reply: ${reply.label}`} onPress={() => { insertDraft(reply.text); close(); }} />)}
+        <DeclarativeSessionActions actions={quickActions} sessionId={props.id} onNavigate={close} presentation="shortcut" />
+    </>, [insertDraft, props.id, quickActions, quickReplies, setTerminalKeyboardDisabled, terminalKeyboardDisabled]);
 
     const { selectedImages, pickImages, clearImages } = useImagePicker();
 
@@ -228,6 +245,28 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const paneKind = currentPane?.agentKind;
     const paneLifecycle = currentPane?.agentStatus;
     const paneMissing = currentPane === undefined || isShellLabels(agentLabels(currentPane));
+    const openAgentCommands = React.useCallback(() => {
+        const known = agentCommands(paneKind);
+        const entries: Command[] = known.map((entry) => ({
+            id: entry.command,
+            title: entry.command,
+            subtitle: `${entry.description}${entry.arguments === undefined ? '' : ` · ${entry.arguments}`}`,
+            category: 'Agent commands',
+            actionLabel: 'Send now',
+            action: () => { void sync.sendMessage(props.id, entry.command).catch((error: unknown) =>
+                Modal.alert('Command failed', error instanceof Error ? error.message : String(error))); },
+            secondaryLabel: 'Edit',
+            secondaryAction: () => insertDraft(`${entry.command} `),
+        }));
+        entries.push({
+            id: 'custom-command', title: 'Custom command', subtitle: 'Type a slash command in the composer',
+            category: 'Composer', actionLabel: 'Edit command', action: () => insertDraft('/'),
+        });
+        Modal.show({ component: CommandPalette, props: {
+            title: known.length > 0 ? `${paneKind} · ${known.length} commands` : 'Unknown agent · type a command',
+            commands: entries,
+        } } as any);
+    }, [insertDraft, paneKind, props.id]);
     React.useEffect(() => {
         if (paneMissing) {
             recordAgentGate({
@@ -469,6 +508,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     )}
                     {hasOverlay && <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />}
                 </Pressable>
+                <Pressable onPress={() => setFindOpen(true)} accessibilityRole="button" accessibilityLabel="Find in output" hitSlop={4}
+                    style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
+                    <Ionicons name="search" size={19} color={theme.colors.textSecondary} />
+                </Pressable>
                 {canControl && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel="Pane actions"
                     accessibilityState={{ expanded: actionsOpen }} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
                     <Ionicons name="ellipsis-vertical" size={20} color={theme.colors.textSecondary} />
@@ -677,7 +720,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ opacity: attaching ? 0.4 : 1 }}>
                     <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={24} color={theme.colors.textSecondary} />
                 </Pressable>
+                <Pressable onPress={openAgentCommands} accessibilityRole="button" accessibilityLabel="Agent commands" hitSlop={8}
+                    style={({ pressed }) => ({ width: 32, minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 23, fontWeight: '500' }}>/</Text>
+                </Pressable>
                 <TextInput
+                    ref={composerRef}
                     value={draft}
                     onChangeText={handleDraftChange}
                     onSubmitEditing={sendPrompt}
@@ -715,7 +763,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         overlayHeight={overlayHeight}
                         commands={viewControls.commands}
                         dismissKeyboard={viewControls.dismissKeyboard}
-                        renderQuickActions={canControl && (Platform.OS !== 'web' || quickActions.length > 0) ? renderQuickActions : undefined}
+                        renderQuickActions={canControl && (Platform.OS !== 'web' || quickActions.length > 0 || quickReplies.length > 0) ? renderQuickActions : undefined}
                         hidden={actionsOpen || treeOpen} />
                 </View>;
             })()}
@@ -840,6 +888,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     </View>
                 </Pressable>
             )}
+            {findOpen && <FindOutputSheet sessionId={props.id} onClose={() => setFindOpen(false)} />}
         </View>
     );
 });

@@ -6,6 +6,9 @@ export interface Command {
     shortcut?: string;
     category?: string;
     action: () => void | Promise<void>;
+    secondaryAction?: () => void | Promise<void>;
+    secondaryLabel?: string;
+    actionLabel?: string;
 }
 
 export interface CommandCategory {

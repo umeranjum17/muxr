@@ -302,6 +302,8 @@ export interface PluginTerminalKeyRow {
     id: string;
     type: 'key-row';
     keys: PluginTerminalKey[];
+    /** Host-owned phrases inserted into the phone composer for review. */
+    quickReplies?: { label: PluginText; text: string }[];
 }
 
 /** Slots a data-card may mount in. Home renders it full width; the others render a compact chip. */
