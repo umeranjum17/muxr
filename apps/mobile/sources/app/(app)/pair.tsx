@@ -36,10 +36,16 @@ const BROWSER_OBSERVE_GRANTS = [
     'Use this view-only grant for eight hours, then pair again.',
 ] as const;
 
-const PAIRING_STEPS = [
+const PHONE_PAIRING_STEPS = [
     'This phone claims the one-time code from the QR or pairing string.',
-    'Your machine seals its key grant to this phone only.',
-    'The grant is verified against the machine key in the QR.',
+    'The computer seals its key grant to this phone only.',
+    'The phone verifies the grant against the machine key from pairing.',
+] as const;
+
+const BROWSER_PAIRING_STEPS = [
+    'This browser claims the one-time code from the link.',
+    'The computer seals its key grant to this browser only.',
+    'The browser verifies the grant against the machine key from pairing.',
 ] as const;
 
 type PairState =
@@ -71,9 +77,7 @@ export default function PairScreen() {
     const grants = browser
         ? browserAuthority === 'control' ? BROWSER_CONTROL_GRANTS : BROWSER_OBSERVE_GRANTS
         : PHONE_PAIRING_GRANTS;
-    const pairingSteps = browser
-        ? ['This browser claims the one-time code from the link.', ...PAIRING_STEPS.slice(1)]
-        : PAIRING_STEPS;
+    const pairingSteps = browser ? BROWSER_PAIRING_STEPS : PHONE_PAIRING_STEPS;
     const switching = getCachedConnectionSettings().machineId !== '';
     const routePairUrl = React.useMemo(() => {
         const v = routeParams.v;

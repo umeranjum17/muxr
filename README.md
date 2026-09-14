@@ -138,10 +138,10 @@ Then install the mobile companion:
 - **Android (stable):** [download the stable APK](https://trymuxr.com/downloads/stable/android) · [stable checksum](https://trymuxr.com/downloads/stable/checksums)
 - **Google Play testing:** [join the testing track](https://play.google.com/apps/testing/com.trymuxr.app) — availability depends on Google review and testing access
 - **iOS TestFlight:** [open the public link](https://testflight.apple.com/join/aJSbs8pN) — build availability depends on Apple review and tester capacity. Store tracks review and roll out on their own schedule, so they do not move with the nightly APK
-- **Web:** pair an eight-hour read-only browser during self-hosted setup
+- **Web:** pair an eight-hour control or view-only browser during self-hosted setup
 - **All builds:** [every download channel](https://trymuxr.com/downloads)
 
-Save the channel's checksum next to the downloaded APK as `SHA256SUMS`, verify it with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`. Each channel publishes its own checksum, so verify against the channel you downloaded from. Setup explains one recommended route—the healthy current route, Tailscale, an existing private network, an installed temporary tunnel, or same Wi-Fi—and changes nothing until **Apply setup**. Scan the one-use QR from the phone when it is ready.
+Save the channel's checksum next to the downloaded APK as `SHA256SUMS`, verify it with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`. Each channel publishes its own checksum, so verify against the channel you downloaded from. Setup shows six routes with their requirements, recommends a ready route, and changes nothing until **Apply setup**. Scan the one-use QR from the phone when it is ready.
 
 [Read the step-by-step quickstart →](https://trymuxr.com/docs/quickstart)
 

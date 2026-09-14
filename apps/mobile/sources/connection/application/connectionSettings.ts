@@ -21,7 +21,7 @@ export function pairingTransport(relayUrl: string | undefined): string | undefin
         const { hostname, protocol } = new URL(relayUrl);
         if (isTailscaleHost(hostname)) return 'Tailscale';
         if (hostname.endsWith('.trycloudflare.com')) return 'Cloudflare tunnel';
-        if (protocol === 'ws:' && isPrivateLanHost(hostname)) return 'Local network';
+        if ((protocol === 'ws:' || protocol === 'wss:') && isPrivateLanHost(hostname)) return 'Local or private network';
         return 'Hosted VPS / custom relay';
     } catch {
         return undefined;

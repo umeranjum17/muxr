@@ -1,6 +1,6 @@
 import { ActionButton } from "@/components/ActionButton";
 import { useAuth } from "@/account/ui";
-import { Text, View, Platform } from "react-native";
+import { ScrollView, Text, View, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as React from 'react';
 import { encodeBase64 } from "@/encryption/base64";
@@ -8,6 +8,7 @@ import { authGetToken } from "@/account/application/authGetToken";
 import { router } from "expo-router";
 import { StyleSheet } from "react-native-unistyles";
 import { getRandomBytesAsync } from "expo-crypto";
+import * as Clipboard from 'expo-clipboard';
 import { useIsLandscape } from "@/utils/responsive";
 import { Typography } from "@/constants/Typography";
 import { HomeHeaderNotAuth } from "@/herd/ui";
@@ -33,6 +34,16 @@ function NotAuthenticated() {
     const insets = useSafeAreaInsets();
     const hosted = getCachedConnectionSettings().mode === 'hosted';
     const pairing = React.useRef(false);
+    const [setupCopyStatus, setSetupCopyStatus] = React.useState<string | undefined>();
+    const setupCommands = 'npm install -g --ignore-scripts @trymuxr/cli@latest\nmuxr setup';
+    const copySetupCommands = async () => {
+        try {
+            await Clipboard.setStringAsync(setupCommands);
+            setSetupCopyStatus('Commands copied. Paste them into your computer’s terminal.');
+        } catch {
+            setSetupCopyStatus('Could not copy. Enter the two commands shown above on your computer.');
+        }
+    };
 
     React.useEffect(() => {
         if (!hosted) return;
@@ -83,12 +94,27 @@ function NotAuthenticated() {
     if (hosted) {
         return (
             <View style={styles.screen}>
-                <View style={styles.hero}>
-                    {heroMark}
-                    <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : 'Run your agents from your phone.'}</Text>
-                    <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
-                </View>
-                <View style={[styles.actions, { paddingBottom: insets.bottom + 24 }]}>
+                <ScrollView style={styles.hostedScroll} contentContainerStyle={styles.hostedContent} keyboardShouldPersistTaps="handled">
+                    <View style={[styles.hero, styles.hostedHero]}>
+                        <Wordmark width={128} />
+                        <Text style={[styles.title, styles.hostedTitle]}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : 'Run your agents from your phone.'}</Text>
+                        <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
+                    </View>
+                    <View style={styles.actions}>
+                        <View style={styles.setupCard}>
+                            <Text style={styles.setupHeading}>First time? Start on your computer</Text>
+                            <Text style={styles.setupStep}>1. Install Node.js 22 or newer on Linux, macOS, or WSL.</Text>
+                            <Text style={styles.setupStep}>2. Run the commands below. Setup checks your computer, lets you choose a connection route, and starts your self-hosted relay.</Text>
+                            <Text style={styles.setupStep}>{Platform.OS === 'web'
+                                ? '3. For this browser, choose Tailscale Serve, Cloudflare, or your own WSS server. Enable web access, then open the pairing link.'
+                                : '3. Pair this phone with the QR or short string setup shows. Only this device receives its key grant.'}</Text>
+                            <Text selectable style={styles.setupCommands}>{setupCommands}</Text>
+                            <ActionButton title="Copy computer commands" icon="copy-outline" variant="secondary" onPress={() => void copySetupCommands()} />
+                            {setupCopyStatus && <Text accessibilityLiveRegion="polite" style={styles.copyStatus}>{setupCopyStatus}</Text>}
+                        </View>
+                    </View>
+                </ScrollView>
+                <View style={[styles.actions, styles.hostedPairActions, { paddingBottom: insets.bottom + 16 }]}>
                     {Platform.OS === 'web' ? (
                         <ActionButton title="Enter pairing string" icon="keypad-outline" action={() => promptForPairingString('Enter pairing string')} />
                     ) : (
@@ -193,6 +219,27 @@ const styles = StyleSheet.create((theme) => ({
     screen: {
         flex: 1,
     },
+    hostedScroll: {
+        flex: 1,
+    },
+    hostedContent: {
+        flexGrow: 1,
+        justifyContent: 'flex-end',
+        paddingTop: 20,
+    },
+    hostedPairActions: {
+        paddingTop: 12,
+        borderTopWidth: 1,
+        borderTopColor: theme.colors.divider,
+        backgroundColor: theme.colors.surface,
+    },
+    hostedHero: {
+        flex: 0,
+        paddingBottom: 22,
+    },
+    hostedTitle: {
+        marginTop: 20,
+    },
     hero: {
         flex: 1,
         alignItems: 'center',
@@ -251,6 +298,42 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
         textAlign: 'center',
         marginTop: 8,
+    },
+    setupCard: {
+        padding: 16,
+        borderRadius: 16,
+        backgroundColor: theme.colors.surfaceHigh,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        gap: 8,
+        marginBottom: 8,
+    },
+    setupHeading: {
+        ...Typography.default('semiBold'),
+        fontSize: 15,
+        lineHeight: 21,
+        color: theme.colors.text,
+    },
+    setupStep: {
+        ...Typography.default(),
+        fontSize: 13,
+        lineHeight: 18,
+        color: theme.colors.textSecondary,
+    },
+    setupCommands: {
+        ...Typography.mono(),
+        fontSize: 12,
+        lineHeight: 18,
+        color: theme.colors.text,
+        backgroundColor: theme.colors.surfaceHighest,
+        padding: 10,
+        borderRadius: 8,
+    },
+    copyStatus: {
+        ...Typography.default(),
+        fontSize: 12,
+        lineHeight: 17,
+        color: theme.colors.textSecondary,
     },
     // Landscape styles
     landscapeContainer: {

@@ -20,7 +20,7 @@ The convenience installer at `https://raw.githubusercontent.com/umeranjum17/muxr
 First run:
 
 1. Install muxr on Android from the [stable APK](https://trymuxr.com/downloads/stable/android), verified against the [stable checksum](https://trymuxr.com/downloads/stable/checksums): save it beside the APK as `SHA256SUMS` and run `sha256sum --ignore-missing -c SHA256SUMS`. The [nightly channel](https://trymuxr.com/downloads/nightly) publishes its own APK and checksum; verify against the channel you downloaded from. [Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) availability depends on Google review and testing access; on iOS, [TestFlight](https://testflight.apple.com/join/aJSbs8pN) build availability depends on Apple review and tester capacity.
-2. Run `muxr`. It checks the computer and proposes one ready route: the healthy current route, Tailscale, an existing private network such as NetBird or WireGuard, an installed temporary tunnel, or same Wi-Fi. **Choose another way** reveals every available alternative.
+2. Run `muxr`. It checks the computer and shows all six routes together: Tailscale Serve, direct Tailscale, an existing private network such as NetBird or WireGuard, same Wi-Fi, a temporary Cloudflare tunnel, or your own WSS server. Unavailable routes explain what is missing; the healthy current route or a detected route is recommended.
 3. Review the short plan, choose **Apply setup**, then scan the one-use QR from the phone app.
 
 Nothing changes before **Apply setup**. Setup then verifies the connection and managed services without printing credentials. Run `muxr pair` anytime for a fresh QR.

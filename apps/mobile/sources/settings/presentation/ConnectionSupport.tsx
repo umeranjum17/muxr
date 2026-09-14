@@ -50,7 +50,7 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
                 subtitleLines={0} loading={update.busy} onPress={() => void update.check()} />
             <Item title={Platform.OS === 'web' ? 'Web app' : 'Installed app'} subtitle={`Version ${exactRelease ?? appVersion}${build ? ` · build ${build}` : ''}`}
                 subtitleLines={0} onPress={versionClick} showChevron={false} />
-            <Item title="Connected host" subtitle={hostVersion ? `Version ${hostVersion}` : 'Version unavailable until the host reports it'} subtitleLines={0} />
+            <Item title="Host version" subtitle={hostVersion ? `Version ${hostVersion} · last reported` : 'Unavailable until the host reports it'} subtitleLines={0} />
             <Item title="Get mobile builds" subtitle="Choose the stable or nightly release you want to test" subtitleLines={0}
                 onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/releases')} />
         </ItemGroup>

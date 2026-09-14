@@ -10,7 +10,7 @@ import { enrollMachine } from '../application/enrollMachine.mjs';
 import { listMachines } from '../application/listMachines.mjs';
 import { revokeMachine } from '../application/revokeMachine.mjs';
 import { selfhostPublicSummary, sharedMachineCount } from '../infrastructure/selfhostRelay.mjs';
-import { inspectTailscaleServeRoot, runTailscale, tailscaleBin } from '../infrastructure/selfhost.mjs';
+import { inspectTailscaleServeRoot, runTailscale, selfhostPath, tailscaleBin } from '../infrastructure/selfhost.mjs';
 import { advertisedUrlForMode, connectionLabel, ingressPlan, modeAllowsBrowserHosting } from '../domain/dist/index.js';
 
 function command(name, args = []) {
@@ -263,8 +263,8 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
     const serveOccupied = serveRoot.status === 'occupied';
     const serveDisabled = serveRoot.status === 'disabled';
     if (found.tailscale.connected || tailscalePlanned) {
-        let serveDescription = 'private HTTPS · works from anywhere';
-        if (serveOccupied) serveDescription = 'already used by another service · left unchanged';
+        let serveDescription = 'Tailscale on phone and computer · private HTTPS from anywhere';
+        if (serveOccupied) serveDescription = 'Tailscale Serve root belongs to another service · left unchanged';
         else if (serveDisabled) serveDescription = serveRoot.reason;
         options.push({
             value: 'tailscale',
@@ -275,29 +275,29 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
         options.push({
             value: 'tailscale-direct',
             title: 'Direct Tailscale',
-            description: tailscalePlanned ? 'connect during Apply · use the private tailnet address' : 'use the private tailnet address · does not require Serve',
+            description: tailscalePlanned ? 'connect during Apply · Tailscale on phone too · native app only' : 'Tailscale on phone and computer · no Serve · native app only',
         });
     } else {
-        options.push({ value: 'tailscale', title: 'Tailscale', description: found.tailscale.detail, disabled: true });
+        const reason = found.tailscale.detail ?? 'connect Tailscale on this computer and phone, then rerun setup';
+        options.push({ value: 'tailscale', title: 'Tailscale Serve', description: reason, disabled: true });
+        options.push({ value: 'tailscale-direct', title: 'Direct Tailscale', description: `${reason} · no Serve needed · native app only`, disabled: true });
     }
-    if (found.private) {
-        options.push({
-            value: 'private',
-            title: found.private.provider === 'private network' ? 'Private network' : `${found.private.provider} private network`,
-            description: `${found.private.interface} · phone must join the same private network`,
-        });
-    }
+    options.push(found.private ? {
+        value: 'private',
+        title: found.private.provider === 'private network' ? 'Private network' : `${found.private.provider} private network`,
+        description: `${found.private.interface} · phone joins the same private network · native app only`,
+    } : { value: 'private', title: 'Private network', description: 'connect NetBird, WireGuard, or ZeroTier on this computer and phone, then rerun setup', disabled: true });
     if (found.lan) {
-        options.push({ value: 'lan', title: 'Same Wi-Fi', description: 'works now · phone and computer must use the same trusted network' });
+        options.push({ value: 'lan', title: 'Same Wi-Fi', description: 'phone and computer on the same trusted LAN · stops working away from it · native app only' });
     } else {
-        options.push({ value: 'lan', title: 'Same Wi-Fi', description: 'no usable local-network address found', disabled: true });
+        options.push({ value: 'lan', title: 'Same Wi-Fi', description: 'no usable LAN address found · connect this computer to a trusted LAN, then retry', disabled: true });
     }
     if (found.cloudflared.ok) {
-        options.push({ value: 'cloudflare', title: 'Temporary Cloudflare tunnel', description: 'create a temporary public HTTPS URL during Apply' });
+        options.push({ value: 'cloudflare', title: 'Temporary Cloudflare tunnel', description: 'cloudflared installed · public HTTPS URL changes when tunnel restarts' });
     } else {
         options.push({ value: 'cloudflare', title: 'Temporary Cloudflare tunnel', description: found.cloudflared.detail, disabled: true });
     }
-    options.push({ value: 'external', title: 'Your own server', description: 'use an existing stable wss:// relay address' });
+    options.push({ value: 'external', title: 'Your own server', description: 'requires an existing stable wss:// relay/reverse proxy you manage' });
     return options;
 }
 
@@ -363,25 +363,15 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     if (!mode) {
         heading('Connect your phone to this computer');
         const proposal = recommendedConnection(found, current, tailscalePlanned, serveRoot);
-        if (proposal) {
-            status('Recommended route', proposal.title, 'ok');
-            note(proposal.description);
-            const action = await select('Continue with this route?', [
-                { value: 'use', title: 'Use this route and continue', description: 'review every change before muxr applies it' },
-                { value: 'advanced', title: 'Choose another way', description: 'private networks, same Wi-Fi, tunnels, and your own server' },
-            ]);
-            if (aborted(action)) return undefined;
-            if (action === 'use') mode = proposal.mode;
-        } else {
+        if (!proposal) {
             note(['No ready route was detected.', 'Choose an existing network or server; muxr will not expose this computer automatically.']);
         }
-        if (!mode) {
-            const connectionChoices = choices(found, tailscalePlanned, serveRoot).map((choice) => choice.value === current?.connectionMode
-                ? { ...choice, title: `${choice.title} · current` }
-                : choice);
-            const initial = Math.max(0, connectionChoices.findIndex((choice) => choice.value === current?.connectionMode));
-            mode = await select('Choose another way', connectionChoices, initial);
-        }
+        const connectionChoices = choices(found, tailscalePlanned, serveRoot).map((choice) => ({
+            ...choice,
+            title: `${choice.title}${choice.value === current?.connectionMode ? ' · current' : ''}${choice.value === proposal?.mode ? ' · recommended' : ''}`,
+        }));
+        const initial = Math.max(0, connectionChoices.findIndex((choice) => choice.value === proposal?.mode));
+        mode = await select('Choose a connection route', connectionChoices, initial);
     }
     if (aborted(mode)) return undefined;
     if (!['tailscale', 'tailscale-direct', 'private', 'lan', 'external', 'cloudflare'].includes(mode)) {
@@ -455,6 +445,11 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         ] : []),
     ];
     setupStep(2, 5, 'Choose what to pair');
+    note([
+        'The chosen app or browser claims a short-lived, single-use code shown after setup.',
+        'This computer seals its key grant to that device only.',
+        'That device verifies the grant against the machine key in the QR or link.',
+    ]);
     const pairing = pairingChoices.length === 1 ? pairingChoices[0].value : await select(connectionChanged && current !== undefined
         ? 'The connection changed. Keep existing devices or pair another one?'
         : 'Pair a client?', pairingChoices);
@@ -640,6 +635,7 @@ export async function applyMachineSetup(args = []) {
     note([
         `Your host runs here. Phones reach it over ${relayKind(mode)}.${pairing === 'none' ? ' Pair with `muxr pair` when ready.' : ''}`,
         `Connection: ${connectionLabel(mode, endpoint, port)}`,
+        `Selected route: ${relayKind(mode)}`,
         'Relay location: this machine',
         `Relay URL: ${summary?.relayUrl ?? 'unavailable'}`,
         `Web URL: ${summary?.webUrl ?? 'off'}`,
@@ -653,7 +649,7 @@ export async function applyMachineSetup(args = []) {
             `Add-ons needing attention: ${pluginResult.failed.map((plugin) => plugin.title).join(', ')}`,
             'Retry add-ons by rerunning `muxr setup`; core pairing remains active.',
         ] : []),
-        'Configuration: ~/.muxr (owner-only)',
+        `Configuration: ${selfhostPath()} (owner-only; use \`muxr setup\` to change the route)`,
     ]);
     const partial = browserPairFailed || pluginResult.failed.length > 0;
     outro(partial
@@ -858,7 +854,7 @@ export async function connectRemoteRelay() {
         `Pairing: ${pairing === 'none' ? 'not requested' : `${pairing} completed`}`,
         `Plugins: bundled${pluginResult.installed.length ? ` + ${pluginResult.installed.map((plugin) => plugin.title).join(', ')}` : ''}`,
         ...(pluginResult.failed.length ? [`Plugin install failed: ${pluginResult.failed.map((plugin) => plugin.title).join(', ')}`] : []),
-        'Configuration: ~/.muxr (owner-only)',
+        `Configuration: ${selfhostPath()} (owner-only; ask the relay owner for a new enrollment to change this route)`,
     ]);
     outro('Ready. The local host connects outbound to the shared relay; Herdr must remain running on this machine.');
     return 0;
