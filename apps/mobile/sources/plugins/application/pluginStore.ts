@@ -65,10 +65,11 @@ export function refreshPlugins(): Promise<void> {
             }));
             for (const [pluginId, reason] of unavailable) console.warn(`[plugin ${pluginId}] ${reason}`);
             snapshot = withManifest.flatMap(({ summary }) => {
-                if (summary.enabled === false || summary.manifestHash === undefined || !summary.approved || unavailable.has(summary.pluginId)) return [];
+                const manifestHash = summary.manifestHash;
+                if (summary.enabled === false || manifestHash === undefined || !summary.approved || unavailable.has(summary.pluginId)) return [];
                 const manifest = manifests.get(summary.pluginId)!;
-                const existing = previous.get(cacheKey(summary.pluginId, summary.manifestHash));
-                return [existing !== undefined && sameSummary(existing.summary, summary) ? existing : { summary, manifest }];
+                const existing = previous.get(cacheKey(summary.pluginId, manifestHash));
+                return [existing !== undefined && sameSummary(existing.summary, summary) ? existing : { summary: { ...summary, manifestHash }, manifest }];
             });
             const shortcuts = snapshot.flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) =>
                 contribution.slot === 'shortcuts' ? [{
