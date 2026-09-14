@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, Switch } from 'react-native';
+import { ActivityIndicator } from 'react-native';
 import { MUXR_UI_VERSION, pluginCompatibilityError, type PluginManifestV1, type PluginSummary } from '@muxr/contract';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -7,6 +7,8 @@ import { ItemList } from '@/components/ItemList';
 import { Modal } from '@/modal';
 import { sync } from '@/catalog/sync';
 import { useSocketStatus } from '@/catalog/store';
+import { Switch } from '@/components/Switch';
+import { useDeviceAuthority } from '@/pairing';
 import { invalidateSessionPlugins } from '@/plugins';
 import { invalidatePlugins } from '@/plugins';
 import { resolvePluginText } from '@/plugins';
@@ -16,6 +18,12 @@ import { t } from '@/text';
 
 export default function PluginsScreen() {
     const { status } = useSocketStatus();
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
+    const changeBlocked = status !== 'connected'
+        ? 'Connect to this computer to change plugins.'
+        : authorityLoading
+            ? 'Checking device access.'
+            : authority !== 'control' ? 'View-only access cannot change plugins.' : undefined;
     const [, redraw] = React.useReducer((value) => value + 1, 0);
     const [optimistic, setOptimistic] = React.useState<Record<string, boolean>>({});
     const [loadError, setLoadError] = React.useState<string>();
@@ -53,7 +61,7 @@ export default function PluginsScreen() {
         if (failures.length > 0) Modal.alert(t('common.error'), failures.join('\n'));
     }, []);
 
-    if (!pluginCatalogLoaded() && entries.length === 0) return <ActivityIndicator style={{ flex: 1 }} />;
+    if (status === 'connected' && !pluginCatalogLoaded() && entries.length === 0) return <ActivityIndicator style={{ flex: 1 }} />;
 
     const withUi = plugins.filter((plugin) => plugin.manifestHash !== undefined);
     // Registered with Herdr but contributing no muxr UI: nothing to approve here.
@@ -73,12 +81,12 @@ export default function PluginsScreen() {
 
     return (
         <ItemList>
-            <ItemGroup title={t('plugins.settingsTitle')} footer={loadError ?? (withUi.length === 0
+            <ItemGroup title={t('plugins.settingsTitle')} footer={loadError ?? changeBlocked ?? (withUi.length === 0
                 ? (status === 'connected' ? t('plugins.linkHost') : t('plugins.waitingHost'))
                 : `${enabledCount}/${withUi.length} ${t('plugins.enabled')}`)}>
-                <Item title={t('plugins.enableAll')} detail={withUi.length - enabledCount > 0 ? `${withUi.length - enabledCount} ${t('plugins.off')}` : undefined}
-                    onPress={() => void enableAll()} showChevron={false} disabled={withUi.length - enabledCount === 0} />
-                <Item title={t('plugins.disableAll')} onPress={() => void setApproved(withUi, false)} showChevron={false} disabled={enabledCount === 0} />
+                <Item title={t('plugins.enableAll')} subtitle={changeBlocked} detail={withUi.length - enabledCount > 0 ? `${withUi.length - enabledCount} ${t('plugins.off')}` : undefined}
+                    onPress={changeBlocked === undefined ? () => void enableAll() : undefined} showChevron={false} disabled={withUi.length - enabledCount === 0 || changeBlocked !== undefined} />
+                <Item title={t('plugins.disableAll')} subtitle={changeBlocked} onPress={changeBlocked === undefined ? () => void setApproved(withUi, false) : undefined} showChevron={false} disabled={enabledCount === 0 || changeBlocked !== undefined} />
             </ItemGroup>
             {([
                 ['both', t('plugins.herdrAndMuxr'), t('plugins.herdrAndMuxrFooter'), withUi.filter((plugin) => plugin.herdrBackend)],
@@ -95,10 +103,10 @@ export default function PluginsScreen() {
                         return <Item
                             key={plugin.pluginId}
                             title={plugin.name}
-                            subtitle={[...(blocked === undefined ? [] : [t('plugins.unavailableLabel')]), blocked ?? plugin.description ?? describe(manifests[plugin.pluginId]), trust, requestedContexts(manifests[plugin.pluginId])].filter(Boolean).join(' · ')}
+                            subtitle={[...(blocked === undefined ? [] : [t('plugins.unavailableLabel')]), blocked ?? plugin.description ?? describe(manifests[plugin.pluginId]), trust, requestedContexts(manifests[plugin.pluginId]), changeBlocked].filter(Boolean).join(' · ')}
                             subtitleLines={2}
                             showChevron={false}
-                            rightElement={<Switch value={plugin.approved} onValueChange={(next) => void setApproved([plugin], next)} />}
+                            rightElement={<Switch value={plugin.approved} disabled={changeBlocked !== undefined} accessibilityLabel={plugin.name} onValueChange={changeBlocked === undefined ? (next) => void setApproved([plugin], next) : undefined} />}
                         />;
                     })}
                 </ItemGroup>
