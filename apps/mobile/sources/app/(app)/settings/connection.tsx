@@ -27,6 +27,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { Stack } from 'expo-router';
 import { getCachedHostedGrant, loadHostedGrant, type StoredHostedGrant } from '@/pairing/e2ee';
+import { retryRelayDiscovery, useRelayDiscoveryPhase } from '@/pairing';
 import { Modal } from '@/modal';
 import { ConnectionSupport } from '@/settings/presentation/ConnectionSupport';
 import { formatLatestConnectionFailure, latestFailureIsDeadGrant } from '@/catalog/infrastructure/connectionDiagnostics';
@@ -147,6 +148,7 @@ export default function ConnectionSettingsScreen() {
     const [grantRefresh, setGrantRefresh] = React.useState<'loading' | 'ready' | 'failed'>('loading');
     const [grant, setGrant] = React.useState<StoredHostedGrant | undefined>();
     const { status, error: socketError } = useSocketStatus();
+    const nearbyPhase = useRelayDiscoveryPhase();
     const [clock, setClock] = React.useState(Date.now());
     React.useEffect(() => {
         if (Platform.OS !== 'web') return undefined;
@@ -361,6 +363,22 @@ export default function ConnectionSettingsScreen() {
                 Modal.alert('Copy failed', 'Run muxr setup in the computer’s terminal to review and change its connection route.');
             }
         };
+        const nearbyCopy: Record<typeof nearbyPhase, string> = {
+            web: 'Browsers cannot scan nearby relays. If the computer’s address changed, run muxr setup there to refresh its route, then open a new browser pairing link.',
+            disabled: 'Nearby scanning is off for this route. It runs only after pairing over a local or private address.',
+            scanning: 'Looking for this paired computer on the local network. A new address must pass the saved device-grant check.',
+            'no-service': 'No matching relay found nearby. Check that the computer and phone share Wi-Fi and muxr is running there, then retry.',
+            found: 'A nearby advertisement claims this computer. A new address will be used only after its saved grant verifies.',
+            verifying: 'Checking the nearby address against this device’s saved grant before changing the connection.',
+            updated: 'Nearby address verified with this device’s saved grant. Reconnecting to the computer.',
+            unverified: 'The nearby address could not be verified. The saved connection was kept; retry when the computer is reachable.',
+            permission: 'Android blocked nearby discovery. Check this app’s network permission and Wi-Fi in system settings, then retry.',
+            unavailable: 'Nearby discovery is unavailable in this app build. Refresh the route with muxr setup on the computer, then pair by QR or string if needed.',
+            failed: 'Nearby discovery failed. Check Wi-Fi and retry; muxr setup on the computer can refresh its route if the address changed.',
+        };
+        const staleLanHint = status !== 'connected' && (mode === 'lan' || (mode === undefined && route === 'Local or private network'))
+            ? ' The saved LAN address may have changed.' : '';
+        const canRetryNearby = Platform.OS !== 'web' && !['disabled', 'unavailable'].includes(nearbyPhase);
         return (
             <ItemList>
                 <Stack.Screen options={{ title: 'Connection & updates' }} />
@@ -384,6 +402,11 @@ export default function ConnectionSettingsScreen() {
                     <Item title="Trust on this device" subtitle={trust} subtitleLines={0} />
                     <Item title="Paired phones & browsers" subtitle={pairedCountText} subtitleLines={0} />
                     {Platform.OS === 'web' && <Item title="Browser access" subtitle={browserAccess} subtitleLines={0} />}
+                </ItemGroup>
+
+                <ItemGroup title="Nearby reconnection" footer="Nearby discovery can locate only a computer already paired with this device. New devices still use a one-time QR or pairing string.">
+                    <Item title="Discovery" subtitle={`${nearbyCopy[nearbyPhase]}${staleLanHint}`} subtitleLines={0} />
+                    {canRetryNearby && <Item title="Retry nearby scan" subtitle="Search this Wi-Fi again" onPress={retryRelayDiscovery} />}
                 </ItemGroup>
 
                 <ConnectionSupport hostVersion={machine?.metadata?.muxrCliVersion} />
