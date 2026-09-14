@@ -43,12 +43,16 @@ automation uses `muxr shared-relay`, `muxr machines enroll|list|revoke`, and
 
 ## Reaching the relay from your phone
 
-Interactive `muxr setup` shows all six routes together, with detected availability
-and requirements. The current healthy route is recommended; otherwise it
-prefers Tailscale Serve when available, then direct Tailscale if Serve is proven
-unavailable, a detected private overlay, an installed temporary tunnel, or same
-Wi-Fi. Your own server remains selectable when you already have a stable WSS
-endpoint. Unavailable routes explain what to install or connect before retrying.
+Interactive `muxr setup` first asks whether you are connecting the native phone,
+the browser client, or both. It shows one available recommended route, then
+**Other ways** reveals all six routes with their requirements; Back returns to
+the recommendation. A healthy existing route wins when it supports the selected
+client. For the native app, setup prefers Tailscale Serve, direct Tailscale when
+Serve is unavailable, a detected private overlay, then same Wi-Fi before a
+temporary Cloudflare tunnel. A browser needs HTTPS/WSS: Tailscale Serve, a
+temporary **public** Cloudflare ingress, or your own server. Native-only routes
+stay visible with that reason but cannot be chosen for a browser. Unavailable
+routes explain what to install or connect before retrying.
 Automation uses:
 
 | Flag | What happens |

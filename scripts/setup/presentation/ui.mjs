@@ -177,7 +177,7 @@ export function outro(text, kind = 'ok') {
 // ctrl-c still resolves undefined and means quit.
 export const BACK = Symbol('muxr.back');
 
-export async function select(message, choices, initial = 0) {
+export async function select(message, choices, initial = 0, backHint) {
     if (!interactive()) return choices[initial]?.value;
     if (!richInteractive()) {
         process.stdout.write(`${bold(`◆ ${message}`)}\n`);
@@ -188,7 +188,7 @@ export async function select(message, choices, initial = 0) {
         for (;;) {
             const reader = createInterface({ input: process.stdin, output: process.stdout });
             const hint = initial >= 0 ? ` (${initial + 1})` : '';
-            const back = setupSession ? 'cancel setup' : 'go back';
+            const back = backHint ?? (setupSession ? 'cancel setup' : 'go back');
             const answer = await new Promise((resolve) => {
                 reader.once('SIGINT', () => setupSession ? process.exit(130) : resolve(undefined));
                 reader.question(`  Choose 1-${choices.length}${hint}, or b to ${back}: `, resolve);
@@ -239,7 +239,7 @@ export async function select(message, choices, initial = 0) {
             process.stdout.write(`  ${marker} ${label}\x1b[K\n`);
             if (choice.description) process.stdout.write(`      ${dim(choice.description)}\x1b[K\n`);
         });
-        process.stdout.write(`  ${dim(setupSession ? 'esc cancel setup · ctrl-c quit' : 'esc back · ctrl-c quit')}\x1b[K\n`);
+        process.stdout.write(`  ${dim(`esc ${backHint ?? (setupSession ? 'cancel setup' : 'back')} · ctrl-c quit`)}\x1b[K\n`);
         lastRows = frameRows();
     };
     let lastRows = 0;
