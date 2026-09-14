@@ -312,7 +312,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
                 ]);
                 if (first !== 'other') { mode = first; break; }
                 const other = await select('Other connection routes', connectionChoices,
-                    connectionChoices.findIndex((choice) => choice.value === preferred.value));
+                    connectionChoices.findIndex((choice) => choice.value === preferred.value), 'return to recommended route');
                 if (other === BACK) continue;
                 mode = other;
                 break;
@@ -556,7 +556,7 @@ export async function applyMachineSetup(args = []) {
     ]);
     const apply = await select('Apply this setup?', [
         { value: false, title: 'Cancel', description: 'leave this machine unchanged' },
-        { value: true, title: 'Apply setup', description: 'make the reviewed changes, verify health, then show the pairing QR' },
+        { value: true, title: 'Apply setup', description: 'make the reviewed changes and verify health; pair a new device if selected' },
     ], 1);
     if (apply !== true) return cancelSetup();
 
@@ -601,7 +601,6 @@ export async function applyMachineSetup(args = []) {
         `Herdr: ${found.herdr.running ? 'running' : 'started during setup'}`,
         `Integrations: ${syncIntegrations ? 'selected providers synced' : 'unchanged'}`,
         `Pairing: ${pairingReceiptLabel(pairing, browserPairFailed)}${browserGrantNote(pairing, { failed: browserPairFailed })}`,
-        'Plugins: bundled; explore extras in Settings → Plugins after connecting',
         `Configuration: ${selfhostPath()} (owner-only; use \`muxr setup\` to change the route)`,
     ]);
     outro(browserPairFailed
