@@ -51,7 +51,7 @@ import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import type { SessionMenu } from '@/plugins';
-import { FOOTER_ROW_HEIGHT, TOOLS_TRIGGER_INSET, TerminalToolsPanel, TerminalToolsTrigger } from './FloatingTerminalControls';
+import { FOOTER_ROW_HEIGHT, TOOLS_TRIGGER_INSET, TOOLS_TRIGGER_SIZE, TerminalToolsPanel, TerminalToolsTrigger } from './FloatingTerminalControls';
 import { DictationStrip } from './DictationStrip';
 import { FindOutputSheet } from './FindOutputSheet';
 import { recentTerminalLinks } from '../application/recentOutput';
@@ -540,11 +540,26 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
     React.useEffect(() => { if (!actionsOpen) setFocusFailure(null); }, [actionsOpen]);
 
     const canSend = !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
+    // Short-chrome mode, agreed with the mark-band owner: keyboard up and the
+    // terminal squeezed under 200dp. Tabs, keys and composer chrome collapse
+    // so the user still sees the terminal being typed into. Computed once
+    // here; both halves key off this. Never true with the keyboard down.
+    const shortChrome = (keyboardPad > 0 || keyboardVisible) && terminalHeight < 200;
     // The phone's 270dp class: under 340 wide (the same line settings uses)
     // the five-across composer leaves ~46dp for the input and the
     // placeholder reads 'Typ'. There the input takes its own line; at 340
     // and up the single row below renders exactly as before.
     const compactComposer = windowWidth < 340;
+    // The terminal container includes the output-clearance band. Keep the
+    // full mark clearance whenever the measured container can afford it; in
+    // a short viewport, leave one trigger-sized area for output and move the
+    // closed mark into chrome below rather than reserving the whole band.
+    const terminalInset = terminalHeight === 0
+        ? TOOLS_TRIGGER_INSET
+        : Math.min(TOOLS_TRIGGER_INSET, Math.max(0, terminalHeight - TOOLS_TRIGGER_SIZE));
+    const compactTools = terminalHeight > 0 && terminalInset < TOOLS_TRIGGER_INSET;
+    const hasTabStrip = workspaceTabs.length > 0 || showLinkChip;
+    const showTabStrip = hasTabStrip && !shortChrome;
 
     // Where this session sits and how it is allowed to act, in one quiet row.
     // Connection stays out of it: subtitle/send color and the reconnect pill
@@ -620,6 +635,33 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
         // "Go" is the accent, never a lifecycle or destructive colour: red on
         // this screen means needs-you or stop, and the send button is neither.
         const sendColor = canSend ? theme.colors.accent : theme.colors.textSecondary;
+        const renderJump = (compact: boolean): React.JSX.Element | null => {
+            if (!showJump) return null;
+            return (
+                <Pressable
+                    onPress={jumpToBottom}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel="Jump to bottom"
+                    style={({ pressed }) => ({
+                        position: 'absolute',
+                        [toolsSide === 'right' ? 'left' : 'right']: compact ? 8 : 14,
+                        bottom: compact ? 3 : (terminalInset - 38) / 2,
+                        width: 38,
+                        height: 38,
+                        borderRadius: 19,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: theme.colors.surfaceHigh,
+                        borderWidth: 1,
+                        borderColor: theme.colors.divider,
+                        opacity: pressed ? 0.7 : 1,
+                    })}
+                >
+                    <Ionicons name="arrow-down-outline" size={20} color={theme.colors.text} />
+                </Pressable>
+            );
+        };
         return (
         // The keyboard's space comes off the bottom on both platforms -- the
         // native inset or the PWA's visual-viewport occlusion -- so the footer
@@ -698,16 +740,19 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 </View>
             )}
 
-            {/* The grid keeps an inset above the container's bottom edge, so
-                the mark on the terminal (and Jump to bottom) never has an
-                output row underneath it. The open card floats in here too. */}
+            {/* The grid keeps a measured inset above the container's bottom
+                edge, so the mark on the terminal (and Jump to bottom) never
+                has an output row underneath it when there is room. In a
+                short viewport the inset yields output space and the controls
+                move into the adjacent chrome. The open card still floats in
+                this same container. */}
             <View
                 ref={paneGestures.ref}
                 onTouchStart={paneGestures.onTouchStart}
                 onTouchMove={paneGestures.onTouchMove}
                 onTouchEnd={paneGestures.onTouchEnd}
                 onLayout={(event) => setTerminalHeight(event.nativeEvent.layout.height)}
-                style={{ flex: 1, paddingBottom: TOOLS_TRIGGER_INSET }}
+                style={{ flex: 1, paddingBottom: terminalInset }}
             >
                 <React.Suspense fallback={<TerminalViewFallback />}>
                     <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} attempt={openAttempt} />
@@ -784,37 +829,12 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                             <Ionicons name="refresh-outline" size={12} color={theme.colors.textSecondary} />
                         </Pressable>
                 )}
-                {showJump && (
-                    <Pressable
-                        onPress={jumpToBottom}
-                        hitSlop={10}
-                        accessibilityRole="button"
-                        accessibilityLabel="Jump to bottom"
-                        style={({ pressed }) => ({
-                            position: 'absolute',
-                            // In the inset under the last row, at the corner the
-                            // mark does not use.
-                            [toolsSide === 'right' ? 'left' : 'right']: 14,
-                            bottom: (TOOLS_TRIGGER_INSET - 38) / 2,
-                            width: 38,
-                            height: 38,
-                            borderRadius: 19,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            backgroundColor: theme.colors.surfaceHigh,
-                            borderWidth: 1,
-                            borderColor: theme.colors.divider,
-                            opacity: pressed ? 0.7 : 1,
-                        })}
-                    >
-                        <Ionicons name="arrow-down-outline" size={20} color={theme.colors.text} />
-                    </Pressable>
-                )}
+                {!compactTools && renderJump(false)}
                 {/* The way to this terminal's controls, where the thumb already
                     is. A mark at the edge, not a disc over the output; it dims
                     while the output is being read back. */}
-                <TerminalToolsTrigger side={toolsSide} onSideChange={setToolsSide} onPress={toolsOpen ? closeTools : openTools}
-                    blocked={toolsBlocked} expanded={toolsOpen} dimmed={showJump} />
+                {!compactTools && <TerminalToolsTrigger side={toolsSide} onSideChange={setToolsSide} onPress={toolsOpen ? closeTools : openTools}
+                    blocked={toolsBlocked} expanded={toolsOpen} dimmed={showJump} />}
                 {toolsOpen && (
                     <TerminalToolsPanel commands={viewControls.commands} side={toolsSide} maxHeight={terminalHeight} onClose={closeTools}>
                         {toolsRows}
@@ -825,9 +845,11 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
             {/* The workspace's tabs, for anyone who can look: a tap opens that
                 tab's last pane this device chose, else its focused pane, else
                 its first. The link the output is showing sits at the strip's
-                end, in the chrome: nothing floats over terminal rows. */}
-            {(workspaceTabs.length > 0 || showLinkChip) && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
+                end, in the chrome: nothing floats over terminal rows.
+                Hidden in short-chrome mode: with the keyboard up and under
+                200dp of terminal, the strip's 44dp buys almost three rows. */}
+            {showTabStrip && (
+            <View style={{ position: 'relative', flexDirection: 'row', alignItems: 'center', minHeight: 44, backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
                 <ScrollView
                     ref={tabStripRef}
                     horizontal
@@ -902,6 +924,13 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                         </Pressable>
                     </Animated.View>
                 )}
+                {compactTools && (
+                    <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 }}>
+                        {renderJump(true)}
+                        <TerminalToolsTrigger side={toolsSide} onSideChange={setToolsSide} onPress={toolsOpen ? closeTools : openTools}
+                            blocked={toolsBlocked} expanded={toolsOpen} dimmed={showJump} />
+                    </View>
+                )}
             </View>
             )}
 
@@ -909,11 +938,12 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 last -- the keys never go below the input, and neither moves
                 when the card is open: the card floats over the terminal
                 above. */}
-            <View style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider, paddingBottom: keyboardPad > 0 ? 0 : insets.bottom }}>
+            <View style={{ position: 'relative', backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider, paddingBottom: keyboardPad > 0 ? 0 : insets.bottom }}>
             {/* The key row sits above the composer and never below it. The
                 bottom inset lives on the footer itself, so it holds whichever
-                row is bottommost. */}
-            {canControl && (
+                row is bottommost. Hidden in short-chrome mode: its 52dp buys
+                three more terminal rows when every row counts. */}
+            {canControl && !shortChrome && (
                 <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
@@ -951,7 +981,56 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
                 onRemove={(id) => setAttachedImages((previous) => previous.filter((image) => image.id !== id))}
             />
 
-            {compactComposer ? (
+            {/* Short-chrome composer: input plus Send on one 60dp line. Attach
+                and the trailing mic/voice hide while the keyboard owns the
+                screen; they are back the moment it dismisses. */}
+            {shortChrome ? (
+            <View
+                style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 8,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    backgroundColor: theme.colors.surface,
+                    borderTopWidth: StyleSheet.hairlineWidth,
+                    borderTopColor: theme.colors.divider,
+                }}
+            >
+                <TextInput
+                    ref={composerRef}
+                    value={draft}
+                    onChangeText={handleDraftChange}
+                    onSubmitEditing={() => {
+                        if (!isComposingRef.current) sendPrompt();
+                    }}
+                    returnKeyType="send"
+                    blurOnSubmit
+                    submitBehavior="blurAndSubmit"
+                    placeholder="Type a prompt…"
+                    placeholderTextColor={theme.colors.textSecondary}
+                    style={{
+                        flex: 1,
+                        // A web input has an intrinsic width; without this floor
+                        // it refuses to shrink and pushes Send off a 390 screen.
+                        minWidth: 0,
+                        minHeight: 44,
+                        color: theme.colors.text,
+                        backgroundColor: theme.colors.surfaceHigh,
+                        borderRadius: 8,
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                    }}
+                />
+                {/* The one filled control on the screen is the primary action's
+                    button; the glyph in it stays in the outline register. */}
+                <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: canSend ? sendColor : theme.colors.surfaceHigh }}>
+                        <Ionicons name="arrow-up-outline" size={20} color={canSend ? theme.colors.button.primary.tint : theme.colors.textSecondary} />
+                    </View>
+                </Pressable>
+            </View>
+            ) : compactComposer ? (
             <View
                 style={{
                     paddingHorizontal: 12,
@@ -1054,6 +1133,16 @@ export const TerminalScreen = React.memo((props: { id: string; machineId: string
             </View>
             )}
             </>}
+            {/* When the short viewport has no tab strip to host the mark, dock
+                it in the footer chrome. It remains above the IME and outside
+                terminal output; the trigger and panel contract are unchanged. */}
+            {compactTools && !showTabStrip && (
+                <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 }}>
+                    {renderJump(true)}
+                    <TerminalToolsTrigger side={toolsSide} onSideChange={setToolsSide} onPress={toolsOpen ? closeTools : openTools}
+                        blocked={toolsBlocked} expanded={toolsOpen} dimmed={showJump} />
+                </View>
+            )}
             </View>
 
             <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} machineId={props.machineId} onClose={() => setOverviewOpen(false)} />
