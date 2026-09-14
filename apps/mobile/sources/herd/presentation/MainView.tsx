@@ -13,7 +13,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { useSocketStatus } from '@/catalog/store';
+import { storage, useHerdrTree, useLocalSetting, useSessionsLoaded, useSocketStatus } from '@/catalog/store';
+import { sync } from '@/catalog/sync';
 import { useSplitViewLayout } from '@/utils/responsive';
 import { useRouter } from 'expo-router';
 import { TabBar, TabType } from './TabBar';
@@ -44,6 +45,10 @@ import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Modal } from '@/modal';
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
 import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
+import { herdrPaneForSession } from '@/herd';
+import { hasAgent } from '../domain/herdTree';
+import { HomeDiscoveryRows } from './HomeDiscoveryRows';
+import { HomeRecoveryCard } from './HomeRecoveryCard';
 
 
 const styles = StyleSheet.create((theme) => ({
@@ -409,10 +414,95 @@ const HeaderRight = React.memo(({
     return null;
 });
 
+let lastTerminalLaunchClaimed = false;
+
 export const MainView = React.memo(() => {
     useUnistyles();
     const useSplitView = useSplitViewLayout();
     const router = useRouter();
+    const socketStatus = useSocketStatus();
+    const sessionsLoaded = useSessionsLoaded();
+    const { workspaces: homeWorkspaces, loaded: homeTreeLoaded } = useHerdrTree();
+    const [hasPairedGrant, setHasPairedGrant] = React.useState(false);
+    const [retryingHome, setRetryingHome] = React.useState(false);
+    const [splitRetryFailed, setSplitRetryFailed] = React.useState(false);
+    const [homeRecoveryFeedback, setHomeRecoveryFeedback] = React.useState('');
+    const [splitHerdrConnected, setSplitHerdrConnected] = React.useState<boolean | undefined>();
+    React.useEffect(() => {
+        if (!useSplitView || socketStatus.status !== 'connected') return;
+        let cancelled = false;
+        const refresh = () => {
+            void sync.refreshHerdTree().then((result) => {
+                if (!cancelled) {
+                    setSplitHerdrConnected(result.herdrConnected);
+                    if (result.herdrConnected !== false) setSplitRetryFailed(false);
+                }
+            }).catch(() => undefined);
+        };
+        refresh();
+        const interval = setInterval(refresh, 5_000);
+        return () => { cancelled = true; clearInterval(interval); };
+    }, [socketStatus.status, useSplitView]);
+    React.useEffect(() => {
+        let cancelled = false;
+        void listPairedGrants().then((grants) => {
+            if (!cancelled) setHasPairedGrant(grants.some((grant) => grant.machineId === getCachedConnectionSettings().machineId));
+        }).catch(() => undefined);
+        return () => { cancelled = true; };
+    }, [socketStatus.status]);
+    const splitHostOffline = useSplitView && hasPairedGrant
+        && getCachedConnectionSettings().mode === 'hosted'
+        && (socketStatus.status === 'error' || socketStatus.status === 'disconnected');
+    const splitRuntimeOffline = useSplitView && hasPairedGrant && socketStatus.status === 'connected' && splitHerdrConnected === false;
+    const retrySplitConnection = React.useCallback(async () => {
+        if (retryingHome) return;
+        setRetryingHome(true);
+        setHomeRecoveryFeedback('Checking the connection…');
+        try {
+            await sync.reconnect();
+            const result = await sync.refreshHerdTree();
+            setSplitHerdrConnected(result.herdrConnected);
+            if (result.herdrConnected === false || storage.getState().socketStatus !== 'connected') throw new Error('host unavailable');
+            setSplitRetryFailed(false);
+            setHomeRecoveryFeedback('Connection restored.');
+        } catch {
+            setSplitRetryFailed(true);
+            setHomeRecoveryFeedback('Still unavailable. Run the command on your computer, check its network, then retry.');
+        } finally {
+            setRetryingHome(false);
+        }
+    }, [retryingHome]);
+    const reopenLastTerminal = useLocalSetting('reopenLastTerminal');
+    const lastTerminal = useLocalSetting('lastTerminal');
+    const { loading: authorityLoading } = useDeviceAuthority();
+    const launchReopenEnabled = React.useRef(reopenLastTerminal);
+    const launchLastTerminal = React.useRef(lastTerminal);
+    const launchMachineId = React.useRef(getCachedConnectionSettings().machineId);
+    const ownsLaunchReopen = React.useRef(!lastTerminalLaunchClaimed);
+    React.useEffect(() => {
+        if (ownsLaunchReopen.current) lastTerminalLaunchClaimed = true;
+    }, []);
+    const reopenAttempted = React.useRef(false);
+    React.useEffect(() => {
+        const candidate = launchLastTerminal.current;
+        if (!ownsLaunchReopen.current || reopenAttempted.current || !launchReopenEnabled.current || candidate === null) return;
+        if (socketStatus.status !== 'connected' || !sessionsLoaded || authorityLoading) return;
+        if (candidate.machineId !== launchMachineId.current || candidate.machineId !== getCachedConnectionSettings().machineId) return;
+        reopenAttempted.current = true;
+        // The persisted route is only a hint. A fresh host tree and the current
+        // catalog must both still authorize that pane before navigation.
+        void sync.refreshHerdTree().then(({ workspaces, herdrConnected }) => {
+            if (herdrConnected === false) return;
+            if (storage.getState().socketStatus !== 'connected') return;
+            if (candidate.machineId !== getCachedConnectionSettings().machineId) return;
+            if (!storage.getState().sessions[candidate.sessionId]
+                || !herdrPaneForSession(workspaces, candidate.sessionId)) {
+                storage.getState().applyLocalSettings({ lastTerminal: null });
+                return;
+            }
+            router.push(`/session/${encodeURIComponent(candidate.sessionId)}`);
+        }).catch(() => undefined);
+    }, [authorityLoading, router, sessionsLoaded, socketStatus.status]);
     const safeArea = useSafeAreaInsets();
     const { isStarting: isStartingHomeSession, startSession: startHomeSession } = useStartSessionFromDraft();
     const sessionListViewData = useVisibleSessionListViewData(true);
@@ -430,6 +520,7 @@ export const MainView = React.memo(() => {
     const [searchQuery, setSearchQuery] = React.useState('');
     const [searchActive, setSearchActive] = React.useState(false);
     const [homePrompt, setHomePrompt] = React.useState('');
+    const [phoneHomeRecovering, setPhoneHomeRecovering] = React.useState(false);
     const [headerBackdropVisible, setHeaderBackdropVisible] = React.useState(false);
     const headerBackdropVisibleRef = React.useRef(false);
     const showHeaderRight = activeTab !== 'settings';
@@ -440,7 +531,7 @@ export const MainView = React.memo(() => {
             + 12;
     const bottomContentInset = Platform.OS === 'web'
         ? 0
-        : searchActive ? 16 : MOBILE_HOME_DOCK_CONTENT_INSET;
+        : searchActive || phoneHomeRecovering ? 16 : MOBILE_HOME_DOCK_CONTENT_INSET;
 
     const handleHomePromptSubmit = React.useCallback(async (): Promise<boolean> => {
         const prompt = homePrompt.trim();
@@ -527,7 +618,19 @@ export const MainView = React.memo(() => {
                         </View>
                     </View>
                     <VersionNotice />
-                    <LiveTerminalsRow visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} />
+                    {splitHostOffline || splitRuntimeOffline || retryingHome || splitRetryFailed ? (
+                        <HomeRecoveryCard
+                            mode={splitRuntimeOffline && !splitHostOffline ? 'runtime' : 'host'}
+                            retrying={retryingHome}
+                            feedback={homeRecoveryFeedback}
+                            onRetry={() => void retrySplitConnection()}
+                            onFeedback={setHomeRecoveryFeedback}
+                        />
+                    ) : null}
+                    {!splitHostOffline && !splitRuntimeOffline && !splitRetryFailed && !retryingHome
+                        ? <LiveTerminalsRow visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} /> : null}
+                    {homeTreeLoaded && !homeWorkspaces.some(hasAgent) && !splitHostOffline && !splitRuntimeOffline && socketStatus.status === 'connected'
+                        ? <HomeDiscoveryRows /> : null}
                     <PluginSlot slot="home.cards" context={{}} />
                     <DeclarativeHomeCards />
                     {recentSessions.length > 0 && (
@@ -588,6 +691,7 @@ export const MainView = React.memo(() => {
                                 <DeclarativePhoneNavRow onSelect={(pluginId, contentId) => router.push(pluginHref(pluginId, contentId))} />
                             </>}
                             onScroll={handleContentScroll}
+                            onRecoveryChange={setPhoneHomeRecovering}
                             searchQuery={searchQuery}
                         />
                     </View>
@@ -602,7 +706,7 @@ export const MainView = React.memo(() => {
                 </>
             ) : (
                 <View pointerEvents="box-none" style={styles.phoneBottomDockOverlay}>
-                    {!searchActive && (
+                    {!searchActive && !phoneHomeRecovering && (
                         <HomeDock
                             prompt={homePrompt}
                             onPromptChange={setHomePrompt}

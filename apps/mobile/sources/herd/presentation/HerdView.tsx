@@ -12,6 +12,7 @@ import {
     NativeScrollEvent,
     NativeSyntheticEvent,
     Platform,
+    ScrollView,
 } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
@@ -26,6 +27,11 @@ import { openExternalUrl } from '@/utils/openExternalUrl';
 import { setupEmptyState } from '@/commercialization';
 import { RoundButton } from '@/components/RoundButton';
 import { ActionButton } from '@/components/ActionButton';
+import { useSocketStatus } from '@/catalog/store';
+import { syncReconnect } from '@/catalog/sync';
+import { hasAgent } from '../domain/herdTree';
+import { HomeDiscoveryRows } from './HomeDiscoveryRows';
+import { HomeRecoveryCard } from './HomeRecoveryCard';
 import { LiveTerminalsRow } from './LiveTerminalsRow';
 import { SpacesTree } from './SpacesTree';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
@@ -158,6 +164,7 @@ export const HerdView = React.memo(({
     bottomContentInset = 128,
     header,
     onScroll,
+    onRecoveryChange,
     searchQuery = '',
     maxContentWidth = layout.maxWidth,
 }: {
@@ -165,6 +172,7 @@ export const HerdView = React.memo(({
     bottomContentInset?: number;
     header?: React.ReactNode;
     onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+    onRecoveryChange?: (active: boolean) => void;
     searchQuery?: string;
     maxContentWidth?: number;
 }) => {
@@ -181,21 +189,65 @@ export const HerdView = React.memo(({
         hasPairedGrant,
         defaultExpandedWorkspaceIds,
         refresh,
+        refreshStatus,
     } = useHerdTreeLive();
     const processPairLink = useHostedPairing();
     const scanPairQr = usePairQrScanner((url) => void processPairLink(url));
+    const socketStatus = useSocketStatus();
+    const [retrying, setRetrying] = React.useState(false);
+    const [retryFailed, setRetryFailed] = React.useState(false);
+    const [recoveryFeedback, setRecoveryFeedback] = React.useState('');
 
     // "No agents anywhere" hides the whole list in favour of the friendly empty
     // state; the live strip already hides itself.
     // Shell-only spaces still list (and close) their panes, so "empty" means
     // herdr has no workspaces at all, not "no agents".
     const agentsEmpty = workspaces.length === 0;
+    const noAgents = !workspaces.some(hasAgent);
     const setup = setupEmptyState(loadAppConfig().publicBaseUrl);
     const connection = getCachedConnectionSettings();
     // machines.list rejects while the host is down, and machineId falls back
     // to the build default on a fresh install — only the persisted pairing
     // grants can tell "never paired" from "paired but the machine is off".
     const neverPaired = connection.mode === 'hosted' && hasPairedGrant === false;
+    const hostOffline = connection.mode === 'hosted' && hasPairedGrant === true && attempted
+        && (socketStatus.status === 'error' || socketStatus.status === 'disconnected');
+    const runtimeOffline = connection.mode === 'hosted' && hasPairedGrant === true
+        && socketStatus.status === 'connected' && herdrConnected === false;
+    React.useEffect(() => {
+        if (socketStatus.status === 'connected' && error === null && !runtimeOffline) setRetryFailed(false);
+    }, [error, runtimeOffline, socketStatus.status]);
+    const needsRecovery = hostOffline || runtimeOffline || retrying || retryFailed;
+    React.useEffect(() => {
+        onRecoveryChange?.(needsRecovery);
+        return () => onRecoveryChange?.(false);
+    }, [needsRecovery, onRecoveryChange]);
+    const retryConnection = async () => {
+        if (retrying) return;
+        setRetrying(true);
+        setRecoveryFeedback('Checking the connection…');
+        try {
+            await syncReconnect();
+            const result = await refreshStatus();
+            if (result === false) throw new Error('host unavailable');
+            setRetryFailed(false);
+            setRecoveryFeedback('Connection restored.');
+        } catch {
+            setRetryFailed(true);
+            setRecoveryFeedback('Still unavailable. Run the command on your computer, check its network, then retry.');
+        } finally {
+            setRetrying(false);
+        }
+    };
+    const recoveryCard = needsRecovery ? (
+        <HomeRecoveryCard
+            mode={runtimeOffline && !hostOffline ? 'runtime' : 'host'}
+            retrying={retrying}
+            feedback={recoveryFeedback}
+            onRetry={() => void retryConnection()}
+            onFeedback={setRecoveryFeedback}
+        />
+    ) : null;
 
     if (!loaded && !attempted) {
         return (
@@ -269,15 +321,21 @@ export const HerdView = React.memo(({
         return (
             // Plugin surfaces live in the header. Someone with no agents is usually
             // a new user, who most needs to see that their plugins landed.
-            <View style={{ flex: 1, paddingTop: topContentInset }}>
+            <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ flexGrow: 1, paddingTop: topContentInset, paddingBottom: bottomContentInset + safeArea.bottom }}
+                onScroll={onScroll}
+                scrollEventThrottle={16}
+            >
                 <VersionNotice />
                 {header}
-                <LiveTerminalsRow
+                {recoveryCard}
+                {!needsRecovery && <LiveTerminalsRow
                     showZeroState={false}
                     visibilityTop={topContentInset}
                     visibilityBottomInset={bottomContentInset}
-                />
-            {herdrConnected === false ? (
+                />}
+            {herdrConnected === false && !needsRecovery ? (
                 <View style={styles.banner}>
                     <Ionicons name="warning-outline" size={16} color={theme.colors.box.warning.text} />
                     <Text style={[styles.bannerText, { color: theme.colors.box.warning.text }]}>
@@ -285,16 +343,19 @@ export const HerdView = React.memo(({
                     </Text>
                 </View>
             ) : null}
-            <View style={[styles.empty, { paddingBottom: safeArea.bottom }]}>
+            {!needsRecovery && searchQuery.trim() === '' ? <HomeDiscoveryRows /> : null}
+            <View style={styles.empty}>
                 <Ionicons name="albums-outline" size={40} color={theme.colors.textSecondary} />
                 <Text style={styles.emptyText}>
-                    {error !== null
+                    {needsRecovery
+                        ? 'Your terminals will reappear when the computer reconnects.'
+                        : error !== null
                         ? error
                         : searchQuery.trim() !== ''
                             ? 'No matches'
                             : 'No agents yet — start one below.'}
                 </Text>
-                {error === null ? null : (
+                {error === null || needsRecovery ? null : (
                     <View style={styles.emptyAction}>
                         <RoundButton
                             title="Set up connection"
@@ -304,16 +365,16 @@ export const HerdView = React.memo(({
                     </View>
                 )}
             </View>
-            </View>
+            </ScrollView>
         );
     }
 
     return (
         <View style={styles.container}>
-            {error === null ? null : (
+            {error === null || needsRecovery ? null : (
                 <Text style={[styles.error, { color: theme.colors.status.error }]}>{error}</Text>
             )}
-            {herdrConnected === false ? (
+            {herdrConnected === false && !needsRecovery ? (
                 <View style={styles.banner}>
                     <Ionicons name="warning-outline" size={16} color={theme.colors.box.warning.text} />
                     <Text style={[styles.bannerText, { color: theme.colors.box.warning.text }]}>
@@ -329,10 +390,12 @@ export const HerdView = React.memo(({
                 listHeaderComponent={<>
                     <VersionNotice />
                     {header}
-                    <LiveTerminalsRow
+                    {recoveryCard}
+                    {!needsRecovery && <LiveTerminalsRow
                         visibilityTop={topContentInset}
                         visibilityBottomInset={bottomContentInset}
-                    />
+                    />}
+                    {noAgents && !needsRecovery && searchQuery.trim() === '' ? <HomeDiscoveryRows /> : null}
                 </>}
                 topContentInset={topContentInset}
                 bottomContentInset={safeArea.bottom + bottomContentInset}
