@@ -244,24 +244,25 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
     return options;
 }
 
-export function recommendedConnection(found, current, tailscalePlanned, serveRoot) {
+export function recommendedConnection(found, current, tailscalePlanned, serveRoot, client = 'phone') {
+    const needsBrowser = client === 'browser' || client === 'both';
     if (current?.relayHealthy && current?.publicHealthy
-        && ['tailscale', 'tailscale-direct', 'private', 'lan', 'external', 'cloudflare'].includes(current.connectionMode)) {
+        && ['tailscale', 'tailscale-direct', 'private', 'lan', 'external', 'cloudflare'].includes(current.connectionMode)
+        && (!needsBrowser || modeAllowsBrowserHosting(current.connectionMode))) {
         return { mode: current.connectionMode, title: connectionLabel(current.connectionMode, current.relayUrl, current.relayPort), description: 'already configured and reachable' };
     }
     if (found.tailscale.connected || (tailscalePlanned && !found.private)) {
         const direct = serveRoot.status === 'occupied' || serveRoot.status === 'disabled';
-        return direct
-            ? { mode: 'tailscale-direct', title: 'Direct Tailscale', description: 'private tailnet route · Tailscale Serve is not required' }
-            : { mode: 'tailscale', title: 'Tailscale Serve', description: tailscalePlanned ? 'connect Tailscale during Apply, then create private HTTPS access' : 'private access from anywhere · nothing exposed publicly' };
+        if (!direct) return { mode: 'tailscale', title: 'Tailscale Serve', description: tailscalePlanned ? 'connect Tailscale during Apply, then create private HTTPS access' : 'private HTTPS from anywhere · nothing exposed publicly' };
+        if (!needsBrowser) return { mode: 'tailscale-direct', title: 'Direct Tailscale', description: 'private tailnet route · native app only' };
     }
-    if (found.private) return {
+    if (!needsBrowser && found.private) return {
         mode: 'private',
         title: `${found.private.provider} on ${found.private.interface}`,
-        description: 'use the private network already connected to this computer',
+        description: 'use the private network already connected to this computer · native app only',
     };
-    if (found.cloudflared.ok) return { mode: 'cloudflare', title: 'Temporary Cloudflare tunnel', description: 'create a temporary public HTTPS route during Apply' };
-    if (found.lan) return { mode: 'lan', title: 'Same Wi-Fi', description: 'works now while the phone and computer use this trusted network' };
+    if (!needsBrowser && found.lan) return { mode: 'lan', title: 'Same Wi-Fi', description: 'private on this trusted LAN · native app only; stops working away from it' };
+    if (found.cloudflared.ok) return { mode: 'cloudflare', title: 'Temporary Cloudflare tunnel', description: 'creates a temporary public HTTPS ingress during Apply; its address may change' };
     return undefined;
 }
 
@@ -297,15 +298,15 @@ function serveRootFor(found, port) {
     return inspectTailscaleServeRoot(port, found.tailscale.dnsName, undefined, 8_000);
 }
 
-async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args }) {
+async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, client }) {
     const requestedPort = value(args, '--port');
     const plannedPort = requestedPort === undefined ? current?.relayPort || 8792 : Number(requestedPort);
     const serveRoot = serveRootFor(found, plannedPort);
     let mode = requestedMode;
     if (mode === 'selfhost') mode = undefined;
     if (!mode) {
-        heading('Connect your phone to this computer');
-        const proposal = recommendedConnection(found, current, tailscalePlanned, serveRoot);
+        heading('Connect your device to this computer');
+        const proposal = recommendedConnection(found, current, tailscalePlanned, serveRoot, client);
         if (!proposal) {
             note(['No ready route was detected.', 'Choose an existing network or server; muxr will not expose this computer automatically.']);
         }
@@ -323,6 +324,10 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     }
     if (!['tailscale', 'tailscale-direct', 'private', 'lan', 'external', 'cloudflare'].includes(mode)) {
         process.stderr.write(`unknown setup mode: ${mode}\n`);
+        return 1;
+    }
+    if (client !== 'phone' && !modeAllowsBrowserHosting(mode)) {
+        process.stderr.write('the browser client needs Tailscale Serve, a temporary Cloudflare tunnel, or your own HTTPS/WSS server; choose another route\n');
         return 1;
     }
     if ((mode === 'tailscale' || mode === 'tailscale-direct') && !found.tailscale.connected && !tailscalePlanned) {
@@ -364,8 +369,8 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     }
 
     setupStep(2, 5, 'Choose app access');
-    let web = false;
-    if (modeAllowsBrowserHosting(mode)) {
+    let web = client !== 'phone';
+    if (client === 'phone' && modeAllowsBrowserHosting(mode)) {
         web = await select('Host the browser client too?', [
             { value: false, title: 'Native app only', description: 'do not expose the browser client' },
             { value: true, title: 'Host the browser client', description: 'serve it over the selected HTTPS/WSS connection' },
@@ -397,9 +402,10 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         'This computer seals its key grant to that device only.',
         'That device verifies the grant against the machine key in the QR or link.',
     ]);
+    const firstPair = client === 'both' ? 'both' : client === 'browser' ? 'browser' : 'phone';
     const pairing = pairingChoices.length === 1 ? pairingChoices[0].value : await select(connectionChanged && current !== undefined
         ? 'The connection changed. Keep existing devices or pair another one?'
-        : 'Pair a client?', pairingChoices);
+        : 'Pair a client?', pairingChoices, pairingChoices.findIndex((choice) => choice.value === firstPair));
     if (aborted(pairing)) return undefined;
     return { mode, port, endpoint, web, pairing };
 }
@@ -510,8 +516,14 @@ export async function applyMachineSetup(args = []) {
     const cancelSetup = () => cancelled();
     const current = await selfhostPublicSummary();
 
-    setupStep(2, 5, 'Connect your phone');
-    let plan = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args });
+    setupStep(2, 5, 'Choose client and route');
+    const client = await select('Which client will connect first?', [
+        { value: 'phone', title: 'Native phone · recommended', description: 'private and same-Wi-Fi routes are available when this computer has them' },
+        { value: 'browser', title: 'Browser (PWA)', description: 'requires HTTPS/WSS through Tailscale Serve, Cloudflare, or your own server' },
+        { value: 'both', title: 'Phone and browser', description: 'choose one HTTPS/WSS route that supports both clients' },
+    ], current?.webEnabled ? 2 : 0);
+    if (aborted(client)) return cancelSetup();
+    let plan = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, client });
     if (plan === undefined) return cancelSetup();
     if (plan === 1) return 1;
     const desiredUrl = advertisedUrlForMode({ ...plan, found, current, tailscalePlanned });
