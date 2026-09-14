@@ -108,7 +108,8 @@ function NotAuthenticated() {
                             <Text style={styles.setupStep}>Node.js 22+ · Linux, macOS, or WSL</Text>
                             <Text style={styles.setupStep}>Run these commands. Setup recommends a reachable route for your client and asks before applying changes.</Text>
                             <Text selectable style={styles.setupCommands}>{setupCommands}</Text>
-                            <ActionButton title="Copy both" accessibilityLabel="Copy computer setup commands" icon="copy-outline" variant="secondary" onPress={() => void copySetupCommands()} />
+                            <ActionButton title={setupCopyStatus?.startsWith('Commands copied') ? 'Copied both' : setupCopyStatus ? 'Copy failed · retry' : 'Copy both'}
+                                accessibilityLabel="Copy computer setup commands" icon="copy-outline" variant="secondary" onPress={() => void copySetupCommands()} />
                             {setupCopyStatus && <Text accessibilityLiveRegion="polite" style={styles.copyStatus}>{setupCopyStatus}</Text>}
                             <Text style={styles.setupStep}>{Platform.OS === 'web'
                                 ? 'Browser access needs Tailscale Serve, a Cloudflare tunnel, or your own HTTPS/WSS server.'
