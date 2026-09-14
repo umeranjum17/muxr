@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
-import { hostedPairingAuthority, hostedPairingDisplayName } from './hostedE2ee';
+import { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from './hostedE2ee';
 import { getCachedConnectionSettings } from '@/connection';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
@@ -24,10 +24,11 @@ export function useHostedPairing() {
         if (pairing.current) return;
         pairing.current = true;
         try {
+            const prepared = prepareHostedPairingInput(url);
             const switching = getCachedConnectionSettings().machineId !== '';
-            const browserAuthority = hostedPairingAuthority(url);
+            const browserAuthority = hostedPairingAuthority(prepared);
             const approved = await Modal.confirm(
-                `Pair with ${hostedPairingDisplayName(url)}?`,
+                `Pair with ${hostedPairingDisplayName(prepared)}?`,
                 (Platform.OS === 'web'
                     ? `This browser receives ${browserAuthority === 'control' ? 'full terminal and agent control' : 'view-only access'} for eight hours. Machine keys stay end-to-end encrypted with WebCrypto in this browser.\n\nOnly continue if you just ran \`${browserAuthority === 'control' ? 'muxr pair --browser' : 'muxr pair --browser-view'}\` there.`
                     : 'This phone will be able to read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr.\n\nOnly continue if you just ran `muxr setup` or `muxr pair` there.')
@@ -37,7 +38,7 @@ export function useHostedPairing() {
                 { confirmText: 'Pair' },
             );
             if (!approved) return;
-            const paired = await pairMachine({ url });
+            const paired = await pairMachine({ url: prepared });
             if (!paired.ok && paired.reason === 'voice-pinned') {
                 const switchApproved = await Modal.confirm(
                     'End voice and switch?',

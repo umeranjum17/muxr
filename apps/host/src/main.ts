@@ -168,6 +168,7 @@ interface SelfhostState {
     machineCredential?: string;
     credentialExpiresAt?: string;
     relayLocation?: 'local' | 'remote';
+    connectionMode?: string;
     ingress?: { kind?: string; dnsName?: string };
     machine: { id: string; name?: string; crypto: MachineCryptoState };
 }
@@ -662,6 +663,7 @@ async function main(): Promise<void> {
         ...(peerRuntime === undefined ? {} : { peerRuntime }),
         ...(diagnostics === undefined ? {} : { diagnostics }),
         hostVersion,
+        ...(selfhostAuth?.connectionMode === undefined ? {} : { connectionMode: selfhostAuth.connectionMode }),
         onStateChange: (state) => {
             process.stdout.write(`relay link: ${state}\n`);
             if (state === 'open') peerRuntime?.retryRecovery();

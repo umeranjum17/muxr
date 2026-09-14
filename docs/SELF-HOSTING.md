@@ -12,16 +12,16 @@ npm install -g --ignore-scripts @trymuxr/cli
 muxr
 ```
 
-The interactive onboarding inspects the machine without changing it. It keeps a
-healthy current route or proposes one detected private route, explains why, and
-puts alternative transports under **Choose another way**. You then choose
+The interactive onboarding inspects the machine without changing it. It shows
+all six connection routes together, explains each requirement, and recommends
+the healthy current route or a detected route. You then choose
 whether to host the control/view-only web client, agent integrations, optional
 plugins, and managed services. After a final **Apply setup** confirmation, muxr
 starts the selected relay and host, then:
 
 1. Stores strict E2EE relay state under `~/.muxr/relay`.
 2. Runs the selected phone, browser, or sequential pairing flow.
-3. Reports the connection mode, relay URL, web URL when enabled, service health,
+3. Reports the selected route, exact `selfhost.json` path, relay URL, web URL when enabled, service health,
    pairing result, integrations, and plugins. Credentials and internal IDs are
    never included in this final summary.
 
@@ -43,11 +43,13 @@ automation uses `muxr shared-relay`, `muxr machines enroll|list|revoke`, and
 
 ## Reaching the relay from your phone
 
-Interactive onboarding does not begin with a transport menu. It recommends one
-ready route in this order: the healthy current route, Tailscale Serve, direct
-Tailscale when Serve is proven disabled or occupied, a detected private overlay
-such as NetBird or WireGuard, an installed temporary tunnel, then same Wi-Fi.
-Choose **Choose another way** to see every available transport. Automation uses:
+Interactive `muxr setup` shows all six routes together, with detected availability
+and requirements. The current healthy route is recommended; otherwise it
+prefers Tailscale Serve when available, then direct Tailscale if Serve is proven
+unavailable, a detected private overlay, an installed temporary tunnel, or same
+Wi-Fi. Your own server remains selectable when you already have a stable WSS
+endpoint. Unavailable routes explain what to install or connect before retrying.
+Automation uses:
 
 | Flag | What happens |
 |---|---|

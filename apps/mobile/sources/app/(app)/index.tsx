@@ -8,6 +8,7 @@ import { authGetToken } from "@/account/application/authGetToken";
 import { router } from "expo-router";
 import { StyleSheet } from "react-native-unistyles";
 import { getRandomBytesAsync } from "expo-crypto";
+import * as Clipboard from 'expo-clipboard';
 import { useIsLandscape } from "@/utils/responsive";
 import { Typography } from "@/constants/Typography";
 import { HomeHeaderNotAuth } from "@/herd/ui";
@@ -34,6 +35,16 @@ function NotAuthenticated() {
     const insets = useSafeAreaInsets();
     const hosted = getCachedConnectionSettings().mode === 'hosted';
     const pairing = React.useRef(false);
+    const [setupCopyStatus, setSetupCopyStatus] = React.useState<string | undefined>();
+    const setupCommands = 'npm install -g --ignore-scripts @trymuxr/cli@latest\nmuxr setup';
+    const copySetupCommands = async () => {
+        try {
+            await Clipboard.setStringAsync(setupCommands);
+            setSetupCopyStatus('Commands copied. Paste them into your computer’s terminal.');
+        } catch {
+            setSetupCopyStatus('Could not copy. Enter the two commands shown above on your computer.');
+        }
+    };
 
     React.useEffect(() => {
         if (!hosted) return;
@@ -271,6 +282,42 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
         textAlign: 'center',
         marginTop: 8,
+    },
+    setupCard: {
+        padding: 16,
+        borderRadius: 16,
+        backgroundColor: theme.colors.surfaceHigh,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        gap: 8,
+        marginBottom: 8,
+    },
+    setupHeading: {
+        ...Typography.default('semiBold'),
+        fontSize: 15,
+        lineHeight: 21,
+        color: theme.colors.text,
+    },
+    setupStep: {
+        ...Typography.default(),
+        fontSize: 13,
+        lineHeight: 18,
+        color: theme.colors.textSecondary,
+    },
+    setupCommands: {
+        ...Typography.mono(),
+        fontSize: 12,
+        lineHeight: 18,
+        color: theme.colors.text,
+        backgroundColor: theme.colors.surfaceHighest,
+        padding: 10,
+        borderRadius: 8,
+    },
+    copyStatus: {
+        ...Typography.default(),
+        fontSize: 12,
+        lineHeight: 17,
+        color: theme.colors.textSecondary,
     },
     // Landscape styles
     landscapeContainer: {

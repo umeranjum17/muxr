@@ -3,6 +3,8 @@ export type ListMachinesCommand = {
     machineName?: string;
     hostVersion: string;
     platform: string;
+    connectionMode?: string;
+    pairedDeviceCount?: number;
     now?: () => Date;
 };
 
@@ -12,6 +14,8 @@ export type ListedMachine = {
     online: true;
     hostVersion: string;
     platform: string;
+    connectionMode?: string;
+    pairedDeviceCount?: number;
     lastSeenAt: string;
 };
 
@@ -27,6 +31,8 @@ export function listMachines(command: ListMachinesCommand): ListMachinesResult {
             online: true,
             hostVersion: command.hostVersion,
             platform: command.platform,
+            ...(command.connectionMode === undefined ? {} : { connectionMode: command.connectionMode }),
+            ...(command.pairedDeviceCount === undefined ? {} : { pairedDeviceCount: command.pairedDeviceCount }),
             lastSeenAt: (command.now ?? (() => new Date()))().toISOString(),
         }],
     };
