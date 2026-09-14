@@ -175,7 +175,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingHorizontal: 16,
         paddingTop: 12,
         paddingBottom: 4,
-        minHeight: 36,
+        minHeight: 44,
     },
     groupHeaderCompact: {
         paddingHorizontal: 12,
