@@ -1,6 +1,7 @@
 import * as React from 'react';
 import * as Linking from 'expo-linking';
 import { ActivityIndicator, Platform, ScrollView, Text, TextInput, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
@@ -63,6 +64,7 @@ export default function PairScreen() {
     // from getInitialURL, so the raw URL is only a fallback).
     const routeParams = useLocalSearchParams();
     const browser = Platform.OS === 'web';
+    const PairScrollView = browser ? ScrollView : KeyboardAwareScrollView;
     const openedFromSettings = routeParams.source === 'settings';
     const reviewPairing = React.useCallback((raw: string) => {
         try {
@@ -177,7 +179,8 @@ export default function PairScreen() {
     }, [openedFromSettings, router]);
 
     return (
-        <ScrollView style={styles.scroll} contentContainerStyle={[styles.screen, { paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled">
+        <PairScrollView style={styles.scroll} contentContainerStyle={[styles.screen, { paddingBottom: insets.bottom + 24 }]}
+            keyboardShouldPersistTaps="handled" {...(browser ? {} : { bottomOffset: 120 })}>
             <View style={styles.hero}>
                 <View style={styles.iconBadge}>
                     <Ionicons name="desktop-outline" size={30} color={styles.icon.color} />
@@ -277,7 +280,7 @@ export default function PairScreen() {
                     </>
                 )}
             </View>
-        </ScrollView>
+        </PairScrollView>
     );
 }
 
