@@ -210,7 +210,7 @@ const styles = StyleSheet.create((theme) => ({
 }));
 
 // Header title component with connection status and the active saved pairing.
-const HeaderTitle = React.memo(({ activeTab, pluginTitle, large = false }: { activeTab: TabType; pluginTitle?: string; large?: boolean }) => {
+const HeaderTitle = React.memo(({ activeTab, pluginTitle, large = false, homeRecovering = false }: { activeTab: TabType; pluginTitle?: string; large?: boolean; homeRecovering?: boolean }) => {
     const { theme } = useUnistyles();
     const socketStatus = useSocketStatus();
     const auth = useAuth();
@@ -277,8 +277,8 @@ const HeaderTitle = React.memo(({ activeTab, pluginTitle, large = false }: { act
     }, [activeMachineId, auth, pairedGrants]);
 
     const connectionStatus = React.useMemo(
-        () => connectionStatusPresentation(socketStatus, theme),
-        [socketStatus, theme],
+        () => connectionStatusPresentation(socketStatus, theme, activeTab === 'sessions' && homeRecovering),
+        [activeTab, homeRecovering, socketStatus, theme],
     );
 
     const isHome = activeTab === 'sessions';
@@ -592,7 +592,7 @@ export const MainView = React.memo(() => {
                 return <SettingsViewWrapper topContentInset={topContentInset} bottomContentInset={bottomContentInset} onScroll={handleContentScroll} />;
             case 'sessions':
             default:
-                return <HerdView topContentInset={topContentInset} onScroll={handleContentScroll} />;
+                return <HerdView topContentInset={topContentInset} onScroll={handleContentScroll} onRecoveryChange={setPhoneHomeRecovering} />;
         }
     };
 
@@ -617,7 +617,7 @@ export const MainView = React.memo(() => {
                     <View style={styles.tabletDashboardHeader}>
                         <View style={styles.tabletDashboardIdentity}>
                             <HeaderLogo />
-                            <HeaderTitle activeTab="sessions" large />
+                            <HeaderTitle activeTab="sessions" large homeRecovering={splitHostOffline || splitRuntimeOffline || retryingHome || splitRetryFailed} />
                         </View>
                     </View>
                     <VersionNotice />
@@ -661,7 +661,7 @@ export const MainView = React.memo(() => {
             <Header
                 title={searchActive && Platform.OS !== 'web'
                     ? <HeaderSearch value={searchQuery} onChangeText={setSearchQuery} />
-                    : <HeaderTitle activeTab={activeTab} pluginTitle={pluginTab?.label} />}
+                    : <HeaderTitle activeTab={activeTab} pluginTitle={pluginTab?.label} homeRecovering={phoneHomeRecovering} />}
                 headerRight={showHeaderRight ? () => (
                     <HeaderRight
                         activeTab={activeTab}
