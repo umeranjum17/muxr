@@ -10,6 +10,7 @@ import { useAuth } from '@/account/ui';
 import { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingLifetime, prepareHostedPairingInput } from '@/pairing/e2ee';
 import { pairMachine, usePairQrScanner } from '@/pairing';
 import { getCachedConnectionSettings } from '@/connection';
+import { storage } from '@/catalog';
 import { ActionButton } from '@/components/ActionButton';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
@@ -68,6 +69,7 @@ export default function PairScreen() {
     const browser = Platform.OS === 'web';
     const PairScrollView = browser ? ScrollView : KeyboardAwareScrollView;
     const openedFromSettings = routeParams.source === 'settings';
+    const pairReason = routeParams.reason === 'revoked' || routeParams.reason === 'expired' ? routeParams.reason : undefined;
     const reviewPairing = React.useCallback((raw: string) => {
         try {
             const url = prepareHostedPairingInput(raw);
@@ -89,7 +91,7 @@ export default function PairScreen() {
         if (typeof v !== 'string' || v === '') return undefined;
         const query = new URLSearchParams();
         for (const [key, value] of Object.entries(routeParams)) {
-            if (key === 'source' || typeof value !== 'string') continue;
+            if (key === 'source' || key === 'reason' || typeof value !== 'string') continue;
             // Expo's deep-link parser form-decodes, so the `%2B` in a
             // standard-base64 machinePk arrives as a space and the rebuilt
             // mailbox no longer matches the machine's signing key. base64
@@ -120,18 +122,15 @@ export default function PairScreen() {
         }
         void Linking.getInitialURL().then((url) => {
             if (cancelled) return;
-            if (!receive(url)) {
-                setState({ phase: 'error', message: browser
-                    ? 'Paste a fresh browser pairing string from `muxr pair --browser`.'
-                    : 'Enter the short pairing string shown by `muxr pair`.' });
-            };
+            // A bare /pair route is an entry point, not a malformed link.
+            if (url) receive(url);
         }).catch((cause) => {
             if (!cancelled) setState({ phase: 'error', message: cause instanceof Error ? cause.message : String(cause) });
         });
         // Warm start: the app was already open when the link arrived.
         const subscription = Linking.addEventListener('url', (event) => receive(event.url));
         return () => { cancelled = true; subscription.remove(); };
-    }, [routePairUrl, browser]);
+    }, [routePairUrl, browser, pairReason]);
 
     const pair = React.useCallback(async (url: string) => {
         const paired = await pairMachine({ url });
@@ -150,6 +149,7 @@ export default function PairScreen() {
                 throw new Error(retried.reason === 'failed' ? retried.message ?? 'Pairing failed' : 'Pairing failed');
             }
             await auth.login(retried.credential, retried.secretKey);
+            storage.getState().setPairingFailure(null);
             router.replace('/');
             return;
         }
@@ -157,6 +157,7 @@ export default function PairScreen() {
             throw new Error(paired.message ?? 'Pairing failed');
         }
         await auth.login(paired.credential, paired.secretKey);
+        storage.getState().setPairingFailure(null);
         router.replace('/');
     }, [auth, router]);
 
@@ -195,6 +196,11 @@ export default function PairScreen() {
                 </Text>
                 {state?.phase === 'confirm' && (
                     <Text style={styles.subtitle}>wants to pair with this {browser ? 'browser' : 'phone'}</Text>
+                )}
+                {pairReason !== undefined && (
+                    <Text accessibilityRole="alert" style={styles.subtitle}>
+                        {pairReason === 'revoked' ? 'Access to this computer was removed.' : 'This device’s grant expired.'} Create a fresh pairing link on the computer to continue.
+                    </Text>
                 )}
             </View>
 
