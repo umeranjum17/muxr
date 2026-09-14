@@ -92,7 +92,7 @@ Use “muxr help <command>” for command options.
 `;
 
 const COMMAND_HELP = {
-    setup: `muxr setup [--inspect] [--dry-run] [--no-install-herdr] [--port <n>]\n\nInteractive setup checks this computer and shows Tailscale Serve, direct Tailscale, private networks, same Wi-Fi, a temporary Cloudflare tunnel, and your own WSS server. It installs Herdr when missing, reviews services and integrations before applying changes, then displays a short-lived pairing QR or string. It never installs agent skills or edits prompt files.\n`,
+    setup: `muxr setup [--client phone|browser|both] [--inspect] [--dry-run] [--no-install-herdr] [--port <n>]\n\nInteractive setup checks this computer and shows Tailscale Serve, direct Tailscale, private networks, same Wi-Fi, a temporary Cloudflare tunnel, and your own WSS server. --client preselects the first device without skipping review. It installs Herdr when missing, reviews services and integrations before applying changes, then displays a short-lived pairing QR or string. It never installs agent skills or edits prompt files.\n`,
     'self-host': `muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]\n               [--port <n>] [--relay-only|--host-only] [--web] [--yes]\n`,
     daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n\n\`install\` writes or updates the background-service definition without starting it. Normal \`muxr setup\` installs, starts, and verifies the service for you.\n`,
     devices: `muxr devices list\nmuxr devices revoke <number|name>\n`,
@@ -549,7 +549,7 @@ async function devicesMenu() {
                 const enable = await select(
                     targeted
                         ? 'Enable browser access on the current secure connection? muxr keeps the relay URL, port, phone pairings, integrations, and plugins; it enables the web client and restarts once.'
-                        : 'Browser access needs a secure HTTPS connection. Change setup to Tailscale Serve or your own WSS endpoint, then pair the browser.',
+                        : 'Browser access needs a reviewed HTTPS route. An existing quick Cloudflare tunnel gets a new public URL when setup enables the web client; choose it again, Tailscale Serve, or your own WSS endpoint, then pair the browser.',
                     targeted ? [
                         { value: 'enable', title: 'Enable and pair browser', description: 'keep current settings; enable web, restart once, verify, then create the link' },
                         { value: 'back', title: 'Back', description: 'leave this computer unchanged' },

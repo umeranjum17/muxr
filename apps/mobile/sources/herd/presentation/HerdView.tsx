@@ -48,6 +48,13 @@ const stylesheet = StyleSheet.create((theme) => ({
         gap: 8,
         padding: 32,
     },
+    emptyScrollContent: {
+        flexGrow: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        paddingHorizontal: 32,
+    },
     banner: {
         flexDirection: 'row',
         alignItems: 'flex-start',
@@ -203,7 +210,10 @@ export const HerdView = React.memo(({
         }
         if (neverPaired) {
             return (
-                <View style={[styles.empty, { paddingBottom: safeArea.bottom }]}>
+                <ScrollView style={{ flex: 1 }} onScroll={onScroll} scrollEventThrottle={16} contentContainerStyle={[styles.emptyScrollContent, {
+                    paddingTop: topContentInset + 32,
+                    paddingBottom: bottomContentInset + safeArea.bottom + 32,
+                }]}>
                     <Ionicons name="desktop-outline" size={40} color={theme.colors.textSecondary} />
                     <Text style={styles.setupTitle}>{setup.title}</Text>
                     <FirstRunSetupCard />
@@ -217,7 +227,7 @@ export const HerdView = React.memo(({
                             </>
                         )}
                     </View>
-                </View>
+                </ScrollView>
             );
         }
         return (

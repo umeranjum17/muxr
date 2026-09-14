@@ -37,7 +37,7 @@ function NotAuthenticated() {
     const pairing = React.useRef(false);
     const [setupCopyStatus, setSetupCopyStatus] = React.useState<string | undefined>();
     const [showOtherWays, setShowOtherWays] = React.useState(false);
-    const setupCommands = 'npm install -g --ignore-scripts @trymuxr/cli@latest\nmuxr setup';
+    const setupCommands = `npm install -g --ignore-scripts @trymuxr/cli@latest\nmuxr setup${Platform.OS === 'web' ? ' --client browser' : ''}`;
     const copySetupCommands = async () => {
         try {
             await Clipboard.setStringAsync(setupCommands);

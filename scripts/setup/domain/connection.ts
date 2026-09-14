@@ -79,7 +79,7 @@ export function parseConnection(state: unknown): Result<Connection> {
                 return 'Browser hosting must be enabled by the shared-relay owner, then this computer must reconnect with a fresh enrollment.';
             }
             if (mode === 'cloudflare') {
-                return 'The current quick Cloudflare URL is temporary. Change setup to Tailscale Serve or your own stable WSS endpoint before enabling browser access.';
+                return 'The current quick Cloudflare URL cannot be kept when browser hosting is enabled. Run muxr setup and choose Temporary Cloudflare tunnel again; Apply creates a new public URL, so existing devices may need fresh pairing. Tailscale Serve or your own stable WSS endpoint are alternatives.';
             }
             if (!secure) {
                 return 'Browser access needs a secure HTTPS connection. Change this setup to Tailscale Serve or your own WSS endpoint first.';

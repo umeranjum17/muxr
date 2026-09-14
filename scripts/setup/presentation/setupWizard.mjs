@@ -248,7 +248,8 @@ export function recommendedConnection(found, current, tailscalePlanned, serveRoo
     const needsBrowser = client === 'browser' || client === 'both';
     if (current?.relayHealthy && current?.publicHealthy
         && ['tailscale', 'tailscale-direct', 'private', 'lan', 'external', 'cloudflare'].includes(current.connectionMode)
-        && (!needsBrowser || modeAllowsBrowserHosting(current.connectionMode))) {
+        && (!needsBrowser || modeAllowsBrowserHosting(current.connectionMode))
+        && !(needsBrowser && current.connectionMode === 'cloudflare' && !current.webEnabled)) {
         return { mode: current.connectionMode, title: connectionLabel(current.connectionMode, current.relayUrl, current.relayPort), description: 'already configured and reachable' };
     }
     if (found.tailscale.connected || (tailscalePlanned && !found.private)) {
@@ -376,8 +377,10 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
             { value: true, title: 'Host the browser client', description: 'serve it over the selected HTTPS/WSS connection' },
         ], current?.webEnabled ? 1 : 0);
         if (aborted(web)) return undefined;
+    } else if (web) {
+        status('Browser client', 'included over the selected HTTPS/WSS route', 'ok');
     } else {
-        status('Browser client', 'requires Tailscale Serve, External WSS, or Cloudflare; native app only', 'off');
+        status('Browser client', 'off; this route is native-app only', 'off');
     }
     const desiredUrl = advertisedUrlForMode({ mode, found, current, port, endpoint, web, tailscalePlanned });
     const connectionChanged = current === undefined || desiredUrl === undefined || current.relayUrl !== desiredUrl;
@@ -486,6 +489,12 @@ export async function applyMachineSetup(args = []) {
     // Existing automation stays stable: flags used by scripts keep the historical
     // non-wizard flow. Plain `muxr setup` is the high-touch interactive path.
     const requestedMode = value(args, '--mode');
+    const requestedClient = value(args, '--client');
+    if ((args.includes('--client') || args.some((arg) => arg.startsWith('--client=')))
+        && !['phone', 'browser', 'both'].includes(requestedClient)) {
+        process.stderr.write('--client must be phone, browser, or both\n');
+        return 1;
+    }
     const automationFlags = ['--headless', '--dry-run', '--no-agent-config', '--install-herdr', '--no-install-herdr', '--force', '--all'];
     const fromPlugin = args.includes('--from-plugin');
     if (fromPlugin && (!process.stdin.isTTY || !process.stdout.isTTY)) {
@@ -493,6 +502,10 @@ export async function applyMachineSetup(args = []) {
         return 1;
     }
     const scripted = !fromPlugin && (!process.stdin.isTTY || !process.stdout.isTTY || automationFlags.some((flag) => args.includes(flag)));
+    if (scripted && requestedClient !== undefined) {
+        process.stderr.write('--client requires interactive setup so the connection and pairing plan can be reviewed before Apply\n');
+        return 1;
+    }
     if (args.includes('--inspect')) {
         intro();
         const found = await withSpinner('Inspecting Herdr, agents, and networking', async () => probeMachine());
@@ -517,11 +530,12 @@ export async function applyMachineSetup(args = []) {
     const current = await selfhostPublicSummary();
 
     setupStep(2, 5, 'Choose client and route');
+    const clientInitial = requestedClient === 'phone' ? 0 : requestedClient === 'browser' ? 1 : requestedClient === 'both' ? 2 : current?.webEnabled ? 2 : 0;
     const client = await select('Which client will connect first?', [
-        { value: 'phone', title: 'Native phone · recommended', description: 'private and same-Wi-Fi routes are available when this computer has them' },
-        { value: 'browser', title: 'Browser (PWA)', description: 'requires HTTPS/WSS through Tailscale Serve, Cloudflare, or your own server' },
-        { value: 'both', title: 'Phone and browser', description: 'choose one HTTPS/WSS route that supports both clients' },
-    ], current?.webEnabled ? 2 : 0);
+        { value: 'phone', title: `Native phone${clientInitial === 0 ? ' · recommended' : ''}`, description: 'private and same-Wi-Fi routes are available when this computer has them' },
+        { value: 'browser', title: `Browser (PWA)${clientInitial === 1 ? ' · recommended' : ''}`, description: 'requires HTTPS/WSS through Tailscale Serve, Cloudflare, or your own server' },
+        { value: 'both', title: `Phone and browser${clientInitial === 2 ? ' · recommended' : ''}`, description: 'choose one HTTPS/WSS route that supports both clients' },
+    ], clientInitial);
     if (aborted(client)) return cancelSetup();
     let plan = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, client });
     if (plan === undefined) return cancelSetup();
