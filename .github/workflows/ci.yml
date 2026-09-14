@@ -1,9 +1,8 @@
 name: ci
 
+# Merges and pushes stay quiet; run this workflow explicitly when hosted CI is needed.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read

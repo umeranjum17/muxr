@@ -1,10 +1,7 @@
 name: publish release
-run-name: publish ${{ inputs.run_id && format('candidate run {0}', inputs.run_id) || format('{0}', github.event.workflow_run.display_title) }}
+run-name: publish candidate run ${{ inputs.run_id }}
 
 on:
-  workflow_run:
-    workflows: [release candidate]
-    types: [completed]
   workflow_dispatch:
     inputs:
       run_id:
@@ -27,7 +24,7 @@ permissions:
 
 jobs:
   inspect:
-    if: github.repository == 'umeranjum17/muxr' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    if: github.repository == 'umeranjum17/muxr'
     runs-on: ubuntu-latest
     outputs:
       commit: ${{ steps.inspect.outputs.commit }}
@@ -38,7 +35,7 @@ jobs:
       - id: inspect
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+          RUN_ID: ${{ inputs.run_id }}
           CONFIRMATION: ${{ inputs.confirmation }}
         run: |
           test "$GITHUB_REF" = refs/heads/main
@@ -52,7 +49,7 @@ jobs:
           const m = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/package/release-manifest.json`));
           if (!/^[0-9a-f]{40}$/.test(run.head_sha) || m.source.commit !== run.head_sha || m.build.runId !== process.env.RUN_ID) throw new Error('Candidate provenance mismatch');
           if (!['nightly','stable'].includes(m.release.channel) || !/^[0-9A-Za-z.-]{1,120}$/.test(m.release.version)) throw new Error('Invalid release metadata');
-          if (m.release.channel === 'stable' && process.env.GITHUB_EVENT_NAME === 'workflow_dispatch' && process.env.CONFIRMATION !== `promote-${m.release.version}`) throw new Error('Stable promotion requires exact confirmation');
+          if (m.release.channel === 'stable' && process.env.CONFIRMATION !== `promote-${m.release.version}`) throw new Error('Stable promotion requires exact confirmation');
           appendFileSync(process.env.GITHUB_OUTPUT, `commit=${run.head_sha}\nversion=${m.release.version}\nchannel=${m.release.channel}\nrun_id=${process.env.RUN_ID}\n`);
           JS
 
