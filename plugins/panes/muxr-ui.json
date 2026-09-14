@@ -47,7 +47,7 @@
       "slot": "navigation.primary",
       "id": "nav",
       "type": "navigation-item",
-      "label": "Panes",
+      "label": "Shells & tools",
       "icon": "terminal-outline",
       "contentContributionId": "browse"
     },
@@ -57,7 +57,7 @@
       "type": "native",
       "primitive": "item-list",
       "params": {
-        "title": "Panes",
+        "title": "Shells & tools",
         "icon": "terminal-outline",
         "source": {
           "type": "plugin.call",

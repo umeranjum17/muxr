@@ -385,10 +385,10 @@ export function DeclarativePhoneNavRow({ onSelect }: { onSelect: (pluginId: stri
     );
 }
 
-export function DeclarativeSettingsItems() {
+export function DeclarativeSettingsItems({ pluginId, readOnly = false }: { pluginId?: string; readOnly?: boolean } = {}) {
     const router = useRouter();
     useSlotContributions('settings.items');
-    return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'settings-item' ? [<Item key={`${summary.pluginId}:${contribution.id}`} title={resolvePluginText(contribution.label)} subtitle={contribution.subtitle === undefined ? undefined : resolvePluginText(contribution.subtitle)} icon={<Ionicons name={contribution.icon as any} size={29} color="#666" />} onPress={() => {
+    return <>{pluginSnapshot().filter(({ summary }) => pluginId === undefined || summary.pluginId === pluginId).flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'settings-item' ? [<Item key={`${summary.pluginId}:${contribution.id}`} title={resolvePluginText(contribution.label)} subtitle={contribution.subtitle === undefined ? undefined : resolvePluginText(contribution.subtitle)} icon={<Ionicons name={contribution.icon as any} size={29} color="#666" />} disabled={readOnly && contribution.action.type !== 'screen' && contribution.action.type !== 'open-url'} onPress={() => {
         void dispatchPluginAction(contribution.action, { router, pluginId: summary.pluginId, manifestHash: summary.manifestHash, manifest })
             .catch((error: unknown) => Modal.alert('Plugin action unavailable', error instanceof Error ? error.message : String(error)));
     }} />] : []))}</>;

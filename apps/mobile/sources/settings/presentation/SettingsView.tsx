@@ -22,7 +22,6 @@ import { versionsMismatch } from '@/utils/versionStatus';
 import { getAppVersion } from '@/utils/appVersion';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
-import { DeclarativeSettingsItems } from '@/plugins/ui';
 import {
     canPostPromotedNotifications,
     openBackgroundActivitySettings,

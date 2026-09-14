@@ -4,7 +4,6 @@ import { MUXR_UI_VERSION, pluginCompatibilityError, type PluginManifestV1, type 
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
-import { Modal } from '@/modal';
 import { sync } from '@/catalog/sync';
 import { useSocketStatus } from '@/catalog/store';
 import { Switch } from '@/components/Switch';
@@ -13,10 +12,29 @@ import { invalidateSessionPlugins } from '@/plugins';
 import { invalidatePlugins } from '@/plugins';
 import { resolvePluginText } from '@/plugins';
 import { pluginCatalogLoaded, pluginCatalogSnapshot, refreshPlugins, subscribePlugins } from '@/plugins';
-import { sourceLabel } from '@/plugins';
-import { t } from '@/text';
+
+const GROUPS = [
+    { title: 'Agent workflow', ids: ['muxr.task-titles'] },
+    { title: 'Files & changes', ids: ['muxr.code', 'muxr.attachments'] },
+    { title: 'Terminal & layout', ids: ['muxr.panes', 'muxr.control', 'muxr.workspace-hierarchy', 'muxr.terminal-keys'] },
+    { title: 'Voice & input', ids: ['muxr.voice', 'muxr.dictation'] },
+    { title: 'Usage & machine', ids: ['muxr.status'] },
+] as const;
+const SHORT_DESCRIPTIONS: Record<string, string> = {
+    'muxr.task-titles': 'Names new tasks',
+    'muxr.code': 'Browse files, diffs, and git history',
+    'muxr.attachments': 'Open shared files and images',
+    'muxr.panes': 'Open shells and plugin tools',
+    'muxr.control': 'Control panes and tabs',
+    'muxr.workspace-hierarchy': 'Browse workspaces, tabs, and agents',
+    'muxr.terminal-keys': 'Extra keys above the phone keyboard',
+    'muxr.voice': 'Live speech-to-speech with an agent',
+    'muxr.dictation': 'Speak a prompt on your device',
+    'muxr.status': 'Usage, limits, and machine health',
+};
 
 export default function PluginsScreen() {
+    const router = useRouter();
     const { status } = useSocketStatus();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const changeBlocked = status !== 'connected'
@@ -25,12 +43,12 @@ export default function PluginsScreen() {
             ? 'Checking device access.'
             : authority !== 'control' ? 'View-only access cannot change plugins.' : undefined;
     const [, redraw] = React.useReducer((value) => value + 1, 0);
-    const [optimistic, setOptimistic] = React.useState<Record<string, boolean>>({});
-    const [loadError, setLoadError] = React.useState<string>();
+    const [error, setError] = React.useState<string>();
+    const [effective, setEffective] = React.useState<Record<string, string>>({});
     React.useEffect(() => subscribePlugins(redraw), []);
     React.useEffect(() => {
         if (status !== 'connected') return;
-        void refreshPlugins().then(() => setLoadError(undefined)).catch((error: unknown) => setLoadError(error instanceof Error ? error.message : String(error)));
+        void refreshPlugins().then(() => setError(undefined)).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
     }, [status]);
 
     const entries = pluginCatalogSnapshot();
@@ -131,36 +149,3 @@ export default function PluginsScreen() {
         </ItemList>
     );
 }
-
-/** Fall back to what the plugin actually adds when it ships no description. */
-function describe(manifest: PluginManifestV1 | undefined): string | undefined {
-    if (manifest === undefined) return undefined;
-    const places = [...new Set(manifest.contributions.map((item) => SLOT_LABELS[item.slot] ?? item.slot))].filter((label) => label !== '');
-    return places.length === 0 ? undefined : `Adds ${places.join(', ')}`;
-}
-
-function requestedContexts(manifest: PluginManifestV1 | undefined): string | undefined {
-    if (manifest === undefined) return undefined;
-    const contexts = [...new Set(manifest.contributions.flatMap((item) => item.slot === 'host.rpc' ? item.context ?? [] : []))];
-    return contexts.length === 0 ? undefined : contexts.map((context) => context === 'sessions' ? t('plugins.readsSessions') : t('plugins.readsTree')).join(' · ');
-}
-
-const SLOT_LABELS: Record<string, string> = {
-    'host.rpc': '',
-    'navigation.primary': 'a tab',
-    'navigation.content': 'a screen',
-    'home.cards': 'a home card',
-    'session.header.trailing': 'a header control',
-    'session.pills': 'a session pill',
-    'session.toolbar': 'a toolbar action',
-    'terminal.key-row': 'terminal keys',
-    'settings.items': 'a settings row',
-    'settings.sections': 'a settings section',
-    'app.overlay': 'an overlay',
-    'session.overlay': 'a session overlay',
-    'home.composer.leading': 'a composer button',
-    'home.composer.trailing': 'a composer button',
-    'session.composer.trailing': 'a composer button',
-    'shortcuts': 'a launcher shortcut',
-    'events': 'an event trigger',
-};

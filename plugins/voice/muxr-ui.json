@@ -189,7 +189,7 @@
       "slot": "navigation.content",
       "id": "login-screen",
       "type": "screen",
-      "title": "Codex Voice setup",
+      "title": "Realtime voice setup",
       "data": {
         "type": "plugin.call",
         "contributionId": "status"

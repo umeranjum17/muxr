@@ -172,7 +172,6 @@ function renderInspection(found) {
 }
 
 const herdr = () => process.env.HERDR_BIN?.trim() || 'herdr';
-
 // Plain-words name for a connection mode, used anywhere the topology is stated.
 const RELAY_KIND = {
     tailscale: 'Tailscale (private)',
@@ -589,6 +588,7 @@ export async function applyMachineSetup(args = []) {
         `Herdr: ${found.herdr.running ? 'running' : 'started during setup'}`,
         `Integrations: ${syncIntegrations ? 'selected providers synced' : 'unchanged'}`,
         `Pairing: ${pairingReceiptLabel(pairing, browserPairFailed)}${browserGrantNote(pairing, { failed: browserPairFailed })}`,
+        'Plugins: bundled; explore extras in Settings → Plugins after connecting',
         `Configuration: ${selfhostPath()} (owner-only; use \`muxr setup\` to change the route)`,
     ]);
     outro(browserPairFailed
@@ -755,6 +755,7 @@ export async function connectRemoteRelay() {
         'Credential: scoped to this machine; relay-owner authority is never copied here',
         `Herdr: ${found.herdr.installed ? 'adopt and start existing installation' : 'download, install, and start during setup'}`,
         `Integrations: ${syncIntegrations ? 'sync detected providers' : 'leave unchanged'}`,
+        'Plugins: bundled; explore extras after connection',
         `Pairing: ${pairing === 'none' ? 'not now' : pairingChoiceLabel(pairing)}`,
         ...(current === undefined ? [] : [`Existing setup: replace ${current.relayLocation} relay ${current.relayUrl ?? ''}; every existing device needs a fresh pairing`]),
         'No local or remote state changes until you choose Apply connection.',
@@ -788,6 +789,7 @@ export async function connectRemoteRelay() {
         `Local host service: ${summary?.hostRunning ? 'running' : 'check required'}`,
         `Machine credential expires: ${summary?.credentialExpiresAt ? new Date(summary.credentialExpiresAt).toLocaleDateString() : 'unavailable'}`,
         `Pairing: ${pairing === 'none' ? 'not requested' : `${pairing} completed`}`,
+        'Plugins: bundled; explore extras in Settings → Plugins after connecting',
         `Configuration: ${selfhostPath()} (owner-only; ask the relay owner for a new enrollment to change this route)`,
     ]);
     outro('Ready. The local host connects outbound to the shared relay; Herdr must remain running on this machine.');

@@ -27,6 +27,8 @@ function resolveActivityTaskTitle(
     const stored = event.taskTitle?.trim();
     const name = event.agentName.trim();
     const live = liveTitle?.trim();
+    // Live Herdr title is newer authority for this row; the persisted event is unchanged.
+    if (live !== undefined && live !== '' && !sameLabel(live, name) && !sameLabel(live, stored)) return live;
     if (stored !== undefined && stored !== '' && !sameLabel(stored, name)) return stored;
     if (live !== undefined && live !== '' && !sameLabel(live, name)) return live;
     return stored || name;

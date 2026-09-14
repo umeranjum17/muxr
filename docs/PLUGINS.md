@@ -1,5 +1,7 @@
 # Build a muxr plugin
 
+For installation, configuration, permissions, and Task titles as a user, see [Using plugins](USING-PLUGINS.md). This page is the developer manifest and host API contract.
+
 muxr plugins are designed to be small. The target workflow is to install one folder on the computer running Herdr and have its enabled native UI appear in muxr.
 
 One artifact, two tools: a muxr plugin *is* a Herdr plugin. `herdr plugin` runs it on your computer; `muxr plugin` authors it and manages how it appears on your phone. There is no separate muxr package format.
@@ -69,7 +71,7 @@ Link it with Herdr:
 herdr plugin link ./hello-muxr --enabled
 ```
 
-An enabled Herdr plugin appears in muxr automatically. Open **Settings → Plugins** to inspect its contributions or disable it on that phone. Editing `muxr-ui.json` refreshes the contribution snapshot; it does not ask for approval again.
+An installed Herdr plugin appears in **Settings → Plugins**, including when Herdr has it disabled. Open its detail to inspect source, state, and contributions; a control device can revoke its muxr UI approval there. Editing `muxr-ui.json` refreshes the contribution snapshot; it does not ask for approval again.
 
 ## Package lifecycle
 
@@ -155,7 +157,7 @@ Every slot below is shipped. **JSON** means you edit `muxr-ui.json` and the chan
 | `session.pills` | a session action; compatible primitives can opt into terminal quick controls | JSON (`data-card`) or primitive |
 | `session.toolbar` | a pane-menu command that runs a declared Herdr action | JSON (`button`) |
 | `terminal.key-row` | terminal keys | JSON (`key-row`) |
-| `settings.items` | a row in Settings that opens your screen | JSON (`settings-item`) |
+| `settings.items` | a row in the plugin's Settings detail that opens your screen | JSON (`settings-item`) |
 | `settings.sections` | static information rows in Settings | JSON |
 | `app.overlay` | an app-wide overlay | primitive |
 | `session.overlay` | a session-scoped sheet | primitive |
@@ -436,9 +438,9 @@ A Herdr backend runs unsandboxed as your computer user. Installing one is equiva
 
 Approved `voice.session` children receive one short-lived broker token for that stream. The token is least-ambient routing: unapproved and non-voice plugins do not receive direct broker access, active calls are aborted when the stream exits, and peer credentials never enter the provider protocol or environment. It is not isolation from malicious code explicitly enabled as the same host user, which can read user files and inspect other same-user processes. Hostile-local-plugin isolation requires a separate OS sandbox architecture.
 
-Enabling or linking a Herdr plugin is the user's trust decision. Every enabled plugin is available to connected phones by default; a phone can explicitly disable it, and disable/revoke remains authoritative. Manifest or authority changes refresh the immutable snapshot and hash but do not trigger per-device reapproval.
+Enabling or linking a Herdr plugin is the user's trust decision. The catalog projects installed and enabled states separately. A Herdr-disabled plugin remains inspectable but has no active `manifestHash` and cannot run an action or RPC. Enabled plugins are available to connected phones by default; a phone can explicitly revoke its own UI approval. Manifest or authority changes refresh the immutable snapshot and hash but do not trigger per-device reapproval.
 
-The Plugins screen shows the trusted Herdr name, source, requested contribution surfaces, warnings, and whether the package has executable backend hooks. Declarative screens render host-owned attribution above plugin content; the manifest cannot override it. The manifest hash still binds the complete parsed manifest, source identity, and Herdr authority so calls target one stable snapshot even though hash changes do not change the default-on policy.
+The Plugins screen groups trusted Herdr names by user job and shows effective state. Detail shows source, version, warnings, approval, and configuration. A disabled package may carry `installedManifestHash` for read-only manifest inspection; the host rejects execution until Herdr enables it. Declarative screens render host-owned attribution above plugin content; the manifest cannot override it. The manifest hash still binds the complete parsed manifest, source identity, and Herdr authority so calls target one stable snapshot even though hash changes do not change the default-on policy.
 
 Navigation content is scoped by plugin id and contribution id. `/plugin` renders that pair only. On the phone, enabled `navigation.primary` destinations appear as a destination row and route into `/plugin` with those ids. A navigation item may declare `"badge": { "type": "plugin.call", "contributionId": "count" }`; the referenced read RPC returns `{ "count": 0 }`, the phone bounds it to 0–999, and the plugin—not the kernel—owns the badge policy.
 ## Compatibility and limits
@@ -567,6 +569,8 @@ Read input in Node with `JSON.parse(readFileSync(0, 'utf8') || 'null')`.
 with mode 0700. Keep caches, saved commands and credentials there rather than
 inventing a path under the user's home. It is not a secret vault: the host user
 can read it, and so can any other plugin running as that user.
+
+The bundled `muxr.task-titles` package is a narrow exception to the generic state path: its Herdr hook and authenticated RPC share Herdr's owner-only `plugin config-dir muxr.task-titles`, passed as `MUXR_TASK_TITLES_CONFIG_DIR` only to that packaged RPC. Other plugin RPCs do not receive a Herdr socket or this directory. Its `preview` method is read-only; `configure`, `switch`, and `revert` require a control grant and an idempotency key. See [its package contract](../plugins/task-titles/README.md).
 
 The working directory is the host's, so a plugin acts on the machine rather than
 on its own folder.
