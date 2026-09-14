@@ -1,6 +1,7 @@
 import type { AgentInfo, AgentLifecycle } from '@muxr/contract';
 import type { Session } from '@/catalog';
 import { paneStatus, type HerdPane } from '../domain/herd';
+import { agentLabels, isShellLabels } from '../domain/agentPresentation';
 import type { RecentActivityRow } from '../domain/recentActivity';
 
 export const RECENTLY_DONE_SWIPE_MS = 2 * 60_000;
@@ -20,7 +21,7 @@ export function selectLiveTerminalCards(
     panes: readonly HerdPane[],
 ): LiveTerminalOrderCard[] {
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
-    return panes.map((pane) => {
+    return panes.filter((pane) => !isShellLabels(agentLabels(pane))).map((pane) => {
         const session = sessionsById.get(pane.id);
         return {
             id: pane.id,
