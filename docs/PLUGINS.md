@@ -519,6 +519,13 @@ muxr plugin dev ./my-keys
 # if linking fails: herdr plugin enable muxr.terminal-keys
 ```
 
+The same `terminal.key-row` contribution accepts up to eight `quickReplies`:
+`{"label":"Run tests","text":"Run the relevant tests and report failures."}`.
+Each phrase appears in the session tools panel and inserts text into the phone
+composer; the person can edit it and must still press Send. The `keys` array is
+the host-configurable key set and sends only validated terminal control sequences.
+Clone the bundled plugin to keep your replies and keys across upgrades.
+
 Direct edits under the global npm package work live but are replaced by the next npm install. A cloned folder and its Herdr registration survive package upgrades; subsequent `muxr setup` runs preserve both plugins' explicit enabled/disabled states.
 
 Both stay enabled if you do not disable the bundled one, and both render — muxr

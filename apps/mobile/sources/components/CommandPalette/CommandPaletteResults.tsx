@@ -8,6 +8,7 @@ interface CommandPaletteResultsProps {
     categories: CommandCategory[];
     selectedIndex: number;
     onSelectCommand: (command: Command) => void;
+    onSecondaryCommand?: (command: Command) => void;
     onSelectionChange: (index: number) => void;
 }
 
@@ -15,6 +16,7 @@ export function CommandPaletteResults({
     categories, 
     selectedIndex, 
     onSelectCommand, 
+    onSecondaryCommand,
     onSelectionChange 
 }: CommandPaletteResultsProps) {
     const scrollViewRef = useRef<ScrollView>(null);
@@ -78,6 +80,7 @@ export function CommandPaletteResults({
                                 command={command}
                                 isSelected={isSelected}
                                 onPress={() => onSelectCommand(command)}
+                                onSecondaryPress={() => onSecondaryCommand?.(command)}
                                 onHover={() => onSelectionChange(commandIndex)}
                             />
                         </View>

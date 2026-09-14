@@ -8,10 +8,11 @@ interface CommandPaletteItemProps {
     command: Command;
     isSelected: boolean;
     onPress: () => void;
+    onSecondaryPress?: () => void;
     onHover?: () => void;
 }
 
-export function CommandPaletteItem({ command, isSelected, onPress, onHover }: CommandPaletteItemProps) {
+export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPress, onHover }: CommandPaletteItemProps) {
     const [isHovered, setIsHovered] = React.useState(false);
     
     const handleMouseEnter = React.useCallback(() => {
@@ -28,12 +29,7 @@ export function CommandPaletteItem({ command, isSelected, onPress, onHover }: Co
     }, []);
     
     const pressableProps: any = {
-        style: ({ pressed }: any) => [
-            styles.container,
-            isSelected && styles.selected,
-            isHovered && !isSelected && styles.hovered,
-            pressed && Platform.OS === 'web' && styles.pressed
-        ],
+        style: ({ pressed }: any) => [styles.main, pressed && styles.pressed],
         onPress,
     };
     
@@ -44,8 +40,8 @@ export function CommandPaletteItem({ command, isSelected, onPress, onHover }: Co
     }
     
     return (
-        <Pressable {...pressableProps}>
-            <View style={styles.content}>
+        <View style={[styles.container, isSelected && styles.selected, isHovered && !isSelected && styles.hovered]}>
+            <Pressable {...pressableProps} accessibilityRole="button" accessibilityLabel={`${command.title}. ${command.subtitle ?? ''}. ${command.actionLabel ?? 'Open'}`}>
                 {command.icon && (
                     <View style={styles.iconContainer}>
                         <Ionicons 
@@ -72,8 +68,13 @@ export function CommandPaletteItem({ command, isSelected, onPress, onHover }: Co
                         </Text>
                     </View>
                 )}
-            </View>
-        </Pressable>
+                {command.secondaryAction !== undefined && <Text style={styles.primaryText}>Send</Text>}
+            </Pressable>
+            {command.secondaryAction !== undefined && <Pressable onPress={onSecondaryPress} accessibilityRole="button" accessibilityLabel={`${command.secondaryLabel ?? 'Edit arguments'} for ${command.title}`} style={styles.secondaryButton}>
+                <Ionicons name="create-outline" size={18} color="#007AFF" />
+                <Text style={styles.secondaryText}>{command.secondaryLabel ?? 'Edit'}</Text>
+            </Pressable>}
+        </View>
     );
 }
 
@@ -87,6 +88,8 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         borderWidth: 2,
         borderColor: 'transparent',
+        flexDirection: 'row',
+        alignItems: 'center',
     },
     selected: {
         backgroundColor: '#F0F7FF',
@@ -98,7 +101,9 @@ const styles = StyleSheet.create({
     hovered: {
         backgroundColor: '#F8F8F8',
     },
-    content: {
+    main: {
+        flex: 1,
+        minHeight: 44,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -138,4 +143,7 @@ const styles = StyleSheet.create({
         color: '#666',
         fontWeight: '500',
     },
+    secondaryButton: { minHeight: 44, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 4 },
+    primaryText: { color: '#007AFF', fontSize: 12, fontWeight: '600', paddingHorizontal: 6 },
+    secondaryText: { color: '#007AFF', fontSize: 12, fontWeight: '600' },
 });

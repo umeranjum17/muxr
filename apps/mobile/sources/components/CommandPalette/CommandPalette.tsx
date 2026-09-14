@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { View, StyleSheet, Text, useWindowDimensions } from 'react-native';
 import { CommandPaletteInput } from '@/components/CommandPalette/CommandPaletteInput';
 import { CommandPaletteResults } from '@/components/CommandPalette/CommandPaletteResults';
 import { useCommandPalette } from '@/components/CommandPalette/useCommandPalette';
@@ -8,9 +8,11 @@ import { Command } from '@/components/CommandPalette/types';
 interface CommandPaletteProps {
     commands: Command[];
     onClose: () => void;
+    title?: string;
 }
 
-export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
+export function CommandPalette({ commands, onClose, title }: CommandPaletteProps) {
+    const { height } = useWindowDimensions();
     const {
         searchQuery,
         selectedIndex,
@@ -18,17 +20,14 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
         inputRef,
         handleSearchChange,
         handleSelectCommand,
+        handleSecondaryCommand,
         handleKeyPress,
         setSelectedIndex,
     } = useCommandPalette(commands, onClose);
 
-    // Only render on web
-    if (Platform.OS !== 'web') {
-        return null;
-    }
-
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { maxHeight: Math.min(500, height * 0.65) }]}>
+            {title !== undefined && <Text style={styles.title}>{title}</Text>}
             <CommandPaletteInput
                 value={searchQuery}
                 onChangeText={handleSearchChange}
@@ -39,6 +38,7 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
                 categories={filteredCategories}
                 selectedIndex={selectedIndex}
                 onSelectCommand={handleSelectCommand}
+                onSecondaryCommand={handleSecondaryCommand}
                 onSelectionChange={setSelectedIndex}
             />
         </View>
@@ -52,11 +52,7 @@ const styles = StyleSheet.create({
         width: '100%',
         maxWidth: 800, // Increased from 640 for wider input
         // Use viewport-based height for better layout
-        ...(Platform.OS === 'web' ? {
-            maxHeight: '60vh', // Takes up to 60% of viewport height
-        } as any : {
-            maxHeight: 500, // Fallback for native
-        }),
+        maxHeight: 500,
         overflow: 'hidden',
         shadowColor: '#000',
         shadowOffset: {
@@ -69,4 +65,5 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: 'rgba(0, 0, 0, 0.08)',
     },
+    title: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8, color: '#333', fontSize: 14, fontWeight: '600' },
 });

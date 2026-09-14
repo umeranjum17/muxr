@@ -6,7 +6,8 @@ import {
     Animated,
     StyleSheet,
     KeyboardAvoidingView,
-    Platform
+    Platform,
+    useWindowDimensions,
 } from 'react-native';
 import { LocalBlurHalo } from '@/components/AnimatedOverlay';
 
@@ -24,6 +25,7 @@ export function CommandPaletteModal({
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const scaleAnim = useRef(new Animated.Value(0.95)).current;
     const [isModalVisible, setIsModalVisible] = React.useState(true);
+    const { height } = useWindowDimensions();
 
     useEffect(() => {
         if (visible) {
@@ -84,7 +86,7 @@ export function CommandPaletteModal({
             onRequestClose={handleClose}
         >
             <KeyboardAvoidingView 
-                style={styles.container}
+                style={[styles.container, { paddingTop: Math.min(140, height * 0.12) }]}
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             >
                 <TouchableWithoutFeedback onPress={handleBackdropPress}>
