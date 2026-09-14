@@ -25,11 +25,6 @@ function command(name, args = []) {
     };
 }
 
-function interactiveCommand(name, args = []) {
-    const result = spawnSync(name, args, { stdio: 'inherit', timeout: 300_000 });
-    return { ok: result.status === 0, output: result.error?.message ?? result.signal ?? '' };
-}
-
 function pairingChoiceLabel(pairing) {
     if (pairing === 'none') return 'keep existing devices; no new pairing';
     if (pairing === 'both') return 'phone, then control browser';
@@ -176,76 +171,7 @@ function renderInspection(found) {
     process.stdout.write('\n');
 }
 
-const RECOMMENDED_PLUGINS = [
-    {
-        title: 'Name sessions from the task',
-        description: 'renames the real Herdr pane · may use Codex · generated worktrees may rename their branch and workspace',
-        repo: 'wyattjoh/herdr-plugin-renamer',
-        ref: 'b9500f0682a5d76b5a80dd7fd13ba19c1562bc7d',
-        pluginId: 'herdr-plugin-renamer',
-    },
-    {
-        title: 'Browse files and diffs',
-        description: 'read-only git-aware viewer · smarzban/herdr-file-viewer',
-        repo: 'smarzban/herdr-file-viewer',
-        ref: 'a2368d701659813938f79e2f1e5aa4e9f4fb2b77',
-        pluginId: 'herdr-file-viewer',
-    },
-    {
-        title: 'Review agent changes',
-        description: 'comments on diffs and sends approved feedback · persiyanov/herdr-reviewr',
-        repo: 'persiyanov/herdr-reviewr',
-        ref: '249ec795cfa55e817b882e09c7c2890eeac8e03c',
-        pluginId: 'persiyanov.reviewr',
-    },
-];
-
 const herdr = () => process.env.HERDR_BIN?.trim() || 'herdr';
-
-function installedPlugins() {
-    const result = command(herdr(), ['plugin', 'list', '--json']);
-    if (!result.ok) return new Set();
-    try {
-        const parsed = JSON.parse(result.output);
-        return new Set((parsed.result?.plugins ?? parsed.plugins ?? []).map((plugin) => plugin.plugin_id));
-    } catch { return new Set(); }
-}
-
-async function choosePlugins() {
-    const installed = installedPlugins();
-    const selected = [];
-    for (const plugin of RECOMMENDED_PLUGINS) {
-        if (installed.has(plugin.pluginId)) {
-            status(plugin.title, 'already installed', 'ok');
-            continue;
-        }
-        setupStep(3, 5, 'Optional Herdr add-ons');
-        const choice = await select(`Add ${plugin.title.toLowerCase()}?`, [
-            { value: 'skip', title: 'No', description: 'leave Herdr unchanged' },
-            { value: 'install', title: 'Yes', description: `${plugin.description} · ${plugin.repo}` },
-        ]);
-        if (aborted(choice)) return undefined;
-        if (choice === 'install') selected.push(plugin);
-    }
-    return selected;
-}
-
-async function installPlugins(plugins) {
-    const installed = [];
-    const failed = [];
-    for (const plugin of plugins) {
-        heading(`Review ${plugin.repo}`);
-        const result = interactiveCommand(herdr(), ['plugin', 'install', plugin.repo, '--ref', plugin.ref]);
-        if (!result.ok) {
-            failed.push(plugin);
-            status(plugin.title, `skipped — ${result.output || 'install failed'}`, 'warn');
-        } else {
-            installed.push(plugin);
-            status(plugin.title, 'installed', 'ok');
-        }
-    }
-    return { installed, failed };
-}
 
 // Plain-words name for a connection mode, used anywhere the topology is stated.
 const RELAY_KIND = {
@@ -374,6 +300,9 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         mode = await select('Choose a connection route', connectionChoices, initial);
     }
     if (aborted(mode)) return undefined;
+    if (mode === 'lan') {
+        note('Nearby discovery can help a previously paired native app find this relay again on the same LAN. A new device still needs the one-time QR or pairing string.');
+    }
     if (!['tailscale', 'tailscale-direct', 'private', 'lan', 'external', 'cloudflare'].includes(mode)) {
         process.stderr.write(`unknown setup mode: ${mode}\n`);
         return 1;
@@ -434,7 +363,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
             value: 'none',
             title: 'Keep paired devices',
             description: connectionChanged
-                ? 'same-LAN devices can adopt it through local discovery; remote devices must pair once with the new endpoint'
+                ? 'a native app on the same LAN may verify a discovered address; other devices need fresh pairing'
                 : 'no new QR; existing devices keep working',
         }] : []),
         { value: 'phone', title: 'Phone', description: 'pair the native app first' },
@@ -569,8 +498,11 @@ export async function applyMachineSetup(args = []) {
     if (plan === 1) return 1;
     const desiredUrl = advertisedUrlForMode({ ...plan, found, current, tailscalePlanned });
     const connectionChanged = current === undefined || desiredUrl === undefined || current.relayUrl !== desiredUrl;
+    let existingConnections = 'none; pair a device after setup';
+    if (current !== undefined && connectionChanged) existingConnections = 'same-LAN native devices may verify the new address; others need fresh pairing';
+    else if (current !== undefined) existingConnections = 'keep working; restart only if a reviewed runtime setting changed';
 
-    setupStep(3, 5, 'Connect agents and add-ons');
+    setupStep(3, 5, 'Connect coding agents');
     const syncIntegrations = await select(found.agents.checked
         ? `Connect your coding agents (${found.agents.available.length} detected)?`
         : 'Agent availability could not be checked. Retry integration setup anyway?', [
@@ -579,21 +511,16 @@ export async function applyMachineSetup(args = []) {
     ]);
     if (aborted(syncIntegrations)) return cancelSetup();
 
-    const plugins = current === undefined ? [] : await choosePlugins();
-    if (plugins === undefined) return cancelSetup();
-
     setupStep(4, 5, 'Review setup');
     note([
         `Connection: ${connectionLabel(plan.mode, plan.endpoint, plan.port)}`,
         `Herdr: ${found.herdr.installed ? 'adopt existing installation and ensure its server is running' : 'download, install, and start during setup'}`,
-        'Bundled plugins: link the public muxr plugins into Herdr',
         `Agent integrations: ${syncIntegrations ? 'sync detected lifecycle providers; leave agent prompt files unchanged' : 'leave lifecycle integrations unchanged'}`,
-        `Optional add-ons: ${plugins.length ? plugins.map((plugin) => plugin.title).join(', ') : 'none'}`,
         `Browser client: ${plan.web ? 'host the web app; browser keys stay WebCrypto-wrapped on this device' : 'off'}`,
         `Pairing: ${pairingChoiceLabel(plan.pairing)}${browserGrantNote(plan.pairing, { planned: true })}`,
         `Ingress: ${ingressPlan(plan.mode, tailscalePlanned)}`,
         'Services: register or restart the relay and host with systemd/launchd',
-        `Existing connections: ${connectionChanged ? 'stored grants stay authoritative and adopt the advertised endpoint automatically' : 'keep working; restart only if a reviewed runtime setting changed'}`,
+        `Existing connections: ${existingConnections}`,
         'No change is made until you choose Apply setup.',
     ]);
     const apply = await select('Apply this setup?', [
@@ -614,7 +541,6 @@ export async function applyMachineSetup(args = []) {
     ];
     const prerequisites = await runLocalPrerequisites(prerequisiteArgs);
     if (prerequisites !== 0) return prerequisites;
-    const pluginResult = await installPlugins(plugins);
     status('Network', 'checking Tailscale Serve ownership and local relay port', 'off');
     let result = 1;
     for (;;) {
@@ -644,21 +570,15 @@ export async function applyMachineSetup(args = []) {
         `Herdr: ${found.herdr.running ? 'running' : 'started during setup'}`,
         `Integrations: ${syncIntegrations ? 'selected providers synced' : 'unchanged'}`,
         `Pairing: ${pairingReceiptLabel(pairing, browserPairFailed)}${browserGrantNote(pairing, { failed: browserPairFailed })}`,
-        `Plugins: bundled${pluginResult.installed.length ? ` + ${pluginResult.installed.map((plugin) => plugin.title).join(', ')}` : ''}`,
-        ...(pluginResult.failed.length ? [
-            `Add-ons needing attention: ${pluginResult.failed.map((plugin) => plugin.title).join(', ')}`,
-            'Retry add-ons by rerunning `muxr setup`; core pairing remains active.',
-        ] : []),
         `Configuration: ${selfhostPath()} (owner-only; use \`muxr setup\` to change the route)`,
     ]);
-    const partial = browserPairFailed || pluginResult.failed.length > 0;
-    outro(partial
-        ? 'Core setup is ready, but one or more optional steps need attention.'
+    outro(browserPairFailed
+        ? 'Core setup is ready, but browser pairing needs attention.'
         : pairing === 'none'
-            ? 'Setup updated. Existing devices will reconnect automatically.'
-            : 'Paired. Open muxr on your phone, or run `muxr` anytime to change these choices.', partial ? 'warn' : 'ok');
+            ? 'Setup updated. Run `muxr pair` to connect another device.'
+            : 'Paired. Open muxr on your phone, or run `muxr` anytime to change these choices.', browserPairFailed ? 'warn' : 'ok');
     completeFullscreen();
-    return partial ? 1 : 0;
+    return browserPairFailed ? 1 : 0;
     });
 }
 
@@ -807,7 +727,6 @@ export async function connectRemoteRelay() {
     ];
     const pairing = await select('Which client should pair?', pairingChoices);
     if (aborted(pairing)) return cancelled();
-    const plugins = [];
     heading('Review remote connection');
     note([
         'Relay location: shared remote server',
@@ -817,7 +736,6 @@ export async function connectRemoteRelay() {
         'Credential: scoped to this machine; relay-owner authority is never copied here',
         `Herdr: ${found.herdr.installed ? 'adopt and start existing installation' : 'download, install, and start during setup'}`,
         `Integrations: ${syncIntegrations ? 'sync detected providers' : 'leave unchanged'}`,
-        `Plugins: ${plugins.length ? plugins.map((plugin) => plugin.title).join(', ') : 'bundled only'}`,
         `Pairing: ${pairing === 'none' ? 'not now' : pairingChoiceLabel(pairing)}`,
         ...(current === undefined ? [] : [`Existing setup: replace ${current.relayLocation} relay ${current.relayUrl ?? ''}; every existing device needs a fresh pairing`]),
         'No local or remote state changes until you choose Apply connection.',
@@ -832,7 +750,6 @@ export async function connectRemoteRelay() {
         ...(syncIntegrations ? [] : ['--no-integrations']),
     ]);
     if (prerequisites !== 0) return prerequisites;
-    const pluginResult = await installPlugins(plugins);
     const connectArgs = ['--enrollment', raw, '--force',
         ...(pairing === 'none' ? ['--no-pair'] : []),
         ...(pairing === 'browser' ? ['--pair-browser'] : []),
@@ -852,8 +769,6 @@ export async function connectRemoteRelay() {
         `Local host service: ${summary?.hostRunning ? 'running' : 'check required'}`,
         `Machine credential expires: ${summary?.credentialExpiresAt ? new Date(summary.credentialExpiresAt).toLocaleDateString() : 'unavailable'}`,
         `Pairing: ${pairing === 'none' ? 'not requested' : `${pairing} completed`}`,
-        `Plugins: bundled${pluginResult.installed.length ? ` + ${pluginResult.installed.map((plugin) => plugin.title).join(', ')}` : ''}`,
-        ...(pluginResult.failed.length ? [`Plugin install failed: ${pluginResult.failed.map((plugin) => plugin.title).join(', ')}`] : []),
         `Configuration: ${selfhostPath()} (owner-only; ask the relay owner for a new enrollment to change this route)`,
     ]);
     outro('Ready. The local host connects outbound to the shared relay; Herdr must remain running on this machine.');

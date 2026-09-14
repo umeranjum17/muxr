@@ -1,6 +1,6 @@
 import * as React from 'react';
 import * as Linking from 'expo-linking';
-import { ActivityIndicator, Platform, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
@@ -177,7 +177,7 @@ export default function PairScreen() {
     }, [openedFromSettings, router]);
 
     return (
-        <View style={[styles.screen, { paddingBottom: insets.bottom + 24 }]}>
+        <ScrollView style={styles.scroll} contentContainerStyle={[styles.screen, { paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled">
             <View style={styles.hero}>
                 <View style={styles.iconBadge}>
                     <Ionicons name="desktop-outline" size={30} color={styles.icon.color} />
@@ -277,13 +277,16 @@ export default function PairScreen() {
                     </>
                 )}
             </View>
-        </View>
+        </ScrollView>
     );
 }
 
 const styles = StyleSheet.create((theme) => ({
-    screen: {
+    scroll: {
         flex: 1,
+    },
+    screen: {
+        flexGrow: 1,
         paddingHorizontal: 24,
         justifyContent: 'center',
         gap: 24,
@@ -420,7 +423,7 @@ const styles = StyleSheet.create((theme) => ({
         backgroundColor: theme.colors.surfaceHighest,
         color: theme.colors.text,
         paddingHorizontal: 14,
-        fontSize: 15,
+        fontSize: 16,
     },
     inputPlaceholder: {
         color: theme.colors.textSecondary,

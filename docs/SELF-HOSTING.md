@@ -15,14 +15,14 @@ muxr
 The interactive onboarding inspects the machine without changing it. It shows
 all six connection routes together, explains each requirement, and recommends
 the healthy current route or a detected route. You then choose
-whether to host the control/view-only web client, agent integrations, optional
-plugins, and managed services. After a final **Apply setup** confirmation, muxr
+whether to host the control/view-only web client and sync agent integrations.
+After a final **Apply setup** confirmation, muxr
 starts the selected relay and host, then:
 
 1. Stores strict E2EE relay state under `~/.muxr/relay`.
 2. Runs the selected phone, browser, or sequential pairing flow.
 3. Reports the selected route, exact `selfhost.json` path, relay URL, web URL when enabled, service health,
-   pairing result, integrations, and plugins. Credentials and internal IDs are
+   pairing result, and integrations. Credentials and internal IDs are
    never included in this final summary.
 
 muxr never installs skills or edits AGENTS/CLAUDE instruction files. Agents use
@@ -59,6 +59,11 @@ Automation uses:
 | `--tailscale-direct` | Rollback path using the tailnet IP directly. |
 | *(detected private network)* | Uses the address on an existing NetBird, WireGuard, ZeroTier, or similar interface. The phone must join that same private network. |
 | *(choose Same Wi-Fi)* | Local network address. Phone must be on the same trusted network. |
+
+For either Tailscale route, connect the phone to the same tailnet before pairing.
+Nearby mDNS discovery is only a locator for an already-paired native app; it
+never grants a new device access. A new phone still needs the one-time QR or
+pairing string, and the PWA cannot scan local mDNS advertisements.
 
 Before applying Serve, the wizard checks that it is available and not already owned. A timeout or invalid JSON response is inconclusive, so muxr keeps Serve recommended and lets the bounded Apply decide. Only proven disabled or occupied Serve changes the recommendation; muxr then preserves the existing state and offers direct Tailscale.
 
@@ -136,9 +141,10 @@ friendly name or list number. Revocation immediately invalidates unused tickets,
 disconnects the host and its devices, and cannot affect another enrolled machine.
 The relay still routes E2EE ciphertext only.
 
-Changing a relay endpoint requires fresh pairing because existing devices pin
-the endpoint from their pairing grant. Plugin and agent changes sync live and do
-not require pairing again.
+Changing a relay endpoint normally requires fresh pairing because devices pin
+the endpoint from their pairing grant. On the same LAN, an already-paired native
+app can adopt a discovered address only after verifying it with its saved grant.
+Plugin and agent changes sync live and do not require pairing again.
 
 ## Updating
 

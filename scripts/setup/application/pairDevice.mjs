@@ -145,16 +145,24 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             print('Open the muxr app on your phone before scanning.');
             print('  Android: https://github.com/umeranjum17/muxr/releases/latest');
             print('  iPhone: https://testflight.apple.com/join/aJSbs8pN — Apple is not accepting new testers right now');
+            if (state.connectionMode === 'tailscale' || state.connectionMode === 'tailscale-direct') {
+                print('Connect Tailscale on this phone to the same tailnet before pairing.');
+            }
             print('Not ready? Press Ctrl-C and run `muxr pair` later.');
             print('');
         }
         const pairValue = pending.pairString;
         if (typeof pairValue !== 'string') throw new Error('pairing string is unavailable');
+        print(waiting.requiresWebHosting
+            ? `This one-time link grants ${waiting.authority === 'observe' ? 'view-only' : 'control'} browser access. Keep it private.`
+            : 'This one-time QR grants a phone control of agent sessions on this computer. Keep it private.');
+        print(`Pairing code expires at ${new Date(pending.expiresAt).toLocaleString()}.`);
         if (!waiting.requiresWebHosting && process.stdout.isTTY) await printTerminalQr(pairValue);
         print(waiting.requiresWebHosting
             ? waiting.promptLine()
             : 'Pairing string (expires in two minutes):');
         print(pairValue);
+        if (!waiting.requiresWebHosting) print('If the QR is hidden, enter the exact pairing string in the phone app. An expired QR is replaced automatically.');
         if (waiting.requiresWebHosting) print('Browser access expires after eight hours.');
         const pairFile = join(stateDir(), 'pairing-string.txt');
         writeFileSync(pairFile, `${pairValue}\n`, { mode: 0o600 });

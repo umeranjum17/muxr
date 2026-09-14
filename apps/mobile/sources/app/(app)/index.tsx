@@ -34,6 +34,7 @@ function NotAuthenticated() {
     const insets = useSafeAreaInsets();
     const hosted = getCachedConnectionSettings().mode === 'hosted';
     const pairing = React.useRef(false);
+    const setupScrollRef = React.useRef<ScrollView>(null);
     const [setupCopyStatus, setSetupCopyStatus] = React.useState<string | undefined>();
     const setupCommands = 'npm install -g --ignore-scripts @trymuxr/cli@latest\nmuxr setup';
     const copySetupCommands = async () => {
@@ -94,7 +95,9 @@ function NotAuthenticated() {
     if (hosted) {
         return (
             <View style={styles.screen}>
-                <ScrollView style={styles.hostedScroll} contentContainerStyle={styles.hostedContent} keyboardShouldPersistTaps="handled">
+                <ScrollView ref={setupScrollRef} style={styles.hostedScroll} contentContainerStyle={styles.hostedContent}
+                    keyboardShouldPersistTaps="handled"
+                    onContentSizeChange={() => { if (setupCopyStatus) setupScrollRef.current?.scrollToEnd({ animated: false }); }}>
                     <View style={[styles.hero, styles.hostedHero]}>
                         <Wordmark width={128} />
                         <Text style={[styles.title, styles.hostedTitle]}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : 'Run your agents from your phone.'}</Text>
@@ -225,7 +228,7 @@ const styles = StyleSheet.create((theme) => ({
     hostedContent: {
         flexGrow: 1,
         justifyContent: 'flex-end',
-        paddingTop: 20,
+        paddingTop: 12,
     },
     hostedPairActions: {
         paddingTop: 12,
@@ -235,10 +238,10 @@ const styles = StyleSheet.create((theme) => ({
     },
     hostedHero: {
         flex: 0,
-        paddingBottom: 22,
+        paddingBottom: 14,
     },
     hostedTitle: {
-        marginTop: 20,
+        marginTop: 14,
     },
     hero: {
         flex: 1,
@@ -305,7 +308,7 @@ const styles = StyleSheet.create((theme) => ({
         backgroundColor: theme.colors.surfaceHigh,
         borderWidth: 1,
         borderColor: theme.colors.divider,
-        gap: 8,
+        gap: 7,
         marginBottom: 8,
     },
     setupHeading: {
@@ -316,14 +319,14 @@ const styles = StyleSheet.create((theme) => ({
     },
     setupStep: {
         ...Typography.default(),
-        fontSize: 13,
-        lineHeight: 18,
+        fontSize: 14,
+        lineHeight: 21,
         color: theme.colors.textSecondary,
     },
     setupCommands: {
         ...Typography.mono(),
-        fontSize: 12,
-        lineHeight: 18,
+        fontSize: 13,
+        lineHeight: 19,
         color: theme.colors.text,
         backgroundColor: theme.colors.surfaceHighest,
         padding: 10,
@@ -331,8 +334,8 @@ const styles = StyleSheet.create((theme) => ({
     },
     copyStatus: {
         ...Typography.default(),
-        fontSize: 12,
-        lineHeight: 17,
+        fontSize: 13,
+        lineHeight: 19,
         color: theme.colors.textSecondary,
     },
     // Landscape styles
