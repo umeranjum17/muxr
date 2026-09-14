@@ -2,13 +2,19 @@
  * Protocol-20 Herdr client socket. The host's graphics bridge is the client;
  * this is the server that handshake must satisfy.
  *
+ * Frames are delivered the way Herdr delivers a direct-graphics image: the
+ * pixels are written to a leased file and a `GraphicsFile` message names it,
+ * one transfer at a time, each released only when the client acknowledges it.
+ *
  * Frames are pane-sized: cols x rows x cell px from the world's phone
- * geometry, falling back to the measured 539x575 attach. The write path is
- * capped at the ~3 MB/s the real Herdr app-client socket sustains, so a burst
- * of paints queues instead of flushing instantly.
+ * geometry, falling back to the measured 539x575 attach. Paints are paced at
+ * the ~3 MB/s of pixels the real transport sustains, so a burst of paints
+ * queues instead of flushing instantly.
  */
-import { appendFileSync, existsSync, unlinkSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const PROTOCOL_VERSION = 20;
 const MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
@@ -70,10 +76,21 @@ export function welcomePayload() {
     return Buffer.concat([uint(0), uint(PROTOCOL_VERSION), uint(0), uint(0)]);
 }
 
-export function outputPayload(bytes) {
+function lengthPrefixed(value) {
+    const data = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    return Buffer.concat([uint(data.length), data]);
+}
+
+/** `GraphicsFile`: the leased path plus the control the client re-encodes from. */
+export function graphicsFilePayload({ path, length, imageId, transferId, leading, control }) {
     return Buffer.concat([
-        uint(2), uint(0), uint(0), uint(0), uint(0),
-        uint(bytes.length), bytes,
+        uint(13),
+        lengthPrefixed(path),
+        uint(length),
+        uint(imageId),
+        uint(transferId),
+        lengthPrefixed(leading),
+        lengthPrefixed(control),
     ]);
 }
 
@@ -167,7 +184,7 @@ const PROOF_BLOCK_HEIGHT = 35;
  */
 const MARKER_STRIDE = 7;
 
-function kittyChunk({ row, col, imageId, width, height, rgba, cols, rows, proof = false, offset = 0 }) {
+function paintFrame({ imageId, width, height, rgba, proof = false, offset = 0 }) {
     // Cheap unique fill: one byte for the field, then a 32-bit stamp so two
     // consecutive payloads cannot be byte-identical even if the fill wrapped.
     rgba.fill((imageId * 37) & 255);
@@ -197,15 +214,34 @@ function kittyChunk({ row, col, imageId, width, height, rgba, cols, rows, proof 
     rgba[5] = (imageId * 19) & 255;
     rgba[6] = 180 ^ ((imageId * 13) & 255);
     rgba[7] = 255;
-    const payload = rgba.toString('base64');
-    // Transmit then place: the host's inline store only admits a=t|q, then routes a=p|T.
-    // The placement covers the pane, which is what a repainting producer does
-    // and what makes the host classify this as the pane's whole surface.
-    return Buffer.from(
-        `\u001b[${row};${col}H`
-        + `\u001b_Ga=t,f=32,s=${width},v=${height},i=${imageId},m=0;${payload}\u001b\\`
-        + `\u001b_Ga=p,i=${imageId},c=${cols},r=${rows};\u001b\\`,
-    );
+}
+
+/**
+ * One leased file per transfer, released on the client's ack. Herdr owns the
+ * file until then and the client stats it either side of its read, so a frame
+ * may never overwrite one still in flight.
+ */
+function createLease(dir) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const open = new Map();
+    return {
+        write(transferId, rgba) {
+            const path = join(dir, `frame-${transferId}.rgba`);
+            writeFileSync(path, rgba, { mode: 0o600 });
+            open.set(transferId, path);
+            return path;
+        },
+        release(transferId) {
+            const path = open.get(transferId);
+            if (path === undefined) return;
+            open.delete(transferId);
+            try { unlinkSync(path); } catch { /* harness removed its scratch dir */ }
+        },
+        releaseAll() {
+            for (const transferId of [...open.keys()]) this.release(transferId);
+        },
+        get outstanding() { return open.size; },
+    };
 }
 
 // ClientHello transports the native cell metrics even if a stable grid never
@@ -234,6 +270,18 @@ function readType(payload) {
     if (prefix === undefined) return -1;
     if (prefix <= 250) return prefix;
     return -1;
+}
+
+/** The transfer a `GraphicsResult`/`GraphicsStarted` names, after its tag. */
+function readTransferId(payload) {
+    let at = 1;
+    const prefix = payload[at++];
+    if (prefix === undefined) return undefined;
+    if (prefix <= 250) return prefix;
+    const bytes = prefix === 251 ? 2 : prefix === 252 ? 4 : prefix === 253 ? 8 : 0;
+    if (bytes === 0 || at + bytes > payload.length) return undefined;
+    const value = bytes === 8 ? Number(payload.readBigUInt64LE(at)) : payload.readUIntLE(at, bytes);
+    return Number.isSafeInteger(value) ? value : undefined;
 }
 
 function createPacer({ socket, bytesPerSecond, timers, isClosed, buildFrame, frameBytes }) {
@@ -332,12 +380,13 @@ function decodeSgr(payload) {
 }
 
 function serveClient(socket, options) {
-    const { world, frameHz, imageWidth, imageHeight, bytesPerSecond, timers, isClosed, onReady, inputLogPath, pinPaneId } = options;
+    const { world, frameHz, imageWidth, imageHeight, bytesPerSecond, timers, isClosed, onReady, inputLogPath, pinPaneId, lease } = options;
     let buffered = Buffer.alloc(0);
     let welcomed = false;
     const rgba = Buffer.alloc(imageWidth * imageHeight * 4);
     const cursors = paneCursors(world);
     let imageId = 1;
+    let transferId = 1;
     let requested = 0;
     let requestTimer;
     let periodicTimer;
@@ -351,7 +400,9 @@ function serveClient(socket, options) {
         bytesPerSecond,
         timers,
         isClosed,
-        frameBytes: Math.ceil(imageWidth * imageHeight * 4 * 4 / 3) + 256,
+        // The pixels travel by file, not down this socket, so the pace is the
+        // raw frame rather than its base64 inflation.
+        frameBytes: imageWidth * imageHeight * 4,
         buildFrame: () => {
             const watched = pinPaneId ?? targetPaneId;
             const wanted = watched === undefined
@@ -364,19 +415,29 @@ function serveClient(socket, options) {
             const cursor = wanted
                 ?? (options.enableFile !== undefined ? cursors[0] : cursors[imageId % cursors.length])
                 ?? cursors[0];
-            const bytes = kittyChunk({
-                ...cursor,
+            paintFrame({
                 imageId,
                 width: imageWidth,
                 height: imageHeight,
                 rgba,
                 proof: options.enableFile !== undefined,
                 offset: scrollOffset,
-                cols: Math.max(1, cursor?.rect?.width ?? 1),
-                rows: Math.max(1, cursor?.rect?.height ?? 1),
             });
+            const id = imageId;
+            const transfer = transferId;
             imageId += 1;
-            return frame(outputPayload(bytes));
+            transferId += 1;
+            const path = lease.write(transfer, rgba);
+            return frame(graphicsFilePayload({
+                path,
+                length: rgba.length,
+                imageId: id,
+                transferId: transfer,
+                // The cell the image is placed at: the client routes the frame
+                // to a pane by matching this against the pane's rect.
+                leading: `\u001b[${cursor?.row ?? 1};${cursor?.col ?? 1}H`,
+                control: `a=T,f=32,s=${imageWidth},v=${imageHeight},i=${id}`,
+            }));
         },
     });
     const paint = () => {
@@ -471,6 +532,11 @@ function serveClient(socket, options) {
                     periodicTimer = setInterval(paint, Math.max(1, Math.round(1000 / frameHz)));
                     timers.add(periodicTimer);
                 }
+            } else if (type === 10) {
+                // The client is done with the leased file: Herdr owns it until
+                // this arrives, so it is released here and never before.
+                const done = readTransferId(payload);
+                if (done !== undefined) lease.release(done);
             } else if (type === 4) {
                 stop();
                 socket.end();
@@ -491,6 +557,7 @@ export async function startGraphics({
     inputLogPath,
     enableFile,
     pinPaneId,
+    leaseDir,
 } = {}) {
     try { unlinkSync(socketPath); } catch { /* leftover from a killed run */ }
     const sockets = new Set();
@@ -504,6 +571,7 @@ export async function startGraphics({
     const width = size.width;
     const height = size.height;
     const bps = positiveInt(bytesPerSecond, DEFAULT_BYTES_PER_SECOND);
+    const lease = createLease(leaseDir ?? join(tmpdir(), `fake-herdr-graphics-${process.pid}`));
 
     let orphanPaneId;
     let orphanOffset;
@@ -535,6 +603,7 @@ export async function startGraphics({
             inputLogPath,
             enableFile,
             pinPaneId,
+            lease,
             onReady: (emit) => {
                 emitters.add(emit);
                 socket.once('close', () => emitters.delete(emit));
@@ -561,6 +630,7 @@ export async function startGraphics({
             timers.clear();
             for (const socket of sockets) socket.destroy();
             sockets.clear();
+            lease.releaseAll();
             server.close();
             try { unlinkSync(socketPath); } catch { /* listen never created it */ }
         },

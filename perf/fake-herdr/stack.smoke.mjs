@@ -194,7 +194,7 @@ async function run() {
     console.log('ok: a scroll answered with a full repaint');
 
     await waitFor(() => frames.some((frame) => frame.graphics === true), 'a graphics frame');
-    console.log('ok: inline Kitty reached the client as a graphics frame');
+    console.log('ok: a leased Herdr image reached the client as a graphics frame');
 
     // Title churn is a load generator, not news. Every pane renames itself
     // twice a second and the host deliberately keeps the terminal title out of
