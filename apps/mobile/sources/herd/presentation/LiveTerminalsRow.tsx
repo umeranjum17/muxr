@@ -15,7 +15,7 @@ import {
     type LiveTerminalOrderCard,
 } from '../application/liveTerminalOrder';
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
-import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, isGenericLaunchTitle } from '../domain/agentPresentation';
+import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, agentTaskLine } from '../domain/agentPresentation';
 import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { TerminalPreview } from '@/terminal/ui';
@@ -95,13 +95,12 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
     const labels = agentLabels(card);
     const dot = agentStatusColor(card.agentStatus, theme);
     const live = terminalIsLive(card);
-    const genericTitle = isGenericLaunchTitle(labels.taskTitle);
-    const title = genericTitle ? agentNameLine(labels) || labels.agentName : labels.taskTitle;
+    const title = agentTaskLine(labels);
     return (
         <Pressable
             onPress={() => navigateToSession(card.id)}
             accessibilityRole="button"
-            accessibilityLabel={agentAccessibilityLabel({ ...labels, taskTitle: title }, card.agentStatus, card.changedAt)}
+            accessibilityLabel={agentAccessibilityLabel(labels, card.agentStatus, card.changedAt)}
             style={({ pressed }) => [
                 stylesheet.card,
                 liveTerminalBucket(card.agentStatus) === 'attention' && stylesheet.attentionCard,
@@ -113,10 +112,10 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
             </View>
             <View style={stylesheet.cardFooter}>
                 <View style={stylesheet.titleRow}>
-                    <AgentGlyph name={labels.agentKind ?? labels.agentName} size={16} />
+                    <AgentGlyph name={labels.agentKind ?? labels.agentName ?? 'agent'} size={16} />
                     <View style={stylesheet.footerCopy}>
                         <Text numberOfLines={1} style={stylesheet.title}>{title}</Text>
-                        {!genericTitle && <Text numberOfLines={1} style={stylesheet.identity}>{agentNameLine(labels)}</Text>}
+                        <Text numberOfLines={1} style={stylesheet.identity}>{agentNameLine(labels)}</Text>
                     </View>
                     <View style={stylesheet.status}>
                         <Text numberOfLines={1} style={[stylesheet.statusText, { color: dot.color }]}>
@@ -162,16 +161,9 @@ export const LiveTerminalsRow = React.memo(({
         index,
     }), [cardInterval]);
     const panes = React.useMemo(() => herdPanes(sessions, workspaces), [sessions, workspaces]);
-    const liveTitles = React.useMemo(() => {
-        const titles = new Map<string, string>();
-        for (const pane of panes) {
-            if (pane.taskTitle !== undefined && pane.taskTitle !== '') titles.set(pane.id, pane.taskTitle);
-        }
-        return titles;
-    }, [panes]);
     const activityRows = React.useMemo(
-        () => ready ? unseenActivityRows(lifecycleEvents, seenEventIds, Date.now(), 8, liveTitles) : [],
-        [lifecycleEvents, liveTitles, ready, seenEventIds],
+        () => ready ? unseenActivityRows(lifecycleEvents, seenEventIds, Date.now(), 8) : [],
+        [lifecycleEvents, ready, seenEventIds],
     );
     const unseenAgentIds = React.useMemo(() => new Set(activityRows.map((row) => row.sessionId)), [activityRows]);
     const candidateCards = React.useMemo(

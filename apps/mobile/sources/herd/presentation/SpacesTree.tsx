@@ -17,7 +17,7 @@ import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { buildSpaceRows, middleTruncate, spaceSummary, workspaceName, type HerdRow, type HerdWorktreeRow, type SpaceCounts } from '../domain/herdTree';
-import { agentLabels, agentStateLabel, isGenericLaunchTitle, isShellLabels } from '../domain/agentPresentation';
+import { agentLabels, agentNameLine, agentStateLabel, agentTaskLine, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
 import { AgentGlyph } from '@/components/AgentGlyph';
@@ -236,10 +236,8 @@ const AgentRow = React.memo(({
     const labels = agentLabels(pane);
     const sessionId = pane.sessionId;
     const shell = isShellLabels(labels);
-    const identity = shell ? 'Shell' : labels.agentKind && labels.agentName !== 'Unnamed agent'
-        ? `${labels.agentKind}/${labels.agentName}` : labels.agentName;
-    const genericTitle = isGenericLaunchTitle(labels.taskTitle);
-    const task = genericTitle || labels.taskTitle === labels.agentName || shell ? '' : labels.taskTitle;
+    const identity = agentNameLine(labels);
+    const task = shell ? undefined : labels.taskTitle;
     const cwdName = pane.cwd?.replace(/\/+$/, '').split('/').pop();
     const subtitle = [agentStateLabel(pane.agentStatus, pane.changedAt), shell ? cwdName : task].filter(Boolean).join(' · ');
 
@@ -261,7 +259,7 @@ const AgentRow = React.memo(({
                 accessibilityState={{ selected }}
                 accessibilityLabel={[`Open ${identity}`, subtitle].filter(Boolean).join(', ')}
             >
-                <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
+                <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName ?? 'agent'} size={16} />
                 <View style={styles.agentText}>
                     <Text numberOfLines={1} style={[styles.agentName, compact && styles.agentNameCompact]}>{identity}</Text>
                     <Text numberOfLines={1} style={[styles.agentSubtitle, compact && styles.agentSubtitleCompact]}>{subtitle}</Text>
@@ -448,7 +446,7 @@ export const SpacesTree = React.memo(({
         const sessionId = pane.sessionId;
         if (sessionId === undefined) return;
         const labels = agentLabels(pane);
-        Modal.alert('Close pane?', `Closes only the pane for "${labels.taskTitle}" (${labels.agentName}) in herdr. If that would also close its tab, nothing closes.`, [
+        Modal.alert('Close pane?', `Closes only the pane for "${agentTaskLine(labels)}" (${agentNameLine(labels)}) in herdr. If that would also close its tab, nothing closes.`, [
             { text: 'Cancel', style: 'cancel' },
             { text: 'Close', style: 'destructive', onPress: () => {
                 storage.getState().applyHerdrTree(storage.getState().herdrWorkspaces.map((workspace) => ({

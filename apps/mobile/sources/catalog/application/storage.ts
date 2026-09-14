@@ -33,7 +33,7 @@ import { buildMessagesMap } from '../infrastructure/messageAdapter';
 import { getRigActivityIndicators, getRigIdentity } from '../infrastructure/rig';
 import { getSessionName, getSessionSubtitle, getSessionAvatarId, type SessionState } from '@/herd';
 import { agentRowAttention, mergeCatalogAgent } from '../domain/agent';
-import { herdrPaneForSession } from '@/herd/domain/agentPresentation';
+import { agentLabels, agentTaskLine, herdrPaneForSession } from '@/herd/domain/agentPresentation';
 import { readAgentSession } from './readAgentSession';
 
 function resolveSessionOnlineState(session: { active: boolean; activeAt: number }): 'online' | number {
@@ -631,7 +631,7 @@ export function useAttentionRows(): AttentionRowData[] {
                 const pane = herdrPaneForSession(workspaces, entry.sessionId);
                 return {
                     sessionId: entry.sessionId,
-                    name: session !== undefined ? getSessionName(session, pane) : pane?.taskTitle ?? pane?.agentName ?? 'Agent',
+                    name: session !== undefined ? getSessionName(session, pane) : pane === undefined ? 'Agent' : agentTaskLine(agentLabels(pane)),
                     reason: entry.reason,
                     detail: entry.detail,
                     at: Date.parse(entry.at) || 0,

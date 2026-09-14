@@ -544,7 +544,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const linesAdded = gitStatus !== null && gitStatus.linesAdded > 0 ? `+${gitStatus.linesAdded}` : null;
     const linesRemoved = gitStatus !== null && gitStatus.linesRemoved > 0 ? `−${gitStatus.linesRemoved}` : null;
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
-    const contextTitle = labels.taskTitle;
+    const contextTitle = agentTaskLine(labels);
     const headerLifecycle = terminalPaneStatus(currentPane);
     return (
         <ScopedTheme name="dark"><DarkSurface>{(theme) => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LifecycleEvent } from '@muxr/contract';
 import type { Session } from '@/catalog';
 import type { HerdPane } from '../domain/herd';
-import { agentAccessibilityLabel, agentLabels, agentStateLabel } from '../domain/agentPresentation';
+import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, agentTaskLine } from '../domain/agentPresentation';
 import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import {
     nextWorkingAgentId,
@@ -83,10 +83,7 @@ describe('agent lifecycle presentation', () => {
         const pending = session('pending', 300, 'starting');
         pending.metadata!.agentKind = 'omp';
         Object.assign(pending.metadata!, { agentName: 'Stale Otter', taskTitle: 'Stale task' });
-        expect(agentLabels()).toMatchObject({
-            taskTitle: 'Shell',
-            agentName: 'Shell',
-        });
+        expect(agentLabels()).toEqual({});
 
         const joined = reconcileLiveTerminalCards(treeOnly, selectLiveTerminalCards([
             session('second', 200, 'done', 20),
@@ -101,6 +98,28 @@ describe('agent lifecycle presentation', () => {
             [pane('first', 'blocked', 200), pane('second', 'done', 200)],
         );
         expect(reconcileLiveTerminalCards(joined, equivalent)).toBe(joined);
+    });
+
+    it('keeps Herdr names and titles exact while display fallbacks stay outside the fields', () => {
+        const named = agentLabels({
+            agentName: '  Dr. Ada/Lovelace · R&D  ',
+            taskTitle: 'Review: sync + voice (v2)?',
+            agentKind: 'codex',
+        } as HerdPane);
+        expect(named.agentName).toBe('  Dr. Ada/Lovelace · R&D  ');
+        expect(named.taskTitle).toBe('Review: sync + voice (v2)?');
+        expect(agentNameLine(named)).toBe(named.agentName);
+        expect(agentTaskLine(named)).toBe(named.taskTitle);
+
+        const untitled = agentLabels({ agentName: 'Manually named agent', agentKind: 'codex' } as HerdPane);
+        expect(untitled.taskTitle).toBeUndefined();
+        expect(agentTaskLine(untitled)).toBe('Untitled task');
+
+        const privateProjection = agentLabels({ agentName: 'pp_opaque', taskTitle: 'pph_secret', agentKind: 'codex' } as HerdPane);
+        expect(privateProjection.agentName).toBeUndefined();
+        expect(privateProjection.taskTitle).toBeUndefined();
+        expect(agentNameLine(privateProjection)).toBe('Codex');
+        expect(agentTaskLine(privateProjection)).toBe('Untitled task');
     });
 
     it('shows only unseen meaningful transitions from the last day, latest per agent', () => {
@@ -131,8 +150,11 @@ describe('agent lifecycle presentation', () => {
         ]);
         const namedAsTitle = event('named', 'five', 'done', '2026-01-01T23:55:00.000Z');
         namedAsTitle.taskTitle = 'Otter';
-        expect(unseenActivityRows([namedAsTitle], new Set(), now, 8, new Map([['five', 'Fix realtime voice']]))[0]?.taskTitle)
-            .toBe('Fix realtime voice');
+        expect(unseenActivityRows([namedAsTitle], new Set(), now)[0]?.taskTitle).toBe('Otter');
+        const untitledEvent = event('untitled', 'six', 'blocked', '2026-01-01T23:54:00.000Z');
+        delete untitledEvent.taskTitle;
+        expect(unseenActivityRows([untitledEvent], new Set(), now)[0]).toMatchObject({ agentName: 'Otter' });
+        expect(unseenActivityRows([untitledEvent], new Set(), now)[0]?.taskTitle).toBeUndefined();
 
         expect(unseenActivityRows([
             event('seen', 'seen-agent', 'done', '2026-01-01T23:59:30.000Z'),
