@@ -39,6 +39,22 @@ export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPr
         pressableProps.onMouseLeave = handleMouseLeave;
     }
     
+    if (command.secondaryAction !== undefined) return (
+        <View style={[styles.container, styles.agentContainer, isSelected && styles.selected, isHovered && !isSelected && styles.hovered]}>
+            <View style={styles.agentActions}>
+                <Pressable {...pressableProps} accessibilityRole="button" accessibilityLabel={`Send now: ${command.title}. ${command.subtitle ?? ''}`} style={styles.agentMain}>
+                    <Text numberOfLines={1} style={[styles.title, Typography.mono()]}>{command.title}</Text>
+                    <Text style={styles.primaryText}>Send</Text>
+                </Pressable>
+                <Pressable onPress={onSecondaryPress} accessibilityRole="button" accessibilityLabel={`${command.secondaryLabel ?? 'Edit arguments'} for ${command.title}`} style={styles.secondaryButton}>
+                    <Ionicons name="create-outline" size={18} color="#007AFF" />
+                    <Text style={styles.secondaryText}>{command.secondaryLabel ?? 'Edit'}</Text>
+                </Pressable>
+            </View>
+            {command.subtitle && <Text numberOfLines={2} style={[styles.subtitle, styles.agentSubtitle, Typography.default()]}>{command.subtitle}</Text>}
+        </View>
+    );
+
     return (
         <View style={[styles.container, isSelected && styles.selected, isHovered && !isSelected && styles.hovered]}>
             <Pressable {...pressableProps} accessibilityRole="button" accessibilityLabel={`${command.title}. ${command.subtitle ?? ''}. ${command.actionLabel ?? 'Open'}`}>
@@ -70,20 +86,16 @@ export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPr
                 )}
                 {command.secondaryAction !== undefined && <Text style={styles.primaryText}>Send</Text>}
             </Pressable>
-            {command.secondaryAction !== undefined && <Pressable onPress={onSecondaryPress} accessibilityRole="button" accessibilityLabel={`${command.secondaryLabel ?? 'Edit arguments'} for ${command.title}`} style={styles.secondaryButton}>
-                <Ionicons name="create-outline" size={18} color="#007AFF" />
-                <Text style={styles.secondaryText}>{command.secondaryLabel ?? 'Edit'}</Text>
-            </Pressable>}
         </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
-        paddingHorizontal: 24,
-        paddingVertical: 12,
+        paddingHorizontal: Platform.OS === 'web' ? 24 : 12,
+        paddingVertical: Platform.OS === 'web' ? 12 : 6,
         backgroundColor: 'transparent',
-        marginHorizontal: 8,
+        marginHorizontal: Platform.OS === 'web' ? 8 : 4,
         marginVertical: 2,
         borderRadius: 8,
         borderWidth: 2,
@@ -91,6 +103,10 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
     },
+    agentContainer: { flexDirection: 'column', alignItems: 'stretch' },
+    agentActions: { flexDirection: 'row', alignItems: 'center' },
+    agentMain: { flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
+    agentSubtitle: { marginTop: 2, lineHeight: 19 },
     selected: {
         backgroundColor: '#F0F7FF',
         borderColor: '#007AFF20',
@@ -128,7 +144,7 @@ const styles = StyleSheet.create({
         letterSpacing: -0.2,
     },
     subtitle: {
-        fontSize: 13,
+        fontSize: 14,
         color: '#666',
         letterSpacing: -0.1,
     },
@@ -144,6 +160,6 @@ const styles = StyleSheet.create({
         fontWeight: '500',
     },
     secondaryButton: { minHeight: 44, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 4 },
-    primaryText: { color: '#007AFF', fontSize: 12, fontWeight: '600', paddingHorizontal: 6 },
-    secondaryText: { color: '#007AFF', fontSize: 12, fontWeight: '600' },
+    primaryText: { color: '#007AFF', fontSize: 14, fontWeight: '600', paddingHorizontal: 6 },
+    secondaryText: { color: '#007AFF', fontSize: 14, fontWeight: '600' },
 });

@@ -86,7 +86,7 @@ export function CommandPaletteModal({
             onRequestClose={handleClose}
         >
             <KeyboardAvoidingView 
-                style={[styles.container, { paddingTop: Math.min(140, height * 0.12) }]}
+                style={[styles.container, { paddingTop: Platform.OS === 'web' ? Math.min(140, height * 0.12) : 12 }]}
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             >
                 <TouchableWithoutFeedback onPress={handleBackdropPress}>
