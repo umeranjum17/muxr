@@ -11,9 +11,10 @@ interface CommandPaletteInputProps {
     onKeyPress?: (key: string) => void;
     inputRef?: React.RefObject<TextInput | null>;
     appearance?: 'terminal';
+    compact?: boolean;
 }
 
-export function CommandPaletteInput({ value, onChangeText, onKeyPress, inputRef, appearance }: CommandPaletteInputProps) {
+export function CommandPaletteInput({ value, onChangeText, onKeyPress, inputRef, appearance, compact }: CommandPaletteInputProps) {
     const { theme: appTheme } = useUnistyles();
     const theme = appearance === 'terminal' ? darkTheme : appTheme;
     const wide = useWindowDimensions().width >= 500;
@@ -34,7 +35,7 @@ export function CommandPaletteInput({ value, onChangeText, onKeyPress, inputRef,
         <View style={[styles.container, { borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }]}>
             <TextInput
                 ref={inputRef}
-                style={[styles.input, { paddingHorizontal: wide ? 24 : 16, paddingVertical: wide ? 18 : 12, fontSize: wide ? 20 : 16, color: theme.colors.text }, Typography.default()]}
+                style={[styles.input, { paddingHorizontal: wide ? 24 : 16, paddingVertical: compact ? 8 : wide ? 18 : 12, fontSize: wide ? 20 : 16, color: theme.colors.text }, Typography.default()]}
                 value={value}
                 onChangeText={onChangeText}
                 placeholder={t('commandPalette.placeholder')}

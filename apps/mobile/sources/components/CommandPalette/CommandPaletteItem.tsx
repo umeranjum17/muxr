@@ -13,9 +13,10 @@ interface CommandPaletteItemProps {
     onSecondaryPress?: () => void;
     onHover?: () => void;
     appearance?: 'terminal';
+    compact?: boolean;
 }
 
-export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPress, onHover, appearance }: CommandPaletteItemProps) {
+export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPress, onHover, appearance, compact }: CommandPaletteItemProps) {
     const { theme: appTheme } = useUnistyles();
     const theme = appearance === 'terminal' ? darkTheme : appTheme;
     const [isHovered, setIsHovered] = React.useState(false);
@@ -30,10 +31,10 @@ export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPr
     };
 
     if (command.secondaryAction !== undefined) return (
-        <View style={[rowStyle, styles.agentContainer]}>
+        <View style={[rowStyle, styles.agentContainer, compact && styles.compactAgentContainer]}>
             <Text numberOfLines={1} style={[styles.agentTitle, { color: theme.colors.text }, Typography.mono()]}>{command.title}</Text>
-            {command.subtitle && <Text numberOfLines={2} style={[styles.agentSubtitle, { color: theme.colors.textSecondary }, Typography.default()]}>{command.subtitle}</Text>}
-            <View style={styles.agentActions}>
+            {command.subtitle && <Text numberOfLines={2} style={[styles.agentSubtitle, compact && styles.compactAgentSubtitle, { color: theme.colors.textSecondary }, Typography.default()]}>{command.subtitle}</Text>}
+            <View style={[styles.agentActions, compact && styles.compactAgentActions]}>
                 <Pressable {...hoverProps} onPress={onPress} accessibilityRole="button"
                     accessibilityLabel={`Send now: ${command.title}. ${command.subtitle ?? ''}`}
                     style={({ pressed }) => [styles.sendButton, { backgroundColor: theme.colors.button.primary.background, opacity: pressed ? 0.72 : 1 }]}>
@@ -72,9 +73,12 @@ export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPr
 const styles = StyleSheet.create({
     container: { marginHorizontal: 8, marginVertical: 3, borderRadius: 12, borderWidth: 1, borderLeftWidth: 3 },
     agentContainer: { paddingHorizontal: 14, paddingVertical: 12 },
+    compactAgentContainer: { paddingVertical: 8 },
     agentTitle: { fontSize: 15, lineHeight: 22 },
     agentSubtitle: { fontSize: 14, lineHeight: 20, marginTop: 3 },
+    compactAgentSubtitle: { lineHeight: 18 },
     agentActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
+    compactAgentActions: { marginTop: 8 },
     sendButton: { flex: 1, minHeight: 40, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
     editButton: { flex: 1, minHeight: 40, borderRadius: 9, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
     actionText: { fontSize: 14 },
