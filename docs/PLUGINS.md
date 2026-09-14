@@ -1,6 +1,6 @@
 # Build a muxr plugin
 
-For installation, configuration, permissions, and Task titles as a user, see [Using plugins](USING-PLUGINS.md). This page is the developer manifest and host API contract.
+For installation, configuration, and permissions as a user, see [Using plugins](USING-PLUGINS.md). This page is the developer manifest and host API contract.
 
 muxr plugins are designed to be small. The target workflow is to install one folder on the computer running Herdr and have its enabled native UI appear in muxr.
 
@@ -569,8 +569,6 @@ Read input in Node with `JSON.parse(readFileSync(0, 'utf8') || 'null')`.
 with mode 0700. Keep caches, saved commands and credentials there rather than
 inventing a path under the user's home. It is not a secret vault: the host user
 can read it, and so can any other plugin running as that user.
-
-The bundled `muxr.task-titles` package is a narrow exception to the generic state path: its Herdr hook and authenticated RPC share Herdr's owner-only `plugin config-dir muxr.task-titles`, passed as `MUXR_TASK_TITLES_CONFIG_DIR` only to that packaged RPC. Other plugin RPCs do not receive a Herdr socket or this directory. Its `preview` method is read-only; `configure`, `switch`, and `revert` require a control grant and an idempotency key. See [its package contract](../plugins/task-titles/README.md).
 
 The working directory is the host's, so a plugin acts on the machine rather than
 on its own folder.

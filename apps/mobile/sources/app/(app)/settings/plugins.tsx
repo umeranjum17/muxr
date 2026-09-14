@@ -14,14 +14,12 @@ import { resolvePluginText } from '@/plugins';
 import { pluginCatalogLoaded, pluginCatalogSnapshot, refreshPlugins, subscribePlugins } from '@/plugins';
 
 const GROUPS = [
-    { title: 'Agent workflow', ids: ['muxr.task-titles'] },
     { title: 'Files & changes', ids: ['muxr.code', 'muxr.attachments'] },
     { title: 'Terminal & layout', ids: ['muxr.panes', 'muxr.control', 'muxr.workspace-hierarchy', 'muxr.terminal-keys'] },
     { title: 'Voice & input', ids: ['muxr.voice', 'muxr.dictation'] },
     { title: 'Usage & machine', ids: ['muxr.status'] },
 ] as const;
 const SHORT_DESCRIPTIONS: Record<string, string> = {
-    'muxr.task-titles': 'Names new tasks',
     'muxr.code': 'Browse files, diffs, and git history',
     'muxr.attachments': 'Open shared files and images',
     'muxr.panes': 'Open shells and plugin tools',

@@ -7,7 +7,7 @@
  * row, which is the point of a multiplexer backend.
  */
 
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
@@ -921,17 +921,9 @@ export async function createHerdrSessionSource(
         };
     }
 
-    /** A later pane rename takes precedence over this plugin's own published title. */
+    /** Herdr boundary adapter: Task Title comes only from current AgentInfo.title. */
     function taskTitleForSession(session: CurrentSession): string | undefined {
-        const title = session.agent?.title ?? undefined;
-        if (title === undefined) return undefined;
-        const hash = (value: string): string => createHash('sha256').update(value).digest('hex').slice(0, 16);
-        const tokens = session.pane.tokens;
-        if (tokens?.muxr_task_title_hash === hash(title)
-            && tokens.muxr_task_label_hash !== undefined
-            && tokens.muxr_task_label_hash !== hash(session.pane.label ?? '')
-            && session.pane.label?.trim()) return session.pane.label;
-        return title;
+        return session.agent?.title ?? undefined;
     }
 
     function setLifecycle(paneId: string, agentStatus: string): void {
@@ -2051,22 +2043,7 @@ export async function createHerdrSessionSource(
         const stateDir = join(process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr'), 'plugin-state', pluginId);
         try { mkdirSync(stateDir, { recursive: true, mode: 0o700 }); } catch { /* a plugin that needs it will fail loudly */ }
         const publicContext = pluginPublicContext(target.context, preferredSessionId);
-        const taskTitles = BROWSER_RPC_PLUGINS_ROOT !== undefined
-            && pluginId === 'muxr.task-titles'
-            && target.pluginRoot === join(BROWSER_RPC_PLUGINS_ROOT, 'task-titles')
-            && target.entry === 'rpc.mjs';
-        const configDir = taskTitles && target.method !== 'preview'
-            ? new Promise<string>((resolveConfig, rejectConfig) => {
-                execFile(process.env.HERDR_BIN_PATH || 'herdr', ['plugin', 'config-dir', pluginId],
-                    { timeout: 3000 }, (error, stdout) => {
-                        const path = stdout?.trim();
-                        if (error || !path || !path.startsWith('/') || basename(path) !== pluginId) {
-                            rejectConfig(new Error('Task titles Herdr configuration is unavailable'));
-                        } else resolveConfig(path);
-                    });
-            })
-            : Promise.resolve(undefined);
-        return configDir.then((trustedTaskTitlesConfigDir) => runPluginProcess({
+        return runPluginProcess({
             pluginId,
             method: target.method,
             script: join(target.pluginRoot, target.entry),
@@ -2074,9 +2051,8 @@ export async function createHerdrSessionSource(
             stateDir,
             ...(publicContext === undefined ? {} : { publicContext }),
             ...(trustedHerdrSocketPath === undefined ? {} : { trustedHerdrSocketPath }),
-            ...(trustedTaskTitlesConfigDir === undefined ? {} : { trustedTaskTitlesConfigDir }),
             signal,
-        }));
+        });
     }
 
     function publicPluginCallTarget(
