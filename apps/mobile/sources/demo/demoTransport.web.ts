@@ -16,9 +16,19 @@ import { isDemoPathname } from './demoGuard';
  * paired session can never inherit it without a reload (which re-gates).
  */
 let active = false;
+const activationListeners = new Set<() => void>();
 
 export function activateDemoTransport(): void {
+    if (active) return;
     active = true;
+    for (const listener of [...activationListeners]) listener();
+}
+
+export function subscribeDemoTransport(listener: () => void): () => void {
+    activationListeners.add(listener);
+    return () => {
+        activationListeners.delete(listener);
+    };
 }
 
 export function isDemoTransport(): boolean {

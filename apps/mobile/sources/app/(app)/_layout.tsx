@@ -10,7 +10,7 @@ import { t } from '@/text';
 import { MobileGlassBackdrop } from '@/components/MobileGlass';
 import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DemoBar } from '@/demo/DemoBar';
-import { isDemoTransport } from '@/demo/demoTransport';
+import { isDemoTransport, subscribeDemoTransport } from '@/demo/demoTransport';
 
 export const unstable_settings = {
     initialRouteName: 'index',
@@ -28,7 +28,7 @@ export default function RootLayout() {
     // the screens beneath a zero top, so nothing pads twice. Paired sessions
     // never see it: the transport is only ever activated on /demo.
     usePathname();
-    const demo = isDemoTransport();
+    const demo = React.useSyncExternalStore(subscribeDemoTransport, isDemoTransport, isDemoTransport);
     const insets = useSafeAreaInsets();
     const demoInsets = React.useMemo(() => ({ ...insets, top: 0 }), [insets]);
 
