@@ -1,0 +1,10 @@
+id = "muxr.task-titles"
+name = "Task titles"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+platforms = ["linux", "macos"]
+description = "Give each agent task a short, readable title from its first real prompt"
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["node", "hook.mjs"]
