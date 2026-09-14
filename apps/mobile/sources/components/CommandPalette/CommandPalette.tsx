@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Text, Pressable, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, Text, Pressable, useWindowDimensions, Keyboard, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
@@ -18,6 +18,14 @@ interface CommandPaletteProps {
 
 export function CommandPalette({ commands, onClose, title, appearance }: CommandPaletteProps) {
     const { height } = useWindowDimensions();
+    const [keyboardVisible, setKeyboardVisible] = React.useState(() => Platform.OS !== 'web' && Keyboard.isVisible());
+    React.useEffect(() => {
+        if (Platform.OS === 'web') return;
+        const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+        const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+        return () => { show.remove(); hide.remove(); };
+    }, []);
+    const compact = height < 500 || keyboardVisible;
     const { theme: appTheme } = useUnistyles();
     // A terminal pane stays dark in either app theme, so its command surface
     // uses the same dark chrome. The global navigation palette follows the app.
@@ -35,8 +43,8 @@ export function CommandPalette({ commands, onClose, title, appearance }: Command
     } = useCommandPalette(commands, onClose);
 
     return (
-        <View style={[styles.container, { maxHeight: Math.min(500, height * (height < 500 ? 0.82 : 0.65)), backgroundColor: theme.colors.surface, borderColor: theme.colors.modal.border, shadowColor: theme.colors.shadow.color }]}>
-            {title !== undefined && <View style={[styles.titleRow, { borderBottomColor: theme.colors.divider }]}>
+        <View style={[styles.container, { maxHeight: Math.min(500, height * (compact ? 0.82 : 0.65)), backgroundColor: theme.colors.surface, borderColor: theme.colors.modal.border, shadowColor: theme.colors.shadow.color }]}>
+            {title !== undefined && <View style={[styles.titleRow, { minHeight: compact ? 40 : 50, borderBottomColor: theme.colors.divider }]}>
                 <Text numberOfLines={1} style={[styles.title, { color: theme.colors.text }, Typography.default('semiBold')]}>{title}</Text>
                 <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close command palette" hitSlop={8}
                     style={({ pressed }) => [styles.closeButton, { backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' }]}>
@@ -49,6 +57,7 @@ export function CommandPalette({ commands, onClose, title, appearance }: Command
                 onKeyPress={handleKeyPress}
                 inputRef={inputRef}
                 appearance={appearance}
+                compact={compact}
             />
             <CommandPaletteResults
                 categories={filteredCategories}
@@ -57,6 +66,7 @@ export function CommandPalette({ commands, onClose, title, appearance }: Command
                 onSecondaryCommand={handleSecondaryCommand}
                 onSelectionChange={setSelectedIndex}
                 appearance={appearance}
+                compact={compact}
             />
         </View>
     );

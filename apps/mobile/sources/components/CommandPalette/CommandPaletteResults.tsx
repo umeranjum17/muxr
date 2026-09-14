@@ -13,6 +13,7 @@ interface CommandPaletteResultsProps {
     onSecondaryCommand?: (command: Command) => void;
     onSelectionChange: (index: number) => void;
     appearance?: 'terminal';
+    compact?: boolean;
 }
 
 export function CommandPaletteResults({ 
@@ -22,6 +23,7 @@ export function CommandPaletteResults({
     onSecondaryCommand,
     onSelectionChange,
     appearance,
+    compact,
 }: CommandPaletteResultsProps) {
     const { theme: appTheme } = useUnistyles();
     const theme = appearance === 'terminal' ? darkTheme : appTheme;
@@ -62,7 +64,7 @@ export function CommandPaletteResults({
     return (
         <ScrollView 
             ref={scrollViewRef}
-            style={styles.container}
+            style={[styles.container, compact && styles.compactContainer]}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
         >
@@ -89,6 +91,7 @@ export function CommandPaletteResults({
                                 onSecondaryPress={() => onSecondaryCommand?.(command)}
                                 onHover={() => onSelectionChange(commandIndex)}
                                 appearance={appearance}
+                                compact={compact}
                             />
                         </View>
                     );
@@ -96,9 +99,9 @@ export function CommandPaletteResults({
 
                 return (
                     <View key={category.id}>
-                        <Text style={[styles.categoryTitle, { color: theme.colors.textSecondary }, Typography.default('semiBold')]}>
+                        {!(compact && appearance === 'terminal') && <Text style={[styles.categoryTitle, { color: theme.colors.textSecondary }, Typography.default('semiBold')]}>
                             {category.title}
-                        </Text>
+                        </Text>}
                         {categoryCommands}
                     </View>
                 );
@@ -118,6 +121,7 @@ const styles = StyleSheet.create({
         paddingVertical: 8,
         flexShrink: 1,
     },
+    compactContainer: { paddingVertical: 4 },
     emptyContainer: {
         padding: 48,
         alignItems: 'center',
