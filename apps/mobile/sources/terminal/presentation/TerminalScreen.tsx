@@ -52,7 +52,7 @@ import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import type { SessionMenu } from '@/plugins';
-import { FOOTER_ROW_HEIGHT, TOOLS_TRIGGER_INSET, TOOLS_TRIGGER_SIZE, TerminalToolsPanel, TerminalToolsTrigger } from './FloatingTerminalControls';
+import { FOOTER_ROW_HEIGHT, TOOLS_TRIGGER_INSET, TOOLS_TRIGGER_SIZE, TerminalToolsPanel, TerminalToolsTrigger, type ToolsSide } from './FloatingTerminalControls';
 import { DictationStrip } from './DictationStrip';
 import { FindOutputSheet } from './FindOutputSheet';
 import { recentTerminalLinks } from '../application/recentOutput';
