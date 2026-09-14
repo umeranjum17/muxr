@@ -288,6 +288,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             category: 'Composer', actionLabel: 'Edit command', action: () => insertDraft('/'),
         });
         Modal.show({ component: CommandPalette, props: {
+            appearance: 'terminal',
             title: known.length > 0 ? `${paneKind} · ${known.length} commands` : 'Unknown agent · type a command',
             commands: entries,
         } } as any);
