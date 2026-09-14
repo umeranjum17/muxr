@@ -55,8 +55,8 @@ function StripKey({ glyph, label, onPress, disabled = false }: { glyph: PanelGly
     );
 }
 
-/** The floating trigger's size and its distance from the terminal's edge. */
-export const TOOLS_TRIGGER_SIZE = 36;
+/** The floating trigger's 44dp control target and its distance from the terminal's edge. */
+export const TOOLS_TRIGGER_SIZE = 44;
 export const TOOLS_TRIGGER_MARGIN = 8;
 /**
  * The inset the terminal keeps at its bottom: the grid ends this far above
@@ -70,7 +70,7 @@ export const TOOLS_TRIGGER_INSET = TOOLS_TRIGGER_SIZE + 2 * TOOLS_TRIGGER_MARGIN
  * The trigger: one small floating icon over the terminal, in the thumb
  * zone -- the corner just above the footer, on the side the holding hand
  * prefers. It carries an identity (options: the controls for this
- * terminal), not a dot triple, and it is a mark, not a disc: 36dp at the
+ * terminal), not a dot triple, and it is a mark, not a disc: 44dp at the
  * edge, translucent, and it dims while the output is being read back so
  * it never hides a line that matters. Dragging it sideways moves it to the
  * other edge; the same move is offered as an accessibility action. While
