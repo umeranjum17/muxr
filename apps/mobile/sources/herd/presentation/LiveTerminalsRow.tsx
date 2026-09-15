@@ -263,7 +263,7 @@ export const LiveTerminalsRow = React.memo(({
             {cards.length === 0 ? (
                 showZeroState ? (
                     <View style={stylesheet.zeroState}>
-                        <Text style={stylesheet.zeroText}>No live terminals · Start an agent below</Text>
+                        <Text style={stylesheet.zeroText}>No live agents · Start one below</Text>
                     </View>
                 ) : null
             ) : (
