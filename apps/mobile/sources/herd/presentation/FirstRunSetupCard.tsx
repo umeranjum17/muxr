@@ -4,7 +4,7 @@ import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import { loadAppConfig } from '@/catalog/infrastructure/appConfig';
+import { loadAppConfig } from '@/catalog';
 import { setupEmptyState } from '@/commercialization';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 
