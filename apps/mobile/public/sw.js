@@ -2,7 +2,7 @@
  * muxr web push service worker.
  *
  * Notification taps deep-link to the right session. The worker deliberately
- * never holds the device credential: Approve/Deny buttons open the request
+ * never holds the device credential: the Open button opens the request
  * in the app, where the approval runs under the real device grant. A
  * reusable worker-side credential that could answer sessions (inject y/n)
  * is never issued — synthetic answers are also rejected outright when E2EE
