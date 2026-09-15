@@ -51,6 +51,9 @@ const checks = [
     ['release: public channel catalog flow', 'node', ['scripts/diagnostics/application/checkReleaseCatalog.mjs']],
     ['policy: core purity (no cloud refs in OSS)', 'node', ['scripts/diagnostics/application/checkCorePurity.mjs']],
     ['policy: tooling architecture (feature boundaries, layers, no nested ternaries)', 'node', ['scripts/diagnostics/application/checkArchitecture.mjs']],
+    ['package: web export (manifest, MIME, cache, secrets, budget)', 'node', ['scripts/diagnostics/application/checkWebExport.mjs']],
+    ['e2e: web serving delivery (live relay + static server)', 'node', ['scripts/diagnostics/application/checkWebServing.mjs']],
+    ['security: export chain isolation (canary export + full scan)', 'node', ['scripts/diagnostics/application/checkExportIsolation.mjs'], undefined, 420000],
     ['security: tracked/package secret scan', 'node', ['scripts/diagnostics/application/checkNoSecrets.mjs']],
 ];
 

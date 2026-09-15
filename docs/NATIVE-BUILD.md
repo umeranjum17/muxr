@@ -69,7 +69,7 @@ The same `yarn dev` serves a browser preview of the web build at
 `http://localhost:8081` using isolated development services (loopback
 relay 18792, downloads 18793) and leaves installed production services
 unchanged. The supervisor prepares the web assets Metro otherwise misses
-(`public/canvaskit.wasm`, the pdf.js worker) and pins the relay CORS
+(`public/canvaskit.wasm`, the pdf.js worker, `public/mermaid.min.js`) and pins the relay CORS
 allowlist to the three development origins `http://localhost:8081`,
 `http://127.0.0.1:8081` (browser tabs on the Metro origin) and
 `http://127.0.0.1:18792` (the native WebSocket module derives its Origin
