@@ -4,8 +4,9 @@
  */
 
 import * as React from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import type { TerminalCommand } from './FloatingTerminalControls';
+import type { TerminalGraphicsReason } from '@muxr/contract';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -63,6 +64,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const initialScrollBackRef = React.useRef(initialScrollBack);
     initialScrollBackRef.current = initialScrollBack;
     const [graphicsUnavailable, setGraphicsUnavailable] = React.useState(false);
+    const [graphicsReason, setGraphicsReason] = React.useState<TerminalGraphicsReason | undefined>();
+    const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
 
     React.useEffect(() => {
         const element = hostRef.current as unknown as HTMLElement | null;
@@ -200,8 +203,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     return;
                 }
                 channel = opened;
+                channelRef.current = opened;
                 onChannel?.(opened);
-                opened.onGraphics((active) => { graphicsActive = active && !graphicsFailed; });
+                opened.onGraphics((active, reason) => {
+                    graphicsActive = active && !graphicsFailed;
+                    setGraphicsReason(active ? undefined : reason);
+                });
                 let restoredScroll = false;
                 const tryRestoreScroll = (): void => {
                     if (restoredScroll) return;
@@ -478,6 +485,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             window.removeEventListener('mouseup', onMouseUp);
             document.removeEventListener('visibilitychange', onVisibility);
             canvas.remove();
+            channelRef.current = undefined;
             onChannel?.(undefined);
             channel?.close();
             controller.abort();
@@ -492,6 +500,51 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 <Text accessibilityRole="summary" accessibilityLiveRegion="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}>
                     {t('files.graphicsUnavailable')}
                 </Text>
+            )}
+            {graphicsReason !== undefined && (
+                <View
+                    // A pane Herdr is not rendering is not broken, and the user
+                    // may well keep typing into it, so this variant is a label
+                    // rather than a control and never takes a touch.
+                    pointerEvents={graphicsReason === 'pane-off-surface' ? 'none' : 'auto'}
+                    style={{
+                    position: 'absolute',
+                    left: 10,
+                    right: 10,
+                    bottom: 10,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 10,
+                    borderRadius: 10,
+                    paddingVertical: 9,
+                    paddingLeft: 12,
+                    paddingRight: 8,
+                    backgroundColor: 'rgba(28, 28, 27, 0.96)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255,255,255,0.12)',
+                }}>
+                    <Text style={{ flex: 1, color: '#d8d8d4', fontSize: 12, lineHeight: 16 }}>
+                        {graphicsReason === 'pane-off-surface'
+                            ? 'No picture: this pane is not on the active workspace, tab, or zoomed pane on the desktop. Text still works. Open it there and the picture returns.'
+                            : 'Graphics stopped. Retry brings them back to this phone and resizes Herdr on the desktop.'}
+                    </Text>
+                    {graphicsReason !== 'pane-off-surface' && (
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Retry terminal graphics"
+                        onPress={() => channelRef.current?.repaint(true)}
+                        style={({ pressed }) => ({
+                            minHeight: 36,
+                            justifyContent: 'center',
+                            borderRadius: 8,
+                            paddingHorizontal: 12,
+                            backgroundColor: pressed ? '#d7d7d2' : '#f2f2ed',
+                        })}
+                    >
+                        <Text style={{ color: '#11110f', fontSize: 12, fontWeight: '600' }}>Retry</Text>
+                    </Pressable>
+                    )}
+                </View>
             )}
         </View>
     );
