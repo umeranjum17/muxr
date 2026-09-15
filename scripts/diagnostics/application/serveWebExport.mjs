@@ -55,17 +55,19 @@ createServer(async (req, res) => {
     // SPA fallback: any route without a file extension serves index.html so the
     // client-side router can match it.
     if (path === '/' || extname(path) === '') path = '/index.html';
+    const hashedAsset = (file) => /[.-][0-9a-f]{8,}(?:[.-]|$)/i.test(file.split('/').pop() ?? '');
     try {
         const body = await readFile(join(root, path));
         // Mutable entries revalidate so a cached index.html can never pin the
         // client to chunks a re-export deleted. Mirrors the relay serveWeb rule.
         const entry = path === '/index.html' || path === '/sw.js' || path === '/manifest.webmanifest';
+        const cacheControl = entry ? 'no-store' : hashedAsset(path) ? 'public, max-age=31536000, immutable' : 'public, max-age=0, must-revalidate';
         res.writeHead(200, {
             'content-type': mime[extname(path)] ?? 'application/octet-stream',
             'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
             'x-content-type-options': 'nosniff',
             'referrer-policy': 'no-referrer',
-            ...(entry ? { 'cache-control': 'no-store' } : {}),
+            'cache-control': cacheControl,
         });
         res.end(body);
     } catch {

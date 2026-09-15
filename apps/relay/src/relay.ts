@@ -315,6 +315,10 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
         const base = file.split('/').pop() ?? '';
         return file.endsWith('index.html') || base === 'sw.js' || base === 'manifest.webmanifest' || base === 'manifest.json';
     };
+    const webHashedAsset = (file: string): boolean => {
+        const base = file.split('/').pop() ?? '';
+        return /[.-][0-9a-f]{8,}(?:[.-]|$)/i.test(base);
+    };
     const serveWeb = async (pathname: string, head: boolean, res: import('node:http').ServerResponse): Promise<boolean> => {
         if (!config.localAuthority || !webRoot || pathname.startsWith('/v1/') || pathname === '/health' || pathname === '/ready') return false;
         const relative = normalize(decodeURIComponent(pathname)).replace(/^[/\\]+/, '');
@@ -327,7 +331,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             const body = await readFile(path);
             res.writeHead(200, {
                 'content-type': webMime[extname(path).toLowerCase()] ?? 'application/octet-stream',
-                'cache-control': webEntryFile(path) || entryFallback ? 'no-store' : 'public, max-age=31536000, immutable',
+                'cache-control': webEntryFile(path) || entryFallback ? 'no-store' : webHashedAsset(path) ? 'public, max-age=31536000, immutable' : 'public, max-age=0, must-revalidate',
                 'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
                 // The web client is a same-origin installed app surface, not an
                 // API response: camera/mic stay usable for future foreground

@@ -48,10 +48,10 @@ try {
     // Fixture web root shaped like a real export: mutable entries plus a
     // hashed asset plus the lazily-fetched wasm engine.
     mkdirSync(join(root, 'assets'), { recursive: true });
-    writeFileSync(join(root, 'index.html'), '<!doctype html><html><head><script src="/assets/app-HASH.js"></script></head></html>');
+    writeFileSync(join(root, 'index.html'), '<!doctype html><html><head><script src="/assets/app-a1b2c3d4e5.js"></script></head></html>');
     writeFileSync(join(root, 'sw.js'), '/* push worker */');
     writeFileSync(join(root, 'manifest.webmanifest'), '{"name":"muxr"}');
-    writeFileSync(join(root, 'assets', 'app-HASH.js'), 'console.log("app");');
+    writeFileSync(join(root, 'assets', 'app-a1b2c3d4e5.js'), 'console.log("app");');
     writeFileSync(join(root, 'canvaskit.wasm'), Buffer.concat([Buffer.from([0x00, 0x61, 0x73, 0x6d]), Buffer.alloc(1024)]));
 
     const relayPort = await freePort();
@@ -89,15 +89,16 @@ try {
         && cacheControl(manifest) === 'no-store');
 
     const wasm = await get(relayBase, '/canvaskit.wasm');
-    check('relay wasm is application/wasm + immutable', wasm.status === 200
+    check('relay fixed-name wasm revalidates instead of immutable', wasm.status === 200
         && contentType(wasm) === 'application/wasm'
-        && (cacheControl(wasm)).includes('immutable'), `${contentType(wasm)} / ${wasm.headers.get('cache-control')}`);
+        && !(cacheControl(wasm)).includes('immutable')
+        && (cacheControl(wasm)).includes('must-revalidate'), `${contentType(wasm)} / ${wasm.headers.get('cache-control')}`);
 
-    const hashed = await get(relayBase, '/assets/app-HASH.js');
+    const hashed = await get(relayBase, '/assets/app-a1b2c3d4e5.js');
     check('relay hashed asset is immutable', hashed.status === 200 && (cacheControl(hashed)).includes('immutable'));
 
     const spa = await get(relayBase, '/pair?pair=ABC');
-    check('relay SPA fallback serves index for /pair', spa.status === 200 && spa.body.includes('assets/app-HASH.js') && cacheControl(spa) === 'no-store');
+    check('relay SPA fallback serves index for /pair', spa.status === 200 && spa.body.includes('assets/app-a1b2c3d4e5.js') && cacheControl(spa) === 'no-store');
 
     const api = await get(relayBase, '/v1/push/vapid-public');
     check('relay /v1/ is API passthrough, not HTML', api.status !== 200 || !(contentType(api)).includes('text/html'), `status ${api.status}`);
@@ -128,6 +129,7 @@ try {
     const staticBase = `http://127.0.0.1:${staticPort}`;
     const staticWasm = await get(staticBase, '/canvaskit.wasm');
     check('serveWebExport wasm is application/wasm', staticWasm.status === 200 && contentType(staticWasm) === 'application/wasm', contentType(staticWasm));
+    check('serveWebExport fixed-name wasm revalidates', staticWasm.status === 200 && !cacheControl(staticWasm).includes('immutable'), cacheControl(staticWasm));
     const staticEntry = await get(staticBase, '/sw.js');
     check('serveWebExport sw.js revalidates', staticEntry.status === 200 && cacheControl(staticEntry) === 'no-store');
 } catch (cause) {
