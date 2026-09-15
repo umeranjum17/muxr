@@ -305,6 +305,17 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     void writePumpRef.current?.cancel();
                     let recoveryRequested = false;
                     let restoredScroll = false;
+                    const tryRestoreScroll = (): void => {
+                        if (restoredScroll) return;
+                        const target = initialScrollBackRef.current;
+                        if (target <= 3) return;
+                        restoredScroll = true;
+                        requestAnimationFrame(() => {
+                            if (channelRef.current !== channel) return;
+                            channel.scroll(Math.min(target, 5_000));
+                        });
+                    };
+                    requestAnimationFrame(tryRestoreScroll);
                     writePumpRef.current = createTerminalWritePump({
                         write: async (bytes, graphics) => {
                             const view = termRef.current;
@@ -340,13 +351,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // update independent placements or delete an earlier image;
                     // they cannot be coalesced merely because graphics is true.
                     channel.onData((base64, graphics) => {
-                        if (!restoredScroll && graphics !== true && initialScrollBackRef.current > 3) {
-                            restoredScroll = true;
-                            requestAnimationFrame(() => {
-                                if (channelRef.current !== channel) return;
-                                channel.scroll(Math.min(initialScrollBackRef.current, 5_000));
-                            });
-                        }
+                        if (graphics !== true) tryRestoreScroll();
                         if (graphics !== true) recordTerminalOutput(sessionId, base64);
                         releaseScroll();
                         writePumpRef.current?.push(

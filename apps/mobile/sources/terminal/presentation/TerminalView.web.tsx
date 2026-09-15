@@ -203,6 +203,16 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 onChannel?.(opened);
                 opened.onGraphics((active) => { graphicsActive = active && !graphicsFailed; });
                 let restoredScroll = false;
+                const tryRestoreScroll = (): void => {
+                    if (restoredScroll) return;
+                    const target = initialScrollBackRef.current;
+                    if (target <= 3) return;
+                    restoredScroll = true;
+                    requestAnimationFrame(() => {
+                        if (!disposed && channel === opened) opened.scroll(Math.min(target, 5_000));
+                    });
+                };
+                requestAnimationFrame(tryRestoreScroll);
                 let pending: { bytes: string; graphics?: boolean }[] = [];
                 let frameScheduled = false;
                 const flushFrames = (): void => {
@@ -244,12 +254,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     }
                 };
                 opened.onData((base64, graphics) => {
-                    if (!restoredScroll && graphics !== true && initialScrollBackRef.current > 3) {
-                        restoredScroll = true;
-                        requestAnimationFrame(() => {
-                            if (!disposed && channel === opened) opened.scroll(Math.min(initialScrollBackRef.current, 5_000));
-                        });
-                    }
+                    if (graphics !== true) tryRestoreScroll();
                     if (graphics !== true) recordTerminalOutput(sessionId, base64);
                     pending.push({ bytes: base64, graphics });
                     if (!frameScheduled) {

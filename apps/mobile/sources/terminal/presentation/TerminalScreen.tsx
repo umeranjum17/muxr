@@ -140,6 +140,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const netScrollBack = React.useRef(0);
     const [showJump, setShowJump] = React.useState(false);
     const [restoreScrollBack, setRestoreScrollBack] = React.useState(0);
+    const restoreScrollBackRef = React.useRef(0);
+    restoreScrollBackRef.current = restoreScrollBack;
     const stopWatchingGraphics = React.useRef<(() => void) | undefined>(undefined);
     React.useEffect(() => () => stopWatchingGraphics.current?.(), []);
 
@@ -148,9 +150,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         stopWatchingGraphics.current = undefined;
         graphicsOwnsScroll.current = false;
         if (channel === undefined) {
-            // The route stays mounted while history is open. Keep the remote
-            // viewport offset so the next attach can restore the same place.
-            setRestoreScrollBack(netScrollBack.current);
+            setRestoreScrollBack(Math.max(netScrollBack.current, restoreScrollBackRef.current));
         } else {
             netScrollBack.current = 0;
             setShowJump(false);
@@ -158,6 +158,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 if (active === graphicsOwnsScroll.current) return;
                 graphicsOwnsScroll.current = active;
                 netScrollBack.current = 0;
+                setRestoreScrollBack(0);
                 setShowJump(false);
             });
             // Wrap scroll() to track how far back we've gone; the jump button
@@ -254,6 +255,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const paneLifecycle = currentPane?.agentStatus;
     const paneMissing = currentPane === undefined || isShellLabels(agentLabels(currentPane));
     const openAgentCommands = React.useCallback(() => {
+        if (!canControl) return;
         const known = agentCommands(paneKind);
         const entries: Command[] = known.map((entry) => ({
             id: entry.command,
@@ -275,7 +277,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             title: known.length > 0 ? `${paneKind} · ${known.length} commands` : 'Unknown agent · type a command',
             commands: entries,
         } } as any);
-    }, [insertDraft, paneKind, props.id]);
+    }, [canControl, insertDraft, paneKind, props.id]);
     React.useEffect(() => {
         if (paneMissing) {
             recordAgentGate({
