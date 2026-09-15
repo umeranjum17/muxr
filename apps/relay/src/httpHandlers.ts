@@ -88,7 +88,7 @@ export function isExpoPushToken(value: unknown): value is string {
     return typeof value === 'string' && /^(?:Exponent|Expo)PushToken\[[A-Za-z0-9_-]+\]$/.test(value);
 }
 
-function isPushSubscription(
+export function isPushSubscription(
     value: unknown,
 ): value is { endpoint: string; keys: { p256dh: string; auth: string } } {
     if (typeof value !== 'object' || value === null) return false;
