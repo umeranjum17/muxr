@@ -88,7 +88,8 @@ data plane; the relay routes ciphertext it cannot read.
 - `muxr pair --browser` grants full terminal and agent control from a browser;
   `muxr pair --browser-view` grants explicit view-only access. Both print one
   short two-minute HTTPS link, expire after eight hours, and survive
-  refresh/restart.
+  refresh/restart. `muxr pair --browser-personal` grants full control to a
+  browser only you use and expires after 30 days.
 - List and revoke devices — never edit relay state by hand:
 
   ```bash
