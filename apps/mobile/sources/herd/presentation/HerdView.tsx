@@ -221,6 +221,7 @@ export const HerdView = React.memo(({
     const needsRecovery = hostOffline || runtimeOffline || retrying || retryFailed;
     React.useEffect(() => {
         onRecoveryChange?.(needsRecovery);
+        if (!needsRecovery) setRecoveryFeedback('');
         return () => onRecoveryChange?.(false);
     }, [needsRecovery, onRecoveryChange]);
     const retryConnection = async () => {

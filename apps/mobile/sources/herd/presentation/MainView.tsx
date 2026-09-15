@@ -457,6 +457,10 @@ export const MainView = React.memo(() => {
         && getCachedConnectionSettings().mode === 'hosted'
         && (socketStatus.status === 'error' || socketStatus.status === 'disconnected' || splitHostRequestFailed);
     const splitRuntimeOffline = useSplitView && hasPairedGrant && socketStatus.status === 'connected' && splitHerdrConnected === false;
+    const splitRecovering = splitHostOffline || splitRuntimeOffline || retryingHome || splitRetryFailed;
+    React.useEffect(() => {
+        if (!splitRecovering) setHomeRecoveryFeedback('');
+    }, [splitRecovering]);
     const retrySplitConnection = React.useCallback(async () => {
         if (retryingHome) return;
         setRetryingHome(true);
@@ -617,11 +621,11 @@ export const MainView = React.memo(() => {
                     <View style={styles.tabletDashboardHeader}>
                         <View style={styles.tabletDashboardIdentity}>
                             <HeaderLogo />
-                            <HeaderTitle activeTab="sessions" large homeRecovering={splitHostOffline || splitRuntimeOffline || retryingHome || splitRetryFailed} />
+                            <HeaderTitle activeTab="sessions" large homeRecovering={splitRecovering} />
                         </View>
                     </View>
                     <VersionNotice />
-                    {splitHostOffline || splitRuntimeOffline || retryingHome || splitRetryFailed ? (
+                    {splitRecovering ? (
                         <HomeRecoveryCard
                             mode={splitRuntimeOffline && !splitHostOffline ? 'runtime' : 'host'}
                             retrying={retryingHome}
@@ -630,7 +634,7 @@ export const MainView = React.memo(() => {
                             onFeedback={setHomeRecoveryFeedback}
                         />
                     ) : null}
-                    {!splitHostOffline && !splitRuntimeOffline && !splitRetryFailed && !retryingHome
+                    {!splitRecovering
                         ? <LiveTerminalsRow visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} /> : null}
                     {homeTreeLoaded && !homeWorkspaces.some(hasAgent) && !splitHostOffline && !splitRuntimeOffline && socketStatus.status === 'connected'
                         ? <HomeDiscoveryRows /> : null}
