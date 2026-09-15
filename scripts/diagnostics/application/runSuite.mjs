@@ -23,6 +23,7 @@ const checks = [
     ['policy: plugin bridge types in RequestMap', 'node', ['scripts/diagnostics/application/checkPluginBridge.mjs']],
     ['policy: package architecture (contexts, use cases, no nested ternaries)', 'node', ['packages/checkArchitecture.mjs']],
     ['policy: bundled plugin manifests', 'node', ['scripts/diagnostics/application/checkBundledPlugins.mjs']],
+    ['policy: terminal text face is bundled and monospaced', 'node', ['scripts/diagnostics/application/checkTerminalFont.mjs']],
     ['unit: relay pairing (expiry, cap, validation)', 'node', ['apps/relay/dist/selfCheck.js']],
     ['unit: layout snapshot round-trip', 'node', ['apps/host/dist/agent/infrastructure/layoutSelfCheck.js']],
     ['unit: setup domain (pairing/connection/crypto)', 'node', ['scripts/setup/domain/dist/selfCheck.js']],
