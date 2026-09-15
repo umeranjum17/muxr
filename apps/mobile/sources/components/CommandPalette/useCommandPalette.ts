@@ -65,6 +65,10 @@ export function useCommandPalette(commands: Command[], onClose: () => void) {
         command.action();
         onClose();
     }, [onClose]);
+    const handleSecondaryCommand = useCallback((command: Command) => {
+        command.secondaryAction?.();
+        onClose();
+    }, [onClose]);
 
     // Get flattened commands for keyboard navigation
     const allCommands = useMemo(() => {
@@ -101,6 +105,7 @@ export function useCommandPalette(commands: Command[], onClose: () => void) {
         inputRef,
         handleSearchChange,
         handleSelectCommand,
+        handleSecondaryCommand,
         handleKeyPress,
         setSelectedIndex,
     };

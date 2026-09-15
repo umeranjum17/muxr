@@ -46,6 +46,9 @@ Options:
 
 Ports are pre-checked: an occupied port fails the command instead of
 killing whatever owns it. Ctrl-C stops everything this command started.
+For isolated worktrees, set MUXR_DEV_METRO_PORT, MUXR_DEV_RELAY_PORT, and
+MUXR_DEV_HOST_HTTP_PORT to unused ports, plus HERDR_SOCKET_PATH to that lab
+session's socket. Never point a test stack at the default Herdr socket.
 Native changes still need \`yarn dev:android\` (explicit APK rebuild).
 `);
     process.exit(0);
@@ -54,9 +57,17 @@ if (args.length > 0) {
     process.stderr.write('Unknown arguments. Use yarn dev --help.\n');
     process.exit(1);
 }
-const metroPort = 8081;
-const relayPort = 18792;
-const hostHttpPort = 18793;
+function selectedPort(name, fallback) {
+    const value = process.env[name];
+    if (value === undefined) return fallback;
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 1024 || parsed > 65535) throw new Error(`${name} must be a port from 1024 to 65535`);
+    return parsed;
+}
+const metroPort = selectedPort('MUXR_DEV_METRO_PORT', 8081);
+const relayPort = selectedPort('MUXR_DEV_RELAY_PORT', 18792);
+const hostHttpPort = selectedPort('MUXR_DEV_HOST_HTTP_PORT', 18793);
+if (new Set([metroPort, relayPort, hostHttpPort]).size !== 3) throw new Error('Development ports must be distinct');
 
 // ---------------------------------------------------------------- state
 

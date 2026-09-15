@@ -3,20 +3,30 @@ import { View, ScrollView, Text, StyleSheet, Platform } from 'react-native';
 import { Command, CommandCategory } from '@/components/CommandPalette/types';
 import { CommandPaletteItem } from '@/components/CommandPalette/CommandPaletteItem';
 import { Typography } from '@/constants/Typography';
+import { useUnistyles } from 'react-native-unistyles';
+import { darkTheme } from '@/theme';
 
 interface CommandPaletteResultsProps {
     categories: CommandCategory[];
     selectedIndex: number;
     onSelectCommand: (command: Command) => void;
+    onSecondaryCommand?: (command: Command) => void;
     onSelectionChange: (index: number) => void;
+    appearance?: 'terminal';
+    compact?: boolean;
 }
 
 export function CommandPaletteResults({ 
     categories, 
     selectedIndex, 
     onSelectCommand, 
-    onSelectionChange 
+    onSecondaryCommand,
+    onSelectionChange,
+    appearance,
+    compact,
 }: CommandPaletteResultsProps) {
+    const { theme: appTheme } = useUnistyles();
+    const theme = appearance === 'terminal' ? darkTheme : appTheme;
     const scrollViewRef = useRef<ScrollView>(null);
     const itemRefs = useRef<{ [key: number]: View | null }>({});
     
@@ -42,7 +52,7 @@ export function CommandPaletteResults({
     if (categories.length === 0 || allCommands.length === 0) {
         return (
             <View style={styles.emptyContainer}>
-                <Text style={[styles.emptyText, Typography.default()]}>
+                <Text style={[styles.emptyText, { color: theme.colors.textSecondary }, Typography.default()]}>
                     No commands found
                 </Text>
             </View>
@@ -54,7 +64,7 @@ export function CommandPaletteResults({
     return (
         <ScrollView 
             ref={scrollViewRef}
-            style={styles.container}
+            style={[styles.container, compact && styles.compactContainer]}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
         >
@@ -78,7 +88,10 @@ export function CommandPaletteResults({
                                 command={command}
                                 isSelected={isSelected}
                                 onPress={() => onSelectCommand(command)}
+                                onSecondaryPress={() => onSecondaryCommand?.(command)}
                                 onHover={() => onSelectionChange(commandIndex)}
+                                appearance={appearance}
+                                compact={compact}
                             />
                         </View>
                     );
@@ -86,9 +99,9 @@ export function CommandPaletteResults({
 
                 return (
                     <View key={category.id}>
-                        <Text style={[styles.categoryTitle, Typography.default('semiBold')]}>
+                        {!(compact && appearance === 'terminal') && <Text style={[styles.categoryTitle, { color: theme.colors.textSecondary }, Typography.default('semiBold')]}>
                             {category.title}
-                        </Text>
+                        </Text>}
                         {categoryCommands}
                     </View>
                 );
@@ -101,27 +114,27 @@ const styles = StyleSheet.create({
     container: {
         // Use viewport-based height for better proportions
         ...(Platform.OS === 'web' ? {
-            maxHeight: '40vh', // 40% of viewport height for results
+            maxHeight: '55vh',
         } as any : {
             maxHeight: 420, // Fallback for native
         }),
         paddingVertical: 8,
+        flexShrink: 1,
     },
+    compactContainer: { paddingVertical: 4 },
     emptyContainer: {
         padding: 48,
         alignItems: 'center',
     },
     emptyText: {
         fontSize: 15,
-        color: '#999',
         letterSpacing: -0.2,
     },
     categoryTitle: {
-        paddingHorizontal: 32,
-        paddingTop: 16,
+        paddingHorizontal: Platform.OS === 'web' ? 32 : 16,
+        paddingTop: Platform.OS === 'web' ? 16 : 8,
         paddingBottom: 8,
-        fontSize: 12,
-        color: '#999',
+        fontSize: 13,
         textTransform: 'uppercase',
         letterSpacing: 0.8,
         fontWeight: '600',

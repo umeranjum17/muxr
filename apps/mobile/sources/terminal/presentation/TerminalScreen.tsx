@@ -7,7 +7,7 @@
  */
 
 import * as React from 'react';
-import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
@@ -34,6 +34,7 @@ import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStatusColor, 
 import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
+import { useDraft } from '@/hooks/useDraft';
 import { ComposerAttachments, type ComposerAttachment } from '@/components/ComposerAttachments';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
@@ -49,9 +50,15 @@ import { resolvePluginText } from '@/plugins';
 import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
 import { displayLink } from '../domain/TerminalLink';
+import { CommandPalette } from '@/components/CommandPalette';
+import type { Command } from '@/components/CommandPalette/types';
+import { agentCommands } from '../domain/agentCommands';
+import { FindOutputSheet } from './FindOutputSheet';
+import { useTerminalQuickReplies } from '@/plugins/ui';
 
 export const TerminalScreen = React.memo((props: { id: string }) => {
     const { theme } = useUnistyles();
+    const compactComposer = useWindowDimensions().width < 380;
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canControl = authority === 'control' && !authorityLoading;
     const insets = useSafeAreaInsets();
@@ -68,15 +75,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const declaredActions = useDeclarativeSessionActions(session?.metadata?.path);
     const quickActions = React.useMemo(() => declaredActions.filter((action) => action.quickAction), [declaredActions]);
     const paneActions = React.useMemo(() => declaredActions.filter((action) => !action.quickAction), [declaredActions]);
+    const quickReplies = useTerminalQuickReplies();
     const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
-    const renderQuickActions = React.useCallback((close: () => void) => <>
-        {Platform.OS !== 'web' && <ActionShortcut
-            label={terminalKeyboardDisabled ? 'Enable keyboard on tap' : 'Disable keyboard on tap'}
-            icon="keypad-outline"
-            onPress={() => { setTerminalKeyboardDisabled(!terminalKeyboardDisabled); close(); }}
-        />}
-        <DeclarativeSessionActions actions={quickActions} sessionId={props.id} onNavigate={close} presentation="shortcut" />
-    </>, [props.id, quickActions, setTerminalKeyboardDisabled, terminalKeyboardDisabled]);
     const [pluginActionBusy, setExtensionActionBusy] = React.useState<string>();
     const [swipeNow, setSwipeNow] = React.useState(Date.now);
     React.useEffect(() => {
@@ -86,6 +86,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const swipeIds = React.useMemo(() => workingAgentSwipeIds(sessions, swipeNow), [sessions, swipeNow]);
     const [status, setStatus] = React.useState('connecting');
     const [draft, setDraft] = React.useState('');
+    const { clearDraft } = useDraft(props.id, draft, setDraft);
     const [attaching, setAttaching] = React.useState(false);
     const [stopping, setStopping] = React.useState(false);
     // Latching modifiers apply to one toolbar key or typed character, then clear.
@@ -93,6 +94,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // overlapping mush on a phone. Anything with more options uses this sheet.
     const [menu, setMenu] = React.useState<SessionMenu | null>(null);
     const [actionsOpen, setActionsOpen] = React.useState(false);
+    const [findOpen, setFindOpen] = React.useState(false);
     const [headerBottom, setHeaderBottom] = React.useState(0);
     // The command panel is hosted by the pane, not by the terminal, so it can
     // cover the accessory key row while leaving the composer alone.
@@ -112,11 +114,32 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
     const [channel, setChannel] = React.useState<TerminalChannel>();
     const draftRef = React.useRef(draft);
+    const composerRef = React.useRef<TextInput>(null);
     draftRef.current = draft;
+    const insertDraft = React.useCallback((value: string) => {
+        const next = [draftRef.current.trimEnd(), value].filter(Boolean).join(' ');
+        draftRef.current = next;
+        setDraft(next);
+        // The palette animates out; focus once its input has released the IME.
+        setTimeout(() => composerRef.current?.focus(), 280);
+    }, []);
+    const renderQuickActions = React.useCallback((close: () => void) => <>
+        {Platform.OS !== 'web' && <ActionShortcut
+            label={terminalKeyboardDisabled ? 'Enable keyboard on tap' : 'Disable keyboard on tap'}
+            icon="keypad-outline"
+            onPress={() => { setTerminalKeyboardDisabled(!terminalKeyboardDisabled); close(); }}
+        />}
+        {quickReplies.map((reply, index) => <ActionShortcut key={`${index}:${reply.label}`} label={reply.label} icon="chatbubble-ellipses-outline"
+            accessibilityLabel={`Insert quick reply: ${reply.label}`} onPress={() => { insertDraft(reply.text); close(); }} />)}
+        <DeclarativeSessionActions actions={quickActions} sessionId={props.id} onNavigate={close} presentation="shortcut" />
+    </>, [insertDraft, props.id, quickActions, quickReplies, setTerminalKeyboardDisabled, terminalKeyboardDisabled]);
 
     const { selectedImages, pickImages, clearImages } = useImagePicker();
 
     const graphicsOwnsScroll = React.useRef(false);
+    const netScrollBack = React.useRef(0);
+    const [showJump, setShowJump] = React.useState(false);
+    const [restoreScrollBack, setRestoreScrollBack] = React.useState(0);
     const stopWatchingGraphics = React.useRef<(() => void) | undefined>(undefined);
     React.useEffect(() => () => stopWatchingGraphics.current?.(), []);
 
@@ -124,13 +147,16 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         stopWatchingGraphics.current?.();
         stopWatchingGraphics.current = undefined;
         graphicsOwnsScroll.current = false;
-        netScrollBack.current = 0;
-        setShowJump(false);
-        if (channel !== undefined) {
+        if (channel === undefined) {
+            setRestoreScrollBack(netScrollBack.current);
+        } else {
+            netScrollBack.current = 0;
+            setShowJump(false);
             stopWatchingGraphics.current = channel.onGraphics((active) => {
                 if (active === graphicsOwnsScroll.current) return;
                 graphicsOwnsScroll.current = active;
                 netScrollBack.current = 0;
+                setRestoreScrollBack(0);
                 setShowJump(false);
             });
             // Wrap scroll() to track how far back we've gone; the jump button
@@ -147,15 +173,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         channelRef.current = channel;
         setChannel(channel);
     }, []);
-
-    const netScrollBack = React.useRef(0);
-    const [showJump, setShowJump] = React.useState(false);
     const jumpToBottom = React.useCallback(() => {
         const channel = channelRef.current;
         if (channel === undefined || graphicsOwnsScroll.current) return;
         // Overshoot on purpose: herdr clamps the scroll at the live edge.
         channel.scroll(-(netScrollBack.current + 5000));
         netScrollBack.current = 0;
+        setRestoreScrollBack(0);
         setShowJump(false);
     }, []);
 
@@ -228,6 +252,30 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const paneKind = currentPane?.agentKind;
     const paneLifecycle = currentPane?.agentStatus;
     const paneMissing = currentPane === undefined || isShellLabels(agentLabels(currentPane));
+    const openAgentCommands = React.useCallback(() => {
+        if (!canControl) return;
+        const known = agentCommands(paneKind);
+        const entries: Command[] = known.map((entry) => ({
+            id: entry.command,
+            title: entry.command,
+            subtitle: `${entry.description}${entry.arguments === undefined ? '' : ` · ${entry.arguments}`}`,
+            category: 'Agent commands',
+            actionLabel: 'Send now',
+            action: () => { void sync.sendMessage(props.id, entry.command).catch((error: unknown) =>
+                Modal.alert('Command failed', error instanceof Error ? error.message : String(error))); },
+            secondaryLabel: 'Edit',
+            secondaryAction: () => insertDraft(`${entry.command} `),
+        }));
+        entries.push({
+            id: 'custom-command', title: 'Custom command', subtitle: 'Type a slash command in the composer',
+            category: 'Composer', actionLabel: 'Edit command', action: () => insertDraft('/'),
+        });
+        Modal.show({ component: CommandPalette, props: {
+            appearance: 'terminal',
+            title: known.length > 0 ? `${paneKind} · ${known.length} commands` : 'Unknown agent · type a command',
+            commands: entries,
+        } } as any);
+    }, [canControl, insertDraft, paneKind, props.id]);
     React.useEffect(() => {
         if (paneMissing) {
             recordAgentGate({
@@ -317,6 +365,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         const previousImages = attachedImages;
         draftRef.current = '';
         setDraft('');
+        clearDraft();
         setAttachedImages([]);
         void sync.sendMessage(props.id, text).catch((error: unknown) => {
             const restoredDraft = [previousDraft, draftRef.current].filter(Boolean).join('\n');
@@ -325,7 +374,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             setAttachedImages((current) => [...previousImages, ...current]);
             Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
         });
-    }, [attachedImages, attachedPaths, attaching, selectedImages.length, panePromptable, props.id]);
+    }, [attachedImages, attachedPaths, attaching, clearDraft, selectedImages.length, panePromptable, props.id]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);
 
@@ -427,6 +476,31 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const paneIndex = siblings.indexOf(props.id);
     const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
     const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting';
+    const attachmentAction = <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ opacity: attaching ? 0.4 : 1 }}>
+        <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={24} color={theme.colors.textSecondary} />
+    </Pressable>;
+    const commandAction = <Pressable onPress={openAgentCommands} accessibilityRole="button" accessibilityLabel="Agent commands" hitSlop={8} disabled={!canControl} accessibilityState={{ disabled: !canControl }}
+        style={({ pressed }) => ({ width: 32, minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent', opacity: canControl ? 1 : 0.4 })}>
+        <Text style={{ color: theme.colors.textSecondary, fontSize: 23, fontWeight: '500' }}>/</Text>
+    </Pressable>;
+    const composerInput = <TextInput
+        ref={composerRef}
+        value={draft}
+        onChangeText={handleDraftChange}
+        onSubmitEditing={sendPrompt}
+        returnKeyType="send"
+        blurOnSubmit
+        submitBehavior="blurAndSubmit"
+        placeholder="Type a prompt…"
+        placeholderTextColor={theme.colors.textSecondary}
+        style={{ flex: 1, color: theme.colors.text, backgroundColor: theme.colors.surfaceHigh, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 16 }}
+    />;
+    const composerPlugins = <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
+    </View>;
+    const sendAction = <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
+        <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
+    </Pressable>;
 
     // Same shape as KeyboardAvoidingView, minus the animation: that padding
     // moves frame by frame and Ghostty reflows its whole grid on every size
@@ -469,7 +543,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     )}
                     {hasOverlay && <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />}
                 </Pressable>
-                {canControl && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel="Pane actions"
+                <Pressable onPress={() => setFindOpen(true)} accessibilityRole="button" accessibilityLabel="Find in output" hitSlop={4}
+                    style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
+                    <Ionicons name="search" size={19} color={theme.colors.textSecondary} />
+                </Pressable>
+                {!authorityLoading && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel="Pane actions"
                     accessibilityState={{ expanded: actionsOpen }} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
                     <Ionicons name="ellipsis-vertical" size={20} color={theme.colors.textSecondary} />
                 </Pressable>}
@@ -506,7 +584,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 onTouchEnd={paneGestures.onTouchEnd}
                 style={{ flex: 1 }}
             >
-                <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} />
+                <TerminalView sessionId={props.id} initialScrollBack={restoreScrollBack} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} />
                 {gestureHint !== null && (
                     <View
                         pointerEvents="none"
@@ -663,8 +741,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
 
             <View
                 style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
+                    flexDirection: compactComposer ? 'column' : 'row',
+                    alignItems: compactComposer ? 'stretch' : 'center',
                     gap: 8,
                     paddingHorizontal: 12,
                     paddingVertical: 8,
@@ -674,33 +752,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     borderTopColor: theme.colors.divider,
                 }}
             >
-                <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ opacity: attaching ? 0.4 : 1 }}>
-                    <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={24} color={theme.colors.textSecondary} />
-                </Pressable>
-                <TextInput
-                    value={draft}
-                    onChangeText={handleDraftChange}
-                    onSubmitEditing={sendPrompt}
-                    returnKeyType="send"
-                    blurOnSubmit
-                    submitBehavior="blurAndSubmit"
-                    placeholder="Type a prompt…"
-                    placeholderTextColor={theme.colors.textSecondary}
-                    style={{
-                        flex: 1,
-                        color: theme.colors.text,
-                        backgroundColor: theme.colors.surfaceHigh,
-                        borderRadius: 8,
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                    }}
-                />
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
-                </View>
-                <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
-                    <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
-                </Pressable>
+                {compactComposer ? <>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>{composerInput}{sendAction}</View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, paddingTop: 4 }}>
+                        {attachmentAction}{commandAction}<View style={{ flex: 1 }} />{composerPlugins}
+                    </View>
+                </> : <>{attachmentAction}{commandAction}{composerInput}{composerPlugins}{sendAction}</>}
             </View>
             </View>}
 
@@ -715,7 +772,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         overlayHeight={overlayHeight}
                         commands={viewControls.commands}
                         dismissKeyboard={viewControls.dismissKeyboard}
-                        renderQuickActions={canControl && (Platform.OS !== 'web' || quickActions.length > 0) ? renderQuickActions : undefined}
+                        renderQuickActions={canControl && (Platform.OS !== 'web' || quickActions.length > 0 || quickReplies.length > 0) ? renderQuickActions : undefined}
                         hidden={actionsOpen || treeOpen} />
                 </View>;
             })()}
@@ -753,8 +810,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         elevation: 12,
                     }}>
                         <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
-                            {(paneActions.length > 0 || recentTerminalLinks(props.id).length > 0) && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>}
-                            <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />
+                            <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>
+                            <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/history`); }} accessibilityRole="button" accessibilityLabel="Conversation history"
+                                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                <Ionicons name="document-text-outline" size={18} color={theme.colors.textSecondary} />
+                                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Conversation history</Text>
+                                <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                            </Pressable>
+                            {canControl && <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />}
                             {recentTerminalLinks(props.id).length > 0 && <>
                                 <Pressable onPress={() => showRecentLinks('open')} accessibilityRole="button" accessibilityLabel="Open recent terminal link"
                                     style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
@@ -769,8 +832,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                 </Pressable>
                             </>}
-                            {pluginButtons.length > 0 && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Pane controls</Text>}
-                            {pluginButtons.map((button) => {
+                            {canControl && pluginButtons.length > 0 && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Pane controls</Text>}
+                            {canControl && pluginButtons.map((button) => {
                                 const key = `${button.pluginId}:${button.id}`;
                                 return <Pressable key={key} onPress={() => {
                                     if (pluginActionBusy !== undefined) return;
@@ -794,7 +857,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         {/* Closing the pane is the one row here that destroys
                             something, so it never scrolls away and never sits in
                             the run of things you were only going to look at. */}
-                        {!stopping && (
+                        {canControl && !stopping && (
                             <Pressable onPress={() => { setActionsOpen(false); stopSession(); }} accessibilityRole="button" accessibilityLabel={shell ? 'Close pane' : 'Stop agent'}
                                 style={({ pressed }) => ({ minHeight: 44, marginTop: 5, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                 <Ionicons name="stop-circle-outline" size={18} color={theme.colors.status.error} />
@@ -840,6 +903,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     </View>
                 </Pressable>
             )}
+            {findOpen && <FindOutputSheet sessionId={props.id} keyboardOffset={Platform.OS === 'web' || !keyboardVisible ? 0 : keyboardHeight} onClose={() => setFindOpen(false)} />}
         </View>
     );
 });

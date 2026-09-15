@@ -5,6 +5,11 @@
     "slot": "terminal.key-row",
     "id": "keys",
     "type": "key-row",
+    "quickReplies": [
+      { "label": "Continue", "text": "Continue with the current task." },
+      { "label": "Run tests", "text": "Run the relevant tests and report any failures." },
+      { "label": "Summarize", "text": "Summarize what changed and what remains." }
+    ],
     "keys": [
       { "label": "esc", "accessibilityLabel": "Escape", "send": "\u001b" },
       { "label": "tab", "accessibilityLabel": "Tab", "send": "\t", "shift": "\u001b[Z" },
