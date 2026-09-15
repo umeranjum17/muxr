@@ -113,12 +113,18 @@ export default React.memo(() => {
     const glyphName = pane?.agentKind ?? (isShellLabels(labels) ? 'shell' : labels.agentName);
     const offline = socketStatus === 'disconnected' || socketStatus === 'error';
     const targetMissing = sessionId === undefined || paneId === undefined;
-    const targetLoading = targetMissing && sessionId !== undefined && (!treeLoaded || !sessionsLoaded || session === null);
+    // useSession returns null both while the catalog loads and when the id is
+    // unknown, so only the catalog/tree loaded flags decide locating vs gone.
+    // A null session on a loaded catalog means the pane is truly unavailable;
+    // treating it as loading wedged unknown ids on "Locating pane…" forever.
+    const targetLoading = targetMissing && sessionId !== undefined && (!treeLoaded || !sessionsLoaded);
     const statusText = loading
         ? visibleOutput === '' ? 'Loading pane history…' : 'Refreshing pane history…'
         : error
             ? offline ? 'History is unavailable while muxr is offline.' : 'Could not load pane history.'
-            : visibleOutput === ''
+            : targetMissing
+                ? targetLoading ? 'Locating pane…' : 'Pane is no longer available.'
+                : visibleOutput === ''
                 ? 'No history available yet.'
                 : needle === ''
                     ? `${lines.length.toLocaleString()} lines · most recent available scrollback`
