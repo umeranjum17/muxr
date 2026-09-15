@@ -187,7 +187,13 @@ const WORKSPACE_HIERARCHY_PLUGIN_ROOT = packagedWorkspaceHierarchyRoot();
 function packagedBundledRoots(): Map<string, string> {
     const roots = new Map<string, string>();
     if (BROWSER_RPC_PLUGINS_ROOT === undefined) return roots;
-    for (const entry of readdirSync(BROWSER_RPC_PLUGINS_ROOT, { withFileTypes: true })) {
+    let entries: import('node:fs').Dirent[];
+    try {
+        entries = readdirSync(BROWSER_RPC_PLUGINS_ROOT, { withFileTypes: true });
+    } catch {
+        return roots;
+    }
+    for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         try {
             const root = realpathSync(join(BROWSER_RPC_PLUGINS_ROOT, entry.name));
