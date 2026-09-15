@@ -7,7 +7,6 @@ import { VersionNotice } from '@/components/VersionNotice';
 import * as React from 'react';
 import {
     ActivityIndicator,
-    Pressable,
     View,
     NativeScrollEvent,
     NativeSyntheticEvent,
@@ -19,7 +18,6 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHostedPairing, usePairQrScanner } from '@/pairing';
-import * as Clipboard from 'expo-clipboard';
 import { loadAppConfig } from '@/catalog/infrastructure/appConfig';
 import { getCachedConnectionSettings } from '@/connection';
 import { setupEmptyState } from '@/commercialization';
@@ -76,73 +74,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         lineHeight: 28,
         textAlign: 'center',
         ...Typography.default('semiBold'),
-    },
-    setupCard: {
-        width: '100%',
-        maxWidth: 360,
-        marginTop: 20,
-        backgroundColor: theme.colors.surfaceHigh,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-        borderRadius: 16,
-        padding: 18,
-    },
-    setupStep: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        gap: 12,
-        marginBottom: 16,
-    },
-    stepBadge: {
-        width: 26,
-        height: 26,
-        borderRadius: 13,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: theme.colors.accentSubtle,
-    },
-    stepNumber: {
-        ...Typography.mono('semiBold'),
-        fontSize: 13,
-        color: theme.colors.text,
-        includeFontPadding: false,
-    },
-    stepBody: {
-        flex: 1,
-    },
-    stepText: {
-        color: theme.colors.textSecondary,
-        fontSize: 14,
-        lineHeight: 20,
-        ...Typography.default(),
-    },
-    stepTextInline: {
-        paddingTop: 3,
-    },
-    commandRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: 8,
-        borderRadius: 10,
-        backgroundColor: theme.colors.surface,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-        paddingLeft: 12,
-        paddingRight: 6,
-        paddingVertical: 6,
-    },
-    setupCommand: {
-        flex: 1,
-        fontSize: 14,
-        color: theme.colors.text,
-        ...Typography.mono(),
-    },
-    copyButton: {
-        width: 36,
-        height: 36,
-        borderRadius: 8,
-        alignItems: 'center',
-        justifyContent: 'center',
     },
     error: {
         fontSize: 12,
