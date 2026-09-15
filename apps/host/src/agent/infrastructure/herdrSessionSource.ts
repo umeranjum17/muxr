@@ -701,10 +701,13 @@ export async function createHerdrSessionSource(
             panesById.set(paneId, seed?.pane ?? { pane_id: paneId });
         }
         if (!agentsByPane.has(paneId)) {
-            agentsByPane.set(paneId, seed?.agent ?? {
+            const seededAgent = seed?.agent;
+            agentsByPane.set(paneId, {
+                ...seededAgent,
                 pane_id: paneId,
-                name: pending.value,
-                agent: pending.agent,
+                name: seededAgent?.name ?? pending.value,
+                agent: undefined,
+                agent_session: undefined,
             });
         }
     }
