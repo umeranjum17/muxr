@@ -99,6 +99,7 @@ function isPublicIpLiteral(value: string): boolean {
     if (isIP(value) === 4) {
         const parts = value.split('.').map(Number);
         const [a, b] = parts;
+        if (a === undefined || b === undefined) return false;
         if (a === 10) return false;
         if (a === 127) return false;
         if (a === 169 && b === 254) return false;
