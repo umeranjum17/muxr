@@ -34,8 +34,8 @@ if (publicBaseUrl !== undefined) {
 }
 const easProjectId = process.env.MUXR_EAS_PROJECT_ID?.trim();
 const distribution = process.env.MUXR_DISTRIBUTION?.trim() || 'store';
-if (!['store', 'direct'].includes(distribution)) {
-    throw new Error(`MUXR_DISTRIBUTION must be store or direct; received ${distribution}`);
+if (!['store', 'direct', 'self-host'].includes(distribution)) {
+    throw new Error(`MUXR_DISTRIBUTION must be store, direct, or self-host; received ${distribution}`);
 }
 if (variant === 'production' && distribution === 'store' && publicBaseUrl === undefined) {
     throw new Error('MUXR_PUBLIC_BASE_URL is required for production publishing');
