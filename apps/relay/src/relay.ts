@@ -306,20 +306,33 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
 
     const hostDownloadBaseUrl = process.env.MUXR_HOST_HTTP_URL ?? 'http://127.0.0.1:8793';
     const webRoot = process.env.MUXR_WEB_ROOT?.trim();
-    const webMime: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.wasm': 'application/wasm' };
+    const webMime: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.map': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon', '.svg': 'image/svg+xml', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.wasm': 'application/wasm' };
+    // Mutable entries must revalidate: a cached index.html pins the client to
+    // content-hashed chunks that a re-export may already have deleted. The
+    // push worker and the install manifest are entry files for the same
+    // reason; fingerprinted bundles stay immutable.
+    const webEntryFile = (file: string): boolean => {
+        const base = file.split('/').pop() ?? '';
+        return file.endsWith('index.html') || base === 'sw.js' || base === 'manifest.webmanifest' || base === 'manifest.json';
+    };
     const serveWeb = async (pathname: string, head: boolean, res: import('node:http').ServerResponse): Promise<boolean> => {
         if (!config.localAuthority || !webRoot || pathname.startsWith('/v1/') || pathname === '/health' || pathname === '/ready') return false;
         const relative = normalize(decodeURIComponent(pathname)).replace(/^[/\\]+/, '');
         if (relative.startsWith('..')) return false;
         let path = join(webRoot, relative || 'index.html');
+        let entryFallback = relative === '' || relative === 'index.html';
         try { if ((await stat(path)).isDirectory()) path = join(path, 'index.html'); }
-        catch { path = join(webRoot, 'index.html'); }
+        catch { path = join(webRoot, 'index.html'); entryFallback = true; }
         try {
             const body = await readFile(path);
             res.writeHead(200, {
                 'content-type': webMime[extname(path).toLowerCase()] ?? 'application/octet-stream',
-                'cache-control': path.endsWith('index.html') ? 'no-store' : 'public, max-age=31536000, immutable',
-                'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+                'cache-control': webEntryFile(path) || entryFallback ? 'no-store' : 'public, max-age=31536000, immutable',
+                'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+                // The web client is a same-origin installed app surface, not an
+                // API response: camera/mic stay usable for future foreground
+                // voice and QR flows. The global API policy remains deny-by-default.
+                'permissions-policy': 'camera=(self), microphone=(self), geolocation=()',
                 'x-content-type-options': 'nosniff',
                 'referrer-policy': 'no-referrer',
             });

@@ -26,6 +26,8 @@ fastlane/README.md
 
 # copied from canvaskit-wasm at start/build time (see apps/mobile/package.json)
 apps/mobile/public/canvaskit.wasm
+# copied from mermaid at start/build time (see apps/mobile/package.json)
+apps/mobile/public/mermaid.min.js
 dist-npm/
 /*.apk
 
