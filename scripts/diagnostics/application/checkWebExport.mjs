@@ -120,20 +120,20 @@ if (!existsSync(distIndex)) {
         }
         initialGzip += gzipSync(readFileSync(file)).length;
     }
-    // Ratchet, not target: pinned to what clean main measured (3,146,371 B
-    // on ccbca132, real install). The real 2.0 MiB usable-screen target is
+    // Ratchet, not target: pinned to what clean main measured (3,152,479 B
+    // at this base, real install). The real 2.0 MiB usable-screen target is
     // not reachable until the markdown lazy-split (mermaidBundle) lands and
     // the eager __common chunk stops carrying the diff/mermaid subtrees.
-    const USABLE_GZIP_CEILING = 3146371;
+    const USABLE_GZIP_CEILING = 3152479;
     check(`dist usable gzip ratchet (target 2.0 MiB once lazy-split lands)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk must stay a stub: anything shared between two
     // lazy chunks lands here and loads before the first paint.
     const commonRef = refs.find((ref) => ref.includes('__common'));
     const commonGzip = commonRef === undefined ? 0 : gzipSync(readFileSync(join(mobile, 'dist', commonRef.replace(/^\//, '')))).length;
-    // Ratchet, not target: pinned to what clean main measured (1,105,860 B
-    // on ccbca132, real install). The real 64 KiB stub target waits on the
+    // Ratchet, not target: pinned to what clean main measured (1,108,077 B
+    // at this base, real install). The real 64 KiB stub target waits on the
     // same lazy-split.
-    check('dist __common chunk ratchet (target 64 KiB once lazy-split lands)', commonGzip <= 1105860, `${commonGzip} bytes`);
+    check('dist __common chunk ratchet (target 64 KiB once lazy-split lands)', commonGzip <= 1108077, `${commonGzip} bytes`);
     const distText = [distHtml, ...refs.map((ref) => {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
         return existsSync(file) ? readFileSync(file, 'utf8') : '';

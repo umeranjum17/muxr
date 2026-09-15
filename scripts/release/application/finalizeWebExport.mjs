@@ -42,7 +42,7 @@ export function finalizeWebExport(html) {
         throw new Error(`index.html has ${viewports.length} viewport metas; expected exactly one`);
     }
     let next = html.replace(viewports[0], VIEWPORT);
-    next = next.replace(new RegExp(`\\s*${START}[\\s\\S]*?${END}`), '');
+    next = next.replace(new RegExp(`\\s*${START}[\\s\\S]*?${END}\\s*`), '');
     return next.replace('</head>', `\n${START}\n${INSTALL_META.join('\n')}\n${END}\n</head>`);
 }
 
