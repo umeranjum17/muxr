@@ -2,8 +2,8 @@
 # Export the paired browser client and update the served document root
 # without ever taking it offline or orphaning already-loaded pages.
 #
-# Strategy: fingerprinted (content-hashed) assets merge first with plain cp
-# (no deletion, no rsync requirement), then each mutable entry file is
+# Strategy: fingerprinted (content-hashed) assets merge first via a temporary
+# sibling inside DOC_ROOT and rename (no deletion, no rsync requirement), then each mutable entry file is
 # copied to a temporary sibling inside DOC_ROOT and renamed over the live
 # entry. The temp file and the live entry share a directory, so they share
 # a filesystem and the rename is atomic: a browser always reads the old or
@@ -29,7 +29,7 @@ DIST="$ROOT/apps/mobile/dist"
 mkdir -p "$DOC_ROOT"
 
 # 1. Fingerprinted assets first (everything except the mutable entries).
-# Plain cp merge, no deletion: old hashed assets stay so already-loaded
+# Temp-sibling stage plus rename, no deletion: old hashed assets stay so
 # pages keep working.
 cd "$DIST"
 find . -type f -print0 | while IFS= read -r -d '' src; do
@@ -38,7 +38,9 @@ find . -type f -print0 | while IFS= read -r -d '' src; do
     esac
     dest="$DOC_ROOT/${src#./}"
     mkdir -p "$(dirname "$dest")"
-    cp "$src" "$dest"
+    tmp="$dest.new-$$"
+    cp "$src" "$tmp"
+    mv "$tmp" "$dest"
 done
 cd "$ROOT"
 

@@ -134,7 +134,13 @@ try {
     check('web serving flow completed', false, cause instanceof Error ? cause.message : String(cause));
 } finally {
     for (const child of children) child.kill();
-    await Promise.all(children.map((child) => new Promise((resolve) => child.once('exit', resolve))));
+    await Promise.all(children.map((child) => new Promise((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) resolve();
+        else {
+            child.once('exit', resolve);
+            child.once('error', resolve);
+        }
+    })));
     rmSync(root, { recursive: true, force: true });
     rmSync(dataDir, { recursive: true, force: true });
 }
