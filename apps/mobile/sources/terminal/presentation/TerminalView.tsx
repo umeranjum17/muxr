@@ -321,11 +321,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                             channel.repaint();
                         },
                     });
-                    // Pointer takeover belongs to an image that really is the
-                    // pane. For a program's small image above its own prompt the
-                    // pane still owns scrolling and taps.
-                    channel.onGraphics((active, reason, surface) => {
-                        const live = suppressPointerRef.current ? false : active && surface !== 'inline';
+                    channel.onGraphics((active, reason) => {
+                        const live = suppressPointerRef.current ? false : active;
                         graphicsActiveRef.current = live;
                         if (!live) {
                             scaleIndexRef.current = 0;

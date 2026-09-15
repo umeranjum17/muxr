@@ -127,10 +127,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         netScrollBack.current = 0;
         setShowJump(false);
         if (channel !== undefined) {
-            stopWatchingGraphics.current = channel.onGraphics((active, _reason, surface) => {
-                const ownsScroll = active && surface !== 'inline';
-                if (ownsScroll === graphicsOwnsScroll.current) return;
-                graphicsOwnsScroll.current = ownsScroll;
+            stopWatchingGraphics.current = channel.onGraphics((active) => {
+                if (active === graphicsOwnsScroll.current) return;
+                graphicsOwnsScroll.current = active;
                 netScrollBack.current = 0;
                 setShowJump(false);
             });

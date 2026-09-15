@@ -3,7 +3,7 @@
  * the host actually spawns. No test framework.
  */
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -80,6 +80,15 @@ function decodeServerMessage(payload) {
             reader.boolean();
             return { type: 'output', bytes: reader.bytes() };
         }
+        case 13: {
+            const path = reader.string();
+            const expectedLength = Number(reader.uint());
+            const imageId = reader.number();
+            const transferId = Number(reader.uint());
+            const leading = reader.bytes().toString('latin1');
+            const control = reader.string();
+            return { type: 'graphics-file', path, expectedLength, imageId, transferId, leading, control };
+        }
         default:
             return { type: 'other' };
     }
@@ -103,6 +112,11 @@ function fail(message) {
     throw new Error(message);
 }
 
+/** `GraphicsResult`: the client is done with the leased file. */
+function graphicsResult(message) {
+    return frame(Buffer.concat([uint(10), uint(message.transferId), uint(message.imageId), Buffer.from([1])]));
+}
+
 async function handshake(socketPath) {
     const socket = createConnection(socketPath);
     await new Promise((resolve, reject) => {
@@ -110,15 +124,17 @@ async function handshake(socketPath) {
         socket.once('error', reject);
     });
     const messages = [];
-    readFrames(socket, (message) => messages.push(message));
+    readFrames(socket, (message) => {
+        messages.push(message);
+        if (message.type === 'graphics-file') socket.write(graphicsResult(message));
+    });
     socket.write(frame(clientHello({ cols: 80, rows: 24, cellWidthPx: 8, cellHeightPx: 16 })));
     const deadline = Date.now() + 3000;
     while (Date.now() < deadline) {
         const welcome = messages.find((message) => message.type === 'welcome');
-        const images = messages.filter((message) =>
-            message.type === 'output'
-            && message.bytes?.includes(0x1b)
-            && message.bytes.toString('latin1').includes('\u001b_G'));
+        const images = messages.filter((message) => message.type === 'graphics-file'
+            && message.expectedLength > 0
+            && /(?:^|,)s=\d+,v=\d+/.test(message.control));
         if (welcome !== undefined && images.length >= 2) {
             socket.end();
             return { welcome, images };
@@ -217,10 +233,66 @@ try {
     rmSync(dir, { recursive: true, force: true });
 }
 
-/** The RGBA of the first kitty transmit in a chunk of terminal output. */
-function kittyPixels(text) {
-    const match = /\u001b_Ga=t,[^;]*;([A-Za-z0-9+/=]+)\u001b\\/.exec(text);
-    return match === null ? undefined : Buffer.from(match[1], 'base64');
+// A client that acknowledges slowly for a while banks unused byte budget. It
+// must not be repaid with a burst once it speeds up: consecutive transfers
+// stay at least one frame's worth of transport apart while paints are queued.
+const burstDir = mkdtempSync(join(tmpdir(), 'fake-herdr-burst-'));
+const burstSocketPath = join(burstDir, 'herdr-client.sock');
+// 100x100 RGBA at 200 kB/s is a 200 ms floor; 20 Hz paints keep the queue full.
+const floorMs = 200;
+const burst = await startGraphics({
+    socketPath: burstSocketPath, world: DEFAULT_WORLD, frameHz: 20,
+    imageWidth: 100, imageHeight: 100, bytesPerSecond: 200_000,
+});
+try {
+    const socket = createConnection(burstSocketPath);
+    await new Promise((resolve, reject) => {
+        socket.once('connect', resolve);
+        socket.once('error', reject);
+    });
+    const arrivals = [];
+    let slowAcks = 4;
+    readFrames(socket, (message) => {
+        if (message.type !== 'graphics-file') return;
+        arrivals.push(Date.now());
+        const ack = () => socket.write(graphicsResult(message));
+        if (slowAcks > 0) {
+            slowAcks -= 1;
+            setTimeout(ack, 500);
+        } else {
+            ack();
+        }
+    });
+    socket.write(frame(clientHello({ cols: 80, rows: 24, cellWidthPx: 8, cellHeightPx: 16 })));
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline && arrivals.length < 12) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    if (arrivals.length < 12) fail(`expected 12 paced transfers, got ${arrivals.length}`);
+    const gaps = arrivals.slice(1).map((at, index) => at - arrivals[index]);
+    const tooClose = gaps.filter((gap) => gap < floorMs * 0.75);
+    if (tooClose.length > 0) fail(`banked credit burst through the ${floorMs} ms floor: gaps ${gaps.join(',')}`);
+    socket.destroy();
+} finally {
+    burst.close();
+    rmSync(burstDir, { recursive: true, force: true });
+}
+
+/**
+ * Collect leased frames the way the host does: read the file the transfer
+ * names, then acknowledge it. Herdr owns the file until that ack, so reading
+ * first and acking second is the only correct order.
+ */
+function collectLeased(client) {
+    const frames = [];
+    readFrames(client, (message) => {
+        if (message.type !== 'graphics-file') return;
+        let pixels;
+        try { pixels = readFileSync(message.path); } catch { pixels = undefined; }
+        frames.push({ pixels, leading: message.leading, control: message.control });
+        client.write(graphicsResult(message));
+    });
+    return frames;
 }
 
 // The shim runs in its own process, so a wheel notch reaches the producer only
@@ -236,10 +308,7 @@ try {
         client.once('connect', resolve);
         client.once('error', reject);
     });
-    const output = [];
-    readFrames(client, (message) => {
-        if (message.type === 'output') output.push(message.bytes.toString('latin1'));
-    });
+    const output = collectLeased(client);
     client.write(frame(clientHello({ cols: 80, rows: 24, cellWidthPx: 8, cellHeightPx: 16 })));
 
     const paneId = herd.world.panes[0].pane_id;
@@ -251,10 +320,11 @@ try {
         bytes: Buffer.from(`\u001b[<${button};10;10M`, 'latin1').toString('base64'),
     })}\n`);
 
+    const withPixels = () => output.filter((item) => item.pixels !== undefined);
     const settle = async (want) => {
         const deadline = Date.now() + 4000;
         while (Date.now() < deadline) {
-            if (output.filter((chunk) => kittyPixels(chunk) !== undefined).length >= want) return;
+            if (withPixels().length >= want) return;
             await new Promise((resolve) => setTimeout(resolve, 20));
         }
         fail(`the wheel produced ${output.length} frame(s), wanted ${want} with pixels`);
@@ -262,12 +332,12 @@ try {
 
     wheel(65);
     await settle(1);
-    const first = kittyPixels(output.find((chunk) => kittyPixels(chunk) !== undefined));
+    const first = withPixels()[0]?.pixels;
     // Another notch down is 96 px, three checker blocks: the band under any
     // given row has to have flipped colour.
     wheel(65);
     await settle(2);
-    const last = kittyPixels(output.filter((chunk) => kittyPixels(chunk) !== undefined).at(-1));
+    const last = withPixels().at(-1)?.pixels;
     if (first === undefined || last === undefined) fail('the wheel produced no decodable frame');
     // Row 0 of the board, past the identity stamp the producer writes into the
     // first eight bytes.
@@ -279,7 +349,7 @@ try {
     wheel(65);
     wheel(65);
     await settle(4);
-    const evenBurst = kittyPixels(output.filter((chunk) => kittyPixels(chunk) !== undefined).at(-1));
+    const evenBurst = withPixels().at(-1)?.pixels;
     if (evenBurst === undefined) fail('the even-notch burst produced no decodable frame');
     // The whole board, not one row: a single row of a periodic pattern is one
     // bit and aliases on its own, which is the reason the position marker is
@@ -290,8 +360,7 @@ try {
 
     // Pane identity travelled too: a wheel on a different pane repaints that
     // pane, at its own place on the grid, not the one the last request named.
-    const placement = (chunk) => /\u001b\[(\d+);(\d+)H/.exec(chunk)?.[0];
-    const firstPlacement = placement(output.find((chunk) => kittyPixels(chunk) !== undefined));
+    const firstPlacement = withPixels()[0]?.leading;
     const otherPane = herd.world.panes[1].pane_id;
     const otherShim = spawn(herd.binPath, ['terminal', 'session', 'control', otherPane, '--takeover', '--cols', '80', '--rows', '24'], {
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -302,7 +371,7 @@ try {
         bytes: Buffer.from('[<65;10;10M', 'latin1').toString('base64'),
     })}\n`);
     await settle(seen + 1);
-    const otherPlacement = placement(output.at(-1));
+    const otherPlacement = output.at(-1)?.leading;
     if (firstPlacement === undefined || otherPlacement === undefined || firstPlacement === otherPlacement) {
         fail(`the wheel repainted the same place for both panes (${firstPlacement} / ${otherPlacement})`);
     }
@@ -333,10 +402,7 @@ try {
         client.once('connect', resolve);
         client.once('error', reject);
     });
-    const output = [];
-    readFrames(client, (message) => {
-        if (message.type === 'output') output.push(message.bytes.toString('latin1'));
-    });
+    const output = collectLeased(client);
     client.write(frame(clientHello({ cols: 80, rows: 24, cellWidthPx: 8, cellHeightPx: 16 })));
 
     if (pinned.fixturePanes.graphics !== pinned.world.panes[0].pane_id) {
@@ -346,7 +412,7 @@ try {
         fail('the text fixture pane is the pinned graphics pane');
     }
 
-    const painted = () => output.some((chunk) => kittyPixels(chunk) !== undefined);
+    const painted = () => output.some((item) => item.pixels !== undefined);
     const wheelOn = (paneId) => {
         const shim = spawn(pinned.binPath, ['terminal', 'session', 'control', paneId, '--takeover', '--cols', '80', '--rows', '24'], {
             stdio: ['pipe', 'pipe', 'pipe'],

@@ -9,7 +9,6 @@
  *   4. typed input reaches the pane and echoes back
  *   5. prompt / abort / detach / stop round-trip
  *   6. title-only session.updated stays under the 500ms host cap
- *   7. an inline Kitty APC reaches the client as a graphics frame
  *
  * Needs a running `herdr server`. Run: node scripts/diagnostics/application/checkHerdrE2E.mjs
  */
@@ -18,7 +17,6 @@ import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { deflateSync } from 'node:zlib';
 import WebSocket from 'ws';
 import {
     decodePayload,
@@ -88,7 +86,6 @@ const pending = new Map();
 const events = [];
 let sessionList = [];
 let createdWorkspaceId;
-let previousWorkspaceId;
 let finishing = false;
 const timer = setTimeout(() => finish(1, `FAIL: timed out after ${TIMEOUT_MS}ms\n`), TIMEOUT_MS);
 
@@ -101,11 +98,6 @@ function finish(code, message) {
     finishing = true;
     clearTimeout(timer);
     for (const child of children) child.kill();
-    if (previousWorkspaceId !== undefined) {
-        try {
-            execFileSync(process.env.HERDR_BIN || 'herdr', ['workspace', 'focus', previousWorkspaceId], { stdio: 'ignore' });
-        } catch { /* best effort after a failed live server */ }
-    }
     if (createdWorkspaceId !== undefined) {
         try {
             execFileSync(process.env.HERDR_BIN || 'herdr', ['workspace', 'close', createdWorkspaceId], { stdio: 'ignore' });
@@ -366,63 +358,6 @@ async function run() {
         fail(`typed input never echoed back (${framesBeforeInput} frame(s) before input, ${frames.length} after, ${text.length} bytes, stream ${stream}, ${paneScreen})`);
     }
     console.log('ok: input echoed back through the terminal stream');
-
-    // Graphics needs cell metrics on attach; Herdr then forwards the pane's
-    // own Kitty APC as a graphics:true frame. printf has to run in a shell,
-    // so this attach is the phone-started Shell, not the Pi generation.
-    const kittyChannel = newTerminalChannel();
-    const kittyAttached = await request(socket, 'terminal.attach', {
-        sessionId: shellId, channel: kittyChannel, cols: 100, rows: 30, cellWidthPx: 8, cellHeightPx: 16,
-    });
-    if (typeof kittyAttached?.paneId !== 'string') fail('Kitty terminal.attach returned no paneId');
-    const kittyTerm = new WebSocket(terminalSocketUrl(relayUrl, { machineId, channel: kittyChannel, role: 'client' }));
-    const kittyFrames = [];
-    kittyTerm.on('message', (raw) => {
-        try {
-            const frame = JSON.parse(String(raw));
-            if (frame.type === 'terminal.frame') kittyFrames.push(frame);
-        } catch { /* ignore */ }
-    });
-    await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('Kitty terminal socket never opened')), 5_000);
-        kittyTerm.once('open', () => { clearTimeout(timer); resolve(); });
-        kittyTerm.once('error', (error) => { clearTimeout(timer); reject(error); });
-    });
-    await waitFor(() => kittyFrames.length > 0, 'Kitty pane terminal.frame stream');
-    const listed = herdrJson(['workspace', 'list']);
-    previousWorkspaceId = listed.result?.workspaces?.find((workspace) => workspace.focused === true)?.workspace_id;
-    const shellPane = herdrJson(['pane', 'get', kittyAttached.paneId]);
-    const shellWorkspaceId = shellPane.result?.pane?.workspace_id;
-    const shellTabId = shellPane.result?.pane?.tab_id;
-    if (typeof shellWorkspaceId !== 'string' || typeof shellTabId !== 'string') fail('Kitty pane has no workspace/tab');
-    runHerdr(['workspace', 'focus', shellWorkspaceId]);
-    runHerdr(['tab', 'focus', shellTabId]);
-    await new Promise((resolve) => setTimeout(resolve, 1_500));
-    const kittyPayload = deflateSync(Buffer.alloc(16)).toString('base64');
-    const kittyPrintf = `printf '\\033_Ga=T,f=32,s=2,v=2,t=d,o=z,i=9,c=4,r=2;${kittyPayload}\\033\\\\'`;
-    runHerdr(['pane', 'run', kittyAttached.paneId, kittyPrintf]);
-    const kittyDeadline = Date.now() + 5_000;
-    while (!kittyFrames.some((frame) => frame.graphics === true)) {
-        if (Date.now() >= kittyDeadline) {
-            const arrived = kittyFrames.slice(-8).map((frame) => ({
-                graphics: frame.graphics === true,
-                reason: frame.graphicsReason,
-                bytes: typeof frame.bytes === 'string' ? frame.bytes.length : 0,
-                full: frame.full === true,
-            }));
-            fail(`inline Kitty never arrived as a graphics frame (${JSON.stringify(arrived)})`);
-        }
-        await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    console.log('ok: inline Kitty reached the client as a graphics frame');
-    kittyTerm.close();
-    await request(socket, 'terminal.detach', { sessionId: shellId, channel: kittyChannel });
-    if (previousWorkspaceId !== undefined) {
-        try {
-            runHerdr(['workspace', 'focus', previousWorkspaceId], 5_000);
-        } catch { /* restore is best effort; finish() retries */ }
-        previousWorkspaceId = undefined;
-    }
 
     // 5. prompt + abort round-trip (ack-only requests)
     await request(socket, 'session.prompt', { sessionId: newId, text: 'say nothing' });
