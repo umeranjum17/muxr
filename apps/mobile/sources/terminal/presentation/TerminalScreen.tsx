@@ -501,6 +501,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const sendAction = <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
         <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
     </Pressable>;
+    // Only what the channel can vouch for: 'live' means frames flow with
+    // nothing known wrong, so it reads as connected, never as health; a known
+    // timeout or lost route reads unconfirmed until the host answers again.
+    const statusText = status === 'live' ? 'connected'
+        : status === 'unconfirmed' ? 'Connection unconfirmed'
+            : status;
 
     // Same shape as KeyboardAvoidingView, minus the animation: that padding
     // moves frame by frame and Ghostty reflows its whole grid on every size
@@ -630,7 +636,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             onPress={() => channelRef.current?.reconnect(true)}
                             hitSlop={8}
                             accessibilityRole="button"
-                            accessibilityLabel={status.includes('another device') ? 'Take control from another device' : `Reconnect terminal. ${status}`}
+                            accessibilityLabel={status.includes('another device') ? 'Take control from another device' : `Reconnect terminal. ${statusText}`}
                             style={({ pressed }) => ({
                                 position: 'absolute',
                                 top: 12,
@@ -647,7 +653,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 opacity: pressed ? 0.7 : 1,
                             })}
                         >
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{status}</Text>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{statusText}</Text>
                             <Ionicons name="refresh-outline" size={12} color={theme.colors.textSecondary} />
                         </Pressable>
                 )}
