@@ -144,15 +144,16 @@ try {
     assert.ok(output.items.some((item) => item.id === 'limit-codex-0' && item.metadata[0]?.value === '75% left' && item.group === 'Rate limits'));
     assert.ok(output.items.some((item) => item.id === 'limit-codex-1' && item.metadata[0]?.value === '10% left'));
     assert.equal(output.codexRemaining, 10);
-    assert.ok(output.providers.length > 16);
-    for (const agent of ['copilot', 'kilo', 'kiro', 'agy', 'mastracode', 'qodercli']) assert.ok(output.providers.some((p) => p.id === agent));
+    // Only integrated providers earn tabs: measured activity this week or a
+    // connected plan/account. The fixture installs many idle CLIs; none of
+    // them may mint a tab.
+    assert.deepEqual(output.providers.map((p) => p.id), ['omp', 'opencode', 'claude', 'kimi', 'pi', 'codex']);
     assert.equal(output.badge?.value, '1.3M tokens today');
 
-    // Every detected provider earns a tab, measured ones first.
+    // Default tab: the busiest measured provider leads.
     assert.equal(output.provider, 'claude');
-    assert.deepEqual(output.providers.slice(0, 3).map((p) => p.id), ['omp', 'opencode', 'claude']);
     const tabs = output.providers.map((tab) => tab.id);
-    for (const expected of ['claude', 'kimi', 'pi', 'codex', 'cursor']) assert.ok(tabs.includes(expected), `missing ${expected} tab`);
+    for (const idle of ['cursor', 'gemini', 'grok', 'hermes', 'copilot', 'kilo', 'kiro', 'agy', 'mastracode', 'qodercli']) assert.ok(!tabs.includes(idle), `${idle} must not earn a tab while idle`);
 
     // Claude's tab carries today, its models, the week, and the real plan windows.
     assert.equal(output.todayTokens, '1.3M');
@@ -179,13 +180,11 @@ try {
     assert.equal(kimi.weekSeries.at(-1)?.valueLabel, '2.5K');
     assert.equal(kimi.limitLabel, 'Plan limits aren’t connected in muxr');
 
-    // An installed but unmeasured provider still opens, empty and honest.
+    // A deep link to an installed-but-idle provider no longer mints a tab;
+    // it falls back to the default one instead.
     const cursor = JSON.parse(run({ provider: 'cursor' }).stdout);
-    assert.equal(cursor.provider, 'cursor');
-    assert.equal(cursor.todayTokens, '—');
-    assert.match(cursor.activityLabel, /unsupported/);
-    assert.equal(cursor.weekCost, '—');
-    assert.deepEqual(cursor.modelSeries, []);
+    assert.equal(cursor.provider, 'omp');
+    assert.ok(!cursor.providers.some((p) => p.id === 'cursor'));
 
     assert.doesNotMatch(result.stdout, /hostile/);
     // Rows open the details screen and nothing else: the card is a summary of
@@ -240,6 +239,42 @@ try {
     writeFileSync(join(scratch, '.local/share/opencode/auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: 'different-fixture-key' } }));
     assert.match(JSON.parse(run({ provider: 'opencode' }, { ...goEnv, OPENCODE_AUTH_CONTENT: '' }).stdout).limitLabel, /limits unavailable/, 'disk key change reused cached account limits');
     assert.doesNotMatch(readFileSync(join(scratch, 'usage-v2-opencode.json'), 'utf8'), /fixture-secret-key|different-fixture-key/);
+
+    // Z.ai: the GLM Coding Plan credential Pi holds earns a tab with no
+    // measured activity of its own, and the monitor endpoint fills the chart.
+    const zaiAgent = join(scratch, 'zai-agent');
+    mkdirSync(zaiAgent, { recursive: true });
+    writeFileSync(join(zaiAgent, 'auth.json'), JSON.stringify({ zai: { type: 'api_key', key: 'fixture-zai-key' } }));
+    const zaiFetchOk = join(scratch, 'zai-fetch-ok.mjs');
+    writeFileSync(zaiFetchOk, `globalThis.fetch = async (url, options) => {
+      if (url !== 'https://api.z.ai/api/monitor/usage/quota/limit' || options.redirect !== 'error' || options.headers.authorization !== 'Bearer fixture-zai-key') throw new Error('unexpected quota request');
+      return new Response(JSON.stringify({ code: 200, msg: 'Operation successful', success: true, data: { level: 'pro', limits: [
+        { type: 'CREDIT_LIMIT', unit: 3, number: 5, usage: 12000, currentValue: 539, remaining: 11461, percentage: 4, nextResetTime: Date.now() + 3 * 3600000 },
+        { type: 'CREDIT_LIMIT', unit: 6, number: 1, usage: 60000, currentValue: 539, remaining: 59461, percentage: 1, nextResetTime: Date.now() + 3 * 86400000 },
+        { type: 'CREDIT_LIMIT', unit: 9, number: 9, usage: 1, currentValue: 0, remaining: 1, percentage: 200, nextResetTime: Date.now() + 3600000 },
+      ] } }));
+    };`);
+    const zaiRun = JSON.parse(run({ provider: 'zai' }, { NODE_OPTIONS: `--import=${zaiFetchOk}`, PI_AGENT_DIR: zaiAgent }).stdout);
+    assert.equal(zaiRun.provider, 'zai');
+    assert.equal(zaiRun.limitLabel, 'Z.ai plan usage');
+    assert.deepEqual(zaiRun.limitSeries.map((limit) => [limit.label, limit.value, limit.valueLabel]), [['5-hour limit', 4, '4% used'], ['Weekly limit', 1, '1% used']]);
+    assert.equal(zaiRun.limitSeries[0]?.detail, '3h');
+    assert.deepEqual(zaiRun.limitRing, []);
+    assert.equal(zaiRun.todayTokens, '—');
+    assert.match(zaiRun.activityLabel, /unsupported/);
+    assert.doesNotMatch(JSON.stringify(zaiRun), /fixture-zai-key/);
+    // The configured plan is a tab even with zero measured activity of its
+    // own, while installed-but-idle CLIs still are not.
+    const withZai = JSON.parse(run({}, { PI_AGENT_DIR: zaiAgent, MUXR_PLUGIN_STATE_DIR: '' }).stdout);
+    assert.ok(withZai.providers.some((p) => p.id === 'zai'));
+    assert.ok(!withZai.providers.some((p) => p.id === 'cursor' || p.id === 'gemini'));
+    writeFileSync(join(scratch, 'zai-fetch-denied.mjs'), "globalThis.fetch = async () => new Response('denied', { status: 401 });");
+    const zaiDenied = JSON.parse(run({ provider: 'zai' }, { NODE_OPTIONS: '--import=' + join(scratch, 'zai-fetch-denied.mjs'), PI_AGENT_DIR: zaiAgent, MUXR_PLUGIN_STATE_DIR: '' }).stdout);
+    assert.match(zaiDenied.limitLabel, /reconnect in Pi/);
+    assert.deepEqual(zaiDenied.limitSeries, []);
+    writeFileSync(join(scratch, 'zai-fetch-none.mjs'), "globalThis.fetch = async () => new Response(JSON.stringify({ code: 200, success: false, msg: 'no package' }), { status: 200 });");
+    const zaiNone = JSON.parse(run({ provider: 'zai' }, { NODE_OPTIONS: '--import=' + join(scratch, 'zai-fetch-none.mjs'), PI_AGENT_DIR: zaiAgent, MUXR_PLUGIN_STATE_DIR: '' }).stdout);
+    assert.match(zaiNone.limitLabel, /coding plan unavailable/);
     // A valid dotted profile is isolated from the default; an invalid profile
     // must never quietly read another account's database.
     cpSync(join(scratch, '.omp/agent'), join(scratch, '.omp/profiles/work.team/agent'), { recursive: true });
@@ -260,20 +295,18 @@ try {
     const fallback = run({ provider: 'codex' }, { PATH: scratch, MUXR_CCUSAGE_BIN: join(scratch, 'missing') });
     assert.equal(fallback.status, 0, fallback.stderr);
     const fallbackOutput = JSON.parse(fallback.stdout);
-    assert.equal(fallbackOutput.provider, 'codex');
-    assert.equal(fallbackOutput.todayTokens, '—');
-    assert.match(fallbackOutput.activityLabel, /unavailable/);
-    assert.match(fallbackOutput.limitLabel, /unavailable/);
-    assert.ok(!existsSync(join(scratch, 'usage-v2-codex.json')));
+    // Codex without its CLI earns no tab, so the deep link falls back; the
+    // collection failure still surfaces on the card it landed on.
+    assert.equal(fallbackOutput.provider, 'omp');
     assert.ok(fallbackOutput.items.some((item) => item.id === 'ccusage-unavailable'));
     assert.ok(fallbackOutput.items.some((item) => item.id === 'available-claude' && item.metadata.length === 0));
     assert.doesNotMatch(fallback.stdout, /OpenAI Codex current limit/);
+    assert.ok(!existsSync(join(scratch, 'usage-v2-codex.json')));
     assert.ok(!existsSync(piMarker), 'Fallback Usage invoked Pi');
 
-    const invalid = run({ provider: 'qwen' }, { PATH: scratch, MUXR_CCUSAGE_BIN: '/bin/true' });
-    const invalidOutput = JSON.parse(invalid.stdout);
-    assert.equal(invalidOutput.provider, 'qwen');
-    assert.match(invalidOutput.activityLabel, /unavailable/);
+    const invalid = JSON.parse(run({ provider: 'qwen' }, { PATH: scratch, MUXR_CCUSAGE_BIN: '/bin/true' }).stdout);
+    assert.equal(invalid.provider, 'omp');
+    assert.ok(!invalid.providers.some((p) => p.id === 'qwen'));
 
     const dstScratch = mkdtempSync(join(tmpdir(), 'muxr-usage-dst-'));
     try {
@@ -323,6 +356,11 @@ try {
         record('host-1', new Date(Date.now() - 60_000).toISOString(), 'host-omp', { input: 100, output: 20, cacheRead: 30 }, 0.01),
     ]);
     writeFileSync(join(hostRoot, 'opencode/auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: 'must-not-borrow-disk-key' } }));
+    // The Go tab needs real integration: a fresh opencode record puts the
+    // provider on the strip so its connection state can be asserted below.
+    seedDatabase(join(hostRoot, 'opencode/opencode.db'),
+        'CREATE TABLE message (time_created INTEGER, data TEXT)', 'INSERT INTO message VALUES (?, ?)',
+        [Date.now() - 30_000, JSON.stringify({ role: 'assistant', modelID: 'fixture-go', providerID: 'opencode-go', tokens: { input: 5, output: 5 }, cost: 0 })]);
     writeFileSync(join(scratch, 'codex'), codexFixture, { mode: 0o755 });
     mkdirSync(join(scratch, 'host-state'));
     const hostEnvironment = { HOME: scratch, PATH: `${scratch}:${process.env.PATH}`, XDG_DATA_HOME: hostRoot, PI_CONFIG_DIR: '.omp', OMP_PROFILE: 'host.flow', PI_PROFILE: '', OPENCODE_AUTH_CONTENT: '{}', CLAUDE_CONFIG_DIR: join(scratch, '.claude'), CODEX_HOME: join(scratch, '.codex') };
