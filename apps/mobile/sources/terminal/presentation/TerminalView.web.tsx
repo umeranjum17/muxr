@@ -24,6 +24,8 @@ import {
 
 export interface TerminalViewProps {
     sessionId: string;
+    /** Restore the real Herdr scrollback after a history route returns. */
+    initialScrollBack?: number;
     onStatus?: (status: string) => void;
     onChannel?: (channel: TerminalChannel | undefined) => void;
     /** Same contract as the native view; the browser has no view commands and
@@ -57,7 +59,9 @@ function deviceCells(term: Terminal, dpr: number): CellMetrics {
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
     const hostRef = React.useRef<View | null>(null);
-    const { sessionId, onStatus, onChannel } = props;
+    const { sessionId, initialScrollBack = 0, onStatus, onChannel } = props;
+    const initialScrollBackRef = React.useRef(initialScrollBack);
+    initialScrollBackRef.current = initialScrollBack;
     const [graphicsUnavailable, setGraphicsUnavailable] = React.useState(false);
 
     React.useEffect(() => {
@@ -198,6 +202,17 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 channel = opened;
                 onChannel?.(opened);
                 opened.onGraphics((active) => { graphicsActive = active && !graphicsFailed; });
+                let restoredScroll = false;
+                const tryRestoreScroll = (): void => {
+                    if (restoredScroll) return;
+                    const target = initialScrollBackRef.current;
+                    if (target <= 3) return;
+                    restoredScroll = true;
+                    requestAnimationFrame(() => {
+                        if (!disposed && channel === opened) opened.scroll(Math.min(target, 5_000));
+                    });
+                };
+                requestAnimationFrame(tryRestoreScroll);
                 let pending: { bytes: string; graphics?: boolean }[] = [];
                 let frameScheduled = false;
                 const flushFrames = (): void => {
@@ -239,6 +254,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     }
                 };
                 opened.onData((base64, graphics) => {
+                    if (graphics !== true) tryRestoreScroll();
                     if (graphics !== true) recordTerminalOutput(sessionId, base64);
                     pending.push({ bytes: base64, graphics });
                     if (!frameScheduled) {

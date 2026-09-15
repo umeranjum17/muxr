@@ -45,6 +45,9 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName === '@muxr/contract') {
     return { filePath: contractEntry, type: 'sourceFile' };
   }
+  if (moduleName.startsWith('@muxr/contract/')) {
+    return { filePath: path.resolve(workspaceRoot, 'packages/contract/dist', moduleName.slice('@muxr/contract/'.length), 'index.js'), type: 'sourceFile' };
+  }
   if (moduleName === '@muxr/crypto') {
     return { filePath: cryptoEntry, type: 'sourceFile' };
   }

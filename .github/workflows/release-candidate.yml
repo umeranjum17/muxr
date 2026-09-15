@@ -1,10 +1,12 @@
 name: release candidate
 
 on:
-  schedule:
-    - cron: '20 2 * * *'
   workflow_dispatch:
     inputs:
+      source_commit:
+        description: Exact 40-character main commit tested by the captain
+        required: true
+        type: string
       channel:
         description: Nightly from tested main, or an unpublished final-version stable candidate
         type: choice
@@ -41,19 +43,21 @@ jobs:
         with:
           node-version: 22
       - id: select
-        name: Select an exact green commit and channel
+        name: Select the captain-tested main commit and channel
         env:
           GH_TOKEN: ${{ github.token }}
           REQUESTED_CHANNEL: ${{ inputs.channel || 'nightly' }}
           REQUESTED_VERSION: ${{ inputs.version }}
+          REQUESTED_SOURCE_COMMIT: ${{ inputs.source_commit }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&status=success" > "$RUNNER_TEMP/ci.json"
-          jq -e --arg sha "$GITHUB_SHA" '.workflow_runs | any(.head_sha == $sha and .event == "push" and .head_branch == "main")' "$RUNNER_TEMP/ci.json"
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$REQUESTED_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$REQUESTED_SOURCE_COMMIT" = "$GITHUB_SHA"
           node --input-type=module <<'JS'
           import { appendFileSync, readFileSync } from 'node:fs';
           import { compareVersions, distribution } from './scripts/release/domain/channel.mjs';
           import { CATALOG_BRANCH, parseCatalog } from './scripts/release/domain/channelCatalog.mjs';
-          import { readCatalogBranch, readTagCommit } from './scripts/release/infrastructure/catalogBranch.mjs';
+          import { readCatalogBranch } from './scripts/release/infrastructure/catalogBranch.mjs';
           const channel = process.env.REQUESTED_CHANNEL;
           const requested = process.env.REQUESTED_VERSION;
           if (!requested && channel === 'stable') throw new Error('A final stable candidate needs an explicit version');
@@ -78,17 +82,6 @@ jobs:
             // A version picked without knowing stable can sort under it, and an
             // empty or missing catalog is exactly that unknown state.
             if (stable === undefined) throw new Error('the published channels carry no stable release to sort a nightly above');
-            // A nightly is due unless this exact commit is already the published
-            // nightly. A candidate run alone proves nothing: a manual stable
-            // candidate, or a build whose publication failed, must not suppress
-            // the nightly. A stable promotion that overtook the published
-            // nightly means the same source still needs a version above it.
-            if (process.env.GITHUB_EVENT_NAME === 'schedule' && published.nightly !== undefined
-              && compareVersions(published.nightly.version, stable) > 0
-              && readTagCommit({ repository, tag: published.nightly.tag }) === process.env.GITHUB_SHA) {
-              appendFileSync(process.env.GITHUB_OUTPUT, 'build=false\n');
-              process.exit(0);
-            }
             // The automatic base is the later of this checkout's next patch and
             // the published stable's next patch, so a nightly never sorts under
             // a stable promoted while the root manifest stayed behind.

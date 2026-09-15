@@ -11,7 +11,7 @@
  * closed when the host says the stream ended or retries run out.
  */
 
-import { issueWsTicket, newTerminalChannel, ticketSocketUrl, type Envelope, type TerminalGraphicsReason, type TerminalGraphicsSurface } from '@muxr/contract';
+import { issueWsTicket, newTerminalChannel, ticketSocketUrl, type Envelope, type TerminalGraphicsReason } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 import { beginTerminalFrameCounts, finalizeTerminalFrameCounts, recordTerminalChannel, recordTerminalFirstFrame, recordTerminalFrameReceived, recordTerminalFrameWritten, type TerminalFrameCountToken } from '@/catalog/infrastructure/connectionDiagnostics';
@@ -25,7 +25,7 @@ export interface TerminalChannel {
     /** base64 ANSI chunks from the pane. Graphics frames set the second flag. */
     onData: (listener: (base64: string, graphics?: boolean) => void) => () => void;
     onClose: (listener: (reason?: string) => void) => () => void;
-    onGraphics: (listener: (active: boolean, reason?: TerminalGraphicsReason, surface?: TerminalGraphicsSurface) => void) => () => void;
+    onGraphics: (listener: (active: boolean, reason?: TerminalGraphicsReason) => void) => () => void;
     /** 'reconnecting' while a dropped socket is being re-attached, 'live' after. */
     onState: (listener: (state: TerminalChannelState) => void) => () => void;
     sendText: (text: string) => void;
@@ -144,18 +144,15 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     const pendingData: { bytes: string; graphics?: boolean }[] = [];
     const closeListeners = new Set<(reason?: string) => void>();
     const stateListeners = new Set<(state: TerminalChannelState) => void>();
-    const graphicsListeners = new Set<(active: boolean, reason?: TerminalGraphicsReason, surface?: TerminalGraphicsSurface) => void>();
+    const graphicsListeners = new Set<(active: boolean, reason?: TerminalGraphicsReason) => void>();
     let graphicsActive = false;
     let graphicsReason: TerminalGraphicsReason | undefined;
-    let graphicsSurface: TerminalGraphicsSurface | undefined;
-    const emitGraphics = (active: boolean, reason?: TerminalGraphicsReason, surface?: TerminalGraphicsSurface): void => {
+    const emitGraphics = (active: boolean, reason?: TerminalGraphicsReason): void => {
         const nextReason = active ? undefined : reason;
-        const nextSurface = active ? surface ?? graphicsSurface : undefined;
-        if (graphicsActive === active && graphicsReason === nextReason && graphicsSurface === nextSurface) return;
+        if (graphicsActive === active && graphicsReason === nextReason) return;
         graphicsActive = active;
         graphicsReason = nextReason;
-        graphicsSurface = nextSurface;
-        for (const listener of graphicsListeners) listener(active, nextReason, nextSurface);
+        for (const listener of graphicsListeners) listener(active, nextReason);
     };
     const outbox: string[] = [];
     let socket: WebSocket | undefined;
@@ -329,8 +326,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     const reason = rawReason === 'retired' || rawReason === 'bridge-closed' || rawReason === 'pane-off-surface'
                         ? rawReason
                         : undefined;
-                    const rawSurface = 'graphicsSurface' in frame ? frame.graphicsSurface : undefined;
-                    const surface = rawSurface === 'full' || rawSurface === 'inline' ? rawSurface : undefined;
                     if (frameCounts !== undefined) recordTerminalFrameReceived(frameCounts);
                     if (!firstFrame) {
                         firstFrame = true;
@@ -343,7 +338,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                         emitState('live');
                         recordTerminalFirstFrame(Date.now() - openStarted);
                     }
-                    if (typeof graphics === 'boolean') emitGraphics(graphics, reason, surface);
+                    if (typeof graphics === 'boolean') emitGraphics(graphics, reason);
                     if (dataListeners.size === 0) pendingData.push(typeof graphics === 'boolean' ? { bytes, graphics } : { bytes });
                     else for (const listener of dataListeners) listener(bytes, graphics);
                 } else if (frame.type === 'terminal.closed') {
@@ -442,7 +437,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         },
         onGraphics: (listener) => {
             graphicsListeners.add(listener);
-            listener(graphicsActive, graphicsReason, graphicsSurface);
+            listener(graphicsActive, graphicsReason);
             return () => graphicsListeners.delete(listener);
         },
         onState: (listener) => {

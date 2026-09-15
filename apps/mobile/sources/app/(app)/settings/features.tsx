@@ -15,40 +15,41 @@ export default function PreferencesSettingsScreen() {
 
     return (
         <ItemList style={{ paddingTop: 0 }}>
-            <ItemGroup title="Sessions" footer="Choose how existing sessions are ordered and filtered.">
+            <ItemGroup title="Sessions" footer="These choices apply now on this device. Hidden sessions stay on the computer.">
                 <Item
-                    title="Sort by Recent Activity"
-                    subtitle="Order sessions by last activity"
+                    title="Session order"
+                    subtitle={sortSessionsByActivity ? 'Recent activity moves the latest session to the top' : 'Created order keeps the newest session first'}
+                    detail={sortSessionsByActivity ? 'Recent activity' : 'Created'}
                     icon={<Ionicons name="swap-vertical-outline" size={29} color="#FF9500" />}
-                    rightElement={<Switch value={sortSessionsByActivity} onValueChange={setSortSessionsByActivity} />}
+                    rightElement={<Switch value={sortSessionsByActivity} onValueChange={setSortSessionsByActivity} accessibilityLabel="Sort sessions by recent activity" />}
                     showChevron={false}
                 />
                 <Item
                     title={t('settingsFeatures.hideInactiveSessions')}
-                    subtitle={t('settingsFeatures.hideInactiveSessionsSubtitle')}
+                    subtitle={`${t('settingsFeatures.hideInactiveSessionsSubtitle')} · ${hideInactiveSessions ? 'On' : 'Off'}`}
                     icon={<Ionicons name="eye-off-outline" size={29} color="#FF9500" />}
-                    rightElement={<Switch value={hideInactiveSessions} onValueChange={setHideInactiveSessions} />}
+                    rightElement={<Switch value={hideInactiveSessions} onValueChange={setHideInactiveSessions} accessibilityLabel={t('settingsFeatures.hideInactiveSessions')} />}
                     showChevron={false}
                 />
             </ItemGroup>
             {Platform.OS !== 'web' && (
-                <ItemGroup title="Terminal keyboard" footer="The keyboard button in each terminal always lets you type. This preference stays on this device.">
+                <ItemGroup title="Terminal keyboard" footer="The keyboard button in each terminal always lets you type. This preference applies on this device.">
                     <Item
                         title="Open keyboard on tap"
-                        subtitle="Show the keyboard when tapping shells, Terminal Browser or Terminal Code"
+                        subtitle={`Show the keyboard when tapping shells, Terminal Browser or Terminal Code · ${terminalKeyboardDisabled ? 'Off' : 'On'}`}
                         icon={<Ionicons name="keypad-outline" size={29} color="#007AFF" />}
-                        rightElement={<Switch value={!terminalKeyboardDisabled} onValueChange={(enabled) => setTerminalKeyboardDisabled(!enabled)} />}
+                        rightElement={<Switch value={!terminalKeyboardDisabled} onValueChange={(enabled) => setTerminalKeyboardDisabled(!enabled)} accessibilityLabel="Open keyboard on tap" />}
                         showChevron={false}
                     />
                 </ItemGroup>
             )}
             {Platform.OS === 'web' && (
-                <ItemGroup title="Advanced" footer="Web-only keyboard controls.">
+                <ItemGroup title="Advanced" footer="Web-only keyboard controls. This preference applies in this browser.">
                     <Item
                         title={t('settingsFeatures.commandPalette')}
-                        subtitle={commandPaletteEnabled ? t('settingsFeatures.commandPaletteEnabled') : t('settingsFeatures.commandPaletteDisabled')}
+                        subtitle={`${commandPaletteEnabled ? t('settingsFeatures.commandPaletteEnabled') : t('settingsFeatures.commandPaletteDisabled')} · ${commandPaletteEnabled ? 'On' : 'Off'}`}
                         icon={<Ionicons name="keypad-outline" size={29} color="#007AFF" />}
-                        rightElement={<Switch value={commandPaletteEnabled} onValueChange={setCommandPaletteEnabled} />}
+                        rightElement={<Switch value={commandPaletteEnabled} onValueChange={setCommandPaletteEnabled} accessibilityLabel={t('settingsFeatures.commandPalette')} />}
                         showChevron={false}
                     />
                 </ItemGroup>

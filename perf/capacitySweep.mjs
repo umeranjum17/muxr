@@ -4,7 +4,7 @@
  * The release gate answers "is this build safe to ship at the size we support".
  * This answers a different question: how big a herd can one machine serve
  * before either the phone or the host stops coping. It ramps the herd - panes,
- * agents, inline graphics - and for every step records what our own processes
+ * agents, leased graphics - and for every step records what our own processes
  * cost in RSS and what the phone's JS thread, frames and memory did.
  *
  * Herdr is faked, so the herd stand-in's own memory is reported separately and

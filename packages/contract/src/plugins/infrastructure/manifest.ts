@@ -655,6 +655,7 @@ function parseContribution(item: Record<string, unknown>): PluginContribution | 
         return parseNativeContribution(item);
     }
     if (item.slot === 'terminal.key-row' && item.type === 'key-row' && Array.isArray(item.keys) && item.keys.length <= 16) {
+        if (item.quickReplies !== undefined && (!Array.isArray(item.quickReplies) || item.quickReplies.length > 8)) throw new Error('invalid quick replies');
         return {
             slot: 'terminal.key-row', id: id(item.id), type: 'key-row', keys: item.keys.map((key) => {
                 if (!isRecord(key)) throw new Error('invalid terminal key');
@@ -665,6 +666,10 @@ function parseContribution(item: Record<string, unknown>): PluginContribution | 
                     ...(key.ctrlShift === undefined ? {} : { ctrlShift: keySequence(key.ctrlShift) }),
                 };
             }),
+            ...(item.quickReplies === undefined ? {} : { quickReplies: item.quickReplies.map((reply: unknown) => {
+                if (!isRecord(reply)) throw new Error('invalid quick reply');
+                return { label: pluginText(reply.label, 32), text: text(reply.text, 160) };
+            }) }),
         };
     }
     if (typeof item.slot === 'string' && DATA_CARD_SLOT_SET.has(item.slot) && item.type === 'data-card' && isRecord(item.source) && item.source.type === 'plugin.call') {

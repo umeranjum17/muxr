@@ -203,6 +203,15 @@ export function DeclarativeTerminalKeySlot({ channel }: { channel?: PluginTermin
     return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'key-row' ? [<KeyRow key={`${summary.pluginId}:${contribution.id}`} contribution={contribution} channel={channel} />] : []))}</>;
 }
 
+export function useTerminalQuickReplies(): { label: string; text: string }[] {
+    // The subscription refreshes the same host manifest that owns the key row.
+    useSlotContributions('terminal.key-row');
+    return pluginSnapshot().flatMap(({ manifest }) => manifest.contributions.flatMap((contribution) =>
+        'type' in contribution && contribution.type === 'key-row'
+            ? (contribution.quickReplies ?? []).map((reply) => ({ label: resolvePluginText(reply.label), text: reply.text }))
+            : []));
+}
+
 export function DeclarativeHomeCards() {
     useSlotContributions('home.cards');
     return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'data-card' && contribution.slot === 'home.cards' && contribution.presentation !== 'sheet' ? [<DataCard key={`${summary.pluginId}:${contribution.id}`} contribution={contribution} pluginId={summary.pluginId} manifestHash={summary.manifestHash} pluginName={summary.name} />] : []))}</>;

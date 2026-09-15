@@ -2,6 +2,16 @@
 
 ## Why
 
+## Risk
+
+- Classification: low / medium / high
+- Rationale:
+
+## Release impact
+
+- Release/distribution effect:
+- Manual verification or dispatch notes:
+
 ## Verify
 
 ```bash

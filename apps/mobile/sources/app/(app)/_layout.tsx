@@ -96,6 +96,14 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="session/[id]/history"
+                options={{
+                    headerShown: true,
+                    headerTitle: 'Conversation history',
+                    headerBackTitle: t('common.back'),
+                }}
+            />
+            <Stack.Screen
                 name="grid/[tabId]"
                 options={{
                     headerShown: false

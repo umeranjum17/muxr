@@ -146,6 +146,9 @@ export async function reportHerdrActionFailure(
 const MAX_PLUGIN_INVOCATIONS_PER_SCOPE = 64;
 const MAX_PLUGIN_INVOCATIONS_TOTAL = 1_024;
 
+/** Outlasts a full launch: agent.start (70s) plus confirmLaunch's two 60s gates. */
+const ACTIVE_LAUNCH_MS = 200_000;
+
 function publicAgentKind(kind: string | undefined): string | undefined {
     return kind === undefined || kind === 'shell' ? undefined : kind;
 }
@@ -623,6 +626,10 @@ export async function createHerdrSessionSource(
     const paneByAgentRoute = new Map<string, string>();
     const pendingCreatedRoutes = new Set<string>();
     const pendingLaunchByPane = new Map<string, HerdrAgentSessionRef>();
+    /** Launches this host is still confirming. Herdr reports no kind until it
+     * detects the process, so the phone would show the pane as a shell; the
+     * requested kind stands in until adoption, failure, or the deadline. */
+    const activeLaunchUntil = new Map<string, number>();
     const seenLaunchPane = new Set<string>();
     const launchSeedByPane = new Map<string, { pane: PaneRecord; agent: AgentRecord }>();
 
@@ -666,6 +673,7 @@ export async function createHerdrSessionSource(
 
     function forgetLaunch(paneId: string): void {
         pendingLaunchByPane.delete(paneId);
+        activeLaunchUntil.delete(paneId);
         seenLaunchPane.delete(paneId);
         launchSeedByPane.delete(paneId);
     }
@@ -693,10 +701,13 @@ export async function createHerdrSessionSource(
             panesById.set(paneId, seed?.pane ?? { pane_id: paneId });
         }
         if (!agentsByPane.has(paneId)) {
-            agentsByPane.set(paneId, seed?.agent ?? {
+            const seededAgent = seed?.agent;
+            agentsByPane.set(paneId, {
+                ...seededAgent,
                 pane_id: paneId,
-                name: pending.value,
-                agent: pending.agent,
+                name: seededAgent?.name ?? pending.value,
+                agent: null,
+                agent_session: null,
             });
         }
     }
@@ -744,6 +755,22 @@ export async function createHerdrSessionSource(
         if (agent === undefined || agentSession(agent) === undefined) return false;
         if (typeof agent.name === 'string' && agent.name.length > 0) return true;
         return pendingLaunchByPane.has(agent.pane_id) || publishedAgentSession(agent) !== undefined;
+    }
+
+    /** Herdr's kind once detected; until then the kind the phone asked for, while that launch is still active. */
+    function agentKindFor(session: CurrentSession | undefined): string | undefined {
+        if (session?.agent === undefined) return undefined;
+        const published = publishedAgentSession(session.agent);
+        const detected = publicAgentKind(session.agent.agent ?? undefined)
+            ?? (published === undefined || isMuxrLaunchSession(published) ? undefined : publicAgentKind(published.agent));
+        if (detected !== undefined) return detected;
+        const until = activeLaunchUntil.get(session.paneId);
+        if (until === undefined) return undefined;
+        if (Date.now() > until) {
+            activeLaunchUntil.delete(session.paneId);
+            return undefined;
+        }
+        return pendingLaunchByPane.get(session.paneId)?.agent;
     }
 
     function namedAgent(agent: AgentRecord | undefined): agent is AgentRecord {
@@ -976,7 +1003,7 @@ export async function createHerdrSessionSource(
         const tabLabel = tabId === undefined ? undefined : tabsById.get(tabId)?.label;
         const worktree = workspace?.worktree;
         const taskTitle = taskTitleForSession(session);
-        const agentKind = session.agent?.agent ?? undefined;
+        const agentKind = agentKindFor(session);
         const displayAgent = session.agent?.display_agent ?? undefined;
         // The terminal title is deliberately absent: a working agent animates it
         // several times a second, and every client reads placement and identity
@@ -1294,8 +1321,10 @@ export async function createHerdrSessionSource(
     }
 
     function rememberLaunch(paneId: string, kind: string, launchName: string): HerdrAgentSessionRef {
-        const pending = muxrLaunchSession(publicAgentKind(kind) ?? 'agent', launchName);
+        const requested = publicAgentKind(kind);
+        const pending = muxrLaunchSession(requested ?? 'agent', launchName);
         pendingLaunchByPane.set(paneId, pending);
+        if (requested !== undefined) activeLaunchUntil.set(paneId, Date.now() + ACTIVE_LAUNCH_MS);
         return pending;
     }
 
@@ -1412,6 +1441,9 @@ export async function createHerdrSessionSource(
             if (current !== undefined) {
                 transition(current, 'failed', 'start-launch-failed');
                 emitState(sessionId);
+            } else {
+                paneByAgentRoute.delete(sessionId);
+                if (routes.remove(sessionId) !== undefined) removeRouteState(sessionId);
             }
             // The phone already navigated to this pane; closing it strands the route.
             const publishedKind = publicAgentKind(kind);
@@ -1539,6 +1571,11 @@ export async function createHerdrSessionSource(
 
     function agentUnavailable(): Error {
         return agentRouteError('agent-unavailable');
+    }
+
+    function sessionGenerationKey(session: CurrentSession): string {
+        const reference = agentSession(session.agent);
+        return `${session.paneId}\u0000${reference === undefined ? 'shell' : herdrAgentSessionKey(reference)}`;
     }
 
     async function resolvePane(sessionId: string): Promise<CurrentSession> {
@@ -2396,7 +2433,7 @@ export async function createHerdrSessionSource(
                     const treePanes = tabPanes.map((pane) => {
                         const session = currentSessionByPane(pane.pane_id);
                         const taskTitle = session === undefined ? undefined : taskTitleForSession(session);
-                        const agentKind = session?.agent?.agent ?? undefined;
+                        const agentKind = agentKindFor(session);
                         const cwd = pane.foreground_cwd ?? pane.cwd ?? undefined;
                         const listedName = publicListedName(session?.agent);
                         return {
@@ -2481,6 +2518,7 @@ export async function createHerdrSessionSource(
             ansi?: boolean;
         }): Promise<{ text: string; truncated: boolean }> {
             const record = await resolvePane(readOptions.sessionId);
+            const generation = sessionGenerationKey(record);
             // herdr nests the payload under `read`, unlike pane.split's `pane`.
             const result = await client.call<{ read?: { text?: string; truncated?: boolean } }>('pane.read', {
                 pane_id: record.paneId,
@@ -2489,6 +2527,10 @@ export async function createHerdrSessionSource(
                 format: readOptions.ansi === true ? 'ansi' : 'text',
                 strip_ansi: readOptions.ansi !== true,
             });
+            // A route may be rebound while Herdr is serving the read. Never
+            // return text from the old pane/generation to the new route.
+            const current = await resolvePane(readOptions.sessionId);
+            if (sessionGenerationKey(current) !== generation) throw agentUnavailable();
             return { text: result.read?.text ?? '', truncated: result.read?.truncated === true };
         },
 

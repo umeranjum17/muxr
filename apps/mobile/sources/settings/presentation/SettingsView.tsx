@@ -10,7 +10,7 @@ import { getCachedHostedGrant, listPairedGrants, removeHostedGrant } from '@/pai
 import { forgetMachine as forgetPairedMachine, isMachineOnline } from '@/pairing';
 import { useAuth } from '@/account/ui';
 import { ItemList } from '@/components/ItemList';
-import { useLocalSettingMutable } from '@/catalog/store';
+import { useLocalSettingMutable, useSettingMutable, useSocketStatus } from '@/catalog/store';
 import { Modal } from '@/modal';
 import { useAllMachines } from '@/catalog/store';
 import { useUnistyles } from 'react-native-unistyles';
@@ -49,6 +49,15 @@ function liveUpdatesCopy(enabled: boolean): string {
         : 'Enable Android Live Updates to restore the status-bar island';
 }
 
+function pushStateLabel(state: PushState): string {
+    switch (state) {
+        case 'subscribed': return 'On';
+        case 'denied': return 'Blocked';
+        case 'unsupported': return 'Unavailable';
+        default: return 'Off';
+    }
+}
+
 export const SettingsView = React.memo(function SettingsView({
     topContentInset = 0,
     bottomContentInset = 0,
@@ -74,6 +83,13 @@ export const SettingsView = React.memo(function SettingsView({
     useRealtimeAppControl('Preferences', openPreferences, '/settings');
     useRealtimeAppControl('Agent notifications', openNotifications, '/settings');
     const lifecycleNotificationLevel = useLocalSettingMutable('lifecycleNotificationLevel')[0];
+    const themePreference = useLocalSettingMutable('themePreference')[0];
+    const sortSessionsByActivity = useSettingMutable('sortSessionsByActivity')[0];
+    const socketStatus = useSocketStatus().status;
+    const socketStatusText = socketStatus === 'connected' ? 'Connected' : socketStatus === 'connecting' ? 'Connecting' : 'Offline';
+    const themePreferenceText = themePreference === 'adaptive'
+        ? t('settingsAppearance.themeOptions.adaptive')
+        : themePreference === 'light' ? t('settingsAppearance.themeOptions.light') : t('settingsAppearance.themeOptions.dark');
     const [showOfflineMachines, setShowOfflineMachines] = React.useState(false);
     const allMachinesWithOffline = useAllMachines({ includeOffline: true });
     const offlineMachineCount = React.useMemo(
@@ -253,6 +269,7 @@ export const SettingsView = React.memo(function SettingsView({
             default: return t('settings.pushSubtitleDefault');
         }
     })();
+    const currentPushStateText = pushStateLabel(pushState);
 
     const appConfig = loadAppConfig();
     const docsBase = appConfig.publicBaseUrl?.replace(/\/$/, '');
@@ -265,13 +282,14 @@ export const SettingsView = React.memo(function SettingsView({
             onScroll={onScroll}
             scrollEventThrottle={16}
         >
-            <ItemGroup>
+            <ItemGroup title="Connection & updates">
                 <Item
-                    title="Connection & updates"
+                    title="Connection"
                     subtitle={versionMismatch
                         ? 'App and host versions differ — review updates'
-                        : 'Connection health, installed versions and diagnostics'}
+                        : 'Health, installed versions and diagnostics for this device and computer'}
                     subtitleLines={0}
+                    detail={versionMismatch ? 'Mismatch' : socketStatusText}
                     subtitleStyle={versionMismatch ? { color: theme.colors.text, fontWeight: '600' } : undefined}
                     icon={<Ionicons name={versionMismatch ? "warning-outline" : "link-outline"} size={29} color={versionMismatch ? theme.colors.box.warning.border : theme.colors.textSecondary} />}
                     onPress={openConnection}
@@ -280,7 +298,7 @@ export const SettingsView = React.memo(function SettingsView({
 
             {/* Hosted machines require a persisted grant; live transport rows
                 cannot resurrect a pairing the user just forgot. */}
-            <ItemGroup title={t('settings.machines')}>
+            <ItemGroup title={t('settings.machines')} footer="These computers are paired with this device. Tap one to switch; forgetting removes only this device's pairing.">
                 {machineRows.map(({ id, live: machine }) => {
                     const isOnline = machine !== undefined && isMachineOnline(machine);
                     const host = machine?.metadata?.host;
@@ -364,30 +382,47 @@ export const SettingsView = React.memo(function SettingsView({
             </ItemGroup>
             <ItemGroup title="App and plugins">
                 <Item
-                    title="Realtime voice"
-                    subtitle="Choose which provider runs on this machine"
-                    icon={<Ionicons name="pulse-outline" size={29} color="#34C759" />}
-                    onPress={openVoice}
-                />
-                <Item
                     title="Plugins"
-                    subtitle="Native UI and capabilities installed through Herdr"
+                    subtitle="Extensions installed through Herdr on the computer"
                     icon={<Ionicons name="extension-puzzle-outline" size={29} color="#5856D6" />}
                     onPress={openPlugins}
                 />
+                <Item
+                    title="Plugin guide"
+                    subtitle="Install, approve and configure extensions"
+                    icon={<Ionicons name="book-outline" size={29} color="#5856D6" />}
+                    onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/blob/main/docs/PLUGINS.md')}
+                />
                 <DeclarativeSettingsItems />
+            </ItemGroup>
+
+            <ItemGroup title="Terminal">
                 <Item
                     title="Appearance"
                     subtitle={t('settings.appearanceSubtitle')}
+                    detail={themePreferenceText}
                     icon={<Ionicons name="color-palette-outline" size={29} color="#5856D6" />}
                     onPress={openAppearance}
                 />
+            </ItemGroup>
+
+            <ItemGroup title="Input">
                 <Item
                     title="Preferences"
-                    subtitle="Recent activity and inactive sessions"
+                    subtitle="Session order, inactive sessions and keyboard"
+                    detail={sortSessionsByActivity ? 'Recent activity' : 'Created'}
                     icon={<Ionicons name="options-outline" size={29} color="#FF9500" />}
                     onPress={openPreferences}
                 />
+                <Item
+                    title="Realtime voice"
+                    subtitle="Provider and wake-on-speech for this computer"
+                    icon={<Ionicons name="pulse-outline" size={29} color="#34C759" />}
+                    onPress={openVoice}
+                />
+            </ItemGroup>
+
+            <ItemGroup title="Notifications" footer="Lifecycle alerts stay on this device. Browser push also needs permission and a connected host.">
                 {Platform.OS !== 'web' && (
                     <Item
                         title="Agent notifications"
@@ -406,6 +441,7 @@ export const SettingsView = React.memo(function SettingsView({
                     <Item
                         title="Background connection"
                         subtitle="Allow background activity so Live stays connected when you leave muxr"
+                        detail="Android settings"
                         icon={<Ionicons name="battery-charging-outline" size={29} color="#34C759" />}
                         onPress={openBackgroundActivitySettings}
                     />
@@ -430,26 +466,36 @@ export const SettingsView = React.memo(function SettingsView({
                 )}
                 {Platform.OS === 'web' && (
                     <Item
-                        title="Notifications"
+                        title={pushState === 'subscribed' ? 'Notifications' : 'Turn on notifications'}
                         subtitle={pushSubtitle}
-                        detail={pushState}
+                        detail={currentPushStateText}
                         icon={<Ionicons name="notifications-outline" size={29} color="#FF9500" />}
-                        onPress={handlePushToggle}
+                        onPress={pushState === 'unsubscribed' ? handlePushToggle : undefined}
+                        disabled={pushState === 'denied' || pushState === 'unsupported'}
+                        showChevron={pushState === 'unsubscribed'}
                         loading={pushBusy}
                     />
                 )}
             </ItemGroup>
 
-            <ItemGroup title="Help">
-                <Item title="Contact support" subtitle="Public issue tracker" icon={<Ionicons name="chatbubble-ellipses-outline" size={29} color="#34C759" />} onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/issues')} />
-                {docsBase && <Item title="Privacy and deletion" subtitle="Policy, revocation and data removal" icon={<Ionicons name="shield-checkmark-outline" size={29} color="#5856D6" />} onPress={() => openExternalUrl(`${docsBase}/docs/privacy#retention-and-deletion`)} />}
+            <ItemGroup title="About">
+                <Item
+                    title="Version"
+                    subtitle="App version; host version and diagnostics are under Connection & updates"
+                    detail={appVersion}
+                    icon={<Ionicons name="information-circle-outline" size={29} color={theme.colors.textSecondary} />}
+                    onPress={openConnection}
+                />
                 <Item
                     title={t('settings.whatsNew')}
+                    subtitle="Release notes for this version"
                     icon={<Ionicons name="sparkles-outline" size={29} color="#FF9500" />}
                     onPress={() => router.push('/changelog')}
                 />
+                <Item title="Contact support" subtitle="Public issue tracker" icon={<Ionicons name="chatbubble-ellipses-outline" size={29} color="#34C759" />} onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/issues')} />
+                {docsBase && <Item title="Privacy and deletion" subtitle="Policy, revocation and data removal" icon={<Ionicons name="shield-checkmark-outline" size={29} color="#5856D6" />} onPress={() => openExternalUrl(`${docsBase}/docs/privacy#retention-and-deletion`)} />}
                 {Platform.OS === 'ios' && (
-                    <Item title="EULA" icon={<Ionicons name="document-text-outline" size={29} color="#007AFF" />} onPress={() => openExternalUrl('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')} />
+                    <Item title="EULA" subtitle="Apple's standard licence for App Store apps" icon={<Ionicons name="document-text-outline" size={29} color="#007AFF" />} onPress={() => openExternalUrl('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')} />
                 )}
             </ItemGroup>
 
