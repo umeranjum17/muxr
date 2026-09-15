@@ -2,7 +2,8 @@
 /**
  * Export-isolation verifier: proves the web export chain sanitizes secrets.
  *
- * Runs the real setup-canvaskit + setup-pdfjs + expo export chain into a
+ * Runs the real setup-canvaskit + setup-pdfjs + setup-mermaid + expo export
+ * chain into a
  * throwaway directory with canary credentials set in the environment, then
  * scans the COMPLETE dist (initial chunks, lazy chunks, workers, maps) for
  * the canaries. Any hit means the chain bakes environment secrets into

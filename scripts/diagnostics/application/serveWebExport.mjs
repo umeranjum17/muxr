@@ -61,7 +61,9 @@ createServer(async (req, res) => {
         // Mutable entries revalidate so a cached index.html can never pin the
         // client to chunks a re-export deleted. Mirrors the relay serveWeb rule.
         const entry = path === '/index.html' || path === '/sw.js' || path === '/manifest.webmanifest';
-        const cacheControl = entry ? 'no-store' : hashedAsset(path) ? 'public, max-age=31536000, immutable' : 'public, max-age=0, must-revalidate';
+        let cacheControl = 'public, max-age=0, must-revalidate';
+        if (entry) cacheControl = 'no-store';
+        else if (hashedAsset(path)) cacheControl = 'public, max-age=31536000, immutable';
         res.writeHead(200, {
             'content-type': mime[extname(path)] ?? 'application/octet-stream',
             'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
