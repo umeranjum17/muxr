@@ -27,9 +27,11 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
     const exactRelease = release?.split('-')[0] === appVersion.split('-')[0] ? release : undefined;
     const update = useHostUpdate(exactRelease ?? 'unknown');
     const { authority, loading: authorityLoading } = useDeviceAuthority();
-    const installBlocked = !authorityLoading && authority !== 'control'
-        ? 'View-only access can compare versions here but cannot install on the computer.'
-        : undefined;
+    const installBlocked = authorityLoading
+        ? 'Checking device access.'
+        : authority !== 'control'
+            ? 'View-only access can compare versions here but cannot install on the computer.'
+            : undefined;
     const hostVersion = knownHostVersion(reportedHost);
     const mismatch = versionsMismatch(appVersion, hostVersion);
     const [details, setDetails] = React.useState<string>();
