@@ -10,12 +10,13 @@ import { getCachedHostedGrant, listPairedGrants, removeHostedGrant } from '@/pai
 import { forgetMachine as forgetPairedMachine, isMachineOnline } from '@/pairing';
 import { useAuth } from '@/account/ui';
 import { ItemList } from '@/components/ItemList';
-import { useLocalSettingMutable, useSettingMutable, useSocketStatus } from '@/catalog/store';
+import { useLocalSettingMutable, useSettingMutable, useSocketStatus, storage } from '@/catalog/store';
 import { Modal } from '@/modal';
 import { useAllMachines } from '@/catalog/store';
 import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
-import { requestPermissionAndSubscribe, refreshPushState, type PushState } from '@/utils/pushNotifications';
+import { requestPermissionAndSubscribe, refreshPushState, unsubscribeWebPush, updateWebPushNotificationLevel, type PushState } from '@/utils/pushNotifications';
+import { resolveForgetPushAction } from '@/utils/pushForget';
 import { loadAppConfig } from '@/catalog/infrastructure/appConfig';
 import { versionsMismatch } from '@/utils/versionStatus';
 import { getAppVersion } from '@/utils/appVersion';
@@ -189,10 +190,28 @@ export const SettingsView = React.memo(function SettingsView({
         );
         if (!confirmed) return;
         if (voiceActive) stopRealtimeSession();
+        const wasCurrent = machineId === getCachedConnectionSettings().machineId;
+        // Capture the web-push credential while the grant is still cached:
+        // the server-side endpoint can only be deleted with it, and the
+        // grant is gone after forgetPairedMachine runs.
+        const preSettings = getCachedConnectionSettings();
+        const preGrant = preSettings.mode === 'hosted' ? getCachedHostedGrant(preSettings.machineId) : undefined;
+        const preCredential = preGrant?.credential ?? preSettings.token;
         const forgotten = await forgetPairedMachine({ machineId }, { removeGrant: removeHostedGrant });
         if (!forgotten.ok) return;
         const remaining = forgotten.remaining;
         setPairedGrants(remaining);
+        // Forgetting the current machine of several must leave the survivors
+        // subscribed: only the last machine takes the server endpoint with
+        // it. A survivor rebinds the same browser endpoint under its own
+        // grant below, or delivery-time authorization prunes it as a dead
+        // grant and that machine's push silently stops.
+        const pushAction = Platform.OS === 'web' && wasCurrent
+            ? resolveForgetPushAction(true, remaining.length)
+            : 'none';
+        if (pushAction === 'delete-endpoint') {
+            await unsubscribeWebPush({ credential: preCredential });
+        }
         if (machineId !== getCachedConnectionSettings().machineId) return;
         const next = remaining[0];
         if (next === undefined) {
@@ -205,6 +224,9 @@ export const SettingsView = React.memo(function SettingsView({
             token: '', selfhost: next.source === 'selfhost' ? true : undefined,
         });
         await auth.login(next.credential, next.deviceKey.secretKey);
+        if (pushAction === 'rebind-endpoint') {
+            await updateWebPushNotificationLevel(storage.getState().localSettings.lifecycleNotificationLevel);
+        }
     }, [auth, collaborationIntent]);
 
     const confirmLogout = React.useCallback(async () => {

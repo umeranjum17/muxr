@@ -1,6 +1,8 @@
 import { Platform } from 'react-native';
-import { relayControlUrl } from '@muxr/contract';
+import { relayControlUrl, type LifecycleNotificationLevel } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
+import { getCachedHostedGrant } from '@/pairing/e2ee';
+import { storage } from '@/catalog/store';
 
 export type PushState = 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed';
 
@@ -52,8 +54,13 @@ export async function refreshPushState(): Promise<PushState> {
 
 /**
  * Full subscribe flow: permission → register sw.js → fetch the VAPID public
- * key from the relay → subscribe the push manager → POST the subscription →
- * hand the SW {relayUrl, token} so it can answer actions.
+ * key from the relay → subscribe the push manager → POST the subscription.
+ * Notification taps deep-link into the session, where approval runs under
+ * the real grant; the worker never holds a credential.
+ *
+ * The credential is the paired device credential from the stored hosted
+ * grant — the same one transport uses. settings.token is permanently empty
+ * on web and must not gate this flow.
  */
 export async function requestPermissionAndSubscribe(): Promise<boolean> {
     if (!isWebPushSupported()) return false;
@@ -65,14 +72,16 @@ export async function requestPermissionAndSubscribe(): Promise<boolean> {
         }
 
         const settings = getCachedConnectionSettings();
-        if (settings.token === '') return false;
+        const grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
+        const credential = grant?.credential ?? settings.token;
+        if (credential === '') return false;
         const base = relayControlUrl(settings.relayUrl);
 
         const reg = await navigator.serviceWorker.register(SW_PATH);
         await navigator.serviceWorker.ready;
 
         const vapidRes = await fetch(`${base}/v1/push/vapid-public`, {
-            headers: { Authorization: `Bearer ${settings.token}` },
+            headers: { Authorization: `Bearer ${credential}` },
         });
         if (!vapidRes.ok) return false;
         const { publicKey } = await vapidRes.json() as { publicKey: string };
@@ -85,26 +94,76 @@ export async function requestPermissionAndSubscribe(): Promise<boolean> {
             });
         }
 
+        const level = storage.getState().localSettings.lifecycleNotificationLevel;
         const subRes = await fetch(`${base}/v1/push/subscribe`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                Authorization: `Bearer ${settings.token}`,
+                Authorization: `Bearer ${credential}`,
             },
-            body: JSON.stringify({ subscription: subscription.toJSON() }),
+            body: JSON.stringify({ subscription: subscription.toJSON(), level }),
         });
         if (!subRes.ok) return false;
 
-        // Best-effort: the SW needs these to answer action buttons. If there
-        // is no controller yet (first load), it catches up on the next visit.
-        const controller = navigator.serviceWorker.controller;
-        if (controller) {
-            controller.postMessage({ controlUrl: base, token: settings.token });
-        }
         lastKnownSubscribed = true;
         return true;
     } catch (error) {
         console.warn('[push] subscribe failed', error);
         return false;
+    }
+}
+
+/** Re-POST the existing browser subscription with a new level (opt-out sync). */
+export async function updateWebPushNotificationLevel(level: LifecycleNotificationLevel): Promise<boolean> {
+    if (!isWebPushSupported()) return false;
+    try {
+        const settings = getCachedConnectionSettings();
+        const grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
+        const credential = grant?.credential ?? settings.token;
+        if (credential === '') return false;
+        const reg = await navigator.serviceWorker.getRegistration(SW_PATH);
+        const subscription = reg ? await reg.pushManager.getSubscription() : null;
+        if (!subscription) return false;
+        const res = await fetch(`${relayControlUrl(settings.relayUrl)}/v1/push/subscribe`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${credential}`,
+            },
+            body: JSON.stringify({ subscription: subscription.toJSON(), level }),
+        });
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+/** Remove this browser's push subscription (logout, revoke, re-pair). Pass a
+ * credential captured before its grant was removed when the caller already
+ * forgot the pairing: without it the server-side DELETE is skipped and the
+ * relay keeps a dead endpoint. */
+export async function unsubscribeWebPush(opts: { credential?: string } = {}): Promise<void> {
+    if (!isWebPushSupported()) return;
+    try {
+        const settings = getCachedConnectionSettings();
+        const grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
+        const credential = opts.credential ?? grant?.credential ?? settings.token;
+        const reg = await navigator.serviceWorker.getRegistration(SW_PATH);
+        const subscription = reg ? await reg.pushManager.getSubscription() : null;
+        if (credential !== '' && subscription) {
+            await fetch(`${relayControlUrl(settings.relayUrl)}/v1/push/subscribe`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${credential}`,
+                },
+                body: JSON.stringify({ endpoint: subscription.endpoint }),
+            }).catch(() => undefined);
+        }
+        await subscription?.unsubscribe().catch(() => undefined);
+    } catch {
+        // best-effort: revocation already closed the sockets server-side
+    } finally {
+        lastKnownSubscribed = false;
     }
 }

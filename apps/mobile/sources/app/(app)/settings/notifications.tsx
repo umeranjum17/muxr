@@ -5,6 +5,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { useLocalSettingMutable } from '@/catalog/store';
 import { updateNativePushNotificationLevel } from '@/utils/nativePushNotifications';
+import { updateWebPushNotificationLevel } from '@/utils/pushNotifications';
 
 const OPTIONS: ReadonlyArray<{
     key: LifecycleNotificationLevel;
@@ -23,6 +24,7 @@ export default function NotificationSettingsScreen() {
         if (next === level) return;
         setLevel(next);
         void updateNativePushNotificationLevel(next);
+        void updateWebPushNotificationLevel(next);
     };
 
     return (
