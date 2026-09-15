@@ -10,6 +10,11 @@ export interface MachineDeviceRecord {
     /** Omitted kind means native; auth files never persist `kind: 'native'`. */
     kind?: 'browser' | 'peer';
     authority?: 'control' | 'observe';
+    /**
+     * Explicit personal-browser opt-in (`muxr pair --browser-personal`).
+     * Only this marker lifts the host refresh clamp from 8h to 30d.
+     */
+    personal?: boolean;
     capabilities?: PeerCapability[];
     allowedCwds?: string[];
 }
