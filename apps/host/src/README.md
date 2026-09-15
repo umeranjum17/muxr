@@ -1,6 +1,6 @@
 # Host runtime
 
-The Machine process. Composition lives at `main.ts` / `host.ts`. Contexts own the rest.
+The Machine process. Composition lives at `main.ts` / `host.ts`. Modules own the rest.
 
 ## Tree
 
@@ -15,7 +15,7 @@ src/
   diagnostics/{infrastructure}/
 ```
 
-Each context exposes `index.ts`. Other contexts import that file, not internals.
+Each module exposes `index.ts`. Other modules import that file, not internals.
 
 Use cases: [USE_CASES.md](./USE_CASES.md).
 

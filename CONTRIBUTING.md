@@ -205,7 +205,7 @@ boolean piles. Names say what the value is.
 **Tests.** Flow-level only. Default to zero new test files. One flow test per
 feature is the norm. Heavily mocked tests that would pass if the real code
 broke are worse than none. Security and crypto paths keep their coverage.
-`apps/mobile/sources/sync/sessionSync.integration.spec.ts` is the reference
+`apps/mobile/sources/catalog/application/sessionSync.integration.spec.ts` is the reference
 style.
 
 ## Backend architecture
@@ -256,7 +256,7 @@ Maps:
    compiling. Plugin primitive changes ripple through `PRIMITIVE_SPECS`,
    `primitiveRegistry.tsx`, `MUXR_UI_VERSION`, `docs/PLUGINS.md`, and the bundled
    plugin index/check. A new package operation gets one `application/` module and
-   a `USE_CASES.md` row, or the architecture check fails.
+   a `USE_CASES.md` row so the map stays navigable.
 5. **No LLM tokens in data paths.** Host features are plumbing: git, fs.watch,
    websockets. Never a model call, never anything injected into a watched agent's
    prompt.
