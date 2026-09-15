@@ -22,11 +22,10 @@ self.addEventListener('push', (event) => {
         self.registration.showNotification(title, {
             body,
             data: payload,
-            // Both actions deep-link to the blocked request; the approval
+            // The action deep-links to the blocked request; the approval
             // itself happens in the app under the device grant.
             actions: [
-                { action: 'approve', title: 'Review' },
-                { action: 'deny', title: 'Open' },
+                { action: 'open', title: 'Open' },
             ],
         })
     );

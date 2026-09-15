@@ -16,15 +16,11 @@ import { readPrivateFile, writeJsonFileAtomic } from '../../platform/persist.js'
 export interface PushSubscriptionRecord {
     endpoint: string;
     keys: { p256dh: string; auth: string };
-    /** Paired device that owns this subscription; taken from the presenting credential, never the body. */
-    deviceId?: string;
     /** Lifecycle level filter, parity with ExpoPushTokenRecord. */
     level?: LifecycleNotificationLevel;
     createdAt: string;
 }
 
-/** At most this many live subscriptions per device; oldest beyond the cap drop on subscribe. */
-export const MAX_SUBSCRIPTIONS_PER_DEVICE = 5;
 /** Delivery dedup entries older than this stop suppressing retries. */
 const DELIVERED_EVENT_TTL_MS = 7 * 24 * 60 * 60_000;
 
@@ -91,7 +87,10 @@ function isPublicIpLiteral(value: string): boolean {
     }
     const lower = value.toLowerCase();
     if (lower === '::' || lower === '::1') return false;
-    if (lower.startsWith('fe80:') || lower.startsWith('fe90:') || lower.startsWith('fea0:') || lower.startsWith('feb0:')) return false;
+    const mapped = lower.startsWith('::ffff:') ? lower.slice('::ffff:'.length) : lower.includes('.') ? lower.slice(lower.lastIndexOf(':') + 1) : null;
+    if (mapped !== null && mapped.includes('.')) return isPublicIpLiteral(mapped);
+    const first = lower.split(':')[0] ?? '';
+    if (/^fe[89ab]/.test(first)) return false;
     if (lower.startsWith('fc') || lower.startsWith('fd')) return false;
     if (lower.startsWith('ff')) return false;
     return true;
@@ -192,13 +191,6 @@ export class PushService {
     private readonly deliveries = new Map<string, Promise<{ sent: number; duplicate?: true }>>();
     private readonly undurableEvents = new Set<string>();
     private persistChain: Promise<void> = Promise.resolve();
-    /**
-     * Current-authorization re-check, wired by the relay to the live pairing
-     * store. Delivery drops (and prunes) subscriptions whose device is no
-     * longer active — revoked or naturally expired. Unset (legacy hosted
-     * path): delivery trusts stored subscriptions as before.
-     */
-    private authorizer: ((accountId: string, deviceId: string) => Promise<boolean>) | undefined;
 
     constructor(dataDir: string) {
         this.vapidPath = join(dataDir, 'vapid.json');
@@ -234,33 +226,18 @@ export class PushService {
         return this.vapid.publicKey;
     }
 
-    setAuthorizer(check: (accountId: string, deviceId: string) => Promise<boolean>): void {
-        this.authorizer = check;
-    }
-
     async subscribe(
         accountId: string,
         subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
-        opts: { deviceId?: string; level?: LifecycleNotificationLevel } = {},
+        opts: { level?: LifecycleNotificationLevel } = {},
     ): Promise<void> {
         if (!isAllowedPushEndpoint(subscription.endpoint)) throw new Error('push subscription endpoint is not an allowed Web Push destination');
         const list = (this.subs[accountId] ?? []).filter((entry) => entry.endpoint !== subscription.endpoint);
         list.push({
             ...subscription,
-            ...(opts.deviceId === undefined ? {} : { deviceId: opts.deviceId }),
             ...(opts.level === undefined ? {} : { level: opts.level }),
             createdAt: new Date().toISOString(),
         });
-        // Cap per device so one browser cannot accumulate unbounded entries.
-        if (opts.deviceId !== undefined) {
-            const owned = list.filter((entry) => entry.deviceId === opts.deviceId);
-            if (owned.length > MAX_SUBSCRIPTIONS_PER_DEVICE) {
-                const drop = new Set(owned.slice(0, owned.length - MAX_SUBSCRIPTIONS_PER_DEVICE));
-                this.subs[accountId] = list.filter((entry) => !drop.has(entry));
-                await this.persist();
-                return;
-            }
-        }
         this.subs[accountId] = list;
         await this.persist();
     }
@@ -285,15 +262,6 @@ export class PushService {
     async removeWebSubscription(accountId: string, endpoint: string): Promise<void> {
         const list = this.subs[accountId] ?? [];
         const remaining = list.filter((entry) => entry.endpoint !== endpoint);
-        if (remaining.length === list.length) return;
-        this.subs[accountId] = remaining;
-        await this.persist();
-    }
-
-    /** Drop every web-push subscription owned by a revoked device. */
-    async removeWebDevice(accountId: string, deviceId: string): Promise<void> {
-        const list = this.subs[accountId] ?? [];
-        const remaining = list.filter((entry) => entry.deviceId !== deviceId);
         if (remaining.length === list.length) return;
         this.subs[accountId] = remaining;
         await this.persist();
@@ -326,21 +294,7 @@ export class PushService {
             ? ' could not start.'
             : COPY_SUFFIX[payload.kind];
         const bodyText = `${payload.agentName}${suffix}`;
-        let list = this.subs[accountId] ?? [];
-        let authorizationPruned = false;
-        // Re-check current device authorization at delivery: a subscription
-        // outliving its grant (revoked or naturally expired) is pruned, not
-        // sent to. Subscriptions without a device owner predate the binding.
-        if (this.authorizer !== undefined) {
-            const checks = await Promise.all(list.map(async (entry) =>
-                entry.deviceId === undefined ? true : this.authorizer!(accountId, entry.deviceId).catch(() => false)));
-            const before = list.length;
-            list = list.filter((_, index) => checks[index] === true);
-            if (list.length !== before) {
-                this.subs[accountId] = list;
-                authorizationPruned = true;
-            }
-        }
+        const list = this.subs[accountId] ?? [];
         // Level-filtered like Expo subs: a device that asked for important-only
         // never wakes for done noise.
         const eligible = list.filter((entry) =>
@@ -401,7 +355,7 @@ export class PushService {
             this.deliveredEvents = boundDeliveredEvents(this.deliveredEvents);
             this.undurableEvents.add(`${accountId}\0${payload.eventId}`);
         }
-        if (sent > 0 || dead.length > 0 || authorizationPruned || this.expoSubs[accountId]?.length !== expo.length) await this.persist();
+        if (sent > 0 || dead.length > 0 || this.expoSubs[accountId]?.length !== expo.length) await this.persist();
         if (sent > 0) this.undurableEvents.delete(`${accountId}\0${payload.eventId}`);
         return { sent };
     }

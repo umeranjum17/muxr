@@ -368,9 +368,12 @@ export async function handleHttpRequest(
         }
         try {
             await ctx.push.subscribe(account.accountId, body.subscription, level === undefined ? {} : { level });
-        } catch {
-            writeJson(res, 400, { error: 'subscription endpoint is not an allowed Web Push destination' });
-            return;
+        } catch (error) {
+            if (error instanceof Error && error.message.includes('allowed Web Push destination')) {
+                writeJson(res, 400, { error: 'subscription endpoint is not an allowed Web Push destination' });
+                return;
+            }
+            throw error;
         }
         writeJson(res, 200, { ok: true });
         return;

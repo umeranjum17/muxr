@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { relayControlUrl } from '@muxr/contract';
+import { relayControlUrl, type LifecycleNotificationLevel } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
 import { getCachedHostedGrant } from '@/pairing/e2ee';
 import { storage } from '@/catalog/store';
@@ -109,6 +109,31 @@ export async function requestPermissionAndSubscribe(): Promise<boolean> {
         return true;
     } catch (error) {
         console.warn('[push] subscribe failed', error);
+        return false;
+    }
+}
+
+/** Re-POST the existing browser subscription with a new level (opt-out sync). */
+export async function updateWebPushNotificationLevel(level: LifecycleNotificationLevel): Promise<boolean> {
+    if (!isWebPushSupported()) return false;
+    try {
+        const settings = getCachedConnectionSettings();
+        const grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
+        const credential = grant?.credential ?? settings.token;
+        if (credential === '') return false;
+        const reg = await navigator.serviceWorker.getRegistration(SW_PATH);
+        const subscription = reg ? await reg.pushManager.getSubscription() : null;
+        if (!subscription) return false;
+        const res = await fetch(`${relayControlUrl(settings.relayUrl)}/v1/push/subscribe`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${credential}`,
+            },
+            body: JSON.stringify({ subscription: subscription.toJSON(), level }),
+        });
+        return res.ok;
+    } catch {
         return false;
     }
 }

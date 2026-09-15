@@ -8,6 +8,7 @@ import { clearPersistence } from '@/catalog';
 import { getCachedConnectionSettings } from '@/connection';
 import { clearHostedE2ee } from '@/pairing/e2ee';
 import { unregisterNativePushNotifications } from '@/utils/nativePushNotifications';
+import { unsubscribeWebPush } from '@/utils/pushNotifications';
 
 interface AuthContextType {
     isAuthenticated: boolean;
@@ -53,6 +54,7 @@ export function AuthProvider({ children, initialCredentials }: { children: React
     const logout = useCallback(async () => {
         const connection = getCachedConnectionSettings();
         if (credentials !== null) await unregisterNativePushNotifications(credentials);
+        if (Platform.OS === 'web') await unsubscribeWebPush();
         if (connection.mode === 'hosted' && credentials?.token) {
             try {
                 await fetch(relayControlUrl(connection.relayUrl, '/v1/session'), {
