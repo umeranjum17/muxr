@@ -13,7 +13,7 @@ A package module exists only when the packages own the behavior. Product operati
 | Admit a peer mutation | [`admitPeerMutation`](./contract/src/peer/application/admitPeerMutation.ts) | Peer Mutation | `apps/host/src/peer/receiptExecutor.ts` |
 | Parse a plugin manifest | [`parsePluginManifest`](./contract/src/plugins/application/parsePluginManifest.ts) | Plugin Identity, manifest graph | host plugin catalog, mobile `parseManifest` |
 | Bound the realtime public Agent map | [`boundRealtimePublicContext`](./contract/src/realtime/application/boundRealtimePublicContext.ts) | Agent Route, Agent Name | `apps/host/src/herdr/pluginStreamManager.ts`, `herdrSessionSource.ts` |
-| Interpret a worktree landing | [`interpretWorktreeLanding`](./contract/src/worktree/application/interpretWorktreeLanding.ts) | Worktree Landing | `apps/host/src/requests/landWorktree.ts`, `apps/mobile/sources/utils/worktree.ts` |
+| Interpret a worktree landing | [`interpretWorktreeLanding`](./contract/src/worktree/application/interpretWorktreeLanding.ts) | Worktree Landing | `apps/host/src/requests/landWorktree.ts`, `apps/mobile/sources/spawn/infrastructure/worktree.ts` |
 | Pair a machine | [`pairMachine`](./crypto/src/e2ee/application/pairMachine.ts) | Pairing Code | `apps/mobile/sources/pairing/application/hostedE2ee.ts`, `usePairing.ts` |
 | Grant or verify device authority | [`deviceGrant`](./crypto/src/e2ee/application/deviceGrant.ts) | Device Grant | `apps/host/src/peer/runtime.ts`, `hostedE2ee.ts` (`createDeviceGrant` / `verifyDeviceGrant`) |
 | Sign a peer descriptor | [`signPeerDescriptor`](./crypto/src/e2ee/application/signPeerDescriptor.ts) | Signed Peer Descriptor | host peer prepare/install |
