@@ -3,7 +3,6 @@ import { storage } from '@/catalog/store';
 import { getCachedConnectionSettings } from '@/connection';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { startSessionFromDraft } from '@/hooks/startSessionFromDraft';
-import { isMachineOnline } from '@/pairing';
 import { Modal } from '@/modal';
 import {
     beginRealtimeConversation,
@@ -24,7 +23,10 @@ let starting = false;
 async function startConfiguredBlankSession(): Promise<string | null> {
     const machines = Object.values(storage.getState().machines);
     const selected = machines.find((machine) => machine.id === useNewSessionDraft.getState().selectedMachineId);
-    if (!selected || !isMachineOnline(selected)) {
+    // Machine liveness is the catalog's `active` flag; pairing's
+    // isMachineOnline is the same check but importing it here would make
+    // conversation and pairing depend on each other.
+    if (!selected || !selected.active) {
         router.navigate('/new-agent');
         return null;
     }
