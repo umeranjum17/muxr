@@ -30,7 +30,7 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
     const installBlocked = authorityLoading
         ? 'Checking device access.'
         : authority !== 'control'
-            ? 'View-only access can compare versions here but cannot install on the computer.'
+            ? 'View-only access cannot check or install on the computer.'
             : undefined;
     const hostVersion = knownHostVersion(reportedHost);
     const mismatch = versionsMismatch(appVersion, hostVersion);
