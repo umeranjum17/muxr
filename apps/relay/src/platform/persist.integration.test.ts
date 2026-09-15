@@ -157,8 +157,8 @@ it('hardens every relay state path in a custom data directory', async () => {
         'push-subscriptions.json': JSON.stringify({
             accounts: {},
             deliveredEvents: [
-                { accountId: 'tenant-b', eventId: 'event-keep' },
-                ...Array.from({ length: 2_049 }, (_, index) => ({ accountId: 'tenant-a', eventId: `event-${index}` })),
+                { accountId: 'tenant-b', eventId: 'event-keep', at: new Date().toISOString() },
+                ...Array.from({ length: 2_049 }, (_, index) => ({ accountId: 'tenant-a', eventId: `event-${index}`, at: new Date().toISOString() })),
             ],
         }),
     };
