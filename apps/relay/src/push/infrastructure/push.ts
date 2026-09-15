@@ -4,6 +4,7 @@
  */
 
 import { join } from 'node:path';
+import { isIP } from 'node:net';
 import {
     lifecycleNotificationAllowed,
     type LifecycleNotificationLevel,
@@ -15,7 +16,113 @@ import { readPrivateFile, writeJsonFileAtomic } from '../../platform/persist.js'
 export interface PushSubscriptionRecord {
     endpoint: string;
     keys: { p256dh: string; auth: string };
+    /** Lifecycle level filter, parity with ExpoPushTokenRecord. */
+    level?: LifecycleNotificationLevel;
     createdAt: string;
+}
+
+/** Delivery dedup entries older than this stop suppressing retries. */
+const DELIVERED_EVENT_TTL_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * Push endpoints must be deliverable Web Push destinations: a public https
+ * push service with no embedded credentials, or plain http only to loopback
+ * (local diagnostics stubs). Rejects non-http(s) schemes, userinfo, absurd
+ * lengths, https hosts that resolve to loopback / private / link-local /
+ * otherwise non-public addresses, and single-label or reserved internal
+ * names — a subscription must never point the relay at an arbitrary
+ * internal URL.
+ */
+export function isAllowedPushEndpoint(value: unknown): value is string {
+    if (typeof value !== 'string' || value === '' || value.length > 2048) return false;
+    let parsed: URL;
+    try {
+        parsed = new URL(value);
+    } catch {
+        return false;
+    }
+    if (parsed.username !== '' || parsed.password !== '') return false;
+    if (/\s/.test(parsed.hostname) || parsed.hostname === '') return false;
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+    const host = parsed.hostname.toLowerCase();
+    if (parsed.protocol === 'http:') {
+        return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+    }
+    return !isInternalHttpsHost(host);
+}
+
+const INTERNAL_SUFFIXES = [
+    '.localhost', '.local', '.internal', '.lan', '.home', '.corp',
+    '.intranet', '.private', '.test', '.example', '.invalid',
+];
+
+function isInternalHttpsHost(host: string): boolean {
+    const name = host.endsWith('.') ? host.slice(0, -1) : host;
+    const bare = name.startsWith('[') && name.endsWith(']') ? name.slice(1, -1) : name;
+    if (isIP(bare) !== 0) return !isPublicIpLiteral(bare);
+    if (bare === 'localhost') return true;
+    if (!bare.includes('.')) return true;
+    for (const suffix of INTERNAL_SUFFIXES) {
+        if (bare.endsWith(suffix)) return true;
+    }
+    return false;
+}
+
+function hexPairToDotted(pair: string): string | null {
+    const groups = pair.split(':');
+    if (groups.length !== 1 && groups.length !== 2) return null;
+    if (!groups.every((group) => /^[0-9a-f]{1,4}$/.test(group))) return null;
+    const hex = groups.map((group) => group.padStart(4, '0')).join('').padStart(8, '0');
+    if (!/^[0-9a-f]{8}$/.test(hex)) return null;
+    const bytes = [0, 2, 4, 6].map((index) => parseInt(hex.slice(index, index + 2), 16));
+    return bytes.join('.');
+}
+
+function mappedIpv4ToDotted(lower: string): string | null {
+    if (lower.startsWith('::ffff:')) {
+        const tail = lower.slice('::ffff:'.length);
+        if (tail.includes('.')) return tail;
+        return hexPairToDotted(tail);
+    }
+    const groups = lower.split(':');
+    if (groups.length === 8
+        && groups.slice(0, 5).every((group) => /^[0-9a-f]{1,4}$/.test(group) && parseInt(group, 16) === 0)
+        && groups[5] === 'ffff') {
+        const tail = `${groups[6]}:${groups[7]}`;
+        if ((groups[7] ?? '').includes('.')) return groups[7] ?? null;
+        return hexPairToDotted(tail);
+    }
+    return null;
+}
+
+function isPublicIpLiteral(value: string): boolean {
+    if (isIP(value) === 4) {
+        const parts = value.split('.').map(Number);
+        const [a, b] = parts;
+        if (a === undefined || b === undefined) return false;
+        if (a === 10) return false;
+        if (a === 127) return false;
+        if (a === 169 && b === 254) return false;
+        if (a === 172 && b >= 16 && b <= 31) return false;
+        if (a === 192 && b === 168) return false;
+        if (a === 192 && b === 0 && parts[2] === 2) return false;
+        if (a === 198 && (b === 18 || b === 19)) return false;
+        if (a === 198 && b === 51 && parts[2] === 100) return false;
+        if (a === 203 && b === 0 && parts[2] === 113) return false;
+        if (a === 100 && b >= 64 && b <= 127) return false;
+        if (a === 0 || a >= 224) return false;
+        return true;
+    }
+    const lower = value.toLowerCase();
+    if (lower === '::' || lower === '::1') return false;
+    const mappedDotted = mappedIpv4ToDotted(lower);
+    if (mappedDotted !== null) return isPublicIpLiteral(mappedDotted);
+    if (lower.includes('.')) return isPublicIpLiteral(lower.slice(lower.lastIndexOf(':') + 1));
+    const first = lower.split(':')[0] ?? '';
+    if (/^fe[89ab]/.test(first)) return false;
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return false;
+    if (lower.startsWith('ff')) return false;
+    return true;
 }
 
 export interface PushPayload {
@@ -80,14 +187,15 @@ interface ExpoPushTokenRecord {
 interface PushSubscriptionsFile {
     accounts: Record<string, PushSubscriptionRecord[]>;
     expoAccounts?: Record<string, ExpoPushTokenRecord[]>;
-    deliveredEvents?: Array<{ accountId: string; eventId: string }>;
+    deliveredEvents?: Array<{ accountId: string; eventId: string; at?: string }>;
 }
 
 const DELIVERED_EVENT_LIMIT = 2_048;
 
-function boundDeliveredEvents(events: Array<{ accountId: string; eventId: string }>): Array<{ accountId: string; eventId: string }> {
+function boundDeliveredEvents(events: Array<{ accountId: string; eventId: string; at?: string }>, now = Date.now()): Array<{ accountId: string; eventId: string; at?: string }> {
     const counts = new Map<string, number>();
-    return events.filter((entry) => typeof entry?.accountId === 'string' && typeof entry.eventId === 'string')
+    return events.filter((entry) => typeof entry?.accountId === 'string' && typeof entry.eventId === 'string'
+        && typeof entry.at === 'string' && Number.isFinite(Date.parse(entry.at)) && now - Date.parse(entry.at) < DELIVERED_EVENT_TTL_MS)
         .reverse()
         .filter((entry) => {
             const count = counts.get(entry.accountId) ?? 0;
@@ -108,7 +216,7 @@ export class PushService {
     private vapid: { publicKey: string; privateKey: string } | undefined;
     private subs: Record<string, PushSubscriptionRecord[]> = {};
     private expoSubs: Record<string, ExpoPushTokenRecord[]> = {};
-    private deliveredEvents: Array<{ accountId: string; eventId: string }> = [];
+    private deliveredEvents: Array<{ accountId: string; eventId: string; at?: string }> = [];
     private readonly deliveries = new Map<string, Promise<{ sent: number; duplicate?: true }>>();
     private readonly undurableEvents = new Set<string>();
     private persistChain: Promise<void> = Promise.resolve();
@@ -147,9 +255,18 @@ export class PushService {
         return this.vapid.publicKey;
     }
 
-    async subscribe(accountId: string, subscription: { endpoint: string; keys: { p256dh: string; auth: string } }): Promise<void> {
+    async subscribe(
+        accountId: string,
+        subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+        opts: { level?: LifecycleNotificationLevel } = {},
+    ): Promise<void> {
+        if (!isAllowedPushEndpoint(subscription.endpoint)) throw new Error('push subscription endpoint is not an allowed Web Push destination');
         const list = (this.subs[accountId] ?? []).filter((entry) => entry.endpoint !== subscription.endpoint);
-        list.push({ ...subscription, createdAt: new Date().toISOString() });
+        list.push({
+            ...subscription,
+            ...(opts.level === undefined ? {} : { level: opts.level }),
+            createdAt: new Date().toISOString(),
+        });
         this.subs[accountId] = list;
         await this.persist();
     }
@@ -170,6 +287,15 @@ export class PushService {
         await this.removeExpo(accountId, (entry) => entry.deviceId === deviceId);
     }
 
+    /** Drop a single web-push subscription by endpoint (logout, revoke, re-pair). */
+    async removeWebSubscription(accountId: string, endpoint: string): Promise<void> {
+        const list = this.subs[accountId] ?? [];
+        const remaining = list.filter((entry) => entry.endpoint !== endpoint);
+        if (remaining.length === list.length) return;
+        this.subs[accountId] = remaining;
+        await this.persist();
+    }
+
     async removeExpoToken(accountId: string, token: string): Promise<void> {
         await this.removeExpo(accountId, (entry) => entry.token === token);
     }
@@ -177,6 +303,7 @@ export class PushService {
     /** Send every configured push channel for this account, coalescing concurrent retries. */
     async notify(accountId: string, payload: PushPayload): Promise<{ sent: number; duplicate?: true }> {
         const key = `${accountId}\0${payload.eventId}`;
+        this.deliveredEvents = boundDeliveredEvents(this.deliveredEvents);
         if (this.deliveredEvents.some((entry) => entry.accountId === accountId && entry.eventId === payload.eventId)) {
             if (this.undurableEvents.has(key)) {
                 await this.persist();
@@ -198,9 +325,13 @@ export class PushService {
             : COPY_SUFFIX[payload.kind];
         const bodyText = `${payload.agentName}${suffix}`;
         const list = this.subs[accountId] ?? [];
+        // Level-filtered like Expo subs: a device that asked for important-only
+        // never wakes for done noise.
+        const eligible = list.filter((entry) =>
+            lifecycleNotificationAllowed(entry.level ?? 'important', payload.kind));
         const body = JSON.stringify({ ...payload, title, body: bodyText, presentationOwner: 'relay-push' });
-        const results = await Promise.allSettled(list.map((sub) => webpush.sendNotification(sub, body)));
-        const dead = list.filter((sub, index) => results[index]?.status === 'rejected' && isGone((results[index] as PromiseRejectedResult).reason));
+        const results = await Promise.allSettled(eligible.map((sub) => webpush.sendNotification(sub, body, { TTL: 24 * 60 * 60, urgency: payload.kind === 'blocked' ? 'high' : 'normal' })));
+        const dead = eligible.filter((sub, index) => results[index]?.status === 'rejected' && isGone((results[index] as PromiseRejectedResult).reason));
         if (dead.length > 0) {
             const gone = new Set(dead);
             this.subs[accountId] = list.filter((sub) => !gone.has(sub));
@@ -250,7 +381,7 @@ export class PushService {
         if (sent > 0) {
             // Mark after provider acceptance so total send failures remain retryable.
             // A crash before this queued write can still duplicate; transports offer no atomic send+commit.
-            this.deliveredEvents.push({ accountId, eventId: payload.eventId });
+            this.deliveredEvents.push({ accountId, eventId: payload.eventId, at: new Date().toISOString() });
             this.deliveredEvents = boundDeliveredEvents(this.deliveredEvents);
             this.undurableEvents.add(`${accountId}\0${payload.eventId}`);
         }
