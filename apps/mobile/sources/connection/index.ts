@@ -7,4 +7,6 @@ export {
     rememberSessionCwd,
     saveConnectionSettings,
     type ConnectionSettings,
+    type SshTarget,
 } from './application/connectionSettings';
+export { forgetSshCredential, sshTunnelAvailable } from './application/sshTunnel';

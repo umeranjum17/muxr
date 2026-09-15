@@ -28,6 +28,17 @@ export function pairingTransport(relayUrl: string | undefined): string | undefin
     }
 }
 
+export interface SshTarget {
+    /** Host running sshd; never a muxr machine name or display label. */
+    host: string;
+    port: number;
+    username: string;
+    /** The muxr relay port as seen from the SSH host's loopback. */
+    relayPort: number;
+    /** SHA256:... fingerprint learned on first connect and then pinned. */
+    hostKey?: string;
+}
+
 export interface ConnectionSettings {
     /** Hosted is fail-closed and grant-backed. Local is the explicit development fixture. */
     mode: 'hosted' | 'local';
@@ -37,6 +48,8 @@ export interface ConnectionSettings {
     token: string;
     /** True when the active machine is a self-host pairing (no account surface). */
     selfhost?: boolean;
+    /** Android-only route override; the relay and E2EE grant stay unchanged. */
+    ssh?: SshTarget;
     lastSessionCwd: string;
     recentSessionCwds: string[];
 }
@@ -86,6 +99,28 @@ function parseLocalToken(storedToken: string): string {
     return DEFAULT_CONNECTION.token;
 }
 
+function parsePort(value: unknown, fallback: number): number {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 65535 ? value : fallback;
+}
+
+function parseSshTarget(value: unknown): SshTarget | undefined {
+    if (typeof value !== 'object' || value === null) return undefined;
+    const parsed = value as Partial<SshTarget>;
+    const host = typeof parsed.host === 'string' ? parsed.host.trim() : '';
+    const username = typeof parsed.username === 'string' ? parsed.username.trim() : '';
+    if (host.length === 0 || username.length === 0) return undefined;
+    const hostKey = typeof parsed.hostKey === 'string' && /^SHA256:[A-Za-z0-9+/]+$/.test(parsed.hostKey)
+        ? parsed.hostKey
+        : undefined;
+    return {
+        host,
+        username,
+        port: parsePort(parsed.port, 22),
+        relayPort: parsePort(parsed.relayPort, 8792),
+        ...(hostKey === undefined ? {} : { hostKey }),
+    };
+}
+
 function parseSettings(raw: string): ConnectionSettings {
     const parsed = JSON.parse(raw) as Partial<ConnectionSettings>;
     const mode = parsed.mode === 'local' || parsed.mode === 'hosted' ? parsed.mode : DEFAULT_CONNECTION.mode;
@@ -93,6 +128,7 @@ function parseSettings(raw: string): ConnectionSettings {
         ? parsed.recentSessionCwds.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
         : [];
     const storedToken = typeof parsed.token === 'string' ? parsed.token.trim() : '';
+    const ssh = parsed.selfhost === true ? parseSshTarget(parsed.ssh) : undefined;
     return {
         mode,
         relayUrl: typeof parsed.relayUrl === 'string' && parsed.relayUrl.trim().length > 0
@@ -101,6 +137,7 @@ function parseSettings(raw: string): ConnectionSettings {
         // Hosted account-only sessions deliberately persist an empty machine id.
         // Falling back to the build default turns account auth into a fake machine connection.
         machineId: parseMachineId(mode, parsed),
+        ...(ssh === undefined ? {} : { ssh }),
         // An empty stored token is never usable against a strict relay, so it
         // falls back to the build default rather than pinning the app to a
         // permanent unauthorized retry loop.

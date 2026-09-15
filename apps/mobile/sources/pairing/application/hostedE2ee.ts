@@ -212,15 +212,20 @@ export async function refreshHostedGrant(
     machineId: string,
     credential = '',
     relayUrl = '',
+    controlRelayUrlOverride = '',
 ): Promise<StoredHostedGrant | undefined> {
     const current = await loadHostedGrant(machineId);
     if (current === undefined) return undefined;
     const activeCredential = credential.trim() || current.credential;
     const candidateRelay = relayUrl.trim() || current.relayUrl;
     try {
-        const result = await json(relayControlUrl(candidateRelay), `/v1/machines/${encodeURIComponent(machineId)}/grant`, {
-            headers: { authorization: `Bearer ${activeCredential}` },
-        });
+        const result = await json(
+            relayControlUrl(controlRelayUrlOverride.trim() || candidateRelay),
+            `/v1/machines/${encodeURIComponent(machineId)}/grant`,
+            {
+                headers: { authorization: `Bearer ${activeCredential}` },
+            },
+        );
         const sealed = JSON.parse(String(result.grant)) as SealedDeviceGrant;
         const verified = verifyDeviceGrant(sealed, {
             pinnedMachineSigningPublicKey: current.machineSigningPublicKey,
