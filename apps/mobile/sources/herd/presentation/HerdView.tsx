@@ -292,7 +292,7 @@ export const HerdView = React.memo(({
                         ? error
                         : searchQuery.trim() !== ''
                             ? 'No matches'
-                            : 'No agents yet — start one below.'}
+                            : 'No live agents · Start one below'}
                 </Text>
                 {error === null ? null : (
                     <View style={styles.emptyAction}>
