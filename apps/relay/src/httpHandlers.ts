@@ -4,7 +4,7 @@ import { get as httpGet } from 'node:http';
 import type { RelayE2eeMode } from './config.js';
 import { extractBearerToken, isValidPublicKey, pairMachine, approveMachinePairing, type PairingRequests, type MachineRegistry } from './admission/index.js';
 import type { OfflineBuffer, PeerTable, ReplayLog } from './routing/index.js';
-import { parsePushNotification, type PushService } from './push/index.js';
+import { parsePushNotification, isAllowedPushEndpoint, type PushService } from './push/index.js';
 
 export interface PushActionOutcome {
     ok: boolean;
@@ -93,7 +93,7 @@ function isPushSubscription(
 ): value is { endpoint: string; keys: { p256dh: string; auth: string } } {
     if (typeof value !== 'object' || value === null) return false;
     const sub = value as { endpoint?: unknown; keys?: unknown };
-    if (typeof sub.endpoint !== 'string' || !/^https:\/\//.test(sub.endpoint)) return false;
+    if (!isAllowedPushEndpoint(sub.endpoint)) return false;
     const keys = sub.keys as { p256dh?: unknown; auth?: unknown } | undefined;
     if (typeof keys !== 'object' || keys === null) return false;
     return (
@@ -350,9 +350,9 @@ export async function handleHttpRequest(
             writeJson(res, 403, { error: 'invalid account token' });
             return;
         }
-        let body: { subscription?: unknown };
+        let body: { subscription?: unknown; level?: unknown };
         try {
-            body = (await readJsonBody(req)) as { subscription?: unknown };
+            body = (await readJsonBody(req)) as { subscription?: unknown; level?: unknown };
         } catch {
             writeJson(res, 400, { error: 'invalid json body' });
             return;
@@ -361,7 +361,49 @@ export async function handleHttpRequest(
             writeJson(res, 400, { error: 'subscription must be {endpoint, keys: {p256dh, auth}}' });
             return;
         }
-        await ctx.push.subscribe(account.accountId, body.subscription);
+        const level = body.level === undefined ? undefined : parseLifecycleNotificationLevel(body.level);
+        if (body.level !== undefined && level === undefined) {
+            writeJson(res, 400, { error: 'invalid lifecycle notification level' });
+            return;
+        }
+        try {
+            await ctx.push.subscribe(account.accountId, body.subscription, level === undefined ? {} : { level });
+        } catch {
+            writeJson(res, 400, { error: 'subscription endpoint is not an allowed Web Push destination' });
+            return;
+        }
+        writeJson(res, 200, { ok: true });
+        return;
+    }
+
+    if (req.method === 'DELETE' && path === '/v1/push/subscribe') {
+        const token = extractBearerToken(req);
+        if (!token) {
+            writeJson(res, 401, { error: 'account token required' });
+            return;
+        }
+        const account = ctx.registry.findAccountByToken(token);
+        if (!account) {
+            writeJson(res, 403, { error: 'invalid account token' });
+            return;
+        }
+        let body: { endpoint?: unknown; subscription?: unknown };
+        try {
+            body = (await readJsonBody(req)) as { endpoint?: unknown; subscription?: unknown };
+        } catch {
+            writeJson(res, 400, { error: 'invalid json body' });
+            return;
+        }
+        const endpoint = typeof body.endpoint === 'string'
+            ? body.endpoint
+            : typeof body.subscription === 'object' && body.subscription !== null
+                ? (body.subscription as { endpoint?: unknown }).endpoint
+                : undefined;
+        if (typeof endpoint !== 'string' || endpoint === '') {
+            writeJson(res, 400, { error: 'endpoint is required' });
+            return;
+        }
+        await ctx.push.removeWebSubscription(account.accountId, endpoint);
         writeJson(res, 200, { ok: true });
         return;
     }

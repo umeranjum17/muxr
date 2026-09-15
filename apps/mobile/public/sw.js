@@ -1,22 +1,13 @@
 /*
  * muxr web push service worker.
  *
- * The page hands us {controlUrl} via postMessage so taps can deep-link to
- * the right session. The worker deliberately never holds the device
- * credential: Approve/Deny buttons open the request in the app, where the
- * approval runs under the real device grant. A reusable worker-side
- * credential that could answer sessions (inject y/n) is never issued —
- * synthetic answers are also rejected outright when E2EE is on (HTTP 410).
+ * Notification taps deep-link to the right session. The worker deliberately
+ * never holds the device credential: Approve/Deny buttons open the request
+ * in the app, where the approval runs under the real device grant. A
+ * reusable worker-side credential that could answer sessions (inject y/n)
+ * is never issued — synthetic answers are also rejected outright when E2EE
+ * is on (HTTP 410).
  */
-
-let controlUrl = null;
-
-self.addEventListener('message', (event) => {
-    const data = event.data;
-    if (data && typeof data === 'object' && typeof data.controlUrl === 'string') {
-        controlUrl = data.controlUrl;
-    }
-});
 
 self.addEventListener('push', (event) => {
     let payload = {};

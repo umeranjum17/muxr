@@ -54,9 +54,9 @@ export async function refreshPushState(): Promise<PushState> {
 
 /**
  * Full subscribe flow: permission → register sw.js → fetch the VAPID public
- * key from the relay → subscribe the push manager → POST the subscription →
- * tell the SW the control URL (never a credential: notification taps
- * deep-link into the session, where approval runs under the real grant).
+ * key from the relay → subscribe the push manager → POST the subscription.
+ * Notification taps deep-link into the session, where approval runs under
+ * the real grant; the worker never holds a credential.
  *
  * The credential is the paired device credential from the stored hosted
  * grant — the same one transport uses. settings.token is permanently empty
@@ -105,13 +105,6 @@ export async function requestPermissionAndSubscribe(): Promise<boolean> {
         });
         if (!subRes.ok) return false;
 
-        // Best-effort: the SW only needs the control URL so taps can
-        // deep-link to the right session. It never receives the device
-        // credential, so a compromised worker cannot answer approvals.
-        const controller = navigator.serviceWorker.controller;
-        if (controller) {
-            controller.postMessage({ controlUrl: base });
-        }
         lastKnownSubscribed = true;
         return true;
     } catch (error) {
@@ -129,10 +122,14 @@ export async function unsubscribeWebPush(): Promise<void> {
         const credential = grant?.credential ?? settings.token;
         const reg = await navigator.serviceWorker.getRegistration(SW_PATH);
         const subscription = reg ? await reg.pushManager.getSubscription() : null;
-        if (credential !== '') {
+        if (credential !== '' && subscription) {
             await fetch(`${relayControlUrl(settings.relayUrl)}/v1/push/subscribe`, {
                 method: 'DELETE',
-                headers: { Authorization: `Bearer ${credential}` },
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${credential}`,
+                },
+                body: JSON.stringify({ endpoint: subscription.endpoint }),
             }).catch(() => undefined);
         }
         await subscription?.unsubscribe().catch(() => undefined);

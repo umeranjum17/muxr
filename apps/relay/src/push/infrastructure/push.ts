@@ -4,6 +4,7 @@
  */
 
 import { join } from 'node:path';
+import { isIP } from 'node:net';
 import {
     lifecycleNotificationAllowed,
     type LifecycleNotificationLevel,
@@ -28,10 +29,13 @@ export const MAX_SUBSCRIPTIONS_PER_DEVICE = 5;
 const DELIVERED_EVENT_TTL_MS = 7 * 24 * 60 * 60_000;
 
 /**
- * Push endpoints must be deliverable Web Push destinations: https with no
- * embedded credentials, or plain http only to loopback (local diagnostics
- * stubs). Rejects non-http(s) schemes, userinfo, and absurd lengths — a
- * subscription must never point the relay at an arbitrary internal URL.
+ * Push endpoints must be deliverable Web Push destinations: a public https
+ * push service with no embedded credentials, or plain http only to loopback
+ * (local diagnostics stubs). Rejects non-http(s) schemes, userinfo, absurd
+ * lengths, https hosts that resolve to loopback / private / link-local /
+ * otherwise non-public addresses, and single-label or reserved internal
+ * names — a subscription must never point the relay at an arbitrary
+ * internal URL.
  */
 export function isAllowedPushEndpoint(value: unknown): value is string {
     if (typeof value !== 'string' || value === '' || value.length > 2048) return false;
@@ -43,10 +47,54 @@ export function isAllowedPushEndpoint(value: unknown): value is string {
     }
     if (parsed.username !== '' || parsed.password !== '') return false;
     if (/\s/.test(parsed.hostname) || parsed.hostname === '') return false;
-    if (parsed.protocol === 'https:') return true;
-    if (parsed.protocol !== 'http:') return false;
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
     const host = parsed.hostname.toLowerCase();
-    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+    if (parsed.protocol === 'http:') {
+        return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+    }
+    return !isInternalHttpsHost(host);
+}
+
+const INTERNAL_SUFFIXES = [
+    '.localhost', '.local', '.internal', '.lan', '.home', '.corp',
+    '.intranet', '.private', '.test', '.example', '.invalid',
+];
+
+function isInternalHttpsHost(host: string): boolean {
+    const name = host.endsWith('.') ? host.slice(0, -1) : host;
+    const bare = name.startsWith('[') && name.endsWith(']') ? name.slice(1, -1) : name;
+    if (isIP(bare) !== 0) return !isPublicIpLiteral(bare);
+    if (bare === 'localhost') return true;
+    if (!bare.includes('.')) return true;
+    for (const suffix of INTERNAL_SUFFIXES) {
+        if (bare.endsWith(suffix)) return true;
+    }
+    return false;
+}
+
+function isPublicIpLiteral(value: string): boolean {
+    if (isIP(value) === 4) {
+        const parts = value.split('.').map(Number);
+        const [a, b] = parts;
+        if (a === 10) return false;
+        if (a === 127) return false;
+        if (a === 169 && b === 254) return false;
+        if (a === 172 && b >= 16 && b <= 31) return false;
+        if (a === 192 && b === 168) return false;
+        if (a === 192 && b === 0 && parts[2] === 2) return false;
+        if (a === 198 && (b === 18 || b === 19)) return false;
+        if (a === 198 && b === 51 && parts[2] === 100) return false;
+        if (a === 203 && b === 0 && parts[2] === 113) return false;
+        if (a === 100 && b >= 64 && b <= 127) return false;
+        if (a === 0 || a >= 224) return false;
+        return true;
+    }
+    const lower = value.toLowerCase();
+    if (lower === '::' || lower === '::1') return false;
+    if (lower.startsWith('fe80:') || lower.startsWith('fe90:') || lower.startsWith('fea0:') || lower.startsWith('feb0:')) return false;
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return false;
+    if (lower.startsWith('ff')) return false;
+    return true;
 }
 
 export interface PushPayload {
@@ -233,6 +281,15 @@ export class PushService {
         await this.removeExpo(accountId, (entry) => entry.deviceId === deviceId);
     }
 
+    /** Drop a single web-push subscription by endpoint (logout, revoke, re-pair). */
+    async removeWebSubscription(accountId: string, endpoint: string): Promise<void> {
+        const list = this.subs[accountId] ?? [];
+        const remaining = list.filter((entry) => entry.endpoint !== endpoint);
+        if (remaining.length === list.length) return;
+        this.subs[accountId] = remaining;
+        await this.persist();
+    }
+
     /** Drop every web-push subscription owned by a revoked device. */
     async removeWebDevice(accountId: string, deviceId: string): Promise<void> {
         const list = this.subs[accountId] ?? [];
@@ -285,7 +342,7 @@ export class PushService {
             }
         }
         // Level-filtered like Expo subs: a device that asked for important-only
-        // never wakes for done/failed noise.
+        // never wakes for done noise.
         const eligible = list.filter((entry) =>
             lifecycleNotificationAllowed(entry.level ?? 'important', payload.kind));
         const body = JSON.stringify({ ...payload, title, body: bodyText, presentationOwner: 'relay-push' });
