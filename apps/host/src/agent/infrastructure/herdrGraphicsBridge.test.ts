@@ -382,6 +382,7 @@ describe('Herdr graphics flow', () => {
             visibleRect: (paneId: string) => Promise<{ x: number; y: number; width: number; height: number } | undefined>;
             ensurePaneProcess: (paneId: string) => Promise<boolean>;
             enqueue: (file: { path: string; expectedLength: bigint; imageId: number; transferId: bigint; leading: Buffer; control: string }) => void;
+            queueInline: (data: Buffer) => void;
             drain: () => Promise<void>;
         };
         internals.sourcePane = async () => 'pane';
@@ -423,11 +424,32 @@ describe('Herdr graphics flow', () => {
             expect(inflateSync(Buffer.from(encoded, 'base64'))).toHaveLength(300 * 200 * 4);
 
             // Once both input and producer go quiet the pane is owed the sharp
-            // frame, and the refinement deletes exactly the frame it replaces.
+            // frame: the same source image is re-transmitted under the same
+            // image id at full density.
             await vi.advanceTimersByTimeAsync(200);
             await drain.mock.results.at(-1)?.value;
             expect(frames).toHaveLength(2);
             expect(frameAnsi(frames[1]!)).toContain('a=T,f=32,s=600,v=400,');
+
+            // A program deleting its image while the sharp frame is still
+            // being prepared must win: the deleted image never reappears and
+            // the pane stops owning scroll.
+            internals.enqueue({
+                path, expectedLength: BigInt(rgba.length), imageId: 11, transferId: 11n,
+                leading: Buffer.from('\u001b[1;1H'), control: `a=T,f=32,s=${width},v=${height},i=11`,
+            });
+            await drain.mock.results.at(-1)?.value;
+            expect(frames).toHaveLength(3);
+            expect(frameAnsi(frames[2]!)).toContain('a=T,f=32,s=300,v=200,');
+            vi.advanceTimersByTime(200);
+            internals.queueInline(Buffer.from('\u001b_Ga=d,d=I,i=11;\u001b\\'));
+            await drain.mock.results.at(-1)?.value;
+            await vi.advanceTimersByTimeAsync(1000);
+            await drain.mock.results.at(-1)?.value;
+            expect(frames).toHaveLength(4);
+            expect(frameAnsi(frames[3]!)).toContain('a=d,d=I,');
+            expect(frameGraphics(frames[3]!)).toBe(false);
+            expect(bridge.ownsScroll('phone')).toBe(false);
         } finally {
             bridge.close();
             rmSync(dir, { recursive: true, force: true });

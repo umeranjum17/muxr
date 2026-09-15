@@ -687,7 +687,11 @@ export class HerdrGraphicsBridge {
             if (deletesImage) {
                 this.imageOwners.delete(transferId);
                 const latest = this.latestByPane.get(owner.paneId);
-                if (latest?.transferId === transferId) this.latestByPane.delete(owner.paneId);
+                if (latest?.transferId === transferId) {
+                    this.latestByPane.delete(owner.paneId);
+                    this.dropDirectRefinement(owner.paneId);
+                    this.cancelRefine(owner.paneId);
+                }
             }
             if (!all) direct.push({ paneId: owner.paneId, imageId: owner.imageId });
         }

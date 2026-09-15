@@ -225,7 +225,6 @@ function createLease(dir) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const open = new Map();
     return {
-        dir,
         write(transferId, rgba) {
             const path = join(dir, `frame-${transferId}.rgba`);
             writeFileSync(path, rgba, { mode: 0o600 });
@@ -572,7 +571,8 @@ export async function startGraphics({
     const width = size.width;
     const height = size.height;
     const bps = positiveInt(bytesPerSecond, DEFAULT_BYTES_PER_SECOND);
-    const lease = createLease(join(tmpdir(), `fake-herdr-graphics-${process.pid}`));
+    const leaseDir = join(tmpdir(), `fake-herdr-graphics-${process.pid}`);
+    const lease = createLease(leaseDir);
 
     let orphanPaneId;
     let orphanOffset;
@@ -631,8 +631,7 @@ export async function startGraphics({
             timers.clear();
             for (const socket of sockets) socket.destroy();
             sockets.clear();
-            lease.releaseAll();
-            try { rmSync(lease.dir, { recursive: true, force: true }); } catch { /* harness removed its scratch dir */ }
+            try { rmSync(leaseDir, { recursive: true, force: true }); } catch { /* harness removed its scratch dir */ }
             server.close();
             try { unlinkSync(socketPath); } catch { /* listen never created it */ }
         },
