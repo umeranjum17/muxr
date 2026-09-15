@@ -22,7 +22,7 @@ const isFeature = (name: string): boolean => featureDirs.includes(name);
 // Layer folders are a feature's implementation detail. Importing them from
 // another feature reaches past that feature's public entry. `model` is
 // included ahead of the domain/ -> model/ rename so the check survives it.
-const internalImport = /from ['"]@\/(\w+)\/(domain|model|application|infrastructure|presentation)\//;
+const internalImport = /from ['"]@\/(\w+)\/(domain|model|application|infrastructure|presentation)(?=\/|'|")/;
 const removedShims = ['sync', 'state', 'realtime', 'voice', 'auth', 'client'] as const;
 
 // Bidirectional feature dependency pairs measured at the 2026 structure
