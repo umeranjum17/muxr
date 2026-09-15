@@ -33,6 +33,10 @@ const EMPTY_MODEL: PluginItemListModel = { items: [], actions: [] };
 function SurfaceScope({ dark, children }: { dark: boolean; children: React.ReactNode }): React.JSX.Element {
     return dark ? <ScopedTheme name="dark">{children}</ScopedTheme> : <>{children}</>;
 }
+function SurfaceContent({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
+    const { theme } = useUnistyles();
+    return <>{children(theme)}</>;
+}
 const MAX_ACTIVE_THUMBNAILS = 4;
 
 type SheetListEntry =
@@ -122,7 +126,6 @@ function SheetActions({ actions, busyId, onAction }: {
 
 /** Lazy action list: the plugin declares every tap; there are no feature fallbacks. */
 export function ItemList({ context, pluginId, manifestHash, contribution, presentation = 'pill' }: PrimitiveProps & { presentation?: 'pill' | 'action-row' | 'shortcut' }) {
-    const { theme } = useUnistyles();
     const { width } = useWindowDimensions();
     const router = useRouter();
     const isFocused = useIsFocused();
@@ -313,20 +316,23 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
     React.useEffect(() => {
         if (!open) { setVisibleThumbnailIds([]); setSettledThumbnailIds(new Set()); }
     }, [open]);
-    const badgeTone = model.badge?.tone;
-    const badgeColor = failed ? theme.colors.textDestructive : badgeTone === undefined ? theme.colors.textSecondary : toneColor(theme, badgeTone);
     if (items.length === 0 && model.actions.length === 0) {
         if (!failed) return null;
-        if (shortcut) return <SurfaceScope dark={overTerminal}><ActionShortcut label={title} accessibilityLabel={`${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}`} icon="warning-outline" onPress={() => load(true)} /></SurfaceScope>;
-        return <Pressable onPress={failed ? () => load(true) : undefined} disabled={!failed} accessibilityRole="button" accessibilityLabel={failed ? `${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}` : `${accessibilityLabel}, no items`} hitSlop={11}
-            style={({ pressed }) => [presentation === 'action-row' ? styles.actionRow : styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider, opacity: failed || presentation === 'pill' ? 1 : 0.55 }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
-            {presentation !== 'action-row' && <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={11} color={failed ? theme.colors.textDestructive : theme.colors.textSecondary} />}
-            {presentation === 'action-row' && <Text style={[styles.actionLabel, { color: theme.colors.text }]}>{title}</Text>}
-            <Text style={[styles.count, { color: failed ? theme.colors.textDestructive : theme.colors.textSecondary }]}>{failed ? '!' : '0'}</Text>
-        </Pressable>;
+        return <SurfaceScope dark={overTerminal}><SurfaceContent>{(theme) => {
+            if (shortcut) return <ActionShortcut label={title} accessibilityLabel={`${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}`} icon="warning-outline" onPress={() => load(true)} />;
+            return <Pressable onPress={failed ? () => load(true) : undefined} disabled={!failed} accessibilityRole="button" accessibilityLabel={failed ? `${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}` : `${accessibilityLabel}, no items`} hitSlop={11}
+                style={({ pressed }) => [presentation === 'action-row' ? styles.actionRow : styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider, opacity: failed || presentation === 'pill' ? 1 : 0.55 }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
+                {presentation !== 'action-row' && <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={11} color={failed ? theme.colors.textDestructive : theme.colors.textSecondary} />}
+                {presentation === 'action-row' && <Text style={[styles.actionLabel, { color: theme.colors.text }]}>{title}</Text>}
+                <Text style={[styles.count, { color: failed ? theme.colors.textDestructive : theme.colors.textSecondary }]}>{failed ? '!' : '0'}</Text>
+            </Pressable>;
+        }}</SurfaceContent></SurfaceScope>;
     }
-    const count = model.badge?.value ?? items.length;
-    return <SurfaceScope dark={overTerminal}>
+    return <SurfaceScope dark={overTerminal}><SurfaceContent>{(theme) => {
+        const badgeTone = model.badge?.tone;
+        const badgeColor = failed ? theme.colors.textDestructive : badgeTone === undefined ? theme.colors.textSecondary : toneColor(theme, badgeTone);
+        const count = model.badge?.value ?? items.length;
+        return <>
         {/* Only a declared badge trails a panel row: an inferred item count is
             the pill's affordance, not the panel's secondary line. */}
         {shortcut ? <ActionShortcut label={title} accessibilityLabel={`${accessibilityLabel}${failed ? `, ${t('plugins.showingStale')}. ${t('plugins.retry')}` : ''}`}
@@ -381,7 +387,8 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
         } />
         {documentPreview !== undefined && sessionId !== undefined && <RichAttachmentPreview key={`${sessionId}:${documentPreview.id}`} sessionId={sessionId} attachment={documentPreview} onClose={() => setDocumentPreview(undefined)} />}
         {galleryIndex !== undefined && <AttachmentGallery sessionId={sessionId!} images={galleryImages} initialIndex={galleryIndex} onClose={() => setGalleryIndex(undefined)} />}
-    </SurfaceScope>;
+        </>;
+    }}</SurfaceContent></SurfaceScope>;
 }
 
 const styles = StyleSheet.create({
