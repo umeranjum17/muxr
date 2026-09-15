@@ -224,7 +224,6 @@ export class MuxrClient {
                 return;
             }
             opened = true;
-            this.reconnectAttempt = 0;
             clearTimeout(this.livenessTimer);
             // The relay accepts a client peer even when no machine is attached,
             // so socket open is not "connected". Stay `connecting` until the
@@ -445,6 +444,7 @@ export class MuxrClient {
         // Socket open only proves the relay accepted us; the first frame that
         // survives the machine's E2EE context proves the host is really there.
         this.hostFrameRevision += 1;
+        this.reconnectAttempt = 0;
         clearTimeout(this.livenessTimer);
         this.livenessTimer = undefined;
         if (this.state !== 'open') this.setState('open');

@@ -185,7 +185,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     // a lost route, 'connected' an authenticated host frame. A known failure
     // reads 'unconfirmed' until this pane paints again or the host answers.
     let link: 'live' | 'reconnecting' = 'reconnecting';
-    let hostUnconfirmed = false;
+    let hostUnconfirmed = storage.getState().socketStatus !== 'connected' && storage.getState().socketStatus !== 'connecting';
     let state: TerminalChannelState = 'reconnecting';
     const publishState = (): void => {
         let next: TerminalChannelState = link;
@@ -220,6 +220,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         attempts += 1;
         if (attempts > MAX_ATTEMPTS) {
             recordTerminalChannel('disconnected', { ok: false, code: 'disconnected' });
+            stopWatchingHost();
             for (const listener of closeListeners) listener('disconnected');
             return;
         }
