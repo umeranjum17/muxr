@@ -77,9 +77,21 @@ for (const tree of SRC_TREES) {
                 if (crossing || rootReachingIn) {
                     failures.push(`${rel}:${index + 1}: import of ${imported} internals; use that module's index`);
                 }
-                if (owner !== undefined && owner !== imported && !isPackageRoot(file)) {
+                if (owner !== undefined && owner !== imported && !isPackageRoot(file) && !file.endsWith('.spec.ts') && !file.endsWith('.test.ts')) {
                     if (!edges.has(owner)) edges.set(owner, new Set());
                     edges.get(owner).add(imported);
+                }
+            } else if (!isPackageRoot(file) && !file.endsWith('.spec.ts') && !file.endsWith('.test.ts')) {
+                const spec = line.match(/from ['"]([^'"]+)['"]/);
+                if (spec) {
+                    const barrel = spec[1].match(new RegExp(`^(\\.\\./)+(${MODULES.join('|')})/`));
+                    if (barrel) {
+                        const imported = barrel[2];
+                        if (owner !== undefined && owner !== imported) {
+                            if (!edges.has(owner)) edges.set(owner, new Set());
+                            edges.get(owner).add(imported);
+                        }
+                    }
                 }
             }
             if (domainFile && INFRA_IMPORT.test(line)) {
