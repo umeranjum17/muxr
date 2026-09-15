@@ -195,7 +195,7 @@ const DELIVERED_EVENT_LIMIT = 2_048;
 function boundDeliveredEvents(events: Array<{ accountId: string; eventId: string; at?: string }>, now = Date.now()): Array<{ accountId: string; eventId: string; at?: string }> {
     const counts = new Map<string, number>();
     return events.filter((entry) => typeof entry?.accountId === 'string' && typeof entry.eventId === 'string'
-        && (typeof entry.at !== 'string' || now - Date.parse(entry.at) < DELIVERED_EVENT_TTL_MS))
+        && typeof entry.at === 'string' && Number.isFinite(Date.parse(entry.at)) && now - Date.parse(entry.at) < DELIVERED_EVENT_TTL_MS)
         .reverse()
         .filter((entry) => {
             const count = counts.get(entry.accountId) ?? 0;
