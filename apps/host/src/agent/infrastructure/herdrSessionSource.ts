@@ -760,7 +760,10 @@ export async function createHerdrSessionSource(
     /** Herdr's kind once detected; until then the kind the phone asked for, while that launch is still active. */
     function agentKindFor(session: CurrentSession | undefined): string | undefined {
         if (session?.agent === undefined) return undefined;
-        if (session.agent.agent !== undefined && session.agent.agent !== null) return session.agent.agent;
+        const published = publishedAgentSession(session.agent);
+        const detected = publicAgentKind(session.agent.agent ?? undefined)
+            ?? (published === undefined || isMuxrLaunchSession(published) ? undefined : publicAgentKind(published.agent));
+        if (detected !== undefined) return detected;
         const until = activeLaunchUntil.get(session.paneId);
         if (until === undefined) return undefined;
         if (Date.now() > until) {
@@ -1438,6 +1441,9 @@ export async function createHerdrSessionSource(
             if (current !== undefined) {
                 transition(current, 'failed', 'start-launch-failed');
                 emitState(sessionId);
+            } else {
+                paneByAgentRoute.delete(sessionId);
+                if (routes.remove(sessionId) !== undefined) removeRouteState(sessionId);
             }
             // The phone already navigated to this pane; closing it strands the route.
             const publishedKind = publicAgentKind(kind);

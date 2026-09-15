@@ -93,6 +93,10 @@ describe('phone launch before herdr detects the agent', () => {
             attachmentsDir: join(dir, 'attachments'),
             hostHttpPort: 0,
         });
+        const removedSessions: string[] = [];
+        const unsubscribe = source.subscribe((sessionId, event) => {
+            if (event.type === 'session.removed') removedSessions.push(sessionId);
+        });
         try {
             const started = await source.start({ cwd, kind: 'claude' });
             if (!('info' in started)) throw new Error('launch rejected');
@@ -107,7 +111,6 @@ describe('phone launch before herdr detects the agent', () => {
 
             // Detection: herdr publishes the kind and its own session; the route survives adoption.
             Object.assign(herdr.agents[0]!, {
-                agent: 'claude',
                 agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
             });
             herdr.emit('pane.agent_detected', { pane_id: 'w1:p1' });
@@ -125,9 +128,12 @@ describe('phone launch before herdr detects the agent', () => {
             vi.spyOn(Date, 'now').mockImplementation(() => now + 300_000);
             expect(treePane(await source.herdrTree(), 'w1:p2').agentKind).toBeUndefined();
             await source.refreshHerdr();
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            expect(removedSessions).toContain(failed.info.id);
             expect(treePane(await source.herdrTree(), 'w1:p2').agentKind).toBeUndefined();
             expect(treePane(await source.herdrTree(), 'w1:p1').agentKind).toBe('claude');
         } finally {
+            unsubscribe();
             vi.restoreAllMocks();
             await source.dispose();
             herdr.close();
