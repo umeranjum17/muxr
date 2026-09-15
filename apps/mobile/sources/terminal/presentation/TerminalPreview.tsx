@@ -19,15 +19,37 @@ const POLL_MS = 3000;
 /** Roughly one terminal viewport; the tile clips whatever does not fit. */
 const MAX_LINES = 24;
 
-function tail(text: string): string {
+function tail(text: string, maxLines: number, nonEmpty: boolean): string {
     const trimmed = text.replace(/\s+$/, '');
     if (trimmed === '') return '';
     const lines = trimmed.split('\n');
-    return lines.slice(-MAX_LINES).join('\n');
+    const kept = nonEmpty ? lines.filter((line) => line.trim() !== '') : lines;
+    return kept.slice(-maxLines).join('\n');
 }
 
-export const TerminalPreview = React.memo((props: { sessionId: string; paused?: boolean; live?: boolean }) => {
+/** What a snapshot tile knows about its text: never 'live' unless it polls. */
+export type TerminalPreviewState =
+    | { kind: 'loading' }
+    | { kind: 'ready'; at: number }
+    | { kind: 'empty'; at: number }
+    | { kind: 'failed' };
+
+export const TerminalPreview = React.memo((props: {
+    sessionId: string;
+    paused?: boolean;
+    live?: boolean;
+    /** Last N lines to keep; the default is about one viewport. */
+    maxLines?: number;
+    /** Keep only non-empty lines, for a short card snapshot. */
+    nonEmpty?: boolean;
+    /** Snapshot state for a card that labels its preview honestly. */
+    onState?: (state: TerminalPreviewState) => void;
+}) => {
     const [text, setText] = React.useState('');
+    const maxLines = props.maxLines ?? MAX_LINES;
+    const nonEmpty = props.nonEmpty === true;
+    const onStateRef = React.useRef(props.onState);
+    onStateRef.current = props.onState;
 
     React.useEffect(() => {
         let alive = true;
@@ -39,10 +61,14 @@ export const TerminalPreview = React.memo((props: { sessionId: string; paused?: 
             void sync
                 .request('pane.read', { sessionId: props.sessionId, source: 'visible' })
                 .then((result) => {
-                    if (alive) setText(tail(result.text));
+                    if (!alive) return;
+                    const next = tail(result.text, maxLines, nonEmpty);
+                    setText(next);
+                    onStateRef.current?.(next === '' ? { kind: 'empty', at: Date.now() } : { kind: 'ready', at: Date.now() });
                 })
                 .catch(() => {
                     /* pane gone or host busy -- keep the last frame */
+                    if (alive) onStateRef.current?.({ kind: 'failed' });
                 });
         };
 
@@ -70,7 +96,7 @@ export const TerminalPreview = React.memo((props: { sessionId: string; paused?: 
             stop();
             subscription.remove();
         };
-    }, [props.live, props.paused, props.sessionId]);
+    }, [props.live, props.paused, props.sessionId, maxLines, nonEmpty]);
 
     return (
         <View style={{ flex: 1, backgroundColor: '#0c0c0b', overflow: 'hidden' }} pointerEvents="none">
