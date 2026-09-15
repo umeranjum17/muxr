@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { OptionSheet } from '@/components/OptionSheet';
 import { ActionShortcut } from '@/components/ActionShortcut';
-import { useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import type { PluginDataCard, PluginNativeContribution, PluginNavigationItem, PluginTerminalKeyRow } from '@muxr/contract';
 import { MAX_RPC_DISPLAY_BYTES, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, sanitizeDisplayText } from '@muxr/contract';
 import type { PluginTerminalChannel } from '../domain/slotTypes';
@@ -217,8 +217,12 @@ export function DeclarativeHomeCards() {
     return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'data-card' && contribution.slot === 'home.cards' && contribution.presentation !== 'sheet' ? [<DataCard key={`${summary.pluginId}:${contribution.id}`} contribution={contribution} pluginId={summary.pluginId} manifestHash={summary.manifestHash} pluginName={summary.name} />] : []))}</>;
 }
 
-function DataActionRow({ contribution, pluginId, manifestHash, presentation }: { contribution: PluginDataCard; pluginId: string; manifestHash: string; presentation?: 'shortcut' }) {
+function DataActionScope({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();
+    return <>{children(theme)}</>;
+}
+
+function DataActionRow({ contribution, pluginId, manifestHash, presentation }: { contribution: PluginDataCard; pluginId: string; manifestHash: string; presentation?: 'shortcut' }) {
     const data = useDataValue(pluginId, manifestHash, contribution.source.contributionId);
     const [open, setOpen] = React.useState(false);
     let shown = data.value;
@@ -228,37 +232,39 @@ function DataActionRow({ contribution, pluginId, manifestHash, presentation }: {
     if (shown === undefined) return null;
     const failureLabel = `${label}, ${data.value === undefined ? t('plugins.unavailableSuffix') : t('plugins.showingStale')}. ${t('plugins.retry')}`;
     const retryOrOpen = () => { if (data.failed) data.retry(); if (contribution.presentation === 'sheet') setOpen(true); };
-    let trigger: React.ReactNode;
-    if (presentation === 'shortcut') {
-        // A panel row uses the same full-width shape as every other quick
-        // action: fixed icon column, label that never moves, the data value
-        // trailing as a plain secondary line — never a badge over the icon.
-        trigger = <ActionShortcut label={label}
-            accessibilityLabel={data.failed ? failureLabel : `${label}, ${shown}`}
-            icon={(data.failed ? 'warning-outline' : (contribution.icon ?? 'stats-chart-outline')) as never}
-            badge={shown}
-            disabled={contribution.presentation !== 'sheet' && !data.failed}
-            onPress={retryOrOpen} />;
-    } else {
-        const style = ({ pressed = false } = {}) => ({ minHeight: 44, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh });
-        const body = <>
-            <Ionicons name={(contribution.icon ?? 'stats-chart-outline') as never} size={18} color={theme.colors.textSecondary} />
-            <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{label}</Text>
-            {data.failed && <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />}
-            <Text numberOfLines={1} style={{ maxWidth: 120, color: data.failed ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 12 }}>{shown}</Text>
-            {contribution.presentation === 'sheet' && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
-        </>;
-        trigger = contribution.presentation !== 'sheet' && !data.failed
-            ? <View style={style()}>{body}</View>
-            : <Pressable onPress={retryOrOpen} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : label} style={style}>{body}</Pressable>;
-    }
     // The sheet stays mounted under every trigger shape, so a panel row opens
-    // the same OptionSheet the pane-menu row does.
-    return <>
-        {trigger}
-        {contribution.presentation === 'sheet' && <OptionSheet visible={open} title={label} options={[]} onSelect={() => {}} onClose={() => setOpen(false)}
-            body={<View style={{ paddingHorizontal: 16, paddingBottom: 12 }}><Text style={{ color: theme.colors.text, fontSize: 13, lineHeight: 20 }}>{shown}</Text></View>} />}
-    </>;
+    // the same OptionSheet the pane-menu row does. Session actions only ever
+    // sit on the session's dark surface, and this row mounts and opens on its
+    // own loads outside the screen's render pass, so it names that theme for
+    // what it mounts itself.
+    return <ScopedTheme name="dark"><DataActionScope>{(theme) => {
+        let trigger: React.ReactNode;
+        if (presentation === 'shortcut') {
+            trigger = <ActionShortcut label={label}
+                accessibilityLabel={data.failed ? failureLabel : `${label}, ${shown}`}
+                icon={(data.failed ? 'warning-outline' : (contribution.icon ?? 'stats-chart-outline')) as never}
+                badge={shown}
+                disabled={contribution.presentation !== 'sheet' && !data.failed}
+                onPress={retryOrOpen} />;
+        } else {
+            const style = ({ pressed = false } = {}) => ({ minHeight: 44, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh });
+            const body = <>
+                <Ionicons name={(contribution.icon ?? 'stats-chart-outline') as never} size={18} color={theme.colors.textSecondary} />
+                <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{label}</Text>
+                {data.failed && <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />}
+                <Text numberOfLines={1} style={{ maxWidth: 120, color: data.failed ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 12 }}>{shown}</Text>
+                {contribution.presentation === 'sheet' && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
+            </>;
+            trigger = contribution.presentation !== 'sheet' && !data.failed
+                ? <View style={style()}>{body}</View>
+                : <Pressable onPress={retryOrOpen} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : label} style={style}>{body}</Pressable>;
+        }
+        return <>
+            {trigger}
+            {contribution.presentation === 'sheet' && <OptionSheet visible={open} title={label} options={[]} onSelect={() => {}} onClose={() => setOpen(false)}
+                body={<View style={{ paddingHorizontal: 16, paddingBottom: 12 }}><Text style={{ color: theme.colors.text, fontSize: 13, lineHeight: 20 }}>{shown}</Text></View>} />}
+        </>;
+    }}</DataActionScope></ScopedTheme>;
 }
 
 type DeclarativeSessionAction = (

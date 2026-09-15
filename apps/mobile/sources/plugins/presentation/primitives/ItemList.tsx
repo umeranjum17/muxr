@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
-import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
 import { ActionShortcut } from '@/components/ActionShortcut';
 import { hapticsError, hapticsLight } from '@/components/haptics';
@@ -28,6 +28,15 @@ import { richPreviewKind } from '@/utils/richAttachmentPreview';
 import { RichAttachmentPreview } from '@/components/attachment/RichAttachmentPreview';
 
 const EMPTY_MODEL: PluginItemListModel = { items: [], actions: [] };
+
+/** The session's dark surface, re-asserted by a list that mounts on its own loads. */
+function SurfaceScope({ dark, children }: { dark: boolean; children: React.ReactNode }): React.JSX.Element {
+    return dark ? <ScopedTheme name="dark">{children}</ScopedTheme> : <>{children}</>;
+}
+function SurfaceContent({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
+    const { theme } = useUnistyles();
+    return <>{children(theme)}</>;
+}
 const MAX_ACTIVE_THUMBNAILS = 4;
 
 type SheetListEntry =
@@ -117,7 +126,6 @@ function SheetActions({ actions, busyId, onAction }: {
 
 /** Lazy action list: the plugin declares every tap; there are no feature fallbacks. */
 export function ItemList({ context, pluginId, manifestHash, contribution, presentation = 'pill' }: PrimitiveProps & { presentation?: 'pill' | 'action-row' | 'shortcut' }) {
-    const { theme } = useUnistyles();
     const { width } = useWindowDimensions();
     const router = useRouter();
     const isFocused = useIsFocused();
@@ -241,6 +249,12 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
     const icon = contribution.icon ?? 'document-outline';
     const accessibilityLabel = contribution.accessibilityLabel === undefined ? title : resolvePluginText(contribution.accessibilityLabel);
     const shortcut = presentation === 'shortcut';
+    // A row (Tools panel or pane actions) only ever sits on the session's
+    // dark surface; the pill follows whatever screen shows it. The list
+    // mounts its row and opens its sheet on its own loads, outside the
+    // screen's render pass, so it names the surface's theme itself for what
+    // it mounts then. Scopes are render-phase only, hence per mount here.
+    const overTerminal = presentation !== 'pill';
     // Order-preserving grouping; ungrouped items render in one silent section.
     const groups = React.useMemo(() => {
         const found: { name?: string; items: { item: PluginItemListItem; index: number }[] }[] = [];
@@ -302,20 +316,23 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
     React.useEffect(() => {
         if (!open) { setVisibleThumbnailIds([]); setSettledThumbnailIds(new Set()); }
     }, [open]);
-    const badgeTone = model.badge?.tone;
-    const badgeColor = failed ? theme.colors.textDestructive : badgeTone === undefined ? theme.colors.textSecondary : toneColor(theme, badgeTone);
     if (items.length === 0 && model.actions.length === 0) {
         if (!failed) return null;
-        if (shortcut) return <ActionShortcut label={title} accessibilityLabel={`${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}`} icon="warning-outline" onPress={() => load(true)} />;
-        return <Pressable onPress={failed ? () => load(true) : undefined} disabled={!failed} accessibilityRole="button" accessibilityLabel={failed ? `${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}` : `${accessibilityLabel}, no items`} hitSlop={11}
-            style={({ pressed }) => [presentation === 'action-row' ? styles.actionRow : styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider, opacity: failed || presentation === 'pill' ? 1 : 0.55 }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
-            {presentation !== 'action-row' && <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={11} color={failed ? theme.colors.textDestructive : theme.colors.textSecondary} />}
-            {presentation === 'action-row' && <Text style={[styles.actionLabel, { color: theme.colors.text }]}>{title}</Text>}
-            <Text style={[styles.count, { color: failed ? theme.colors.textDestructive : theme.colors.textSecondary }]}>{failed ? '!' : '0'}</Text>
-        </Pressable>;
+        return <SurfaceScope dark={overTerminal}><SurfaceContent>{(theme) => {
+            if (shortcut) return <ActionShortcut label={title} accessibilityLabel={`${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}`} icon="warning-outline" onPress={() => load(true)} />;
+            return <Pressable onPress={failed ? () => load(true) : undefined} disabled={!failed} accessibilityRole="button" accessibilityLabel={failed ? `${accessibilityLabel} ${t('plugins.unavailableSuffix')}. ${t('plugins.retry')}` : `${accessibilityLabel}, no items`} hitSlop={11}
+                style={({ pressed }) => [presentation === 'action-row' ? styles.actionRow : styles.pill, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider, opacity: failed || presentation === 'pill' ? 1 : 0.55 }, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
+                {presentation !== 'action-row' && <Ionicons name={(failed ? 'warning-outline' : icon) as never} size={11} color={failed ? theme.colors.textDestructive : theme.colors.textSecondary} />}
+                {presentation === 'action-row' && <Text style={[styles.actionLabel, { color: theme.colors.text }]}>{title}</Text>}
+                <Text style={[styles.count, { color: failed ? theme.colors.textDestructive : theme.colors.textSecondary }]}>{failed ? '!' : '0'}</Text>
+            </Pressable>;
+        }}</SurfaceContent></SurfaceScope>;
     }
-    const count = model.badge?.value ?? items.length;
-    return <>
+    return <SurfaceScope dark={overTerminal}><SurfaceContent>{(theme) => {
+        const badgeTone = model.badge?.tone;
+        const badgeColor = failed ? theme.colors.textDestructive : badgeTone === undefined ? theme.colors.textSecondary : toneColor(theme, badgeTone);
+        const count = model.badge?.value ?? items.length;
+        return <>
         {/* Only a declared badge trails a panel row: an inferred item count is
             the pill's affordance, not the panel's secondary line. */}
         {shortcut ? <ActionShortcut label={title} accessibilityLabel={`${accessibilityLabel}${failed ? `, ${t('plugins.showingStale')}. ${t('plugins.retry')}` : ''}`}
@@ -370,7 +387,8 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
         } />
         {documentPreview !== undefined && sessionId !== undefined && <RichAttachmentPreview key={`${sessionId}:${documentPreview.id}`} sessionId={sessionId} attachment={documentPreview} onClose={() => setDocumentPreview(undefined)} />}
         {galleryIndex !== undefined && <AttachmentGallery sessionId={sessionId!} images={galleryImages} initialIndex={galleryIndex} onClose={() => setGalleryIndex(undefined)} />}
-    </>;
+        </>;
+    }}</SurfaceContent></SurfaceScope>;
 }
 
 const styles = StyleSheet.create({
