@@ -33,7 +33,7 @@ export interface TerminalChannel {
     onData: (listener: (base64: string, graphics?: boolean) => void) => () => void;
     onClose: (listener: (reason?: string) => void) => () => void;
     onGraphics: (listener: (active: boolean, reason?: TerminalGraphicsReason) => void) => () => void;
-    /** 'reconnecting' while a dropped socket is being re-attached, 'live' after. */
+    /** Pane socket state; 'unconfirmed' while the host is silent — see TerminalChannelState. */
     onState: (listener: (state: TerminalChannelState) => void) => () => void;
     sendText: (text: string) => void;
     sendBytes: (base64: string) => void;
