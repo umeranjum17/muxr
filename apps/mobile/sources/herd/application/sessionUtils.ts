@@ -122,7 +122,7 @@ export function getSessionName(session: Session, pane?: HerdrTreePane): string {
     return session.metadata?.summary?.text?.trim() || t('session.newChat');
 }
 
-/** herdr lifecycle status, shared across dots, kanban and grid tiles. */
+/** herdr lifecycle status, shared across dots, kanban and grid cards. */
 export type AgentLifecycleStatus = 'starting' | 'idle' | 'working' | 'blocked' | 'done' | 'failed' | 'unknown';
 
 /** herdr semantics: red = needs you, blue = working, green = done, grey = idle. Working/blocked pulse. */

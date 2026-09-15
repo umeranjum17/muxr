@@ -169,8 +169,9 @@ Beyond the session basics, the host exposes herdr's topology to the app:
 
 - `herdr.tree` — workspaces → tabs → panes with agent kind/status/title and the
   muxr session id for panes hosting agents. Powers the Herd screen's spaces cards.
-- `herdr.layout` — a tab's split rects (terminal cells), so the grid view renders
-  the real BSP layout instead of guessing.
+- `herdr.layout` — a tab's split rects (terminal cells), still served for
+  layout-aware callers; the tab grid and pane overview render uniform cards
+  from `herdr.tree` with snapshot previews instead of the BSP geometry.
 - `pane.split` — split any session's pane; with `kind`, an agent starts in the new
   pane. The multiplexing primitive: two agents side by side, one tab.
 - `session.start` with `kinds[]` — squad mode: one tab per kind, same workspace,
