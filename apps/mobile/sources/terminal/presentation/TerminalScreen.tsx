@@ -140,8 +140,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const netScrollBack = React.useRef(0);
     const [showJump, setShowJump] = React.useState(false);
     const [restoreScrollBack, setRestoreScrollBack] = React.useState(0);
-    const restoreScrollBackRef = React.useRef(0);
-    restoreScrollBackRef.current = restoreScrollBack;
     const stopWatchingGraphics = React.useRef<(() => void) | undefined>(undefined);
     React.useEffect(() => () => stopWatchingGraphics.current?.(), []);
 
@@ -150,7 +148,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         stopWatchingGraphics.current = undefined;
         graphicsOwnsScroll.current = false;
         if (channel === undefined) {
-            setRestoreScrollBack(Math.max(netScrollBack.current, restoreScrollBackRef.current));
+            setRestoreScrollBack(netScrollBack.current);
         } else {
             netScrollBack.current = 0;
             setShowJump(false);
