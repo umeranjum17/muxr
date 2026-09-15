@@ -123,6 +123,7 @@ private class Tunnel(
 class SshTunnelModule : Module() {
     private val lock = Any()
     private var tunnel: Tunnel? = null
+    private var generation = 0
 
     override fun definition() = ModuleDefinition {
         Name("SshTunnel")
@@ -142,23 +143,35 @@ class SshTunnelModule : Module() {
         synchronized(lock) {
             tunnel?.close()
             tunnel = null
+            generation += 1
         }
     }
 
     private fun open(config: SshTunnelConfig): Map<String, Any> {
         validate(config)
-        synchronized(lock) {
+        val expected = synchronized(lock) {
             val existing = tunnel
             if (existing != null && existing.alive() && existing.signature == signatureOf(config)) {
                 return mapOf("localPort" to existing.localPort, "hostKey" to existing.hostKey)
             }
             existing?.close()
             tunnel = null
+            generation += 1
+            generation
         }
         val opened = connect(config)
-        synchronized(lock) {
-            tunnel?.close()
-            tunnel = opened
+        val superseded = synchronized(lock) {
+            if (expected != generation) {
+                true
+            } else {
+                tunnel?.close()
+                tunnel = opened
+                false
+            }
+        }
+        if (superseded) {
+            opened.close()
+            throw SshUnreachableException("the SSH connection was closed before it opened", null)
         }
         return mapOf("localPort" to opened.localPort, "hostKey" to opened.hostKey)
     }

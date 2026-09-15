@@ -276,7 +276,7 @@ export default function ConnectionSettingsScreen() {
     };
 
     if (initial.mode === 'hosted') {
-        const transport = initial.ssh !== undefined
+        const transport = initial.ssh !== undefined && sshSupported
             ? 'Direct SSH tunnel + end-to-end encryption'
             : initial.relayUrl.startsWith('wss://')
                 ? 'HTTPS/WSS transport + end-to-end encryption'

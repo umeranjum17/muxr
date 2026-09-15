@@ -1,4 +1,4 @@
-# 0005: Android SSH loopback transport
+# 0006: Android SSH loopback transport
 
 - Status: implemented
 - Tier: T3
