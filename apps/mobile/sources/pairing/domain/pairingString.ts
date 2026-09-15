@@ -38,7 +38,7 @@ function onlyPairQuery(parsed: URL): boolean {
 function wellFormedBrowserPairQuery(parsed: URL): boolean {
     const codes = parsed.searchParams.getAll('pair');
     const role = parsed.searchParams.get('role');
-    const knownKeys = [...parsed.searchParams.keys()].every((key) => key === 'pair' || key === 'role');
+    const knownKeys = [...parsed.searchParams.keys()].every((key) => key === 'pair' || key === 'role' || key === 'personal');
     return codes.length === 1
         && codes[0] !== ''
         && (role === 'control' || role === 'observe')

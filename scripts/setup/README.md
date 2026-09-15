@@ -27,7 +27,7 @@ scripts/setup/
 
 ## Invariants
 
-- Browser grants last eight hours; native grants are durable.
+- Browser grants last eight hours by default, 30 days for an explicit personal grant (`--browser-personal`); native grants are durable.
 - Native pairings are always `control`. Browser pairings may be `control` or `observe`.
 - Display metadata never authorizes.
 - DTOs stop at infrastructure; callers invoke domain behavior.

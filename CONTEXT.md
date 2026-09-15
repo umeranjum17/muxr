@@ -159,7 +159,7 @@ Whether a paired Device may control agents (`control`) or only watch (`observe`)
 _Avoid_: role, permission, access level
 
 **Client Kind**:
-Whether the paired client is the native app or a browser. Browser grants last eight hours; native grants are durable.
+Whether the paired client is the native app or a browser. Browser grants last eight hours by default, 30 days for an explicit personal grant (`muxr pair --browser-personal`); native grants are durable.
 _Avoid_: platform, client type, device type
 
 **Pairing Intent**:
