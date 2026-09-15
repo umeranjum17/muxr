@@ -45,7 +45,7 @@ import type { SessionInfo } from '@muxr/contract';
 import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
 import { promptAgent } from './promptAgent';
 import type { Settings } from './settings';
-import { lifecycleNotificationCopy } from '@/utils/herd';
+import { lifecycleNotificationCopy } from '@/herd';
 
 /** A shell that never reports back must not pin the promise forever. */
 const SHELL_TIMEOUT_MS = 120_000;

@@ -3,9 +3,9 @@ import type { AgentLifecycle, HerdrTreePane, HerdrTreeWorkspace, LifecycleEvent 
 import type { Session } from '../infrastructure/storageTypes';
 import { ApiUpdateContainerSchema } from '../infrastructure/apiTypes';
 import { normalizeRawMessage } from '../infrastructure/typesRaw';
-import { completionAlerts, completionNotificationState, completionTransition, herdNotificationState, HERD_STATUS_LABELS, lifecycleNotificationCopy, lifecycleNotificationState, nativeLifecycleNotificationState, sortHerd } from '@/utils/herd';
+import { completionAlerts, completionNotificationState, completionTransition, herdNotificationState, HERD_STATUS_LABELS, lifecycleNotificationCopy, lifecycleNotificationState, nativeLifecycleNotificationState, sortHerd } from '@/herd/model';
 import { normalizeRequestFailure, requestRequiresE2ee } from '@muxr/contract';
-import { buildSpaceRows } from '@/utils/herdTree';
+import { buildSpaceRows } from '@/herd/model';
 import { selectLiveTerminalCards } from '../../herd/application/liveTerminalOrder';
 import { herdPanes } from '../../herd/domain/herd';
 import { agentLabels } from '../../herd/domain/agentPresentation';
@@ -72,7 +72,7 @@ vi.mock('react-native-mmkv', () => ({
 vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
 const installedVersion = vi.hoisted(() => ({ value: '0.1.27' }));
 vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => installedVersion.value }));
-vi.mock('@/utils/sessionUtils', () => ({
+vi.mock('@/herd', () => ({
     getSessionName: (session: Session, pane?: HerdrTreePane) =>
         pane?.taskTitle ?? pane?.agentName ?? session.metadata?.summary?.text ?? session.id,
     getSessionSubtitle: (_session: Session, pane?: HerdrTreePane) => pane?.agentName ?? '',

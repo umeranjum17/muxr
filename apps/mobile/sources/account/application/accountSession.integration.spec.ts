@@ -46,7 +46,7 @@ vi.mock('expo-crypto', () => ({ randomUUID: () => 'login-device' }));
 vi.mock('expo-notifications', () => ({ scheduleNotificationAsync: vi.fn() }));
 vi.mock('react-native', () => ({ AppState: { currentState: 'active' }, Platform: { OS: 'android' } }));
 vi.mock('@/modal', () => ({ Modal: {} }));
-vi.mock('@/utils/sessionUtils', () => ({ getSessionName: () => 'session' }));
+vi.mock('@/herd', () => ({ getSessionName: () => 'session' }));
 vi.mock('@/connection', () => ({
     DEFAULT_CONNECTION: { ...harness.connection },
     getCachedConnectionSettings: () => harness.connection,
