@@ -4,7 +4,7 @@ muxr Android builds run locally with EAS. Phone artifacts default to
 `arm64-v8a`; build `x86_64` only when an emulator explicitly needs it.
 
 **Expo Go will not work.** The app ships custom native modules
-(`voice-overlay`, `plugin-shortcuts`) and `patch-package` patches. Use a native
+(`voice-overlay`, `plugin-shortcuts`, `ssh-tunnel`) and `patch-package` patches. Use a native
 build or platform run command after a prebuild.
 
 The iOS voice bridge owns PCM playback and `AVAudioSession` routing; terminal
