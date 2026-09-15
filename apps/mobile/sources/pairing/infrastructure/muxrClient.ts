@@ -31,6 +31,8 @@ import {
     ticketFailureCode,
     type ConnectionDiagnosticSocketFailureCode,
 } from '../../catalog/infrastructure/connectionDiagnostics';
+import { sshRelayUrl, stopSshTunnel, SshConnectionError } from '../../connection/application/sshTunnel';
+import type { SshTarget } from '../../connection/application/connectionSettings';
 
 /** `stale`: host liveness is unproven because a request timed out without newer authenticated host traffic. */
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'stale';
@@ -44,6 +46,8 @@ export interface MuxrClientOptions {
     /** Account token. Required by a strict relay, which is any remote one. */
     token?: string;
     hostedGrant?: StoredHostedGrant;
+    /** Android-only route to the host's loopback relay; the grant still owns authority. */
+    ssh?: SshTarget;
     /** A ticket refusal triggers separate account-session validation; it is not itself a logout signal. */
     onTicketRejected?: () => void;
     /** Permanent self-host credential failures must stop retrying and offer pairing again. */
@@ -140,36 +144,43 @@ export class MuxrClient {
         this.setState('connecting');
         const { machineId, token } = this.options;
         let relayUrl = this.options.relayUrl;
+        let dialRelayUrl = relayUrl;
         let url: string;
         let failureStage: 'grant' | 'ticket' = 'grant';
         try {
+            if (this.options.ssh !== undefined) {
+                dialRelayUrl = await sshRelayUrl(relayUrl, machineId, this.options.ssh);
+            }
             if (this.options.mode === 'hosted') {
-                const latest = await refreshHostedGrant(machineId, token);
+                const latest = await refreshHostedGrant(machineId, token, relayUrl, dialRelayUrl);
                 if (latest !== undefined && latest.keyVersion >= (this.hosted?.grant.keyVersion ?? 0)) {
                     if (latest.expiresAt <= Date.now()) throw new Error('hosted device grant expired; pair this browser again');
                     this.hosted = new DeviceV2Crypto(latest);
                     relayUrl = latest.relayUrl;
+                    if (this.options.ssh === undefined) dialRelayUrl = relayUrl;
                 }
             }
             if (this.options.mode === 'hosted' && (!token || this.hosted === undefined)) throw new Error('hosted connection is missing its credential or grant');
             const legacyToken = this.options.mode === 'local' && token?.startsWith('acctok_') === true;
             if (token === undefined || token === '' || legacyToken) {
-                url = `${relayUrl}?role=client&machineId=${encodeURIComponent(machineId)}${token === undefined || token === '' ? '' : `&token=${encodeURIComponent(token)}`}`;
+                url = `${dialRelayUrl}?role=client&machineId=${encodeURIComponent(machineId)}${token === undefined || token === '' ? '' : `&token=${encodeURIComponent(token)}`}`;
             } else {
                 failureStage = 'ticket';
                 const ticket = await issueWsTicket({
-                    relayUrl,
+                    relayUrl: dialRelayUrl,
                     credential: token,
                     machineId,
                     role: 'client',
                     transport: 'relay',
                 });
-                url = ticketSocketUrl(relayUrl, ticket, 'relay');
+                url = ticketSocketUrl(dialRelayUrl, ticket, 'relay');
             }
         } catch (error) {
             if (this.closed || this.socket !== undefined) return;
             const rejected = error instanceof WsTicketError && (error.status === 401 || error.status === 403);
             const expired = error instanceof Error && /grant expired/i.test(error.message);
+            const sshFailure = error instanceof SshConnectionError;
+            const sshPermanent = sshFailure && error.permanent;
             const timedOut = error instanceof Error && error.name === 'AbortError';
             recordSocketFailure({
                 stage: failureStage,
@@ -182,11 +193,11 @@ export class MuxrClient {
                             ? 'grant-missing'
                             : 'grant-refresh-failed',
             });
-            const permanent = expired || rejected && this.hosted?.grant.source === 'selfhost';
+            const permanent = expired || rejected && this.hosted?.grant.source === 'selfhost' || sshPermanent;
             this.setState(permanent ? 'stale' : 'closed');
             if (rejected) this.options.onTicketRejected?.();
             if (permanent) {
-                this.options.onPermanentError?.(expired
+                this.options.onPermanentError?.(sshFailure ? (error as SshConnectionError).message : expired
                     ? 'This browser grant expired. Pair again from `muxr pair --browser`.'
                     : 'This device was revoked. Run `muxr pair` on the machine, then re-pair from Settings → Pair another machine on this device.');
                 return;
@@ -274,6 +285,7 @@ export class MuxrClient {
         const socket = this.socket;
         this.socket = undefined;
         socket?.close();
+        void stopSshTunnel();
         this.setState('closed');
     }
 

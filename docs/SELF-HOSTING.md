@@ -57,8 +57,22 @@ Choose **Choose another way** to see every available transport. Automation uses:
 | `--tailscale-direct` | Rollback path using the tailnet IP directly. |
 | *(detected private network)* | Uses the address on an existing NetBird, WireGuard, ZeroTier, or similar interface. The phone must join that same private network. |
 | *(choose Same Wi-Fi)* | Local network address. Phone must be on the same trusted network. |
+| *(choose Direct SSH in the Android app)* | The phone's native SSH client forwards the host's loopback relay. Pair the phone once over an existing route, then configure the SSH host, user, authentication, and relay port in **Settings → Connection & updates**. |
 
 Before applying Serve, the wizard checks that it is available and not already owned. A timeout or invalid JSON response is inconclusive, so muxr keeps Serve recommended and lets the bounded Apply decide. Only proven disabled or occupied Serve changes the recommendation; muxr then preserves the existing state and offers direct Tailscale.
+
+### Direct SSH from Android
+
+Direct SSH is an Android-native alternative to Tailscale, not a replacement for it:
+
+1. Pair the phone with the normal QR or pairing string over Tailscale, LAN, or another supported route.
+2. On Android, open **Settings → Connection & updates → Direct SSH**.
+3. Enter the machine's SSH host, SSH username and port, and the relay port as seen from the machine's loopback (normally `8792`). Choose either a password or an OpenSSH private key; credentials stay in the device secure store and are never written to muxr settings, logs, or the repository. Use an RSA or ECDSA host key and login key: Ed25519 is not supported by this build yet, and muxr says so explicitly instead of failing to connect.
+4. Save and reconnect. muxr opens a device-local SSH forward to `127.0.0.1:<relay-port>` and then uses the same relay ticket, pairing grant, and E2EE socket as every other route.
+
+The first successful SSH connection pins the SSH server's `SHA256:` host-key fingerprint on this device. A changed fingerprint stops the route and tells you to review the machine rather than silently trusting a replacement. The SSH user must be allowed to log in and the muxr relay must be listening on the configured loopback port. PWA and iPhone builds do not show this control because they do not have this native SSH implementation; use Tailscale, a private network, Same Wi-Fi, or your own stable WSS endpoint there.
+
+SSH is only a route to the loopback relay. It does not authorize a device, replace a grant, or remove E2EE. Tailscale Serve remains the recommended default because it needs less per-device credential setup and reconnects without a separate SSH session.
 
 muxr never enables Funnel. Restrict the Serve endpoint with a tailnet grant/ACL to intended devices even though muxr pairing and E2EE remain authoritative. `--web` requires a secure `wss://` route; insecure LAN HTTP is refused.
 

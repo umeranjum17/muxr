@@ -11,7 +11,16 @@ import {
     getCachedConnectionSettings,
     loadConnectionSettingsAsync,
     saveConnectionSettings,
+    type SshTarget,
 } from '@/connection';
+import {
+    forgetSshCredential,
+    hasSshCredential,
+    saveSshCredential,
+    sshTunnelAvailable,
+    stopSshTunnel,
+    type SshCredential,
+} from '@/connection/application/sshTunnel';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { Stack } from 'expo-router';
@@ -37,6 +46,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         backgroundColor: theme.colors.surface,
         ...Typography.mono(),
     },
+    multilineInput: { minHeight: 110 },
     field: { paddingHorizontal: 16, paddingVertical: 10 },
     hint: {
         paddingHorizontal: 16,
@@ -67,6 +77,7 @@ function Field(props: {
     onChange: (next: string) => void;
     placeholder: string;
     secure?: boolean;
+    multiline?: boolean;
 }) {
     const styles = stylesheet;
     const { theme } = useUnistyles();
@@ -74,18 +85,33 @@ function Field(props: {
         <View style={styles.field}>
             <Text style={styles.label}>{props.label}</Text>
             <TextInput
-                style={styles.input}
+                style={[styles.input, props.multiline && styles.multilineInput]}
                 value={props.value}
                 onChangeText={props.onChange}
                 placeholder={props.placeholder}
                 placeholderTextColor={theme.colors.textSecondary}
                 autoCapitalize="none"
                 autoCorrect={false}
-                secureTextEntry={props.secure === true}
+                multiline={props.multiline}
+                numberOfLines={props.multiline ? 5 : 1}
+                textAlignVertical={props.multiline ? 'top' : 'center'}
+                secureTextEntry={props.secure === true && props.multiline !== true}
                 accessibilityLabel={props.label}
             />
         </View>
     );
+}
+
+function portValue(raw: string, fallback: number): number | undefined {
+    const value = raw.trim();
+    if (value === '') return fallback;
+    if (!/^\d{1,5}$/.test(value)) return undefined;
+    const port = Number(value);
+    return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : undefined;
+}
+
+function sameSshEndpoint(left: SshTarget | undefined, right: SshTarget): boolean {
+    return left?.host === right.host && left.port === right.port && left.username === right.username && left.relayPort === right.relayPort;
 }
 
 export default function ConnectionSettingsScreen() {
@@ -114,6 +140,16 @@ export default function ConnectionSettingsScreen() {
     const [relayUrl, setRelayUrl] = React.useState(initial.relayUrl);
     const [machineId, setMachineId] = React.useState(initial.machineId);
     const [token, setToken] = React.useState(initial.token);
+    const [sshHost, setSshHost] = React.useState(initial.ssh?.host ?? '');
+    const [sshPort, setSshPort] = React.useState(String(initial.ssh?.port ?? 22));
+    const [sshRelayPort, setSshRelayPort] = React.useState(String(initial.ssh?.relayPort ?? 8792));
+    const [sshUsername, setSshUsername] = React.useState(initial.ssh?.username ?? '');
+    const [sshPassword, setSshPassword] = React.useState('');
+    const [sshPrivateKey, setSshPrivateKey] = React.useState('');
+    const [sshPassphrase, setSshPassphrase] = React.useState('');
+    const [sshCredentialPresent, setSshCredentialPresent] = React.useState(false);
+    const [sshError, setSshError] = React.useState<string | undefined>(undefined);
+    const [sshSaving, setSshSaving] = React.useState(false);
     const [error, setError] = React.useState<string | undefined>(undefined);
     const [saving, setSaving] = React.useState(false);
     const machine = useMachine(initial.machineId);
@@ -129,14 +165,122 @@ export default function ConnectionSettingsScreen() {
             setRelayUrl(loaded.relayUrl);
             setMachineId(loaded.machineId);
             setToken(loaded.token);
+            setSshHost(loaded.ssh?.host ?? '');
+            setSshPort(String(loaded.ssh?.port ?? 22));
+            setSshRelayPort(String(loaded.ssh?.relayPort ?? 8792));
+            setSshUsername(loaded.ssh?.username ?? '');
         });
         return () => { cancelled = true; };
     }, []);
 
+    React.useEffect(() => {
+        if (Platform.OS !== 'android' || initial.machineId === '') {
+            setSshCredentialPresent(false);
+            return undefined;
+        }
+        let cancelled = false;
+        void hasSshCredential(initial.machineId).then((present) => {
+            if (!cancelled) setSshCredentialPresent(present);
+        });
+        return () => { cancelled = true; };
+    }, [initial.machineId]);
+
+    const sshSupported = Platform.OS === 'android' && initial.selfhost === true && sshTunnelAvailable();
+
+    const saveSsh = async () => {
+        const host = sshHost.trim();
+        const username = sshUsername.trim();
+        const port = portValue(sshPort, 22);
+        const relayPort = portValue(sshRelayPort, 8792);
+        const password = sshPassword;
+        const privateKey = sshPrivateKey;
+        const passphrase = sshPassphrase;
+        if (initial.selfhost !== true || initial.machineId === '') {
+            setSshError('Pair this phone with a self-hosted machine before configuring Direct SSH.');
+            return;
+        }
+        if (host === '' || username === '') {
+            setSshError('Enter the SSH host and username from the machine you want to reach.');
+            return;
+        }
+        if (port === undefined || relayPort === undefined) {
+            setSshError('SSH and relay ports must be numbers from 1 to 65535.');
+            return;
+        }
+        if (password !== '' && privateKey !== '') {
+            setSshError('Choose one SSH login method: password or private key.');
+            return;
+        }
+        if (passphrase !== '' && privateKey === '') {
+            setSshError('Paste the private key before entering its passphrase.');
+            return;
+        }
+        if (password === '' && privateKey === '' && !sshCredentialPresent) {
+            setSshError('Enter an SSH password or private key. It is stored only in this device’s secure store.');
+            return;
+        }
+        setSshError(undefined);
+        setSshSaving(true);
+        try {
+            const nextTarget: SshTarget = {
+                host,
+                username,
+                port,
+                relayPort,
+                ...(sameSshEndpoint(initial.ssh, { host, username, port, relayPort }) && initial.ssh?.hostKey !== undefined
+                    ? { hostKey: initial.ssh.hostKey }
+                    : {}),
+            };
+            const credential: SshCredential = {
+                ...(privateKey === '' ? {} : { privateKey }),
+                ...(passphrase === '' ? {} : { passphrase }),
+                ...(password === '' ? {} : { password }),
+            };
+            if (Object.keys(credential).length > 0) {
+                await saveSshCredential(initial.machineId, credential);
+            }
+            const next = { ...initial, ssh: nextTarget };
+            await saveConnectionSettings(next);
+            setInitial(next);
+            setSshHost(host);
+            setSshUsername(username);
+            setSshPort(String(port));
+            setSshRelayPort(String(relayPort));
+            setSshPassword('');
+            setSshPrivateKey('');
+            setSshPassphrase('');
+            setSshCredentialPresent(true);
+            await syncReconnect();
+        } catch (cause) {
+            setSshError(cause instanceof Error ? cause.message : String(cause));
+        } finally {
+            setSshSaving(false);
+        }
+    };
+
+    const disableSsh = async () => {
+        setSshError(undefined);
+        await stopSshTunnel();
+        const next = { ...initial, ssh: undefined };
+        await saveConnectionSettings(next);
+        setInitial(next);
+        await syncReconnect();
+    };
+
+    const forgetSsh = async () => {
+        await forgetSshCredential(initial.machineId);
+        setSshCredentialPresent(false);
+        setSshPassword('');
+        setSshPrivateKey('');
+        setSshPassphrase('');
+    };
+
     if (initial.mode === 'hosted') {
-        const transport = initial.relayUrl.startsWith('wss://')
-            ? 'HTTPS/WSS transport + end-to-end encryption'
-            : 'Trusted-network WS transport + end-to-end encryption';
+        const transport = initial.ssh !== undefined && sshSupported
+            ? 'Direct SSH tunnel + end-to-end encryption'
+            : initial.relayUrl.startsWith('wss://')
+                ? 'HTTPS/WSS transport + end-to-end encryption'
+                : 'Trusted-network WS transport + end-to-end encryption';
         const browserGrant = Platform.OS === 'web' ? getCachedHostedGrant(initial.machineId) : undefined;
         const browserExpiresAt = browserGrant?.expiresAt;
         const browserRole = browserGrant?.authority === 'control' ? 'Control' : 'View only';
@@ -147,7 +291,7 @@ export default function ConnectionSettingsScreen() {
                 <ItemGroup title="Status">
                     <Item
                         title={statusText}
-                        subtitle={status === 'connected' ? 'Your machine is reachable from this device' : latestFailure ?? socketError ?? 'The app reconnects on its own when the machine is back'}
+                        subtitle={status === 'connected' ? 'Your machine is reachable from this device' : socketError ?? latestFailure ?? 'The app reconnects on its own when the machine is back'}
                         subtitleLines={0}
                         leftElement={<View style={[styles.dot, statusDot]} />}
                         loading={status === 'connecting'}
@@ -164,6 +308,35 @@ export default function ConnectionSettingsScreen() {
                 <ItemGroup title="Connection actions" footer="Your connection is end-to-end encrypted. Manage or revoke this device from muxr on the host.">
                     <Item title="Reconnect now" subtitle="Drops the socket and dials again" onPress={() => void syncReconnect()} />
                 </ItemGroup>
+
+                {sshSupported && <ItemGroup
+                    title="Direct SSH"
+                    footer="Android native builds only. SSH forwards the host's loopback relay; pairing, device grants, and end-to-end encryption stay unchanged. PWA and iPhone use Tailscale or another supported relay."
+                >
+                    <Field label="SSH host" value={sshHost} onChange={setSshHost} placeholder="server.example.com or 192.168.1.20" />
+                    <Field label="SSH username" value={sshUsername} onChange={setSshUsername} placeholder="your login on the machine" />
+                    <Field label="SSH port" value={sshPort} onChange={setSshPort} placeholder="22" />
+                    <Field label="Relay port on the host" value={sshRelayPort} onChange={setSshRelayPort} placeholder="8792" />
+                    <Field label="SSH password (optional)" value={sshPassword} onChange={setSshPassword} placeholder={sshCredentialPresent ? 'Saved credential remains unchanged' : 'Password or private key'} secure />
+                    <Field label="Private key (optional)" value={sshPrivateKey} onChange={setSshPrivateKey} placeholder={sshCredentialPresent ? 'Paste a new key to replace the saved credential' : 'Paste an OpenSSH private key'} secure multiline />
+                    <Field label="Private key passphrase" value={sshPassphrase} onChange={setSshPassphrase} placeholder="Only if the key is encrypted" secure />
+                    <Item
+                        title="SSH host key"
+                        subtitle={initial.ssh?.hostKey === undefined ? 'Pinned after the first successful connection' : 'Pinned on this device; a change fails closed'}
+                        subtitleLines={0}
+                    />
+                    {sshError !== undefined && <Text accessibilityRole="alert" style={styles.error}>{sshError}</Text>}
+                    <View style={styles.actions}>
+                        <RoundButton
+                            title={sshSaving ? 'Saving…' : initial.ssh === undefined ? 'Save and use SSH' : 'Save SSH settings'}
+                            size="large"
+                            loading={sshSaving}
+                            onPress={() => void saveSsh()}
+                        />
+                    </View>
+                    {initial.ssh !== undefined && <Item title="Use current relay route instead" subtitle="Stops the SSH tunnel and returns to the paired relay URL" onPress={() => void disableSsh()} />}
+                    {sshCredentialPresent && <Item title="Forget saved SSH credentials" subtitle="Removes the password or private key from this device" destructive onPress={() => void forgetSsh()} />}
+                </ItemGroup>}
             </ItemList>
         );
     }

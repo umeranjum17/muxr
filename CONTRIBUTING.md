@@ -25,7 +25,7 @@ The unsupported local relay fixture lives in
 
 ## Verify before you push
 
-The exact check path CI runs:
+The exact check path CI runs on every pull request:
 
 ```bash
 yarn run check
@@ -34,6 +34,12 @@ yarn run check
 That invokes `scripts/diagnostics/application/runSuite.mjs`. It includes
 workspace and mobile typechecks, package self-checks, architecture guards, and
 flow tests.
+
+Two e2e checks in the suite — the live herdr backend loop and the worktree
+session — skip automatically when no herdr socket is present, so on a GitHub
+runner they never execute. Run them locally with `herdr server` up before
+pushing changes that touch the live backend or worktree session paths; CI will
+not catch regressions there.
 
 After native dependency changes also run
 `node scripts/diagnostics/application/verifyNativePatches.mjs`. If you changed

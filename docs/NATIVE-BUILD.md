@@ -4,7 +4,7 @@ muxr Android builds run locally with EAS. Phone artifacts default to
 `arm64-v8a`; build `x86_64` only when an emulator explicitly needs it.
 
 **Expo Go will not work.** The app ships custom native modules
-(`voice-overlay`, `plugin-shortcuts`) and `patch-package` patches. Use a native
+(`voice-overlay`, `plugin-shortcuts`, `ssh-tunnel`) and `patch-package` patches. Use a native
 build or platform run command after a prebuild.
 
 The iOS voice bridge owns PCM playback and `AVAudioSession` routing; terminal
@@ -180,12 +180,16 @@ export MUXR_APP_ID_BASE='<owner-controlled reverse-DNS identifier>'
 export MUXR_PUBLIC_BASE_URL='https://<owner-controlled-origin>'
 ```
 
-`APP_ENV=production` requires both values and uses `MUXR_APP_ID_BASE` unchanged
-for Android and iOS. Development appends `.dev`; preview appends `.preview`.
+`APP_ENV=production` pins the app identifier to `com.trymuxr.app` for Android
+and iOS (`MUXR_APP_ID_BASE`, when set, must match it). Development appends
+`.dev`; preview appends `.preview`.
 Without an owner value, only local builds are configured, as
 `app.muxr.local.dev` and `app.muxr.local.preview`. `MUXR_PUBLIC_BASE_URL`
-has no default and must be the HTTPS origin that will host activation plus iOS
+has no default and, for `MUXR_DISTRIBUTION=store` or `direct`, must be the
+HTTPS origin that will host activation plus iOS
 Universal Link and Android App Link association files.
+`MUXR_DISTRIBUTION=self-host` production builds omit it and emit no
+associated domains or pairing intent filters.
 
 Set `MUXR_EAS_PROJECT_ID` only after creating or transferring the owner’s muxr
 project. Signed store releases use remote EAS builds documented in

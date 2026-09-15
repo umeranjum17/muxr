@@ -1,20 +1,32 @@
 name: ci
 
-# Merges and pushes stay quiet; run this workflow explicitly when hosted CI is needed.
+# The `suite` job below is intended as a required status check on main. Removing or
+# renaming it, or removing the pull_request trigger, leaves every PR with no automatic
+# validation while its checks tab can still read green. Change this block and main's
+# branch protection together. Deliberately no push trigger: merging to main must never
+# invoke automated pipelines, and releases stay manual-dispatch only.
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   suite:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+          cache: yarn
       - run: yarn install --frozen-lockfile --non-interactive
       - run: yarn build
       - name: Full suite (typecheck, crypto, pairing, e2e, package smoke, purity, secrets, architecture)

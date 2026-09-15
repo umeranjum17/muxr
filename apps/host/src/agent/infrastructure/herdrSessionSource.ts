@@ -9,7 +9,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { accessSync, constants, existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, delimiter, dirname, join } from 'node:path';
@@ -175,6 +175,39 @@ function packagedWorkspaceHierarchyRoot(): string | undefined {
     return existsSync(candidate) ? realpathSync(candidate) : undefined;
 }
 const WORKSPACE_HIERARCHY_PLUGIN_ROOT = packagedWorkspaceHierarchyRoot();
+/**
+ * The bundled plugins this host ships, by id. What a host projects to the
+ * phone (muxr-ui.json) and the RPC scripts it runs for a bundled plugin
+ * come from its own package, never from whichever package last ran
+ * `muxr setup`: Herdr's registration is global to the machine, so a host
+ * built from a branch would otherwise serve an installed release's labels
+ * and scripts. Herdr stays the authority on whether the plugin is
+ * registered and enabled; only the root moves.
+ */
+function packagedBundledRoots(): Map<string, string> {
+    const roots = new Map<string, string>();
+    if (BROWSER_RPC_PLUGINS_ROOT === undefined) return roots;
+    let entries: import('node:fs').Dirent[];
+    try {
+        entries = readdirSync(BROWSER_RPC_PLUGINS_ROOT, { withFileTypes: true });
+    } catch {
+        return roots;
+    }
+    for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        try {
+            const root = realpathSync(join(BROWSER_RPC_PLUGINS_ROOT, entry.name));
+            const manifest = JSON.parse(readFileSync(join(root, 'muxr-ui.json'), 'utf8')) as { pluginId?: unknown };
+            if (typeof manifest.pluginId === 'string' && !roots.has(manifest.pluginId)) roots.set(manifest.pluginId, root);
+        } catch { /* not a bundled muxr plugin */ }
+    }
+    return roots;
+}
+const PACKAGED_BUNDLED_ROOTS = packagedBundledRoots();
+function fromPackagedRoot(plugin: HerdrPlugin): HerdrPlugin {
+    const root = PACKAGED_BUNDLED_ROOTS.get(plugin.plugin_id);
+    return root === undefined ? plugin : { ...plugin, plugin_root: root };
+}
 
 const COMMAND_ALIASES: Record<string, string[]> = {
     qodercli: ['qodercli', 'qoder'],
@@ -1902,7 +1935,7 @@ export async function createHerdrSessionSource(
 
     const pluginRefreshGate = new PluginRefreshGate(async () => {
             const result = await client.call<{ plugins?: HerdrPlugin[] }>('plugin.list');
-            const plugins = result.plugins ?? [];
+            const plugins = (result.plugins ?? []).map(fromPackagedRoot);
             const nextDigests = await catalog.refresh(plugins);
             const nextEnabled = new Map(plugins.map((plugin) => [plugin.plugin_id, plugin.enabled]));
             const previousDigests = pluginDigests;
