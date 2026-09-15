@@ -54,6 +54,9 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
     // carries both the ticket credential and its own relay URL (same shape as
     // OpenTerminal.relayTicket / openPluginStream / sync.ensureClient).
     const hostedGrant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
+    if (hostedGrant !== undefined && hostedGrant.expiresAt <= Date.now()) {
+        throw new Error('preview: device grant expired; pair again');
+    }
     const relay = hostedGrant !== undefined
         ? { url: hostedGrant.relayUrl, credential: hostedGrant.credential }
         : settings.token !== '' && !settings.token.startsWith('acctok_')
