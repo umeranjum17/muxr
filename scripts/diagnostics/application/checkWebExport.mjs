@@ -82,28 +82,9 @@ for (const name of readdirSync(join(mobile, 'public'))) {
 }
 check(`public entry payload ≤ ${BUDGET_BYTES} bytes`, rootBytes <= BUDGET_BYTES, `${rootBytes} bytes`);
 
-// 7. The 57MB Whisper model must never enter the web bundle. It lives in
-// sources/assets (native-only), and Metro platform resolution shadows the
-// only importer: localTranscription.web.ts wins over localTranscription.ts
-// on web, so `require('@/assets/models/*.bin')` never enters the web graph.
-// Assert the shadow exists for every .bin importer, and that public/ (copied
-// verbatim into dist) holds no model binary.
-const binImporters = [];
-const walkImports = (dir) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const path = join(dir, entry.name);
-        if (entry.isDirectory()) { walkImports(path); continue; }
-        if (!/\.(ts|tsx|js)$/.test(entry.name) || entry.name.endsWith('.spec.ts') || entry.name.endsWith('.web.ts')) continue;
-        const body = readFileSync(path, 'utf8');
-        if (/require\(['"][^'"]*\.bin['"]\)|from ['"][^'"]*\.bin['"]/.test(body)) binImporters.push(path);
-    }
-};
-walkImports(join(mobile, 'sources'));
-for (const importer of binImporters) {
-    const shadow = importer.replace(/\.tsx?$/, '.web.ts').replace(/\.js$/, '.web.js');
-    const shadowed = existsSync(shadow);
-    check(`web shadow keeps model out (${importer.replace(`${root}/`, '')})`, shadowed, shadowed ? '' : `missing ${shadow.replace(`${root}/`, '')}`);
-}
+// 7. The 57MB Whisper model must never enter the web bundle. Proven on the
+// built export in section 8 (dist file walk + payload scan when dist exists)
+// and on public/ here (copied verbatim into dist).
 const publicModels = readdirSync(join(mobile, 'public')).filter((name) => /\.bin$|\.pt$|\.onnx$/i.test(name));
 check('no model binaries in public/', publicModels.length === 0, publicModels.slice(0, 5).join(', '));
 
@@ -159,6 +140,18 @@ if (!existsSync(distIndex)) {
     })].join('\n');
     check('dist initial payload has no marketing origin', !distText.includes('https://trymuxr.com'));
     check('dist initial payload carries no mermaid engine', !distText.includes('__esbuild_esm_mermaid_nm'));
+    check('dist initial payload carries no whisper model', !distText.includes('ggml-base'));
+    const distModels = [];
+    const walkDistModels = (dir) => {
+        if (!existsSync(dir)) return;
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            const path = join(dir, entry.name);
+            if (entry.isDirectory()) walkDistModels(path);
+            else if (/ggml|whisper/i.test(entry.name) && /\.(bin|pt|onnx)$/i.test(entry.name)) distModels.push(path);
+        }
+    };
+    walkDistModels(join(mobile, 'dist'));
+    check('dist ships no whisper model binary', distModels.length === 0, distModels.slice(0, 5).map((path) => path.replace(`${mobile}/`, '')).join(', '));
     check('dist ships mermaid.min.js for on-demand diagrams', existsSync(join(mobile, 'dist', 'mermaid.min.js')));
     // CanvasKit is fetched lazily by Skia at runtime; without it the app
     // dies in Error initializing. Observed ~8.0 MB; anything under 1 MB is
