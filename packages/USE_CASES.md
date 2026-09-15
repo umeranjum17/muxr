@@ -20,6 +20,7 @@ A package module exists only when the packages own the behavior. Product operati
 | Install a peer bundle | [`installPeerBundle`](./crypto/src/e2ee/application/installPeerBundle.ts) | Device Grant, Peer Descriptor | `peer.install` in `apps/host/src/peer/runtime.ts` |
 | Seal or open a v2 envelope | [`envelope`](./crypto/src/e2ee/application/envelope.ts) | Routing Channel, Device Grant | host/mobile `hostedE2ee`, `openV2` / `sealV2` |
 | Seal preview bytes | [`previewChannel`](./crypto/src/e2ee/application/previewChannel.ts) | Preview channel keys | `apps/host/src/requests/infrastructure/preview.ts`, `apps/mobile/sources/preview/infrastructure/previewBridge.ts` |
+| Mint or open a browser-service session | [`browserSession`](./crypto/src/e2ee/application/browserSession.ts) | Browser Session Scope, Device Grant | `plugins/browser/session-service.mjs` (`mintBrowserServiceGrant`), mobile `takeover/infrastructure/browserSessionCrypto.ts` |
 
 `issueWsTicket` stays control-plane infrastructure: it talks HTTP. Do not wrap it in a fake port.
 
