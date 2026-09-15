@@ -56,7 +56,7 @@ describe('visible herd tree flow', () => {
         delete namedShell.label;
         expect(agentLabels(namedShell).taskTitle).toBe('umer@host:~/repo');
         const liveCards = selectLiveTerminalCards([], herdPanes([], [ws('w-shell', 'repo', [tab('t-shell', 'Tools', [namedShell])])]));
-        expect(agentLabels(liveCards[0]).taskTitle).toBe('umer@host:~/repo');
+        expect(liveCards).toEqual([]);
         expect(agentLabels({ ...agent, terminalTitle: 'Animated working title' }).taskTitle).toBe('Review monitoring stability');
         expect(isShellLabels(labels)).toBe(false);
         expect(buildSpaceRows([ws('w2', 'repo-b', [tab('1', undefined, [shell])])], new Set(), '')[0])

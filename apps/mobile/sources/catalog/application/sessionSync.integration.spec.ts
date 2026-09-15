@@ -417,7 +417,6 @@ describe('session sync flow', () => {
             expandedPaneCount: 3,
             terminalCards: [
                 ['session-a', 'Maria', 'pi'],
-                ['shell-route', 'Shell', undefined],
             ],
         });
 
@@ -807,6 +806,8 @@ describe('session sync flow', () => {
         });
         const panes = ['a', 'b'].map((id) => ({
             id,
+            agentName: 'Maria',
+            agentKind: 'pi',
             agentStatus: 'working' as const,
             promptable: true,
             doing: '',
