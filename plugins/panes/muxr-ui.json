@@ -34,9 +34,9 @@
       "primitive": "item-list",
       "quickAction": true,
       "params": {
-        "title": "Tools",
-        "icon": "construct-outline",
-        "accessibilityLabel": "Terminal tools",
+        "title": "Applications",
+        "icon": "apps-outline",
+        "accessibilityLabel": "Applications",
         "source": {
           "type": "plugin.call",
           "contributionId": "tools"

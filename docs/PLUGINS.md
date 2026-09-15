@@ -175,7 +175,7 @@ Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships n
 
 Primitive parameters live under `params`. An `item-list` with `refreshIntervalMs` refreshes only while its screen and the app are active, stops its timer when unfocused/unmounted, and always force-refreshes when the user opens it. Returning zero items hides the control.
 
-Session actions normally appear under the header's three-dot pane menu. A session `screen-button`, or an `item-list`/`icon-button` native contribution in a supported session action slot, can set `"quickAction": true` on the contribution (not inside `params`). It then appears directly in the floating terminal command panel, separated from keyboard and zoom controls. Placement comes from the declaration, not a bundled plugin-id list; the bundled Changes, Files, and Tools actions opt in.
+Session actions normally appear under the header's three-dot pane menu. A session `screen-button`, or an `item-list`/`icon-button` native contribution in a supported session action slot, can set `"quickAction": true` on the contribution (not inside `params`). It then appears directly in the floating terminal command panel, separated from keyboard and zoom controls. Placement comes from the declaration, not a bundled plugin-id list; the bundled Changes, Files, and Applications actions opt in.
 
 ```json
 { "slot": "session.pills", "id": "files", "type": "native", "primitive": "item-list",
