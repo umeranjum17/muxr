@@ -2,7 +2,8 @@ import * as React from 'react';
 import { BackHandler, Keyboard, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
-import { PanelGlyph, panelPalette, type PanelGlyphName } from '@/components/ActionShortcut';
+import type { Theme } from '@/theme';
+import type { PanelGlyphName } from '@/components/ActionShortcut';
 
 export type TerminalCommand = {
     label: string;
@@ -23,21 +24,28 @@ const BUTTON = 44;
 const PANEL_PADDING = 4;
 const DIVIDER = 1 + 4; // 1dp rule with 2dp margins on each side
 const SLOT_RADIUS = 10;
-const ICON = 24;
+const ICON = 20;
 // A sideways drag docks the trigger on the other footer edge.
 const FLIP_DISTANCE = 24;
 
-type Palette = ReturnType<typeof panelPalette>;
+/** The glyph a command key shows for a terminal command; the label stays its accessible name. */
+const STRIP_GLYPH: Partial<Record<PanelGlyphName, React.ComponentProps<typeof Ionicons>['name']>> = { keyboard: 'keypad-outline', reset: 'refresh-outline', close: 'close-outline' };
+const STRIP_WORD: Partial<Record<PanelGlyphName, string>> = { minus: '−', plus: '+' };
+function CommandGlyph({ name, size, color }: { name: PanelGlyphName; size: number; color: string }) {
+    const word = STRIP_WORD[name];
+    if (word !== undefined) return <Text style={{ fontSize: size, lineHeight: size + 4, color }}>{word}</Text>;
+    return <Ionicons name={STRIP_GLYPH[name] ?? 'ellipse-outline'} size={size} color={color} />;
+}
 
 // Every slot in the panel's top row is the same width, so the view controls
 // and Close read as one evenly divided strip. Longhands, not the `flex`
 // shorthand: on web `flex: 0` resolves to a zero basis and collapses the lone
 // Close slot to no width at all.
-const slotStyle = (panel: Palette, pressed: boolean, { disabled = false, grow = true } = {}) => ({
+const slotStyle = (theme: Theme, pressed: boolean, { disabled = false, grow = true } = {}) => ({
     flexGrow: grow ? 1 : 0, flexShrink: 0, flexBasis: BUTTON, minWidth: BUTTON,
     height: BUTTON, borderRadius: SLOT_RADIUS,
     alignItems: 'center' as const, justifyContent: 'center' as const,
-    backgroundColor: pressed ? panel.pressed : 'transparent',
+    backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent',
     opacity: disabled ? .32 : 1,
     transform: [{ scale: pressed ? .96 : 1 }],
 });
@@ -127,7 +135,6 @@ export function TerminalToolsPanel({ commands, renderQuickActions, dismissKeyboa
     onClose: () => void;
 }) {
     const { theme } = useUnistyles();
-    const panel = panelPalette(theme);
     const hasViewRow = commands.length > 0;
     const hasActions = renderQuickActions !== undefined;
     // The header (view controls and Close) always leads the panel; the rows
@@ -175,33 +182,33 @@ export function TerminalToolsPanel({ commands, renderQuickActions, dismissKeyboa
                 width: Math.min(PANEL_WIDTH, width - 2 * TRIGGER_MARGIN),
                 height: panelHeight,
                 borderRadius: 14, overflow: 'hidden',
-                backgroundColor: panel.surface,
-                borderWidth: StyleSheet.hairlineWidth, borderColor: panel.border,
+                backgroundColor: theme.colors.surface,
+                borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider,
                 elevation: 12,
                 opacity: painted ? 1 : 0,
             }}>
             <View style={{ height: BUTTON, flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: PANEL_PADDING, paddingTop: PANEL_PADDING }}>
                 {commands.map((command) => <Pressable key={command.label} accessibilityRole="button" accessibilityLabel={command.label}
                     accessibilityState={{ disabled: !!command.disabled }} disabled={command.disabled} onPress={runCommand(command)}
-                    style={({ pressed }) => slotStyle(panel, pressed, { disabled: command.disabled === true })}>
-                    <PanelGlyph name={command.icon} size={ICON} color={panel.text} />
+                    style={({ pressed }) => slotStyle(theme, pressed, { disabled: command.disabled === true })}>
+                    <CommandGlyph name={command.icon} size={ICON} color={theme.colors.text} />
                 </Pressable>)}
                 {/* Close is the row's last slot. With no view commands to
                     divide the row it keeps one slot's width instead of
                     stretching across the panel. */}
                 <Pressable accessibilityRole="button" accessibilityLabel="Close terminal quick actions"
-                    style={({ pressed }) => ({ ...slotStyle(panel, pressed, { grow: hasViewRow }), ...(hasViewRow ? {} : { marginLeft: 'auto' as const }), backgroundColor: panel.keyFill })}
+                    style={({ pressed }) => ({ ...slotStyle(theme, pressed, { grow: hasViewRow }), ...(hasViewRow ? {} : { marginLeft: 'auto' as const }), backgroundColor: theme.colors.text })}
                     onPress={onClose}>
-                    <PanelGlyph name="close" size={ICON} color={panel.keyTint} />
+                    <CommandGlyph name="close" size={ICON} color={theme.colors.surface} />
                 </Pressable>
             </View>
-            {hasActions && <View style={{ height: 1, marginVertical: 2, marginHorizontal: 6, backgroundColor: panel.divider }} />}
+            {hasActions && <View style={{ height: 1, marginVertical: 2, marginHorizontal: 6, backgroundColor: theme.colors.divider }} />}
             {hasActions && <ScrollView style={measured ? { maxHeight: actionsMaxHeight } : undefined}
                 onContentSizeChange={(_width, measuredHeight) => setContentHeight(Math.ceil(measuredHeight))}
                 scrollEnabled={!fits} nestedScrollEnabled keyboardShouldPersistTaps="always">
                 {renderQuickActions(onClose)}
             </ScrollView>}
-            <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: panel.border }]} />
+            <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider }]} />
         </View>
     );
 }
