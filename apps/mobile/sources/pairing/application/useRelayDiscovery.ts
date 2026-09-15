@@ -170,16 +170,14 @@ export function RelayDiscoveryReconnect() {
             return undefined;
         }
         let cancelled = false;
-        let retryTimer: ReturnType<typeof setTimeout> | undefined;
         const verify = async () => {
             setDiscoveryPhase('verifying');
             const result = await reconnectMachine({ relays }).catch(() => ({ ok: false as const }));
             if (cancelled) return;
             setDiscoveryPhase(result.ok ? 'updated' : 'unverified');
-            if (!result.ok) retryTimer = setTimeout(() => { void verify(); }, 12_000);
         };
         void verify();
-        return () => { cancelled = true; if (retryTimer !== undefined) clearTimeout(retryTimer); };
+        return () => { cancelled = true; };
     }, [auth.isAuthenticated, relays]);
 
     return null;
