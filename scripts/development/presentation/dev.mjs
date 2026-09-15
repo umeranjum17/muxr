@@ -305,10 +305,10 @@ if ((await runOnce('build', 'yarn', ['build'], devEnvBase, root)) !== 0) {
     process.exit(1);
 }
 
-// Web serves public/canvaskit.wasm + pdf.worker directly, and dev bypasses the
+// Web serves public/canvaskit.wasm + pdf.worker + mermaid.min.js directly, and dev bypasses the
 // preweb hook that prepares them; run the same preparation here.
 const mobileDir = join(root, 'apps', 'mobile');
-for (const [label, script] of [['setup-canvaskit', 'setup-canvaskit'], ['setup-pdfjs', 'setup-pdfjs']]) {
+for (const [label, script] of [['setup-canvaskit', 'setup-canvaskit'], ['setup-pdfjs', 'setup-pdfjs'], ['setup-mermaid', 'setup-mermaid']]) {
     process.stdout.write(`dev | preparing ${label}\n`);
     if ((await runOnce(label, 'yarn', [script], devEnvBase, mobileDir)) !== 0) {
         process.stderr.write(`dev | ${label} failed; fix it and rerun \`yarn dev\`.\n`);
