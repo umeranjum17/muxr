@@ -251,10 +251,16 @@ export default function RootLayout() {
                 // Skia draws the gauge and ring charts. Native ships it in the
                 // binary; the browser has to fetch CanvasKit first, and without
                 // this every plugin panel holding one of those charts died on
-                // `CanvasKit is not defined`.
+                // `CanvasKit is not defined`. A missing CanvasKit bundle must
+                // degrade charts only: throwing here would drop the durable
+                // pairing below and land a paired browser on onboarding.
                 if (Platform.OS === 'web') {
-                    const { LoadSkiaWeb } = await import('@shopify/react-native-skia/lib/module/web');
-                    await LoadSkiaWeb({ locateFile: (file: string) => `/${file}` });
+                    try {
+                        const { LoadSkiaWeb } = await import('@shopify/react-native-skia/lib/module/web');
+                        await LoadSkiaWeb({ locateFile: (file: string) => `/${file}` });
+                    } catch (error) {
+                        console.error('Skia web unavailable; charts disabled:', error);
+                    }
                 }
 
                 try {

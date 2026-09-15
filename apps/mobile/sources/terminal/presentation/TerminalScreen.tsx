@@ -588,7 +588,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             {Platform.OS === 'web' && !canControl && (
                 <View style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
                     <Text style={{ color: theme.colors.textSecondary, fontSize: 12, textAlign: 'center' }}>
-                        View-only browser · terminal input and agent controls are disabled · access expires eight hours after pairing
+                        {authorityLoading
+                            ? 'Restoring browser access…'
+                            : 'View-only browser · terminal input and agent controls are disabled'}
                     </Text>
                 </View>
             )}

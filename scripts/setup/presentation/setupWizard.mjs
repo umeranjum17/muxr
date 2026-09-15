@@ -406,7 +406,8 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         'This computer seals its key grant to that device only.',
         'That device verifies the grant against the machine key in the QR or link.',
     ]);
-    const firstPair = client === 'both' ? 'both' : client === 'browser' ? 'browser' : 'phone';
+    let firstPair = 'phone';
+    if (client === 'both' || client === 'browser') firstPair = client;
     const pairing = pairingChoices.length === 1 ? pairingChoices[0].value : await select(connectionChanged && current !== undefined
         ? 'The connection changed. Keep existing devices or pair another one?'
         : 'Pair a client?', pairingChoices, pairingChoices.findIndex((choice) => choice.value === firstPair));

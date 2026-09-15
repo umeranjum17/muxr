@@ -28,7 +28,7 @@ import type { ProjectFilesList } from '../infrastructure/projectFiles';
 import type { DecryptedArtifact } from '../infrastructure/artifactTypes';
 import type { UserProfile, RelationshipUpdatedEvent } from '../infrastructure/friendTypes';
 import type { FeedItem } from '../infrastructure/feedTypes';
-import type { AttentionEntry, AttentionReason, HerdrTreeWorkspace, LifecycleCatalog, LifecycleEvent } from '@muxr/contract';
+import type { AttentionEntry, AttentionReason, HerdrTreePane, HerdrTreeWorkspace, LifecycleCatalog, LifecycleEvent } from '@muxr/contract';
 import { buildMessagesMap } from '../infrastructure/messageAdapter';
 import { getRigActivityIndicators, getRigIdentity } from '../infrastructure/rig';
 import { getSessionName, getSessionSubtitle, getSessionAvatarId, type SessionState } from '@/utils/sessionUtils';
@@ -625,6 +625,12 @@ export function useLifecycleCatalogAvailable(): boolean {
     return storage(useShallow((state) => state.lifecycleCatalogAvailable));
 }
 
+function attentionRowName(session: Session | undefined, pane: HerdrTreePane | undefined): string {
+    if (session !== undefined) return getSessionName(session, pane);
+    if (pane === undefined) return 'Agent';
+    return agentTaskLine(agentLabels(pane));
+}
+
 export function useAttentionRows(): AttentionRowData[] {
     const sessions = useSessions();
     const attentionEntries = useAttentionEntries();
@@ -636,7 +642,7 @@ export function useAttentionRows(): AttentionRowData[] {
                 const pane = herdrPaneForSession(workspaces, entry.sessionId);
                 return {
                     sessionId: entry.sessionId,
-                    name: session !== undefined ? getSessionName(session, pane) : pane === undefined ? 'Agent' : agentTaskLine(agentLabels(pane)),
+                    name: attentionRowName(session, pane),
                     reason: entry.reason,
                     detail: entry.detail,
                     at: Date.parse(entry.at) || 0,
