@@ -18,25 +18,25 @@ function fakeHerdr(dir: string, cwd: string) {
     const agents: Record<string, unknown>[] = [];
     const subscribers = new Set<Socket>();
     let next = 1;
-    const methods: Record<string, (params: Record<string, unknown>) => unknown> = {
-        'session.snapshot': () => ({ snapshot: { workspaces, tabs, panes, agents } }),
-        'plugin.list': () => ({ plugins: [] }),
-        'workspace.list': () => ({ workspaces }),
-        'tab.create': (params) => {
-            const tab_id = `t${next}`;
-            const pane_id = `w1:p${next++}`;
-            tabs.push({ tab_id, workspace_id: 'w1', label: params.label ?? cwd });
-            panes.push({ pane_id, tab_id, workspace_id: 'w1', cwd });
-            return { tab: { tab_id }, root_pane: { pane_id } };
-        },
-        'agent.start': (params) => {
-            const agent = { pane_id: params.pane_id, name: params.name, agent_status: 'idle' };
-            agents.push(agent);
-            return { agent };
-        },
-        'agent.wait': (params) => ({ agent: agents.find((agent) => agent.pane_id === params.target) }),
-        'pane.close': () => ({}),
+    const handleSnapshot = () => ({ snapshot: { workspaces, tabs, panes, agents } });
+    const handlePluginList = () => ({ plugins: [] });
+    const handleWorkspaceList = () => ({ workspaces });
+    const handleTabCreate = (params: Record<string, unknown>) => {
+        const tab_id = `t${next}`;
+        const pane_id = `w1:p${next++}`;
+        tabs.push({ tab_id, workspace_id: 'w1', label: params.label ?? cwd });
+        panes.push({ pane_id, tab_id, workspace_id: 'w1', cwd });
+        return { tab: { tab_id }, root_pane: { pane_id } };
     };
+    const handleAgentStart = (params: Record<string, unknown>) => {
+        const agent = { pane_id: params.pane_id, name: params.name, agent_status: 'idle' };
+        agents.push(agent);
+        return { agent };
+    };
+    const handleAgentWait = (params: Record<string, unknown>) => ({
+        agent: agents.find((agent) => agent.pane_id === params.target),
+    });
+    const handlePaneClose = () => ({});
     const server = createServer((socket) => {
         let buffer = '';
         socket.on('data', (chunk) => {
@@ -51,10 +51,34 @@ function fakeHerdr(dir: string, cwd: string) {
                     subscribers.add(socket);
                     continue;
                 }
-                const handler = methods[method];
-                const reply = handler === undefined
-                    ? { id, error: { code: 'method_not_found', message: method } }
-                    : { id, result: handler(params ?? {}) };
+                const p = params ?? {};
+                let reply: unknown;
+                switch (method) {
+                    case 'session.snapshot':
+                        reply = { id, result: handleSnapshot() };
+                        break;
+                    case 'plugin.list':
+                        reply = { id, result: handlePluginList() };
+                        break;
+                    case 'workspace.list':
+                        reply = { id, result: handleWorkspaceList() };
+                        break;
+                    case 'tab.create':
+                        reply = { id, result: handleTabCreate(p) };
+                        break;
+                    case 'agent.start':
+                        reply = { id, result: handleAgentStart(p) };
+                        break;
+                    case 'agent.wait':
+                        reply = { id, result: handleAgentWait(p) };
+                        break;
+                    case 'pane.close':
+                        reply = { id, result: handlePaneClose() };
+                        break;
+                    default:
+                        reply = { id, error: { code: 'method_not_found', message: method } };
+                        break;
+                }
                 socket.end(`${JSON.stringify(reply)}\n`);
             }
         });
