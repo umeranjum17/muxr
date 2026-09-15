@@ -17,7 +17,11 @@ const TAB_TITLES = {
 export function connectionStatusPresentation(
     socketStatus: { status: string; error?: string | null },
     theme: Theme,
+    hostUnavailable = false,
 ): { color: string; isPulsing: boolean; text: string } {
+    if (hostUnavailable) {
+        return { color: theme.colors.status.disconnected, isPulsing: false, text: t('status.offline') };
+    }
     const copy = new ConnectionStatus(socketStatus.status, socketStatus.error).presentation();
     const colors = {
         connected: theme.colors.status.connected,

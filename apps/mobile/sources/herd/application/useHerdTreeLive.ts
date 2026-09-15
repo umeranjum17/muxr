@@ -3,6 +3,7 @@ import { useFocusEffect } from 'expo-router';
 import { storage, useHerdrTree } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { listPairedGrants } from '@/pairing/e2ee';
+import { getCachedConnectionSettings } from '@/connection';
 import { hasAgent } from '../domain/herdTree';
 
 export function useHerdTreeLive() {
@@ -11,26 +12,30 @@ export function useHerdTreeLive() {
     const [error, setError] = React.useState<string | null>(null);
     const [herdrConnected, setHerdrConnected] = React.useState<boolean | undefined>(undefined);
     const [hasPairedGrant, setHasPairedGrant] = React.useState<boolean | undefined>(undefined);
+    const activeMachineId = getCachedConnectionSettings().machineId;
 
     React.useEffect(() => {
         let cancelled = false;
         void listPairedGrants().then((grants) => {
-            if (!cancelled) setHasPairedGrant(grants.length > 0);
+            if (!cancelled) setHasPairedGrant(grants.some((grant) => grant.machineId === activeMachineId));
         });
         return () => { cancelled = true; };
-    }, []);
+    }, [activeMachineId]);
 
-    const refresh = React.useCallback(async () => {
+    const refreshStatus = React.useCallback(async () => {
         try {
             const result = await sync.refreshHerdTree();
             setHerdrConnected(result.herdrConnected);
             setError(null);
+            return result.herdrConnected !== false && storage.getState().socketStatus === 'connected';
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : String(cause));
+            return false;
         } finally {
             setAttempted(true);
         }
     }, []);
+    const refresh = React.useCallback(async () => { await refreshStatus(); }, [refreshStatus]);
 
     useFocusEffect(
         React.useCallback(() => {
@@ -70,5 +75,6 @@ export function useHerdTreeLive() {
         hasPairedGrant,
         defaultExpandedWorkspaceIds,
         refresh,
+        refreshStatus,
     };
 }
