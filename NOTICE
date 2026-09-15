@@ -99,7 +99,8 @@ JetBrains Mono — https://github.com/JetBrains/JetBrainsMono
   Copyright 2020 The JetBrains Mono Project Authors
   (https://github.com/JetBrains/JetBrainsMono)
 
-Tracked at `apps/mobile/assets/fonts/JetBrainsMono-*.ttf`. License text: `LICENSES/OFL-1.1.txt`.
+Tracked at `apps/mobile/assets/fonts/JetBrainsMono-*.ttf`, mirrored for the
+native terminal at `apps/mobile/android/app/src/main/assets/JetBrainsMono-*.ttf`. License text: `LICENSES/OFL-1.1.txt`.
 
 --------------------------------------------------------------------------------
 Bricolage Grotesque — https://github.com/atelier-anchor/bricolage-grotesque
