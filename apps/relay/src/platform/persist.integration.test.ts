@@ -200,7 +200,7 @@ it('hardens every relay state path in a custom data directory', async () => {
         offline.enqueue('machine-a', envelope);
         replay.record('machine-a', 'toClient', envelope);
         await push.subscribe(account.accountId, {
-            endpoint: 'https://push.test/subscription',
+            endpoint: 'https://push.example.com/subscription',
             keys: { p256dh: 'fixture-p256dh', auth: 'fixture-auth' },
         });
         await push.subscribeExpo(account.accountId, 'ExpoPushToken[fixture-token]');
@@ -328,7 +328,7 @@ it('hardens every relay state path in a custom data directory', async () => {
         await rm(subscriptionsPath);
         await symlink(victimFile, subscriptionsPath);
         await expect(push.subscribe(account.accountId, {
-            endpoint: 'https://push.test/refused',
+            endpoint: 'https://push.example.com/refused',
             keys: { p256dh: 'unused', auth: 'unused' },
         })).rejects.toThrow(/not a regular file/);
         expect(await readFile(victimFile, 'utf8')).toBe('untouched');
