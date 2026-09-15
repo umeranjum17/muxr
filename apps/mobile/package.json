@@ -33,7 +33,7 @@
     "@react-navigation/native-stack": "^7.14.7",
     "@shopify/react-native-skia": "~2.5.3",
     "@tauri-apps/api": "2.9.1",
-    "@tauri-apps/plugin-opener": "^2.5.4",
+    "@tauri-apps/plugin-opener": "^2.5.5",
     "@types/libsodium-wrappers": "^0.7.14",
     "@types/prismjs": "^1.26.6",
     "@types/qrcode": "^1.5.5",
