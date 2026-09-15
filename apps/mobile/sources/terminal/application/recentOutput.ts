@@ -57,6 +57,13 @@ function touch(sessionId: string, state?: TailState): TailState {
     return current;
 }
 
+// A TUI repaint moves the cursor instead of printing newlines and spaces, so
+// stripping the moves glues one row's URL to the next row's prose. A move to
+// another row is a line break (unwrapTerminalLinks rejoins a full-width wrap);
+// a move along the row, or an erase, is at least a space.
+const CSI_ROW_MOVES = 'ABEFHfd';
+const CSI_COLUMN_MOVES = 'CDGJK';
+
 /**
  * Strip terminal control sequences across socket-message boundaries. Returns
  * the visible text and appends it to the rolling tail. The tail is a chunk
@@ -81,7 +88,11 @@ function appendVisible(state: TailState, input: string): string {
             if (code >= 0x30 && code <= 0x7e) state.escape = 'text';
             else if (code === 0x1b) state.escape = 'escape';
         } else if (state.escape === 'csi') {
-            if (code >= 0x40 && code <= 0x7e) state.escape = 'text';
+            if (code >= 0x40 && code <= 0x7e) {
+                state.escape = 'text';
+                if (CSI_ROW_MOVES.includes(char)) visible += '\n';
+                else if (CSI_COLUMN_MOVES.includes(char)) visible += ' ';
+            }
         } else if (state.escape === 'string') {
             if (code === 0x07 || code === 0x9c) state.escape = 'text';
             else if (code === 0x1b) state.escape = 'stringEscape';
