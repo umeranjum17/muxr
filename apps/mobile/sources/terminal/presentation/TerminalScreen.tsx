@@ -11,7 +11,7 @@ import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, ScrollVi
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
-import { useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { Modal } from '@/modal';
@@ -60,8 +60,19 @@ import { agentCommands } from '../domain/agentCommands';
 import { FindOutputSheet } from './FindOutputSheet';
 import { useTerminalQuickReplies } from '@/plugins/ui';
 
-export const TerminalScreen = React.memo((props: { id: string }) => {
+/**
+ * The session is one dark surface: the terminal paints dark whatever the app
+ * theme, so everything around it -- header, strip, composer, keys, Tools and
+ * every sheet they open -- reads the dark theme too. The scope sits at this
+ * screen's own render root and the theme is read beneath it, so each render
+ * of the screen (and everything it mounts) paints from the same palette.
+ */
+function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();
+    return <>{children(theme)}</>;
+}
+
+export const TerminalScreen = React.memo((props: { id: string }) => {
     const compactComposer = useWindowDimensions().width < 380;
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const isFocused = useIsFocused();
@@ -527,487 +538,491 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
     const contextTitle = labels.taskTitle;
     const headerLifecycle = terminalPaneStatus(currentPane);
-    const headerStatus = agentStatusColor(headerLifecycle, theme);
-    // Working and done carry their lifecycle colour. Idle shares the
-    // disconnected grey, which reads as dead on a ready agent.
-    const sendColor = headerLifecycle === 'idle' ? theme.colors.accent : headerStatus.color;
-    const paneIndex = siblings.indexOf(props.id);
-    const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
-    const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting' && status !== 'unconfirmed';
-    const showUnconfirmedStatus = status === 'unconfirmed' && gestureHint === null;
-    const attachmentAction = <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ opacity: attaching ? 0.4 : 1 }}>
-        <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={24} color={theme.colors.textSecondary} />
-    </Pressable>;
-    const commandAction = <Pressable onPress={openAgentCommands} accessibilityRole="button" accessibilityLabel="Agent commands" hitSlop={8} disabled={!canControl} accessibilityState={{ disabled: !canControl }}
-        style={({ pressed }) => ({ width: 32, minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent', opacity: canControl ? 1 : 0.4 })}>
-        <Text style={{ color: theme.colors.textSecondary, fontSize: 23, fontWeight: '500' }}>/</Text>
-    </Pressable>;
-    const composerInput = <TextInput
-        ref={composerRef}
-        value={draft}
-        onChangeText={handleDraftChange}
-        onSubmitEditing={sendPrompt}
-        returnKeyType="send"
-        blurOnSubmit
-        submitBehavior="blurAndSubmit"
-        placeholder="Type a prompt…"
-        placeholderTextColor={theme.colors.textSecondary}
-        style={{ flex: 1, color: theme.colors.text, backgroundColor: theme.colors.surfaceHigh, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 16 }}
-    />;
-    const composerPlugins = <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
-    </View>;
-    const sendAction = <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
-        <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
-    </Pressable>;
-    // Only what the channel can vouch for: 'live' means frames flow with
-    // nothing known wrong, so it reads as connected, never as health; a known
-    // timeout or lost route reads unconfirmed until the host answers again.
-    const statusText = status === 'live' ? 'connected'
-        : status === 'unconfirmed' ? 'Connection unconfirmed'
-            : status;
-
-    // Same shape as KeyboardAvoidingView, minus the animation: that padding
-    // moves frame by frame and Ghostty reflows its whole grid on every size
-    // change, which is the flicker. One step change, one reflow.
-    //
-    // The bar has to stay in flow below the terminal: Ghostty pads itself to sit
-    // above the IME, and it measures the gap below itself to do it, so a bar
-    // that floats over it gets counted as empty space and lands on the output.
     return (
-        <View style={{ flex: 1, backgroundColor: theme.colors.terminal.background, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
-            {watchingWorkingAgent && <ActiveAgentWakeLock />}
+        <ScopedTheme name="dark"><DarkSurface>{(theme) => {
+            const headerStatus = agentStatusColor(headerLifecycle, theme);
+            // Working and done carry their lifecycle colour. Idle shares the
+            // disconnected grey, which reads as dead on a ready agent.
+            const sendColor = headerLifecycle === 'idle' ? theme.colors.accent : headerStatus.color;
+            const paneIndex = siblings.indexOf(props.id);
+            const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
+            const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting' && status !== 'unconfirmed';
+            const showUnconfirmedStatus = status === 'unconfirmed' && gestureHint === null;
+            const attachmentAction = <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ opacity: attaching ? 0.4 : 1 }}>
+                <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={24} color={theme.colors.textSecondary} />
+            </Pressable>;
+            const commandAction = <Pressable onPress={openAgentCommands} accessibilityRole="button" accessibilityLabel="Agent commands" hitSlop={8} disabled={!canControl} accessibilityState={{ disabled: !canControl }}
+                style={({ pressed }) => ({ width: 32, minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent', opacity: canControl ? 1 : 0.4 })}>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 23, fontWeight: '500' }}>/</Text>
+            </Pressable>;
+            const composerInput = <TextInput
+                ref={composerRef}
+                value={draft}
+                onChangeText={handleDraftChange}
+                onSubmitEditing={sendPrompt}
+                returnKeyType="send"
+                blurOnSubmit
+                submitBehavior="blurAndSubmit"
+                placeholder="Type a prompt…"
+                placeholderTextColor={theme.colors.textSecondary}
+                style={{ flex: 1, color: theme.colors.text, backgroundColor: theme.colors.surfaceHigh, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 16 }}
+            />;
+            const composerPlugins = <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
+            </View>;
+            const sendAction = <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
+                <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
+            </Pressable>;
+            // Only what the channel can vouch for: 'live' means frames flow with
+            // nothing known wrong, so it reads as connected, never as health; a known
+            // timeout or lost route reads unconfirmed until the host answers again.
+            const statusText = status === 'live' ? 'connected'
+                : status === 'unconfirmed' ? 'Connection unconfirmed'
+                    : status;
 
-            <View
-                onLayout={(event) => { if (!hasStatusRow) setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height); }}
-                style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 6,
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                    backgroundColor: theme.colors.surface,
-                    // Header and status row are one chrome block: the edge
-                    // belongs at its bottom, not between its two rows.
-                    borderBottomWidth: hasStatusRow ? 0 : 1,
-                    borderBottomColor: theme.colors.divider,
-                }}
-            >
-                <HeaderBackButton onPress={() => router.back()} style={{ marginLeft: -6 }} />
-                <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} hitSlop={6} accessibilityRole="button" accessibilityLabel={overlayLabel} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, paddingVertical: 4 }}>
-                    <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={18} />
-                    <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
-                        <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
-                            {contextTitle}
-                        </Text>
-                        <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11 }}>
-                            {agentNameLine(labels)}
-                        </Text>
-                    </View>
-                    {paneIndex !== -1 && siblings.length > 1 && (
-                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, flexShrink: 0 }}>· {paneIndex + 1}/{siblings.length}</Text>
-                    )}
-                    {hasOverlay && <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />}
-                </Pressable>
-                <Pressable onPress={() => setFindOpen(true)} accessibilityRole="button" accessibilityLabel="Find in output" hitSlop={4}
-                    style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
-                    <Ionicons name="search" size={19} color={theme.colors.textSecondary} />
-                </Pressable>
-                {!authorityLoading && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel="Pane actions"
-                    accessibilityState={{ expanded: actionsOpen }} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
-                    <Ionicons name="ellipsis-vertical" size={20} color={theme.colors.textSecondary} />
-                </Pressable>}
-            </View>
+            // Same shape as KeyboardAvoidingView, minus the animation: that padding
+            // moves frame by frame and Ghostty reflows its whole grid on every size
+            // change, which is the flicker. One step change, one reflow.
+            //
+            // The bar has to stay in flow below the terminal: Ghostty pads itself to sit
+            // above the IME, and it measures the gap below itself to do it, so a bar
+            // that floats over it gets counted as empty space and lands on the output.
+                return (
+                <View style={{ flex: 1, backgroundColor: theme.colors.terminal.background, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
+                    {watchingWorkingAgent && <ActiveAgentWakeLock />}
 
-            {hasStatusRow && (
-                <View onLayout={(event) => setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingBottom: 7, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
-                    {branch !== null && <Ionicons name="git-branch-outline" size={12} color={theme.colors.textSecondary} />}
-                    <SessionMetaLine
-                        style={{ flex: 1 }}
-                        segments={[
-                            { text: branch },
-                            { text: linesAdded, color: theme.colors.gitAddedText },
-                            { text: linesRemoved, color: theme.colors.gitRemovedText, attached: linesAdded !== null },
-                            { text: permission?.label, ...(permission?.danger === true ? { color: theme.colors.permission.yolo } : {}) },
-                        ]}
-                    />
-                </View>
-            )}
-
-            {Platform.OS === 'web' && !canControl && (
-                <View style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, textAlign: 'center' }}>
-                        View-only browser · terminal input and agent controls are disabled · access expires eight hours after pairing
-                    </Text>
-                </View>
-            )}
-
-            <View
-                ref={paneGestures.ref}
-                onLayout={({ nativeEvent }) => setTerminalBox({ top: nativeEvent.layout.y, width: nativeEvent.layout.width, height: nativeEvent.layout.height })}
-                onTouchStart={paneGestures.onTouchStart}
-                onTouchMove={paneGestures.onTouchMove}
-                onTouchEnd={paneGestures.onTouchEnd}
-                style={{ flex: 1 }}
-            >
-                <TerminalView sessionId={props.id} initialScrollBack={restoreScrollBack} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} />
-                {gestureHint !== null && (
                     <View
-                        pointerEvents="none"
+                        onLayout={(event) => { if (!hasStatusRow) setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height); }}
                         style={{
-                            position: 'absolute',
-                            top: 12,
-                            alignSelf: 'center',
-                            paddingHorizontal: 12,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                            paddingHorizontal: 10,
                             paddingVertical: 6,
-                            borderRadius: 999,
-                            backgroundColor: theme.colors.surfaceHigh,
-                            borderWidth: 1,
-                            borderColor: theme.colors.divider,
+                            backgroundColor: theme.colors.surface,
+                            // Header and status row are one chrome block: the edge
+                            // belongs at its bottom, not between its two rows.
+                            borderBottomWidth: hasStatusRow ? 0 : 1,
+                            borderBottomColor: theme.colors.divider,
                         }}
                     >
-                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{gestureHint}</Text>
-                    </View>
-                )}
-                {showConnectingStatus && (
-                        <View
-                            pointerEvents="none"
-                            style={{
-                                position: 'absolute',
-                                top: 12,
-                                alignSelf: 'center',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 6,
-                                paddingHorizontal: 12,
-                                paddingVertical: 6,
-                                borderRadius: 999,
-                                backgroundColor: theme.colors.surfaceHigh,
-                                borderWidth: 1,
-                                borderColor: theme.colors.divider,
-                            }}
-                        >
-                            <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{status}</Text>
-                        </View>
-                )}
-                {showUnconfirmedStatus && (
-                        <View
-                            pointerEvents="none"
-                            accessibilityLabel={statusText}
-                            style={{
-                                position: 'absolute',
-                                top: 12,
-                                alignSelf: 'center',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 6,
-                                paddingHorizontal: 12,
-                                paddingVertical: 6,
-                                borderRadius: 999,
-                                backgroundColor: theme.colors.surfaceHigh,
-                                borderWidth: 1,
-                                borderColor: theme.colors.divider,
-                            }}
-                        >
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{statusText}</Text>
-                        </View>
-                )}
-                {showRetryStatus && (
-                        <Pressable
-                            onPress={() => channelRef.current?.reconnect(true)}
-                            hitSlop={8}
-                            accessibilityRole="button"
-                            accessibilityLabel={status.includes('another device') ? 'Take control from another device' : `Reconnect terminal. ${statusText}`}
-                            style={({ pressed }) => ({
-                                position: 'absolute',
-                                top: 12,
-                                alignSelf: 'center',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 6,
-                                paddingHorizontal: 12,
-                                paddingVertical: 6,
-                                borderRadius: 999,
-                                backgroundColor: theme.colors.surfaceHigh,
-                                borderWidth: 1,
-                                borderColor: theme.colors.divider,
-                                opacity: pressed ? 0.7 : 1,
-                            })}
-                        >
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{statusText}</Text>
-                            <Ionicons name="refresh-outline" size={12} color={theme.colors.textSecondary} />
+                        <HeaderBackButton onPress={() => router.back()} style={{ marginLeft: -6 }} />
+                        <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} hitSlop={6} accessibilityRole="button" accessibilityLabel={overlayLabel} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, paddingVertical: 4 }}>
+                            <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={18} />
+                            <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+                                <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
+                                    {contextTitle}
+                                </Text>
+                                <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11 }}>
+                                    {agentNameLine(labels)}
+                                </Text>
+                            </View>
+                            {paneIndex !== -1 && siblings.length > 1 && (
+                                <Text style={{ color: theme.colors.textSecondary, fontSize: 12, flexShrink: 0 }}>· {paneIndex + 1}/{siblings.length}</Text>
+                            )}
+                            {hasOverlay && <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />}
                         </Pressable>
-                )}
-                {showJump && (
-                    <Pressable
-                        onPress={jumpToBottom}
-                        hitSlop={10}
-                        accessibilityRole="button"
-                        accessibilityLabel="Jump to bottom"
-                        style={({ pressed }) => ({
-                            position: 'absolute',
-                            right: 14,
-                            bottom: 14,
-                            width: 38,
-                            height: 38,
-                            borderRadius: 19,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            backgroundColor: theme.colors.surfaceHigh,
-                            borderWidth: 1,
-                            borderColor: theme.colors.divider,
-                            opacity: pressed ? 0.7 : 1,
-                        })}
-                    >
-                        <Ionicons name="arrow-down" size={18} color={theme.colors.text} />
-                    </Pressable>
-                )}
-            </View>
+                        <Pressable onPress={() => setFindOpen(true)} accessibilityRole="button" accessibilityLabel="Find in output" hitSlop={4}
+                            style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
+                            <Ionicons name="search" size={19} color={theme.colors.textSecondary} />
+                        </Pressable>
+                        {!authorityLoading && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel="Pane actions"
+                            accessibilityState={{ expanded: actionsOpen }} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
+                            <Ionicons name="ellipsis-vertical" size={20} color={theme.colors.textSecondary} />
+                        </Pressable>}
+                    </View>
 
-            {canControl && <View style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
-            {siblings.length > 1 && (
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    keyboardShouldPersistTaps="always"
-                    style={{ maxHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider }}
-                    contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 8 }}
-                >
-                    {siblings.map((siblingId) => {
-                        const siblingPane = currentTab?.panes.find((pane) => pane.sessionId === siblingId);
-                        const siblingLabels = agentLabels(siblingPane);
-                        const siblingShell = isShellLabels(siblingLabels);
-                        const siblingStatus = terminalPaneStatus(siblingPane);
-                        const siblingTone = agentStatusColor(siblingStatus, theme);
-                        const active = siblingId === props.id;
-                        return (
+                    {hasStatusRow && (
+                        <View onLayout={(event) => setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingBottom: 7, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
+                            {branch !== null && <Ionicons name="git-branch-outline" size={12} color={theme.colors.textSecondary} />}
+                            <SessionMetaLine
+                                style={{ flex: 1 }}
+                                segments={[
+                                    { text: branch },
+                                    { text: linesAdded, color: theme.colors.gitAddedText },
+                                    { text: linesRemoved, color: theme.colors.gitRemovedText, attached: linesAdded !== null },
+                                    { text: permission?.label, ...(permission?.danger === true ? { color: theme.colors.permission.yolo } : {}) },
+                                ]}
+                            />
+                        </View>
+                    )}
+
+                    {Platform.OS === 'web' && !canControl && (
+                        <View style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, textAlign: 'center' }}>
+                                View-only browser · terminal input and agent controls are disabled · access expires eight hours after pairing
+                            </Text>
+                        </View>
+                    )}
+
+                    <View
+                        ref={paneGestures.ref}
+                        onLayout={({ nativeEvent }) => setTerminalBox({ top: nativeEvent.layout.y, width: nativeEvent.layout.width, height: nativeEvent.layout.height })}
+                        onTouchStart={paneGestures.onTouchStart}
+                        onTouchMove={paneGestures.onTouchMove}
+                        onTouchEnd={paneGestures.onTouchEnd}
+                        style={{ flex: 1 }}
+                    >
+                        <TerminalView sessionId={props.id} initialScrollBack={restoreScrollBack} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} />
+                        {gestureHint !== null && (
+                            <View
+                                pointerEvents="none"
+                                style={{
+                                    position: 'absolute',
+                                    top: 12,
+                                    alignSelf: 'center',
+                                    paddingHorizontal: 12,
+                                    paddingVertical: 6,
+                                    borderRadius: 999,
+                                    backgroundColor: theme.colors.surfaceHigh,
+                                    borderWidth: 1,
+                                    borderColor: theme.colors.divider,
+                                }}
+                            >
+                                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{gestureHint}</Text>
+                            </View>
+                        )}
+                        {showConnectingStatus && (
+                                <View
+                                    pointerEvents="none"
+                                    style={{
+                                        position: 'absolute',
+                                        top: 12,
+                                        alignSelf: 'center',
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        paddingHorizontal: 12,
+                                        paddingVertical: 6,
+                                        borderRadius: 999,
+                                        backgroundColor: theme.colors.surfaceHigh,
+                                        borderWidth: 1,
+                                        borderColor: theme.colors.divider,
+                                    }}
+                                >
+                                    <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{status}</Text>
+                                </View>
+                        )}
+                        {showUnconfirmedStatus && (
+                                <View
+                                    pointerEvents="none"
+                                    accessibilityLabel={statusText}
+                                    style={{
+                                        position: 'absolute',
+                                        top: 12,
+                                        alignSelf: 'center',
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        paddingHorizontal: 12,
+                                        paddingVertical: 6,
+                                        borderRadius: 999,
+                                        backgroundColor: theme.colors.surfaceHigh,
+                                        borderWidth: 1,
+                                        borderColor: theme.colors.divider,
+                                    }}
+                                >
+                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{statusText}</Text>
+                                </View>
+                        )}
+                        {showRetryStatus && (
+                                <Pressable
+                                    onPress={() => channelRef.current?.reconnect(true)}
+                                    hitSlop={8}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={status.includes('another device') ? 'Take control from another device' : `Reconnect terminal. ${statusText}`}
+                                    style={({ pressed }) => ({
+                                        position: 'absolute',
+                                        top: 12,
+                                        alignSelf: 'center',
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        paddingHorizontal: 12,
+                                        paddingVertical: 6,
+                                        borderRadius: 999,
+                                        backgroundColor: theme.colors.surfaceHigh,
+                                        borderWidth: 1,
+                                        borderColor: theme.colors.divider,
+                                        opacity: pressed ? 0.7 : 1,
+                                    })}
+                                >
+                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{statusText}</Text>
+                                    <Ionicons name="refresh-outline" size={12} color={theme.colors.textSecondary} />
+                                </Pressable>
+                        )}
+                        {showJump && (
                             <Pressable
-                                key={siblingId}
-                                onPress={active ? undefined : () => router.replace(`/session/${encodeURIComponent(siblingId)}`)}
+                                onPress={jumpToBottom}
+                                hitSlop={10}
                                 accessibilityRole="button"
-                                accessibilityLabel={`${active ? 'Current' : 'Open'} ${agentAccessibilityLabel(siblingLabels, siblingStatus)}`}
-                                accessibilityState={{ selected: active }}
+                                accessibilityLabel="Jump to bottom"
                                 style={({ pressed }) => ({
-                                    minHeight: 44,
-                                    maxWidth: 180,
-                                    flexDirection: 'row',
+                                    position: 'absolute',
+                                    right: 14,
+                                    bottom: 14,
+                                    width: 38,
+                                    height: 38,
+                                    borderRadius: 19,
                                     alignItems: 'center',
-                                    gap: 6,
-                                    paddingHorizontal: 9,
-                                    borderBottomWidth: 2,
-                                    borderBottomColor: active ? theme.colors.accent : 'transparent',
-                                    backgroundColor: active ? theme.colors.surfaceSelected : 'transparent',
-                                    opacity: pressed ? 0.65 : 1,
+                                    justifyContent: 'center',
+                                    backgroundColor: theme.colors.surfaceHigh,
+                                    borderWidth: 1,
+                                    borderColor: theme.colors.divider,
+                                    opacity: pressed ? 0.7 : 1,
                                 })}
                             >
-                                <AgentGlyph name={siblingShell ? 'shell' : siblingLabels.agentKind ?? siblingLabels.agentName} size={16} />
-                                <Text numberOfLines={1} style={{ flexShrink: 1, color: siblingTone.color, fontSize: 11, fontWeight: active ? '600' : '400' }}>
-                                    {siblingLabels.taskTitle}
-                                </Text>
-                            </Pressable>
-                        );
-                    })}
-                </ScrollView>
-            )}
-            <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center' }}>
-                {renderFooterDock('left')}
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    keyboardShouldPersistTaps="always"
-                    style={{ flex: 1, maxHeight: 52 }}
-                    contentContainerStyle={{ alignItems: 'center', gap: 6, paddingLeft: 8, paddingRight: 6, paddingVertical: 6 }}
-                >
-                    <DeclarativeTerminalKeySlot channel={channel} />
-                </ScrollView>
-                {renderFooterDock('right')}
-            </View>
-
-            <ComposerAttachments
-                images={[...attachedImages, ...selectedImages.filter((image) => !attachedImages.some((attached) => attached.id === image.id))]}
-                onRemove={(id) => setAttachedImages((previous) => previous.filter((image) => image.id !== id))}
-            />
-
-            <View
-                style={{
-                    flexDirection: compactComposer ? 'column' : 'row',
-                    alignItems: compactComposer ? 'stretch' : 'center',
-                    gap: 8,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    paddingBottom: (keyboardVisible ? 0 : insets.bottom) + 8,
-                    backgroundColor: theme.colors.surface,
-                    borderTopWidth: StyleSheet.hairlineWidth,
-                    borderTopColor: theme.colors.divider,
-                }}
-            >
-                {compactComposer ? <>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>{composerInput}{sendAction}</View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, paddingTop: 4 }}>
-                        {attachmentAction}{commandAction}<View style={{ flex: 1 }} />{composerPlugins}
-                    </View>
-                </> : <>{attachmentAction}{commandAction}{composerInput}{composerPlugins}{sendAction}</>}
-            </View>
-            </View>}
-
-            {/* View-only has no key strip, but Tools still belongs in the
-                footer instead of floating over terminal output. */}
-            {!canControl && hasTools && (
-                <View style={{ height: 52, flexDirection: 'row', justifyContent: toolsSide === 'left' ? 'flex-start' : 'flex-end' }}>
-                    {renderFooterDock(toolsSide)}
-                </View>
-            )}
-
-            {/* The open card floats over the terminal, anchored above the
-                Tools footer slot; a tap on the terminal closes it too. */}
-            {toolsOpen && terminalBox !== undefined && hasTools && (
-                <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: terminalBox.top, height: terminalBox.height }}>
-                    <Pressable style={StyleSheet.absoluteFill} accessible={false} onPress={closeTools} />
-                    <TerminalToolsPanel commands={viewControls.commands} renderQuickActions={toolsRows}
-                        dismissKeyboard={viewControls.dismissKeyboard} side={toolsSide}
-                        width={terminalBox.width} maxHeight={terminalBox.height} onClose={closeTools} />
-                </View>
-            )}
-
-            <PluginSlot
-                slot="session.overlay"
-                context={{ sessionId: props.id, visible: treeOpen, onClose: () => setTreeOpen(false), openMenu: setMenu, showHint: showGestureHint }}
-            />
-
-            {/* Secondary actions belong to the header; view controls stay with the terminal. */}
-            {actionsOpen && (
-                <Animated.View
-                    exiting={FadeOut.duration(160).reduceMotion(ReduceMotion.System)}
-                    accessibilityViewIsModal
-                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, alignItems: 'flex-end', justifyContent: 'flex-start' }}
-                >
-                    <Animated.View pointerEvents="none" entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.18)' }} />
-                    <Pressable onPress={() => setActionsOpen(false)} accessibilityLabel="Close pane actions" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
-                    <AnimatedPopup style={{
-                        flexShrink: 1,
-                        minWidth: 236,
-                        maxWidth: 320,
-                        marginRight: 8,
-                        marginLeft: 16,
-                        marginTop: headerBottom + 8,
-                        marginBottom: (keyboardVisible ? keyboardHeight : insets.bottom) + 8,
-                        borderRadius: 14,
-                        overflow: 'hidden',
-                        // Rows carry the lighter fill; the surface behind them is
-                        // only ever seen through the gap above the stop control.
-                        backgroundColor: theme.colors.surface,
-                        borderWidth: StyleSheet.hairlineWidth,
-                        borderColor: theme.colors.divider,
-                        transformOrigin: 'top right',
-                        elevation: 12,
-                    }}>
-                        <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
-                            <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>
-                            <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/history`); }} accessibilityRole="button" accessibilityLabel="Conversation history"
-                                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                <Ionicons name="document-text-outline" size={18} color={theme.colors.textSecondary} />
-                                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Conversation history</Text>
-                                <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                            </Pressable>
-                            {canControl && <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />}
-                            {canControl && <Pressable onPress={focusInHerdr} disabled={socketStatus.status !== 'connected' || focusPending} accessibilityRole="button"
-                                accessibilityLabel={socketStatus.status === 'connected' ? 'Focus in Herdr' : 'Focus in Herdr, unavailable: not connected'}
-                                accessibilityState={{ disabled: socketStatus.status !== 'connected' || focusPending, busy: focusPending }}
-                                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: socketStatus.status === 'connected' ? 1 : 0.5 })}>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={{ color: theme.colors.text, fontSize: 15 }}>Focus in Herdr</Text>
-                                    {socketStatus.status !== 'connected' && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>Not connected</Text>}
-                                    {focusFailure !== null && <Text style={{ color: theme.colors.status.error, fontSize: 12, marginTop: 2 }}>{`Could not focus: ${focusFailure}. Tap to retry.`}</Text>}
-                                </View>
-                                {focusPending && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
-                            </Pressable>}
-                            {recentTerminalLinks(props.id).length > 0 && <>
-                                <Pressable onPress={() => showRecentLinks('open')} accessibilityRole="button" accessibilityLabel="Open recent terminal link"
-                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                    <Ionicons name="open-outline" size={18} color={theme.colors.textSecondary} />
-                                    <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Open link</Text>
-                                    <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                                </Pressable>
-                                <Pressable onPress={() => showRecentLinks('copy')} accessibilityRole="button" accessibilityLabel="Copy recent terminal link"
-                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                    <Ionicons name="copy-outline" size={18} color={theme.colors.textSecondary} />
-                                    <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Copy link</Text>
-                                    <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                                </Pressable>
-                            </>}
-                            {canControl && pluginButtons.length > 0 && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Pane controls</Text>}
-                            {canControl && pluginButtons.map((button) => {
-                                const key = `${button.pluginId}:${button.id}`;
-                                return <Pressable key={key} onPress={() => {
-                                    if (pluginActionBusy !== undefined) return;
-                                    setActionsOpen(false);
-                                    setExtensionActionBusy(key);
-                                    void sync.request('plugin.invoke', {
-                                        pluginId: button.pluginId,
-                                        manifestHash: button.manifestHash,
-                                        contributionId: button.id,
-                                        sessionId: props.id,
-                                        idempotencyKey: randomUUID(),
-                                    }).catch((error) => Modal.alert(`${button.name} failed`, error instanceof Error ? error.message : String(error)))
-                                        .finally(() => setExtensionActionBusy(undefined));
-                                }} disabled={pluginActionBusy !== undefined} accessibilityRole="button" accessibilityLabel={resolvePluginText(button.label)} accessibilityState={{ busy: pluginActionBusy === key, disabled: pluginActionBusy !== undefined }}
-                                    style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                    {pluginActionBusy === key ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Ionicons name="extension-puzzle-outline" size={18} color={theme.colors.textSecondary} />}
-                                    <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{resolvePluginText(button.label)}</Text>
-                                </Pressable>;
-                            })}
-                        </ScrollView>
-                        {/* Closing the pane is the one row here that destroys
-                            something, so it never scrolls away and never sits in
-                            the run of things you were only going to look at. */}
-                        {canControl && !stopping && (
-                            <Pressable onPress={() => { setActionsOpen(false); stopSession(); }} accessibilityRole="button" accessibilityLabel={shell ? 'Close pane' : 'Stop agent'}
-                                style={({ pressed }) => ({ minHeight: 44, marginTop: 5, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                <Ionicons name="stop-circle-outline" size={18} color={theme.colors.status.error} />
-                                <Text style={{ flex: 1, color: theme.colors.status.error, fontSize: 15 }}>{shell ? 'Close pane' : 'Stop agent'}</Text>
+                                <Ionicons name="arrow-down" size={18} color={theme.colors.text} />
                             </Pressable>
                         )}
-                    </AnimatedPopup>
-                </Animated.View>
-            )}
-
-            {menu !== null && (
-                <Pressable
-                    onPress={() => setMenu(null)}
-                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40, backgroundColor: theme.colors.scrim, justifyContent: 'flex-end' }}
-                >
-                    <View style={{ backgroundColor: theme.colors.surface, paddingBottom: insets.bottom + 8, borderTopLeftRadius: 14, borderTopRightRadius: 14 }}>
-                        <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 }}>
-                            <Text style={{ color: theme.colors.text, fontWeight: '600', fontSize: 16 }}>{menu.title}</Text>
-                            {menu.note !== undefined && (
-                                <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 2 }}>{menu.note}</Text>
-                            )}
-                        </View>
-                        <ScrollView style={{ maxHeight: 380 }}>
-                            {menu.items.map((item) => (
-                                <Pressable
-                                    key={item.label}
-                                    onPress={() => {
-                                        setMenu(null);
-                                        item.onPress();
-                                    }}
-                                    style={({ pressed }) => ({ paddingHorizontal: 16, paddingVertical: 12, opacity: pressed ? 0.6 : 1 })}
-                                >
-                                    <Text style={{ color: item.destructive === true ? theme.colors.status.error : theme.colors.text, fontSize: 15 }}>{item.label}</Text>
-                                    {item.hint !== undefined && (
-                                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>{item.hint}</Text>
-                                    )}
-                                </Pressable>
-                            ))}
-                        </ScrollView>
-                        <Pressable onPress={() => setMenu(null)} style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 15 }}>Cancel</Text>
-                        </Pressable>
                     </View>
-                </Pressable>
-            )}
-            {findOpen && <FindOutputSheet sessionId={props.id} keyboardOffset={Platform.OS === 'web' || !keyboardVisible ? 0 : keyboardHeight} onClose={() => setFindOpen(false)} />}
-        </View>
+
+                    {canControl && <View style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
+                    {siblings.length > 1 && (
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            keyboardShouldPersistTaps="always"
+                            style={{ maxHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider }}
+                            contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 8 }}
+                        >
+                            {siblings.map((siblingId) => {
+                                const siblingPane = currentTab?.panes.find((pane) => pane.sessionId === siblingId);
+                                const siblingLabels = agentLabels(siblingPane);
+                                const siblingShell = isShellLabels(siblingLabels);
+                                const siblingStatus = terminalPaneStatus(siblingPane);
+                                const siblingTone = agentStatusColor(siblingStatus, theme);
+                                const active = siblingId === props.id;
+                                return (
+                                    <Pressable
+                                        key={siblingId}
+                                        onPress={active ? undefined : () => router.replace(`/session/${encodeURIComponent(siblingId)}`)}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`${active ? 'Current' : 'Open'} ${agentAccessibilityLabel(siblingLabels, siblingStatus)}`}
+                                        accessibilityState={{ selected: active }}
+                                        style={({ pressed }) => ({
+                                            minHeight: 44,
+                                            maxWidth: 180,
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                            paddingHorizontal: 9,
+                                            borderBottomWidth: 2,
+                                            borderBottomColor: active ? theme.colors.accent : 'transparent',
+                                            backgroundColor: active ? theme.colors.surfaceSelected : 'transparent',
+                                            opacity: pressed ? 0.65 : 1,
+                                        })}
+                                    >
+                                        <AgentGlyph name={siblingShell ? 'shell' : siblingLabels.agentKind ?? siblingLabels.agentName} size={16} />
+                                        <Text numberOfLines={1} style={{ flexShrink: 1, color: siblingTone.color, fontSize: 11, fontWeight: active ? '600' : '400' }}>
+                                            {siblingLabels.taskTitle}
+                                        </Text>
+                                    </Pressable>
+                                );
+                            })}
+                        </ScrollView>
+                    )}
+                    <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center' }}>
+                        {renderFooterDock('left')}
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            keyboardShouldPersistTaps="always"
+                            style={{ flex: 1, maxHeight: 52 }}
+                            contentContainerStyle={{ alignItems: 'center', gap: 6, paddingLeft: 8, paddingRight: 6, paddingVertical: 6 }}
+                        >
+                            <DeclarativeTerminalKeySlot channel={channel} />
+                        </ScrollView>
+                        {renderFooterDock('right')}
+                    </View>
+
+                    <ComposerAttachments
+                        images={[...attachedImages, ...selectedImages.filter((image) => !attachedImages.some((attached) => attached.id === image.id))]}
+                        onRemove={(id) => setAttachedImages((previous) => previous.filter((image) => image.id !== id))}
+                    />
+
+                    <View
+                        style={{
+                            flexDirection: compactComposer ? 'column' : 'row',
+                            alignItems: compactComposer ? 'stretch' : 'center',
+                            gap: 8,
+                            paddingHorizontal: 12,
+                            paddingVertical: 8,
+                            paddingBottom: (keyboardVisible ? 0 : insets.bottom) + 8,
+                            backgroundColor: theme.colors.surface,
+                            borderTopWidth: StyleSheet.hairlineWidth,
+                            borderTopColor: theme.colors.divider,
+                        }}
+                    >
+                        {compactComposer ? <>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>{composerInput}{sendAction}</View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, paddingTop: 4 }}>
+                                {attachmentAction}{commandAction}<View style={{ flex: 1 }} />{composerPlugins}
+                            </View>
+                        </> : <>{attachmentAction}{commandAction}{composerInput}{composerPlugins}{sendAction}</>}
+                    </View>
+                    </View>}
+
+                    {/* View-only has no key strip, but Tools still belongs in the
+                        footer instead of floating over terminal output. */}
+                    {!canControl && hasTools && (
+                        <View style={{ height: 52, flexDirection: 'row', justifyContent: toolsSide === 'left' ? 'flex-start' : 'flex-end' }}>
+                            {renderFooterDock(toolsSide)}
+                        </View>
+                    )}
+
+                    {/* The open card floats over the terminal, anchored above the
+                        Tools footer slot; a tap on the terminal closes it too. */}
+                    {toolsOpen && terminalBox !== undefined && hasTools && (
+                        <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: terminalBox.top, height: terminalBox.height }}>
+                            <Pressable style={StyleSheet.absoluteFill} accessible={false} onPress={closeTools} />
+                            <TerminalToolsPanel commands={viewControls.commands} renderQuickActions={toolsRows}
+                                dismissKeyboard={viewControls.dismissKeyboard} side={toolsSide}
+                                width={terminalBox.width} maxHeight={terminalBox.height} onClose={closeTools} />
+                        </View>
+                    )}
+
+                    <PluginSlot
+                        slot="session.overlay"
+                        context={{ sessionId: props.id, visible: treeOpen, onClose: () => setTreeOpen(false), openMenu: setMenu, showHint: showGestureHint }}
+                    />
+
+                    {/* Secondary actions belong to the header; view controls stay with the terminal. */}
+                    {actionsOpen && (
+                        <Animated.View
+                            exiting={FadeOut.duration(160).reduceMotion(ReduceMotion.System)}
+                            accessibilityViewIsModal
+                            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, alignItems: 'flex-end', justifyContent: 'flex-start' }}
+                        >
+                            <Animated.View pointerEvents="none" entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.18)' }} />
+                            <Pressable onPress={() => setActionsOpen(false)} accessibilityLabel="Close pane actions" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+                            <AnimatedPopup style={{
+                                flexShrink: 1,
+                                minWidth: 236,
+                                maxWidth: 320,
+                                marginRight: 8,
+                                marginLeft: 16,
+                                marginTop: headerBottom + 8,
+                                marginBottom: (keyboardVisible ? keyboardHeight : insets.bottom) + 8,
+                                borderRadius: 14,
+                                overflow: 'hidden',
+                                // Rows carry the lighter fill; the surface behind them is
+                                // only ever seen through the gap above the stop control.
+                                backgroundColor: theme.colors.surface,
+                                borderWidth: StyleSheet.hairlineWidth,
+                                borderColor: theme.colors.divider,
+                                transformOrigin: 'top right',
+                                elevation: 12,
+                            }}>
+                                <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
+                                    <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>
+                                    <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/history`); }} accessibilityRole="button" accessibilityLabel="Conversation history"
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="document-text-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Conversation history</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>
+                                    {canControl && <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />}
+                                    {canControl && <Pressable onPress={focusInHerdr} disabled={socketStatus.status !== 'connected' || focusPending} accessibilityRole="button"
+                                        accessibilityLabel={socketStatus.status === 'connected' ? 'Focus in Herdr' : 'Focus in Herdr, unavailable: not connected'}
+                                        accessibilityState={{ disabled: socketStatus.status !== 'connected' || focusPending, busy: focusPending }}
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: socketStatus.status === 'connected' ? 1 : 0.5 })}>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={{ color: theme.colors.text, fontSize: 15 }}>Focus in Herdr</Text>
+                                            {socketStatus.status !== 'connected' && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>Not connected</Text>}
+                                            {focusFailure !== null && <Text style={{ color: theme.colors.status.error, fontSize: 12, marginTop: 2 }}>{`Could not focus: ${focusFailure}. Tap to retry.`}</Text>}
+                                        </View>
+                                        {focusPending && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
+                                    </Pressable>}
+                                    {recentTerminalLinks(props.id).length > 0 && <>
+                                        <Pressable onPress={() => showRecentLinks('open')} accessibilityRole="button" accessibilityLabel="Open recent terminal link"
+                                            style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                            <Ionicons name="open-outline" size={18} color={theme.colors.textSecondary} />
+                                            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Open link</Text>
+                                            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                        </Pressable>
+                                        <Pressable onPress={() => showRecentLinks('copy')} accessibilityRole="button" accessibilityLabel="Copy recent terminal link"
+                                            style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                            <Ionicons name="copy-outline" size={18} color={theme.colors.textSecondary} />
+                                            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Copy link</Text>
+                                            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                        </Pressable>
+                                    </>}
+                                    {canControl && pluginButtons.length > 0 && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Pane controls</Text>}
+                                    {canControl && pluginButtons.map((button) => {
+                                        const key = `${button.pluginId}:${button.id}`;
+                                        return <Pressable key={key} onPress={() => {
+                                            if (pluginActionBusy !== undefined) return;
+                                            setActionsOpen(false);
+                                            setExtensionActionBusy(key);
+                                            void sync.request('plugin.invoke', {
+                                                pluginId: button.pluginId,
+                                                manifestHash: button.manifestHash,
+                                                contributionId: button.id,
+                                                sessionId: props.id,
+                                                idempotencyKey: randomUUID(),
+                                            }).catch((error) => Modal.alert(`${button.name} failed`, error instanceof Error ? error.message : String(error)))
+                                                .finally(() => setExtensionActionBusy(undefined));
+                                        }} disabled={pluginActionBusy !== undefined} accessibilityRole="button" accessibilityLabel={resolvePluginText(button.label)} accessibilityState={{ busy: pluginActionBusy === key, disabled: pluginActionBusy !== undefined }}
+                                            style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                            {pluginActionBusy === key ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Ionicons name="extension-puzzle-outline" size={18} color={theme.colors.textSecondary} />}
+                                            <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{resolvePluginText(button.label)}</Text>
+                                        </Pressable>;
+                                    })}
+                                </ScrollView>
+                                {/* Closing the pane is the one row here that destroys
+                                    something, so it never scrolls away and never sits in
+                                    the run of things you were only going to look at. */}
+                                {canControl && !stopping && (
+                                    <Pressable onPress={() => { setActionsOpen(false); stopSession(); }} accessibilityRole="button" accessibilityLabel={shell ? 'Close pane' : 'Stop agent'}
+                                        style={({ pressed }) => ({ minHeight: 44, marginTop: 5, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="stop-circle-outline" size={18} color={theme.colors.status.error} />
+                                        <Text style={{ flex: 1, color: theme.colors.status.error, fontSize: 15 }}>{shell ? 'Close pane' : 'Stop agent'}</Text>
+                                    </Pressable>
+                                )}
+                            </AnimatedPopup>
+                        </Animated.View>
+                    )}
+
+                    {menu !== null && (
+                        <Pressable
+                            onPress={() => setMenu(null)}
+                            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40, backgroundColor: theme.colors.scrim, justifyContent: 'flex-end' }}
+                        >
+                            <View style={{ backgroundColor: theme.colors.surface, paddingBottom: insets.bottom + 8, borderTopLeftRadius: 14, borderTopRightRadius: 14 }}>
+                                <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 }}>
+                                    <Text style={{ color: theme.colors.text, fontWeight: '600', fontSize: 16 }}>{menu.title}</Text>
+                                    {menu.note !== undefined && (
+                                        <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 2 }}>{menu.note}</Text>
+                                    )}
+                                </View>
+                                <ScrollView style={{ maxHeight: 380 }}>
+                                    {menu.items.map((item) => (
+                                        <Pressable
+                                            key={item.label}
+                                            onPress={() => {
+                                                setMenu(null);
+                                                item.onPress();
+                                            }}
+                                            style={({ pressed }) => ({ paddingHorizontal: 16, paddingVertical: 12, opacity: pressed ? 0.6 : 1 })}
+                                        >
+                                            <Text style={{ color: item.destructive === true ? theme.colors.status.error : theme.colors.text, fontSize: 15 }}>{item.label}</Text>
+                                            {item.hint !== undefined && (
+                                                <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>{item.hint}</Text>
+                                            )}
+                                        </Pressable>
+                                    ))}
+                                </ScrollView>
+                                <Pressable onPress={() => setMenu(null)} style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
+                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 15 }}>Cancel</Text>
+                                </Pressable>
+                            </View>
+                        </Pressable>
+                    )}
+                    {findOpen && <FindOutputSheet sessionId={props.id} keyboardOffset={Platform.OS === 'web' || !keyboardVisible ? 0 : keyboardHeight} onClose={() => setFindOpen(false)} />}
+                </View>
+            );
+        }}</DarkSurface></ScopedTheme>
     );
 });

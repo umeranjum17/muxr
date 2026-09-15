@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { OptionSheet } from '@/components/OptionSheet';
 import { ActionShortcut } from '@/components/ActionShortcut';
-import { useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import type { PluginDataCard, PluginNativeContribution, PluginNavigationItem, PluginTerminalKeyRow } from '@muxr/contract';
 import { MAX_RPC_DISPLAY_BYTES, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, sanitizeDisplayText } from '@muxr/contract';
 import type { PluginTerminalChannel } from '../domain/slotTypes';
@@ -253,12 +253,15 @@ function DataActionRow({ contribution, pluginId, manifestHash, presentation }: {
             : <Pressable onPress={retryOrOpen} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : label} style={style}>{body}</Pressable>;
     }
     // The sheet stays mounted under every trigger shape, so a panel row opens
-    // the same OptionSheet the pane-menu row does.
-    return <>
+    // the same OptionSheet the pane-menu row does. Session actions only ever
+    // sit on the session's dark surface, and this row mounts and opens on its
+    // own loads outside the screen's render pass, so it names that theme for
+    // what it mounts itself.
+    return <ScopedTheme name="dark">
         {trigger}
         {contribution.presentation === 'sheet' && <OptionSheet visible={open} title={label} options={[]} onSelect={() => {}} onClose={() => setOpen(false)}
             body={<View style={{ paddingHorizontal: 16, paddingBottom: 12 }}><Text style={{ color: theme.colors.text, fontSize: 13, lineHeight: 20 }}>{shown}</Text></View>} />}
-    </>;
+    </ScopedTheme>;
 }
 
 type DeclarativeSessionAction = (
