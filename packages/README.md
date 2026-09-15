@@ -1,6 +1,6 @@
 # packages
 
-`@muxr/contract` exists so host, mobile, relay, and plugins use one implementation of cross-process wire shapes, admission and limit rules, and invariant vocabulary. It is the compatibility boundary between processes, not a general utility package. Apps import its public barrel or a focused entry point such as `@muxr/contract/herd`; they do not import context internals.
+`@muxr/contract` exists so host, mobile, relay, and plugins use one implementation of cross-process wire shapes, admission and limit rules, and invariant vocabulary. It is the compatibility boundary between processes, not a general utility package. Apps import its public barrel or a focused entry point such as `@muxr/contract/herd`; they do not import module internals.
 
 Code belongs in `@muxr/contract` when multiple processes must agree on its exact shape or rule: wire envelopes and request maps, boundary admission, shared limits, and vocabulary whose meaning must not drift. Mobile parsing or presentation, host adapters, single-consumer transport DTOs, storage models, crypto implementation, and convenience helpers do not belong here.
 
@@ -34,7 +34,7 @@ packages/
 
 No presentation layer: these packages have no React or controllers. Application exists only for named operations the package owns. There is no `services/` folder. `issueWsTicket` stays infrastructure because it uses HTTP.
 
-Dependency direction: domain is pure TypeScript; application may import same-context domain and infrastructure; infrastructure may import same-context domain; a context may import another context only through its `index.ts`. Contract never imports crypto. `packages/checkArchitecture.mjs` rejects the reverse, nested ternaries, fake DDD types, and application modules missing from `USE_CASES.md`.
+Dependency direction: domain is pure TypeScript; application may import same-module domain and infrastructure; infrastructure may import same-module domain; a module may import another module only through its `index.ts`. Contract never imports crypto. `packages/checkArchitecture.mjs` rejects the reverse, nested ternaries, fake DDD types, and new import cycles between modules.
 
 ## Herd
 

@@ -69,24 +69,25 @@ yarn workspace @muxr/mobile typecheck
 
 ## Architecture
 
-Packages are context-first, not layer-first. Read
+Packages are module-first, not layer-first. Read
 [packages/README.md](packages/README.md) for ownership and invariants,
 [packages/USE_CASES.md](packages/USE_CASES.md) to navigate by intent, and
 [CONTEXT.md](CONTEXT.md) for the glossary.
 
 ```
-packages/contract/src/<context>/{domain,application?,infrastructure?}
+packages/contract/src/<module>/{domain,application?,infrastructure?}
 packages/crypto/src/e2ee/{domain,application,infrastructure}
 ```
 
 **Dependency direction.** Domain is pure TypeScript: no tweetnacl, zod, Node,
-fetch, React, or sockets. Infrastructure may import same-context domain.
-Application may import same-context domain and infrastructure. A context
-imports another context only through that context's `index.ts`. Contract never
+fetch, React, or sockets. Infrastructure may import same-module domain.
+Application may import same-module domain and infrastructure. A module
+imports another module only through that module's `index.ts`. Contract never
 imports crypto. E2EE imports `@muxr/contract/peer`, `/control-plane`, and
-`/shared`, not the contract barrel. Apps import package barrels or context
+`/shared`, not the contract barrel. Apps import package barrels or module
 entries; they must not import `domain/`, `application/`, or `infrastructure/`
-paths. `packages/checkArchitecture.mjs` rejects the reverse.
+paths. `packages/checkArchitecture.mjs` rejects the reverse, and rejects new
+import cycles between modules.
 
 **Ubiquitous language.** Names in code match [CONTEXT.md](CONTEXT.md): Agent,
 Agent Route, Agent Name, Task Title, Attention, Peer Allowlist, Device Grant,
@@ -126,13 +127,11 @@ Do not add a test matrix because a brief asked for one.
 
 ## Mobile UI architecture
 
-Phone features under `apps/mobile/sources/` are split by what the person is doing, then by layer. Expo Router `app/` is the composition root. Shared chrome (`components/`, `modal/`, `theme`, `text`) is not a fake context.
-
-**UI contexts:** `herd`, `spawn`, `pairing`, `plugins`, `terminal`, `collaboration`, `preview`, `takeover`, `changelog`, `settings`. **Runtime contexts:** `catalog`, `watch`, `connection`, `pairing`, `conversation`, `playback`, `account`. Encryption under `apps/mobile/sources/encryption/` is a shared kernel, not a context. Do not reintroduce `sync/`, `state/`, `realtime/`, `voice/`, or `auth/` folders.
+Phone features under `apps/mobile/sources/` are named for what the person is doing (`herd`, `spawn`, `terminal`, …). Subdivision inside a feature is earned, never mandated: a feature that needs one file should be one file. Layer folders (`domain/`, `application/`, `infrastructure/`, `presentation/`) are an implementation detail, not a requirement. Expo Router `app/` is the composition root. Shared chrome (`components/`, `modal/`, `theme`, `text`) is shared code, not a feature. Encryption under `apps/mobile/sources/encryption/` is a shared kernel. Do not reintroduce `sync/`, `state/`, `realtime/`, `voice/`, or `auth/` folders. Adding a feature needs no edits to the architecture checks.
 
 ### Dependency direction
 
-Outsiders import `@/<context>` (domain + use cases), `@/<context>/ui` (screens), or a documented public entry (`@/herd/model`, `@/herd/live`, `@/catalog/store`, `@/catalog/sync`, `@/catalog/ops`, `@/catalog/rig`, `@/watch/store`, `@/account/session`, `@/pairing/client`, `@/pairing/e2ee`, `@/pairing/grant`, `@/pairing/secrets`, `@/plugins/events`, `@/conversation/diagnostics`, `@/conversation/session`, `@/playback/interrupt`). Never `@/<context>/domain/…`. Domain is pure TypeScript (type-only React types allowed). Domain never imports application, presentation, infrastructure, or `@/*/ui`.
+Import `@/<feature>` (the public barrel), `@/<feature>/ui` (screens), or a documented public entry (`@/herd/model`, `@/herd/live`, `@/catalog/store`, `@/catalog/sync`, `@/catalog/ops`, `@/catalog/rig`, `@/watch/store`, `@/account/session`, `@/pairing/client`, `@/pairing/e2ee`, `@/pairing/grant`, `@/pairing/secrets`, `@/plugins/events`, `@/conversation/diagnostics`, `@/conversation/session`, `@/playback/interrupt`). Never reach past a feature's public entry into `@/<feature>/domain|application|infrastructure|presentation/…`. `model/` and `domain/` folders stay pure TypeScript (type-only React types allowed): no React runtime, no expo, no fetch. New import cycles between features are rejected; the existing measured pairs are a ratchet that may only shrink.
 
 ### Ubiquitous names
 
@@ -140,7 +139,7 @@ Use [CONTEXT.md](CONTEXT.md). Agent Route authorizes. Agent Name, Task Title, an
 
 ### Use cases
 
-One intent-revealing module per real operation. Phone UI uses PascalCase files (`StartAgent.ts`, `OpenTerminal.ts`). Runtime uses camelCase files (`promptAgent.ts`, `interruptPlayback.ts`). Command in, explicit result out. The module orchestrates domain entities and existing ports. It contains no React, `expo-router`, or `@/modal`. Routes, hooks, plugin slots, and host adapters are thin adapters. Map: [apps/mobile/sources/USE_CASES.md](apps/mobile/sources/USE_CASES.md). No `services/` folder. No use case that does not exist in the product.
+One intent-revealing module per real operation. Command in, explicit result out. The module orchestrates domain entities and existing ports. It contains no React, `expo-router`, or `@/modal`. Routes, hooks, plugin slots, and host adapters are thin adapters. Map: [apps/mobile/sources/USE_CASES.md](apps/mobile/sources/USE_CASES.md) — kept as a navigation document, not a checklist enforced in lockstep. No `services/` folder. No use case that does not exist in the product. File casing: PascalCase marks a file whose primary export is a React component; everything else is camelCase.
 
 ### Rich domain
 
@@ -148,7 +147,7 @@ Invariants and transitions live on domain objects (`Agent.lifecycle()`, `SpawnRe
 
 ### Compatibility
 
-Do not add shims for old internal import paths (`@/sync`, `@/state`, `@/realtime`, `@/voice`, `@/auth`, `@/client`). When a file moves, delete the old path. Callers import the context that owns the behavior.
+Do not add shims for old internal import paths (`@/sync`, `@/state`, `@/realtime`, `@/voice`, `@/auth`, `@/client`). When a file moves, delete the old path. Callers import the feature that owns the behavior.
 
 ### Readability
 
@@ -160,14 +159,14 @@ Flow-level checks through real modules. Default to zero new test files. Architec
 
 ## Tooling architecture
 
-Context first, layers only when they have real code:
+Feature first, layers only when they have real code:
 
 ```text
-scripts/<context>/{domain,application,infrastructure,presentation}/
-scripts/<context>/index.mjs   public entry — other contexts import only this
+scripts/<feature>/{domain,application,infrastructure,presentation}/
+scripts/<feature>/index.mjs   public entry — other features import only this
 ```
 
-Contexts: Setup, Plugin, Release, Diagnostics. Glossary: [CONTEXT.md](CONTEXT.md).
+Features: Setup, Plugin, Release, Diagnostics. Glossary: [CONTEXT.md](CONTEXT.md).
 Map: [CONTEXT-MAP.md](CONTEXT-MAP.md). Operations: [USE_CASES.md](USE_CASES.md).
 
 **Dependency direction.** Domain is pure. Application coordinates domain and
@@ -211,8 +210,8 @@ style.
 
 ## Backend architecture
 
-Context first, layers second. Host and relay live under
-`<bounded-context>/{domain,application,infrastructure}` — only layers that
+Module first, layers second. Host and relay live under
+`<module>/{domain,application,infrastructure}` — only layers that
 contain real code. Composition stays at `apps/host/src/{main,host}.ts` and
 `apps/relay/src/{main,relay,httpHandlers}.ts`.
 
@@ -227,7 +226,7 @@ contain real code. Composition stays at `apps/host/src/{main,host}.ts` and
 - **Presentation** is the process entry and socket/HTTP adapters. They invoke
   named use cases.
 
-Cross-context code imports the context `index.ts`, never internals.
+Cross-module code imports the module `index.ts`, never internals.
 Stable IDs authorize; display metadata never does. DTOs stay at boundaries.
 
 Maps:
@@ -273,12 +272,12 @@ Maps:
 
 ## Where things live
 
-- `packages/contract` — bounded contexts for the host/mobile/relay vocabulary
-- `packages/crypto` — E2EE context; the relay never holds keys
+- `packages/contract` — modules for the host/mobile/relay vocabulary
+- `packages/crypto` — E2EE module; the relay never holds keys
 - `packages/USE_CASES.md` — capability → use case → domain owner → adapters
 - `apps/host` — the herdr bridge; `src/herdr/` is the backend
 - `apps/relay` — envelope routing, replay, terminal/preview channels, push
-- `apps/mobile` — the app; runtime and UI bounded contexts under `sources/<context>/`
+- `apps/mobile` — the app; runtime and UI features under `sources/<feature>/`
 - `apps/mobile/sources/USE_CASES.md` — capability → use case → adapters
 - `docs/ARCHITECTURE.md` — the herdr facts this code depends on; read it before
   touching `apps/host/src/herdr/`
