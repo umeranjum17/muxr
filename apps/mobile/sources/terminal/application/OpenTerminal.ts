@@ -206,21 +206,31 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         hostUnconfirmed = false;
         publishState();
     };
-    const stopWatchingHost = storage.subscribe((current, previous) => {
-        if (current.socketStatus === previous.socketStatus) return;
-        if (current.socketStatus === 'connected') hostAnswered();
-        else if (current.socketStatus !== 'connecting') {
-            hostUnconfirmed = true;
-            publishState();
-        }
-    });
+    let stopWatchingHost: (() => void) | undefined;
+    function watchHost(): void {
+        if (stopWatchingHost !== undefined) return;
+        hostUnconfirmed = storage.getState().socketStatus !== 'connected' && storage.getState().socketStatus !== 'connecting';
+        stopWatchingHost = storage.subscribe((current, previous) => {
+            if (current.socketStatus === previous.socketStatus) return;
+            if (current.socketStatus === 'connected') hostAnswered();
+            else if (current.socketStatus !== 'connecting') {
+                hostUnconfirmed = true;
+                publishState();
+            }
+        });
+    }
+    function unwatchHost(): void {
+        stopWatchingHost?.();
+        stopWatchingHost = undefined;
+    }
+    watchHost();
 
     function scheduleRetry(): void {
         if (closedByUser || retryTimer !== undefined) return;
         attempts += 1;
         if (attempts > MAX_ATTEMPTS) {
             recordTerminalChannel('disconnected', { ok: false, code: 'disconnected' });
-            stopWatchingHost();
+            unwatchHost();
             for (const listener of closeListeners) listener('disconnected');
             return;
         }
@@ -272,6 +282,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             closedByTakeover = false;
             retaking = true;
         }
+        watchHost();
         if (retryTimer !== undefined) {
             clearTimeout(retryTimer);
             retryTimer = undefined;
@@ -392,7 +403,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                         ok: false,
                         code: closedByTakeover ? 'takeover' : 'disconnected',
                     });
-                    stopWatchingHost();
+                    unwatchHost();
                     for (const listener of closeListeners) listener(reason);
                 }
             } catch {
@@ -415,7 +426,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     function close(): void {
         closedByUser = true;
         closedByTakeover = false;
-        stopWatchingHost();
+        unwatchHost();
         command.signal?.removeEventListener('abort', close);
         emitGraphics(false);
         finalizeCounts();

@@ -475,7 +475,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const sendColor = headerLifecycle === 'idle' ? theme.colors.accent : headerStatus.color;
     const paneIndex = siblings.indexOf(props.id);
     const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
-    const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting';
+    const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting' && status !== 'unconfirmed';
+    const showUnconfirmedStatus = status === 'unconfirmed' && gestureHint === null;
     const attachmentAction = <Pressable onPress={attachPhotos} hitSlop={8} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ opacity: attaching ? 0.4 : 1 }}>
         <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={24} color={theme.colors.textSecondary} />
     </Pressable>;
@@ -629,6 +630,28 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         >
                             <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                             <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{status}</Text>
+                        </View>
+                )}
+                {showUnconfirmedStatus && (
+                        <View
+                            pointerEvents="none"
+                            accessibilityLabel={statusText}
+                            style={{
+                                position: 'absolute',
+                                top: 12,
+                                alignSelf: 'center',
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 6,
+                                paddingHorizontal: 12,
+                                paddingVertical: 6,
+                                borderRadius: 999,
+                                backgroundColor: theme.colors.surfaceHigh,
+                                borderWidth: 1,
+                                borderColor: theme.colors.divider,
+                            }}
+                        >
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{statusText}</Text>
                         </View>
                 )}
                 {showRetryStatus && (
