@@ -308,11 +308,10 @@ export function DeclarativeSessionActions({ actions, sessionId, onNavigate, pres
         if (action.kind === 'screen') {
             const open = () => { onNavigate(); router.push(pluginHref(action.pluginId, action.contentId, { sessionId })); };
             if (presentation !== undefined) return <ActionShortcut key={action.key} label={action.label} icon={action.icon as never} onPress={open} />;
+            // Named action rows are words; the declared glyph stays metadata.
             return <Pressable key={action.key} accessibilityRole="button" accessibilityLabel={action.label} onPress={open}
                 style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                <Ionicons name={action.icon as never} size={18} color={theme.colors.textSecondary} />
                 <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{action.label}</Text>
-                <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
             </Pressable>;
         }
         if (action.kind === 'list') return <ItemList key={action.key} context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} presentation={presentation ?? 'action-row'} />;
