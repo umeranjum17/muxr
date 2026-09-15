@@ -141,7 +141,19 @@ if (!existsSync(distIndex)) {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
         return existsSync(file) ? readFileSync(file, 'utf8') : '';
     })].join('\n');
-    check('dist initial payload has no marketing origin', !distText.includes('https://trymuxr.com'));
+    // Origin check via URL parsing (not a substring match): any URL in the
+    // payload whose host is the marketing origin is a leak.
+    const normalizedText = distText.replace(/\\\//g, '/');
+    const candidateUrls = normalizedText.match(/https?:\/\/[^\s"'<>()]+/g) ?? [];
+    const hasMarketingOrigin = candidateUrls.some((candidate) => {
+        try {
+            const host = new URL(candidate).hostname.replace(/\.+$/, '');
+            return host === 'trymuxr.com' || host.endsWith('.trymuxr.com');
+        } catch {
+            return false;
+        }
+    });
+    check('dist initial payload has no marketing origin', !hasMarketingOrigin);
     check('dist initial payload carries no mermaid engine', !distText.includes('__esbuild_esm_mermaid_nm'));
     check('dist initial payload carries no whisper model', !distText.includes('ggml-base'));
     const distModels = [];
