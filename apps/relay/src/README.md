@@ -13,7 +13,7 @@ src/
   push/{infrastructure}/
 ```
 
-Each context exposes `index.ts`. Other contexts import that file, not internals.
+Each module exposes `index.ts`. Other modules import that file, not internals.
 
 Use cases: [USE_CASES.md](./USE_CASES.md).
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Package architecture guard: bounded-context ownership, named use cases,
- * and readable control flow. Fails if a context reaches into another
- * context's internals, if layers invert, if a services folder appears,
- * or if a nested ternary sneaks back in.
+ * Package architecture guard: module ownership, pure domain modules,
+ * and readable control flow. Fails if a module reaches into another
+ * module's internals, if layers invert, if a services folder appears,
+ * if module import cycles appear, or if a nested ternary sneaks back in.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
@@ -11,9 +11,8 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)));
 const SRC_TREES = [join(ROOT, 'contract/src'), join(ROOT, 'crypto/src')];
-const USE_CASES = join(ROOT, 'USE_CASES.md');
-const CONTEXTS = ['herd', 'control-plane', 'peer', 'plugins', 'realtime', 'worktree', 'e2ee', 'shared'];
-const INTERNAL = new RegExp(`/(${CONTEXTS.join('|')})/(domain|infrastructure|application)/`);
+const MODULES = [...new Set(SRC_TREES.flatMap((tree) => readdirSync(tree).filter((entry) => statSync(join(tree, entry)).isDirectory())))];
+const INTERNAL = new RegExp(`/(${MODULES.join('|')})/(domain|infrastructure|application)/`);
 const NESTED_TERNARY = /\?[^?:\n]+:[^?:\n]*\?/;
 const INFRA_IMPORT = /from ['"][^'"]*\/infrastructure\//;
 const APP_IMPORT = /from ['"][^'"]*\/application\//;
@@ -22,7 +21,7 @@ const FORBIDDEN_APP_DEPS = /from ['"](?:react|react-native|expo|express|ws)['"]/
 const FAKE_DDD = /\b(BaseEntity|AggregateRoot|IRepository|UnitOfWork|Injectable)\b/;
 
 const failures = [];
-const applicationModules = [];
+const edges = new Map();
 
 function walk(dir, files = []) {
     for (const entry of readdirSync(dir)) {
@@ -49,11 +48,6 @@ function isPackageRoot(file) {
     return /src\/(?:index|selfCheck)\.ts$/.test(rel);
 }
 
-if (!existsSync(USE_CASES)) {
-    failures.push('USE_CASES.md: missing application index');
-}
-const useCaseIndex = existsSync(USE_CASES) ? readFileSync(USE_CASES, 'utf8') : '';
-
 for (const tree of SRC_TREES) {
     for (const file of walk(tree)) {
         const text = readFileSync(file, 'utf8');
@@ -62,7 +56,6 @@ for (const tree of SRC_TREES) {
         const domainFile = /\/domain\//.test(file);
         const infraFile = /\/infrastructure\//.test(file);
         const applicationFile = /\/application\//.test(file);
-        if (applicationFile) applicationModules.push(rel);
         if (rel.includes('/contract/') && /from ['"]@muxr\/crypto/.test(text)) {
             failures.push(`${rel}: contract must not import crypto`);
         }
@@ -82,7 +75,23 @@ for (const tree of SRC_TREES) {
                 const crossing = owner !== imported && !isPackageRoot(file);
                 const rootReachingIn = isPackageRoot(file);
                 if (crossing || rootReachingIn) {
-                    failures.push(`${rel}:${index + 1}: import of ${imported} internals; use that context's index`);
+                    failures.push(`${rel}:${index + 1}: import of ${imported} internals; use that module's index`);
+                }
+                if (owner !== undefined && owner !== imported && !isPackageRoot(file) && !file.endsWith('.spec.ts') && !file.endsWith('.test.ts')) {
+                    if (!edges.has(owner)) edges.set(owner, new Set());
+                    edges.get(owner).add(imported);
+                }
+            } else if (!isPackageRoot(file) && !file.endsWith('.spec.ts') && !file.endsWith('.test.ts')) {
+                const spec = line.match(/from ['"]([^'"]+)['"]/);
+                if (spec) {
+                    const barrel = spec[1].match(new RegExp(`^(\\.\\./)+(${MODULES.join('|')})/`));
+                    if (barrel) {
+                        const imported = barrel[2];
+                        if (owner !== undefined && owner !== imported) {
+                            if (!edges.has(owner)) edges.set(owner, new Set());
+                            edges.get(owner).add(imported);
+                        }
+                    }
                 }
             }
             if (domainFile && INFRA_IMPORT.test(line)) {
@@ -104,15 +113,18 @@ for (const tree of SRC_TREES) {
     }
 }
 
-for (const rel of applicationModules) {
-    const name = rel.split('/').pop()?.replace(/\.ts$/, '');
-    if (name && !useCaseIndex.includes(name)) {
-        failures.push(`${rel}: application module is missing from USE_CASES.md`);
+const pairs = new Set();
+for (const [a, targets] of edges) {
+    for (const b of targets) {
+        if (edges.get(b)?.has(a)) pairs.add([a, b].sort().join('<->'));
     }
+}
+if (pairs.size > 0) {
+    failures.push(`module import cycles: ${[...pairs].sort().join(', ')}`);
 }
 
 if (failures.length > 0) {
     console.error(`package architecture violated:\n${failures.join('\n')}`);
     process.exit(1);
 }
-console.log('package architecture: context boundaries, named use cases, and control-flow guards hold');
+console.log('package architecture: module boundaries, domain purity, and control-flow guards hold');

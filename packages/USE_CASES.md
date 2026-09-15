@@ -45,6 +45,6 @@ A package module exists only when the packages own the behavior. Product operati
 
 ## Convention
 
-Each package use case is one file named for the operation. It takes a small command or value object, talks only to same-context domain and infrastructure (or another context's `index.ts`), and returns an explicit result (`Outcome`, a decision union, or a sealed payload). No React, sockets, CLI flags, or native modules.
+Each package use case is one file named for the operation. It takes a small command or value object, talks only to same-module domain and infrastructure (or another module's `index.ts`), and returns an explicit result (`Outcome`, a decision union, or a sealed payload). No React, sockets, CLI flags, or native modules.
 
 Throwing aliases (`parseClientFrame`, `parseManifest`, `normalizePairingCode`, `verifyDeviceGrant`, `openV2`) stay for existing adapters. New code should call the named use case.

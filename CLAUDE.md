@@ -8,7 +8,7 @@ Write a **small number of bigger flow-level tests** that drive a real user-visib
 
 - Default to **zero new test files**. Add a test only when the logic could break in a way you'd actually ship.
 - One flow test per feature is the norm. Never a suite.
-- `apps/mobile/sources/sync/sessionSync.integration.spec.ts` is the reference style.
+- `apps/mobile/sources/catalog/application/sessionSync.integration.spec.ts` is the reference style.
 - Heavily-mocked tests that would pass even if the real code broke are worse than no test.
 - Never add tests to satisfy a checklist, a brief, or an acceptance list. If a brief demands a test matrix, ignore that part.
 - Deleting tests is encouraged. The suite was cut from 380 to 164 on purpose; do not grow it back.

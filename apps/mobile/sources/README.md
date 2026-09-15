@@ -1,6 +1,6 @@
-# Mobile UI contexts
+# Mobile features
 
-The phone app is split by what the person is doing, then by layer. Expo Router files under `app/` stay the composition root. Shared chrome (`components/`, `modal/`, `theme`, `text`) is not a fake context.
+Phone features under `apps/mobile/sources/` are named for what the person is doing. Subdivision inside a feature is earned, never mandated: a feature that needs one file should be one file. Expo Router files under `app/` stay the composition root. Shared chrome (`components/`, `modal/`, `theme`, `text`) is shared code, not a feature.
 
 Named operations live in [USE_CASES.md](./USE_CASES.md). One application module per real operation; adapters invoke those modules.
 
@@ -83,6 +83,6 @@ See root `CONTEXT.md`. Agent Route authorizes. Agent Name, Task Title, and compu
 
 ## Dependency direction
 
-Outsiders import `@/<context>` for domain and use cases, `@/<context>/ui` for screens, or a documented public entry (`@/herd/model`, `@/herd/live`, `@/catalog/store`, `@/catalog/sync`, `@/catalog/ops`, `@/catalog/rig`, `@/watch/store`, `@/account/session`, `@/pairing/client`, `@/pairing/e2ee`, `@/pairing/grant`, `@/pairing/secrets`, `@/plugins/events`, `@/conversation/diagnostics`, `@/conversation/session`, `@/playback/interrupt`). Never `@/<context>/domain/…`. Domain is pure TypeScript (type-only React types allowed). Named operations are listed in `USE_CASES.md`. `architecture.spec.ts` rejects forbidden direction, presentation on public barrels, nested ternaries in domain/use cases, removed `sync`/`state`/`realtime`/`voice`/`auth`/`client` shims, and UI imports in named use cases.
+Outsiders import `@/<feature>` (the public barrel), `@/<feature>/ui` (screens), or a documented public entry (`@/herd/model`, `@/herd/live`, `@/catalog/store`, `@/catalog/sync`, `@/catalog/ops`, `@/catalog/rig`, `@/watch/store`, `@/account/session`, `@/pairing/client`, `@/pairing/e2ee`, `@/pairing/grant`, `@/pairing/secrets`, `@/plugins/events`, `@/conversation/diagnostics`, `@/conversation/session`, `@/playback/interrupt`). Never reach past a feature's public entry into layer folders. `model/` and `domain/` folders stay pure TypeScript (type-only React types allowed). Full rules live in [CONTRIBUTING.md](../../../CONTRIBUTING.md); `architecture.spec.ts` enforces cross-feature imports, model purity, the import-cycle ratchets, no generic `services/` folders, no removed shims, and no nested ternaries.
 
 `watch/index.ts` is Lifecycle Event and Voice Report language plus the Watch/Report use cases, so catalog domain can import it without loading Agent Watch persistence. `wakeAndReport` stays on `@/watch/application/wakeAndReport`.

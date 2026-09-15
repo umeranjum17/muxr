@@ -1,21 +1,26 @@
 #!/usr/bin/env node
 /**
- * Tooling architecture guard: bounded-context folders own their internals.
- * Other contexts may import only a public index. Domain stays I/O-free.
- * Application modules are named use cases. Nested ternaries are rejected.
+ * Tooling architecture guard: feature folders own their internals.
+ * Other features may import only a public index. Domain stays I/O-free.
+ * Feature import cycles are ratcheted to the measured set. Nested ternaries
+ * are rejected.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
-const CONTEXTS = ['setup', 'plugin', 'release', 'diagnostics'];
+const FEATURES = ['setup', 'plugin', 'release', 'diagnostics'];
+// Bidirectional feature dependency pairs measured at the 2026 structure
+// investigation. The ratchet may only shrink; any new pair fails.
+const ALLOWED_CYCLES = ['diagnostics<->setup'];
 const DOMAIN_IO = /\bfrom ['"]node:(fs|net|http|https|child_process|os|dgram)(?:\/[^'"]*)?['"]/;
 const NESTED_TERNARY = /\?[^?:.\n]{1,80}:[^?:.\n]{0,80}\?(?![`'"])/;
 const FORBIDDEN_DIRS = new Set(['services', 'handlers', 'usecases', 'useCases', 'use-cases']);
 const MAINTAINER = /^(check|verifyNativePatches|runSuite|runSkeletonCheck|packageLifecycleSmoke|sandbox|waitForRelay|cleanWorktrees|serveWebExport)/;
 const SIDE_EFFECT = new Set(['pack.mjs']);
 const failures = [];
+const edges = new Map();
 
 function walk(dir, files = []) {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -35,7 +40,7 @@ function contextOf(file) {
     const rel = relative(join(ROOT, 'scripts'), file);
     if (rel.startsWith('..')) return undefined;
     const first = rel.split(/[\\/]/)[0];
-    return CONTEXTS.includes(first) ? first : undefined;
+    return FEATURES.includes(first) ? first : undefined;
 }
 
 function layerOf(file) {
@@ -101,8 +106,10 @@ for (const file of files) {
         const other = contextOf(alt) ?? contextOf(target ?? '');
         if (other !== undefined && other !== context) {
             const allowedIndex = alt.endsWith(`${other}/index.mjs`) || alt.endsWith(`${other}/index.js`);
+            if (!edges.has(context)) edges.set(context, new Set());
+            edges.get(context).add(other);
             if (!allowedIndex && layer !== 'index') {
-                failures.push(`${rel}: cross-context internal import of ${relative(ROOT, alt)}`);
+                failures.push(`${rel}: cross-feature internal import of ${relative(ROOT, alt)}`);
             }
         }
         if (layer === 'domain') {
@@ -126,8 +133,21 @@ for (const file of files) {
     }
 }
 
+const pairs = new Set();
+for (const [a, targets] of edges) {
+    for (const b of targets) {
+        if (edges.get(b)?.has(a)) pairs.add([a, b].sort().join('<->'));
+    }
+}
+for (const pair of pairs) {
+    if (!ALLOWED_CYCLES.includes(pair)) failures.push(`feature import cycle: ${pair}`);
+}
+for (const pair of ALLOWED_CYCLES) {
+    if (!pairs.has(pair)) failures.push(`ratchet ${pair} no longer exists; remove it from ALLOWED_CYCLES`);
+}
+
 if (failures.length > 0) {
     process.stderr.write(`tooling architecture violated:\n${failures.join('\n')}\n`);
     process.exit(1);
 }
-process.stdout.write(`architecture: ${files.length} files, named use cases, contexts isolated, domain I/O-free, no nested ternaries\n`);
+process.stdout.write(`architecture: ${files.length} files, feature boundaries, domain I/O-free, no nested ternaries\n`);

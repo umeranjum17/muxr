@@ -21,7 +21,7 @@ const checks = [
     ['unit: host domain (unread/attention/restart)', 'node', ['apps/host/dist/agent/infrastructure/watchStores.selfCheck.js']],
     ['unit: contract vocabulary round-trip', 'node', ['packages/contract/dist/selfCheck.js']],
     ['policy: plugin bridge types in RequestMap', 'node', ['scripts/diagnostics/application/checkPluginBridge.mjs']],
-    ['policy: package architecture (contexts, use cases, no nested ternaries)', 'node', ['packages/checkArchitecture.mjs']],
+    ['policy: package architecture (module boundaries, domain purity, no nested ternaries)', 'node', ['packages/checkArchitecture.mjs']],
     ['policy: bundled plugin manifests', 'node', ['scripts/diagnostics/application/checkBundledPlugins.mjs']],
     ['unit: relay pairing (expiry, cap, validation)', 'node', ['apps/relay/dist/selfCheck.js']],
     ['unit: layout snapshot round-trip', 'node', ['apps/host/dist/agent/infrastructure/layoutSelfCheck.js']],
@@ -49,7 +49,7 @@ const checks = [
     ['package: install/setup + full lifecycle smoke', 'node', ['scripts/diagnostics/application/checkPackageSmoke.mjs'], undefined, 300000],
     ['release: public channel catalog flow', 'node', ['scripts/diagnostics/application/checkReleaseCatalog.mjs']],
     ['policy: core purity (no cloud refs in OSS)', 'node', ['scripts/diagnostics/application/checkCorePurity.mjs']],
-    ['policy: tooling architecture (named use cases, layers, no nested ternaries)', 'node', ['scripts/diagnostics/application/checkArchitecture.mjs']],
+    ['policy: tooling architecture (feature boundaries, layers, no nested ternaries)', 'node', ['scripts/diagnostics/application/checkArchitecture.mjs']],
     ['security: tracked/package secret scan', 'node', ['scripts/diagnostics/application/checkNoSecrets.mjs']],
 ];
 
