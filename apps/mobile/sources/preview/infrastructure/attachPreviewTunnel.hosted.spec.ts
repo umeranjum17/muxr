@@ -70,6 +70,7 @@ import { attachPreviewTunnel } from './attachPreviewTunnel';
 
 describe('attachPreviewTunnel hosted transport', () => {
     beforeEach(() => {
+        grant.expiresAt = Date.now() + 60_000;
         mocks.request.mockReset().mockResolvedValue({});
         mocks.fetch.mockReset().mockResolvedValue({
             ok: true,
@@ -98,5 +99,13 @@ describe('attachPreviewTunnel hosted transport', () => {
         const tunnel = await opening;
         expect(tunnel.port).toBe(41234);
         expect(tunnel.hostname).toBe('127.0.0.1');
+    });
+
+    it('rejects an expired grant before attaching anything on the host', async () => {
+        grant.expiresAt = Date.now() - 1_000;
+        await expect(attachPreviewTunnel(18912)).rejects.toThrow('device grant expired; pair again');
+        expect(mocks.request).not.toHaveBeenCalled();
+        expect(mocks.fetch).not.toHaveBeenCalled();
+        expect(FakeWebSocket.instances.length).toBe(0);
     });
 });
