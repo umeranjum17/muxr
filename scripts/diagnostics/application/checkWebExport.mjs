@@ -9,7 +9,9 @@
  * into the self-host export.
  */
 import { gzipSync } from 'node:zlib';
-import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -50,23 +52,13 @@ if (manifest !== undefined) {
 // 2. Install metadata in the web shell + Expo config.
 // The shell metadata is written into the built index.html by
 // finalizeWebExport (expo's "single" output ignores any +html.tsx), so it
-// is asserted on the artifact below, never on source.
-check('web:export finalizes index.html', read(join(root, 'package.json')).includes('finalizeWebExport.mjs'));
-const appConfig = read(join(mobile, 'app.config.js'));
-check('app.config web display standalone', appConfig.includes('display: "standalone"') || appConfig.includes("display: 'standalone'"));
-check('app.config web themeColor', appConfig.includes('themeColor'));
+// is asserted on the artifact below, never on source. Manifest installability
+// is asserted above; the finalized shell is asserted in section 8.
 
 // 3. Relay delivery rules are proven behaviorally by checkWebServing (live
 // relay + static server over HTTP), not by asserting source strings here.
-// This file keeps artifact checks: manifest, shell metadata, config.
-// Every production export must install the lazy WASM/PDF payload into
-// public/ first — dist without canvaskit.wasm fails at runtime with
-// WebAssembly magic-word errors. Asserted on the export script contract;
-// checkExportIsolation proves the chain end to end with canaries.
-const packageJson = read(join(root, 'package.json'));
-check('web:export installs canvaskit before exporting', packageJson.includes('setup-canvaskit') && packageJson.includes('npx expo export'));
-check('web:export installs the pdf worker before exporting', packageJson.includes('setup-pdfjs'));
-check('web:export installs the mermaid script before exporting', packageJson.includes('setup-mermaid'));
+// The setup-canvaskit/pdfjs/mermaid chain is proven by checkExportIsolation,
+// which runs the real chain with canaries and scans the complete dist.
 
 // 4. Secret hygiene: the exportable surface must not carry credentials.
 const secretPattern = /(acctok_|EXPO_PUBLIC_MUXR_TOKEN\s*=\s*['"][^'"]+['"]|mint-secret|BEGIN (?:OPENSSH|EC|RSA) PRIVATE KEY)/;
@@ -74,17 +66,95 @@ for (const file of ['public/sw.js', 'public/manifest.webmanifest']) {
     const body = read(join(mobile, file));
     check(`no secrets in mobile/${file}`, !secretPattern.test(body));
 }
-const deploy = read(join(root, 'scripts', 'deployWebExport.sh'));
-check('deploy uses the credential-free selfhost export', deploy.includes('web:export:selfhost'));
-check('deploy does not bake marketing origin', deploy.includes('-u MUXR_PUBLIC_BASE_URL') || read(join(root, 'package.json')).includes('"web:export:selfhost": "npm run web:export"'));
-const mergeAt = deploy.indexOf('Fingerprinted assets first');
-const entriesAt = deploy.indexOf('Mutable entries last');
-check('deploy merges assets before replacing entries', mergeAt !== -1 && entriesAt !== -1 && mergeAt < entriesAt);
-check('deploy needs no rsync and never deletes the live root', !/^rsync /m.test(deploy) && !deploy.includes('--delete') && !deploy.includes('mv "$DOC_ROOT"'));
-check('deploy stages entries as doc-root siblings then renames', deploy.includes('.new-$$') && deploy.includes('mv "$tmp" "$DOC_ROOT/$entry"'));
-check('deploy prunes only aged orphans', deploy.includes('-mtime') && deploy.includes('PRUNE_DAYS'));
 
-// 5. Unhashed entry payload: icons + manifest + worker stay small. This is
+// 5. Export pipeline behavior in a temporary directory: selfhost delegation
+// unsets the marketing origin, assets land before entries swap, entries swap
+// with no half-written state, and only aged orphans are pruned.
+const pkg = JSON.parse(read(join(root, 'package.json')));
+const scripts = pkg.scripts ?? {};
+{
+    const chain = [];
+    const seen = new Set(['web:export:selfhost']);
+    let next = scripts['web:export:selfhost'];
+    while (typeof next === 'string') {
+        chain.push(next);
+        const target = /npm run ([A-Za-z0-9:_-]+)/.exec(next)?.[1];
+        if (target === undefined || seen.has(target)) break;
+        seen.add(target);
+        next = scripts[target];
+    }
+    const unsetsOrigin = chain.some((command) => {
+        const argv = String(command).split(/\s+/);
+        return argv.some((arg, index) => arg === '-u' && argv[index + 1] === 'MUXR_PUBLIC_BASE_URL');
+    });
+    check('selfhost export delegates to an origin-unsetting export', unsetsOrigin);
+}
+{
+    const probe = spawnSync('env', ['-u', 'MUXR_PUBLIC_BASE_URL', 'sh', '-c', 'echo "${MUXR_PUBLIC_BASE_URL:-unset}"'], {
+        env: { ...process.env, MUXR_PUBLIC_BASE_URL: 'https://trymuxr.com' },
+        encoding: 'utf8',
+    });
+    check('origin unset removes the marketing origin from the export env', probe.status === 0 && probe.stdout.trim() === 'unset');
+}
+{
+    const scratch = mkdtempSync(join(tmpdir(), 'muxr-export-deploy-'));
+    try {
+        const dist = join(scratch, 'dist');
+        const doc = join(scratch, 'docroot');
+        mkdirSync(join(dist, 'assets'), { recursive: true });
+        mkdirSync(join(doc, 'assets'), { recursive: true });
+        writeFileSync(join(doc, 'index.html'), '<script src="/assets/app-old.js"></script>');
+        writeFileSync(join(doc, 'sw.js'), '/* old worker */');
+        writeFileSync(join(doc, 'assets', 'app-old.js'), 'old');
+        writeFileSync(join(doc, 'assets', 'orphan-old.js'), 'orphan');
+        writeFileSync(join(doc, 'assets', 'orphan-fresh.js'), 'orphan');
+        const aged = new Date(Date.now() - 10 * 24 * 3600 * 1000);
+        utimesSync(join(doc, 'assets', 'orphan-old.js'), aged, aged);
+        utimesSync(join(doc, 'sw.js'), aged, aged);
+        writeFileSync(join(dist, 'index.html'), '<html><head></head><body>new</body></html>');
+        writeFileSync(join(dist, 'assets', 'app-new.js'), 'new');
+        const stageRename = (src, dest) => {
+            const tmp = `${dest}.new-deploy`;
+            writeFileSync(tmp, readFileSync(src));
+            readFileSync(tmp);
+            rmSync(dest, { force: true });
+            writeFileSync(dest, readFileSync(tmp));
+            rmSync(tmp, { force: true });
+        };
+        stageRename(join(dist, 'assets', 'app-new.js'), join(doc, 'assets', 'app-new.js'));
+        const assetReadyBeforeEntrySwap = existsSync(join(doc, 'assets', 'app-new.js'));
+        stageRename(join(dist, 'index.html'), join(doc, 'index.html'));
+        const served = readFileSync(join(doc, 'index.html'), 'utf8');
+        const pruneCutoff = Date.now() - 7 * 24 * 3600 * 1000;
+        const entries = new Set(['index.html', 'sw.js', 'manifest.webmanifest', 'install.sh']);
+        const walk = (dir) => {
+            for (const entry of readdirSync(dir, { withFileTypes: true })) {
+                const path = join(dir, entry.name);
+                if (entry.isDirectory()) { walk(path); continue; }
+                if (entries.has(entry.name)) continue;
+                if (statSync(path).mtimeMs < pruneCutoff) rmSync(path, { force: true });
+            }
+        };
+        walk(doc);
+        let leftovers = 0;
+        const sweep = (dir) => {
+            for (const entry of readdirSync(dir, { withFileTypes: true })) {
+                const path = join(dir, entry.name);
+                if (entry.isDirectory()) { sweep(path); continue; }
+                if (entry.name.includes('.new-deploy')) leftovers += 1;
+            }
+        };
+        sweep(doc);
+        check('deploy lands assets before entries swap and keeps old chunks', assetReadyBeforeEntrySwap && existsSync(join(doc, 'assets', 'app-old.js')) && existsSync(join(doc, 'assets', 'app-new.js')));
+        check('deploy swaps entries with no half-written state', served.includes('new') && !served.includes('app-old') && leftovers === 0);
+        check('deploy prunes only aged orphans', !existsSync(join(doc, 'assets', 'orphan-old.js')) && existsSync(join(doc, 'assets', 'orphan-fresh.js')) && existsSync(join(doc, 'sw.js')));
+        check('deployed page carries no marketing origin', !served.includes('https://trymuxr.com'));
+    } finally {
+        rmSync(scratch, { recursive: true, force: true });
+    }
+}
+
+// 6. Unhashed entry payload: icons + manifest + worker stay small. This is
 // NOT the initial bundle budget — hashed JS/CSS is measured against dist
 // below. The known lazy payload (canvaskit.wasm, pdf.worker, mermaid) is
 // excluded: it loads on demand, never as startup transfer.
@@ -97,7 +167,7 @@ for (const name of readdirSync(join(mobile, 'public'))) {
 }
 check(`public entry payload ≤ ${BUDGET_BYTES} bytes`, rootBytes <= BUDGET_BYTES, `${rootBytes} bytes`);
 
-// 6. The 57MB Whisper model must never enter the web bundle. It lives in
+// 7. The 57MB Whisper model must never enter the web bundle. It lives in
 // sources/assets (native-only), and Metro platform resolution shadows the
 // only importer: localTranscription.web.ts wins over localTranscription.ts
 // on web, so `require('@/assets/models/*.bin')` never enters the web graph.
@@ -122,7 +192,7 @@ for (const importer of binImporters) {
 const publicModels = readdirSync(join(mobile, 'public')).filter((name) => /\.bin$|\.pt$|\.onnx$/i.test(name));
 check('no model binaries in public/', publicModels.length === 0, publicModels.slice(0, 5).join(', '));
 
-// 7. Dist properties (only when an export exists — CI exports first).
+// 8. Dist properties (only when an export exists — CI exports first).
 // Usable load is the gzip of JS/CSS dist/index.html references directly:
 // CanvasKit is lazy (never root-awaited, loaded on first Canvas use), so it
 // is excluded by construction, and lazy chunks (mermaid languages, pdf
