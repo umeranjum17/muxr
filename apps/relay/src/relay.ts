@@ -886,6 +886,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 }
                 revokePeers({ accountId: `local:${revoked.machineSlug}`, deviceId });
                 await push.removeExpoDevice(`local:${revoked.machineSlug}`, deviceId);
+                await push.removeWebDevice(`local:${revoked.machineSlug}`, deviceId);
                 writeJson(res, 200, { ok: true });
                 return;
             }
@@ -928,7 +929,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 const level = body.level === undefined ? undefined : parseLifecycleNotificationLevel(body.level);
                 if (body.level !== undefined && level === undefined) { writeJsonError(res, 400, 'invalid lifecycle notification level'); return; }
                 try {
-                    await push.subscribe(`local:${device.machineSlug}`, body.subscription, level === undefined ? {} : { level });
+                    await push.subscribe(`local:${device.machineSlug}`, body.subscription, { deviceId: device.deviceId, ...(level === undefined ? {} : { level }) });
                 } catch (error) {
                     if (error instanceof Error && error.message.includes('allowed Web Push destination')) {
                         writeJsonError(res, 400, 'subscription endpoint is not an allowed Web Push destination');

@@ -3,12 +3,9 @@
  *
  * Part A (HTTP, production gating): pair a browser device, prove
  * /v1/push/vapid-public and /v1/push/subscribe answer its device credential,
- * persist the endpoint plus the level, reject missing/peer/foreign
+ * persist the device-bound endpoint plus the level, reject missing/peer/foreign
  * credentials, allowlist unsafe endpoints, update the level on re-post,
- * delete by endpoint, and reject the credential after revocation.
- * Subscriptions are endpoint-keyed and account-scoped: revoking the device
- * kills the credential but does not cascade to the endpoint record (known
- * gap — explicit DELETE or provider 404/410 pruning removes it).
+ * delete by endpoint, and drop the device's subscriptions on revocation.
  * Part B (delivery): drive the real PushService against a localhost stub
  * push endpoint — level-filtered sends, urgency/TTL headers, endpoint
  * removal stops delivery.
@@ -182,8 +179,9 @@ try {
     });
     assert(sub.response.ok, `device subscribe failed: ${JSON.stringify(sub.body)}`);
     const stored = subsFile().accounts[accountId] ?? [];
-    assert(stored.length === 1 && stored[0].endpoint === subscription.endpoint && stored[0].level === 'important',
-        `endpoint/level not persisted: ${JSON.stringify(stored)}`);
+    assert(stored.length === 1 && stored[0].endpoint === subscription.endpoint
+        && stored[0].deviceId === browser.id && stored[0].level === 'important',
+        `device-bound endpoint/level not persisted: ${JSON.stringify(stored)}`);
 
     // Re-posting the same endpoint updates the level instead of duplicating.
     const resub = await json('/v1/push/subscribe', {
@@ -203,24 +201,23 @@ try {
     assert((subsFile().accounts[accountId] ?? []).length === 0, 'endpoint delete left the record');
     process.stdout.write('ok  subscription endpoints allowlisted; level updates; endpoint delete works\n');
 
-    // Re-subscribe so revocation has something to outlive: revoking the
-    // device kills the credential (403 below) but does NOT cascade to the
-    // endpoint record — explicit DELETE or provider 404/410 pruning removes
-    // it. That residual gap is tracked separately, not asserted away here.
+    // Re-subscribe so revocation has something to cascade to: revoking the
+    // device kills the credential AND drops its subscriptions.
     const resub2 = await json('/v1/push/subscribe', {
         method: 'POST', headers: bearer(browser.credential),
         body: JSON.stringify({ subscription, level: 'important' }),
     });
     assert(resub2.response.ok, `resubscribe failed: ${JSON.stringify(resub2.body)}`);
 
-    // Revocation rejects the credential.
+    // Revocation rejects the credential and drops the device's subscriptions.
     const revoked = await json(`/v1/selfhost/devices/${encodeURIComponent(browser.id)}`, {
         method: 'DELETE', headers: bearer(mintSecret),
     });
     assert(revoked.response.ok, `revoke failed: ${JSON.stringify(revoked.body)}`);
+    assert((subsFile().accounts[accountId] ?? []).length === 0, 'revoked device kept its web subscription');
     const vapidRevoked = await json('/v1/push/vapid-public', { headers: bearer(browser.credential) });
     assert(vapidRevoked.response.status === 403, `revoked credential still answered: ${vapidRevoked.response.status}`);
-    process.stdout.write('ok  web push reachable with device auth, persists endpoint+level, revocation rejects the credential\n');
+    process.stdout.write('ok  web push reachable with device auth, persists device-bound endpoint+level, revocation unsubscribes\n');
 
     // Part B: record-keeping semantics, no network. The web-push library
     // speaks TLS unconditionally while the allowlist admits plain http only
