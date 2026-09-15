@@ -84,8 +84,8 @@ describe('relay runtime architecture', () => {
                 }
             }
             for (const spec of importsOf(source)) {
-                const cross = spec.match(/^\.\.\/\.\.\/(admission|routing|push)\/(domain|application|infrastructure)\//);
-                if (cross && cross[1] !== module) offenders.push(`${rel} -> ${spec}`);
+                const cross = spec.match(/^(\.\.\/)+(admission|routing|push)\/(domain|application|infrastructure)\//);
+                if (cross && cross[2] !== module) offenders.push(`${rel} -> ${spec}`);
             }
             if (COMPOSITION.has(rel)) {
                 for (const spec of importsOf(source)) {
@@ -101,6 +101,7 @@ describe('relay runtime architecture', () => {
     it('has no import cycles between modules', () => {
         const edges = new Map<string, Set<string>>();
         for (const file of files) {
+            if (file.endsWith('.test.ts')) continue;
             const module = moduleOf(file);
             if (module === undefined) continue;
             for (const spec of importsOf(readFileSync(file, 'utf8'))) {

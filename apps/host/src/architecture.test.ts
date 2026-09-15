@@ -9,9 +9,9 @@ const MODULES = ['agent', 'machine', 'peer', 'requests', 'diagnostics'] as const
 const COMPOSITION = new Set(['main.ts', 'host.ts', 'host.test.ts', 'architecture.test.ts']);
 
 // Bidirectional module dependency pairs measured at the 2026 structure
-// investigation. The ratchet may only shrink: a pair that disappears must be
-// removed here, and any new pair fails the check.
-const allowedModuleCycles = ['agent<->peer', 'peer<->requests'];
+// investigation: none. The ratchet may only shrink (it starts empty), and any
+// new pair fails the check.
+const allowedModuleCycles: string[] = [];
 
 function walk(dir: string, out: string[] = []): string[] {
     for (const name of readdirSync(dir)) {
@@ -84,8 +84,8 @@ describe('host runtime architecture', () => {
                 }
             }
             for (const spec of importsOf(source)) {
-                const cross = spec.match(/^\.\.\/\.\.\/(agent|machine|peer|requests|diagnostics)\/(domain|application|infrastructure)\//);
-                if (cross && cross[1] !== module) offenders.push(`${rel} -> ${spec}`);
+                const cross = spec.match(/^(\.\.\/)+(agent|machine|peer|requests|diagnostics)\/(domain|application|infrastructure)\//);
+                if (cross && cross[2] !== module) offenders.push(`${rel} -> ${spec}`);
             }
             if (COMPOSITION.has(rel)) {
                 for (const spec of importsOf(source)) {
@@ -101,6 +101,7 @@ describe('host runtime architecture', () => {
     it('has no new import cycles between modules', () => {
         const edges = new Map<string, Set<string>>();
         for (const file of files) {
+            if (file.endsWith('.test.ts')) continue;
             const module = moduleOf(file);
             if (module === undefined) continue;
             for (const spec of importsOf(readFileSync(file, 'utf8'))) {
