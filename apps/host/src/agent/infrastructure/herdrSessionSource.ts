@@ -706,8 +706,8 @@ export async function createHerdrSessionSource(
                 ...seededAgent,
                 pane_id: paneId,
                 name: seededAgent?.name ?? pending.value,
-                agent: undefined,
-                agent_session: undefined,
+                agent: null,
+                agent_session: null,
             });
         }
     }
