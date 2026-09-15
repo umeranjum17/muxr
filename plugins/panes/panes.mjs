@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Declared terminal applications in Tools; ordinary agent-less panes in Panes.
+ * Declared terminal applications in Applications (`tools` RPC); ordinary agent-less panes in Panes.
  *
- * Tools exposes enabled plugins' explicitly global actions. Pane definitions
+ * Applications exposes enabled plugins' explicitly global actions. Pane definitions
  * alone may be setup/administration screens; they are not app launchers.
  */
 import { execFileSync } from 'node:child_process';

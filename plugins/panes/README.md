@@ -1,10 +1,10 @@
-# Panes and Tools
+# Panes and Applications
 
-Panes lists ordinary shells and terminal applications. Tools lists enabled Herdr
+Panes lists ordinary shells and terminal applications. Applications lists enabled Herdr
 plugins' explicitly global launch actions, using their declared names. Shells
 and plugin setup panes are not duplicate application launchers.
 
-A Tools tap resolves the current session on the host, creates a dedicated tab in
+An Applications tap resolves the current session on the host, creates a dedicated tab in
 that workspace, and runs the enabled plugin's declared command against the
 owned anchor pane. The launcher supplies the caller's project directory and
 Herdr context, and includes the standard user executable directory in PATH.
@@ -25,7 +25,7 @@ and report success before checking its outcome.
 No Browser/Code provider IDs or executable names are encoded in mobile or in the
 launcher. Discovery and execution use the current enabled plugin's declaration.
 The installed plugin code runs with the same user permissions as other Herdr
-actions; enabling and approving Tools remains a host-process capability.
+actions; enabling and approving Applications remains a host-process capability.
 
 ## Verification
 
