@@ -495,7 +495,6 @@ export const MainView = React.memo(() => {
     // Reopen the last-viewed terminal once per launch when it is still reachable.
     const launchReopenEnabled = React.useRef(reopenLastTerminal);
     const launchLastTerminal = React.useRef(lastTerminal);
-    const launchMachineId = React.useRef(getCachedConnectionSettings().machineId);
     const ownsLaunchReopen = React.useRef(!lastTerminalLaunchClaimed);
     React.useEffect(() => {
         if (ownsLaunchReopen.current) lastTerminalLaunchClaimed = true;
@@ -505,7 +504,7 @@ export const MainView = React.memo(() => {
         const candidate = launchLastTerminal.current;
         if (!ownsLaunchReopen.current || reopenAttempted.current || !launchReopenEnabled.current || candidate === null) return;
         if (socketStatus.status !== 'connected' || !sessionsLoaded || authorityLoading) return;
-        if (candidate.machineId !== launchMachineId.current || candidate.machineId !== getCachedConnectionSettings().machineId) return;
+        if (candidate.machineId !== getCachedConnectionSettings().machineId) return;
         reopenAttempted.current = true;
         // The persisted route is only a hint. A fresh host tree and the current
         // catalog must both still authorize that pane before navigation.
