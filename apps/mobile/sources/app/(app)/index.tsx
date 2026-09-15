@@ -74,7 +74,7 @@ function NotAuthenticated() {
         const pasted = await Modal.prompt(
             title,
             Platform.OS === 'web'
-                ? 'Paste the short link shown by `muxr pair --browser` for eight hours of control, or `muxr pair --browser-view` for view-only access.'
+                ? 'Paste the short link shown by `muxr pair --browser` for eight hours of control, `muxr pair --browser-personal` for 30 days of control on a browser only you use, or `muxr pair --browser-view` for view-only access.'
                 : 'Paste the pairing string shown by `muxr pair` on that machine. It pairs this phone end-to-end encrypted.',
             { placeholder: Platform.OS === 'web' ? 'https://your-relay/pair?pair=…' : 'wss://your-relay?pair=7KDM4-QXP7N' },
         );

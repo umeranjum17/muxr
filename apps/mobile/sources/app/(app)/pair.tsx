@@ -113,7 +113,7 @@ export default function PairScreen() {
             if (cancelled) return;
             if (!receive(url)) {
                 setState({ phase: 'error', message: browser
-                    ? 'Paste a fresh browser pairing string from `muxr pair --browser`.'
+                    ? 'Paste a fresh browser pairing string from `muxr pair --browser`, `muxr pair --browser-personal`, or `muxr pair --browser-view`.'
                     : 'Enter the short pairing string shown by `muxr pair`.' });
             };
         }).catch((cause) => {
