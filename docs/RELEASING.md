@@ -1,12 +1,13 @@
 # Release channels
 
-`main` is the development stream. Merging a PR does **not** publish production. Short feature branches merge through normal CI; a candidate freezes one green `main` commit while development continues.
+`main` is the development stream. Merging a PR or pushing to `main` does **not** start CI, build, or publication workflows. Captain-tested commits merge frequently; a candidate freezes one exact `main` commit while development continues. The repository workflows below are manual dispatches unless noted otherwise.
 
 ```mermaid
 flowchart LR
- PR[Reviewed PR + local acceptance] --> MAIN[main + CI]
- MAIN --> NIGHTLY[Nightly candidate]
- NIGHTLY --> PHONE[Install APK and test on phone]
+ PR[Reviewed PR + local acceptance] --> MAIN[main; no automatic Actions]
+ MAIN --> TEST[Captain tests exact main commit]
+ TEST --> CANDIDATE[Manual release-candidate dispatch]
+ CANDIDATE --> PHONE[Install APK and test on phone]
  PHONE --> FINAL[Build final-version candidate]
  FINAL --> APPROVE[Explicit maintainer production approval]
  APPROVE --> NPM[npm latest: exact retained tarball]
@@ -33,9 +34,26 @@ node scripts/release/presentation/changelog.mjs check    --version 0.1.27-nightl
 
 ## Build and try a candidate
 
-Run **release candidate** on `main` after its CI succeeds. Choose `nightly` for the current testing cycle; the daily nightly run skips a commit whose source is already published on the nightly channel, so a stable candidate cut from the same commit no longer suppresses that day's nightly. Leave version empty for an automatically unique next-patch prerelease, or give an exact version such as `0.1.27-nightly.1`. Final-version candidates require an explicit stable version such as `0.1.27`; they remain GitHub prereleases and are never automatically published to npm.
+### Manual dispatch sequence
 
-An automatic nightly version is always chosen above the published stable: its base is the later of this checkout's next patch and the published stable's next patch. That matters because promoting a stable does not edit the repository's `package.json`, so without the floor a later nightly would keep the same base and sort *below* the stable it followed — leaving stable users unable to move to nightly without `--allow-downgrade`. For the same reason the daily run rebuilds a commit it has already published when a stable promotion has since overtaken that nightly, an explicit nightly version that does not sort above the published stable is rejected, and a candidate whose published-channel state cannot be read fails rather than guessing a version that might sort too low. Manual stable selection is unaffected.
+1. Test the desired `main` commit locally (`yarn run check`) and record `MAIN_SHA=$(git rev-parse HEAD)`.
+2. Dispatch the candidate from `main`, supplying that exact SHA:
+
+   ```bash
+   gh workflow run release-candidate.yml --ref main \
+     -f source_commit="$MAIN_SHA" -f channel=nightly -f version=
+   ```
+
+3. After the candidate is accepted, copy its run ID and dispatch publication manually. Use `publish-VERSION` for a nightly; use `promote-VERSION` for a stable, which still waits for the protected production approval:
+
+   ```bash
+   gh workflow run publish.yml --ref main \
+     -f run_id="$CANDIDATE_RUN_ID" -f confirmation="publish-$VERSION"
+   ```
+
+   For a stable candidate, replace the channel/version in step 2 and use `confirmation="promote-$VERSION"` in step 3. Do not dispatch publication before captain acceptance. `ci.yml` is likewise available only by manual dispatch; it is not a release prerequisite.
+
+An automatic nightly version is always chosen above the published stable: its base is the later of this checkout's next patch and the published stable's next patch. That matters because promoting a stable does not edit the repository's `package.json`, so without the floor a later nightly would keep the same base and sort *below* the stable it followed — leaving stable users unable to move to nightly without `--allow-downgrade`. An explicit nightly version that does not sort above the published stable is rejected, and a candidate whose published-channel state cannot be read fails rather than guessing a version that might sort too low. Manual stable selection is unaffected.
 
 Every successful candidate attaches a signed ARM64 APK/AAB, npm tarball, compiled Android manifest, signer fingerprint and SHA256 release manifest to `v<VERSION>`. The source commit is shared by both products. GitHub Actions keeps the build artifacts for 90 days; the release assets remain available. Failed runs keep their logs and leave existing releases/channel pointers alone. GitHub runs builds and normal checks; emulator testing stays local.
 
@@ -65,7 +83,7 @@ https://raw.githubusercontent.com/umeranjum17/muxr/release-channels/channels.jso
 
 Every field is derived from that release's own combined `release-manifest.json` — the npm-only candidate manifest carries no Android identity and is never used for this. Artifact URLs are always canonical `github.com/umeranjum17/muxr/releases/download/<tag>/<name>` with the manifest's exact digests. `npmDistTag` is `latest` for stable and `nightly` for nightly. The retired `beta` and `dev` records stay readable in the catalog so links already published keep resolving; nothing writes to them again. Until the first nightly is published the site serves those historical records; from then on `/downloads/beta`, `/downloads/dev` and `/api/releases/{beta,dev}` answer HTTP 302 to their nightly equivalents, so an old link lands on the channel that continues that work. `manifestUrl` may be null only for the legacy stable `0.1.25` seed, which predates sealed manifests.
 
-**publish release** performs this automatically after a verified publication, reporting a success summary once every public surface agrees. The same steps can be run by hand:
+**publish release** is manual-only: it consumes a successful candidate run ID and reports a success summary once every public surface agrees. The same steps can be run by hand:
 
 ```
 node scripts/release/presentation/promoteReleaseVisibility.mjs --tag v0.1.27   # stable only
