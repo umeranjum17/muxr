@@ -26,7 +26,7 @@ import { t } from '@/text';
 import { Stack } from 'expo-router';
 import { getCachedHostedGrant } from '@/pairing/e2ee';
 import { ConnectionSupport } from '@/settings/presentation/ConnectionSupport';
-import { formatLatestConnectionFailure } from '@/catalog/infrastructure/connectionDiagnostics';
+import { formatLatestConnectionFailure, latestFailureIsDeadGrant } from '@/catalog/infrastructure/connectionDiagnostics';
 import * as Clipboard from 'expo-clipboard';
 import { Modal } from '@/modal';
 
@@ -139,9 +139,10 @@ export default function ConnectionSettingsScreen() {
         ? formatLatestConnectionFailure()
         : undefined;
     // The one public command that restarts a background muxr, offered beside
-    // a connection failure.
+    // a connection failure -- a network failure only: a dead grant needs
+    // Pair again, not a restart.
     const [restartCopied, setRestartCopied] = React.useState(false);
-    const offerRestart = latestFailure !== undefined;
+    const offerRestart = latestFailure !== undefined && !latestFailureIsDeadGrant();
     React.useEffect(() => { if (!offerRestart) setRestartCopied(false); }, [offerRestart]);
 
     const [relayUrl, setRelayUrl] = React.useState(initial.relayUrl);
