@@ -70,15 +70,15 @@ describe('agent lifecycle presentation', () => {
         expect(agentStateLabel(treeOnly[1]!.agentStatus, treeOnly[1]!.changedAt, 1_000_000)).toBe('Needs you');
         expect(agentLabels(treeOnly[0]).agentName).toBe('first agent');
 
-        const shell = selectLiveTerminalCards([], [{
+        expect(selectLiveTerminalCards([], [{
             id: 'shell',
             agentStatus: 'unknown',
             promptable: false,
             doing: '',
-        }])[0]!;
-        const shellLabels = agentLabels(shell);
+        }])).toEqual([]);
+        const shellLabels = agentLabels();
         expect(shellLabels).toMatchObject({ taskTitle: 'Shell', agentName: 'Shell' });
-        expect(agentAccessibilityLabel(shellLabels, shell.agentStatus, shell.changedAt)).toBe('Shell. Offline. Shell');
+        expect(agentAccessibilityLabel(shellLabels, 'unknown')).toBe('Shell. Offline. Shell');
 
         const pending = session('pending', 300, 'starting');
         pending.metadata!.agentKind = 'omp';
