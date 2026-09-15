@@ -469,6 +469,14 @@ export function formatConnectionDiagnosticsForReport(): string {
     return report;
 }
 
+/** The latest socket failure is a dead grant -- expired or revoked. Restarting
+ *  muxr cannot fix either, so restart UI must stand down and Pair again must show. */
+export function latestFailureIsDeadGrant(): boolean {
+    const failure = events.findLast((event) => event.event === 'socket.fail');
+    if (failure === undefined || failure.event !== 'socket.fail') return false;
+    return failure.code === 'grant-expired' || failure.code === 'ticket-unauthorized' || failure.code === 'ticket-forbidden';
+}
+
 export function formatLatestConnectionFailure(): string | undefined {
     const failure = events.findLast((event) => event.event === 'socket.fail');
     if (failure === undefined || failure.event !== 'socket.fail') return undefined;
