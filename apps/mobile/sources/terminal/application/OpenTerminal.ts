@@ -392,6 +392,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                         ok: false,
                         code: closedByTakeover ? 'takeover' : 'disconnected',
                     });
+                    stopWatchingHost();
                     for (const listener of closeListeners) listener(reason);
                 }
             } catch {
