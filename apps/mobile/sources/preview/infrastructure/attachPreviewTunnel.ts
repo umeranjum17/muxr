@@ -9,6 +9,7 @@
 import { newPreviewKey } from '@muxr/crypto';
 import { issueWsTicket, newPreviewChannel, ticketSocketUrl } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
+import { getCachedHostedGrant } from '@/pairing/e2ee';
 import { sync } from '@/catalog/sync';
 
 const READY_TIMEOUT_MS = 15_000;
@@ -49,21 +50,30 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
     if (!previewBridgeAvailable && settings.mode !== 'local') {
         throw new Error('A native preview bridge is unavailable on this platform.');
     }
-    const hostname = relayHostname(settings.relayUrl);
+    // Hosted and self-host pairings have no account token: the stored grant
+    // carries both the ticket credential and its own relay URL (same shape as
+    // OpenTerminal.relayTicket / openPluginStream / sync.ensureClient).
+    const hostedGrant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
+    const relay = hostedGrant !== undefined
+        ? { url: hostedGrant.relayUrl, credential: hostedGrant.credential }
+        : settings.token !== '' && !settings.token.startsWith('acctok_')
+            ? { url: settings.relayUrl, credential: settings.token }
+            : undefined;
+    if (relay === undefined) {
+        throw new Error('preview: relay ticket required');
+    }
+    const hostname = relayHostname(relay.url);
     if (hostname === undefined) {
-        throw new Error(`Cannot read a host from the relay URL "${settings.relayUrl}".`);
+        throw new Error(`Cannot read a host from the relay URL "${relay.url}".`);
     }
 
     const channel = newPreviewChannel();
     const key = previewBridgeAvailable ? newPreviewKey() : undefined;
     await sync.request('preview.attach', { channel, port, ...(key === undefined ? {} : { key }) });
 
-    if (settings.token === '' || settings.token.startsWith('acctok_')) {
-        throw new Error('preview: relay ticket required');
-    }
-    const socketUrl = ticketSocketUrl(settings.relayUrl, await issueWsTicket({
-        relayUrl: settings.relayUrl,
-        credential: settings.token,
+    const socketUrl = ticketSocketUrl(relay.url, await issueWsTicket({
+        relayUrl: relay.url,
+        credential: relay.credential,
         machineId: settings.machineId,
         role: 'client',
         transport: 'preview',
