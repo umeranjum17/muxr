@@ -77,7 +77,7 @@ function describe(error: SshTunnelError, target: SshTarget): SshConnectionError 
         case 'ssh-host-key':
             return new SshConnectionError(
                 error.code,
-                `The SSH host key for ${target.host} changed, so muxr did not connect. If you rebuilt or replaced that machine, remove this machine on the phone and pair it again; otherwise treat it as an interception.`,
+                `The SSH host key for ${target.host} changed, so muxr did not connect. If you rebuilt or replaced that machine, choose 'Use current relay route instead' in Connection settings to clear the Direct SSH route, then save SSH again to trust the new key; otherwise treat it as an interception.`,
                 true,
             );
         case 'ssh-unsupported':
