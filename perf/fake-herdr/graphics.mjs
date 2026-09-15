@@ -334,7 +334,14 @@ function createPacer({ socket, bytesPerSecond, timers, isClosed, buildFrame, fra
             written += estimated;
         } catch {
             queued = 0;
+            pumping = false;
             clear();
+            return;
+        }
+        if (queued > 0) {
+            pumping = true;
+            schedule(Math.max(1, Math.ceil(estimated / bytesPerSecond * 1000)));
+            return;
         }
         pumping = false;
     };

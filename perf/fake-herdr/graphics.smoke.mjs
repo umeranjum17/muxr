@@ -233,6 +233,51 @@ try {
     rmSync(dir, { recursive: true, force: true });
 }
 
+// A client that acknowledges slowly for a while banks unused byte budget. It
+// must not be repaid with a burst once it speeds up: consecutive transfers
+// stay at least one frame's worth of transport apart while paints are queued.
+const burstDir = mkdtempSync(join(tmpdir(), 'fake-herdr-burst-'));
+const burstSocketPath = join(burstDir, 'herdr-client.sock');
+// 100x100 RGBA at 200 kB/s is a 200 ms floor; 20 Hz paints keep the queue full.
+const floorMs = 200;
+const burst = await startGraphics({
+    socketPath: burstSocketPath, world: DEFAULT_WORLD, frameHz: 20,
+    imageWidth: 100, imageHeight: 100, bytesPerSecond: 200_000,
+});
+try {
+    const socket = createConnection(burstSocketPath);
+    await new Promise((resolve, reject) => {
+        socket.once('connect', resolve);
+        socket.once('error', reject);
+    });
+    const arrivals = [];
+    let slowAcks = 4;
+    readFrames(socket, (message) => {
+        if (message.type !== 'graphics-file') return;
+        arrivals.push(Date.now());
+        const ack = () => socket.write(graphicsResult(message));
+        if (slowAcks > 0) {
+            slowAcks -= 1;
+            setTimeout(ack, 500);
+        } else {
+            ack();
+        }
+    });
+    socket.write(frame(clientHello({ cols: 80, rows: 24, cellWidthPx: 8, cellHeightPx: 16 })));
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline && arrivals.length < 12) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    if (arrivals.length < 12) fail(`expected 12 paced transfers, got ${arrivals.length}`);
+    const gaps = arrivals.slice(1).map((at, index) => at - arrivals[index]);
+    const tooClose = gaps.filter((gap) => gap < floorMs * 0.75);
+    if (tooClose.length > 0) fail(`banked credit burst through the ${floorMs} ms floor: gaps ${gaps.join(',')}`);
+    socket.destroy();
+} finally {
+    burst.close();
+    rmSync(burstDir, { recursive: true, force: true });
+}
+
 /**
  * Collect leased frames the way the host does: read the file the transfer
  * names, then acknowledge it. Herdr owns the file until that ack, so reading
