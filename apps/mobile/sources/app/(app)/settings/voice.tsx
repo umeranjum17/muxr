@@ -77,6 +77,13 @@ export default function VoiceProviderScreen() {
     }, [load]);
 
     const selected = providers.find((provider) => provider.selected);
+    const wakeBlocked = status !== 'connected'
+        ? 'Connect to a computer first.'
+        : disabled
+            ? 'Enable the voice plugin first.'
+            : error !== undefined
+                ? 'Realtime voice is unavailable on this computer.'
+                : selected === undefined ? 'Choose a voice provider first.' : undefined;
     const configure = React.useCallback(async () => {
         if (selected === undefined || busyRef.current) return;
         busyRef.current = true;
@@ -150,10 +157,11 @@ export default function VoiceProviderScreen() {
             <ItemGroup title="Hands-free" footer="Listens only on this device until speech is detected. The setting stays enabled until you disable it and uses additional battery.">
                 <Item
                     title="Wake on speech"
-                    subtitle="Reconnect realtime voice when someone starts talking"
+                    subtitle={`${wakeBlocked === undefined ? 'Reconnect realtime voice when someone starts talking' : `Reconnect realtime voice when someone starts talking. ${wakeBlocked}`}${vadStandbyEnabled ? ' · On' : ' · Off'}`}
+                    subtitleLines={0}
                     icon={<Ionicons name="ear-outline" size={28} color={theme.colors.textSecondary} />}
                     showChevron={false}
-                    rightElement={<Switch value={vadStandbyEnabled} onValueChange={(value) => void setVadStandby(value)} />}
+                    rightElement={<Switch value={vadStandbyEnabled} disabled={wakeBlocked !== undefined && !vadStandbyEnabled} accessibilityLabel="Wake on speech" onValueChange={(value) => void setVadStandby(value)} />}
                 />
             </ItemGroup>
         </ItemList>

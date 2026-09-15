@@ -6,7 +6,7 @@ import { join } from 'node:path';
 const root = process.cwd();
 const mobile = join(root, 'apps', 'mobile');
 
-function config(distribution) {
+function config(distribution, extraEnv = {}) {
     const output = execFileSync('npx', ['expo', 'config', '--json'], {
         cwd: mobile,
         encoding: 'utf8',
@@ -16,6 +16,7 @@ function config(distribution) {
             MUXR_APP_ID_BASE: 'com.trymuxr.app',
             MUXR_PUBLIC_BASE_URL: 'https://muxr.test',
             MUXR_DISTRIBUTION: distribution,
+            ...extraEnv,
         },
     });
     return JSON.parse(output);
@@ -26,6 +27,17 @@ const direct = config('direct');
 assert.equal(store.extra.app.directDistribution, false, 'store production config exposed direct-distribution behavior');
 assert.equal(direct.extra.app.directDistribution, true, 'direct APK production config lost direct-distribution behavior');
 assert.equal(store.extra.app.publicBaseUrl, 'https://muxr.test');
+const selfHost = config('self-host', { MUXR_PUBLIC_BASE_URL: '' });
+assert.equal(selfHost.extra.app.publicBaseUrl, undefined, 'self-host production config baked in a public base URL');
+assert.equal(selfHost.ios?.associatedDomains, undefined, 'self-host production config emitted app links');
+assert.equal(selfHost.android?.intentFilters, undefined, 'self-host production config emitted pairing intent filters');
+let storeWithoutUrlFailed = false;
+try {
+    config('store', { MUXR_PUBLIC_BASE_URL: '' });
+} catch {
+    storeWithoutUrlFailed = true;
+}
+assert.equal(storeWithoutUrlFailed, true, 'store production without a public base URL did not fail fast');
 assert.equal(store.android.package, 'com.trymuxr.app', 'production config lost the permanent Play application id');
 assert.doesNotMatch(JSON.stringify(store), /revenuecat|posthog|stripeKey|checkout|upgrade|purchase|displayPrice/i, 'store production config contains commerce or analytics material');
 

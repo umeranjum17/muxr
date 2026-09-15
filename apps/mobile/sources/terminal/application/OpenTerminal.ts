@@ -14,10 +14,17 @@
 import { issueWsTicket, newTerminalChannel, ticketSocketUrl, type Envelope, type TerminalGraphicsReason } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
+import { storage } from '@/catalog/store';
 import { beginTerminalFrameCounts, finalizeTerminalFrameCounts, recordTerminalChannel, recordTerminalFirstFrame, recordTerminalFrameReceived, recordTerminalFrameWritten, type TerminalFrameCountToken } from '@/catalog/infrastructure/connectionDiagnostics';
 import { DeviceV2Crypto, getCachedHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
 
-export type TerminalChannelState = 'live' | 'reconnecting';
+/**
+ * 'reconnecting' while this pane's socket is being re-attached; 'live' while
+ * frames flow with nothing known to be wrong; 'unconfirmed' when the pane's
+ * socket is open but the machine transport last reported a timeout or a lost
+ * route, so nobody can say the host is still there until it answers again.
+ */
+export type TerminalChannelState = 'live' | 'reconnecting' | 'unconfirmed';
 
 export interface TerminalChannel {
     /** Count a successful native write. Stale after the channel finalizes. */
@@ -26,7 +33,7 @@ export interface TerminalChannel {
     onData: (listener: (base64: string, graphics?: boolean) => void) => () => void;
     onClose: (listener: (reason?: string) => void) => () => void;
     onGraphics: (listener: (active: boolean, reason?: TerminalGraphicsReason) => void) => () => void;
-    /** 'reconnecting' while a dropped socket is being re-attached, 'live' after. */
+    /** Pane socket state; 'unconfirmed' while the host is silent — see TerminalChannelState. */
     onState: (listener: (state: TerminalChannelState) => void) => () => void;
     sendText: (text: string) => void;
     sendBytes: (base64: string) => void;
@@ -171,19 +178,59 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     let takeoverRequested = false;
     let graphicsResetRequested = false;
 
+    // The link is what this channel knows first-hand: attaching, or frames
+    // flowing. There is no terminal heartbeat, so the only evidence that an
+    // open pane may be talking to nobody comes from the machine transport
+    // (storage.socketStatus): 'error' is a request that timed out, 'disconnected'
+    // a lost route, 'connected' an authenticated host frame. A known failure
+    // reads 'unconfirmed' until this pane paints again or the host answers.
+    let link: 'live' | 'reconnecting' = 'reconnecting';
+    let hostUnconfirmed = storage.getState().socketStatus !== 'connected' && storage.getState().socketStatus !== 'connecting';
     let state: TerminalChannelState = 'reconnecting';
-    const emitState = (nextState: TerminalChannelState): void => {
-        if (state === nextState) return;
-        state = nextState;
-        recordTerminalChannel(state, { ok: true });
+    const publishState = (): void => {
+        let next: TerminalChannelState = link;
+        if (link === 'live' && hostUnconfirmed) next = 'unconfirmed';
+        if (state === next) return;
+        state = next;
         for (const listener of stateListeners) listener(state);
     };
+    const emitState = (nextLink: 'live' | 'reconnecting'): void => {
+        if (link !== nextLink) {
+            link = nextLink;
+            recordTerminalChannel(link, { ok: true });
+        }
+        publishState();
+    };
+    const hostAnswered = (): void => {
+        if (!hostUnconfirmed) return;
+        hostUnconfirmed = false;
+        publishState();
+    };
+    let stopWatchingHost: (() => void) | undefined;
+    function watchHost(): void {
+        if (stopWatchingHost !== undefined) return;
+        hostUnconfirmed = storage.getState().socketStatus !== 'connected' && storage.getState().socketStatus !== 'connecting';
+        stopWatchingHost = storage.subscribe((current, previous) => {
+            if (current.socketStatus === previous.socketStatus) return;
+            if (current.socketStatus === 'connected') hostAnswered();
+            else if (current.socketStatus !== 'connecting') {
+                hostUnconfirmed = true;
+                publishState();
+            }
+        });
+    }
+    function unwatchHost(): void {
+        stopWatchingHost?.();
+        stopWatchingHost = undefined;
+    }
+    watchHost();
 
     function scheduleRetry(): void {
         if (closedByUser || retryTimer !== undefined) return;
         attempts += 1;
         if (attempts > MAX_ATTEMPTS) {
             recordTerminalChannel('disconnected', { ok: false, code: 'disconnected' });
+            unwatchHost();
             for (const listener of closeListeners) listener('disconnected');
             return;
         }
@@ -235,6 +282,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             closedByTakeover = false;
             retaking = true;
         }
+        watchHost();
         if (retryTimer !== undefined) {
             clearTimeout(retryTimer);
             retryTimer = undefined;
@@ -327,6 +375,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                         ? rawReason
                         : undefined;
                     if (frameCounts !== undefined) recordTerminalFrameReceived(frameCounts);
+                    hostAnswered();
                     if (!firstFrame) {
                         firstFrame = true;
                         if (retryTimer !== undefined) {
@@ -354,6 +403,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                         ok: false,
                         code: closedByTakeover ? 'takeover' : 'disconnected',
                     });
+                    unwatchHost();
                     for (const listener of closeListeners) listener(reason);
                 }
             } catch {
@@ -376,6 +426,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     function close(): void {
         closedByUser = true;
         closedByTakeover = false;
+        unwatchHost();
         command.signal?.removeEventListener('abort', close);
         emitGraphics(false);
         finalizeCounts();

@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -7,6 +8,7 @@ import { useRouter } from 'expo-router';
 import * as Localization from 'expo-localization';
 import { useUnistyles, UnistylesRuntime } from 'react-native-unistyles';
 import { Switch } from '@/components/Switch';
+import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Appearance } from 'react-native';
 import * as SystemUI from 'expo-system-ui';
 import { darkTheme, lightTheme } from '@/theme';
@@ -26,9 +28,36 @@ export default function AppearanceSettingsScreen() {
     const [showFlavorIcons, setShowFlavorIcons] = useSettingMutable('showFlavorIcons');
     const [themePreference, setThemePreference] = useLocalSettingMutable('themePreference');
     const [preferredLanguage] = useSettingMutable('preferredLanguage');
+    const [sheet, setSheet] = React.useState<'theme' | 'avatar' | null>(null);
+    const themeOptions: ModelMode[] = [
+        { key: 'adaptive', name: t('settingsAppearance.themeOptions.adaptive'), description: t('settingsAppearance.themeDescriptions.adaptive') },
+        { key: 'light', name: t('settingsAppearance.themeOptions.light'), description: t('settingsAppearance.themeDescriptions.light') },
+        { key: 'dark', name: t('settingsAppearance.themeOptions.dark'), description: t('settingsAppearance.themeDescriptions.dark') },
+    ];
+    const avatarOptions: ModelMode[] = [
+        { key: 'pixelated', name: t('settingsAppearance.avatarOptions.pixelated') },
+        { key: 'gradient', name: t('settingsAppearance.avatarOptions.gradient') },
+        { key: 'brutalist', name: t('settingsAppearance.avatarOptions.brutalist') },
+    ];
 
-    // Ensure we have a valid style for display, defaulting to gradient for unknown values
+    // Keep the selected value visible in the row while showing every choice in one place.
     const displayStyle: KnownAvatarStyle = isKnownAvatarStyle(avatarStyle) ? avatarStyle : 'gradient';
+    const applyTheme = (nextTheme: 'adaptive' | 'light' | 'dark') => {
+        setThemePreference(nextTheme);
+        if (nextTheme === 'adaptive') {
+            UnistylesRuntime.setAdaptiveThemes(true);
+            const systemTheme = Appearance.getColorScheme();
+            const color = systemTheme === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
+            UnistylesRuntime.setRootViewBackgroundColor(color);
+            void SystemUI.setBackgroundColorAsync(color);
+            return;
+        }
+        UnistylesRuntime.setAdaptiveThemes(false);
+        UnistylesRuntime.setTheme(nextTheme);
+        const color = nextTheme === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
+        UnistylesRuntime.setRootViewBackgroundColor(color);
+        void SystemUI.setBackgroundColorAsync(color);
+    };
 
     // Language display
     const getLanguageDisplayText = () => {
@@ -54,31 +83,7 @@ export default function AppearanceSettingsScreen() {
                     subtitle={themePreference === 'adaptive' ? t('settingsAppearance.themeDescriptions.adaptive') : themePreference === 'light' ? t('settingsAppearance.themeDescriptions.light') : t('settingsAppearance.themeDescriptions.dark')}
                     icon={<Ionicons name="contrast-outline" size={29} color={theme.colors.status.connecting} />}
                     detail={themePreference === 'adaptive' ? t('settingsAppearance.themeOptions.adaptive') : themePreference === 'light' ? t('settingsAppearance.themeOptions.light') : t('settingsAppearance.themeOptions.dark')}
-                    onPress={() => {
-                        const currentIndex = themePreference === 'adaptive' ? 0 : themePreference === 'light' ? 1 : 2;
-                        const nextIndex = (currentIndex + 1) % 3;
-                        const nextTheme = nextIndex === 0 ? 'adaptive' : nextIndex === 1 ? 'light' : 'dark';
-
-                        // Update the setting
-                        setThemePreference(nextTheme);
-
-                        // Apply the theme change immediately
-                        if (nextTheme === 'adaptive') {
-                            // Enable adaptive themes and set to system theme
-                            UnistylesRuntime.setAdaptiveThemes(true);
-                            const systemTheme = Appearance.getColorScheme();
-                            const color = systemTheme === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
-                            UnistylesRuntime.setRootViewBackgroundColor(color);
-                            SystemUI.setBackgroundColorAsync(color);
-                        } else {
-                            // Disable adaptive themes and set explicit theme
-                            UnistylesRuntime.setAdaptiveThemes(false);
-                            UnistylesRuntime.setTheme(nextTheme);
-                            const color = nextTheme === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
-                            UnistylesRuntime.setRootViewBackgroundColor(color);
-                            SystemUI.setBackgroundColorAsync(color);
-                        }
-                    }}
+                    onPress={() => setSheet('theme')}
                 />
             </ItemGroup>
 
@@ -99,12 +104,7 @@ export default function AppearanceSettingsScreen() {
                     subtitle={t('settingsAppearance.avatarStyleDescription')}
                     icon={<Ionicons name="person-circle-outline" size={29} color="#5856D6" />}
                     detail={displayStyle === 'pixelated' ? t('settingsAppearance.avatarOptions.pixelated') : displayStyle === 'brutalist' ? t('settingsAppearance.avatarOptions.brutalist') : t('settingsAppearance.avatarOptions.gradient')}
-                    onPress={() => {
-                        const currentIndex = displayStyle === 'pixelated' ? 0 : displayStyle === 'gradient' ? 1 : 2;
-                        const nextIndex = (currentIndex + 1) % 3;
-                        const nextStyle = nextIndex === 0 ? 'pixelated' : nextIndex === 1 ? 'gradient' : 'brutalist';
-                        setAvatarStyle(nextStyle);
-                    }}
+                    onPress={() => setSheet('avatar')}
                 />
                 <Item
                     title={t('settingsAppearance.showFlavorIcons')}
@@ -118,6 +118,22 @@ export default function AppearanceSettingsScreen() {
                     }
                 />
             </ItemGroup>
+            <OptionSheet
+                visible={sheet === 'theme'}
+                title={t('settings.appearance')}
+                options={themeOptions}
+                selectedKey={themePreference}
+                onSelect={(option) => applyTheme(option.key as 'adaptive' | 'light' | 'dark')}
+                onClose={() => setSheet(null)}
+            />
+            <OptionSheet
+                visible={sheet === 'avatar'}
+                title={t('settingsAppearance.avatarStyle')}
+                options={avatarOptions}
+                selectedKey={displayStyle}
+                onSelect={(option) => { setAvatarStyle(option.key as KnownAvatarStyle); setSheet(null); }}
+                onClose={() => setSheet(null)}
+            />
         </ItemList>
     );
 }
