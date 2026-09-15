@@ -29,7 +29,7 @@ export default function NotificationSettingsScreen() {
         <ItemList style={{ paddingTop: 0 }}>
             <ItemGroup
                 title="Lifecycle alerts"
-                footer="While You Were Away still shows blocked, failed, and completed activity at every level."
+                footer={`${level === 'off' ? 'Off' : level === 'important' ? 'Important' : 'All activity'} on this device. While You Were Away still shows blocked, failed, and completed activity at every level.`}
             >
                 {OPTIONS.map((option) => {
                     const selected = option.key === level;
