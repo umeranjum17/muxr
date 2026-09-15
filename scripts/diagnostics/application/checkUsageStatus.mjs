@@ -511,10 +511,18 @@ try {
         assert.match(broken.activityLabel, /could not be measured/);
         // A transcript nested past the scan's depth bound is unread, not empty.
         const deep = join(flow, 'deep-agent');
-        writeTranscript(join(deep, 'sessions/a/b/c/d/e/session.jsonl'), [
+        writeTranscript(join(deep, 'sessions/a/b/c/d/e/f/g/h/i/session.jsonl'), [
             record('deep-1', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 10 }, 0.01),
         ]);
         assert.equal(flowRun('pi', { PI_AGENT_DIR: deep }).todayTokens, '—');
+
+        // Real Pi trees nest by worktree slug, session, subagent, and run —
+        // depth the scan has to measure, not refuse.
+        const nested = join(flow, 'nested-agent');
+        writeTranscript(join(nested, 'sessions/--home-umer-worktree--/2026-09-07_session/sub-1/run-0/session.jsonl'), [
+            record('nested-1', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 700 }, 0.02),
+        ]);
+        assert.equal(flowRun('pi', { PI_AGENT_DIR: nested }).todayTokens, '700');
 
         // A line past the 4 MB bound whose usage sits after the retained prefix:
         // the head alone cannot say the line was worthless, so the total is not

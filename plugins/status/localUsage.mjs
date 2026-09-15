@@ -55,9 +55,11 @@ function count(value) {
 const MAX_LINE = 4 * 1024 * 1024;
 
 function* sessionFiles(directory, depth = 0) {
-  // Deeper than the bound is not "no records down there": it is records this
-  // scan refused to read, and a total without them is not the measured one.
-  if (depth > 4) throw new Error('bounded scan exceeded');
+  // Pi nests transcripts deep on real hosts: a worktree-slug session directory
+  // holds per-session, subagent and run directories (observed at depth 5). The
+  // bound only guards against pathological recursion — the deadline stays the
+  // bound on total work — so it sits where the host's own walk stops (8).
+  if (depth > 8) throw new Error('bounded scan exceeded');
   if (Date.now() > deadline) throw new Error('bounded scan exceeded');
   let entries;
   // A directory that is not there holds no records; anything else (permissions,
