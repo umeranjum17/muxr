@@ -43,6 +43,11 @@ vi.mock('@/catalog/sync', () => ({
     sync: { request: mocks.request },
 }));
 
+vi.mock('@/catalog/store', async () => {
+    const { create } = await import('zustand');
+    return { storage: create<{ socketStatus: string }>()(() => ({ socketStatus: 'connected' })) };
+});
+
 vi.mock('@/pairing/e2ee', () => ({
     getCachedHostedGrant: () => grant,
     refreshHostedGrant: mocks.refresh,

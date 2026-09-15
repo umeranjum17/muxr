@@ -75,6 +75,12 @@ type EventListener = (sessionId: string, event: SessionEvent) => void;
 type StateListener = (state: ConnectionState) => void;
 type PluginInvalidationListener = (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void;
 const MAX_PENDING_REQUESTS = 128;
+// A backend that never answers is retried on a widening backoff, then given
+// up on: past this many consecutive failures with no host frame the client
+// fails closed to 'stale' (surfaced as an error) instead of reconnecting for
+// ever. A successful host frame resets the count; a manual reconnect (new
+// client) starts fresh. With the 1.5s→30s backoff this is ~75s of trying.
+const MAX_RECONNECT_ATTEMPTS = 6;
 
 export class MuxrClient {
     private socket: WebSocket | undefined;
@@ -185,13 +191,10 @@ export class MuxrClient {
                     : 'This device was revoked. Run `muxr pair` on the machine, then re-pair from Settings → Pair another machine on this device.');
                 return;
             }
-            if (!this.closed) {
-                const base = this.options.reconnectDelayMs ?? 1500;
-                const delay = error instanceof WsTicketError && (error.status === 401 || error.status === 403)
-                    ? 30_000
-                    : Math.min(base * 2 ** this.reconnectAttempt++, 30_000);
-                this.reconnectTimer = setTimeout(() => this.connect(), delay);
-            }
+            // A rejected ticket (401/403) waits the full cap before retrying,
+            // but still counts toward the give-up ceiling: a relay that keeps
+            // rejecting is unreachable, not something to poll for ever.
+            this.scheduleReconnect(error instanceof WsTicketError && (error.status === 401 || error.status === 403) ? 30_000 : undefined);
             return;
         }
         if (this.closed || this.socket !== undefined) return;
@@ -201,8 +204,7 @@ export class MuxrClient {
         } catch {
             recordSocketFailure({ stage: 'dial', code: 'dial-network' });
             this.setState('closed');
-            const base = this.options.reconnectDelayMs ?? 1500;
-            this.reconnectTimer = setTimeout(() => this.connect(), Math.min(base * 2 ** this.reconnectAttempt++, 30_000));
+            this.scheduleReconnect();
             return;
         }
         this.socket = socket;
@@ -222,7 +224,6 @@ export class MuxrClient {
                 return;
             }
             opened = true;
-            this.reconnectAttempt = 0;
             clearTimeout(this.livenessTimer);
             // The relay accepts a client peer even when no machine is attached,
             // so socket open is not "connected". Stay `connecting` until the
@@ -291,9 +292,26 @@ export class MuxrClient {
         this.socket = undefined;
         this.rejectPending('connection lost');
         this.setState('closed');
+        this.scheduleReconnect();
+    }
+
+    /**
+     * Schedule one reconnect on a widening backoff, or fail closed. Past
+     * MAX_RECONNECT_ATTEMPTS consecutive failures with no host frame the client
+     * stops the internal loop and settles on 'stale' (surfaced as an error) so
+     * the UI can show an actionable "can't reach your computer" instead of
+     * spinning for ever. A successful host frame resets reconnectAttempt; a
+     * fresh client (sync.reconnect) starts the count over.
+     */
+    private scheduleReconnect(floorMs?: number): void {
         if (this.closed) return;
+        if (this.reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+            this.setState('stale');
+            return;
+        }
         const base = this.options.reconnectDelayMs ?? 1500;
-        this.reconnectTimer = setTimeout(() => this.connect(), Math.min(base * 2 ** this.reconnectAttempt++, 30_000));
+        const delay = Math.max(floorMs ?? 0, Math.min(base * 2 ** this.reconnectAttempt++, 30_000));
+        this.reconnectTimer = setTimeout(() => this.connect(), delay);
     }
 
     onEvent(listener: EventListener): () => void {
@@ -426,6 +444,7 @@ export class MuxrClient {
         // Socket open only proves the relay accepted us; the first frame that
         // survives the machine's E2EE context proves the host is really there.
         this.hostFrameRevision += 1;
+        this.reconnectAttempt = 0;
         clearTimeout(this.livenessTimer);
         this.livenessTimer = undefined;
         if (this.state !== 'open') this.setState('open');
