@@ -258,9 +258,10 @@ try {
     const redeliver = await push2.notify('acct:b', { eventId: 'ev-legacy', kind: 'blocked', reasonCode: 'agent-blocked', agentName: 'Bex', sessionId: 's1', machineId: 'm' });
     assert(redeliver.duplicate !== true, `legacy delivered entry suppressed redelivery instead of expiring: ${JSON.stringify(redeliver)}`);
     process.stdout.write('ok  dedup TTL suppresses fresh repeats and expires legacy entries\n');
-    await push2.removeWebSubscription('acct:b', `http://127.0.0.1:${stubPort}/push/stub-all`);
-    assert(!(subsFile().accounts['acct:b'] ?? []).some((entry) => entry.endpoint.endsWith('/push/stub-all')),
-        'endpoint removal left the record');
+    await push2.removeWebSubscription('acct:b', `http://127.0.0.1:${stubPort}/push/b-all`);
+    const remaining = subsFile().accounts['acct:b'] ?? [];
+    assert(!remaining.some((entry) => entry.endpoint.endsWith('/push/b-all')), 'endpoint removal left the record');
+    assert(remaining.some((entry) => entry.endpoint.endsWith('/push/b-important')), 'endpoint removal dropped the wrong record');
     // Unsafe endpoints never reach storage, whatever the caller claims.
     const subscribeThrows = async (endpoint) => {
         try {
