@@ -31,7 +31,15 @@ const selfHost = config('self-host', { MUXR_PUBLIC_BASE_URL: '' });
 assert.equal(selfHost.extra.app.publicBaseUrl, undefined, 'self-host production config baked in a public base URL');
 assert.equal(selfHost.ios?.associatedDomains, undefined, 'self-host production config emitted app links');
 assert.equal(selfHost.android?.intentFilters, undefined, 'self-host production config emitted pairing intent filters');
-assert.throws(() => config('store', { MUXR_PUBLIC_BASE_URL: '' }), /MUXR_PUBLIC_BASE_URL/, 'store production without a public base URL did not fail fast');
+let storeWithoutUrlFailed = false;
+try {
+    config('store', { MUXR_PUBLIC_BASE_URL: '' });
+} catch (err) {
+    const haystack = `${err.stderr ?? ''}\n${err.stdout ?? ''}\n${err.message ?? ''}`;
+    assert.match(haystack, /MUXR_PUBLIC_BASE_URL/);
+    storeWithoutUrlFailed = true;
+}
+assert.equal(storeWithoutUrlFailed, true, 'store production without a public base URL did not fail fast');
 assert.equal(store.android.package, 'com.trymuxr.app', 'production config lost the permanent Play application id');
 assert.doesNotMatch(JSON.stringify(store), /revenuecat|posthog|stripeKey|checkout|upgrade|purchase|displayPrice/i, 'store production config contains commerce or analytics material');
 
