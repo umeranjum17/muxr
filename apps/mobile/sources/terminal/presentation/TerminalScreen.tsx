@@ -51,6 +51,7 @@ import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
 import { useIsFocused } from '@react-navigation/native';
 import { ActiveAgentWakeLock } from './ActiveAgentWakeLock';
+import { getCachedConnectionSettings } from '@/connection';
 import { displayLink } from '../domain/TerminalLink';
 import { CommandPalette } from '@/components/CommandPalette';
 import type { Command } from '@/components/CommandPalette/types';
@@ -256,6 +257,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         ?? storedWorkspaceTabs?.find((tab) => tab.tabId === tabId);
     const fetchedPane = currentTab?.panes.find((pane) => pane.sessionId === props.id);
     const currentPane = fetchedPane ?? storedPane;
+    React.useEffect(() => {
+        if (!isFocused || session === null || currentPane === undefined || socketStatus.status !== 'connected') return;
+        const machineId = getCachedConnectionSettings().machineId;
+        if (!machineId) return;
+        const previous = storage.getState().localSettings.lastTerminal;
+        if (previous?.machineId === machineId && previous.sessionId === props.id) return;
+        storage.getState().applyLocalSettings({ lastTerminal: { machineId, sessionId: props.id } });
+    }, [currentPane, isFocused, props.id, session, socketStatus.status]);
     const panePromptable = currentPane?.promptable === true;
     const paneKind = currentPane?.agentKind;
     const paneLifecycle = currentPane?.agentStatus;

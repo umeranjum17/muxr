@@ -11,6 +11,7 @@ export default function PreferencesSettingsScreen() {
     const wakeLockSupported = Platform.OS !== 'web' || (typeof navigator !== 'undefined' && 'wakeLock' in navigator);
     const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
     const [keepScreenAwakeWhileWatching, setKeepScreenAwakeWhileWatching] = useLocalSettingMutable('keepScreenAwakeWhileWatching');
+    const [reopenLastTerminal, setReopenLastTerminal] = useLocalSettingMutable('reopenLastTerminal');
     const [commandPaletteEnabled, setCommandPaletteEnabled] = useLocalSettingMutable('commandPaletteEnabled');
     const [hideInactiveSessions, setHideInactiveSessions] = useSettingMutable('hideInactiveSessions');
     const [sortSessionsByActivity, setSortSessionsByActivity] = useSettingMutable('sortSessionsByActivity');
@@ -18,6 +19,13 @@ export default function PreferencesSettingsScreen() {
     return (
         <ItemList style={{ paddingTop: 0 }}>
             <ItemGroup title="Sessions" footer="These choices apply now on this device. Hidden sessions stay on the computer.">
+                <Item
+                    title="Last terminal"
+                    subtitle="Reopen on launch if available"
+                    icon={<Ionicons name="return-down-back-outline" size={29} color="#FF9500" />}
+                    rightElement={<Switch value={reopenLastTerminal} onValueChange={setReopenLastTerminal} />}
+                    showChevron={false}
+                />
                 <Item
                     title="Session order"
                     subtitle={sortSessionsByActivity ? 'Recent activity moves the latest session to the top' : 'Created order keeps the newest session first'}

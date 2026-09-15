@@ -17,6 +17,8 @@ export const LocalSettingsSchema = z.object({
     backgroundConnectionPrompted: z.boolean().describe('Whether Android background activity settings were already explained'),
     terminalKeyboardDisabled: z.boolean().describe('Disable opening the Android terminal keyboard when tapping its surface'),
     keepScreenAwakeWhileWatching: z.boolean().describe('Keep the screen awake while viewing a working agent'),
+    reopenLastTerminal: z.boolean().describe('Reopen the last accessible terminal when the app launches'),
+    lastTerminal: z.object({ machineId: z.string(), sessionId: z.string() }).nullable().describe('Last terminal viewed on this device'),
     vadStandbyEnabled: z.boolean().describe('Persistently wake realtime voice from local speech activity standby'),
     lifecycleNotificationLevel: z.enum(LIFECYCLE_NOTIFICATION_LEVELS).describe('Which agent lifecycle events may emit notifications'),
     // Herd tab: bucket the agents section under workspace subheaders (herdr's "grouped" toggle).
@@ -50,6 +52,8 @@ export const localSettingsDefaults: LocalSettings = {
     backgroundConnectionPrompted: false,
     terminalKeyboardDisabled: false,
     keepScreenAwakeWhileWatching: true,
+    reopenLastTerminal: true,
+    lastTerminal: null,
     vadStandbyEnabled: false,
     lifecycleNotificationLevel: 'important',
     savedLayouts: [],
