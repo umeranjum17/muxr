@@ -28,12 +28,12 @@ describe('open-source mobile onboarding flow', () => {
 
         expect(setupEmptyState('https://muxr.test/')).toEqual({
             title: 'Connect your computer',
-            command: 'node scripts/cli.mjs setup',
+            command: 'muxr',
             setupUrl: 'https://muxr.test/setup',
         });
         expect(setupEmptyState()).toEqual({
             title: 'Connect your computer',
-            command: 'node scripts/cli.mjs setup',
+            command: 'muxr',
         });
 
         expect(directBillingUrl({ directDistribution: false, publicBaseUrl: 'https://muxr.test' })).toBeNull();

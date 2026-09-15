@@ -7,7 +7,6 @@ import { VersionNotice } from '@/components/VersionNotice';
 import * as React from 'react';
 import {
     ActivityIndicator,
-    Pressable,
     View,
     NativeScrollEvent,
     NativeSyntheticEvent,
@@ -20,10 +19,8 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHostedPairing, usePairQrScanner } from '@/pairing';
-import * as Clipboard from 'expo-clipboard';
 import { loadAppConfig } from '@/catalog/infrastructure/appConfig';
 import { getCachedConnectionSettings } from '@/connection';
-import { openExternalUrl } from '@/utils/openExternalUrl';
 import { setupEmptyState } from '@/commercialization';
 import { RoundButton } from '@/components/RoundButton';
 import { ActionButton } from '@/components/ActionButton';
@@ -37,6 +34,7 @@ import { SpacesTree } from './SpacesTree';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
+import { FirstRunSetupCard } from './FirstRunSetupCard';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -82,73 +80,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         lineHeight: 28,
         textAlign: 'center',
         ...Typography.default('semiBold'),
-    },
-    setupCard: {
-        width: '100%',
-        maxWidth: 360,
-        marginTop: 20,
-        backgroundColor: theme.colors.surfaceHigh,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-        borderRadius: 16,
-        padding: 18,
-    },
-    setupStep: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        gap: 12,
-        marginBottom: 16,
-    },
-    stepBadge: {
-        width: 26,
-        height: 26,
-        borderRadius: 13,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: theme.colors.accentSubtle,
-    },
-    stepNumber: {
-        ...Typography.mono('semiBold'),
-        fontSize: 13,
-        color: theme.colors.text,
-        includeFontPadding: false,
-    },
-    stepBody: {
-        flex: 1,
-    },
-    stepText: {
-        color: theme.colors.textSecondary,
-        fontSize: 14,
-        lineHeight: 20,
-        ...Typography.default(),
-    },
-    stepTextInline: {
-        paddingTop: 3,
-    },
-    commandRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: 8,
-        borderRadius: 10,
-        backgroundColor: theme.colors.surface,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-        paddingLeft: 12,
-        paddingRight: 6,
-        paddingVertical: 6,
-    },
-    setupCommand: {
-        flex: 1,
-        fontSize: 14,
-        color: theme.colors.text,
-        ...Typography.mono(),
-    },
-    copyButton: {
-        width: 36,
-        height: 36,
-        borderRadius: 8,
-        alignItems: 'center',
-        justifyContent: 'center',
     },
     error: {
         fontSize: 12,
@@ -274,36 +205,7 @@ export const HerdView = React.memo(({
                 <View style={[styles.empty, { paddingBottom: safeArea.bottom }]}>
                     <Ionicons name="desktop-outline" size={40} color={theme.colors.textSecondary} />
                     <Text style={styles.setupTitle}>{setup.title}</Text>
-                    <View style={styles.setupCard}>
-                        <View style={styles.setupStep}>
-                            <View style={styles.stepBadge}><Text style={styles.stepNumber}>1</Text></View>
-                            <View style={styles.stepBody}>
-                                <Text style={styles.stepText}>Run this on your computer</Text>
-                                <View style={styles.commandRow}>
-                                    <Text style={styles.setupCommand}>{setup.command}</Text>
-                                    <Pressable
-                                        accessibilityRole="button"
-                                        accessibilityLabel="Copy setup command"
-                                        hitSlop={10}
-                                        style={styles.copyButton}
-                                        onPress={() => void Clipboard.setStringAsync(setup.command)}
-                                    >
-                                        <Ionicons name="copy-outline" size={17} color={theme.colors.textSecondary} />
-                                    </Pressable>
-                                </View>
-                            </View>
-                        </View>
-                        <View style={styles.setupStep}>
-                            <View style={styles.stepBadge}><Text style={styles.stepNumber}>2</Text></View>
-                            <Text style={[styles.stepText, styles.stepTextInline]}>
-                                Choose this network, Tailscale, or your secure relay
-                            </Text>
-                        </View>
-                        <View style={[styles.setupStep, { marginBottom: 0 }]}>
-                            <View style={styles.stepBadge}><Text style={styles.stepNumber}>3</Text></View>
-                            <Text style={[styles.stepText, styles.stepTextInline]}>Scan the QR code with this phone</Text>
-                        </View>
-                    </View>
+                    <FirstRunSetupCard />
                     <View style={styles.emptyAction}>
                         {Platform.OS === 'web' ? (
                             <ActionButton title="Paste browser pairing link" icon="clipboard-outline" onPress={() => router.push('/pair')} />
@@ -311,9 +213,6 @@ export const HerdView = React.memo(({
                             <>
                                 <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
                                 <ActionButton title="Enter pairing string" variant="secondary" icon="keypad-outline" onPress={() => router.push('/pair')} />
-                                {setup.setupUrl ? (
-                                    <ActionButton title="Open setup guide" variant="quiet" icon="open-outline" onPress={() => void openExternalUrl(setup.setupUrl!)} />
-                                ) : null}
                             </>
                         )}
                     </View>
