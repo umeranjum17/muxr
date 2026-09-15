@@ -302,6 +302,7 @@ export class PushService {
     /** Send every configured push channel for this account, coalescing concurrent retries. */
     async notify(accountId: string, payload: PushPayload): Promise<{ sent: number; duplicate?: true }> {
         const key = `${accountId}\0${payload.eventId}`;
+        this.deliveredEvents = boundDeliveredEvents(this.deliveredEvents);
         if (this.deliveredEvents.some((entry) => entry.accountId === accountId && entry.eventId === payload.eventId)) {
             if (this.undurableEvents.has(key)) {
                 await this.persist();

@@ -15,7 +15,7 @@ import { Modal } from '@/modal';
 import { useAllMachines } from '@/catalog/store';
 import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
-import { requestPermissionAndSubscribe, refreshPushState, type PushState } from '@/utils/pushNotifications';
+import { requestPermissionAndSubscribe, refreshPushState, unsubscribeWebPush, type PushState } from '@/utils/pushNotifications';
 import { loadAppConfig } from '@/catalog/infrastructure/appConfig';
 import { versionsMismatch } from '@/utils/versionStatus';
 import { getAppVersion } from '@/utils/appVersion';
@@ -189,6 +189,7 @@ export const SettingsView = React.memo(function SettingsView({
         );
         if (!confirmed) return;
         if (voiceActive) stopRealtimeSession();
+        if (Platform.OS === 'web' && machineId === getCachedConnectionSettings().machineId) await unsubscribeWebPush();
         const forgotten = await forgetPairedMachine({ machineId }, { removeGrant: removeHostedGrant });
         if (!forgotten.ok) return;
         const remaining = forgotten.remaining;
