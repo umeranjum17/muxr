@@ -67,7 +67,7 @@ Direct SSH is an Android-native alternative to Tailscale, not a replacement for 
 
 1. Pair the phone with the normal QR or pairing string over Tailscale, LAN, or another supported route.
 2. On Android, open **Settings → Connection & updates → Direct SSH**.
-3. Enter the machine's SSH host, SSH username and port, and the relay port as seen from the machine's loopback (normally `8792`). Choose either a password or an OpenSSH private key; credentials stay in the device secure store and are never written to muxr settings, logs, or the repository.
+3. Enter the machine's SSH host, SSH username and port, and the relay port as seen from the machine's loopback (normally `8792`). Choose either a password or an OpenSSH private key; credentials stay in the device secure store and are never written to muxr settings, logs, or the repository. Use an RSA or ECDSA host key and login key: Ed25519 is not supported by this build yet, and muxr says so explicitly instead of failing to connect.
 4. Save and reconnect. muxr opens a device-local SSH forward to `127.0.0.1:<relay-port>` and then uses the same relay ticket, pairing grant, and E2EE socket as every other route.
 
 The first successful SSH connection pins the SSH server's `SHA256:` host-key fingerprint on this device. A changed fingerprint stops the route and tells you to review the machine rather than silently trusting a replacement. The SSH user must be allowed to log in and the muxr relay must be listening on the configured loopback port. PWA and iPhone builds do not show this control because they do not have this native SSH implementation; use Tailscale, a private network, Same Wi-Fi, or your own stable WSS endpoint there.

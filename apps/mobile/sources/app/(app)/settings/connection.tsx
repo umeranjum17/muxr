@@ -291,7 +291,7 @@ export default function ConnectionSettingsScreen() {
                 <ItemGroup title="Status">
                     <Item
                         title={statusText}
-                        subtitle={status === 'connected' ? 'Your machine is reachable from this device' : latestFailure ?? socketError ?? 'The app reconnects on its own when the machine is back'}
+                        subtitle={status === 'connected' ? 'Your machine is reachable from this device' : socketError ?? latestFailure ?? 'The app reconnects on its own when the machine is back'}
                         subtitleLines={0}
                         leftElement={<View style={[styles.dot, statusDot]} />}
                         loading={status === 'connecting'}

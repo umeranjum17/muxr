@@ -48,6 +48,8 @@ silent outbound dependency, and leave the remaining connection steps explicit.
   host, port, network, and that the machine is awake.
 - Credentials rejected: check the SSH username and password/key, or install the
   public key in the SSH user's `~/.ssh/authorized_keys`.
+- Ed25519 host or login key: this build negotiates RSA/ECDSA only (see
+  Algorithm scope below) and says so instead of failing as unreachable.
 - Host key changed: stop and review the machine; muxr does not reconnect around
   the mismatch.
 - Loopback relay unavailable: check that muxr is running and that the configured
@@ -62,6 +64,19 @@ In **Settings → Connection & updates**, choose **Use current relay route
 instead**. muxr closes the SSH forward and resumes the paired relay URL without
 changing pairing keys or workspace state. Removing the saved SSH credential is
 separate and optional.
+
+## Algorithm scope (2026-09-15 qualification finding)
+
+The native SSH client (SSHJ) resolves its algorithms through Android's
+Conscrypt provider: Android's built-in "BC" provider cannot do X25519, EC, or
+Ed25519 key agreement and signatures, and the bundled Bouncy Castle jar loses
+the `BC` name to the platform copy, so the SSHJ defaults fail on every device
+even though negotiation succeeds. The client therefore offers curve25519 and
+ECDH key exchange with RSA/ECDSA host and login keys only. Servers fall back
+to the RSA/ECDSA host keys OpenSSH generates by default; an Ed25519-only
+server or an Ed25519 login key fails with an explicit unsupported-key message
+rather than a generic unreachable error. Full Ed25519 support is future work,
+not a correction to this decision.
 
 ## Verification
 

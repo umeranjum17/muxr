@@ -67,6 +67,13 @@ export class SshConnectionError extends Error {
 
 function describe(error: SshTunnelError, target: SshTarget): SshConnectionError {
     const where = `${target.username}@${target.host}:${target.port}`;
+    if (/ed25519/i.test(error.message)) {
+        return new SshConnectionError(
+            error.code,
+            'This route needs RSA or ECDSA SSH keys: an Ed25519 host or login key is in use, which muxr does not support yet. Use an RSA host key and an RSA or ECDSA login key on the machine.',
+            true,
+        );
+    }
     switch (error.code) {
         case 'ssh-auth':
             return new SshConnectionError(
