@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
-import { storage, useHerdrTree, useLocalSettingMutable, useSession, useSessionGitStatus, useSessions } from '@/catalog/store';
+import { storage, useHerdrTree, useLocalSettingMutable, useSession, useSessionGitStatus, useSessions, useSocketStatus } from '@/catalog/store';
 import { sessionStop } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
 import { resolveMessageModeMeta } from '@/catalog/infrastructure/messageMeta';
@@ -48,11 +48,17 @@ import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins';
 import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
+import { useIsFocused } from '@react-navigation/native';
+import { ActiveAgentWakeLock } from './ActiveAgentWakeLock';
 import { displayLink } from '../domain/TerminalLink';
 
 export const TerminalScreen = React.memo((props: { id: string }) => {
     const { theme } = useUnistyles();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
+    const isFocused = useIsFocused();
+    const socketStatus = useSocketStatus();
+    const [appActive, setAppActive] = React.useState(Platform.OS === 'web' || AppState.currentState === 'active');
+    const keepScreenAwake = useLocalSettingMutable('keepScreenAwakeWhileWatching')[0];
     const canControl = authority === 'control' && !authorityLoading;
     const insets = useSafeAreaInsets();
     // Keyboard height already covers the home indicator, so keeping the bottom
@@ -228,6 +234,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const panePromptable = currentPane?.promptable === true;
     const paneKind = currentPane?.agentKind;
     const paneLifecycle = currentPane?.agentStatus;
+    React.useEffect(() => {
+        const subscription = AppState.addEventListener('change', (next) => setAppActive(next === 'active'));
+        return () => subscription.remove();
+    }, []);
+    const watchingWorkingAgent = keepScreenAwake && isFocused && appActive
+        && socketStatus.status === 'connected' && status === 'live'
+        && paneLifecycle === 'working';
     const paneMissing = currentPane === undefined || isShellLabels(agentLabels(currentPane));
     React.useEffect(() => {
         if (paneMissing) {
@@ -438,6 +451,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // that floats over it gets counted as empty space and lands on the output.
     return (
         <View style={{ flex: 1, backgroundColor: theme.colors.terminal.background, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
+            {watchingWorkingAgent && <ActiveAgentWakeLock />}
 
             <View
                 onLayout={(event) => { if (!hasStatusRow) setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height); }}
