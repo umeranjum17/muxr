@@ -57,7 +57,8 @@ export async function startPreviewBridge(socket: WebSocket, key: string): Promis
         }
         if (frame.payload.length > 0) {
             try {
-                connection.write(Buffer.from(openPreviewPayload(frame.payload, hostToClientKey)));
+                // Uint8Array writes directly: RN Hermes has no global Buffer.
+                connection.write(openPreviewPayload(frame.payload, hostToClientKey));
             } catch {
                 connections.delete(frame.connId);
                 connection.destroy();
