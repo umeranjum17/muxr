@@ -8,10 +8,7 @@ import { Switch } from '@/components/Switch';
 import { t } from '@/text';
 
 export default function PreferencesSettingsScreen() {
-    const wakeLockSupported = Platform.OS !== 'web' || (typeof navigator !== 'undefined' && 'wakeLock' in navigator);
     const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
-    const [reopenLastTerminal, setReopenLastTerminal] = useLocalSettingMutable('reopenLastTerminal');
-    const [keepScreenAwakeWhileWatching, setKeepScreenAwakeWhileWatching] = useLocalSettingMutable('keepScreenAwakeWhileWatching');
     const [commandPaletteEnabled, setCommandPaletteEnabled] = useLocalSettingMutable('commandPaletteEnabled');
     const [hideInactiveSessions, setHideInactiveSessions] = useSettingMutable('hideInactiveSessions');
     const [sortSessionsByActivity, setSortSessionsByActivity] = useSettingMutable('sortSessionsByActivity');
@@ -19,13 +16,6 @@ export default function PreferencesSettingsScreen() {
     return (
         <ItemList style={{ paddingTop: 0 }}>
             <ItemGroup title="Sessions" footer="Choose how existing sessions are ordered and filtered.">
-                <Item
-                    title="Last terminal"
-                    subtitle="Reopen on launch if available"
-                    icon={<Ionicons name="return-down-back-outline" size={29} color="#FF9500" />}
-                    rightElement={<Switch value={reopenLastTerminal} onValueChange={setReopenLastTerminal} />}
-                    showChevron={false}
-                />
                 <Item
                     title="Sort by Recent Activity"
                     subtitle="Order sessions by last activity"
@@ -38,15 +28,6 @@ export default function PreferencesSettingsScreen() {
                     subtitle={t('settingsFeatures.hideInactiveSessionsSubtitle')}
                     icon={<Ionicons name="eye-off-outline" size={29} color="#FF9500" />}
                     rightElement={<Switch value={hideInactiveSessions} onValueChange={setHideInactiveSessions} />}
-                    showChevron={false}
-                />
-            </ItemGroup>
-            <ItemGroup title="Watching agents" footer="The screen can stay awake only while this app is foregrounded on a working terminal.">
-                <Item
-                    title="Stay awake"
-                    subtitle={!wakeLockSupported ? 'Screen Wake Lock is unavailable in this browser' : Platform.OS === 'web' ? 'While this tab is visible, if the browser permits it' : 'While viewing a working agent'}
-                    icon={<Ionicons name="sunny-outline" size={29} color="#FF9500" />}
-                    rightElement={<Switch value={keepScreenAwakeWhileWatching && wakeLockSupported} disabled={!wakeLockSupported} onValueChange={setKeepScreenAwakeWhileWatching} />}
                     showChevron={false}
                 />
             </ItemGroup>

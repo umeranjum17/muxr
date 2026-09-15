@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { storage, useHerdrTree, useLocalSetting, useSessionsLoaded, useSocketStatus } from '@/catalog/store';
+import { storage, useHerdrTree, useSocketStatus } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { useSplitViewLayout } from '@/utils/responsive';
 import { useRouter } from 'expo-router';
@@ -45,7 +45,6 @@ import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Modal } from '@/modal';
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
 import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
-import { herdrPaneForSession } from '@/herd';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
 import { HomeRecoveryCard } from './HomeRecoveryCard';
@@ -415,14 +414,11 @@ const HeaderRight = React.memo(({
     return null;
 });
 
-let lastTerminalLaunchClaimed = false;
-
 export const MainView = React.memo(() => {
     useUnistyles();
     const useSplitView = useSplitViewLayout();
     const router = useRouter();
     const socketStatus = useSocketStatus();
-    const sessionsLoaded = useSessionsLoaded();
     const { workspaces: homeWorkspaces, loaded: homeTreeLoaded } = useHerdrTree();
     const [hasPairedGrant, setHasPairedGrant] = React.useState(false);
     const [retryingHome, setRetryingHome] = React.useState(false);
@@ -479,37 +475,6 @@ export const MainView = React.memo(() => {
             setRetryingHome(false);
         }
     }, [retryingHome]);
-    const reopenLastTerminal = useLocalSetting('reopenLastTerminal');
-    const lastTerminal = useLocalSetting('lastTerminal');
-    const { loading: authorityLoading } = useDeviceAuthority();
-    const launchReopenEnabled = React.useRef(reopenLastTerminal);
-    const launchLastTerminal = React.useRef(lastTerminal);
-    const launchMachineId = React.useRef(getCachedConnectionSettings().machineId);
-    const ownsLaunchReopen = React.useRef(!lastTerminalLaunchClaimed);
-    React.useEffect(() => {
-        if (ownsLaunchReopen.current) lastTerminalLaunchClaimed = true;
-    }, []);
-    const reopenAttempted = React.useRef(false);
-    React.useEffect(() => {
-        const candidate = launchLastTerminal.current;
-        if (!ownsLaunchReopen.current || reopenAttempted.current || !launchReopenEnabled.current || candidate === null) return;
-        if (socketStatus.status !== 'connected' || !sessionsLoaded || authorityLoading) return;
-        if (candidate.machineId !== launchMachineId.current || candidate.machineId !== getCachedConnectionSettings().machineId) return;
-        reopenAttempted.current = true;
-        // The persisted route is only a hint. A fresh host tree and the current
-        // catalog must both still authorize that pane before navigation.
-        void sync.refreshHerdTree().then(({ workspaces, herdrConnected }) => {
-            if (herdrConnected === false) return;
-            if (storage.getState().socketStatus !== 'connected') return;
-            if (candidate.machineId !== getCachedConnectionSettings().machineId) return;
-            if (!storage.getState().sessions[candidate.sessionId]
-                || !herdrPaneForSession(workspaces, candidate.sessionId)) {
-                storage.getState().applyLocalSettings({ lastTerminal: null });
-                return;
-            }
-            router.push(`/session/${encodeURIComponent(candidate.sessionId)}`);
-        }).catch(() => undefined);
-    }, [authorityLoading, router, sessionsLoaded, socketStatus.status]);
     const safeArea = useSafeAreaInsets();
     const { isStarting: isStartingHomeSession, startSession: startHomeSession } = useStartSessionFromDraft();
     const sessionListViewData = useVisibleSessionListViewData(true);
@@ -636,7 +601,7 @@ export const MainView = React.memo(() => {
                     ) : null}
                     {!splitRecovering
                         ? <LiveTerminalsRow visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} /> : null}
-                    {homeTreeLoaded && !homeWorkspaces.some(hasAgent) && !splitHostOffline && !splitRuntimeOffline && socketStatus.status === 'connected'
+                    {homeTreeLoaded && !homeWorkspaces.some(hasAgent) && !splitRecovering && socketStatus.status === 'connected'
                         ? <HomeDiscoveryRows /> : null}
                     <PluginSlot slot="home.cards" context={{}} />
                     <DeclarativeHomeCards />

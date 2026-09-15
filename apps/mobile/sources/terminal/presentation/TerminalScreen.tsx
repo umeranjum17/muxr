@@ -48,19 +48,11 @@ import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins';
 import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
-import { useIsFocused } from '@react-navigation/native';
-import { getCachedConnectionSettings } from '@/connection';
-import { ActiveAgentWakeLock } from './ActiveAgentWakeLock';
-import { useSocketStatus } from '@/catalog/store';
 import { displayLink } from '../domain/TerminalLink';
 
 export const TerminalScreen = React.memo((props: { id: string }) => {
     const { theme } = useUnistyles();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
-    const isFocused = useIsFocused();
-    const socketStatus = useSocketStatus();
-    const [appActive, setAppActive] = React.useState(Platform.OS === 'web' || AppState.currentState === 'active');
-    const keepScreenAwake = useLocalSettingMutable('keepScreenAwakeWhileWatching')[0];
     const canControl = authority === 'control' && !authorityLoading;
     const insets = useSafeAreaInsets();
     // Keyboard height already covers the home indicator, so keeping the bottom
@@ -236,21 +228,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const panePromptable = currentPane?.promptable === true;
     const paneKind = currentPane?.agentKind;
     const paneLifecycle = currentPane?.agentStatus;
-    React.useEffect(() => {
-        const subscription = AppState.addEventListener('change', (next) => setAppActive(next === 'active'));
-        return () => subscription.remove();
-    }, []);
-    React.useEffect(() => {
-        if (!isFocused || session === null || currentPane === undefined || socketStatus.status !== 'connected') return;
-        const machineId = getCachedConnectionSettings().machineId;
-        if (!machineId) return;
-        const previous = storage.getState().localSettings.lastTerminal;
-        if (previous?.machineId === machineId && previous.sessionId === props.id) return;
-        storage.getState().applyLocalSettings({ lastTerminal: { machineId, sessionId: props.id } });
-    }, [currentPane, isFocused, props.id, session, socketStatus.status]);
-    const watchingWorkingAgent = keepScreenAwake && isFocused && appActive
-        && socketStatus.status === 'connected' && status === 'live'
-        && paneLifecycle === 'working';
     const paneMissing = currentPane === undefined || isShellLabels(agentLabels(currentPane));
     React.useEffect(() => {
         if (paneMissing) {
@@ -461,7 +438,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // that floats over it gets counted as empty space and lands on the output.
     return (
         <View style={{ flex: 1, backgroundColor: theme.colors.terminal.background, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
-            {watchingWorkingAgent && <ActiveAgentWakeLock />}
 
             <View
                 onLayout={(event) => { if (!hasStatusRow) setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height); }}
