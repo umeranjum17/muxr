@@ -53,6 +53,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { ActiveAgentWakeLock } from './ActiveAgentWakeLock';
 import { getCachedConnectionSettings } from '@/connection';
 import { displayLink } from '../domain/TerminalLink';
+import { humanError } from '@/utils/errors';
 import { CommandPalette } from '@/components/CommandPalette';
 import type { Command } from '@/components/CommandPalette/types';
 import { agentCommands } from '../domain/agentCommands';
@@ -102,6 +103,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const [menu, setMenu] = React.useState<SessionMenu | null>(null);
     const [actionsOpen, setActionsOpen] = React.useState(false);
     const [findOpen, setFindOpen] = React.useState(false);
+    // Focus in Herdr: one request, the menu stays open while it is pending,
+    // a failure stays on the row until the next tap; nothing replays itself.
+    const [focusPending, setFocusPending] = React.useState(false);
+    const [focusFailure, setFocusFailure] = React.useState<string | null>(null);
     const [headerBottom, setHeaderBottom] = React.useState(0);
     // The command panel is hosted by the pane, not by the terminal, so it can
     // cover the accessory key row while leaving the composer alone.
@@ -326,6 +331,19 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         if (hintTimer.current !== null) clearTimeout(hintTimer.current);
         hintTimer.current = setTimeout(() => setGestureHint(null), 1400);
     }, []);
+
+    // Returning the computer to this pane rearranges the desktop:
+    // occasional, deliberate, and only with control.
+    const focusInHerdr = React.useCallback(() => {
+        if (focusPending) return;
+        setFocusPending(true);
+        setFocusFailure(null);
+        void sync.request('pane.focus', { sessionId: props.id })
+            .then(() => { setActionsOpen(false); showGestureHint('Focused in Herdr'); })
+            .catch((error: unknown) => setFocusFailure(humanError(error).message))
+            .finally(() => setFocusPending(false));
+    }, [focusPending, props.id, showGestureHint]);
+    React.useEffect(() => { if (!actionsOpen) setFocusFailure(null); }, [actionsOpen]);
 
     const showRecentLinks = React.useCallback((action: 'open' | 'copy') => {
         const links = recentTerminalLinks(props.id);
@@ -893,6 +911,17 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                             </Pressable>
                             {canControl && <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />}
+                            {canControl && <Pressable onPress={focusInHerdr} disabled={socketStatus.status !== 'connected' || focusPending} accessibilityRole="button"
+                                accessibilityLabel={socketStatus.status === 'connected' ? 'Focus in Herdr' : 'Focus in Herdr, unavailable: not connected'}
+                                accessibilityState={{ disabled: socketStatus.status !== 'connected' || focusPending, busy: focusPending }}
+                                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: socketStatus.status === 'connected' ? 1 : 0.5 })}>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={{ color: theme.colors.text, fontSize: 15 }}>Focus in Herdr</Text>
+                                    {socketStatus.status !== 'connected' && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>Not connected</Text>}
+                                    {focusFailure !== null && <Text style={{ color: theme.colors.status.error, fontSize: 12, marginTop: 2 }}>{`Could not focus: ${focusFailure}. Tap to retry.`}</Text>}
+                                </View>
+                                {focusPending && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
+                            </Pressable>}
                             {recentTerminalLinks(props.id).length > 0 && <>
                                 <Pressable onPress={() => showRecentLinks('open')} accessibilityRole="button" accessibilityLabel="Open recent terminal link"
                                     style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
