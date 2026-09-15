@@ -68,6 +68,33 @@ function isInternalHttpsHost(host: string): boolean {
     return false;
 }
 
+function hexPairToDotted(pair: string): string | null {
+    const groups = pair.split(':');
+    if (groups.length !== 1 && groups.length !== 2) return null;
+    if (!groups.every((group) => /^[0-9a-f]{1,4}$/.test(group))) return null;
+    const hex = groups.map((group) => group.padStart(4, '0')).join('').padStart(8, '0');
+    if (!/^[0-9a-f]{8}$/.test(hex)) return null;
+    const bytes = [0, 2, 4, 6].map((index) => parseInt(hex.slice(index, index + 2), 16));
+    return bytes.join('.');
+}
+
+function mappedIpv4ToDotted(lower: string): string | null {
+    if (lower.startsWith('::ffff:')) {
+        const tail = lower.slice('::ffff:'.length);
+        if (tail.includes('.')) return tail;
+        return hexPairToDotted(tail);
+    }
+    const groups = lower.split(':');
+    if (groups.length === 8
+        && groups.slice(0, 5).every((group) => /^[0-9a-f]{1,4}$/.test(group) && parseInt(group, 16) === 0)
+        && groups[5] === 'ffff') {
+        const tail = `${groups[6]}:${groups[7]}`;
+        if ((groups[7] ?? '').includes('.')) return groups[7] ?? null;
+        return hexPairToDotted(tail);
+    }
+    return null;
+}
+
 function isPublicIpLiteral(value: string): boolean {
     if (isIP(value) === 4) {
         const parts = value.split('.').map(Number);
@@ -87,8 +114,9 @@ function isPublicIpLiteral(value: string): boolean {
     }
     const lower = value.toLowerCase();
     if (lower === '::' || lower === '::1') return false;
-    const mapped = lower.startsWith('::ffff:') ? lower.slice('::ffff:'.length) : lower.includes('.') ? lower.slice(lower.lastIndexOf(':') + 1) : null;
-    if (mapped !== null && mapped.includes('.')) return isPublicIpLiteral(mapped);
+    const mappedDotted = mappedIpv4ToDotted(lower);
+    if (mappedDotted !== null) return isPublicIpLiteral(mappedDotted);
+    if (lower.includes('.')) return isPublicIpLiteral(lower.slice(lower.lastIndexOf(':') + 1));
     const first = lower.split(':')[0] ?? '';
     if (/^fe[89ab]/.test(first)) return false;
     if (lower.startsWith('fc') || lower.startsWith('fd')) return false;
