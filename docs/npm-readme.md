@@ -27,7 +27,7 @@ Nothing changes before **Apply setup**. Setup then verifies the connection and m
 
 Run `muxr` with no arguments for the interactive setup and maintenance menu. The same menu can host a supervised shared relay on a VPS, create one-use machine enrollments, or connect a local Herdr host using only a machine-scoped credential.
 
-The bundled Usage item sheet runs the exact pinned [ccusage](https://github.com/ccusage/ccusage) backend offline against local coding-agent logs and shows today's allowlisted per-agent token totals without costs, prompts, models, or session details. It also lists every known installed CLI and distinguishes no activity reported today from agents ccusage does not support. npm installs one platform-specific ccusage binary (about 4 MB) for Linux or macOS. Current Codex percentages come from its local app-server; other coding CLIs are PATH-detected but never invoked.
+The bundled Usage item sheet runs the exact pinned [ccusage](https://github.com/ccusage/ccusage) backend offline against local coding-agent logs and shows today's allowlisted per-agent token totals without costs, prompts, models, or session details. It shows tabs only for integrated providers — measured activity this week or a connected plan/account — and says when a plan is not connected rather than claiming it does not exist. npm installs one platform-specific ccusage binary (about 4 MB) for Linux or macOS. Plan windows come from each provider's local integration (Claude snapshot/endpoint, Codex app-server, OpenCode Go, Z.ai via Pi); other coding CLIs are never invoked.
 
 ```bash
 muxr update                    # check, confirm, update, and restart
