@@ -31,7 +31,7 @@ import type { FeedItem } from '../infrastructure/feedTypes';
 import type { AttentionEntry, AttentionReason, HerdrTreeWorkspace, LifecycleCatalog, LifecycleEvent } from '@muxr/contract';
 import { buildMessagesMap } from '../infrastructure/messageAdapter';
 import { getRigActivityIndicators, getRigIdentity } from '../infrastructure/rig';
-import { getSessionName, getSessionSubtitle, getSessionAvatarId, type SessionState } from '@/utils/sessionUtils';
+import { getSessionName, getSessionSubtitle, getSessionAvatarId, type SessionState } from '@/herd';
 import { agentRowAttention, mergeCatalogAgent } from '../domain/agent';
 import { herdrPaneForSession } from '@/herd/domain/agentPresentation';
 import { readAgentSession } from './readAgentSession';

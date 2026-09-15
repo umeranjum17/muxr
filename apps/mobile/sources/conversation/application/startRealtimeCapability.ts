@@ -3,7 +3,7 @@ import { storage } from '@/catalog/store';
 import { getCachedConnectionSettings } from '@/connection';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { startSessionFromDraft } from '@/hooks/startSessionFromDraft';
-import { isMachineOnline } from '@/utils/machineUtils';
+import { isMachineOnline } from '@/pairing';
 import { Modal } from '@/modal';
 import {
     beginRealtimeConversation,

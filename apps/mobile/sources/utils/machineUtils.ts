@@ -1,1 +1,0 @@
-export { isMachineOnline } from '@/pairing';
