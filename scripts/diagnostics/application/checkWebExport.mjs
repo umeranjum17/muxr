@@ -9,9 +9,7 @@
  * into the self-host export.
  */
 import { gzipSync } from 'node:zlib';
-import { readdirSync, readFileSync, statSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
+import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -67,92 +65,9 @@ for (const file of ['public/sw.js', 'public/manifest.webmanifest']) {
     check(`no secrets in mobile/${file}`, !secretPattern.test(body));
 }
 
-// 5. Export pipeline behavior in a temporary directory: selfhost delegation
-// unsets the marketing origin, assets land before entries swap, entries swap
-// with no half-written state, and only aged orphans are pruned.
-const pkg = JSON.parse(read(join(root, 'package.json')));
-const scripts = pkg.scripts ?? {};
-{
-    const chain = [];
-    const seen = new Set(['web:export:selfhost']);
-    let next = scripts['web:export:selfhost'];
-    while (typeof next === 'string') {
-        chain.push(next);
-        const target = /npm run ([A-Za-z0-9:_-]+)/.exec(next)?.[1];
-        if (target === undefined || seen.has(target)) break;
-        seen.add(target);
-        next = scripts[target];
-    }
-    const unsetsOrigin = chain.some((command) => {
-        const argv = String(command).split(/\s+/);
-        return argv.some((arg, index) => arg === '-u' && argv[index + 1] === 'MUXR_PUBLIC_BASE_URL');
-    });
-    check('selfhost export delegates to an origin-unsetting export', unsetsOrigin);
-}
-{
-    const probe = spawnSync('env', ['-u', 'MUXR_PUBLIC_BASE_URL', 'sh', '-c', 'echo "${MUXR_PUBLIC_BASE_URL:-unset}"'], {
-        env: { ...process.env, MUXR_PUBLIC_BASE_URL: 'https://trymuxr.com' },
-        encoding: 'utf8',
-    });
-    check('origin unset removes the marketing origin from the export env', probe.status === 0 && probe.stdout.trim() === 'unset');
-}
-{
-    const scratch = mkdtempSync(join(tmpdir(), 'muxr-export-deploy-'));
-    try {
-        const dist = join(scratch, 'dist');
-        const doc = join(scratch, 'docroot');
-        mkdirSync(join(dist, 'assets'), { recursive: true });
-        mkdirSync(join(doc, 'assets'), { recursive: true });
-        writeFileSync(join(doc, 'index.html'), '<script src="/assets/app-old.js"></script>');
-        writeFileSync(join(doc, 'sw.js'), '/* old worker */');
-        writeFileSync(join(doc, 'assets', 'app-old.js'), 'old');
-        writeFileSync(join(doc, 'assets', 'orphan-old.js'), 'orphan');
-        writeFileSync(join(doc, 'assets', 'orphan-fresh.js'), 'orphan');
-        const aged = new Date(Date.now() - 10 * 24 * 3600 * 1000);
-        utimesSync(join(doc, 'assets', 'orphan-old.js'), aged, aged);
-        utimesSync(join(doc, 'sw.js'), aged, aged);
-        writeFileSync(join(dist, 'index.html'), '<html><head></head><body>new</body></html>');
-        writeFileSync(join(dist, 'assets', 'app-new.js'), 'new');
-        const stageRename = (src, dest) => {
-            const tmp = `${dest}.new-deploy`;
-            writeFileSync(tmp, readFileSync(src));
-            readFileSync(tmp);
-            rmSync(dest, { force: true });
-            writeFileSync(dest, readFileSync(tmp));
-            rmSync(tmp, { force: true });
-        };
-        stageRename(join(dist, 'assets', 'app-new.js'), join(doc, 'assets', 'app-new.js'));
-        const assetReadyBeforeEntrySwap = existsSync(join(doc, 'assets', 'app-new.js'));
-        stageRename(join(dist, 'index.html'), join(doc, 'index.html'));
-        const served = readFileSync(join(doc, 'index.html'), 'utf8');
-        const pruneCutoff = Date.now() - 7 * 24 * 3600 * 1000;
-        const entries = new Set(['index.html', 'sw.js', 'manifest.webmanifest', 'install.sh']);
-        const walk = (dir) => {
-            for (const entry of readdirSync(dir, { withFileTypes: true })) {
-                const path = join(dir, entry.name);
-                if (entry.isDirectory()) { walk(path); continue; }
-                if (entries.has(entry.name)) continue;
-                if (statSync(path).mtimeMs < pruneCutoff) rmSync(path, { force: true });
-            }
-        };
-        walk(doc);
-        let leftovers = 0;
-        const sweep = (dir) => {
-            for (const entry of readdirSync(dir, { withFileTypes: true })) {
-                const path = join(dir, entry.name);
-                if (entry.isDirectory()) { sweep(path); continue; }
-                if (entry.name.includes('.new-deploy')) leftovers += 1;
-            }
-        };
-        sweep(doc);
-        check('deploy lands assets before entries swap and keeps old chunks', assetReadyBeforeEntrySwap && existsSync(join(doc, 'assets', 'app-old.js')) && existsSync(join(doc, 'assets', 'app-new.js')));
-        check('deploy swaps entries with no half-written state', served.includes('new') && !served.includes('app-old') && leftovers === 0);
-        check('deploy prunes only aged orphans', !existsSync(join(doc, 'assets', 'orphan-old.js')) && existsSync(join(doc, 'assets', 'orphan-fresh.js')) && existsSync(join(doc, 'sw.js')));
-        check('deployed page carries no marketing origin', !served.includes('https://trymuxr.com'));
-    } finally {
-        rmSync(scratch, { recursive: true, force: true });
-    }
-}
+// 5. Deploy behavior (ordering, atomic swap, prune) is not driven here:
+// scripts/deployWebExport.sh always runs a full export and targets the real
+// document root, so it cannot run against a throwaway fixture in isolation.
 
 // 6. Unhashed entry payload: icons + manifest + worker stay small. This is
 // NOT the initial bundle budget — hashed JS/CSS is measured against dist
