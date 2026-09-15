@@ -138,13 +138,16 @@ export async function updateWebPushNotificationLevel(level: LifecycleNotificatio
     }
 }
 
-/** Remove this browser's push subscription (logout, revoke, re-pair). */
-export async function unsubscribeWebPush(): Promise<void> {
+/** Remove this browser's push subscription (logout, revoke, re-pair). Pass a
+ * credential captured before its grant was removed when the caller already
+ * forgot the pairing: without it the server-side DELETE is skipped and the
+ * relay keeps a dead endpoint. */
+export async function unsubscribeWebPush(opts: { credential?: string } = {}): Promise<void> {
     if (!isWebPushSupported()) return;
     try {
         const settings = getCachedConnectionSettings();
         const grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
-        const credential = grant?.credential ?? settings.token;
+        const credential = opts.credential ?? grant?.credential ?? settings.token;
         const reg = await navigator.serviceWorker.getRegistration(SW_PATH);
         const subscription = reg ? await reg.pushManager.getSubscription() : null;
         if (credential !== '' && subscription) {
