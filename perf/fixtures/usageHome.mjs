@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { attachmentsAddonDir } from '../lib/addons.mjs';
+import { attachmentsAddonDir, codeAddonDir } from '../lib/addons.mjs';
 import { pathToFileURL } from 'node:url';
 
 export const usagePlugins = (sourceRoot) => ({ root, env }) => {
@@ -9,7 +9,8 @@ export const usagePlugins = (sourceRoot) => ({ root, env }) => {
     mkdirSync(join(dir, 'status'), { recursive: true });
     // Attachments left the bundle for its own repo: MUXR_ADDONS_ROOT or the Herdr install.
     symlinkSync(attachmentsAddonDir(), join(dir, 'attachments'));
-    for (const name of ['code', 'terminal-keys']) symlinkSync(join(sourceRoot, 'plugins', name), join(dir, name));
+    symlinkSync(codeAddonDir(), join(dir, 'code'));
+    for (const name of ['terminal-keys']) symlinkSync(join(sourceRoot, 'plugins', name), join(dir, name));
     const original = join(sourceRoot, 'plugins/status');
     for (const file of readdirSync(original)) {
         // The real catalog opens manifests with O_NOFOLLOW. Preserve that guard.

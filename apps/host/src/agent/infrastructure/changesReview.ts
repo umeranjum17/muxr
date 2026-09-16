@@ -211,15 +211,15 @@ function scopeNotes(scope: ChangesScope): string {
 /** The pill payload: count, line summary, and the first page of files. */
 export function changesList(input: ChangesInput): ChangesBadge {
     const scope: ChangesScope = 'working';
-    let resolved: ResolvedComparison;
     try {
-        resolved = resolveComparison(input, scope);
+        sessionRoot(input.cwd);
     } catch {
         return {
             branch: '', root: '', head: '', base: '', comparison: '', note: 'No Git repository for this session',
             count: 0, countLabel: '0 files', summary: [], files: [],
         };
     }
+    const resolved = resolveComparison(input, scope);
     const files = resolved.unavailable === '' ? changedFiles(resolved.root, scope, resolved.head, resolved.base) : [];
     let addedLines = 0;
     let deletedLines = 0;
