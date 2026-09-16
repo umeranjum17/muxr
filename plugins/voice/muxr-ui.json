@@ -8,7 +8,8 @@
     "voice.session": "session",
     "voice.report": "report",
     "voice.provider.list": "provider-list",
-    "voice.provider.set": "provider-set"
+    "voice.provider.set": "provider-set",
+    "voice.provider.describe": "provider-describe"
   },
   "contributions": [
     {
@@ -50,6 +51,99 @@
       "method": "provider.set",
       "entry": "rpc.mjs",
       "mode": "write"
+    },
+    {
+      "slot": "host.rpc",
+      "id": "provider-describe",
+      "type": "rpc",
+      "method": "provider.describe",
+      "entry": "rpc.mjs",
+      "mode": "read"
+    },
+    {
+      "slot": "navigation.content",
+      "id": "engines-screen",
+      "type": "screen",
+      "title": "Voice engines",
+      "data": {
+        "type": "plugin.call",
+        "contributionId": "provider-list"
+      },
+      "children": [
+        {
+          "type": "text",
+          "text": "Each engine is a different voice on the connected machine. Open one to use it and talk to hear it."
+        },
+        {
+          "type": "list",
+          "title": "Engines on this machine",
+          "emptyText": "No voice engines are available on this machine.",
+          "rows": [],
+          "repeat": {
+            "path": "data.providers",
+            "template": {
+              "type": "row",
+              "title": "{{item.name}}",
+              "subtitle": "{{item.description}}",
+              "value": "{{item.stateLabel}}",
+              "action": {
+                "type": "screen",
+                "contributionId": "engine-screen",
+                "params": {
+                  "providerId": "{{item.id}}"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slot": "navigation.content",
+      "id": "engine-screen",
+      "type": "screen",
+      "title": "{{data.name}}",
+      "data": {
+        "type": "plugin.call",
+        "contributionId": "provider-describe"
+      },
+      "children": [
+        {
+          "type": "text",
+          "text": "{{data.description}}"
+        },
+        {
+          "type": "row",
+          "title": "In use",
+          "value": "{{data.selectedLabel}}"
+        },
+        {
+          "type": "row",
+          "title": "Setup",
+          "value": "{{data.statusLabel}}"
+        },
+        {
+          "type": "button",
+          "label": "Use {{data.name}} on this machine",
+          "variant": "primary",
+          "action": {
+            "type": "plugin.call",
+            "contributionId": "provider-set"
+          }
+        },
+        {
+          "type": "text",
+          "text": "Talking starts a live session with the engine in use above."
+        },
+        {
+          "type": "button",
+          "label": "Talk now",
+          "action": {
+            "type": "capability",
+            "name": "voice.start"
+          }
+        }
+      ]
     },
     {
       "slot": "host.stream",

@@ -15,7 +15,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { configureVadStandby } from '@/conversation/session';
 import { ensureRealtimeProviderConfigured, requestRealtimePermission } from '@/conversation';
 
-type ProviderOption = { id: string; name: string; selected: boolean; configurationContributionId: string };
+type ProviderOption = { id: string; name: string; description?: string; selected: boolean; configurationContributionId: string };
 type ProviderList = { selected: string; providers: ProviderOption[] };
 
 async function loadVoicePlugin() {
@@ -28,6 +28,7 @@ export default function VoiceProviderScreen() {
     const { theme } = useUnistyles();
     const { status } = useSocketStatus();
     const [providers, setProviders] = React.useState<ProviderOption[]>([]);
+    const [voicePluginId, setVoicePluginId] = React.useState<string>();
     const [busy, setBusy] = React.useState<string>();
     const [loaded, setLoaded] = React.useState(false);
     const [error, setError] = React.useState<string>();
@@ -43,10 +44,12 @@ export default function VoiceProviderScreen() {
             if (access.status !== 'ready') {
                 setDisabled(access.status === 'disabled');
                 setProviders([]);
+                setVoicePluginId(undefined);
                 setError(access.status === 'missing' ? 'No voice plugin is available on this machine.' : undefined);
                 return;
             }
             setDisabled(false);
+            setVoicePluginId(access.plugin?.summary.pluginId);
             setProviders((await callPlugin<ProviderList>('voice.provider.list')).providers);
             setError(undefined);
         } catch (cause) {
@@ -134,7 +137,8 @@ export default function VoiceProviderScreen() {
                     <Item
                         key={provider.id}
                         title={provider.name}
-                        subtitle={provider.selected ? 'Selected' : 'Tap to use on this machine'}
+                        subtitle={[provider.description, provider.selected ? 'In use' : 'Tap to use'].filter((part) => part !== undefined && part !== '').join(' · ')}
+                        subtitleLines={2}
                         selected={provider.selected}
                         loading={busy === provider.id}
                         showChevron={false}
@@ -142,6 +146,14 @@ export default function VoiceProviderScreen() {
                         rightElement={provider.selected ? <Ionicons name="checkmark-circle" size={24} color={theme.colors.textLink} /> : undefined}
                     />
                 ))}
+                {voicePluginId !== undefined && (
+                    <Item
+                        title="Voice engines"
+                        subtitle="What each one is, and talk to hear it"
+                        icon={<Ionicons name="information-circle-outline" size={28} color={theme.colors.textSecondary} />}
+                        onPress={() => router.push(pluginHref(voicePluginId, 'engines-screen') as any)}
+                    />
+                )}
             </ItemGroup>
             {selected !== undefined && (
                 <ItemGroup title="Setup">
