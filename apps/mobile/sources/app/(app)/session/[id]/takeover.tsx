@@ -220,17 +220,14 @@ export default function TakeoverScreen() {
         // The field is uncontrolled and its content is tracked in a ref, so
         // every change yields exactly the newly typed characters. A controlled
         // value here replays stale deltas and the character-carrying keys
-        // would re-insert them.
+        // would re-insert them. The field is never trimmed mid-typing: a
+        // clear() that has not landed yet would make the next change replay
+        // the whole accumulated text.
         const added = value.slice(typedRef.current.length);
         typedRef.current = value;
         for (const key of added) {
             send(keyMessage('keyDown', key, codeForKey(key)));
             send(keyMessage('keyUp', key, codeForKey(key)));
-        }
-        // Keep the native field short so diffs stay cheap and nothing accumulates.
-        if (value.length > 32) {
-            typedRef.current = '';
-            inputRef.current?.clear();
         }
     }, [send]);
 
