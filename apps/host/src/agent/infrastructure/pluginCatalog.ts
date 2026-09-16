@@ -561,6 +561,8 @@ export function runPluginProcess(options: RunPluginProcessOptions): Promise<unkn
                 HOME: process.env.HOME,
                 ...(process.env.MUXR_HOME ? { MUXR_HOME: process.env.MUXR_HOME } : {}),
                 ...(process.env.HERDR_BIN_PATH ? { HERDR_BIN_PATH: process.env.HERDR_BIN_PATH } : {}),
+                ...(options.pluginId === 'muxr.voice' && process.env.CODEX_HOME ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
+                ...(options.pluginId === 'muxr.voice' && process.env.MUXR_CODEX_BIN ? { MUXR_CODEX_BIN: process.env.MUXR_CODEX_BIN } : {}),
                 ...(options.publicContext === undefined ? {} : { MUXR_PLUGIN_CONTEXT_JSON: options.publicContext }),
                 ...(options.trustedHerdrSocketPath === undefined
                     ? {}

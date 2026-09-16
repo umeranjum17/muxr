@@ -16,6 +16,7 @@ export const MAX_REALTIME_TEXT_BYTES = 4 * 1024;
 export const MAX_REALTIME_PUBLIC_SESSIONS = 64;
 export const MAX_REALTIME_SDP_BYTES = 128 * 1024;
 export const MAX_REALTIME_WEBRTC_DATA_BYTES = 32 * 1024;
+export const MAX_REALTIME_CLOSE_REASON_BYTES = 2 * 1024;
 
 /** Trusted host metadata delivered to a stream plugin in realtime.open. */
 export interface RealtimePluginPublicSession extends AgentInfo {
@@ -243,7 +244,7 @@ export function parseRealtimeHostFrame(value: unknown): RealtimeHostFrame {
         };
     }
     if (frame.type === 'realtime.closed') {
-        return { type: 'realtime.closed', ...(frame.reason === undefined ? {} : { reason: boundedText(frame.reason, 500, 'close reason') }) };
+        return { type: 'realtime.closed', ...(frame.reason === undefined ? {} : { reason: boundedText(frame.reason, MAX_REALTIME_CLOSE_REASON_BYTES, 'close reason') }) };
     }
     if (frame.type === 'realtime.webrtc.start') {
         return { type: 'realtime.webrtc.start', dataChannelLabel: dataChannelLabel(frame.dataChannelLabel) };

@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import WebSocket from 'ws';
 import {
     encodeRealtimeFrame,
+    MAX_REALTIME_CLOSE_REASON_BYTES,
     issueWsTicket,
     parseRealtimeClientFrame,
     parseRealtimeHostFrame,
@@ -37,8 +38,9 @@ const MAX_STREAMS_PER_DEVICE = 2;
 const MAX_STREAM_BUFFER_BYTES = 512 * 1024;
 
 function safeStreamReason(value: unknown): string {
-    return String(value ?? 'Voice stream unavailable.')
+    const clean = String(value ?? 'Voice stream unavailable.')
         .normalize('NFKC')
+        .replace(/["'](?:[A-Za-z][A-Za-z0-9]*_)*(?:api[_-]?key|access[_-]?token|token|secret|password)["']\s*[:=]\s*["']?[^"'{}\s,;]+["']?/gi, '[credential redacted]')
         .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/-]{12,}/gi, '$1 [redacted]')
         .replace(/\b(?:[A-Za-z][A-Za-z0-9]*_)+(?:api_key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '[credential redacted]')
         .replace(/\b(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
@@ -50,8 +52,11 @@ function safeStreamReason(value: unknown): string {
         .replace(/(?<![A-Za-z0-9_/])\/(?!\/)(?:[^\s\/<>'"]+\/)+[^\s\/<>'"]+/g, '[path hidden]')
         .replace(/\b[A-Za-z]:\\(?:[^\s\\]+\\)+[^\s,;]*/g, '[path hidden]')
         .replace(/[\u0000-\u001F\u007F]/g, ' ')
-        .trim()
-        .slice(0, 400) || 'Voice stream unavailable.';
+        .trim();
+    const bytes = Buffer.from(clean, 'utf8');
+    return (bytes.length <= MAX_REALTIME_CLOSE_REASON_BYTES
+        ? clean
+        : bytes.subarray(0, MAX_REALTIME_CLOSE_REASON_BYTES).toString('utf8')).trim() || 'Voice stream unavailable.';
 }
 
 export interface PluginStreamTarget {
@@ -173,6 +178,8 @@ export class PluginStreamManager {
                     PATH: process.env.PATH,
                     HOME: process.env.HOME,
                     ...(process.env.MUXR_HOME ? { MUXR_HOME: process.env.MUXR_HOME } : {}),
+                    ...(params.target.pluginId === 'muxr.voice' && process.env.CODEX_HOME ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
+                    ...(params.target.pluginId === 'muxr.voice' && process.env.MUXR_CODEX_BIN ? { MUXR_CODEX_BIN: process.env.MUXR_CODEX_BIN } : {}),
                     MUXR_PLUGIN_ID: params.target.pluginId,
                     MUXR_PLUGIN_STATE_DIR: params.stateDir,
                     ...(peerAccess === undefined ? {} : {

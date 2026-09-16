@@ -1898,13 +1898,28 @@ export async function createHerdrSessionSource(
 
     async function readSessionOutput(sessionId: string, readOptions?: { lines: number }): Promise<{ text: string; truncated: boolean }> {
         const record = await resolvePane(sessionId);
-        const result = await client.call<{ read?: { text?: string; truncated?: boolean } }>('pane.read', {
+        const source = ['idle', 'done'].includes(lifecycleOf(record)) ? 'recent-unwrapped' : 'visible';
+        const readPane = (requestedSource: 'visible' | 'recent-unwrapped') => client.call<{ read?: { text?: string; truncated?: boolean } }>('pane.read', {
             pane_id: record.paneId,
-            source: ['idle', 'done'].includes(lifecycleOf(record)) ? 'recent-unwrapped' : 'visible',
+            source: requestedSource,
             lines: readOptions?.lines ?? 80,
             format: 'text',
             strip_ansi: true,
         });
+        // Herdr scrolls an alternate-screen transcript only when the agent is
+        // idle. Keep the live screen fallback for working/blocked agents, and
+        // also recover when a stale lifecycle snapshot picked the wrong source.
+        let result;
+        try {
+            result = await readPane(source);
+        } catch (error) {
+            if (source === 'visible') throw error;
+            result = await readPane('visible');
+        }
+        if (source !== 'visible' && !(result.read?.text ?? '').trim()) {
+            const visible = await readPane('visible').catch(() => undefined);
+            if (visible !== undefined && (visible.read?.text ?? '').trim()) result = visible;
+        }
         return { text: result.read?.text ?? '', truncated: result.read?.truncated === true };
     }
 
