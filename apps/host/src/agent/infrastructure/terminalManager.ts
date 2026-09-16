@@ -10,7 +10,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import WebSocket from 'ws';
-import { issueWsTicket, terminalSocketUrl, ticketSocketUrl, type Envelope } from '@muxr/contract';
+import { issueWsTicket, terminalSocketUrl, ticketSocketUrl, type Envelope, type TerminalScrollStateFrame } from '@muxr/contract';
 import { v2EnvelopeSequence } from '@muxr/crypto';
 import { HostV2Crypto, type HostedMachineKeys, deviceTableIsObserve, ticketWsCredential } from '../../machine/index.js';
 import { HerdrGraphicsBridge, graphicsStoppedFrame, type GraphicsPipelineReport, type HerdrGraphicsPointer } from './herdrGraphicsBridge.js';
@@ -22,6 +22,8 @@ export interface TerminalManagerOptions {
     token?: string;
     resolvePane: (sessionId: string) => Promise<string>;
     focusSession: (sessionId: string) => Promise<void>;
+    /** Herdr's own viewport position for a pane. Omitted, the phone is told nothing. */
+    readPaneScroll?: (paneId: string) => Promise<{ offsetFromBottom: number; maxOffsetFromBottom: number }>;
     herdrBin?: string;
     hostedE2ee?: HostedMachineKeys;
     onGraphicsPipelineDiagnostic?: (report: GraphicsPipelineReport) => void;
@@ -43,6 +45,10 @@ interface Attachment {
     pendingGraphics: { frame: string; bytes: number }[];
     pendingGraphicsBytes: number;
     graphicsFlushTimer?: ReturnType<typeof setTimeout>;
+    scrollStateTimer?: ReturnType<typeof setTimeout>;
+    scrollStateReading: boolean;
+    scrollStateDirty: boolean;
+    scrollOffsetFromBottom: number;
     close: (reason?: string) => void;
 }
 
@@ -68,6 +74,8 @@ const TRANSIENT_TRANSPORT = /resource temporarily unavailable \(os error 11\)|wo
 const GRAPHICS_BUFFER_HIGH_BYTES = 512 * 1024;
 const GRAPHICS_BUFFER_LOW_BYTES = 128 * 1024;
 const GRAPHICS_DRAIN_POLL_MS = 16;
+/** A fling's scrolls arrive in a run; only where it stopped is worth reading. */
+const SCROLL_STATE_SETTLE_MS = 90;
 const MAX_PENDING_GRAPHICS_BYTES = 64 * 1024 * 1024;
 const MAX_PENDING_GRAPHICS_FRAMES = 128;
 
@@ -241,6 +249,9 @@ export class TerminalManager {
             initialFrameReceived: false,
             pendingGraphics: [],
             pendingGraphicsBytes: 0,
+            scrollStateReading: false,
+            scrollStateDirty: false,
+            scrollOffsetFromBottom: 0,
             close: () => undefined,
         };
 
@@ -254,6 +265,9 @@ export class TerminalManager {
             removeInput();
             if (attachment.graphicsFlushTimer !== undefined) clearTimeout(attachment.graphicsFlushTimer);
             delete attachment.graphicsFlushTimer;
+            if (attachment.scrollStateTimer !== undefined) clearTimeout(attachment.scrollStateTimer);
+            delete attachment.scrollStateTimer;
+            attachment.scrollStateDirty = false;
             attachment.pendingGraphics = [];
             attachment.pendingGraphicsBytes = 0;
             if (reason !== undefined && socket.readyState === WebSocket.OPEN) {
@@ -366,6 +380,10 @@ export class TerminalManager {
                 }
                 if (frame.type === 'terminal.scroll' && (frame.direction === 'up' || frame.direction === 'down')
                     && typeof frame.lines === 'number') {
+                    // Whatever the scroll turns out to move -- Herdr's own
+                    // scrollback, a program's wheel handler, or nothing at all --
+                    // the phone is told where Herdr's viewport ended up.
+                    this.scheduleScrollState(attachment);
                     // A pane showing a program's own image scrolls that program,
                     // never Herdr's scrollback, even on the flushes where the
                     // bridge is holding the rest of the gesture back.
@@ -408,11 +426,16 @@ export class TerminalManager {
             for (const line of lines) {
                 if (line.trim().length === 0) continue;
                 this.sendToPhone(attachment, line);
+                if (attachment.scrollOffsetFromBottom > 0) this.scheduleScrollState(attachment);
                 // Only a real full repaint is the initial screen. A closed record
                 // or a stray diagnostic line must never start graphics, and the
                 // ANSI payload itself is forwarded untouched either way.
                 if (attachment.initialFrameReceived || !isInitialScreenRecord(line)) continue;
                 attachment.initialFrameReceived = true;
+                // The pane may already be scrolled back -- a desk reader, or this
+                // phone returning to a pane it left scrolled. The control has to
+                // be right on the first screen, not only after the first drag.
+                this.scheduleScrollState(attachment);
                 // Cached images must follow Herdr's initial screen clear.
                 if (!observe) this.activateGraphics(attachment, attachment);
             }
@@ -595,6 +618,45 @@ export class TerminalManager {
         }
         if (attachment.pendingGraphics.length > 0) {
             attachment.graphicsFlushTimer = setTimeout(() => { this.flushGraphics(attachment); }, GRAPHICS_DRAIN_POLL_MS);
+        }
+    }
+
+    /**
+     * One `pane.get` per settled burst, never one per scroll frame. A fling
+     * arrives as a run of scrolls and only the position it ends at is worth
+     * publishing; the trailing read is what makes the last one of the run
+     * count. Herdr applies the scroll before it repaints, so the small delay
+     * also keeps this read behind the scroll it is reporting on.
+     */
+    private scheduleScrollState(attachment: Attachment): void {
+        if (this.options.readPaneScroll === undefined) return;
+        attachment.scrollStateDirty = true;
+        if (attachment.scrollStateTimer !== undefined || attachment.scrollStateReading) return;
+        attachment.scrollStateTimer = setTimeout(() => {
+            delete attachment.scrollStateTimer;
+            void this.publishScrollState(attachment);
+        }, SCROLL_STATE_SETTLE_MS);
+    }
+
+    private async publishScrollState(attachment: Attachment): Promise<void> {
+        const read = this.options.readPaneScroll;
+        if (read === undefined || attachment.scrollStateReading) return;
+        attachment.scrollStateReading = true;
+        attachment.scrollStateDirty = false;
+        try {
+            const scroll = await read(attachment.paneId);
+            attachment.scrollOffsetFromBottom = scroll.offsetFromBottom;
+            this.sendToPhone(attachment, JSON.stringify({
+                type: 'terminal.scroll-state',
+                offsetFromBottom: scroll.offsetFromBottom,
+                maxOffsetFromBottom: scroll.maxOffsetFromBottom,
+            } satisfies TerminalScrollStateFrame));
+        } catch {
+            // A pane that cannot be read is not a terminal failure. The phone
+            // keeps the last position it was told rather than being lied to.
+        } finally {
+            attachment.scrollStateReading = false;
+            if (attachment.scrollStateDirty) this.scheduleScrollState(attachment);
         }
     }
 

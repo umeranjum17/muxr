@@ -177,38 +177,69 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const { selectedImages, pickImages, clearImages } = useImagePicker();
 
     const graphicsOwnsScroll = React.useRef(false);
-    const netScrollBack = React.useRef(0);
+    /**
+     * How far herdr's viewport sits above the live edge, as herdr reports it.
+     * Where herdr owns scrollback this is authoritative and the request counter
+     * below is never consulted.
+     */
+    const scrollBack = React.useRef(0);
+    const hostHasScrollback = React.useRef(false);
+    /**
+     * The old counting behaviour, retained only for alternate-screen panes:
+     * there herdr reports maxOffsetFromBottom 0 no matter what the finger did,
+     * so nothing else can know a program's own scroll position. A program that
+     * ignores wheel reports entirely (measured: Claude Code and opencode return
+     * no redraw to SGR wheel-up) will therefore show a control that cannot move
+     * it -- accepted as the lesser harm than stranding someone inside vim or
+     * less with mouse reporting on, which do respond to those reports.
+     */
+    const altBack = React.useRef(0);
     const [showJump, setShowJump] = React.useState(false);
-    const [restoreScrollBack, setRestoreScrollBack] = React.useState(0);
-    const stopWatchingGraphics = React.useRef<(() => void) | undefined>(undefined);
-    React.useEffect(() => () => stopWatchingGraphics.current?.(), []);
+    const stopWatchingChannel = React.useRef<(() => void) | undefined>(undefined);
+    React.useEffect(() => () => stopWatchingChannel.current?.(), []);
 
     const onChannel = React.useCallback((channel: TerminalChannel | undefined) => {
-        stopWatchingGraphics.current?.();
-        stopWatchingGraphics.current = undefined;
+        stopWatchingChannel.current?.();
+        stopWatchingChannel.current = undefined;
         graphicsOwnsScroll.current = false;
-        if (channel === undefined) {
-            setRestoreScrollBack(netScrollBack.current);
-        } else {
-            netScrollBack.current = 0;
+        scrollBack.current = 0;
+        hostHasScrollback.current = false;
+        altBack.current = 0;
+        if (channel !== undefined) {
             setShowJump(false);
-            stopWatchingGraphics.current = channel.onGraphics((active) => {
+            const stopGraphics = channel.onGraphics((active) => {
                 if (active === graphicsOwnsScroll.current) return;
                 graphicsOwnsScroll.current = active;
-                netScrollBack.current = 0;
-                setRestoreScrollBack(0);
+                scrollBack.current = 0;
+                hostHasScrollback.current = false;
+                altBack.current = 0;
                 setShowJump(false);
             });
-            // Wrap scroll() to track how far back we've gone; the jump button
-            // belongs to terminal history, not a browser's own scroll position.
+            // A pane drawing its own image scrolls that image, so herdr's
+            // viewport says nothing about what the eye is looking at.
+            const stopScrollState = channel.onScrollState(({ offsetFromBottom, maxOffsetFromBottom }) => {
+                if (graphicsOwnsScroll.current) return;
+                if (maxOffsetFromBottom > 0) {
+                    hostHasScrollback.current = true;
+                    scrollBack.current = offsetFromBottom;
+                    altBack.current = 0;
+                    setShowJump(offsetFromBottom > 0);
+                } else {
+                    if (hostHasScrollback.current) altBack.current = 0;
+                    hostHasScrollback.current = false;
+                    scrollBack.current = 0;
+                    setShowJump(altBack.current > 0);
+                }
+            });
             const rawScroll = channel.scroll.bind(channel);
             channel.scroll = (lines, at) => {
-                if (!graphicsOwnsScroll.current) {
-                    netScrollBack.current = Math.max(0, netScrollBack.current + lines);
-                    setShowJump(netScrollBack.current > 3);
+                if (!graphicsOwnsScroll.current && !hostHasScrollback.current) {
+                    altBack.current = Math.max(0, altBack.current + lines);
+                    setShowJump(altBack.current > 0);
                 }
                 rawScroll(lines, at);
             };
+            stopWatchingChannel.current = () => { stopGraphics(); stopScrollState(); };
         }
         channelRef.current = channel;
         setChannel(channel);
@@ -216,10 +247,23 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const jumpToBottom = React.useCallback(() => {
         const channel = channelRef.current;
         if (channel === undefined || graphicsOwnsScroll.current) return;
-        // Overshoot on purpose: herdr clamps the scroll at the live edge.
-        channel.scroll(-(netScrollBack.current + 5000));
-        netScrollBack.current = 0;
-        setRestoreScrollBack(0);
+        if (hostHasScrollback.current) {
+            // Exactly the distance herdr reported, not an overshoot: a pane whose
+            // scrolling belongs to a program would receive that overshoot as
+            // thousands of wheel reports rather than as a clamp. The control
+            // stays until herdr confirms the viewport reached zero, because new
+            // output behind a parked viewport moves the live edge away.
+            if (scrollBack.current > 0) channel.scroll(-scrollBack.current);
+            return;
+        }
+        let remaining = altBack.current;
+        if (remaining <= 0) return;
+        while (remaining > 0) {
+            const step = Math.min(remaining, 400);
+            channel.scroll(-step);
+            remaining -= step;
+        }
+        altBack.current = 0;
         setShowJump(false);
     }, []);
     const showDialogMessage = React.useCallback(() => {
@@ -752,7 +796,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         onTouchEnd={paneGestures.onTouchEnd}
                         style={{ flex: 1 }}
                     >
-                        <TerminalView sessionId={props.id} initialScrollBack={restoreScrollBack} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} />
+                        <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} />
                         {gestureHint !== null && (
                             <View
                                 pointerEvents="none"
@@ -841,29 +885,43 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     <Ionicons name="refresh-outline" size={12} color={theme.colors.textSecondary} />
                                 </Pressable>
                         )}
+                        {/* Centred, because it is the way back to the live edge
+                            and not an accessory of the right-hand chrome, and
+                            because the reach that matters on a phone is the
+                            middle of the bottom. It fades in only once this
+                            pane is known to be off its live edge, so a pane at
+                            the bottom shows nothing at all. */}
                         {showJump && (
-                            <Pressable
-                                onPress={jumpToBottom}
-                                hitSlop={10}
-                                accessibilityRole="button"
-                                accessibilityLabel="Jump to bottom"
-                                style={({ pressed }) => ({
-                                    position: 'absolute',
-                                    right: 14,
-                                    bottom: 14,
-                                    width: 38,
-                                    height: 38,
-                                    borderRadius: 19,
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    backgroundColor: theme.colors.surfaceHigh,
-                                    borderWidth: 1,
-                                    borderColor: theme.colors.divider,
-                                    opacity: pressed ? 0.7 : 1,
-                                })}
+                            <Animated.View
+                                entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)}
+                                exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}
+                                style={{ position: 'absolute', left: 0, right: 0, bottom: 14, alignItems: 'center' }}
                             >
-                                <Ionicons name="arrow-down" size={18} color={theme.colors.text} />
-                            </Pressable>
+                                <Pressable
+                                    onPress={jumpToBottom}
+                                    hitSlop={10}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Jump to latest output"
+                                    style={({ pressed }) => ({
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        minHeight: 36,
+                                        paddingLeft: 12,
+                                        paddingRight: 14,
+                                        borderRadius: 999,
+                                        backgroundColor: theme.colors.surfaceHigh,
+                                        borderWidth: StyleSheet.hairlineWidth,
+                                        borderColor: theme.colors.divider,
+                                        elevation: 6,
+                                        opacity: pressed ? 0.78 : 1,
+                                        transform: [{ scale: pressed ? 0.97 : 1 }],
+                                    })}
+                                >
+                                    <Ionicons name="arrow-down" size={15} color={theme.colors.text} />
+                                    <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>Latest</Text>
+                                </Pressable>
+                            </Animated.View>
                         )}
                     </View>
 

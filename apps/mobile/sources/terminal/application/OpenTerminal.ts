@@ -33,6 +33,13 @@ export interface TerminalChannel {
     onData: (listener: (base64: string, graphics?: boolean) => void) => () => void;
     onClose: (listener: (reason?: string) => void) => () => void;
     onGraphics: (listener: (active: boolean, reason?: TerminalGraphicsReason) => void) => () => void;
+    /**
+     * Where herdr's viewport sits in this pane, as herdr reports it. Nothing
+     * else can be trusted for that: a scroll the phone sent may have moved
+     * herdr's scrollback, been handed to a full-screen program as a wheel
+     * report, or done nothing at all, and only the host can tell which.
+     */
+    onScrollState: (listener: (state: { offsetFromBottom: number; maxOffsetFromBottom: number }) => void) => () => void;
     /** Pane socket state; 'unconfirmed' while the host is silent — see TerminalChannelState. */
     onState: (listener: (state: TerminalChannelState) => void) => () => void;
     sendText: (text: string) => void;
@@ -152,6 +159,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     const closeListeners = new Set<(reason?: string) => void>();
     const stateListeners = new Set<(state: TerminalChannelState) => void>();
     const graphicsListeners = new Set<(active: boolean, reason?: TerminalGraphicsReason) => void>();
+    const scrollStateListeners = new Set<(state: { offsetFromBottom: number; maxOffsetFromBottom: number }) => void>();
+    // Until the host has answered for this pane, nothing is known about its
+    // scrollback -- which is not the same as knowing it has none.
+    let lastScrollState: { offsetFromBottom: number; maxOffsetFromBottom: number } | undefined;
     let graphicsActive = false;
     let graphicsReason: TerminalGraphicsReason | undefined;
     const emitGraphics = (active: boolean, reason?: TerminalGraphicsReason): void => {
@@ -390,6 +401,15 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     if (typeof graphics === 'boolean') emitGraphics(graphics, reason);
                     if (dataListeners.size === 0) pendingData.push(typeof graphics === 'boolean' ? { bytes, graphics } : { bytes });
                     else for (const listener of dataListeners) listener(bytes, graphics);
+                } else if (frame.type === 'terminal.scroll-state'
+                    && 'offsetFromBottom' in frame && typeof frame.offsetFromBottom === 'number'
+                    && 'maxOffsetFromBottom' in frame && typeof frame.maxOffsetFromBottom === 'number') {
+                    hostAnswered();
+                    lastScrollState = {
+                        offsetFromBottom: Math.max(0, Math.trunc(frame.offsetFromBottom)),
+                        maxOffsetFromBottom: Math.max(0, Math.trunc(frame.maxOffsetFromBottom)),
+                    };
+                    for (const listener of scrollStateListeners) listener(lastScrollState);
                 } else if (frame.type === 'terminal.closed') {
                     clearTimeout(openTimer);
                     const reason = 'reason' in frame && typeof frame.reason === 'string' ? frame.reason : undefined;
@@ -490,6 +510,11 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             graphicsListeners.add(listener);
             listener(graphicsActive, graphicsReason);
             return () => graphicsListeners.delete(listener);
+        },
+        onScrollState: (listener) => {
+            scrollStateListeners.add(listener);
+            if (lastScrollState !== undefined) listener(lastScrollState);
+            return () => scrollStateListeners.delete(listener);
         },
         onState: (listener) => {
             stateListeners.add(listener);

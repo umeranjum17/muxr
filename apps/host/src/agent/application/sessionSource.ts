@@ -131,6 +131,12 @@ export interface SessionSource {
         source?: 'visible' | 'recent' | 'recent_unwrapped';
         ansi?: boolean;
     }): Promise<{ text: string; truncated: boolean }>;
+    /**
+     * Where Herdr's own viewport sits in this pane. `maxOffsetFromBottom` is 0
+     * for a pane on the alternate screen: Herdr keeps no scrollback behind a
+     * full-screen program, so nothing the phone sends can move a viewport there.
+     */
+    paneScroll(paneId: string): Promise<{ offsetFromBottom: number; maxOffsetFromBottom: number }>;
     /** Register a watch; resolves once registered, not once the agent settles. */
     agentWatch(options: {
         sessionId: string;

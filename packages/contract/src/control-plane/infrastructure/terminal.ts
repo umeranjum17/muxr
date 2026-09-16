@@ -49,6 +49,25 @@ export interface TerminalClosedFrame {
     reason?: string;
 }
 
+/**
+ * host -> client: where herdr's own viewport sits in this pane's scrollback.
+ *
+ * The client cannot derive this. A `terminal.scroll` does not always move a
+ * scrollback viewport: herdr only owns scrollback for a pane on the main
+ * screen, and a program on the alternate screen (Claude Code, opencode and
+ * every other full-screen harness) has no scrollback ring behind it at all --
+ * herdr reports `maxOffsetFromBottom: 0` and forwards the finger to the
+ * program as mouse-wheel reports instead. Counting the rows the phone asked
+ * for therefore measures the request, never the result. Only herdr knows.
+ */
+export interface TerminalScrollStateFrame {
+    type: 'terminal.scroll-state';
+    /** Rows between the viewport and the live edge; 0 when it is at the bottom. */
+    offsetFromBottom: number;
+    /** Rows of scrollback herdr holds. 0 means herdr owns no scrolling here. */
+    maxOffsetFromBottom: number;
+}
+
 /** client -> host input. `text` for typed text, `bytes` (base64) for raw keys. */
 export interface TerminalInputFrame {
     type: 'terminal.input';
@@ -90,7 +109,7 @@ export interface TerminalScrollFrame {
 }
 
 export type TerminalClientFrame = TerminalInputFrame | TerminalResizeFrame | TerminalScrollFrame | TerminalPointerFrame;
-export type TerminalHostFrame = TerminalOutputFrame | TerminalClosedFrame;
+export type TerminalHostFrame = TerminalOutputFrame | TerminalClosedFrame | TerminalScrollStateFrame;
 
 /** Random channel id. The relay pairs the two sockets quoting the same one. */
 export function newTerminalChannel(): string {

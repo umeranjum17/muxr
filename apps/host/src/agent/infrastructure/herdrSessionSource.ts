@@ -2582,6 +2582,22 @@ export async function createHerdrSessionSource(
             return { text: result.read?.text ?? '', truncated: result.read?.truncated === true };
         },
 
+        // By pane id, not by session: the terminal channel already resolved the
+        // pane it attached, and re-resolving here would answer for whichever
+        // pane the route points at now rather than the one being scrolled.
+        async paneScroll(paneId: string): Promise<{ offsetFromBottom: number; maxOffsetFromBottom: number }> {
+            const result = await client.call<{ pane?: { scroll?: { offset_from_bottom?: number; max_offset_from_bottom?: number } } }>(
+                'pane.get', { pane_id: paneId },
+            );
+            const scroll = result.pane?.scroll;
+            const offset = Number(scroll?.offset_from_bottom);
+            const max = Number(scroll?.max_offset_from_bottom);
+            return {
+                offsetFromBottom: Number.isFinite(offset) && offset > 0 ? Math.trunc(offset) : 0,
+                maxOffsetFromBottom: Number.isFinite(max) && max > 0 ? Math.trunc(max) : 0,
+            };
+        },
+
         async agentWatch(watchOptions: {
             sessionId: string;
             until?: ('idle' | 'done' | 'blocked' | 'unknown')[];

@@ -315,6 +315,12 @@ function runTerminal(args) {
                     const direction = message.direction === 'up' || message.direction === 'down' ? message.direction : undefined;
                     const lines = Number(message.lines);
                     appendFileSync(process.env.FAKE_HERDR_INPUT_LOG ?? `${process.env.FAKE_HERDR_SOCKET}.input.jsonl`, `${JSON.stringify({ at: new Date().toISOString(), source: 'terminal.scroll', pane_id: paneId, direction, lines })}\n`);
+                    // The world owns the viewport, the same way Herdr does: the
+                    // shim only says how far the phone asked to travel, and a
+                    // pane whose harness left no scrollback does not move.
+                    if (direction !== undefined && Number.isFinite(lines)) {
+                        void rpc('scroll.apply', { pane_id: paneId, lines: direction === 'up' ? lines : -lines });
+                    }
                     emit(true);
                 }
                 else if (message.type === 'terminal.input') {

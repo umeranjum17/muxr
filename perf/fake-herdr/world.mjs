@@ -5,6 +5,18 @@
 
 const KINDS = ['pi', 'claude', 'codex', 'gemini'];
 const KIND_LABEL = { pi: 'Pi', claude: 'Claude', codex: 'Codex', gemini: 'Gemini' };
+/**
+ * Which harnesses leave Herdr a scrollback ring to scroll, measured by running
+ * each one under a pty and reading the modes it sets: `pi`, `codex` and
+ * `gemini` stay on the main screen, so Herdr keeps their history and can move a
+ * viewport through it. `claude` takes the alternate screen (`CSI ?1049h`) and
+ * turns on mouse reporting, so Herdr holds nothing behind the pane and reports
+ * `max_offset_from_bottom: 0` -- confirmed against a live opencode pane on the
+ * real Herdr, which is the same shape. A phone that cannot tell those two
+ * apart shows a jump-to-bottom control on a pane with no bottom to go to.
+ */
+const ALTERNATE_SCREEN_KINDS = new Set(['claude']);
+const SCROLLBACK_ROWS = 4_000;
 const TAB_LABELS = ['main', 'review', 'shell', 'scratch'];
 const PANES_PER_TAB = 4;
 const COLS = 80;
@@ -67,6 +79,7 @@ export function createWorld({
             label: name,
             focused: index === 0,
             tokens: {},
+            scrollback_rows: isAgent && ALTERNATE_SCREEN_KINDS.has(kind) ? 0 : SCROLLBACK_ROWS,
             rect: paneRect(indexInTab, panesInTab),
         });
         if (isAgent) {
