@@ -135,9 +135,9 @@ if (method === 'list') {
         HOME: homedir(), PATH: TOOL_PATH,
         HERDR_ENV: '1', HERDR_BIN_PATH: herdr,
         HERDR_WORKSPACE_ID: source.workspace_id, HERDR_TAB_ID: tabId, HERDR_PANE_ID: anchor,
-        HERDR_PLUGIN_ID: entry.plugin, HERDR_PLUGIN_ACTION_ID: entry.actionId,
-        HERDR_PLUGIN_ROOT: entry.pluginRoot, HERDR_PLUGIN_CONTEXT_JSON: JSON.stringify(context),
-        ...(process.env.HERDR_SOCKET_PATH ? { HERDR_SOCKET_PATH: process.env.HERDR_SOCKET_PATH } : {}),
+        HERDR_PLUGIN_ID: entry.plugin, HERDR_PLUGIN_ACTION_ID: entry.actionId, HERDR_PLUGIN_ROOT: entry.pluginRoot, HERDR_PLUGIN_CONTEXT_JSON: JSON.stringify(context),
+        ...(process.env.MUXR_HOME ? { MUXR_HOME: process.env.MUXR_HOME } : {}),
+        ...(process.env.MUXR_HERDR_SOCKET_PATH ? { HERDR_SOCKET_PATH: process.env.MUXR_HERDR_SOCKET_PATH } : {}),
     };
     // Run only the currently enabled plugin's declared argv, without a shell
     // interpolation. The GUI daemon's inherited PATH may omit user installs.
