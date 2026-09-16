@@ -214,6 +214,7 @@ export default function ConnectionSettingsScreen() {
     }, []);
 
     React.useEffect(() => {
+        setPublicKeyCopied(false);
         let cancelled = false;
         void sshPublicKeyFromPrivate(sshPrivateKey).then((info) => {
             if (!cancelled) setPublicKeyInfo(info);
@@ -474,7 +475,7 @@ export default function ConnectionSettingsScreen() {
                     <Field label="SSH port" value={sshPort} onChange={setSshPort} placeholder="22" />
                     <Field label="Relay port on the host" value={sshRelayPort} onChange={setSshRelayPort} placeholder="8792" />
                     <Field label="SSH password (optional)" value={sshPassword} onChange={setSshPassword} placeholder={sshCredentialPresent ? 'Saved credential remains unchanged' : 'Password or private key'} secure />
-                    <Field label="Private key (optional)" value={sshPrivateKey} onChange={setSshPrivateKey} placeholder={sshCredentialPresent ? 'Paste a new key to replace the saved credential' : 'Paste an OpenSSH private key'} secure multiline />
+                    <Field label="Private key (optional)" value={sshPrivateKey} onChange={(next) => { setSshPrivateKey(next); setPublicKeyCopied(false); }} placeholder={sshCredentialPresent ? 'Paste a new key to replace the saved credential' : 'Paste an OpenSSH private key'} secure multiline />
                     {publicKeyInfo !== undefined && <>
                         <Item
                             title="Key fingerprint"

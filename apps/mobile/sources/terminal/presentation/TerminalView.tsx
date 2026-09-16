@@ -117,6 +117,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const graphicsActiveRef = React.useRef(false);
     // A standing device preference: the chosen size survives pane remounts and app restarts.
     const [fontIndex, setFontIndex] = useLocalSettingMutable('terminalFontIndex');
+    const fontIndexRef = React.useRef(fontIndex);
+    fontIndexRef.current = clampFontIndex(fontIndex);
+    const safeFontIndex = fontIndexRef.current;
     const [scaleIndex, setScaleIndex] = React.useState(0);
     const scaleIndexRef = React.useRef(0);
 
@@ -153,7 +156,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             if (next !== scaleIndexRef.current) applyGraphicsZoom(next);
             return;
         }
-        setFontIndex(clampFontIndex(fontIndex + direction));
+        const next = clampFontIndex(fontIndexRef.current + direction);
+        fontIndexRef.current = next;
+        setFontIndex(next);
     };
 
     const resetZoom = (): void => {
@@ -161,12 +166,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             if (scaleIndexRef.current !== 0) applyGraphicsZoom(0);
             return;
         }
+        fontIndexRef.current = DEFAULT_FONT_INDEX;
         setFontIndex(DEFAULT_FONT_INDEX);
     };
 
-    const atMaxZoom = graphicsActive ? scaleIndex >= GRAPHICS_ZOOM_STEPS.length - 1 : fontIndex >= FONT_STEPS.length - 1;
-    const atMinZoom = graphicsActive ? scaleIndex <= 0 : fontIndex <= 0;
-    const atDefaultZoom = graphicsActive ? scaleIndex === 0 : fontIndex === DEFAULT_FONT_INDEX;
+    const atMaxZoom = graphicsActive ? scaleIndex >= GRAPHICS_ZOOM_STEPS.length - 1 : safeFontIndex >= FONT_STEPS.length - 1;
+    const atMinZoom = graphicsActive ? scaleIndex <= 0 : safeFontIndex <= 0;
+    const atDefaultZoom = graphicsActive ? scaleIndex === 0 : safeFontIndex === DEFAULT_FONT_INDEX;
 
     const cancelCoalesce = (): void => {
         writeGenerationRef.current += 1;
@@ -454,7 +460,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 style={{ flex: 1 }}
                 pointerMode={graphicsActive}
                 autoShowKeyboard={!terminalKeyboardDisabled}
-                fontSize={FONT_STEPS[fontIndex]}
+                fontSize={FONT_STEPS[safeFontIndex]}
                 theme={{ background: '#0c0c0b' }}
                 onInput={({ nativeEvent }) => {
                     if (nativeEvent.data) channelRef.current?.sendBytes(nativeEvent.data);

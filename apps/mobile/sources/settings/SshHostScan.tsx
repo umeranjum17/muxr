@@ -19,7 +19,7 @@ function pickLanAddress(addresses: unknown): string | undefined {
     if (!Array.isArray(addresses)) return undefined;
     // Prefer a dotted IPv4 in a private range over IPv6 noise.
     const ipv4 = addresses.find((address): address is string => typeof address === 'string'
-        && /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)\d+\.\d+$/.test(address));
+        && /^(?:10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)$/.test(address));
     return ipv4 ?? addresses.find((address): address is string => typeof address === 'string' && address.includes('.'));
 }
 
@@ -29,6 +29,15 @@ export function SshHostScan({ onPick, disabled }: {
 }) {
     const [phase, setPhase] = React.useState<'idle' | 'scanning' | 'done' | 'failed'>('idle');
     const [results, setResults] = React.useState<SshScanResult[]>([]);
+    const activeRef = React.useRef<{ zeroconf: any; timer: ReturnType<typeof setTimeout> } | undefined>(undefined);
+
+    React.useEffect(() => () => {
+        const active = activeRef.current;
+        if (active === undefined) return;
+        clearTimeout(active.timer);
+        try { active.zeroconf.stop(); } catch { /* leaving mid-scan */ }
+        active.zeroconf?.removeDeviceListeners?.();
+    }, []);
 
     const startScan = React.useCallback(() => {
         let zeroconf: any;
@@ -43,9 +52,11 @@ export function SshHostScan({ onPick, disabled }: {
         setResults([]);
         const timer = setTimeout(() => {
             try { zeroconf.stop(); } catch { /* results so far are fine */ }
+            activeRef.current = undefined;
             setPhase((current) => current === 'scanning' ? 'done' : current);
             cleanup();
         }, 8_000);
+        activeRef.current = { zeroconf, timer };
         const onResolved = (service: { name?: string; addresses?: string[]; port?: number }) => {
             const { name, addresses, port } = service;
             const host = pickLanAddress(addresses);
@@ -58,6 +69,7 @@ export function SshHostScan({ onPick, disabled }: {
         const onError = () => setPhase('failed');
         function cleanup() {
             clearTimeout(timer);
+            if (activeRef.current?.timer === timer) activeRef.current = undefined;
             zeroconf?.removeListener('resolved', onResolved);
             zeroconf?.removeListener('error', onError);
             zeroconf?.removeDeviceListeners();

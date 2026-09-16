@@ -1,6 +1,6 @@
 import { LIFECYCLE_NOTIFICATION_LEVELS } from '@muxr/contract';
 import * as z from 'zod';
-import { DEFAULT_FONT_INDEX } from '../../terminal/domain/fontSteps';
+import { DEFAULT_FONT_INDEX, FONT_STEPS } from '../../terminal/domain/fontSteps';
 
 //
 // Schema
@@ -20,7 +20,7 @@ export const LocalSettingsSchema = z.object({
     keepScreenAwakeWhileWatching: z.boolean().describe('Keep the screen awake while viewing a working agent'),
     reopenLastTerminal: z.boolean().describe('Reopen the last accessible terminal when the app launches'),
     lastTerminal: z.object({ machineId: z.string(), sessionId: z.string() }).nullable().describe('Last terminal viewed on this device'),
-    terminalFontIndex: z.number().int().min(0).catch(DEFAULT_FONT_INDEX).describe('Terminal text size as an index into FONT_STEPS'),
+    terminalFontIndex: z.number().int().min(0).max(FONT_STEPS.length - 1).catch(DEFAULT_FONT_INDEX).describe('Terminal text size as an index into FONT_STEPS'),
     vadStandbyEnabled: z.boolean().describe('Persistently wake realtime voice from local speech activity standby'),
     lifecycleNotificationLevel: z.enum(LIFECYCLE_NOTIFICATION_LEVELS).describe('Which agent lifecycle events may emit notifications'),
     // Herd tab: bucket the agents section under workspace subheaders (herdr's "grouped" toggle).
