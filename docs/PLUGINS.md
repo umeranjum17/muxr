@@ -122,7 +122,7 @@ Reference it from the UI:
 
 muxr never executes a command from the UI document. It sends the enabled extension ID, manifest hash, declared action ID, and explicit session context to the host. The host verifies them and asks Herdr to invoke the action from that same package.
 
-Your action receives `HERDR_PLUGIN_CONTEXT_JSON`, including the muxr-resolved `focused_pane_id`, `focused_pane_cwd`, `workspace_id`, `tab_id`, and `invocation_source`. Herdr also exports `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, and `HERDR_PANE_ID` from that same context, and puts the `herdr` binary on `HERDR_BIN_PATH` alongside `HERDR_SOCKET_PATH`. Write state under `HERDR_PLUGIN_STATE_DIR`.
+Your action receives `HERDR_PLUGIN_CONTEXT_JSON`, including the muxr-resolved `focused_pane_id`, `focused_pane_cwd`, `workspace_id`, `tab_id`, and `invocation_source`. Herdr also exports `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, and `HERDR_PANE_ID` from that same context, and puts the `herdr` binary on `HERDR_BIN_PATH`. The launcher re-exports the selected host socket from `MUXR_HERDR_SOCKET_PATH` as `HERDR_SOCKET_PATH` and inherits `MUXR_HOME`. Write state under `HERDR_PLUGIN_STATE_DIR`.
 
 Because `HERDR_PANE_ID` is the session the phone is looking at, an action that only drives Herdr needs no script of its own:
 
@@ -558,7 +558,7 @@ The child receives the call input as bounded UTF-8 JSON on **stdin** (`"null"` w
 MUXR_PLUGIN_ID            your plugin id
 MUXR_PLUGIN_STATE_DIR     a private directory for this plugin, owner-only
 MUXR_PLUGIN_CONTEXT_JSON  bounded declared host context, when requested
-PATH  HOME  MUXR_HOME
+PATH  HOME  MUXR_HOME  HERDR_BIN_PATH
 ```
 
 Read input in Node with `JSON.parse(readFileSync(0, 'utf8') || 'null')`.
