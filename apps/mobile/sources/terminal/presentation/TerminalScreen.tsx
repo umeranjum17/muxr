@@ -460,7 +460,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         if (attaching || selectedImages.length > 0) return;
         const text = [draftRef.current.trim(), ...attachedPaths].filter((part) => part !== '').join(' ');
         if (text === '') return;
-        const disposition = terminalInputDisposition(currentPane, session ?? undefined, text);
+        const disposition = terminalInputDisposition(currentPaneRef.current, sessionRef.current ?? undefined, text);
         if (disposition.kind === 'blocked') {
             showDialogGuard();
             return;
@@ -481,7 +481,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             setAttachedImages((current) => [...previousImages, ...current]);
             Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
         });
-    }, [attachedImages, attachedPaths, attaching, clearDraft, currentPane, selectedImages.length, session, props.id, showDialogGuard]);
+    }, [attachedImages, attachedPaths, attaching, clearDraft, selectedImages.length, props.id, showDialogGuard]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);
 
