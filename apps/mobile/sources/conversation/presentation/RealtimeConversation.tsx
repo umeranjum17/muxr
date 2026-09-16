@@ -110,7 +110,9 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
                 {failure !== undefined && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: '100%', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(255,69,58,0.12)' }}>
                         <Ionicons name="alert-circle-outline" size={14} color="#ff6a5e" />
-                        <Text numberOfLines={2} style={{ color: '#ff9e96', fontSize: 12, lineHeight: 16, flexShrink: 1, ...Typography.mono('regular') }}>{failure}</Text>
+                        <ScrollView style={{ flexShrink: 1, maxHeight: 112 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                            <Text style={{ color: '#ff9e96', fontSize: 12, lineHeight: 16, ...Typography.mono('regular') }}>{failure}</Text>
+                        </ScrollView>
                     </View>
                 )}
                 {/* What it heard and what it said, in order: a single latest line

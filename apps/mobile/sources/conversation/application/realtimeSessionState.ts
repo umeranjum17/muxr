@@ -43,6 +43,7 @@ const MAX_TURNS = 60;
 
 function visibleVoiceDetail(value: unknown): string | undefined {
     const clean = String(value ?? '')
+        .replace(/["'](?:[A-Za-z][A-Za-z0-9]*_)*(?:api[_-]?key|access[_-]?token|token|secret|password)["']\s*[:=]\s*["']?[^"'{}\s,;]+["']?/gi, '[credential redacted]')
         .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/-]{12,}/gi, '$1 [redacted]')
         .replace(/\b(?:[A-Za-z][A-Za-z0-9]*_)+(?:api_key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '[credential redacted]')
         .replace(/\b(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
@@ -55,7 +56,7 @@ function visibleVoiceDetail(value: unknown): string | undefined {
         .replace(/\b[A-Za-z]:\\(?:[^\s\\]+\\)+[^\s,;]*/g, '[path hidden]')
         .replace(/[\u0000-\u001F\u007F]/g, ' ')
         .trim()
-        .slice(0, 500);
+        .slice(0, 2_048);
     return clean === '' ? undefined : clean;
 }
 

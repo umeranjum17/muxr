@@ -8,7 +8,7 @@
  * arguments, logs, environment, or storage.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { lstatSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -34,6 +34,8 @@ const codexHome = process.env.CODEX_HOME?.trim() || join(homedir(), '.codex');
 const authFile = join(codexHome, 'auth.json');
 const MAX_SDP_BYTES = 128 * 1024;
 const MAX_DATA_BYTES = 32 * 1024;
+const MAX_VISIBLE_ERROR = 2_048;
+const TOKEN_REFRESH_SKEW_SECONDS = 60;
 const PROMPT = `You are Codex Voice inside muxr. Be direct and brief. Speak in one short sentence unless asked to elaborate.
 
 - You are the user's personal work assistant. Inspect the workspace, summarize real output, navigate and coordinate agents using the client tools.
@@ -72,7 +74,7 @@ let endAfterResponse = false;
 
 const emit = (frame) => process.stdout.write(`${JSON.stringify(frame)}\n`);
 const state = (value, detail) => tools.state(value, detail);
-const safe = (value, fallback = 'provider error', max = 500) => cleanProviderProse(value, fallback, max);
+const safe = (value, fallback = 'provider error', max = MAX_VISIBLE_ERROR) => cleanProviderProse(value, fallback, max);
 
 function close(reason) {
     if (closing) return;
@@ -113,23 +115,42 @@ async function boundedResponseBody(response) {
     return Buffer.concat(chunks).toString('utf8');
 }
 
-async function refreshCodexAuth() {
+let authRefresh;
+
+async function refreshCodexAuthOnce() {
     if (process.env.NODE_ENV === 'test' && process.env.MUXR_TEST_CODEX_TOKEN) return;
     const { promise, resolve, reject } = Promise.withResolvers();
     const child = spawn(CODEX_BIN, ['app-server', '--listen', 'stdio://'], { stdio: ['pipe', 'pipe', 'ignore'] });
     let output = '';
     let initialized = false;
     let settled = false;
+    let shuttingDown = false;
+    let killTimer;
     const finish = (error) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        child.kill();
-        error ? reject(error) : resolve();
+        if (error) {
+            child.kill();
+            reject(error);
+            return;
+        }
+        // Codex writes refreshed auth as the account request completes. Let it
+        // flush and exit before the credential file is read below.
+        shuttingDown = true;
+        child.stdin.end();
+        killTimer = setTimeout(() => child.kill(), 1_000);
+        child.once('exit', () => {
+            clearTimeout(killTimer);
+            resolve();
+        });
     };
     const timer = setTimeout(() => finish(new Error('Codex credential refresh timed out.')), 15_000);
-    child.once('error', finish);
-    child.once('exit', (code) => { if (!settled) finish(new Error(`Codex credential refresh exited (${code ?? 'signal'}).`)); });
+    child.once('error', (error) => finish(error));
+    child.once('exit', (code) => {
+        if (!settled) finish(new Error(`Codex credential refresh exited (${code ?? 'signal'}).`));
+        else if (!shuttingDown) clearTimeout(killTimer);
+    });
     child.stdout.on('data', (chunk) => {
         output += chunk;
         if (output.length > 256 * 1024) return finish(new Error('Codex app-server returned oversized refresh output.'));
@@ -144,14 +165,22 @@ async function refreshCodexAuth() {
                 child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
                 child.stdin.write(`${JSON.stringify({ id: 2, method: 'account/read', params: { refreshToken: true } })}\n`);
             } else if (message.id === 2) {
-                return message.error
-                    ? finish(new Error(`Codex credential refresh failed: ${safe(message.error.message)}`))
-                    : finish();
+                if (message.error) return finish(new Error(`Codex credential refresh failed: ${safe(message.error.message)}`));
+                if (message.result?.account?.type !== 'chatgpt') {
+                    return finish(new Error('Codex ChatGPT login could not be refreshed. Run codex login again.'));
+                }
+                return finish();
             }
         }
     });
     child.stdin.write(`${JSON.stringify({ id: 1, method: 'initialize', params: { clientInfo: { name: 'muxr', title: 'muxr', version: '0.1.0' } } })}\n`);
     await promise;
+}
+
+async function refreshCodexAuth() {
+    if (authRefresh !== undefined) return authRefresh;
+    authRefresh = refreshCodexAuthOnce().finally(() => { authRefresh = undefined; });
+    return authRefresh;
 }
 
 function tokenAccountId(token) {
@@ -172,19 +201,51 @@ function bindCredential(token, account) {
     return { token, account: resolvedAccount };
 }
 
+function tokenExpiry(token) {
+    try {
+        const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8'));
+        return typeof payload.exp === 'number' && Number.isFinite(payload.exp) ? payload.exp : undefined;
+    } catch { return undefined; }
+}
+
+function needsTokenRefresh(token) {
+    const expiry = tokenExpiry(token);
+    return expiry === undefined || expiry <= Math.floor(Date.now() / 1_000) + TOKEN_REFRESH_SKEW_SECONDS;
+}
+
+async function readCodexCredential() {
+    let root;
+    let file;
+    try {
+        [root, file] = await Promise.all([lstat(codexHome), lstat(authFile)]);
+    } catch {
+        throw new Error('Codex ChatGPT login is unavailable. Run codex login.');
+    }
+    const owner = typeof process.getuid === 'function' ? process.getuid() : file.uid;
+    if (!root.isDirectory() || root.isSymbolicLink() || (root.mode & 0o022) !== 0
+        || root.uid !== owner || !file.isFile() || file.isSymbolicLink() || (file.mode & 0o077) !== 0 || file.uid !== owner) {
+        throw new Error('Codex credential file must be owner-only in a non-writable store.');
+    }
+    try {
+        const auth = JSON.parse(await readFile(authFile, 'utf8'));
+        return bindCredential(auth.tokens?.access_token, auth.tokens?.account_id);
+    } catch (error) {
+        if (error instanceof SyntaxError) throw new Error('Codex ChatGPT login is unreadable. Run codex login.');
+        throw error;
+    }
+}
+
 async function codexCredential() {
     if (process.env.NODE_ENV === 'test' && process.env.MUXR_TEST_CODEX_TOKEN) {
         return bindCredential(process.env.MUXR_TEST_CODEX_TOKEN, process.env.MUXR_TEST_CODEX_ACCOUNT_ID);
     }
-    await refreshCodexAuth();
-    const [root, file] = await Promise.all([lstat(codexHome), lstat(authFile)]);
-    const owner = typeof process.getuid === 'function' ? process.getuid() : file.uid;
-    if (!root.isDirectory() || root.isSymbolicLink() || (root.mode & 0o022) !== 0 || root.uid !== owner
-        || !file.isFile() || file.isSymbolicLink() || (file.mode & 0o077) !== 0 || file.uid !== owner) {
-        throw new Error('Codex credential file must be owner-only in a non-writable store.');
+    let credential = await readCodexCredential();
+    if (needsTokenRefresh(credential.token)) {
+        await refreshCodexAuth();
+        credential = await readCodexCredential();
+        if (needsTokenRefresh(credential.token)) throw new Error('Codex ChatGPT access token is expired. Run codex login again.');
     }
-    const auth = JSON.parse(await readFile(authFile, 'utf8'));
-    return bindCredential(auth.tokens?.access_token, auth.tokens?.account_id);
+    return credential;
 }
 
 function signalingHeaders(credential) {
@@ -344,7 +405,10 @@ async function signalOffer(sdp) {
         }),
     });
     const answer = await boundedResponseBody(response);
-    if (!response.ok) throw new Error(`Codex Voice signaling failed (${response.status}): ${safe(answer)}`);
+    if (!response.ok) {
+        const action = response.status === 401 ? ' Run codex login again.' : '';
+        throw new Error(`Codex Voice signaling failed (${response.status}): ${safe(answer)}${action}`);
+    }
     if (!answer.startsWith('v=0')) throw new Error('Codex Voice signaling returned an invalid SDP answer.');
     emit({ type: 'realtime.webrtc.answer', sdp: answer });
 }
@@ -398,8 +462,17 @@ export function status() {
         privateStore = root.isDirectory() && !root.isSymbolicLink() && (root.mode & 0o022) === 0 && root.uid === owner
             && file.isFile() && !file.isSymbolicLink() && (file.mode & 0o077) === 0 && file.uid === owner;
     } catch { privateStore = false; }
+    let tokenReady = false;
+    if (authenticated && privateStore) {
+        try {
+            const auth = JSON.parse(readFileSync(authFile, 'utf8'));
+            const token = auth.tokens?.access_token;
+            tokenReady = typeof token === 'string' && token.length > 0 && !needsTokenRefresh(token);
+        } catch { tokenReady = false; }
+    }
     let statusLabel = 'Experimental subscription access ready';
     if (!authenticated) statusLabel = 'Run codex login with ChatGPT';
     else if (!privateStore) statusLabel = 'Codex credential file is not owner-only';
-    return { configured: authenticated && privateStore, statusLabel };
+    else if (!tokenReady) statusLabel = 'Codex ChatGPT login expired; run codex login again';
+    return { configured: authenticated && privateStore && tokenReady, statusLabel };
 }
