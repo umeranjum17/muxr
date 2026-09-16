@@ -131,7 +131,7 @@ Phone features under `apps/mobile/sources/` are named for what the person is doi
 
 ### Dependency direction
 
-Import `@/<feature>` (the public barrel), `@/<feature>/ui` (screens), or a documented public entry (`@/herd/model`, `@/herd/live`, `@/catalog/store`, `@/catalog/sync`, `@/catalog/ops`, `@/catalog/rig`, `@/watch/store`, `@/account/session`, `@/pairing/client`, `@/pairing/e2ee`, `@/pairing/grant`, `@/pairing/secrets`, `@/plugins/events`, `@/conversation/diagnostics`, `@/conversation/session`, `@/playback/interrupt`). Never reach past a feature's public entry into `@/<feature>/domain|application|infrastructure|presentation/…`. `model/` and `domain/` folders stay pure TypeScript (type-only React types allowed): no React runtime, no expo, no fetch. New import cycles between features are rejected; the existing measured pairs are a ratchet that may only shrink.
+Import `@/<feature>` (the public barrel), `@/<feature>/ui` (screens), or a documented public entry (`@/herd/model`, `@/herd/live`, `@/catalog/store`, `@/catalog/sync`, `@/catalog/ops`, `@/catalog/rig`, `@/watch/store`, `@/account/session`, `@/pairing/client`, `@/pairing/e2ee`, `@/pairing/grant`, `@/pairing/secrets`, `@/plugins/events`, `@/conversation/diagnostics`, `@/conversation/session`, `@/catalog/diagnostics`, `@/watch/wakeAndReport`, `@/playback/interrupt`). Never reach past a feature's public entry into `@/<feature>/domain|application|infrastructure|presentation/…`. `model/` and `domain/` folders stay pure TypeScript (type-only React types allowed): no React runtime, no expo, no fetch. New import cycles between features are rejected; the existing measured pairs are a ratchet that may only shrink.
 
 ### Ubiquitous names
 
