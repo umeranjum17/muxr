@@ -36,8 +36,8 @@ const allowedFeatureCycles = [
 ];
 
 // Cross-feature internal imports were repointed to public barrels during the
-// layer-folder collapse (connectionDiagnostics into catalog/index,
-// wakeAndReport into watch/index, realtimeAppControl into conversation/index,
+// layer-folder collapse (connectionDiagnostics into catalog/diagnostics,
+// wakeAndReport into watch/wakeAndReport, realtimeAppControl into conversation/index,
 // everything else already re-exported). The ratchet stays empty: any new site fails.
 const allowedInternalImports: string[] = [];
 
