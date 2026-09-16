@@ -30,7 +30,7 @@ import { useAllMachines, useSessions, useSocketStatus } from '@/catalog/store';
 import { isMachineOnline } from '@/pairing';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { listWorktrees } from '../infrastructure/worktree';
-import { type NewSessionAgentType } from '@/catalog/application/persistence';
+import { type NewSessionAgentType } from '@/catalog';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { sync } from '@/catalog/sync';
 import { resolveAgentCatalog } from '@/catalog';

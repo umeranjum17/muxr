@@ -10,9 +10,9 @@ import {
     type NewSessionDraft,
     type NewSessionAgentType,
     type NewSessionSessionType,
-} from '@/catalog/application/persistence';
+} from '@/catalog';
 export type PermissionModeKey = string;
-import type { AttachmentPreview } from '@/catalog/infrastructure/attachmentTypes';
+import type { AttachmentPreview } from '@/catalog';
 
 interface NewSessionDraftState {
     input: string;

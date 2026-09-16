@@ -17,7 +17,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { requestPermissionAndSubscribe, refreshPushState, unsubscribeWebPush, updateWebPushNotificationLevel, type PushState } from '@/utils/pushNotifications';
 import { resolveForgetPushAction } from '@/utils/pushForget';
-import { loadAppConfig } from '@/catalog/infrastructure/appConfig';
+import { loadAppConfig } from '@/catalog';
 import { versionsMismatch } from '@/utils/versionStatus';
 import { getAppVersion } from '@/utils/appVersion';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
@@ -36,7 +36,7 @@ import {
     type CollaborationIntent,
 } from '@/collaboration';
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
-import { useRealtimeAppControl } from '@/conversation/application/realtimeAppControl';
+import { useRealtimeAppControl } from '@/conversation';
 
 /** Each platform names its own surface; neither promises the other's. */
 function liveUpdatesCopy(enabled: boolean): string {

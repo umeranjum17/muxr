@@ -213,7 +213,7 @@ Render, replace, replay and delete for RGBA all pass at runtime on the current h
 
 ## Files
 
-- `apps/mobile/sources/settings/presentation/SettingsView.tsx` — Unit 1, this branch.
+- `apps/mobile/sources/settings/SettingsView.tsx` — Unit 1, this branch.
 - `apps/mobile/modules/voice-overlay/index.ts` — Unit 3 shared bridge, this branch.
 - `apps/mobile/sources/conversation/application/realtimeSessionState.ts` — Unit 3 shared action
   handling, this branch.

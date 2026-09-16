@@ -5,7 +5,7 @@
  */
 
 import type { Session } from '@/catalog';
-import { AGENT_TYPES, type NewSessionAgentType, type NewSessionSessionType } from '@/catalog/application/persistence';
+import { AGENT_TYPES, type NewSessionAgentType, type NewSessionSessionType } from '@/catalog';
 import { formatPathRelativeToHome } from '@/herd';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 

@@ -19,7 +19,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHostedPairing, usePairQrScanner } from '@/pairing';
-import { loadAppConfig } from '@/catalog/infrastructure/appConfig';
+import { loadAppConfig } from '@/catalog';
 import { getCachedConnectionSettings } from '@/connection';
 import { setupEmptyState } from '@/commercialization';
 import { RoundButton } from '@/components/RoundButton';

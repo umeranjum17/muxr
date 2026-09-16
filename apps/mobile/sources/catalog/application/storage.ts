@@ -33,7 +33,7 @@ import { buildMessagesMap } from '../infrastructure/messageAdapter';
 import { getRigActivityIndicators, getRigIdentity } from '../infrastructure/rig';
 import { getSessionName, getSessionSubtitle, getSessionAvatarId, type SessionState } from '@/herd';
 import { agentRowAttention, mergeCatalogAgent } from '../domain/agent';
-import { herdrPaneForSession } from '@/herd/domain/agentPresentation';
+import { herdrPaneForSession } from '@/herd';
 import { readAgentSession } from './readAgentSession';
 
 function resolveSessionOnlineState(session: { active: boolean; activeAt: number }): 'online' | number {

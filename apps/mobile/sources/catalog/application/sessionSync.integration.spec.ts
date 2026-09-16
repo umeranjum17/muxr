@@ -72,12 +72,16 @@ vi.mock('react-native-mmkv', () => ({
 vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
 const installedVersion = vi.hoisted(() => ({ value: '0.1.27' }));
 vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => installedVersion.value }));
-vi.mock('@/herd', () => ({
-    getSessionName: (session: Session, pane?: HerdrTreePane) =>
-        pane?.taskTitle ?? pane?.agentName ?? session.metadata?.summary?.text ?? session.id,
-    getSessionSubtitle: (_session: Session, pane?: HerdrTreePane) => pane?.agentName ?? '',
-    getSessionAvatarId: (session: Session) => session.id,
-}));
+vi.mock('@/herd', async () => {
+    const { herdrPaneForSession } = await vi.importActual('@/herd/domain/agentPresentation');
+    return {
+        herdrPaneForSession,
+        getSessionName: (session: Session, pane?: HerdrTreePane) =>
+            pane?.taskTitle ?? pane?.agentName ?? session.metadata?.summary?.text ?? session.id,
+        getSessionSubtitle: (_session: Session, pane?: HerdrTreePane) => pane?.agentName ?? '',
+        getSessionAvatarId: (session: Session) => session.id,
+    };
+});
 import { applyStatusToSession, sessionInfoToSession } from '../infrastructure/sessionMapping';
 import { applyHostInfoToAgent } from '../domain/agent';
 import { reconcileLiveTerminalCards } from '@/herd/application/liveTerminalOrder';
@@ -730,7 +734,7 @@ describe('session sync flow', () => {
         }
         restarted.getState().setLifecycleScope('test-authority:machine');
         expect(restarted.getState().voicePendingReports).toEqual([durableReport]);
-        const coordinator = await import('@/watch/application/wakeAndReport');
+        const coordinator = await import('@/watch/wakeAndReport');
         voiceMocks.watching = true;
         for (const listener of voiceMocks.listeners) listener();
         await vi.waitFor(() => expect(voiceMocks.speakReport).toHaveBeenCalledOnce());
@@ -781,7 +785,7 @@ describe('session sync flow', () => {
         vi.resetModules();
         const deliveredRestart = (await import('./storage')).storage;
         deliveredRestart.getState().setLifecycleScope('test-authority:machine');
-        await import('@/watch/application/wakeAndReport');
+        await import('@/watch/wakeAndReport');
         voiceMocks.watching = true;
         for (const listener of voiceMocks.listeners) listener();
         await Promise.resolve();

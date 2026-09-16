@@ -6,4 +6,4 @@ export {
     type PersistedVoiceReport,
     type WatchSnapshot,
     type VoiceAdmission,
-} from './application/agentWatch';
+} from './agentWatch';

@@ -15,7 +15,7 @@ import { issueWsTicket, newTerminalChannel, ticketSocketUrl, type Envelope, type
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 import { storage } from '@/catalog/store';
-import { beginTerminalFrameCounts, finalizeTerminalFrameCounts, recordTerminalChannel, recordTerminalFirstFrame, recordTerminalFrameReceived, recordTerminalFrameWritten, type TerminalFrameCountToken } from '@/catalog/infrastructure/connectionDiagnostics';
+import { beginTerminalFrameCounts, finalizeTerminalFrameCounts, recordTerminalChannel, recordTerminalFirstFrame, recordTerminalFrameReceived, recordTerminalFrameWritten, type TerminalFrameCountToken } from '@/catalog/diagnostics';
 import { DeviceV2Crypto, getCachedHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
 
 /**

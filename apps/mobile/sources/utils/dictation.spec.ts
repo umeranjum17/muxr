@@ -3,7 +3,7 @@ import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import { useDictation } from '@/utils/dictation';
 import { pcm16ChunksToArrayBuffer } from '@/utils/transcription';
-import { wakeAndReport } from '@/watch/application/wakeAndReport';
+import { wakeAndReport } from '@/watch/wakeAndReport';
 import { usePluginEvents } from '@/plugins/events';
 import { cancelRealtimeReportWait, configureVadStandby, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, retryVadStandby, startRealtimeSession, stopRealtimeSession, useRealtimeMuted } from '@/conversation/session';
 

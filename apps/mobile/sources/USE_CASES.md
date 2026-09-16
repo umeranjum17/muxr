@@ -17,10 +17,10 @@ Navigate by capability. Domain language is in the root [CONTEXT.md](../../../CON
 | Watch Agent lifecycle | `herd/application/WatchAgentLifecycle.ts` | Agent, Lifecycle Event | `app/_layout.tsx` (push tap) |
 | Pair Machine | `pairing/application/PairMachine.ts` | `PairedMachine` | `usePairing.ts` (confirm + camera), `app/(app)/pair.tsx` |
 | Reconnect Machine | `pairing/application/ReconnectMachine.ts` | stored grant vs locator | `useRelayDiscovery.ts` |
-| Grant peer authority | `collaboration/application/GrantPeerAuthority.ts` | `Collaboration` | Settings → Collaboration |
-| Revoke peer authority | `collaboration/application/RevokePeerAuthority.ts` | `Collaboration` | Settings → Collaboration disconnect |
+| Grant peer authority | `collaboration/GrantPeerAuthority.ts` | `Collaboration` | Settings → Collaboration |
+| Revoke peer authority | `collaboration/RevokePeerAuthority.ts` | `Collaboration` | Settings → Collaboration disconnect |
 | Open Terminal | `terminal/application/OpenTerminal.ts` | live pane / Agent Route | `TerminalView` |
-| Open Takeover | `takeover/application/OpenTakeover.ts` | coordinates | `session/[id]/takeover.tsx` |
+| Open Takeover | `takeover/OpenTakeover.ts` | coordinates | `session/[id]/takeover.tsx` |
 | Run plugin action | `plugins/application/RunPluginAction.ts` | screen/tree models | `pluginActions.ts` (modals + router) |
 | Run plugin shortcut | `plugins/application/RunPluginShortcut.ts` | enabled catalog | `app/(app)/shortcut/[id].tsx` |
 
@@ -33,8 +33,8 @@ Navigate by capability. Domain language is in the root [CONTEXT.md](../../../CON
 | Read an Agent's workspace file | `catalog/application/readAgentFile.ts` | Agent | `catalog/application/ops.ts` (`sessionReadFile`), `app/(app)/session/[id]/file.tsx` |
 | Read a listed Agent | `catalog/application/readAgentSession.ts` | Agent | Catalog store lookups by Agent Route |
 | Stop or abort an Agent | `catalog/application/stopAgent.ts` | Agent | `catalog/application/ops.ts` (`sessionStop`, `sessionAbort`) |
-| Watch Agent lifecycle on this machine | `watch/application/watchAgentLifecycle.ts` | Agent Watch | `catalog/application/sync.ts` bootstrap |
-| Report an Agent outcome | `watch/application/reportAgentOutcome.ts` | Voice Report | `watch/application/wakeAndReport.ts`, plugin `speech.wake` |
+| Watch Agent lifecycle on this machine | `watch/watchAgentLifecycle.ts` | Agent Watch | `catalog/application/sync.ts` bootstrap |
+| Report an Agent outcome | `watch/reportAgentOutcome.ts` | Voice Report | `watch/wakeAndReport.ts`, plugin `speech.wake` |
 | Bind this device to a machine | `pairing/application/PairMachine.ts` | Pairing String, Hosted Grant, PairedMachine | `usePairing.ts`, `app/(app)/pair.tsx` |
 | Restore a paired connection | `pairing/application/restoreConnection.ts` | Hosted Grant, Connection | `hostedE2ee.ts` (`restoreHostedConnection`) |
 | Forget a pairing on this device | `pairing/application/forgetMachine.ts` | Hosted Grant | `SettingsView.tsx` |
@@ -42,7 +42,7 @@ Navigate by capability. Domain language is in the root [CONTEXT.md](../../../CON
 | Start a realtime conversation | `conversation/application/startRealtimeConversation.ts` | Mic Ownership | `realtimeSessionState.ts` (`startRealtimeSession`), `realtimeActions.ts`, plugin `voice.start` |
 | Start dictation | `conversation/application/startDictation.ts` | Mic Ownership | `realtimeSessionState.ts` (`claimDictation`), `utils/dictation.ts` |
 | Stop a realtime conversation | `conversation/application/stopRealtimeConversation.ts` | Mic Ownership | `realtimeSessionState.ts` (`stopRealtimeSession`) |
-| Interrupt playback | `playback/application/interruptPlayback.ts` | Realtime Playback | `@/playback/interrupt`, `realtimeSessionState.ts` (`sleepRealtimeSession`) |
+| Interrupt playback | `playback/interruptPlayback.ts` | Realtime Playback | `@/playback/interrupt`, `realtimeSessionState.ts` (`sleepRealtimeSession`) |
 | Validate the account session | `account/application/validateAccountCredential.ts` | Account Credential | `account/application/accountSession.ts`, `catalog/application/sync.ts` |
 
 Claude/Codex rewind, fork, and side-chat stubs in `ops.ts` are not use cases. `machineResumeSession` is a stub ("Resume via session list").

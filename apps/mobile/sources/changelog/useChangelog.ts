@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
-import { getLastViewedRelease, setLastViewedRelease } from '../infrastructure/storage';
-import { selectRelease } from '../domain/parser';
+import { getLastViewedRelease, setLastViewedRelease } from './storage';
+import { selectRelease } from './parser';
 import { getAppVersion } from '@/utils/appVersion';
 
 /** Unread state follows the installed app version, not a title that can be reworded. */

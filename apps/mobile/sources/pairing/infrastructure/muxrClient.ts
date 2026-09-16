@@ -30,9 +30,9 @@ import {
     socketCloseReason,
     ticketFailureCode,
     type ConnectionDiagnosticSocketFailureCode,
-} from '../../catalog/infrastructure/connectionDiagnostics';
-import { sshRelayUrl, stopSshTunnel, SshConnectionError } from '../../connection/application/sshTunnel';
-import type { SshTarget } from '../../connection/application/connectionSettings';
+} from '@/catalog/diagnostics';
+import { sshRelayUrl, stopSshTunnel, SshConnectionError } from '@/connection/sshTunnel';
+import type { SshTarget } from '@/connection';
 
 /** `stale`: host liveness is unproven because a request timed out without newer authenticated host traffic. */
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'stale';

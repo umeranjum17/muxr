@@ -19,7 +19,7 @@ A package module exists only when the packages own the behavior. Product operati
 | Sign a peer descriptor | [`signPeerDescriptor`](./crypto/src/e2ee/application/signPeerDescriptor.ts) | Signed Peer Descriptor | host peer prepare/install |
 | Install a peer bundle | [`installPeerBundle`](./crypto/src/e2ee/application/installPeerBundle.ts) | Device Grant, Peer Descriptor | `peer.install` in `apps/host/src/peer/runtime.ts` |
 | Seal or open a v2 envelope | [`envelope`](./crypto/src/e2ee/application/envelope.ts) | Routing Channel, Device Grant | host/mobile `hostedE2ee`, `openV2` / `sealV2` |
-| Seal preview bytes | [`previewChannel`](./crypto/src/e2ee/application/previewChannel.ts) | Preview channel keys | `apps/host/src/requests/infrastructure/preview.ts`, `apps/mobile/sources/preview/infrastructure/previewBridge.ts` |
+| Seal preview bytes | [`previewChannel`](./crypto/src/e2ee/application/previewChannel.ts) | Preview channel keys | `apps/host/src/requests/infrastructure/preview.ts`, `apps/mobile/sources/preview/previewBridge.ts` |
 
 `issueWsTicket` stays control-plane infrastructure: it talks HTTP. Do not wrap it in a fake port.
 
@@ -30,16 +30,16 @@ A package module exists only when the packages own the behavior. Product operati
 | Start Agent | `session.start` | Herd (Agent Route, Agent Name, Agent Kind) | `apps/host/src/requests/createRequestDispatcher.ts`, `apps/mobile/sources/catalog/application/ops.ts` |
 | Prompt Agent | `session.prompt` | Herd | dispatcher, `apps/mobile/sources/catalog/application/sync.ts` |
 | Read Agent Session | `pane.read` | Herd, control-plane | dispatcher, `TerminalPreview.tsx` |
-| Watch Agent Lifecycle | `agent.watch` | Agent Watch, Lifecycle Event | dispatcher, `apps/mobile/sources/watch/application/agentWatch.ts` |
+| Watch Agent Lifecycle | `agent.watch` | Agent Watch, Lifecycle Event | dispatcher, `apps/mobile/sources/watch/agentWatch.ts` |
 | Focus Agent | `pane.focus` | Agent Route | dispatcher, `herdrSessionSource.ts` |
 | Reconnect Machine | stored Device Grant refresh | Device Grant | `hostedE2ee.ts` (`refreshHostedGrant`), `sync.ts` |
 | Grant Peer Authority | `peer.authorize` | Peer Allowlist, Device Grant | `apps/host/src/peer/runtime.ts` |
 | Revoke Peer Authority | `peer.revoke` | Peer relationship | `runtime.ts`, `apps/mobile/sources/collaboration/computerCollaboration.ts` |
 | Start Dictation | on-device dictation | Realtime (phone capture only) | `apps/mobile/sources/utils/dictation.ts` |
 | Start Realtime Conversation | `voice.session` stream | Realtime frames | `apps/mobile/sources/conversation/application/realtimeSession.ts` |
-| Interrupt Playback | `pause_output` / `stop` | Realtime control | `apps/mobile/sources/playback/infrastructure/realtimePlayback.ts` |
-| Report Agent Outcome | `voice.report` | Voice Report, Agent Lifecycle | `apps/mobile/sources/watch/application/wakeAndReport.ts` |
-| Open Terminal | terminal channel | Routing Channel `terminal` | `apps/mobile/sources/terminal/openTerminal.ts`, `apps/host/src/herdr/terminalManager.ts` |
+| Interrupt Playback | `pause_output` / `stop` | Realtime control | `apps/mobile/sources/playback/realtimePlayback.ts` |
+| Report Agent Outcome | `voice.report` | Voice Report, Agent Lifecycle | `apps/mobile/sources/watch/wakeAndReport.ts` |
+| Open Terminal | terminal channel | Routing Channel `terminal` | `apps/mobile/sources/terminal/application/OpenTerminal.ts`, `apps/host/src/herdr/terminalManager.ts` |
 | Attach Preview Tunnel | `preview.attach` | Routing Channel `preview` | host/mobile takeover tunnel adapters |
 | Run Plugin Action | `plugin.call` / `plugin.invoke` | Plugin Identity | dispatcher, `screenModel.ts`, `usePluginEvents.ts` |
 

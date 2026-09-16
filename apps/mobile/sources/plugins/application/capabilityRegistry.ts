@@ -1,5 +1,5 @@
 import type { PluginManifestV1, PluginPrimitive } from '@muxr/contract';
-import { wakeAndReport } from '@/watch/application/wakeAndReport';
+import { wakeAndReport } from '@/watch/wakeAndReport';
 import { startRealtimeCapability } from '@/conversation';
 import { waitForPrimitive } from './primitivePresence';
 

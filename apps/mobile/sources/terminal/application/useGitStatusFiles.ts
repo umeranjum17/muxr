@@ -9,7 +9,7 @@
 
 import * as React from 'react';
 import { useFocusEffect } from 'expo-router';
-import { getGitStatusFiles, GitStatusFiles } from '@/catalog/infrastructure/gitStatusFiles';
+import { getGitStatusFiles, GitStatusFiles } from '@/catalog';
 import { storage, useSessionGitStatusFiles } from '@/catalog/store';
 
 export function useGitStatusFiles(sessionId: string) {

@@ -13,7 +13,7 @@ import {
     voiceReportIsRoutine,
     type VoiceAdmission,
     type VoiceReport,
-} from '../domain/voiceReport';
+} from './voiceReport';
 
 export type PersistedVoiceReport = VoiceReport;
 export type { VoiceAdmission };
