@@ -116,9 +116,8 @@ function SheetActions({ actions, busyId, onAction }: {
         return <Pressable key={action.id} onPress={() => void onAction(action.action, busyKey)} accessibilityRole="button" accessibilityLabel={action.label}
             accessibilityState={{ busy: busyId === busyKey }}
             style={({ pressed }) => [styles.sheetAction, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }, pressed && { backgroundColor: theme.colors.surfaceHighest }]}>
-            {busyId === busyKey
-                ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                : action.icon !== undefined && <Ionicons name={action.icon as never} size={15} color={theme.colors.textSecondary} />}
+            {/* A named action is words; its declared glyph stays metadata. */}
+            {busyId === busyKey && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
             <Text style={{ color: theme.colors.text, fontSize: 13 }}>{action.label}</Text>
         </Pressable>;
     })}</View>;
