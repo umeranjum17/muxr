@@ -322,7 +322,7 @@ Plugin `code`/`diff` nodes stay at the existing 64 KiB / 600-line transport ceil
 { "type": "limits", "path": "data.limits", "title": "Right now" }
 ```
 
-A `section` may set `"columns": 2` or `3` to lay summary nodes (`metric`, `badge`, `progress`, `text`, `row`, `empty`, `chart`, `divider`) side by side; the app collapses three columns to two on narrow screens. Sections containing `field`, `button`, `tree`, `list`, `code`, or `diff` children must stay full width and are rejected with columns. A bound `progress`, `chart`, or `columns` requires `minMuxrVersion: 13`.
+A `section` may set `"columns": 2` or `3` to lay summary nodes (`metric`, `badge`, `progress`, `text`, `row`, `empty`, `chart`, `divider`) side by side; the app collapses three columns to two on narrow screens. Sections containing `limits`, `field`, `button`, `tree`, `list`, `code`, or `diff` children must stay full width and are rejected with columns because those nodes need the full width — `limits` is a verdict, headline, and bars decision block, not a column tile; place it at section level. A bound `progress`, `chart`, or `columns` requires `minMuxrVersion: 13`.
 
 muxr owns layout, typography, spacing, accessibility behavior, loading states, and light/dark rendering. Extensions provide content and intent.
 

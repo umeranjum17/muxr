@@ -308,8 +308,8 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
             const columns = item.columns === undefined ? undefined : number(item.columns);
             if (columns !== undefined && columns !== 2 && columns !== 3) throw new Error('plugin screen section columns must be 2 or 3');
             const children = parseScreenNodes(item.children, depth + 1, budget);
-            if (columns !== undefined && children.some((child) => ['field', 'button', 'tree', 'list', 'code', 'diff'].includes(child.type))) {
-                throw new Error('plugin screen section columns only support summary nodes');
+            if (columns !== undefined && children.some((child) => ['field', 'button', 'tree', 'list', 'code', 'diff', 'limits'].includes(child.type))) {
+                throw new Error('plugin screen section columns only support summary nodes; place full-width limits at section level');
             }
             return { type: 'section', ...(item.title === undefined ? {} : { title: pluginText(item.title, 80) }), ...(columns === undefined ? {} : { columns: columns as 2 | 3 }), children };
         }
