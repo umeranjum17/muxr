@@ -7,6 +7,7 @@
  * node perf/iosReleaseGate.mjs --udid UDID --app /path/muxr.app --record /path/run.json
  * Optional --start-file PATH pauses after pairing for preflight review.
  */
+import { bundledPlusAddons } from './lib/addons.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { CommandScope, useCommandScope } from './lib/commands.mjs';
@@ -190,7 +191,7 @@ try{
     report.controlGeometry=root.frame;
     report.simulator=JSON.parse(await simctl('list','devices','booted','--json'));report.xcode=await command('xcodebuild',['-version']);
     initialPid=await appPid(udid,bundle);if(!initialPid)throw new Error('Retained normal app must already be running');report.initialPid=initialPid;
-    stack=await startFakeStack({...LOAD,sourceRoot:process.cwd(),transport:'loopback',pluginsRoot:join(process.cwd(),'plugins')});
+    stack=await startFakeStack({...LOAD,sourceRoot:process.cwd(),transport:'loopback',setupPlugins:bundledPlusAddons(process.cwd())});
     if(stack.world.panes.length!==100||stack.world.agents.length!==30)throw new Error('Load world differs from100 panes/30 agents');
     // The same file the Android gate reads: one payload, one digest, one
     // served-line count, so a document number means the same thing here.

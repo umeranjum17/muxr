@@ -11,6 +11,7 @@ import type {
     RequestType,
 } from '@muxr/contract';
 import type { AgentWatchStores, SessionSource, TerminalManager } from '../../agent/index.js';
+import { changesBrowse, changesList, changesPatch, changesWorktrees } from '../../agent/index.js';
 import {
     answerAgent,
     closeTerminal,
@@ -67,6 +68,7 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest',
     'attachment.fetch', 'attachment.read', 'unread.catalog',
     'attention.catalog', 'lifecycle.catalog', 'machines.list', 'terminal.attach',
+    'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
 ]);
 
 function isPluginExecutionRequest(request: ClientRequest): request is PluginExecutionRequest {
@@ -115,10 +117,33 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
 } {
     const { source, domain, machineId, hostVersion } = options;
 
+    /** The session cwd is host-injected: a caller can never choose it. */
+    const changesInput = async (sessionId: string, root?: string): Promise<{ sessionId: string; cwd: string; root?: string }> => {
+        const sessions = await source.list();
+        const cwd = sessions.find((session) => session.id === sessionId)?.cwd ?? '';
+        if (cwd === '') throw new Error('No session directory for this session');
+        return { sessionId, cwd, ...(root === undefined ? {} : { root }) };
+    };
+
     const handlers: { [K in NonPeerRequestType]: Handler<K> } = {
         'session.list': async (params) => useCaseData(
             await listAgents(source, params.cwd === undefined ? {} : { cwd: params.cwd }),
         ),
+        'changes.list': async (params) => changesList(await changesInput(params.sessionId, params.root)),
+        'changes.browse': async (params) => changesBrowse({
+            ...(await changesInput(params.sessionId, params.root)),
+            ...(params.scope === undefined ? {} : { scope: params.scope }),
+            ...(params.page === undefined ? {} : { page: params.page }),
+        }),
+        'changes.worktrees': async (params) => changesWorktrees(await changesInput(params.sessionId)),
+        'changes.patch': async (params) => changesPatch({
+            ...(await changesInput(params.sessionId, params.root)),
+            path: params.path,
+            ...(params.scope === undefined ? {} : { scope: params.scope }),
+            ...(params.kind === undefined ? {} : { kind: params.kind }),
+            ...(params.head === undefined ? {} : { head: params.head }),
+            ...(params.base === undefined ? {} : { base: params.base }),
+        }),
         'session.start': async (params) => {
             const { peerMutation: _peerMutation, ...start } = params;
             return useCaseData(await startAgent({

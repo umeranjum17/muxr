@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /** Warm, surface-selective development probe. It never builds, installs or pairs. */
+import { codeAddonDir } from './lib/addons.mjs';
 import { PNG } from 'pngjs';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -275,7 +276,7 @@ async function verifyFixture() {
     const tree = (await scope.run('git', ['-C', session.host.cwd, 'rev-parse', 'HEAD^{tree}'], { timeout: 10_000 })).stdout.trim();
     if (head !== session.host.fixture.gitRevision || tree !== session.host.fixture.gitTree) throw new Error('fixture Git identity changed since preparation');
     const context = JSON.stringify({ sessions: [{ cwd: session.host.cwd }] });
-    const read = JSON.parse((await scope.run(process.execPath, [join(process.cwd(), 'plugins/code/files.mjs'), 'read'], { cwd: process.cwd(), env: { ...process.env, MUXR_PLUGIN_CONTEXT_JSON: context }, input: JSON.stringify({ cwd: session.host.cwd, root: session.host.cwd, path: session.scenario.document.name }), timeout: 10_000 })).stdout);
+    const read = JSON.parse((await scope.run(process.execPath, [join(codeAddonDir(), 'files.mjs'), 'read'], { cwd: process.cwd(), env: { ...process.env, MUXR_PLUGIN_CONTEXT_JSON: context }, input: JSON.stringify({ cwd: session.host.cwd, root: session.host.cwd, path: session.scenario.document.name }), timeout: 10_000 })).stdout);
     const body = Buffer.from(read.body ?? '');
     if (read.name !== session.scenario.document.name || body.compare(Buffer.from(documentPayload()).subarray(0, session.scenario.document.servedBytes)) !== 0 || body.length !== session.scenario.document.servedBytes || createHash('sha256').update(body).digest('hex') !== session.scenario.document.servedSha256 || body.toString('utf8').split('\n').filter(Boolean).length !== session.scenario.document.servedLines) throw new Error('real Files plugin fixture identity changed');
 }

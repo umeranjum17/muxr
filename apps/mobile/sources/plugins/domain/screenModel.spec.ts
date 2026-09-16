@@ -545,7 +545,7 @@ describe('declarative screen identity platform', () => {
             }
         };
         let screens = 0;
-        for (const name of ['code', 'status', 'voice']) {
+        for (const name of ['status', 'voice']) {
             const raw = JSON.parse(readFileSync(join(dir, name, 'muxr-ui.json'), 'utf8'));
             const { manifest, skippedScreenNodes } = parseManifestWithMeta(raw);
             expect(skippedScreenNodes).toEqual([]);
@@ -556,8 +556,8 @@ describe('declarative screen identity platform', () => {
                 expect(initialFieldValues(contribution, {})).toBeTypeOf('object');
             }
         }
-        // Thirteen screens ship today; every one must survive the new parser.
-        expect(screens).toBe(13);
+        // Five screens ship today; every one must survive the new parser.
+        expect(screens).toBe(5);
         expect(bound.length).toBeGreaterThan(0);
         // An app that does not know a new field ignores it rather than breaking.
         const unknown = parseManifest({

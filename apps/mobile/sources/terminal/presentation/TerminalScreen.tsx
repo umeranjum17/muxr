@@ -14,6 +14,7 @@ import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
+import { changesList } from '@/catalog/ops';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
 import { storage, useHerdrTree, useLocalSettingMutable, useSession, useSessionGitStatus, useSessions, useSocketStatus } from '@/catalog/store';
@@ -102,6 +103,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const quickActions = React.useMemo(() => declaredActions.filter((action) => action.quickAction), [declaredActions]);
     const paneActions = React.useMemo(() => declaredActions.filter((action) => !action.quickAction), [declaredActions]);
     const quickReplies = useTerminalQuickReplies();
+    const [changesCount, setChangesCount] = React.useState<number | null>(null);
+    useFocusEffect(React.useCallback(() => {
+        let cancelled = false;
+        changesList(props.id)
+            .then((badge) => { if (!cancelled) setChangesCount(badge.count); })
+            .catch(() => { if (!cancelled) setChangesCount(null); });
+        return () => { cancelled = true; };
+    }, [props.id]));
     const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
     const [pluginActionBusy, setExtensionActionBusy] = React.useState<string>();
     const [swipeNow, setSwipeNow] = React.useState(Date.now);
@@ -157,6 +166,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         />}
         {quickReplies.map((reply, index) => <ActionShortcut key={`${index}:${reply.label}`} label={reply.label} icon="chatbubble-ellipses-outline"
             accessibilityLabel={`Insert quick reply: ${reply.label}`} onPress={() => { insertDraft(reply.text); close(); }} />)}
+        <ActionShortcut
+            label={changesCount === null ? 'Review changes' : `Review changes · ${changesCount}`}
+            icon="git-compare-outline"
+            onPress={() => { close(); router.push(`/session/${encodeURIComponent(props.id)}/changes`); }}
+        />
         <DeclarativeSessionActions actions={quickActions} sessionId={props.id} onNavigate={close} presentation="shortcut" />
     </>, [insertDraft, props.id, quickActions, quickReplies, setTerminalKeyboardDisabled, terminalKeyboardDisabled]);
 
@@ -702,7 +716,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     </View>
 
                     {hasStatusRow && (
-                        <View onLayout={(event) => setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingBottom: 7, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
+                        <Pressable
+                            onLayout={(event) => setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Review changes"
+                            disabled={branch === null}
+                            onPress={() => { if (branch !== null) router.push(`/session/${encodeURIComponent(props.id)}/changes`); }}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingBottom: 7, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
                             {branch !== null && <Ionicons name="git-branch-outline" size={12} color={theme.colors.textSecondary} />}
                             <SessionMetaLine
                                 style={{ flex: 1 }}
@@ -713,7 +733,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     { text: permission?.label, ...(permission?.danger === true ? { color: theme.colors.permission.yolo } : {}) },
                                 ]}
                             />
-                        </View>
+                        </Pressable>
                     )}
 
                     {Platform.OS === 'web' && !canControl && (
