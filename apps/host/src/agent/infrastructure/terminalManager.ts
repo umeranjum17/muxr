@@ -48,6 +48,7 @@ interface Attachment {
     scrollStateTimer?: ReturnType<typeof setTimeout>;
     scrollStateReading: boolean;
     scrollStateDirty: boolean;
+    scrollOffsetFromBottom: number;
     close: (reason?: string) => void;
 }
 
@@ -250,6 +251,7 @@ export class TerminalManager {
             pendingGraphicsBytes: 0,
             scrollStateReading: false,
             scrollStateDirty: false,
+            scrollOffsetFromBottom: 0,
             close: () => undefined,
         };
 
@@ -424,6 +426,7 @@ export class TerminalManager {
             for (const line of lines) {
                 if (line.trim().length === 0) continue;
                 this.sendToPhone(attachment, line);
+                if (attachment.scrollOffsetFromBottom > 0) this.scheduleScrollState(attachment);
                 // Only a real full repaint is the initial screen. A closed record
                 // or a stray diagnostic line must never start graphics, and the
                 // ANSI payload itself is forwarded untouched either way.
@@ -642,6 +645,7 @@ export class TerminalManager {
         attachment.scrollStateDirty = false;
         try {
             const scroll = await read(attachment.paneId);
+            attachment.scrollOffsetFromBottom = scroll.offsetFromBottom;
             this.sendToPhone(attachment, JSON.stringify({
                 type: 'terminal.scroll-state',
                 offsetFromBottom: scroll.offsetFromBottom,

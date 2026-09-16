@@ -179,17 +179,21 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const graphicsOwnsScroll = React.useRef(false);
     /**
      * How far herdr's viewport sits above the live edge, as herdr reports it.
-     *
-     * This used to be counted here, by summing the rows the phone asked for.
-     * That count is of requests, not of movement, and the two only agree on a
-     * pane whose scrollback herdr owns. On the alternate screen -- Claude Code,
-     * opencode, every full-screen harness -- herdr keeps no scrollback at all
-     * and hands the finger to the program as wheel reports the program is free
-     * to ignore, which those two do. The counter climbed anyway, so the control
-     * appeared on panes that had nothing to return from and did nothing when
-     * pressed. Only the host can answer this, so only the host does.
+     * Where herdr owns scrollback this is authoritative and the request counter
+     * below is never consulted.
      */
     const scrollBack = React.useRef(0);
+    const hostHasScrollback = React.useRef(false);
+    /**
+     * The old counting behaviour, retained only for alternate-screen panes:
+     * there herdr reports maxOffsetFromBottom 0 no matter what the finger did,
+     * so nothing else can know a program's own scroll position. A program that
+     * ignores wheel reports entirely (measured: Claude Code and opencode return
+     * no redraw to SGR wheel-up) will therefore show a control that cannot move
+     * it -- accepted as the lesser harm than stranding someone inside vim or
+     * less with mouse reporting on, which do respond to those reports.
+     */
+    const altBack = React.useRef(0);
     const [showJump, setShowJump] = React.useState(false);
     const stopWatchingChannel = React.useRef<(() => void) | undefined>(undefined);
     React.useEffect(() => () => stopWatchingChannel.current?.(), []);
@@ -199,21 +203,41 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         stopWatchingChannel.current = undefined;
         graphicsOwnsScroll.current = false;
         scrollBack.current = 0;
+        hostHasScrollback.current = false;
+        altBack.current = 0;
         if (channel !== undefined) {
             setShowJump(false);
             const stopGraphics = channel.onGraphics((active) => {
                 if (active === graphicsOwnsScroll.current) return;
                 graphicsOwnsScroll.current = active;
                 scrollBack.current = 0;
+                hostHasScrollback.current = false;
+                altBack.current = 0;
                 setShowJump(false);
             });
             // A pane drawing its own image scrolls that image, so herdr's
             // viewport says nothing about what the eye is looking at.
-            const stopScrollState = channel.onScrollState(({ offsetFromBottom }) => {
+            const stopScrollState = channel.onScrollState(({ offsetFromBottom, maxOffsetFromBottom }) => {
                 if (graphicsOwnsScroll.current) return;
-                scrollBack.current = offsetFromBottom;
-                setShowJump(offsetFromBottom > 0);
+                if (maxOffsetFromBottom > 0) {
+                    hostHasScrollback.current = true;
+                    scrollBack.current = offsetFromBottom;
+                    altBack.current = 0;
+                    setShowJump(offsetFromBottom > 0);
+                } else {
+                    hostHasScrollback.current = false;
+                    scrollBack.current = 0;
+                    setShowJump(altBack.current > 0);
+                }
             });
+            const rawScroll = channel.scroll.bind(channel);
+            channel.scroll = (lines, at) => {
+                if (!graphicsOwnsScroll.current) {
+                    altBack.current = Math.max(0, altBack.current + lines);
+                    if (!hostHasScrollback.current) setShowJump(altBack.current > 0);
+                }
+                rawScroll(lines, at);
+            };
             stopWatchingChannel.current = () => { stopGraphics(); stopScrollState(); };
         }
         channelRef.current = channel;
@@ -222,11 +246,23 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const jumpToBottom = React.useCallback(() => {
         const channel = channelRef.current;
         if (channel === undefined || graphicsOwnsScroll.current) return;
-        // Exactly the distance herdr reported, not an overshoot: a pane whose
-        // scrolling belongs to a program would receive that overshoot as
-        // thousands of wheel reports rather than as a clamp.
-        if (scrollBack.current > 0) channel.scroll(-scrollBack.current);
-        scrollBack.current = 0;
+        if (hostHasScrollback.current) {
+            // Exactly the distance herdr reported, not an overshoot: a pane whose
+            // scrolling belongs to a program would receive that overshoot as
+            // thousands of wheel reports rather than as a clamp. The control
+            // stays until herdr confirms the viewport reached zero, because new
+            // output behind a parked viewport moves the live edge away.
+            if (scrollBack.current > 0) channel.scroll(-scrollBack.current);
+            return;
+        }
+        let remaining = altBack.current;
+        if (remaining <= 0) return;
+        while (remaining > 0) {
+            const step = Math.min(remaining, 400);
+            channel.scroll(-step);
+            remaining -= step;
+        }
+        altBack.current = 0;
         setShowJump(false);
     }, []);
     const showDialogMessage = React.useCallback(() => {
@@ -851,8 +887,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         {/* Centred, because it is the way back to the live edge
                             and not an accessory of the right-hand chrome, and
                             because the reach that matters on a phone is the
-                            middle of the bottom. It fades in only once Herdr
-                            says this pane is off its live edge, so a pane at
+                            middle of the bottom. It fades in only once this
+                            pane is known to be off its live edge, so a pane at
                             the bottom shows nothing at all. */}
                         {showJump && (
                             <Animated.View
