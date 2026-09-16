@@ -54,6 +54,22 @@ export function keyMessage(eventType: 'keyDown' | 'keyUp', key: string, code: st
     return JSON.stringify({ type: 'input_keyboard', eventType, key, code });
 }
 
+/** Back/forward are browser-level mouse buttons; coordinates are ignored by the browser for them. */
+export function mouseMessage(eventType: 'mousePressed' | 'mouseReleased', point: Point, button: 'back' | 'forward'): string {
+    return JSON.stringify({ type: 'input_mouse', eventType, x: point.x, y: point.y, button, clickCount: 1 });
+}
+
+/**
+ * The stream port an agent advertises when it enables its browser stream:
+ * the `ws://127.0.0.1:<port>` URL printed into its conversation.
+ */
+export function advertisedStreamPort(text: string): number | undefined {
+    const match = /ws:\/\/127\.0\.0\.1:(\d{1,5})/.exec(text);
+    if (match === null) return undefined;
+    const port = Number(match[1]);
+    return Number.isSafeInteger(port) && port >= 1 && port <= 65_535 ? port : undefined;
+}
+
 /** Best-effort `code` for a printable character; the protocol dispatches on `key`. */
 export function codeForKey(key: string): string {
     if (/^[a-zA-Z]$/.test(key)) return `Key${key.toUpperCase()}`;

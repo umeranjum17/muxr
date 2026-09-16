@@ -7,14 +7,25 @@ import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { machineBash } from '@/catalog/ops';
-import { useSession, useSocketStatus } from '@/catalog/store';
+import { useSession, useSessionMessages, useSocketStatus } from '@/catalog/store';
 import { mapDisplayToInput, type Size, type StreamFrameMetadata } from '@/takeover';
-import { codeForKey, keyMessage, openTakeover, parseStreamFrame, touchMessage } from '@/takeover';
+import { advertisedStreamPort, codeForKey, keyMessage, mouseMessage, openTakeover, parseStreamFrame, touchMessage } from '@/takeover';
 
 function selectedPort(value: string | undefined): number | undefined {
     if (value === undefined || !/^\d{1,5}$/.test(value)) return undefined;
     const port = Number(value);
     return Number.isSafeInteger(port) && port >= 1 && port <= 65_535 ? port : undefined;
+}
+
+/** Only a plain http(s) address is openable; anything else is dropped. */
+function openableAddress(value: string | undefined): string | undefined {
+    if (value === undefined || value.length > 2048 || /\s|["']/.test(value)) return undefined;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 /** Shell-safe agent-browser session names only; anything else is dropped. */
@@ -40,13 +51,24 @@ export default function TakeoverScreen() {
     const { id, port, session: browserSession } = useLocalSearchParams<{ id: string; port?: string; session?: string }>();
     const session = useSession(id);
     const { status } = useSocketStatus();
+    const { messages } = useSessionMessages(id);
     const [frame, setFrame] = React.useState<LiveFrame | null>(null);
     const [error, setError] = React.useState<string | null>(null);
     const [connecting, setConnecting] = React.useState(false);
     const [display, setDisplay] = React.useState<Size>({ width: 0, height: 0 });
     const [keyboardOpen, setKeyboardOpen] = React.useState(false);
     const [typed, setTyped] = React.useState('');
-    const [portDraft, setPortDraft] = React.useState('');
+    // Prefill from the stream URL the agent printed into its conversation.
+    const advertisedPort = React.useMemo(() => {
+        for (let index = messages.length - 1; index >= Math.max(0, messages.length - 40); index -= 1) {
+            const message = messages[index] as { text?: unknown };
+            if (typeof message.text !== 'string') continue;
+            const found = advertisedStreamPort(message.text);
+            if (found !== undefined) return found;
+        }
+        return undefined;
+    }, [messages]);
+    const [portDraft, setPortDraft] = React.useState(advertisedPort === undefined ? '' : String(advertisedPort));
     const socketRef = React.useRef<WebSocket | null>(null);
     const closeTunnelRef = React.useRef<(() => void) | null>(null);
     const inputRef = React.useRef<TextInput>(null);
@@ -179,6 +201,19 @@ export default function TakeoverScreen() {
         if (!result.success) Modal.alert('Could not save state', result.stderr || result.stdout);
     }, [agentBrowser, cwd]);
 
+    const navigateStream = React.useCallback((button: 'back' | 'forward') => {
+        send(mouseMessage('mousePressed', { x: 0, y: 0 }, button));
+        send(mouseMessage('mouseReleased', { x: 0, y: 0 }, button));
+    }, [send]);
+
+    const openAddress = React.useCallback(async () => {
+        const entered = await Modal.prompt('Open address', 'Navigate the watched browser to a web address.', { placeholder: 'https://…', confirmText: 'Open' });
+        const url = openableAddress(entered ?? undefined);
+        if (url === undefined) return;
+        const result = await machineBash('', `${agentBrowser} open '${url}'`, cwd);
+        if (!result.success) Modal.alert('Could not open the address', result.stderr || result.stdout);
+    }, [agentBrowser, cwd]);
+
     const toggleKeyboard = React.useCallback(() => {
         if (keyboardOpen) {
             Keyboard.dismiss();
@@ -192,11 +227,20 @@ export default function TakeoverScreen() {
 
     const toolbar = (
         <View style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: theme.colors.surface }}>
+            <Pressable onPress={() => navigateStream('back')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Browser back">
+                <Ionicons name="arrow-back" size={20} color={theme.colors.text} />
+            </Pressable>
+            <Pressable onPress={() => navigateStream('forward')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Browser forward">
+                <Ionicons name="arrow-forward" size={20} color={theme.colors.text} />
+            </Pressable>
             <Pressable onPress={toggleKeyboard} hitSlop={10} accessibilityRole="button" accessibilityLabel="Toggle keyboard" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Ionicons name={keyboardOpen ? 'keypad' : 'keypad-outline'} size={20} color={theme.colors.text} />
                 <Text style={{ ...Typography.default(), color: theme.colors.text }}>Type</Text>
             </Pressable>
             <View style={{ flex: 1 }} />
+            <Pressable onPress={() => void openAddress()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Open address" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} disabled={status !== 'connected'}>
+                <Ionicons name="globe-outline" size={20} color={theme.colors.text} />
+            </Pressable>
             <Pressable onPress={() => void saveState()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Save browser login" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Ionicons name="key-outline" size={20} color={theme.colors.text} />
                 <Text style={{ ...Typography.default(), color: theme.colors.text }}>Save login</Text>
@@ -278,7 +322,9 @@ export default function TakeoverScreen() {
             {directPort === undefined && !connecting && (
                 <View style={{ gap: 12 }}>
                     <Text style={{ ...Typography.default(), color: theme.colors.textSecondary }}>
-                        Enter the agent-browser stream port from the blocked-agent message.
+                        {advertisedPort === undefined
+                            ? 'Enter the agent-browser stream port from the blocked-agent message.'
+                            : `Found the stream port from the agent message (${advertisedPort}).`}
                     </Text>
                     <TextInput
                         value={portDraft}
