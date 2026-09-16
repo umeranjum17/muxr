@@ -175,7 +175,7 @@ Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships n
 
 Primitive parameters live under `params`. An `item-list` with `refreshIntervalMs` refreshes only while its screen and the app are active, stops its timer when unfocused/unmounted, and always force-refreshes when the user opens it. Returning zero items hides the control.
 
-Session actions normally appear under the header's three-dot pane menu. A session `screen-button`, or an `item-list`/`icon-button` native contribution in a supported session action slot, can set `"quickAction": true` on the contribution (not inside `params`). It then appears directly in the floating terminal command panel, separated from keyboard and zoom controls. Placement comes from the declaration, not a bundled plugin-id list; the bundled Changes, Files, and Applications actions opt in.
+Session actions normally appear under the header's three-dot pane menu. A session `screen-button`, or an `item-list`/`icon-button` native contribution in a supported session action slot, can set `"quickAction": true` on the contribution (not inside `params`). It then appears directly in the floating terminal command panel, separated from keyboard and zoom controls. Placement comes from the declaration, not a bundled plugin-id list; the bundled Applications action opts in.
 
 ```json
 { "slot": "session.pills", "id": "files", "type": "native", "primitive": "item-list",
@@ -508,7 +508,7 @@ with `{{item.x}}`. At most 32 entries render.
 A `row` with an `action` becomes tappable and opens another `navigation.content`
 screen in the same plugin. `params` values are bound the same way and are passed
 as the input to that screen's data RPC, so a detail screen can load exactly the
-record you tapped. `plugins/code` is a complete worked example: list the
+record you tapped. The Files add-on (`umeranjum17/herdr-files`) is a complete worked example: list the
 files in a repo, tap one, read it.
 
 ## Screen rows, tones and saved state
@@ -577,8 +577,7 @@ different plugin's UI would be a way to hide trusted surfaces. Disabling is an e
 
 A button on a detail screen sends its declared `fields` **plus the params the
 screen was opened with**, so it can act on the record you tapped without making
-you retype it. Fields win on a key collision. `plugins/code` is the worked
-example: list the commits, tap one, read the diff.
+you retype it. Fields win on a key collision.
 
 ## What a backend RPC gets
 
@@ -692,7 +691,7 @@ phone-effect name is skipped, not fatal.
 `session.header.trailing` accepts `type: "screen-button"` in addition to
 `data-card`. A screen-button opens another contribution in the same plugin from
 the pane menu, or directly from terminal quick controls when `quickAction` is
-true (see `plugins/code/muxr-ui.json`).
+true (see the `tools-sheet` contribution in `plugins/panes/muxr-ui.json`).
 
 ```json
 {
