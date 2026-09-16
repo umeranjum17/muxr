@@ -215,13 +215,22 @@ export default function TakeoverScreen() {
         send(touchMessage('touchEnd'));
     }, [commitDrag, display, frame, send]);
 
+    const typedRef = React.useRef('');
     const pushText = React.useCallback((value: string) => {
-        // The hidden field stays empty, so every change IS the newly typed
-        // text: a controlled value here would replay stale deltas and the
-        // character-carrying keys would double-insert them.
-        for (const key of value) {
+        // The field is uncontrolled and its content is tracked in a ref, so
+        // every change yields exactly the newly typed characters. A controlled
+        // value here replays stale deltas and the character-carrying keys
+        // would re-insert them.
+        const added = value.slice(typedRef.current.length);
+        typedRef.current = value;
+        for (const key of added) {
             send(keyMessage('keyDown', key, codeForKey(key)));
             send(keyMessage('keyUp', key, codeForKey(key)));
+        }
+        // Keep the native field short so diffs stay cheap and nothing accumulates.
+        if (value.length > 32) {
+            typedRef.current = '';
+            inputRef.current?.clear();
         }
     }, [send]);
 
@@ -255,6 +264,8 @@ export default function TakeoverScreen() {
             Keyboard.dismiss();
             setKeyboardOpen(false);
         } else {
+            typedRef.current = '';
+            inputRef.current?.clear();
             inputRef.current?.focus();
             setKeyboardOpen(true);
         }
@@ -286,7 +297,6 @@ export default function TakeoverScreen() {
     const hiddenInput = (
         <TextInput
             ref={inputRef}
-            value={''}
             onChangeText={pushText}
             onKeyPress={({ nativeEvent }) => {
                 if (nativeEvent.key === 'Backspace') {
