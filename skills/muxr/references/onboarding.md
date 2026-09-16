@@ -8,7 +8,7 @@ host, and the pairing between them and the app.
 [Prerequisites](#prerequisites) · [Install](#install) · [First run](#first-run) ·
 [Connection choices](#connection-choices) · [Pairing](#pairing) ·
 [Shared relay](#shared-relay-on-a-vps) · [Maintenance](#maintenance) ·
-[Recovery](#diagnose-and-recover) · [Report](#report-an-issue) ·
+[Host settings](#host-settings-file) · [Recovery](#diagnose-and-recover) · [Report](#report-an-issue) ·
 [Uninstall](#uninstall) · [Verify](#verify)
 
 ## Prerequisites
@@ -135,6 +135,29 @@ muxr setup --dry-run           # preview managed-file changes
 
 muxr state lives under `~/.muxr` unless `MUXR_HOME` is set.
 
+## Host settings file
+
+`$MUXR_HOME/config.json` holds the host settings as plain JSON, so an agent
+(or the captain) can read and edit them directly. It is the one file under
+`~/.muxr` meant for hand editing; never hand-edit the owner-only
+`auth.json`/`selfhost.json` credential files beside it. Copy
+`muxr.config.example.json` from the repo, or run `muxr config init` for the
+interactive walkthrough (`muxr config check` validates a hand edit).
+
+| Key | Means |
+|---|---|
+| `mode` | `hosted`, `selfhost`, or `local`. Unset means derive from setup state. |
+| `relayUrl` | `ws://` or `wss://` relay endpoint. Unset means derive from setup state. |
+| `machineId` | Stable machine identity. Unset means setup state, then hostname. |
+| `machineName` | Friendly name shown for this computer. Unset means setup state, then hostname. |
+| `dataDir` | Absolute path to host data. Unset means `$MUXR_HOME/host`. |
+| `hostHttpPort` | Integer 1-65535. Unset means 8793. |
+
+Absent or partial is normal: every missing key falls back. Malformed is
+fatal and loud: the host prints the file path and the offending key and
+refuses to start rather than half-applying the file. Precedence per setting:
+explicit flag beats environment beats config file beats default.
+
 ## Diagnose and recover
 
 Use the checked recovery path before changing files or reinstalling:
@@ -161,7 +184,7 @@ bounded deadline. Then follow the matching remedy:
 | Tailscale Serve | if Tailscale proves Serve is disabled, use its printed `login.tailscale.com` link or accept direct Tailscale. A timeout is inconclusive: let bounded Apply retry or choose another route. Restart `tailscaled` only when another connection can survive the interruption. |
 | Local relay port | `curl --max-time 3 http://127.0.0.1:8792/health`; inspect the owner with `ss -ltnp 'sport = :8792'` on Linux or `lsof -nP -iTCP:8792 -sTCP:LISTEN` on macOS; stop only a process you recognize or rerun `muxr setup --port <free-port>` |
 | Expired or interrupted pairing | `muxr pair` for a new single-use code |
-| Connection choice or tunnel | rerun interactive `muxr`; do not edit `~/.muxr` |
+| Connection choice or tunnel | rerun interactive `muxr`; do not edit `~/.muxr` except [`config.json`](#host-settings-file) |
 
 On Linux, a Tailscale daemon stall can be confirmed without waiting forever:
 
@@ -174,7 +197,7 @@ Exit status `124` means the local Tailscale command timed out. Capture
 `journalctl -u tailscaled -b --no-pager` locally before restarting it. Do not
 restart `tailscaled` from a session reachable only through Tailscale.
 
-Do not delete or hand-edit `~/.muxr` as a repair. If doctor reports corrupt or
+Do not delete or hand-edit `~/.muxr` as a repair, except [`config.json`](#host-settings-file). If doctor reports corrupt or
 incomplete state, stop and back up the exact file it names before moving it
 aside; that state contains machine identity and pairing authority. `muxr
 uninstall` is destructive recovery, not first aid.
