@@ -178,8 +178,8 @@ export class PluginStreamManager {
                     PATH: process.env.PATH,
                     HOME: process.env.HOME,
                     ...(process.env.MUXR_HOME ? { MUXR_HOME: process.env.MUXR_HOME } : {}),
-                    ...(params.target.pluginId === 'muxr.voice' && process.env.CODEX_HOME ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
-                    ...(params.target.pluginId === 'muxr.voice' && process.env.MUXR_CODEX_BIN ? { MUXR_CODEX_BIN: process.env.MUXR_CODEX_BIN } : {}),
+                    ...(process.env.CODEX_HOME ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
+                    ...(process.env.MUXR_CODEX_BIN ? { MUXR_CODEX_BIN: process.env.MUXR_CODEX_BIN } : {}),
                     MUXR_PLUGIN_ID: params.target.pluginId,
                     MUXR_PLUGIN_STATE_DIR: params.stateDir,
                     ...(peerAccess === undefined ? {} : {
