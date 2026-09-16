@@ -4,8 +4,8 @@ import { sync } from '@/catalog/sync';
 import { isMachineOnline } from '@/pairing';
 import { createWorktree } from '../infrastructure/worktree';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
-import type { NewSessionAgentType } from '@/catalog/application/persistence';
-import type { AttachmentPreview } from '@/catalog/infrastructure/attachmentTypes';
+import type { NewSessionAgentType } from '@/catalog';
+import type { AttachmentPreview } from '@/catalog';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
 

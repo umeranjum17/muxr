@@ -4,7 +4,7 @@ import {
     openSshTunnel,
     SshTunnelError,
     type SshTunnelErrorCode,
-} from '../../../modules/ssh-tunnel';
+} from '../../modules/ssh-tunnel';
 import type { SshTarget } from './connectionSettings';
 
 /**

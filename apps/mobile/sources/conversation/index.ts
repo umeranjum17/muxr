@@ -21,5 +21,6 @@ export {
 } from './application/vadStandby';
 export * from './application/realtimeActions';
 export * from './application/startRealtimeCapability';
+export { RealtimeAppController, realtimeAppController, useRealtimeAppControl } from './application/realtimeAppControl';
 export * from './infrastructure/audioEnergy';
 export * from './infrastructure/voiceDiagnostics';

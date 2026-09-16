@@ -3,7 +3,7 @@ import { MuxrClient, MuxrRequestError } from '@/pairing';
 import type { StoredHostedGrant } from '@/pairing/e2ee';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
-import { PeerHostResponseError } from '../application/computerCollaboration';
+import { PeerHostResponseError } from './computerCollaboration';
 
 /** Request one paired machine without changing the app's active connection. */
 export async function requestPairedMachine<T extends PeerRequestType>(

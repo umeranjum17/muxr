@@ -35,33 +35,11 @@ const allowedFeatureCycles = [
     'plugins<->watch',
 ];
 
-// The old check only policed ui-context importers against ui-context targets
-// (and runtime against runtime), so these cross-list internal imports slipped
-// through for years. They are repointed to public barrels during the staged
-// layer-folder collapse; until then the ratchet keeps them frozen: may only
-// shrink, any new site fails.
-const allowedInternalImports = [
-    'catalog/application/storage.ts: internal import from \'@/herd/domain',
-    'herd/application/useSessionQuickActions.ts: internal import from \'@/catalog/infrastructure',
-    'herd/presentation/HerdView.tsx: internal import from \'@/catalog/infrastructure',
-    'plugins/application/capabilityRegistry.ts: internal import from \'@/watch/application',
-    'settings/presentation/ConnectionSupport.tsx: internal import from \'@/catalog/infrastructure',
-    'settings/presentation/SettingsView.tsx: internal import from \'@/catalog/infrastructure',
-    'settings/presentation/SettingsView.tsx: internal import from \'@/conversation/application',
-    'spawn/application/StartAgentFromDock.ts: internal import from \'@/catalog/application',
-    'spawn/application/StartAgentFromDock.ts: internal import from \'@/catalog/infrastructure',
-    'spawn/application/homeDockEnvironment.ts: internal import from \'@/catalog/application',
-    'spawn/application/useNewSessionDraft.ts: internal import from \'@/catalog/application',
-    'spawn/application/useNewSessionDraft.ts: internal import from \'@/catalog/infrastructure',
-    'spawn/presentation/HomeDock.tsx: internal import from \'@/catalog/application',
-    'terminal/application/OpenTerminal.ts: internal import from \'@/catalog/infrastructure',
-    'terminal/application/useGitStatusFiles.ts: internal import from \'@/catalog/infrastructure',
-    'terminal/domain/toolCommand.ts: internal import from \'@/catalog/infrastructure',
-    'terminal/domain/turnChanges.ts: internal import from \'@/catalog/infrastructure',
-    'terminal/presentation/AgentInputAttachmentStrip.tsx: internal import from \'@/catalog/infrastructure',
-    'terminal/presentation/TerminalScreen.tsx: internal import from \'@/catalog/infrastructure',
-    'terminal/presentation/TerminalView.tsx: internal import from \'@/catalog/infrastructure',
-];
+// Cross-feature internal imports were repointed to public barrels during the
+// layer-folder collapse (connectionDiagnostics into catalog/index,
+// wakeAndReport into watch/index, realtimeAppControl into conversation/index,
+// everything else already re-exported). The ratchet stays empty: any new site fails.
+const allowedInternalImports: string[] = [];
 
 function walk(dir: string, files: string[] = []): string[] {
     if (!existsSync(dir)) return files;

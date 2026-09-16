@@ -37,7 +37,7 @@ import {
     recordTerminalScrollClamped,
     recordTerminalScrollRows,
     recordTerminalScrollTimeout,
-} from '@/catalog/infrastructure/connectionDiagnostics';
+} from '@/catalog/diagnostics';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { createTerminalWritePump, type TerminalWritePump } from '../application/terminalWritePump';

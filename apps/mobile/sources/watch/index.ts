@@ -1,5 +1,5 @@
-export { watchAgentLifecycle } from './application/watchAgentLifecycle';
-export { reportAgentOutcome } from './application/reportAgentOutcome';
+export { watchAgentLifecycle } from './watchAgentLifecycle';
+export { reportAgentOutcome } from './reportAgentOutcome';
 export {
     lifecycleIsBusy,
     lifecycleIsDeskFocus,
@@ -8,7 +8,7 @@ export {
     lifecycleNeedsApproval,
     lifecycleSince,
     lifecycleWatchOutcome,
-} from './domain/lifecycle';
+} from './lifecycle';
 export {
     parseVoiceReport,
     parseVoiceReportInput,
@@ -17,4 +17,4 @@ export {
     type VoiceAdmission,
     type VoiceReport,
     type VoiceReportParse,
-} from './domain/voiceReport';
+} from './voiceReport';

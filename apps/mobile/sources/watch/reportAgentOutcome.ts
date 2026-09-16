@@ -1,4 +1,4 @@
-import { parseVoiceReportInput, type VoiceReport } from '../domain/voiceReport';
+import { parseVoiceReportInput, type VoiceReport } from './voiceReport';
 
 export type ReportAgentOutcomeCommand = {
     identity: string;

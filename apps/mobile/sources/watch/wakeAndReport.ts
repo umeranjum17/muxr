@@ -1,5 +1,5 @@
 import { callPlugin } from '@/plugins/callPlugin';
-import { sanitizePersistedVoiceReport, type VoiceReport } from '../domain/voiceReport';
+import { sanitizePersistedVoiceReport, type VoiceReport } from './voiceReport';
 import { reportAgentOutcome } from './reportAgentOutcome';
 import { storage } from '@/catalog/store';
 import {

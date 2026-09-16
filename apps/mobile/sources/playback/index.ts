@@ -1,2 +1,2 @@
-export { createRealtimePlayback, type RealtimePlayback } from './infrastructure/realtimePlayback';
-export { interruptPlayback } from './application/interruptPlayback';
+export { createRealtimePlayback, type RealtimePlayback } from './realtimePlayback';
+export { interruptPlayback } from './interruptPlayback';

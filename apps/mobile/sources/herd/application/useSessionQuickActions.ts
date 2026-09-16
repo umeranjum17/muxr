@@ -6,7 +6,7 @@ import { machineResumeSession, sessionSetAgentModes, forkAndSpawn, type ForkSour
 import { useLocalSetting, useMachine } from '@/catalog/store';
 import { Machine, Session } from '@/catalog';
 import { sync } from '@/catalog/sync';
-import { resolveMessageModeMeta } from '@/catalog/infrastructure/messageMeta';
+import { resolveMessageModeMeta } from '@/catalog';
 import { t } from '@/text';
 import { ActionError } from '@/utils/errors';
 import { copySessionMetadataToClipboard, copySessionMetadataAndLogsToClipboard } from './copySessionMetadataToClipboard';

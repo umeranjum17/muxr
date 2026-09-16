@@ -10,7 +10,7 @@ import {
     type PeerRequestType,
     type SignedPeerDescriptor,
 } from '@muxr/contract';
-import { Collaboration } from '../domain/Collaboration';
+import { Collaboration } from './Collaboration';
 
 const STORAGE_KEY = 'muxr.computer-collaboration.v1';
 

@@ -8,5 +8,5 @@ export {
     saveConnectionSettings,
     type ConnectionSettings,
     type SshTarget,
-} from './application/connectionSettings';
-export { forgetSshCredential, sshTunnelAvailable } from './application/sshTunnel';
+} from './connectionSettings';
+export { forgetSshCredential, hasSshCredential, saveSshCredential, sshRelayUrl, sshTunnelAvailable, stopSshTunnel, SshConnectionError, type SshCredential } from './sshTunnel';

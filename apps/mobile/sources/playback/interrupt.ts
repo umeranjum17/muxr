@@ -1,1 +1,1 @@
-export { interruptPlayback } from './application/interruptPlayback';
+export { interruptPlayback } from './interruptPlayback';

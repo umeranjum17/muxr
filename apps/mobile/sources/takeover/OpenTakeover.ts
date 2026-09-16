@@ -12,7 +12,7 @@
  */
 
 import { attachPreviewTunnel } from '@/preview';
-import type { Point, StreamFrameMetadata } from '../domain/coordinates';
+import type { Point, StreamFrameMetadata } from './coordinates';
 
 export interface StreamFrame {
     type: 'frame';

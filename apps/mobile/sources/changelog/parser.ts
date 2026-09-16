@@ -8,7 +8,7 @@ let changelogData: ChangelogData | null = null;
 export function getChangelogData(): ChangelogData {
     if (!changelogData) {
         try {
-            const data = require('../changelog.json') as Partial<ChangelogData>;
+            const data = require('./changelog.json') as Partial<ChangelogData>;
             changelogData = { releases: data.releases ?? [], legacyEntries: data.legacyEntries ?? [] };
         } catch {
             console.warn('Changelog data not found, returning empty changelog');

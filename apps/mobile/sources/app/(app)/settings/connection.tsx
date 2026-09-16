@@ -22,15 +22,15 @@ import {
     sshTunnelAvailable,
     stopSshTunnel,
     type SshCredential,
-} from '@/connection/application/sshTunnel';
+} from '@/connection';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { Stack } from 'expo-router';
 import { getCachedHostedGrant, loadHostedGrant, type StoredHostedGrant } from '@/pairing/e2ee';
 import { retryRelayDiscovery, useRelayDiscoveryPhase } from '@/pairing';
 import { Modal } from '@/modal';
-import { ConnectionSupport } from '@/settings/presentation/ConnectionSupport';
-import { formatLatestConnectionFailure, latestFailureIsDeadGrant } from '@/catalog/infrastructure/connectionDiagnostics';
+import { ConnectionSupport } from '@/settings';
+import { formatLatestConnectionFailure, latestFailureIsDeadGrant } from '@/catalog/diagnostics';
 
 const stylesheet = StyleSheet.create((theme) => ({
     label: {
