@@ -147,6 +147,7 @@ export const LiveTerminalsRow = React.memo(({
     const { status: socketStatus } = useSocketStatus();
     const { ready, seenEventIds, markSeen } = useActivityAcknowledgements();
     const scrollRef = React.useRef<FlatList<LiveTerminalOrderCard>>(null);
+    const stripListRef = React.useRef<View>(null);
     const scrollXRef = React.useRef(0);
     const [foreground, setForeground] = React.useState(AppState.currentState === 'active');
     const [stripWidth, setStripWidth] = React.useState(0);
@@ -218,7 +219,7 @@ export const LiveTerminalsRow = React.memo(({
         if (stripWidth <= 0 || activityRows.length === 0 || cards.length === 0) return;
         let cancelled = false;
         const timer = setTimeout(() => {
-            scrollRef.current?.getNativeScrollRef()?.measureInWindow((_x: number, stripTop: number, _width: number, stripHeight: number) => {
+            stripListRef.current?.measureInWindow((_x: number, stripTop: number, _width: number, stripHeight: number) => {
                 if (cancelled || AppState.currentState !== 'active') return;
                 const eventIds = visibleActivityEventIds(activityRows, cards, {
                     focused: screenFocused,
@@ -275,6 +276,7 @@ export const LiveTerminalsRow = React.memo(({
                     </View>
                 ) : null
             ) : (
+                <View ref={stripListRef} collapsable={false}>
                 <FlatList
                     ref={scrollRef}
                     data={cards}
@@ -296,6 +298,7 @@ export const LiveTerminalsRow = React.memo(({
                     ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
                     contentContainerStyle={{ paddingHorizontal: STRIP_GUTTER }}
                 />
+                </View>
             )}
             <RecentActivity
                 rows={activityRows}
