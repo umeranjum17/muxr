@@ -5,6 +5,7 @@ import { Modal } from '@/modal';
 import { requestMicrophonePermission, showMicrophonePermissionDeniedAlert } from '@/utils/microphonePermissions';
 import { claimDictation, releaseDictation } from '@/conversation/session';
 import { voiceDiagnostic } from '@/conversation/diagnostics';
+import { Buffer } from 'buffer';
 import { appendTranscript } from '@/utils/transcription';
 import { transcribePcm16 } from '@/utils/localTranscription';
 
@@ -13,9 +14,28 @@ const stopRecorder = async () => { await LiveAudioStream.stop(); };
 // Below this a recording is a mis-tap, not speech.
 const MIN_RECORDING_MS = 400;
 
+/** Real input level from the PCM chunks already flowing to Whisper; no extra capture. */
+function rmsLevel(chunk: string): number {
+    const buf = Buffer.from(chunk, 'base64');
+    const samples = Math.floor(buf.length / 2);
+    if (samples === 0) return 0;
+    const step = Math.max(1, Math.floor(samples / 64));
+    let sum = 0;
+    let count = 0;
+    for (let i = 0; i < samples; i += step) {
+        const s = buf.readInt16LE(i * 2) / 32768;
+        sum += s * s;
+        count += 1;
+    }
+    return Math.min(1, Math.sqrt(sum / count) * 4);
+}
+
 export function useDictation(getText: () => string, setText: (text: string) => void, hint?: string) {
     const [recording, setRecording] = React.useState(false);
     const [transcribing, setTranscribing] = React.useState(false);
+    const [level, setLevel] = React.useState(0);
+    const [pending, setPending] = React.useState<string | null>(null);
+    const [finished, setFinished] = React.useState<string | null>(null);
     const startedAtRef = React.useRef(0);
     const stoppingRef = React.useRef(false);
     const recordingRef = React.useRef(false);
@@ -57,6 +77,8 @@ export function useDictation(getText: () => string, setText: (text: string) => v
 
         try {
             chunksRef.current = [];
+            setPending(null);
+            setFinished(null);
             await LiveAudioStream.init({
                 sampleRate: 16_000,
                 channels: 1,
@@ -66,7 +88,9 @@ export function useDictation(getText: () => string, setText: (text: string) => v
                 wavFile: '',
             });
             LiveAudioStream.on('data', (chunk) => {
-                if (recordingRef.current) chunksRef.current.push(chunk);
+                if (!recordingRef.current) return;
+                chunksRef.current.push(chunk);
+                setLevel(rmsLevel(chunk));
             });
             recordingRef.current = true;
             await LiveAudioStream.start();
@@ -86,6 +110,7 @@ export function useDictation(getText: () => string, setText: (text: string) => v
         stoppingRef.current = true;
         recordingRef.current = false;
         setRecording(false);
+        setLevel(0);
         const elapsed = Date.now() - startedAtRef.current;
 
         try {
@@ -109,7 +134,12 @@ export function useDictation(getText: () => string, setText: (text: string) => v
         try {
             const { getText, setText, hint } = sinkRef.current;
             const text = await transcribePcm16(chunks, hint);
-            if (text) setText(appendTranscript(getText(), text));
+            const trimmed = (text ?? '').trim();
+            if (trimmed) {
+                setText(appendTranscript(getText(), trimmed));
+                setPending(trimmed);
+                setFinished(null);
+            }
         } catch (error) {
             console.error('Transcription failed:', error);
             Modal.alert('Dictation failed', error instanceof Error ? error.message : 'Could not transcribe audio.');
@@ -125,5 +155,30 @@ export function useDictation(getText: () => string, setText: (text: string) => v
         void (recording ? stop() : start());
     }, [recording, start, stop, transcribing]);
 
-    return { recording, transcribing, toggle };
+    const accept = React.useCallback(() => {
+        if (pending === null) return;
+        setFinished(pending);
+        setPending(null);
+    }, [pending]);
+
+    const discard = React.useCallback(() => {
+        if (pending === null) return;
+        const wanted = pending;
+        setPending(null);
+        setFinished(null);
+        try {
+            const current = sinkRef.current.getText();
+            const trimmedEnd = current.trimEnd();
+            if (trimmedEnd.endsWith(wanted)) {
+                sinkRef.current.setText(trimmedEnd.slice(0, trimmedEnd.length - wanted.length).trimEnd());
+            }
+        } catch {
+        }
+    }, [pending]);
+
+    const clearFinished = React.useCallback(() => {
+        setFinished(null);
+    }, []);
+
+    return { recording, transcribing, level, pending, finished, accept, discard, clearFinished, toggle };
 }
