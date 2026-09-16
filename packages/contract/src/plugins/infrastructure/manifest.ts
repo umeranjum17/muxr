@@ -343,7 +343,11 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: S
             };
         case 'list': {
             if (!Array.isArray(item.rows) || item.rows.length > MAX_ROWS) throw new Error('invalid plugin screen list rows');
-            const rows = item.rows.flatMap((row) => (isRecord(row) && row.type === 'row' ? [parseScreenRow(row)] : []));
+            const rows: PluginScreenRowNode[] = [];
+            for (const row of item.rows) {
+                if (isRecord(row) && row.type === 'row') rows.push(parseScreenRow(row));
+                else if (isRecord(row) && typeof row.type === 'string') budget.skipped.push(row.type);
+            }
             // List rows are rendered children, so they count toward the node
             // budget (the outer loop counts the list node itself). A repeat can
             // expand to MAX_ROWS at render time, so it is charged in full here.
