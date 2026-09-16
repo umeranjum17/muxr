@@ -55,7 +55,13 @@ function collectShell(directory) {
 }
 collectShell(join(root, 'apps/mobile/sources'));
 collectShell(join(root, 'apps/host/src'));
+// The installed-plugin catalog is the one product surface that identifies
+// bundled plugins for grouping and configuration. Keep this exception local.
+const catalogScreens = new Set([
+    join(root, 'apps/mobile/sources/app/(app)/settings/plugins.tsx'),
+]);
 for (const path of shellFiles) {
+    if (catalogScreens.has(path)) continue;
     const source = readFileSync(path, 'utf8');
     for (const pluginId of bundledIds) {
         if (source.includes(pluginId)) {
@@ -200,7 +206,7 @@ try {
     writeFileSync(fixtureCommand, `import {readFileSync,writeFileSync} from 'node:fs';
 const context=JSON.parse(process.env.HERDR_PLUGIN_CONTEXT_JSON);
 if(process.cwd()!==${JSON.stringify(fixtureCwd)})throw Error('wrong project folder');
-if(context.focused_pane_id!=='owned-anchor'||process.env.HERDR_PANE_ID!=='owned-anchor'||!process.env.PATH.includes('/.local/bin')) throw Error('launch context/PATH missing');
+if(context.focused_pane_id!=='owned-anchor'||process.env.HERDR_PANE_ID!=='owned-anchor'||!process.env.PATH.includes('/.local/bin')||process.env.MUXR_HOME!==${JSON.stringify(toolsScratch)}) throw Error('launch context/PATH/state home missing');
 if(process.argv[2]==='fail')process.exit(7);
 const path=${JSON.stringify(stateFile)}, panes=JSON.parse(readFileSync(path));
 panes.push({pane_id:'owned-tool',tab_id:'owned-tab',workspace_id:'work',cwd:'/work'});
@@ -233,7 +239,7 @@ process.stdout.write(JSON.stringify({result}));
     const invokePanes = (method, input = {}, success = true) => {
         const result = spawnSync(process.execPath, [join(pluginsDir, 'panes', 'panes.mjs'), method], {
             encoding: 'utf8', input: JSON.stringify(input), timeout: 25_000,
-            env: { ...process.env, HERDR_BIN_PATH: fixtureHerdr },
+            env: { ...process.env, HERDR_BIN_PATH: fixtureHerdr, MUXR_HOME: toolsScratch },
         });
         if (!success) { assert.notEqual(result.status, 0); return result.stderr; }
         assert.equal(result.status, 0, result.stderr);
