@@ -455,6 +455,37 @@ export interface RequestMap extends PeerRequestMap {
         };
     };
 
+    // --- changes review ------------------------------------------------------
+    // The working-tree review surface (pill, scopes, diffs). Product code since
+    // the muxr.code plugin split: the host runs git, clients render. The session
+    // cwd is host-injected from sessionId; `root` may narrow to a worktree the
+    // session repository has registered.
+    'changes.list': {
+        params: { sessionId: string; root?: string };
+        result: ChangesBadge;
+    };
+    'changes.browse': {
+        params: { sessionId: string; root?: string; scope?: ChangesScope; page?: number };
+        result: ChangesBrowse;
+    };
+    'changes.worktrees': {
+        params: { sessionId: string };
+        result: { title: string; note: string; worktrees: ChangesWorktree[] };
+    };
+    'changes.patch': {
+        params: {
+            sessionId: string;
+            root?: string;
+            scope?: ChangesScope;
+            path: string;
+            /** 'untracked' diffs the file against the empty tree. */
+            kind?: ChangesScope | 'untracked';
+            head?: string;
+            base?: string;
+        };
+        result: { title: string; note: string; patch: string };
+    };
+
     // --- preview tunnel -----------------------------------------------------
     /**
      * Ask the host to join `channel` and forward it to `port`. Native takeover
@@ -507,6 +538,52 @@ export interface RequestMap extends PeerRequestMap {
 export type RequestType = keyof RequestMap;
 export type RequestParams<T extends RequestType> = RequestMap[T]['params'];
 export type RequestResult<T extends RequestType> = RequestMap[T]['result'];
+
+export type ChangesScope = 'working' | 'staged' | 'branch';
+
+export interface ChangesFile {
+    path: string;
+    title: string;
+    subtitle: string;
+    added: string;
+    deleted: string;
+    kind: ChangesScope | 'untracked';
+    /** False for deletions and links: only the patch is reviewable. */
+    openable: boolean;
+}
+
+export interface ChangesBadge {
+    branch: string;
+    root: string;
+    /** Comparison pins: patch requests must echo these back, so a refresh
+     *  invalidates stale in-flight diffs instead of diffing the wrong commits. */
+    head: string;
+    base: string;
+    comparison: string;
+    note: string;
+    count: number;
+    countLabel: string;
+    summary: { label: string; value: string; tone: 'positive' | 'danger' }[];
+    files: ChangesFile[];
+}
+
+export interface ChangesBrowse extends ChangesBadge {
+    title: string;
+    scope: ChangesScope;
+    scopes: { id: ChangesScope; label: string }[];
+    page: number;
+    pageCount: number;
+}
+
+export interface ChangesWorktree {
+    root: string;
+    branch: string;
+    head: string;
+    /** The conversation's own checkout sorts first and says so. */
+    sessionCheckout: boolean;
+    title: string;
+    subtitle: string;
+}
 
 export type ClientRequest = {
     [K in RequestType]: { type: K; requestId: string; params: RequestParams<K> };

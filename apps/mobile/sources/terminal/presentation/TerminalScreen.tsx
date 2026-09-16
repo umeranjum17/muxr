@@ -702,7 +702,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     </View>
 
                     {hasStatusRow && (
-                        <View onLayout={(event) => setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingBottom: 7, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
+                        <Pressable
+                            onLayout={(event) => setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Review changes"
+                            disabled={branch === null}
+                            onPress={() => { if (branch !== null) router.push(`/session/${encodeURIComponent(props.id)}/changes`); }}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingBottom: 7, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
                             {branch !== null && <Ionicons name="git-branch-outline" size={12} color={theme.colors.textSecondary} />}
                             <SessionMetaLine
                                 style={{ flex: 1 }}
@@ -713,7 +719,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     { text: permission?.label, ...(permission?.danger === true ? { color: theme.colors.permission.yolo } : {}) },
                                 ]}
                             />
-                        </View>
+                        </Pressable>
                     )}
 
                     {Platform.OS === 'web' && !canControl && (

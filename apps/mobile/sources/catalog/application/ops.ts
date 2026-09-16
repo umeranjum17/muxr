@@ -313,3 +313,41 @@ export async function forkAndSpawn(_source: ForkSource, _opts: ForkOptions = {})
 export async function spawnSideChat(_source: ForkSource): Promise<SpawnSessionResult> {
     return { type: 'error', errorMessage: 'Side chat not available in muxr mobile shim' };
 }
+
+// --- changes review (host-run git; the session cwd is host-injected) -------
+
+export async function changesBrowse(
+    sessionId: string,
+    opts: { root?: string; scope?: 'working' | 'staged' | 'branch'; page?: number } = {},
+) {
+    return sync.request('changes.browse', {
+        sessionId,
+        ...(opts.root === undefined ? {} : { root: opts.root }),
+        ...(opts.scope === undefined ? {} : { scope: opts.scope }),
+        ...(opts.page === undefined ? {} : { page: opts.page }),
+    });
+}
+
+export function changesList(sessionId: string, root?: string) {
+    return sync.request('changes.list', { sessionId, ...(root === undefined ? {} : { root }) });
+}
+
+export function changesWorktrees(sessionId: string) {
+    return sync.request('changes.worktrees', { sessionId });
+}
+
+export async function changesPatch(
+    sessionId: string,
+    file: { path: string; kind?: 'working' | 'staged' | 'branch' | 'untracked'; head?: string; base?: string },
+    opts: { root?: string; scope?: 'working' | 'staged' | 'branch' } = {},
+) {
+    return sync.request('changes.patch', {
+        sessionId,
+        path: file.path,
+        ...(opts.root === undefined ? {} : { root: opts.root }),
+        ...(opts.scope === undefined ? {} : { scope: opts.scope }),
+        ...(file.kind === undefined ? {} : { kind: file.kind }),
+        ...(file.head === undefined ? {} : { head: file.head }),
+        ...(file.base === undefined ? {} : { base: file.base }),
+    });
+}

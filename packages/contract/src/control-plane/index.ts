@@ -1,5 +1,10 @@
 export type {
     ClientRequest,
+    ChangesBadge,
+    ChangesBrowse,
+    ChangesFile,
+    ChangesScope,
+    ChangesWorktree,
     PeerClientRequest,
     PeerMessageSender,
     PeerRequestMap,

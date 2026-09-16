@@ -31,6 +31,7 @@ export type {
 } from './application/sessionSource.js';
 export { createAgentWatchStores, type AgentWatchStores } from './application/watchStores.js';
 export { startAgent } from './application/startAgent.js';
+export { changesBrowse, changesList, changesPatch, changesWorktrees } from './infrastructure/changesReview.js';
 export { promptAgent } from './application/promptAgent.js';
 export { openAgent } from './application/openAgent.js';
 export { readAgentSession } from './application/readAgentSession.js';

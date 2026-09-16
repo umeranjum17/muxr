@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { codeAddonDir } from './addons.mjs';
 import { PNG } from 'pngjs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -69,7 +70,7 @@ test('warm probe fails closed across identity, ownership, fixture, movement, sam
     execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: fixtureRoot });
     execFileSync('git', ['add', '--', 'perf-document.md'], { cwd: fixtureRoot });
     execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture'], { cwd: fixtureRoot });
-    const served = JSON.parse(execFileSync(process.execPath, [join(root, 'plugins/code/files.mjs'), 'read'], { cwd: root, env: { ...process.env, MUXR_PLUGIN_CONTEXT_JSON: JSON.stringify({ sessions: [{ cwd: fixtureRoot }] }) }, input: JSON.stringify({ cwd: fixtureRoot, root: fixtureRoot, path: 'perf-document.md' }), encoding: 'utf8' })).body;
+    const served = JSON.parse(execFileSync(process.execPath, [join(codeAddonDir(), 'files.mjs'), 'read'], { cwd: root, env: { ...process.env, MUXR_PLUGIN_CONTEXT_JSON: JSON.stringify({ sessions: [{ cwd: fixtureRoot }] }) }, input: JSON.stringify({ cwd: fixtureRoot, root: fixtureRoot, path: 'perf-document.md' }), encoding: 'utf8' })).body;
     assert.equal(digest(Buffer.from(served)), documentContract().servedSha256, 'the real plugin did not serve the canonical bytes');
     assert.equal(validateFixtureProof({ name: 'perf-document.md', payloadSha256: documentContract().sha256, gitRevision: 'real', gitTree: 'real', servedSha256: digest(Buffer.from(served)), servedBytes: Buffer.byteLength(served), servedLines: served.split('\n').filter(Boolean).length }, documentContract()), undefined);
     assert.match(provenanceMismatch({ source: { sourceSha256: digest('bad'), mobileSha256: digest('mobile'), dirty: false }, harness: base.candidate.harness }, current), /sourceSha256/);

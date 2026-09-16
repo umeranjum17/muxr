@@ -12,6 +12,7 @@ import { startFakeStack } from './lib/fakeStack.mjs';
 import { pairPhone } from './lib/pairPhone.mjs';
 import { pairIosPhone, iosConnectionProof } from './lib/iosWarm.mjs';
 import { command, IosControls } from './lib/iosSignals.mjs';
+import { bundledPlusAddons, codeAddonDir } from './lib/addons.mjs';
 import { documentContract, documentPayload, DOCUMENT_FIXTURE, LOAD, scenarioDescriptor, scenarioSummary } from './lib/scenario.mjs';
 
 const args = process.argv.slice(2);
@@ -110,11 +111,11 @@ async function prepareFixture() {
     await scope.run('git', ['-C', cwd, '-c', 'user.name=Perf Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'Seed deterministic load document'], { timeout: 20_000 });
     const context = JSON.stringify({ sessions: [{ cwd }] });
     const env = { ...process.env, MUXR_PLUGIN_CONTEXT_JSON: context };
-    const repos = JSON.parse((await scope.run(process.execPath, [join(process.cwd(), 'plugins/code/files.mjs'), 'repos'], { cwd: process.cwd(), env, timeout: 10_000 })).stdout);
+    const repos = JSON.parse((await scope.run(process.execPath, [join(codeAddonDir(), 'files.mjs'), 'repos'], { cwd: process.cwd(), env, timeout: 10_000 })).stdout);
     if (!repos.repos?.some((entry) => resolve(entry.root) === resolve(cwd))) throw new Error('real Files plugin did not resolve the fixture repository');
-    const listed = JSON.parse((await scope.run(process.execPath, [join(process.cwd(), 'plugins/code/files.mjs'), 'list'], { cwd: process.cwd(), env, input: JSON.stringify({ cwd, root: cwd }) })).stdout);
+    const listed = JSON.parse((await scope.run(process.execPath, [join(codeAddonDir(), 'files.mjs'), 'list'], { cwd: process.cwd(), env, input: JSON.stringify({ cwd, root: cwd }) })).stdout);
     if (!listed.tree?.some((entry) => entry.name === DOCUMENT_FIXTURE)) throw new Error('real Files plugin did not list the canonical fixture');
-    const read = JSON.parse((await scope.run(process.execPath, [join(process.cwd(), 'plugins/code/files.mjs'), 'read'], { cwd: process.cwd(), env, input: JSON.stringify({ cwd, root: cwd, path: DOCUMENT_FIXTURE }) })).stdout);
+    const read = JSON.parse((await scope.run(process.execPath, [join(codeAddonDir(), 'files.mjs'), 'read'], { cwd: process.cwd(), env, input: JSON.stringify({ cwd, root: cwd, path: DOCUMENT_FIXTURE }) })).stdout);
     const contract = documentContract();
     const served = Buffer.from(read.body ?? '');
     const expected = Buffer.from(documentPayload()).subarray(0, contract.servedBytes);
@@ -147,7 +148,7 @@ async function main() {
     const owner = { pid: process.pid, descriptor: descriptorPath, platform, device: serial ?? udid };
     releaseLock = acquireOwnerLock(lockPath, owner);
     lockOwner = releaseLock.owner;
-    stack = await startFakeStack({ ...LOAD, sourceRoot: process.cwd(), transport: platform === 'ios' ? 'loopback' : undefined, pluginsRoot: join(process.cwd(), 'plugins') });
+    stack = await startFakeStack({ ...LOAD, sourceRoot: process.cwd(), transport: platform === 'ios' ? 'loopback' : undefined, setupPlugins: bundledPlusAddons(process.cwd()) });
     if (stack.fixturePanes?.text === undefined || stack.fixturePanes?.graphics === undefined) throw new Error('the herd published no text/graphics fixture panes');
     const fixture = await prepareFixture();
     let paired;
