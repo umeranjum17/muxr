@@ -43,6 +43,9 @@ vi.mock('@/catalog/store', async () => {
         () => mocks.catalog,
     ), useLifecycleEvents: () => [] };
 });
+vi.mock('@/herd', () => ({
+    useActivityAcknowledgements: () => ({ ready: false, seenEventIds: new Set<string>(), markSeen: () => {} }),
+}));
 vi.mock('../presentation/TerminalScreen', async () => {
     const React = await import('react');
     const { openTerminal } = await import('./OpenTerminal');
