@@ -32,3 +32,20 @@ process.on('exit', () => {
 
 const relay = await startRelay({ port: config.port, host: config.host, config });
 process.stdout.write(`relay listening on ws://${config.host}:${relay.port}\n`);
+
+let stopping = false;
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(signal, () => {
+        if (stopping) return;
+        stopping = true;
+        const forced = setTimeout(() => process.exit(0), 2_000);
+        forced.unref();
+        void relay.close().then(() => {
+            clearTimeout(forced);
+            process.exit(0);
+        }).catch((cause) => {
+            process.stderr.write(`relay shutdown incomplete: ${cause instanceof Error ? cause.message : String(cause)}\n`);
+            process.exit(1);
+        });
+    });
+}

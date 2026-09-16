@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { createPublicKey, randomBytes, verify } from 'node:crypto';
-import { hostname } from 'node:os';
+import { hostname, networkInterfaces } from 'node:os';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
     RELAY_CLOSE_REPLACED,
@@ -101,6 +101,30 @@ export interface RelayHandle {
     revokePeers: (scope: { accountId: string; machineSlug?: string; deviceId?: string }) => void;
     /** Count of connected client sockets for an account (cloud entitlement metering). */
     countClients: (accountId: string) => number;
+}
+
+function lanBonjourAddress(advertisedUrl: string | undefined): string | undefined {
+    const privateIpv4 = /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/;
+    const virtualInterface = /^(?:docker|br-|veth|virbr|podman|lxc|vbox|vmnet|hyperv|wsl|tailscale|tun|tap|wg|zt|nb|wt)/i;
+    const addresses = Object.entries(networkInterfaces()).flatMap(([name, entries]) =>
+        virtualInterface.test(name) ? [] : (entries ?? [])
+            .filter((entry) => entry.family === 'IPv4' && !entry.internal && privateIpv4.test(entry.address))
+            .map((entry) => ({ address: entry.address, netmask: entry.netmask })));
+    let advertisedHost: string | undefined;
+    try { advertisedHost = advertisedUrl === undefined ? undefined : new URL(advertisedUrl).hostname; }
+    catch { /* A malformed public locator cannot choose a LAN address. */ }
+    const previous = advertisedHost?.split('.').map(Number);
+    const sameSubnet = (address: string, netmask: string): boolean => {
+        if (previous?.length !== 4 || previous.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return false;
+        const current = address.split('.').map(Number);
+        const mask = netmask.split('.').map(Number);
+        return current.length === 4 && mask.length === 4
+            && mask.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255)
+            && current.every((octet, index) => (octet & mask[index]!) === (previous[index]! & mask[index]!));
+    };
+    return addresses.find((entry) => entry.address === advertisedHost)?.address
+        ?? addresses.find((entry) => sameSubnet(entry.address, entry.netmask))?.address
+        ?? addresses[0]?.address;
 }
 
 export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
@@ -1254,16 +1278,33 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     const listeningPort = typeof address === 'object' && address !== null ? address.port : config.port;
 
     // LAN discovery: advertise _muxr._tcp so the app can find self-host relays.
-    let bonjourStop: (() => void) | undefined;
+    let bonjourStop: (() => Promise<void>) | undefined;
     if (config.advertiseMdns) {
         try {
+            const lanAddress = config.mdnsConnectionMode === 'lan' ? lanBonjourAddress(config.mdnsRelayUrl) : undefined;
+            if (config.mdnsConnectionMode === 'lan' && lanAddress === undefined) {
+                throw new Error('no reachable LAN IPv4 interface');
+            }
+            const advertisedUrl = config.mdnsConnectionMode === 'lan' && config.mdnsRelayUrl !== undefined
+                ? new URL(config.mdnsRelayUrl) : undefined;
+            if (advertisedUrl !== undefined && !['ws:', 'wss:'].includes(advertisedUrl.protocol)) {
+                throw new Error('LAN discovery needs a WebSocket relay URL');
+            }
+            const defaultAdvertisedPort = advertisedUrl?.protocol === 'wss:' ? 443 : 80;
+            const advertisedPort = advertisedUrl === undefined ? listeningPort
+                : Number(advertisedUrl.port || defaultAdvertisedPort);
+            if (!Number.isInteger(advertisedPort) || advertisedPort < 1 || advertisedPort > 65535) {
+                throw new Error('LAN discovery needs a valid advertised port');
+            }
             const { default: Bonjour } = await import('bonjour-service');
             const bonjour = new Bonjour();
             const service = bonjour.publish({
                 name: config.mdnsName ?? `muxr-${hostname()}`,
+                host: `muxr-${hostname().toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 40)}-${advertisedPort}`,
                 type: 'muxr',
                 protocol: 'tcp',
-                port: listeningPort,
+                port: advertisedPort,
+                ...(lanAddress === undefined ? {} : { addresses: [lanAddress] }),
                 txt: {
                     v: '2',
                     ...(config.mdnsMachineId === undefined ? {} : { machine: config.mdnsMachineId }),
@@ -1271,12 +1312,11 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     ...(config.mdnsConnectionMode === undefined ? {} : { mode: config.mdnsConnectionMode }),
                 },
             });
-            bonjourStop = () => {
-                service.stop();
-                bonjour.destroy();
-            };
-        } catch {
-            process.stderr.write('mDNS advertisement unavailable; discovery disabled\n');
+            bonjourStop = () => new Promise((resolve) => {
+                service.stop(() => bonjour.destroy(resolve));
+            });
+        } catch (cause) {
+            process.stderr.write(`mDNS advertisement unavailable; discovery disabled (${cause instanceof Error ? cause.message : String(cause)})\n`);
         }
     }
 
@@ -1288,7 +1328,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
         ).length,
         close: async () => {
             clearInterval(keepalive);
-            bonjourStop?.();
+            await bonjourStop?.();
             previews.closeAll();
             terminals.closeAll();
             realtimeStreams.closeAll();
