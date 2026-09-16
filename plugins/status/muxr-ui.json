@@ -105,6 +105,11 @@
               "path": "data.limitSeries",
               "title": "Rate limits",
               "emptyText": "No published rate limits"
+            },
+            {
+              "type": "text",
+              "text": "Pace, not percent: red is on pace to run out before the clock, amber is tight, green is comfortable.",
+              "tone": "secondary"
             }
           ]
         },
