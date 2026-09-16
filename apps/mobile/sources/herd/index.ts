@@ -5,6 +5,7 @@ export * from './application/copySessionMetadataToClipboard';
 export * from './application/liveTerminalOrder';
 export * from './application/sessionFork';
 export * from './application/sessionUtils';
+export * from './application/useActivityAcknowledgements';
 export * from './application/useHerdTreeLive';
 export * from './application/useInboxHasContent';
 export * from './application/useNavigateToSession';

@@ -41,8 +41,11 @@ vi.mock('@/catalog/store', async () => {
     return { storage, useHerdrTree: () => React.useSyncExternalStore(
         (listener) => { mocks.catalogListeners.add(listener); return () => { mocks.catalogListeners.delete(listener); }; },
         () => mocks.catalog,
-    ) };
+    ), useLifecycleEvents: () => [] };
 });
+vi.mock('@/herd', () => ({
+    useActivityAcknowledgements: () => ({ ready: false, seenEventIds: new Set<string>(), markSeen: () => {} }),
+}));
 vi.mock('../presentation/TerminalScreen', async () => {
     const React = await import('react');
     const { openTerminal } = await import('./OpenTerminal');
