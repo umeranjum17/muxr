@@ -16,6 +16,8 @@ import { readPrivateFile, writeJsonFileAtomic } from '../../platform/persist.js'
 export interface PushSubscriptionRecord {
     endpoint: string;
     keys: { p256dh: string; auth: string };
+    /** Paired device that owns this subscription; taken from the presenting credential, never the body. */
+    deviceId?: string;
     /** Lifecycle level filter, parity with ExpoPushTokenRecord. */
     level?: LifecycleNotificationLevel;
     createdAt: string;
@@ -258,12 +260,13 @@ export class PushService {
     async subscribe(
         accountId: string,
         subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
-        opts: { level?: LifecycleNotificationLevel } = {},
+        opts: { deviceId?: string; level?: LifecycleNotificationLevel } = {},
     ): Promise<void> {
         if (!isAllowedPushEndpoint(subscription.endpoint)) throw new Error('push subscription endpoint is not an allowed Web Push destination');
         const list = (this.subs[accountId] ?? []).filter((entry) => entry.endpoint !== subscription.endpoint);
         list.push({
             ...subscription,
+            ...(opts.deviceId === undefined ? {} : { deviceId: opts.deviceId }),
             ...(opts.level === undefined ? {} : { level: opts.level }),
             createdAt: new Date().toISOString(),
         });
@@ -285,6 +288,15 @@ export class PushService {
 
     async removeExpoDevice(accountId: string, deviceId: string): Promise<void> {
         await this.removeExpo(accountId, (entry) => entry.deviceId === deviceId);
+    }
+
+    /** Drop every web-push subscription owned by a revoked device. */
+    async removeWebDevice(accountId: string, deviceId: string): Promise<void> {
+        const list = this.subs[accountId] ?? [];
+        const remaining = list.filter((entry) => entry.deviceId !== deviceId);
+        if (remaining.length === list.length) return;
+        this.subs[accountId] = remaining;
+        await this.persist();
     }
 
     /** Drop a single web-push subscription by endpoint (logout, revoke, re-pair). */

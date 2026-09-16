@@ -21,7 +21,7 @@ import {
     type HostFrame,
 } from '@muxr/contract';
 import { admitSocketFromUrl, extractBearerToken, secureEqual, admittedByTicket, type PeerIdentity, type Ticket } from './admission/index.js';
-import { handleHttpRequest, isExpoPushToken, readJsonBody, writeJson, writeJsonError, type PushActionOutcome } from './httpHandlers.js';
+import { handleHttpRequest, isExpoPushToken, isPushSubscription, readJsonBody, writeJson, writeJsonError, type PushActionOutcome } from './httpHandlers.js';
 import { OfflineBuffer, PeerTable, parseLastSeq, peerMayRoute, sendEnvelope, type ConnectedPeer, PreviewChannels, TerminalChannels, ReplayLog, deliverReplayAndOffline, routeEnvelope, type PeerRouteOutcome } from './routing/index.js';
 import { type RelayConfig, clientIp, isLoopbackAddress, loadRelayConfig } from './config.js';
 import { isValidPublicKey, PairingRequests, FileTicketStore, SelfhostPairing, MachineAuthority, enrollmentProofMessage, MachineRegistry } from './admission/index.js';
@@ -903,6 +903,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 }
                 revokePeers({ accountId: `local:${revoked.machineSlug}`, deviceId });
                 await push.removeExpoDevice(`local:${revoked.machineSlug}`, deviceId);
+                await push.removeWebDevice(`local:${revoked.machineSlug}`, deviceId);
                 writeJson(res, 200, { ok: true });
                 return;
             }
@@ -920,6 +921,55 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 } else {
                     await push.removeExpoDevice(`local:${device.machineSlug}`, device.deviceId);
                 }
+                writeJson(res, 200, { ok: true });
+                return;
+            }
+            // Web push subscribe surface on the production path (same routes
+            // httpHandlers serves behind the dev API): a paired device
+            // credential answers, anything else gets 401/403. Without these
+            // the browser subscribe flow 404s on a stock self-host relay.
+            if (config.localAuthority && localPairing !== undefined && req.method === 'GET'
+                && url.pathname === '/v1/push/vapid-public') {
+                const presented = extractBearerToken(req);
+                const device = presented === undefined ? undefined : await localPairing.resolveDeviceCredential(presented);
+                if (device === undefined || device.deviceKind === 'peer') { writeJsonError(res, presented === undefined ? 401 : 403, 'invalid device credential'); return; }
+                writeJson(res, 200, { publicKey: push.publicKey() });
+                return;
+            }
+            if (config.localAuthority && localPairing !== undefined && req.method === 'POST'
+                && url.pathname === '/v1/push/subscribe') {
+                const presented = extractBearerToken(req);
+                const device = presented === undefined ? undefined : await localPairing.resolveDeviceCredential(presented);
+                if (device === undefined || device.deviceKind === 'peer') { writeJsonError(res, presented === undefined ? 401 : 403, 'invalid device credential'); return; }
+                const body = (await readJsonBody(req).catch(() => undefined)) as { subscription?: unknown; level?: unknown } | undefined;
+                if (!isPushSubscription(body?.subscription)) { writeJsonError(res, 400, 'subscription must be {endpoint, keys: {p256dh, auth}}'); return; }
+                const level = body.level === undefined ? undefined : parseLifecycleNotificationLevel(body.level);
+                if (body.level !== undefined && level === undefined) { writeJsonError(res, 400, 'invalid lifecycle notification level'); return; }
+                try {
+                    await push.subscribe(`local:${device.machineSlug}`, body.subscription, { deviceId: device.deviceId, ...(level === undefined ? {} : { level }) });
+                } catch (error) {
+                    if (error instanceof Error && error.message.includes('allowed Web Push destination')) {
+                        writeJsonError(res, 400, 'subscription endpoint is not an allowed Web Push destination');
+                        return;
+                    }
+                    throw error;
+                }
+                writeJson(res, 200, { ok: true });
+                return;
+            }
+            if (config.localAuthority && localPairing !== undefined && req.method === 'DELETE'
+                && url.pathname === '/v1/push/subscribe') {
+                const presented = extractBearerToken(req);
+                const device = presented === undefined ? undefined : await localPairing.resolveDeviceCredential(presented);
+                if (device === undefined || device.deviceKind === 'peer') { writeJsonError(res, presented === undefined ? 401 : 403, 'invalid device credential'); return; }
+                const body = (await readJsonBody(req).catch(() => undefined)) as { endpoint?: unknown; subscription?: unknown } | undefined;
+                const endpoint = typeof body?.endpoint === 'string'
+                    ? body.endpoint
+                    : typeof body?.subscription === 'object' && body?.subscription !== null
+                        ? (body.subscription as { endpoint?: unknown }).endpoint
+                        : undefined;
+                if (typeof endpoint !== 'string' || endpoint === '') { writeJsonError(res, 400, 'endpoint is required'); return; }
+                await push.removeWebSubscription(`local:${device.machineSlug}`, endpoint);
                 writeJson(res, 200, { ok: true });
                 return;
             }
