@@ -225,6 +225,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     altBack.current = 0;
                     setShowJump(offsetFromBottom > 0);
                 } else {
+                    if (hostHasScrollback.current) altBack.current = 0;
                     hostHasScrollback.current = false;
                     scrollBack.current = 0;
                     setShowJump(altBack.current > 0);
@@ -232,9 +233,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             });
             const rawScroll = channel.scroll.bind(channel);
             channel.scroll = (lines, at) => {
-                if (!graphicsOwnsScroll.current) {
+                if (!graphicsOwnsScroll.current && !hostHasScrollback.current) {
                     altBack.current = Math.max(0, altBack.current + lines);
-                    if (!hostHasScrollback.current) setShowJump(altBack.current > 0);
+                    setShowJump(altBack.current > 0);
                 }
                 rawScroll(lines, at);
             };
