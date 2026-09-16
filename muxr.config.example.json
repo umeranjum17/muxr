@@ -1,0 +1,8 @@
+{
+  "mode": "selfhost",
+  "relayUrl": "ws://127.0.0.1:8792",
+  "machineId": "desk",
+  "machineName": "desk",
+  "dataDir": "/home/you/.muxr/host",
+  "hostHttpPort": 8793
+}

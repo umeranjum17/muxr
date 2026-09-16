@@ -135,6 +135,29 @@ muxr setup --dry-run           # preview managed-file changes
 
 muxr state lives under `~/.muxr` unless `MUXR_HOME` is set.
 
+## Host settings file
+
+`$MUXR_HOME/config.json` holds the host settings as plain JSON, so an agent
+(or the captain) can read and edit them directly. It is the one file under
+`~/.muxr` meant for hand editing; never hand-edit the owner-only
+`auth.json`/`selfhost.json` credential files beside it. Copy
+`muxr.config.example.json` from the repo, or run `muxr config init` for the
+interactive walkthrough (`muxr config check` validates a hand edit).
+
+| Key | Means |
+|---|---|
+| `mode` | `hosted`, `selfhost`, or `local`. Unset means derive from setup state. |
+| `relayUrl` | `ws://` or `wss://` relay endpoint. Unset means derive from setup state. |
+| `machineId` | Stable machine identity. Unset means setup state, then hostname. |
+| `machineName` | Friendly name shown for this computer. Unset means setup state, then hostname. |
+| `dataDir` | Absolute path to host data. Unset means `$MUXR_HOME/host`. |
+| `hostHttpPort` | Integer 1-65535. Unset means 8793. |
+
+Absent or partial is normal: every missing key falls back. Malformed is
+fatal and loud: the host prints the file path and the offending key and
+refuses to start rather than half-applying the file. Precedence per setting:
+explicit flag beats environment beats config file beats default.
+
 ## Diagnose and recover
 
 Use the checked recovery path before changing files or reinstalling:

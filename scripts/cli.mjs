@@ -48,6 +48,7 @@ import {
     updatePlugin,
 } from './plugin/index.mjs';
 import { dumpDiagnostics, readDiagnostics } from './diagnostics/index.mjs';
+import { runMuxrConfig } from './setup/application/configInit.mjs';
 import { updateCli } from './release/index.mjs';
 
 const HELP = `muxr — every coding agent on your phone
@@ -56,6 +57,7 @@ Run muxr with no arguments for the interactive menu.
 
 Get started
   muxr setup                     install, connect, and pair this machine
+  muxr config init|check         walk through host settings, or validate the config file
   muxr doctor                    check the complete local setup
   muxr diagnostics               show bounded redacted host history for agents
   muxr report                    prepare a local redacted bug report draft
@@ -89,6 +91,7 @@ Use “muxr help <command>” for command options.
 const COMMAND_HELP = {
     setup: `muxr setup [--inspect] [--dry-run] [--no-install-herdr] [--port <n>]\n\nInteractive setup checks this computer and shows Tailscale Serve, direct Tailscale, private networks, same Wi-Fi, a temporary Cloudflare tunnel, and your own WSS server. It installs Herdr when missing, reviews services and integrations before applying changes, then displays a short-lived pairing QR or string. It never installs agent skills or edits prompt files.\n`,
     'self-host': `muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]\n               [--port <n>] [--relay-only|--host-only] [--web] [--yes]\n`,
+    config: `muxr config init [--dry-run] [--yes]\nmuxr config check\n\ninit walks through machine name, mode, relay URL, and host port, shows the JSON it will write to $MUXR_HOME/config.json, and asks before overwriting. Without a terminal it prints what it would do and exits. check validates a hand-edited file and reports the path and offending key. Absent or partial files fall back per key; malformed files refuse to start. Precedence per setting: explicit flag beats environment beats config file beats default.\n`,
     daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n\n\`install\` writes or updates the background-service definition without starting it. Normal \`muxr setup\` installs, starts, and verifies the service for you.\n`,
     devices: `muxr devices list\nmuxr devices revoke <number|name>\n`,
     integrations: `muxr integrations sync [--all] [--dry-run]\nmuxr integrations uninstall [--dry-run]\n\nSync Herdr lifecycle integrations only. Agent skills and prompt files are never changed.\n`,
@@ -423,6 +426,7 @@ async function dispatch(command, args = []) {
         return 0;
     }
     if (command === 'setup') return applyMachineSetup(args);
+    if (command === 'config') return runMuxrConfig(args);
     if (command === 'shared-relay') return hostSharedRelay();
     if (command === 'connect-wizard') return connectRemoteRelay();
     if (command === 'machines-menu') return manageMachines();
@@ -497,6 +501,7 @@ async function advancedMenu() {
     for (;;) {
         const choice = await select('Advanced', [
             { value: 'restart', title: 'Restart muxr services', description: 'briefly disconnect devices; keep pairings, keys, settings, and integrations' },
+            { value: 'config', title: 'Host settings file', description: 'walk through config.json, or validate a hand edit' },
             { value: 'relay', title: 'Shared relay and other computers', description: 'advanced multi-computer hosting, enrollment, and revocation' },
             { value: 'help', title: 'Show commands', description: 'print the non-interactive command reference' },
             { value: 'uninstall', title: 'Fully uninstall muxr', description: 'remove muxr runtime, identity, keys, and managed files; keep Herdr and user files' },

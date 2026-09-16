@@ -12,6 +12,8 @@ import { HttpPeerAuthority, PeerBroker, PeerRuntime } from './peer/index.js';
 import type { MachineCryptoState } from './machine/index.js';
 import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, hostPlatformLabel } from './machine/index.js';
 import { HostDiagnosticsJournal } from './diagnostics/index.js';
+import { muxrConfigPath, readMuxrConfigFile, resolveHostConfig } from './config.js';
+import type { MuxrFileConfig, ResolvedHostConfig } from './config.js';
 
 const DURABLE_GRANT_EXPIRES_AT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
 function env(name: string): string | undefined {
@@ -404,24 +406,51 @@ function readAuthStates() {
     }
 }
 const { hostedAuth, selfhostAuth } = readAuthStates();
-function resolvedRelayUrl(): string {
-    const fromEnv = env('MUXR_RELAY_URL');
-    if (fromEnv !== undefined) return fromEnv;
+// Agent-editable `$MUXR_HOME/config.json`. A broken file names its path and
+// key and refuses to start: never half-apply, and exit non-zero so a
+// supervisor treats it as a crash rather than a clean shutdown.
+const configPath = muxrConfigPath(process.env);
+let fileConfig: MuxrFileConfig;
+try {
+    fileConfig = readMuxrConfigFile(configPath);
+} catch (error) {
+    process.stderr.write(`muxr: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+}
+function defaultRelayUrl(): string {
     if (hostedAuth?.relayUrl !== undefined) return hostedAuth.relayUrl;
     if (selfhostAuth?.relayLocation === 'remote' && selfhostAuth.relayUrl !== undefined) return selfhostAuth.relayUrl;
     if (selfhostAuth?.relayPort !== undefined) return `ws://127.0.0.1:${selfhostAuth.relayPort}/relay`;
     return 'ws://127.0.0.1:8792';
 }
-const relayUrl = resolvedRelayUrl();
-const machineId = env('MUXR_MACHINE_ID') ?? hostedAuth?.machine.id ?? selfhostAuth?.machine.id ?? hostname();
-const machineName = env('MUXR_MACHINE_NAME') ?? hostedAuth?.machine.name ?? selfhostAuth?.machine.name ?? hostname();
-const dataDir = env('MUXR_DATA_DIR') ?? defaultDataDir();
+let hostConfig: ResolvedHostConfig;
+try {
+    // Precedence per key: explicit flag > environment > config file > default
+    // (setup state, then today's builtin). Invalid flags or env fail here.
+    hostConfig = resolveHostConfig({
+        argv: process.argv,
+        env: process.env,
+        file: fileConfig,
+        defaults: {
+            mode: undefined,
+            relayUrl: defaultRelayUrl(),
+            machineId: hostedAuth?.machine.id ?? selfhostAuth?.machine.id ?? hostname(),
+            machineName: hostedAuth?.machine.name ?? selfhostAuth?.machine.name ?? hostname(),
+            dataDir: defaultDataDir(),
+            hostHttpPort: 8793,
+        },
+    });
+} catch (error) {
+    process.stderr.write(`muxr: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+}
+const relayUrl = hostConfig.relayUrl;
+const machineId = hostConfig.machineId;
+const machineName = hostConfig.machineName;
+const dataDir = hostConfig.dataDir;
 const stateRoot = dirname(dataDir);
 const useFake = process.argv.includes('--fake');
-const requestedMode = env('MUXR_MODE')?.toLowerCase();
-if (requestedMode !== undefined && requestedMode !== 'hosted' && requestedMode !== 'local' && requestedMode !== 'selfhost') {
-    throw new Error('MUXR_MODE must be hosted, selfhost, or local');
-}
+const requestedMode = hostConfig.mode;
 function resolveHostMode(
     requested: string | undefined,
     hosted: HostedAuthState | undefined,
@@ -595,7 +624,7 @@ async function main(): Promise<void> {
             relayUrl,
             machineId,
             attachmentsDir: join(stateRoot, 'attachments', 'pane'),
-            hostHttpPort: Number(env('MUXR_HOST_HTTP_PORT') ?? 8793),
+            hostHttpPort: hostConfig.hostHttpPort,
             ...(token === undefined ? {} : { token }),
             ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
             ...(peerBroker === undefined ? {} : { peerBroker }),
