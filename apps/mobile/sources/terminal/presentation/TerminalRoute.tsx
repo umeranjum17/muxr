@@ -3,7 +3,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { getCachedConnectionSettings } from '@/connection';
 import { useHerdrTree, useLifecycleEvents } from '@/catalog/store';
-import { useActivityAcknowledgements } from '@/herd/application/useActivityAcknowledgements';
+import { useActivityAcknowledgements } from '@/herd';
 import { TerminalScreen } from './TerminalScreen';
 
 /** Keep an open terminal on its pane when an agent starts, exits or restarts. */

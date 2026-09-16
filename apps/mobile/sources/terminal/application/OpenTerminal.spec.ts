@@ -41,7 +41,7 @@ vi.mock('@/catalog/store', async () => {
     return { storage, useHerdrTree: () => React.useSyncExternalStore(
         (listener) => { mocks.catalogListeners.add(listener); return () => { mocks.catalogListeners.delete(listener); }; },
         () => mocks.catalog,
-    ) };
+    ), useLifecycleEvents: () => [] };
 });
 vi.mock('../presentation/TerminalScreen', async () => {
     const React = await import('react');
