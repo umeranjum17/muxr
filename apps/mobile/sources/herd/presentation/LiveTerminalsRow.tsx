@@ -147,7 +147,6 @@ export const LiveTerminalsRow = React.memo(({
     const { status: socketStatus } = useSocketStatus();
     const { ready, seenEventIds, markSeen } = useActivityAcknowledgements();
     const scrollRef = React.useRef<FlatList<LiveTerminalOrderCard>>(null);
-    const stripRef = React.useRef<View>(null);
     const scrollXRef = React.useRef(0);
     const [foreground, setForeground] = React.useState(AppState.currentState === 'active');
     const [stripWidth, setStripWidth] = React.useState(0);
@@ -206,6 +205,9 @@ export const LiveTerminalsRow = React.memo(({
         scrollRef.current?.scrollToIndex({ index, animated: true });
         return true;
     }, [cards]);
+    const handleScrollToIndexFailed = React.useCallback(({ index }: { index: number }) => {
+        scrollRef.current?.scrollToOffset({ offset: index * cardInterval, animated: true });
+    }, [cardInterval]);
     const selectActivity = React.useCallback((row: RecentActivityRow) => {
         markSeen([row.eventId]);
         if (!scrollToCard(row.sessionId)) navigateToSession(row.sessionId);
@@ -216,7 +218,7 @@ export const LiveTerminalsRow = React.memo(({
         if (stripWidth <= 0 || activityRows.length === 0 || cards.length === 0) return;
         let cancelled = false;
         const timer = setTimeout(() => {
-            stripRef.current?.measureInWindow((_x: number, stripTop: number, _width: number, stripHeight: number) => {
+            scrollRef.current?.getNativeScrollRef()?.measureInWindow((_x: number, stripTop: number, _width: number, stripHeight: number) => {
                 if (cancelled || AppState.currentState !== 'active') return;
                 const eventIds = visibleActivityEventIds(activityRows, cards, {
                     focused: screenFocused,
@@ -251,7 +253,7 @@ export const LiveTerminalsRow = React.memo(({
     );
 
     return (
-        <View ref={stripRef} style={stylesheet.strip} onLayout={handleLayout}>
+        <View style={stylesheet.strip} onLayout={handleLayout}>
             <View style={stylesheet.header}>
                 <Text style={stylesheet.heading}>{t('liveTerminals.title')}</Text>
                 {attentionIndex === -1 ? null : (
@@ -279,6 +281,7 @@ export const LiveTerminalsRow = React.memo(({
                     keyExtractor={(card) => card.id}
                     renderItem={renderCard}
                     getItemLayout={getItemLayout}
+                    onScrollToIndexFailed={handleScrollToIndexFailed}
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     initialNumToRender={3}
