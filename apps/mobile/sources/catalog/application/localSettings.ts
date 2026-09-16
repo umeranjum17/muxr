@@ -21,6 +21,10 @@ export const LocalSettingsSchema = z.object({
     reopenLastTerminal: z.boolean().describe('Reopen the last accessible terminal when the app launches'),
     lastTerminal: z.object({ machineId: z.string(), sessionId: z.string() }).nullable().describe('Last terminal viewed on this device'),
     terminalFontIndex: z.number().int().min(0).max(FONT_STEPS.length - 1).catch(DEFAULT_FONT_INDEX).describe('Terminal text size as an index into FONT_STEPS'),
+    // Terminal command puck and its open panel rest where the person drags
+    // them, as fractions of the terminal surface's travel range.
+    terminalCommandKeyDock: z.object({ fx: z.number(), fy: z.number() }).nullable().describe('Where the floating terminal command puck rests, as fractions of the terminal surface'),
+    terminalPanelDock: z.object({ fx: z.number(), fy: z.number() }).nullable().describe('Where the floating terminal command panel was last placed, as fractions of the terminal surface'),
     vadStandbyEnabled: z.boolean().describe('Persistently wake realtime voice from local speech activity standby'),
     lifecycleNotificationLevel: z.enum(LIFECYCLE_NOTIFICATION_LEVELS).describe('Which agent lifecycle events may emit notifications'),
     // Herd tab: bucket the agents section under workspace subheaders (herdr's "grouped" toggle).
@@ -57,6 +61,8 @@ export const localSettingsDefaults: LocalSettings = {
     reopenLastTerminal: true,
     lastTerminal: null,
     terminalFontIndex: DEFAULT_FONT_INDEX,
+    terminalCommandKeyDock: null,
+    terminalPanelDock: null,
     vadStandbyEnabled: false,
     lifecycleNotificationLevel: 'important',
     savedLayouts: [],
