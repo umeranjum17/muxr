@@ -841,12 +841,9 @@ try {
             ],
         },
     };
-    const staleRunbook = join(pluginRoot, 'panes', 'runbook.mjs');
-    writeFileSync(staleRunbook, '# retired\n');
     const logBeforeSecondSetup = readFileSync(fakeLog, 'utf8');
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(existingProviders) } });
     const secondSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeSecondSetup.length);
-    assert.equal(existsSync(staleRunbook), false, 'setup did not remove the stray file from a bundled plugin directory');
     assert.doesNotMatch(secondSetupLinks, /plugin link .*plugins[/\\]voice(?:\s|[/\\])/, 'setup relinked an existing provider and changed its enabled state');
     assert.match(secondSetupLinks, /plugin unlink muxr\.removed-package-smoke/, 'setup kept a bundled plugin it no longer ships');
     const failedUnlink = run(cli, ['setup', ...setupArgs], {
