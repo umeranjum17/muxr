@@ -35,9 +35,6 @@ export function parseStreamFrame(raw: unknown): StreamFrame | undefined {
                 deviceWidth: metadata.deviceWidth,
                 deviceHeight: metadata.deviceHeight,
                 pageScaleFactor: typeof metadata.pageScaleFactor === 'number' && metadata.pageScaleFactor > 0 ? metadata.pageScaleFactor : 1,
-                offsetTop: typeof metadata.offsetTop === 'number' ? metadata.offsetTop : 0,
-                scrollOffsetX: typeof metadata.scrollOffsetX === 'number' ? metadata.scrollOffsetX : 0,
-                scrollOffsetY: typeof metadata.scrollOffsetY === 'number' ? metadata.scrollOffsetY : 0,
             },
         };
     } catch {
@@ -45,7 +42,7 @@ export function parseStreamFrame(raw: unknown): StreamFrame | undefined {
     }
 }
 
-export function touchMessage(eventType: 'touchStart' | 'touchEnd', point?: Point): string {
+export function touchMessage(eventType: 'touchStart' | 'touchMove' | 'touchEnd', point?: Point): string {
     return JSON.stringify({
         type: 'input_touch',
         eventType,

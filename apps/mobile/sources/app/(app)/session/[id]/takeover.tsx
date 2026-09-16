@@ -51,6 +51,9 @@ export default function TakeoverScreen() {
     const closeTunnelRef = React.useRef<(() => void) | null>(null);
     const inputRef = React.useRef<TextInput>(null);
     const tapRef = React.useRef<{ x: number; y: number; at: number } | null>(null);
+    // Non-null once a touch passes the tap slop: it is a scroll drag, and
+    // `sent` marks that its touchStart went out over the wire.
+    const dragRef = React.useRef<{ sent: boolean } | null>(null);
     const streamRef = React.useRef<{ command: string; cwd: string } | null>(null);
 
     const cwd = session?.metadata?.path ?? '.';
@@ -122,10 +125,31 @@ export default function TakeoverScreen() {
     };
     React.useEffect(() => () => cleanupRef.current(), []);
 
+    const moveDrag = React.useCallback((x: number, y: number) => {
+        const start = tapRef.current;
+        if (start === null || frame === null) return;
+        if (dragRef.current === null) {
+            if (Math.abs(x - start.x) <= TAP_SLOP_PX && Math.abs(y - start.y) <= TAP_SLOP_PX) return;
+            dragRef.current = { sent: false };
+        }
+        const point = mapDisplayToInput({ x, y }, display, frame.metadata);
+        if (!dragRef.current.sent) {
+            dragRef.current.sent = true;
+            send(touchMessage('touchStart', point));
+        } else {
+            send(touchMessage('touchMove', point));
+        }
+    }, [display, frame, send]);
+
     const releaseTap = React.useCallback((x: number, y: number) => {
         const start = tapRef.current;
         tapRef.current = null;
         if (start === null || frame === null) return;
+        if (dragRef.current !== null) {
+            dragRef.current = null;
+            send(touchMessage('touchEnd'));
+            return;
+        }
         if (Math.abs(x - start.x) > TAP_SLOP_PX || Math.abs(y - start.y) > TAP_SLOP_PX) return;
         if (Date.now() - start.at > TAP_TIMEOUT_MS) return;
         const point = mapDisplayToInput({ x, y }, display, frame.metadata);
@@ -212,10 +236,19 @@ export default function TakeoverScreen() {
                     onLayout={(event) => setDisplay({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
                     onStartShouldSetResponder={() => true}
                     onResponderGrant={(event) => {
+                        dragRef.current = null;
                         tapRef.current = { x: event.nativeEvent.locationX, y: event.nativeEvent.locationY, at: Date.now() };
                     }}
+                    onResponderMove={(event) => moveDrag(event.nativeEvent.locationX, event.nativeEvent.locationY)}
                     onResponderRelease={(event) => releaseTap(event.nativeEvent.locationX, event.nativeEvent.locationY)}
-                    onResponderTerminate={() => { tapRef.current = null; }}
+                    onResponderTerminate={() => {
+                        tapRef.current = null;
+                        // Never leave a lifted drag dangling in the page.
+                        if (dragRef.current !== null) {
+                            dragRef.current = null;
+                            send(touchMessage('touchEnd'));
+                        }
+                    }}
                 >
                     <Image source={{ uri: frame.uri }} style={{ flex: 1 }} resizeMode="contain" />
                 </View>
