@@ -41,6 +41,8 @@ export interface RequestDispatcherOptions {
     machineId: string;
     machineName?: string;
     hostVersion: string;
+    connectionMode?: string;
+    pairedDeviceCount?: () => number;
     /** Where to join preview channels. Absent means preview is unavailable. */
     relayUrl?: string;
     /** Hosted E2EE never permits clear preview payloads from older clients. */
@@ -227,6 +229,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             ...(options.machineName === undefined ? {} : { machineName: options.machineName }),
             hostVersion,
             platform: hostPlatformLabel(),
+            ...(options.connectionMode === undefined ? {} : { connectionMode: options.connectionMode }),
+            ...(options.pairedDeviceCount === undefined ? {} : { pairedDeviceCount: options.pairedDeviceCount() }),
         }).data,
         'machine.shell': (params) => runMachineShell(params.command, params.cwd),
         'machine.listDir': (params) => listDir(params.path),

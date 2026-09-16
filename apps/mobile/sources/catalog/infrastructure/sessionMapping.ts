@@ -128,6 +128,8 @@ export function machineInfoToMachine(info: MachineInfo, pairedName?: string): Ma
             muxrHomeDir: '',
             homeDir: '',
             ...(displayName ? { displayName } : {}),
+            ...(info.connectionMode ? { connectionMode: info.connectionMode } : {}),
+            ...(info.pairedDeviceCount === undefined ? {} : { pairedDeviceCount: info.pairedDeviceCount }),
         },
         metadataVersion: 1,
         daemonState: null,

@@ -87,7 +87,7 @@ Use “muxr help <command>” for command options.
 `;
 
 const COMMAND_HELP = {
-    setup: `muxr setup [--inspect] [--dry-run] [--no-install-herdr] [--port <n>]\n\nInteractive setup installs Herdr when missing, lets you choose networking, lifecycle integrations, plugins, and services, shows a final plan, then applies it and displays a short-lived pairing QR. It never installs agent skills or edits prompt files.\n`,
+    setup: `muxr setup [--inspect] [--dry-run] [--no-install-herdr] [--port <n>]\n\nInteractive setup checks this computer and shows Tailscale Serve, direct Tailscale, private networks, same Wi-Fi, a temporary Cloudflare tunnel, and your own WSS server. It installs Herdr when missing, reviews services and integrations before applying changes, then displays a short-lived pairing QR or string. It never installs agent skills or edits prompt files.\n`,
     'self-host': `muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]\n               [--port <n>] [--relay-only|--host-only] [--web] [--yes]\n`,
     daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n\n\`install\` writes or updates the background-service definition without starting it. Normal \`muxr setup\` installs, starts, and verifies the service for you.\n`,
     devices: `muxr devices list\nmuxr devices revoke <number|name>\n`,

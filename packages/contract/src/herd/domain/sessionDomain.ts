@@ -68,4 +68,8 @@ export interface MachineInfo {
     lastSeenAt?: string;
     hostVersion?: string;
     platform?: string;
+    /** Self-host route selected by the computer. Absent for older hosts. */
+    connectionMode?: string;
+    /** Live phone and browser grants on this computer. Absent for older hosts. */
+    pairedDeviceCount?: number;
 }

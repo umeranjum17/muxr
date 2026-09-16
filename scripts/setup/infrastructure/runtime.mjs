@@ -39,8 +39,7 @@ export const INTEGRATION_COMMANDS = {
 export const print = (text = '') => process.stdout.write(`${text}\n`);
 export const error = (text) => process.stderr.write(`${text}\n`);
 export async function printTerminalQr(value) {
-    if (!process.stdout.isTTY || process.env.TERM === 'dumb' || process.env.NO_COLOR !== undefined
-        || process.env.MUXR_NO_TUI === '1' || process.env.SSH_CONNECTION) {
+    if (!process.stdout.isTTY || process.env.TERM === 'dumb' || process.env.NO_COLOR !== undefined || process.env.MUXR_NO_TUI === '1') {
         print('QR omitted in append-only/plain output; use the exact pairing string below.');
         return;
     }
@@ -50,7 +49,7 @@ export async function printTerminalQr(value) {
     const tooWide = process.stdout.columns !== undefined && width > process.stdout.columns;
     // Pairing prints the exact string, save location, and waiting state after
     // the QR. Keep those rows plus the complete quiet zone visible together.
-    const tooTall = process.stdout.rows !== undefined && lines.length + 5 > process.stdout.rows;
+    const tooTall = process.stdout.rows !== undefined && lines.length + 9 > process.stdout.rows;
     if (tooWide || tooTall) {
         print(`QR omitted because this terminal is ${process.stdout.columns ?? 'too few'} columns × ${process.stdout.rows ?? 'too few'} rows; use the exact pairing string below.`);
         return;

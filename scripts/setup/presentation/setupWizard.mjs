@@ -10,7 +10,7 @@ import { enrollMachine } from '../application/enrollMachine.mjs';
 import { listMachines } from '../application/listMachines.mjs';
 import { revokeMachine } from '../application/revokeMachine.mjs';
 import { selfhostPublicSummary, sharedMachineCount } from '../infrastructure/selfhostRelay.mjs';
-import { inspectTailscaleServeRoot, runTailscale, tailscaleBin } from '../infrastructure/selfhost.mjs';
+import { inspectTailscaleServeRoot, runTailscale, selfhostPath, tailscaleBin } from '../infrastructure/selfhost.mjs';
 import { advertisedUrlForMode, connectionLabel, ingressPlan, modeAllowsBrowserHosting } from '../domain/dist/index.js';
 
 function command(name, args = []) {
@@ -23,11 +23,6 @@ function command(name, args = []) {
         missing: result.error?.code === 'ENOENT',
         errorCode: result.error?.code,
     };
-}
-
-function interactiveCommand(name, args = []) {
-    const result = spawnSync(name, args, { stdio: 'inherit', timeout: 300_000 });
-    return { ok: result.status === 0, output: result.error?.message ?? result.signal ?? '' };
 }
 
 function pairingChoiceLabel(pairing) {
@@ -176,76 +171,7 @@ function renderInspection(found) {
     process.stdout.write('\n');
 }
 
-const RECOMMENDED_PLUGINS = [
-    {
-        title: 'Name sessions from the task',
-        description: 'renames the real Herdr pane · may use Codex · generated worktrees may rename their branch and workspace',
-        repo: 'wyattjoh/herdr-plugin-renamer',
-        ref: 'b9500f0682a5d76b5a80dd7fd13ba19c1562bc7d',
-        pluginId: 'herdr-plugin-renamer',
-    },
-    {
-        title: 'Browse files and diffs',
-        description: 'read-only git-aware viewer · smarzban/herdr-file-viewer',
-        repo: 'smarzban/herdr-file-viewer',
-        ref: 'a2368d701659813938f79e2f1e5aa4e9f4fb2b77',
-        pluginId: 'herdr-file-viewer',
-    },
-    {
-        title: 'Review agent changes',
-        description: 'comments on diffs and sends approved feedback · persiyanov/herdr-reviewr',
-        repo: 'persiyanov/herdr-reviewr',
-        ref: '249ec795cfa55e817b882e09c7c2890eeac8e03c',
-        pluginId: 'persiyanov.reviewr',
-    },
-];
-
 const herdr = () => process.env.HERDR_BIN?.trim() || 'herdr';
-
-function installedPlugins() {
-    const result = command(herdr(), ['plugin', 'list', '--json']);
-    if (!result.ok) return new Set();
-    try {
-        const parsed = JSON.parse(result.output);
-        return new Set((parsed.result?.plugins ?? parsed.plugins ?? []).map((plugin) => plugin.plugin_id));
-    } catch { return new Set(); }
-}
-
-async function choosePlugins() {
-    const installed = installedPlugins();
-    const selected = [];
-    for (const plugin of RECOMMENDED_PLUGINS) {
-        if (installed.has(plugin.pluginId)) {
-            status(plugin.title, 'already installed', 'ok');
-            continue;
-        }
-        setupStep(3, 5, 'Optional Herdr add-ons');
-        const choice = await select(`Add ${plugin.title.toLowerCase()}?`, [
-            { value: 'skip', title: 'No', description: 'leave Herdr unchanged' },
-            { value: 'install', title: 'Yes', description: `${plugin.description} · ${plugin.repo}` },
-        ]);
-        if (aborted(choice)) return undefined;
-        if (choice === 'install') selected.push(plugin);
-    }
-    return selected;
-}
-
-async function installPlugins(plugins) {
-    const installed = [];
-    const failed = [];
-    for (const plugin of plugins) {
-        heading(`Review ${plugin.repo}`);
-        const result = interactiveCommand(herdr(), ['plugin', 'install', plugin.repo, '--ref', plugin.ref]);
-        if (!result.ok) {
-            failed.push(plugin);
-            status(plugin.title, `skipped — ${result.output || 'install failed'}`, 'warn');
-        } else {
-            installed.push(plugin);
-            status(plugin.title, 'installed', 'ok');
-        }
-    }
-    return { installed, failed };
-}
 
 // Plain-words name for a connection mode, used anywhere the topology is stated.
 const RELAY_KIND = {
@@ -258,24 +184,18 @@ const RELAY_KIND = {
 };
 const relayKind = (mode) => RELAY_KIND[mode] ?? mode;
 
-/** Shown once above the route list: the estimates are approximate, the prerequisites are not. */
-export const ROUTE_CHOICE_NOTE = 'Approximate setup time; prerequisites below must be ready';
-
 /**
  * Each route says what it costs and what it needs before it is chosen. A
  * route that is unavailable keeps its actual blocking reason instead of an
- * estimate. The times are what ordinary setup took, not a promise for
- * every network.
+ * estimate.
  */
 function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconclusive' }) {
     const options = [];
     const serveOccupied = serveRoot.status === 'occupied';
     const serveDisabled = serveRoot.status === 'disabled';
     if (found.tailscale.connected || tailscalePlanned) {
-        let serveDescription = tailscalePlanned
-            ? 'Time varies · install/sign in to Tailscale on both devices · browser + native'
-            : '~1 min · Tailscale on both devices · browser + native';
-        if (serveOccupied) serveDescription = 'already used by another service · left unchanged';
+        let serveDescription = 'Tailscale on phone and computer · private HTTPS from anywhere';
+        if (serveOccupied) serveDescription = 'Tailscale Serve root belongs to another service · left unchanged';
         else if (serveDisabled) serveDescription = serveRoot.reason;
         options.push({
             value: 'tailscale',
@@ -286,31 +206,29 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
         options.push({
             value: 'tailscale-direct',
             title: 'Direct Tailscale',
-            description: tailscalePlanned
-                ? 'Time varies · install/sign in to Tailscale on both devices, connect during Apply · native only'
-                : '~1 min once connected · Tailscale on both devices · native only',
+            description: tailscalePlanned ? 'connect during Apply · Tailscale on phone too · native app only' : 'Tailscale on phone and computer · no Serve · native app only',
         });
     } else {
-        options.push({ value: 'tailscale', title: 'Tailscale', description: found.tailscale.detail, disabled: true });
+        const reason = found.tailscale.detail ?? 'connect Tailscale on this computer and phone, then rerun setup';
+        options.push({ value: 'tailscale', title: 'Tailscale Serve', description: reason, disabled: true });
+        options.push({ value: 'tailscale-direct', title: 'Direct Tailscale', description: `${reason} · no Serve needed · native app only`, disabled: true });
     }
-    if (found.private) {
-        options.push({
-            value: 'private',
-            title: found.private.provider === 'private network' ? 'Private network' : `${found.private.provider} private network`,
-            description: `~1 min · both devices on this private network (${found.private.interface}) · native only`,
-        });
-    }
+    options.push(found.private ? {
+        value: 'private',
+        title: found.private.provider === 'private network' ? 'Private network' : `${found.private.provider} private network`,
+        description: `${found.private.interface} · phone joins the same private network · native app only`,
+    } : { value: 'private', title: 'Private network', description: 'connect NetBird, WireGuard, or ZeroTier on this computer and phone, then rerun setup', disabled: true });
     if (found.lan) {
-        options.push({ value: 'lan', title: 'Same Wi-Fi', description: '~1 min · same trusted Wi-Fi · native only' });
+        options.push({ value: 'lan', title: 'Same Wi-Fi', description: 'phone and computer on the same trusted LAN · stops working away from it · native app only' });
     } else {
-        options.push({ value: 'lan', title: 'Same Wi-Fi', description: 'no usable local-network address found', disabled: true });
+        options.push({ value: 'lan', title: 'Same Wi-Fi', description: 'no usable LAN address found · connect this computer to a trusted LAN, then retry', disabled: true });
     }
     if (found.cloudflared.ok) {
-        options.push({ value: 'cloudflare', title: 'Temporary Cloudflare tunnel', description: 'Time varies · cloudflared installed · a temporary public HTTPS URL is created during Apply · browser + native' });
+        options.push({ value: 'cloudflare', title: 'Temporary Cloudflare tunnel', description: 'cloudflared installed · public HTTPS URL changes when tunnel restarts' });
     } else {
         options.push({ value: 'cloudflare', title: 'Temporary Cloudflare tunnel', description: found.cloudflared.detail, disabled: true });
     }
-    options.push({ value: 'external', title: 'Your own server', description: 'Time varies · existing secure muxr relay' });
+    options.push({ value: 'external', title: 'Your own server', description: 'requires an existing stable wss:// relay/reverse proxy you manage' });
     return options;
 }
 
@@ -374,29 +292,40 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     let mode = requestedMode;
     if (mode === 'selfhost') mode = undefined;
     if (!mode) {
-        heading('Connect your phone to this computer');
         const proposal = recommendedConnection(found, current, tailscalePlanned, serveRoot);
-        if (proposal) {
-            status('Recommended route', proposal.title, 'ok');
-            note(proposal.description);
-            const action = await select('Continue with this route?', [
-                { value: 'use', title: 'Use this route and continue', description: 'review every change before muxr applies it' },
-                { value: 'advanced', title: 'Choose another way', description: 'private networks, same Wi-Fi, tunnels, and your own server' },
-            ]);
-            if (aborted(action)) return undefined;
-            if (action === 'use') mode = proposal.mode;
-        } else {
+        const connectionChoices = choices(found, tailscalePlanned, serveRoot).map((choice) => ({
+            ...choice,
+            title: `${choice.title}${choice.value === current?.connectionMode ? ' · current' : ''}`,
+        }));
+        const recommended = proposal && connectionChoices.find((choice) => choice.value === proposal.mode && !choice.disabled);
+        if (!recommended) {
             note(['No ready route was detected.', 'Choose an existing network or server; muxr will not expose this computer automatically.']);
         }
-        if (!mode) {
-            const connectionChoices = choices(found, tailscalePlanned, serveRoot).map((choice) => choice.value === current?.connectionMode
-                ? { ...choice, title: `${choice.title} · current` }
-                : choice);
-            const initial = Math.max(0, connectionChoices.findIndex((choice) => choice.value === current?.connectionMode));
-            mode = await select(`Choose another way (${ROUTE_CHOICE_NOTE})`, connectionChoices, initial);
+        for (;;) {
+            if (recommended) {
+                const startingRoute = await select('How should this phone connect?', [
+                    { value: proposal.mode, title: 'Use recommended route', description: `${recommended.title} · ${proposal.description} · pair with a QR or string after setup` },
+                    { value: 'other', title: 'Other ways', description: 'review all six routes and what each needs' },
+                ]);
+                if (aborted(startingRoute)) return undefined;
+                if (startingRoute !== 'other') {
+                    mode = startingRoute;
+                    break;
+                }
+            }
+            const preferred = connectionChoices.findIndex((choice) => choice.value === proposal?.mode && !choice.disabled);
+            const initial = preferred >= 0 ? preferred : Math.max(0, connectionChoices.findIndex((choice) => !choice.disabled));
+            const other = await select('Other connection routes', connectionChoices, initial, recommended ? 'return to recommended route' : undefined);
+            if (other === BACK && recommended) continue;
+            if (aborted(other)) return undefined;
+            mode = other;
+            break;
         }
     }
     if (aborted(mode)) return undefined;
+    if (mode === 'lan') {
+        note('Nearby discovery can help a previously paired native app find this relay again on the same LAN. A new device still needs the one-time QR or pairing string.');
+    }
     if (!['tailscale', 'tailscale-direct', 'private', 'lan', 'external', 'cloudflare'].includes(mode)) {
         process.stderr.write(`unknown setup mode: ${mode}\n`);
         return 1;
@@ -457,7 +386,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
             value: 'none',
             title: 'Keep paired devices',
             description: connectionChanged
-                ? 'same-LAN devices can adopt it through local discovery; remote devices must pair once with the new endpoint'
+                ? 'a native app on the same LAN may verify a discovered address; other devices need fresh pairing'
                 : 'no new QR; existing devices keep working',
         }] : []),
         { value: 'phone', title: 'Phone', description: 'pair the native app first' },
@@ -468,6 +397,11 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         ] : []),
     ];
     setupStep(2, 5, 'Choose what to pair');
+    note([
+        'The chosen app or browser claims a short-lived, single-use code shown after setup.',
+        'This computer seals its key grant to that device only.',
+        'That device verifies the grant against the machine key in the QR or link.',
+    ]);
     const pairing = pairingChoices.length === 1 ? pairingChoices[0].value : await select(connectionChanged && current !== undefined
         ? 'The connection changed. Keep existing devices or pair another one?'
         : 'Pair a client?', pairingChoices);
@@ -587,8 +521,11 @@ export async function applyMachineSetup(args = []) {
     if (plan === 1) return 1;
     const desiredUrl = advertisedUrlForMode({ ...plan, found, current, tailscalePlanned });
     const connectionChanged = current === undefined || desiredUrl === undefined || current.relayUrl !== desiredUrl;
+    let existingConnections = 'none; pair a device after setup';
+    if (current !== undefined && connectionChanged) existingConnections = 'same-LAN native devices may verify the new address; others need fresh pairing';
+    else if (current !== undefined) existingConnections = 'keep working; restart only if a reviewed runtime setting changed';
 
-    setupStep(3, 5, 'Connect agents and add-ons');
+    setupStep(3, 5, 'Connect coding agents');
     const syncIntegrations = await select(found.agents.checked
         ? `Connect your coding agents (${found.agents.available.length} detected)?`
         : 'Agent availability could not be checked. Retry integration setup anyway?', [
@@ -597,26 +534,21 @@ export async function applyMachineSetup(args = []) {
     ]);
     if (aborted(syncIntegrations)) return cancelSetup();
 
-    const plugins = current === undefined ? [] : await choosePlugins();
-    if (plugins === undefined) return cancelSetup();
-
     setupStep(4, 5, 'Review setup');
     note([
         `Connection: ${connectionLabel(plan.mode, plan.endpoint, plan.port)}`,
         `Herdr: ${found.herdr.installed ? 'adopt existing installation and ensure its server is running' : 'download, install, and start during setup'}`,
-        'Bundled plugins: link the public muxr plugins into Herdr',
         `Agent integrations: ${syncIntegrations ? 'sync detected lifecycle providers; leave agent prompt files unchanged' : 'leave lifecycle integrations unchanged'}`,
-        `Optional add-ons: ${plugins.length ? plugins.map((plugin) => plugin.title).join(', ') : 'none'}`,
         `Browser client: ${plan.web ? 'host the web app; browser keys stay WebCrypto-wrapped on this device' : 'off'}`,
         `Pairing: ${pairingChoiceLabel(plan.pairing)}${browserGrantNote(plan.pairing, { planned: true })}`,
         `Ingress: ${ingressPlan(plan.mode, tailscalePlanned)}`,
         'Services: register or restart the relay and host with systemd/launchd',
-        `Existing connections: ${connectionChanged ? 'stored grants stay authoritative and adopt the advertised endpoint automatically' : 'keep working; restart only if a reviewed runtime setting changed'}`,
+        `Existing connections: ${existingConnections}`,
         'No change is made until you choose Apply setup.',
     ]);
     const apply = await select('Apply this setup?', [
         { value: false, title: 'Cancel', description: 'leave this machine unchanged' },
-        { value: true, title: 'Apply setup', description: 'make the reviewed changes, verify health, then show the pairing QR' },
+        { value: true, title: 'Apply setup', description: 'make the reviewed changes and verify health; pair a new device if selected' },
     ], 1);
     if (apply !== true) return cancelSetup();
 
@@ -632,7 +564,6 @@ export async function applyMachineSetup(args = []) {
     ];
     const prerequisites = await runLocalPrerequisites(prerequisiteArgs);
     if (prerequisites !== 0) return prerequisites;
-    const pluginResult = await installPlugins(plugins);
     status('Network', 'checking Tailscale Serve ownership and local relay port', 'off');
     let result = 1;
     for (;;) {
@@ -653,6 +584,7 @@ export async function applyMachineSetup(args = []) {
     note([
         `Your host runs here. Phones reach it over ${relayKind(mode)}.${pairing === 'none' ? ' Pair with `muxr pair` when ready.' : ''}`,
         `Connection: ${connectionLabel(mode, endpoint, port)}`,
+        `Selected route: ${relayKind(mode)}`,
         'Relay location: this machine',
         `Relay URL: ${summary?.relayUrl ?? 'unavailable'}`,
         `Web URL: ${summary?.webUrl ?? 'off'}`,
@@ -661,21 +593,15 @@ export async function applyMachineSetup(args = []) {
         `Herdr: ${found.herdr.running ? 'running' : 'started during setup'}`,
         `Integrations: ${syncIntegrations ? 'selected providers synced' : 'unchanged'}`,
         `Pairing: ${pairingReceiptLabel(pairing, browserPairFailed)}${browserGrantNote(pairing, { failed: browserPairFailed })}`,
-        `Plugins: bundled${pluginResult.installed.length ? ` + ${pluginResult.installed.map((plugin) => plugin.title).join(', ')}` : ''}`,
-        ...(pluginResult.failed.length ? [
-            `Add-ons needing attention: ${pluginResult.failed.map((plugin) => plugin.title).join(', ')}`,
-            'Retry add-ons by rerunning `muxr setup`; core pairing remains active.',
-        ] : []),
-        'Configuration: ~/.muxr (owner-only)',
+        `Configuration: ${selfhostPath()} (owner-only; use \`muxr setup\` to change the route)`,
     ]);
-    const partial = browserPairFailed || pluginResult.failed.length > 0;
-    outro(partial
-        ? 'Core setup is ready, but one or more optional steps need attention.'
+    outro(browserPairFailed
+        ? 'Core setup is ready, but browser pairing needs attention.'
         : pairing === 'none'
-            ? 'Setup updated. Existing devices will reconnect automatically.'
-            : 'Paired. Open muxr on your phone, or run `muxr` anytime to change these choices.', partial ? 'warn' : 'ok');
+            ? 'Setup updated. Run `muxr pair` to connect another device.'
+            : 'Paired. Open muxr on your phone, or run `muxr` anytime to change these choices.', browserPairFailed ? 'warn' : 'ok');
     completeFullscreen();
-    return partial ? 1 : 0;
+    return browserPairFailed ? 1 : 0;
     });
 }
 
@@ -824,7 +750,6 @@ export async function connectRemoteRelay() {
     ];
     const pairing = await select('Which client should pair?', pairingChoices);
     if (aborted(pairing)) return cancelled();
-    const plugins = [];
     heading('Review remote connection');
     note([
         'Relay location: shared remote server',
@@ -834,7 +759,6 @@ export async function connectRemoteRelay() {
         'Credential: scoped to this machine; relay-owner authority is never copied here',
         `Herdr: ${found.herdr.installed ? 'adopt and start existing installation' : 'download, install, and start during setup'}`,
         `Integrations: ${syncIntegrations ? 'sync detected providers' : 'leave unchanged'}`,
-        `Plugins: ${plugins.length ? plugins.map((plugin) => plugin.title).join(', ') : 'bundled only'}`,
         `Pairing: ${pairing === 'none' ? 'not now' : pairingChoiceLabel(pairing)}`,
         ...(current === undefined ? [] : [`Existing setup: replace ${current.relayLocation} relay ${current.relayUrl ?? ''}; every existing device needs a fresh pairing`]),
         'No local or remote state changes until you choose Apply connection.',
@@ -849,7 +773,6 @@ export async function connectRemoteRelay() {
         ...(syncIntegrations ? [] : ['--no-integrations']),
     ]);
     if (prerequisites !== 0) return prerequisites;
-    const pluginResult = await installPlugins(plugins);
     const connectArgs = ['--enrollment', raw, '--force',
         ...(pairing === 'none' ? ['--no-pair'] : []),
         ...(pairing === 'browser' ? ['--pair-browser'] : []),
@@ -869,9 +792,7 @@ export async function connectRemoteRelay() {
         `Local host service: ${summary?.hostRunning ? 'running' : 'check required'}`,
         `Machine credential expires: ${summary?.credentialExpiresAt ? new Date(summary.credentialExpiresAt).toLocaleDateString() : 'unavailable'}`,
         `Pairing: ${pairing === 'none' ? 'not requested' : `${pairing} completed`}`,
-        `Plugins: bundled${pluginResult.installed.length ? ` + ${pluginResult.installed.map((plugin) => plugin.title).join(', ')}` : ''}`,
-        ...(pluginResult.failed.length ? [`Plugin install failed: ${pluginResult.failed.map((plugin) => plugin.title).join(', ')}`] : []),
-        'Configuration: ~/.muxr (owner-only)',
+        `Configuration: ${selfhostPath()} (owner-only; ask the relay owner for a new enrollment to change this route)`,
     ]);
     outro('Ready. The local host connects outbound to the shared relay; Herdr must remain running on this machine.');
     return 0;

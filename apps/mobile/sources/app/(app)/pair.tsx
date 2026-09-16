@@ -1,6 +1,7 @@
 import * as React from 'react';
 import * as Linking from 'expo-linking';
-import { ActivityIndicator, Platform, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, Text, TextInput, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
@@ -36,10 +37,16 @@ const BROWSER_OBSERVE_GRANTS = [
     'Use this view-only grant for eight hours, then pair again.',
 ] as const;
 
-const PAIRING_STEPS = [
+const PHONE_PAIRING_STEPS = [
     'This phone claims the one-time code from the QR or pairing string.',
-    'Your machine seals its key grant to this phone only.',
-    'The grant is verified against the machine key in the QR.',
+    'The computer seals its key grant to this phone only.',
+    'The phone verifies the grant against the machine key from pairing.',
+] as const;
+
+const BROWSER_PAIRING_STEPS = [
+    'This browser claims the one-time code from the link.',
+    'The computer seals its key grant to this browser only.',
+    'The browser verifies the grant against the machine key from pairing.',
 ] as const;
 
 type PairState =
@@ -57,6 +64,7 @@ export default function PairScreen() {
     // from getInitialURL, so the raw URL is only a fallback).
     const routeParams = useLocalSearchParams();
     const browser = Platform.OS === 'web';
+    const PairScrollView = browser ? ScrollView : KeyboardAwareScrollView;
     const openedFromSettings = routeParams.source === 'settings';
     const reviewPairing = React.useCallback((raw: string) => {
         try {
@@ -71,9 +79,7 @@ export default function PairScreen() {
     const grants = browser
         ? browserAuthority === 'control' ? BROWSER_CONTROL_GRANTS : BROWSER_OBSERVE_GRANTS
         : PHONE_PAIRING_GRANTS;
-    const pairingSteps = browser
-        ? ['This browser claims the one-time code from the link.', ...PAIRING_STEPS.slice(1)]
-        : PAIRING_STEPS;
+    const pairingSteps = browser ? BROWSER_PAIRING_STEPS : PHONE_PAIRING_STEPS;
     const switching = getCachedConnectionSettings().machineId !== '';
     const routePairUrl = React.useMemo(() => {
         const v = routeParams.v;
@@ -173,7 +179,8 @@ export default function PairScreen() {
     }, [openedFromSettings, router]);
 
     return (
-        <View style={[styles.screen, { paddingBottom: insets.bottom + 24 }]}>
+        <PairScrollView style={styles.scroll} contentContainerStyle={[styles.screen, { paddingBottom: insets.bottom + 24 }]}
+            keyboardShouldPersistTaps="handled" {...(browser ? {} : { bottomOffset: 120 })}>
             <View style={styles.hero}>
                 <View style={styles.iconBadge}>
                     <Ionicons name="desktop-outline" size={30} color={styles.icon.color} />
@@ -273,13 +280,16 @@ export default function PairScreen() {
                     </>
                 )}
             </View>
-        </View>
+        </PairScrollView>
     );
 }
 
 const styles = StyleSheet.create((theme) => ({
-    screen: {
+    scroll: {
         flex: 1,
+    },
+    screen: {
+        flexGrow: 1,
         paddingHorizontal: 24,
         justifyContent: 'center',
         gap: 24,
@@ -416,7 +426,7 @@ const styles = StyleSheet.create((theme) => ({
         backgroundColor: theme.colors.surfaceHighest,
         color: theme.colors.text,
         paddingHorizontal: 14,
-        fontSize: 15,
+        fontSize: 16,
     },
     inputPlaceholder: {
         color: theme.colors.textSecondary,
