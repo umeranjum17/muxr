@@ -16,13 +16,13 @@ import { pluginSnapshot } from '../application/pluginStore';
 import { dispatchPluginAction } from '../application/pluginActions';
 import { clearPluginCache, registerPluginDataCacheInvalidator, subscribePluginDataInvalidation } from '../application/pluginDataInvalidation';
 import { toneColor } from '../domain/pluginTone';
-import { asScreenTabs, bindText, initialFieldValues, loadScreenData, resolvePath, runScreenButton, sharedPluginWriteKeys, shouldReloadAfterAction, type ScreenFieldValues } from '../domain/screenModel';
+import { asScreenTabs, bindText, bindTone, contentMountTitle, initialFieldValues, loadScreenData, resolvePath, runScreenButton, sharedPluginWriteKeys, shouldReloadAfterAction, type ScreenFieldValues } from '../domain/screenModel';
 import { resolvePluginText } from '../domain/pluginText';
 import { asScreenTree, type RuntimeTreeItem } from '../domain/screenTreeModel';
 import { t } from '@/text';
 import { boundText } from '@/utils/boundedText';
 import { Typography } from '@/constants/Typography';
-import { cardStyle, Meter, SectionLabel, ui, withAlpha } from '@/components/ui';
+import { cardStyle, IconTile, Meter, Notice, SectionLabel, ui, withAlpha } from '@/components/ui';
 import { layout } from '@/components/layout';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenWidthProvider, useScreenContentWidth } from './pluginScreenLayout';
@@ -70,12 +70,34 @@ function LoadingHairline({ active }: { active: boolean }) {
     );
 }
 
-function ScreenSkeleton() {
+/**
+ * The placeholder has the screen's shape: each declared block becomes a
+ * block, so the content does not jump when the payload lands.
+ */
+function ScreenSkeleton({ nodes }: { nodes: PluginScreenNode[] }) {
     const { theme } = useUnistyles();
+    const heights: number[] = [];
+    for (const node of nodes) {
+        if (heights.length >= 3) break;
+        switch (node.type) {
+            case 'section':
+            case 'list': heights.push(120); break;
+            case 'chart': heights.push(140); break;
+            case 'tree': heights.push(200); break;
+            case 'code': heights.push(240); break;
+            case 'limits': heights.push(220); break;
+            case 'tabs': heights.push(30); break;
+            case 'text': heights.push(20); break;
+            case 'badge': heights.push(24); break;
+            case 'button': heights.push(40); break;
+            default: break;
+        }
+    }
+    if (heights.length === 0) heights.push(120);
     return (
         <View style={{ gap: 12, marginTop: 4 }}>
-            {[220, 96, 140].map((height) => (
-                <View key={height} style={{ height, borderRadius: 16, backgroundColor: theme.colors.surfaceHigh }} />
+            {heights.map((height, index) => (
+                <View key={index} style={{ height, borderRadius: 16, backgroundColor: theme.colors.surfaceHigh }} />
             ))}
         </View>
     );
@@ -93,17 +115,29 @@ function ScreenRow(props: {
     const { theme } = useUnistyles();
     const { row, item } = props;
     const bind = (value: PluginText) => bindText(resolvePluginText(value), props.data, item);
+    const title = bind(row.title);
+    // A row bound to an empty title is the screen's one conditional: gone.
+    if (title === '') return null;
+    const tone = bindTone(row, props.data, item);
     const action = row.action;
     const value = row.value === undefined ? undefined : bind(row.value);
+    const meta = row.meta === undefined ? undefined : bind(row.meta);
     const body = (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, ...(row.icon === undefined ? {} : { minHeight: 44 }) }}>
+            {row.icon !== undefined && <IconTile name={row.icon} />}
             <View style={{ flex: 1, minWidth: 0 }}>
                 {/* Two lines is a subject line; past that a list of commits turns
                     into a wall and you can see four of them on a phone. */}
-                <Text numberOfLines={2} style={{ color: theme.colors.text, fontSize: 15, lineHeight: 20, letterSpacing: -0.1 }}>{bind(row.title)}</Text>
-                {row.subtitle !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, lineHeight: 15, marginTop: 3, ...Typography.mono('regular') }}>{bind(row.subtitle)}</Text>}
+                <Text numberOfLines={2} style={{ color: theme.colors.text, fontSize: 15, lineHeight: 20, letterSpacing: -0.1 }}>{title}</Text>
+                {/* subtitle is prose in words; meta is facts in figures. */}
+                {row.subtitle !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 1 }}>{bind(row.subtitle)}</Text>}
+                {meta !== undefined && meta !== '' && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, lineHeight: 15, marginTop: 3, ...Typography.mono('regular') }}>{meta}</Text>}
             </View>
-            {value !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, maxWidth: '45%', ...Typography.mono('regular') }}>{value}</Text>}
+            {value !== undefined && value !== ''
+                ? <Text numberOfLines={1} style={{ color: tone === undefined ? theme.colors.text : toneColor(theme, tone), fontSize: 13, maxWidth: '45%', ...Typography.mono('regular') }}>{value}</Text>
+                : tone !== undefined
+                    ? <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: toneColor(theme, tone) }} />
+                    : null}
             {action?.type === 'screen' && <Ionicons name="chevron-forward" size={13} color={withAlpha(theme.colors.textSecondary, 0.6)} />}
         </View>
     );
@@ -213,22 +247,16 @@ function ScreenNode(props: {
         case 'text': {
             const text = bind(node.text);
             if (text === '') return null;
-            // A toned warning or danger text reads as a notice: one tone dot,
-            // then the words, with any part after " · " quieter.
-            if (node.tone === 'warning' || node.tone === 'danger') {
-                const dot = node.tone === 'danger' ? theme.colors.box.error.text : theme.colors.box.warning.text;
-                const divider = text.indexOf(' · ');
-                return (
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
-                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: dot, marginTop: 6 }} />
-                        <Text style={{ flex: 1, color: dot, fontSize: 13, lineHeight: 18 }}>
-                            {divider < 0 ? text : text.slice(0, divider)}
-                            {divider < 0 ? '' : <Text style={{ color: theme.colors.textSecondary }}>{text.slice(divider)}</Text>}
-                        </Text>
-                    </View>
-                );
+            const tone = bindTone(node, data);
+            // A toned sentence is a notice; secondary is a note. The author
+            // picks the word, the renderer picks the voice.
+            if (tone === 'positive' || tone === 'warning' || tone === 'danger') {
+                return <Notice tone={tone} text={text} />;
             }
-            return <Text style={{ color: node.tone === undefined ? theme.colors.text : toneColor(theme, node.tone), fontSize: 15, lineHeight: 21, marginBottom: 8 }}>{text}</Text>;
+            if (tone === 'secondary') {
+                return <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginBottom: 8 }}>{text}</Text>;
+            }
+            return <Text style={{ color: tone === undefined ? theme.colors.text : toneColor(theme, tone), fontSize: 15, lineHeight: 21, marginBottom: 8 }}>{text}</Text>;
         }
         case 'row':
             return <ScreenRow row={node} data={data} onRowAction={props.onRowAction} insideCard={props.nested === true} style={{ paddingVertical: 10 }} />;
@@ -258,20 +286,28 @@ function ScreenNode(props: {
                 {...(fill && props.refreshControl !== undefined ? { refreshControl: props.refreshControl } : {})}
                 {...titled} />;
         }
-        case 'metric':
+        case 'metric': {
+            const value = bind(node.value);
+            const blank = value === '';
+            // A missing figure is information, not a hole: an em dash.
             return (
                 <View style={{ paddingVertical: 10 }}>
                     <SectionLabel>{bind(node.label)}</SectionLabel>
-                    <Text style={{ color: theme.colors.text, fontSize: 30, letterSpacing: -0.5, marginTop: 2, ...Typography.mono('semiBold') }}>{bind(node.value)}</Text>
+                    <Text style={{ color: blank ? theme.colors.textSecondary : theme.colors.text, fontSize: 30, letterSpacing: -0.5, marginTop: 2, ...Typography.mono('semiBold') }}>{blank ? '—' : value}</Text>
                 </View>
             );
-        case 'badge':
+        }
+        case 'badge': {
+            const label = bind(node.label);
+            if (label === '') return null;
+            const tone = bindTone(node, data);
             return (
                 <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 10, backgroundColor: withAlpha(theme.colors.accent, 0.08) }}>
-                    {node.tone !== undefined && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: toneColor(theme, node.tone) }} />}
-                    <Text style={{ color: theme.colors.text, fontSize: 12, ...Typography.mono('regular') }}>{bind(node.label)}</Text>
+                    {tone !== undefined && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: toneColor(theme, tone) }} />}
+                    <Text style={{ color: theme.colors.text, fontSize: 12, ...Typography.mono('regular') }}>{label}</Text>
                 </View>
             );
+        }
         case 'progress': {
             const max = node.max ?? 100;
             const resolved = node.path === undefined ? node.value : resolvePath(data, node.path);
@@ -279,12 +315,13 @@ function ScreenNode(props: {
             const value = Math.max(0, Math.min(max, resolved));
             const label = node.label === undefined ? undefined : bind(node.label);
             const valueLabel = node.valueLabel === undefined ? undefined : bind(node.valueLabel);
+            const tone = bindTone(node, data);
             return (
                 <View style={{ marginBottom: 12 }} accessibilityRole="progressbar" accessibilityLabel={[label, valueLabel].filter(Boolean).join(', ') || undefined}
                     accessibilityValue={{ min: 0, max, now: value }}>
                     {(label !== undefined || valueLabel !== undefined) && <View style={{ flexDirection: 'row', marginBottom: 6 }}>
                         {label !== undefined && <Text style={{ color: theme.colors.text, fontSize: 13, flex: 1 }}>{label}</Text>}
-                        {valueLabel !== undefined && <Text style={{ color: node.tone === undefined || node.tone === 'positive' ? theme.colors.textSecondary : toneColor(theme, node.tone), fontSize: 13, ...Typography.mono('regular') }}>{valueLabel}</Text>}
+                        {valueLabel !== undefined && <Text style={{ color: tone === undefined || tone === 'positive' ? theme.colors.textSecondary : toneColor(theme, tone), fontSize: 13, ...Typography.mono('regular') }}>{valueLabel}</Text>}
                     </View>}
                     <Meter ratio={max === 0 ? 0 : value / max} />
                 </View>
@@ -296,13 +333,17 @@ function ScreenNode(props: {
             return <ScreenChart node={node} data={data} nested={props.nested === true} />;
         case 'divider':
             return <View style={{ height: 1, backgroundColor: theme.colors.divider, marginVertical: 12 }} />;
-        case 'empty':
+        case 'empty': {
+            const title = node.title === undefined ? '' : bind(node.title);
+            const message = node.message === undefined ? '' : bind(node.message);
+            if (title === '' && message === '') return null;
             return (
                 <View style={{ paddingVertical: 24, alignItems: 'center' }}>
-                    {node.title !== undefined && <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '600' }}>{bind(node.title)}</Text>}
-                    {node.message !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 14, marginTop: 4, textAlign: 'center' }}>{bind(node.message)}</Text>}
+                    {title !== '' && <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '600' }}>{title}</Text>}
+                    {message !== '' && <Text style={{ color: theme.colors.textSecondary, fontSize: 14, marginTop: 4, textAlign: 'center' }}>{message}</Text>}
                 </View>
             );
+        }
         case 'section': {
             const columns = node.columns === undefined
                 ? undefined
@@ -316,9 +357,19 @@ function ScreenNode(props: {
                         ...cardStyle(theme), paddingHorizontal: 16, paddingVertical: 12,
                         ...(columns === undefined ? {} : { flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 }),
                     }}>
-                    {node.children.map((child, index) => columns === undefined
-                        ? <ScreenNode key={index} {...props} node={child} nested />
-                        : <View key={index} style={{ flexBasis: `${100 / columns - 2}%`, flexGrow: 1, maxWidth: `${100 / columns}%` }}><ScreenNode {...props} node={child} nested /></View>)}
+                    {node.children.map((child, index) => {
+                        if (columns !== undefined) {
+                            return <View key={index} style={{ flexBasis: `${100 / columns - 2}%`, flexGrow: 1, maxWidth: `${100 / columns}%` }}><ScreenNode {...props} node={child} nested /></View>;
+                        }
+                        // Adjacent rows read as one table: hairlines between them.
+                        const separated = child.type === 'row' && index > 0 && node.children[index - 1]!.type === 'row';
+                        if (!separated) return <ScreenNode key={index} {...props} node={child} nested />;
+                        return (
+                            <View key={index} style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
+                                <ScreenNode {...props} node={child} nested />
+                            </View>
+                        );
+                    })}
                 </View>
             );
             return (
@@ -443,6 +494,8 @@ function ScreenBody(props: {
     manifestHash: string;
     pluginName: string;
     source: PluginSource;
+    /** The page header title; an in-body title resolving to this is dropped. */
+    headerTitle: string;
     /** Params passed by a row action; they become the data RPC input. */
     params?: Record<string, string>;
     topContentInset?: number;
@@ -594,6 +647,44 @@ function ScreenBody(props: {
     }, [props.manifest, props.manifestHash, callParams, props.pluginId, request]);
 
     const { theme } = useUnistyles();
+    // The in-body title carries data (a file name, a commit subject); when it
+    // resolves to the header string it is a duplicate, not information.
+    const boundTitle = screen.title === undefined ? undefined : bindText(resolvePluginText(screen.title), data);
+    // Adjacent top-level rows share one card with hairlines, exactly as a
+    // list draws them: two facts stop floating between text and buttons.
+    const topLevelNodes = (): React.ReactNode[] => {
+        const renderNode = (node: PluginScreenNode, index: number): React.ReactNode => (
+            <ScreenNode key={index} node={node} data={data} fields={fields} setField={setField} running={running} onButton={onButton} onRowAction={onRowAction} onTreeLoad={onTreeLoad}
+                {...(refreshControl === undefined ? {} : { refreshControl })}
+                tabOverrides={tabParams}
+                onSelectTab={(param, value) => setTabParams((current) => ({ ...current, [param]: value }))}
+                onTreeError={(error) => setStatus({ ok: false, text: error instanceof Error ? error.message : String(error) })} />
+        );
+        const out: React.ReactNode[] = [];
+        let run: { node: PluginScreenRowNode; index: number }[] = [];
+        const flushRun = (): void => {
+            if (run.length === 0) return;
+            // Rows bound to nothing take no card with them.
+            const visible = run.filter(({ node }) => bindText(resolvePluginText(node.title), data) !== '');
+            run = [];
+            if (visible.length === 0) return;
+            out.push(
+                <View key={visible[0]!.index} style={{ ...cardStyle(theme), paddingHorizontal: 16, paddingVertical: 4, marginBottom: 14 }}>
+                    {visible.map(({ node, index }, runIndex) => (
+                        <ScreenRow key={index} row={node} data={data} onRowAction={onRowAction} insideCard
+                            style={{ paddingVertical: 10, borderTopWidth: runIndex === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }} />
+                    ))}
+                </View>,
+            );
+        };
+        screen.children.forEach((node, index) => {
+            if (node.type === 'row') { run.push({ node, index }); return; }
+            flushRun();
+            out.push(renderNode(node, index));
+        });
+        flushRun();
+        return out;
+    };
     // A reload keeps the last payload on screen: blanking to a spinner costs the
     // reader their place and re-runs the entrance on every tab tap.
     const hasContent = dataContributionId === undefined || data !== undefined || dataError !== undefined;
@@ -628,22 +719,16 @@ function ScreenBody(props: {
             >
                 <ScreenWidthProvider width={contentWidth}>
                     <LoadingHairline active={loading} />
-                    {screen.title !== undefined && <Text style={{ color: theme.colors.text, fontSize: 21, fontWeight: '700', marginBottom: 8 }}>{bindText(resolvePluginText(screen.title), data)}</Text>}
+                    {boundTitle !== undefined && boundTitle !== '' && boundTitle !== props.headerTitle && <Text style={{ color: theme.colors.text, fontSize: 21, fontWeight: '700', marginBottom: 8 }}>{boundTitle}</Text>}
                     {dataError !== undefined && <Pressable onPress={() => setRefreshNonce((value) => value + 1)} accessibilityRole="button" accessibilityLabel={`${capUtf8Bytes(sanitizeDisplayText(dataError), 300)}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
-                        <Text style={{ color: theme.colors.box.error.text, fontSize: 13 }}>{capUtf8Bytes(sanitizeDisplayText(dataError), 300)}</Text>
-                        <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4 }}>{t('plugins.retry')}</Text>
+                        <Notice tone="danger" text={capUtf8Bytes(sanitizeDisplayText(dataError), 300)} style={{ marginBottom: 0 }} />
+                        <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4, marginLeft: 14 }}>{t('plugins.retry')}</Text>
                     </Pressable>}
                     {hasContent
                         ? <View style={[{ opacity: loading ? 0.55 : 1 }, filled ? { flex: 1 } : {}]}>
-                            {screen.children.map((node, index) => (
-                                <ScreenNode key={index} node={node} data={data} fields={fields} setField={setField} running={running} onButton={onButton} onRowAction={onRowAction} onTreeLoad={onTreeLoad}
-                                    {...(refreshControl === undefined ? {} : { refreshControl })}
-                                    tabOverrides={tabParams}
-                                    onSelectTab={(param, value) => setTabParams((current) => ({ ...current, [param]: value }))}
-                                    onTreeError={(error) => setStatus({ ok: false, text: error instanceof Error ? error.message : String(error) })} />
-                            ))}
+                            {topLevelNodes()}
                         </View>
-                        : <ScreenSkeleton />}
+                        : <ScreenSkeleton nodes={screen.children} />}
                     {status !== undefined && (
                         <Text accessibilityLiveRegion="polite" accessibilityRole="alert"
                             style={{ color: status.ok ? theme.colors.success : theme.colors.box.error.text, fontSize: 13, marginTop: 10 }}>
@@ -684,6 +769,7 @@ export function DeclarativeScreen({
         pluginId={pluginId}
         manifestHash={entry.summary.manifestHash}
         pluginName={entry.summary.name}
+        headerTitle={contentMountTitle(entry.manifest, contribution.id, entry.summary.name, resolvePluginText)}
         source={entry.summary.source}
         params={params}
         topContentInset={topContentInset}

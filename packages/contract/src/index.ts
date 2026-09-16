@@ -254,6 +254,7 @@ export {
     pluginIsCompatible,
     sanitizeDisplayText,
     parseManifest,
+    parseManifestWithMeta,
     parsePluginManifest,
     parsePluginAction,
     parsePluginScreenParams,

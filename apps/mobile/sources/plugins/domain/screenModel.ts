@@ -1,4 +1,4 @@
-import type { PluginAction, PluginManifestV1, PluginRpcCapability, PluginScreenButtonNode, PluginScreenContribution, PluginScreenNode, RequestParams } from '@muxr/contract';
+import type { PluginAction, PluginManifestV1, PluginRpcCapability, PluginScreenButtonNode, PluginScreenContribution, PluginScreenNode, PluginScreenTone, PluginText, RequestParams } from '@muxr/contract';
 import { MAX_RPC_DISPLAY_BYTES, capUtf8Bytes, defaultPluginText, sanitizeDisplayText } from '@muxr/contract';
 
 /** `{{data.dotted.path}}` bindings only; no expressions. Unresolved paths render empty. */
@@ -49,6 +49,19 @@ export function bindText(template: string, data: unknown, item?: unknown): strin
     return capUtf8Bytes(sanitizeDisplayText(bound), MAX_RPC_DISPLAY_BYTES);
 }
 
+const SCREEN_TONES: ReadonlySet<string> = new Set(['primary', 'secondary', 'positive', 'warning', 'danger']);
+
+/**
+ * A plugin may say *danger*, never *red*: the resolved value must be one of
+ * the five tone names, anything else is no tone, never a throw.
+ */
+export function bindTone(node: { tone?: PluginScreenTone; tonePath?: string }, data: unknown, item?: unknown): PluginScreenTone | undefined {
+    if (node.tone !== undefined) return node.tone;
+    if (node.tonePath === undefined) return undefined;
+    const resolved = resolvePath(data, node.tonePath, item);
+    return typeof resolved === 'string' && SCREEN_TONES.has(resolved) ? resolved as PluginScreenTone : undefined;
+}
+
 export type ScreenFieldValues = Record<string, string | boolean>;
 
 export function initialFieldValues(screen: PluginScreenContribution, data?: unknown): ScreenFieldValues {
@@ -64,17 +77,30 @@ function collectFieldDefaults(nodes: PluginScreenNode[], values: ScreenFieldValu
             continue;
         }
         if (node.kind === 'switch') {
-            values[node.id] = node.value === 'true';
+            // `true` or the string 'true' reads as on; anything else is off,
+            // so a backend that answers in booleans or strings lands the same.
+            const seeded = node.valuePath === undefined ? node.value : stringified(resolvePath(data, node.valuePath));
+            values[node.id] = seeded === true || seeded === 'true';
             continue;
         }
         if (node.kind === 'select') {
-            if (node.value !== undefined) values[node.id] = node.value;
-            else if (node.options?.[0] === undefined) values[node.id] = '';
-            else values[node.id] = defaultPluginText(node.options[0]);
+            const options = (node.options ?? []).map(defaultPluginText);
+            const seeded = node.valuePath === undefined ? node.value : stringified(resolvePath(data, node.valuePath));
+            // Saved state wins when it names an option; otherwise the first
+            // option stands in rather than a value the button never offered.
+            values[node.id] = typeof seeded === 'string' && options.includes(seeded) ? seeded : options[0] ?? '';
             continue;
         }
         values[node.id] = node.value === undefined ? '' : bindText(node.value, data);
     }
+}
+
+/** Runtime values arrive untyped; only scalar seeds survive into a field. */
+function stringified(value: unknown): string | boolean | undefined {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    return undefined;
 }
 
 /** The current values of the fields a button references become its RPC input. */
@@ -133,6 +159,19 @@ export async function loadScreenData(
     const rpc = rpcFor(manifest, dataContributionId);
     if (rpc === undefined || rpc.mode !== 'read') return undefined;
     return request('plugin.call', screenCallParams({ pluginId, manifestHash, contributionId: rpc.id, ...(input === undefined ? {} : { input }), mode: 'read' }));
+}
+
+/**
+ * The header title for a screen: the navigation-item label, else the mount
+ * title, else the plugin name. The in-body title is dropped when it resolves
+ * to this same string, so a plugin whose label equals its title prints once.
+ */
+export function contentMountTitle(manifest: PluginManifestV1, contentId: string, pluginName: string, resolve: (value: PluginText) => string): string {
+    const mounts = manifest.contributions.filter((contribution) => 'contentContributionId' in contribution);
+    const mount = nearestContentMount(mounts, contentId);
+    if (mount !== undefined && 'label' in mount) return resolve(mount.label);
+    if (mount !== undefined && 'title' in mount && mount.title !== undefined) return resolve(mount.title);
+    return pluginName;
 }
 
 /** Stable canonical input solely for hashing; plaintext is never retained by the key store. */

@@ -316,13 +316,13 @@ Plugin `code`/`diff` nodes stay at the existing 64 KiB / 600-line transport ceil
 { "type": "chart", "variant": "bar", "path": "data.agents", "title": "Token activity", "emptyText": "No activity today" }
 ```
 
-`limits` renders one card that answers "can I start now, and when do I get more" from a bounded runtime payload: `{ "plan": "OpenCode Go", "verdict": "low", "message": "", "windows": [ { "label": "Rolling", "window": "5h", "used": 0, "resetsIn": "4h 11m", "elapsed": 0.33 } ] }`. The host decides `verdict` (`go`, `ahead`, `watch`, `low`, `limited`) and normalizes every provider to a percent-`used` share; the app owns the wording, the tones, and the bar rendering, with each window drawn against the same 100 ceiling and an optional static pace tick at `elapsed`. At most 8 windows with sanitized 24-byte labels, an 8-byte `window` suffix, `used` finite 0..100 (otherwise the window is dropped), `elapsed` finite 0..1 (otherwise omitted), and no colors in the payload. With no windows, the card collapses to the section label plus `message` as one quiet line. Requires `minMuxrVersion: 14`.
+`limits` renders one card that answers "can I start now, and when do I get more" from a bounded runtime payload: `{ "plan": "OpenCode Go", "verdict": "low", "message": "", "windows": [ { "label": "Rolling", "window": "5h", "used": 0, "resetsIn": "4h 11m", "elapsed": 0.33 } ] }`. The host decides `verdict` (`go`, `ahead`, `watch`, `low`, `limited`) and normalizes every provider to a percent-`used` share; the app owns the wording, the tones, and the bar rendering, with each window drawn against the same 100 ceiling and an optional static pace tick at `elapsed`. At most 8 windows with sanitized 24-byte labels, an 8-byte `window` suffix, `used` finite 0..100 (otherwise the window is dropped), `elapsed` finite 0..1 (otherwise omitted), and no colors in the payload. With no windows, the card collapses to the section label plus `message` as one quiet line, or the node's `emptyText` when there is no message. Requires `minMuxrVersion: 14`.
 
 ```json
 { "type": "limits", "path": "data.limits", "title": "Right now" }
 ```
 
-A `section` may set `"columns": 2` or `3` to lay summary nodes (`metric`, `badge`, `progress`, `text`, `row`, `empty`, `chart`, `divider`) side by side; the app collapses three columns to two on narrow screens. Sections containing `limits`, `field`, `button`, `tree`, `list`, `code`, or `diff` children must stay full width and are rejected with columns because those nodes need the full width — `limits` is a verdict, headline, and bars decision block, not a column tile; place it at section level. A bound `progress`, `chart`, or `columns` requires `minMuxrVersion: 13`.
+A `section` may set `"columns": 2` or `3` to lay summary nodes (`metric`, `badge`, `progress`, `text`, `row`, `empty`, `chart`, `divider`) side by side; the app collapses three columns to two on narrow screens. Sections containing `limits`, `field`, `button`, `tree`, `list`, `code`, or `diff` children must stay full width and are rejected with columns because those nodes need the full width — `limits` is a verdict, headline, and bars decision block, not a column tile; place it at section level. A bound `progress`, `chart`, or `columns` requires `minMuxrVersion: 13`. Row `icon`/`meta`, bound tones (`tonePath`), bound field values (`valuePath`), `limits`, and `limits.emptyText` require `minMuxrVersion: 14`.
 
 muxr owns layout, typography, spacing, accessibility behavior, loading states, and light/dark rendering. Extensions provide content and intent.
 
@@ -511,6 +511,43 @@ as the input to that screen's data RPC, so a detail screen can load exactly the
 record you tapped. `plugins/code` is a complete worked example: list the
 files in a repo, tap one, read it.
 
+## Screen rows, tones and saved state
+
+A screen `row` carries `title`, an optional prose `subtitle` (what the thing is,
+one sans line), an optional `meta` line for facts in figures (ids, paths, times,
+one mono line), an optional `value` figure, an optional static Ionicon `icon`
+drawn in a 30pt tile, and an optional `tone`. A row whose `title` binds to empty
+renders nothing, so bind a row to a field that is empty when there is nothing to
+say and the row disappears — there is no `if`, this blank-hides rule (shared
+with `text`, `badge` and `empty`) is the one conditional. Adjacent top-level rows
+share one card with hairlines; a `row`, a `text`, a `row` is two cards and a
+note, which is your order kept.
+
+Say status with a tone, never with words alone: `text`, `badge`, `progress` and
+`row` accept `tone` or a runtime-bound `tonePath` resolving to one of
+`primary | secondary | positive | warning | danger`. A toned `text` renders as a
+notice (dot plus sentence, anything after " · " quieter); `secondary` text is a
+note. A toned row colours its `value`, or shows a dot when it has none. Return a
+tone name from your backend and bind it — anything else resolves to no tone,
+never an error, because a plugin may say *danger* but never *red*.
+
+The validator refuses a manifest that sets both `tone` and `tonePath` on one
+node (`... tone must be static or bound, not both`): a binding smuggled into
+`tone` would throw on every older parser, while an unknown field is ignored, so
+`tonePath` is the only form that degrades gracefully. The same exclusivity holds
+for field `value`/`valuePath`, and `valuePath` is rejected on text fields because
+a text field's `value` already binds.
+
+A form opens showing what is saved: bind a switch or select with `valuePath`. A
+switch reads `true` (or the string `'true'`) as on and anything else as off; a
+select keeps the saved value when it names an option and falls back to the first
+option otherwise. A field the user touched keeps its value across reloads.
+
+Do not give the screen a `title` unless the title is data: the header already
+shows your navigation label, and an in-body title resolving to the same string
+is dropped. A blank `metric` value prints "—" instead of an empty line, because
+a missing figure is information.
+
 ## Overriding a bundled plugin
 
 Bundled plugins have no special status: they are ordinary plugins linked from
@@ -595,7 +632,7 @@ validates shape; `plugin call` proves wiring.
 { "schemaVersion": 1, "pluginId": "you.thing", "minMuxrVersion": 8, "contributions": [] }
 ```
 
-`minMuxrVersion` is optional and is preserved when the host parses the manifest. UI version 14 adds the declarative `limits` node and an optional agent-mark `glyph` id on tab strip entries, resolved against the app's bundled agent marks with a ringed-monogram fallback. UI version 12 allows generic `item-list` rows to omit actions for honest read-only status and metric lists; actionable rows still require a validated closed action. UI version 11 adds the bounded declarative `code` node and syntax highlighting for source previews and native unified diffs. UI version 10 adds the generic declarative `tree` node: per-folder expand/collapse, expand/collapse-all controls, optional lazy `host.rpc` children, closed leaf actions, and folder selection into an existing form field. UI version 9 adds provider-neutral `host.stream` contributions and strict encrypted stream transport. UI version 8 adds bounded per-row icons/metadata and optional sheet-level actions to the generic `item-list` response. UI version 7 adds plugin-owned `navigation-item.badge` read sources and singleton tree-sheet cardinality. UI version 6 adds bounded localized values for every user-visible manifest string and runtime Android launcher projection for shortcut contributions. UI version 5 removes `url-chip`; adds bounded active-only refresh and presentation parameters to `item-list`; and defines capability actions, Android launcher shortcuts, the realtime indicator, and singleton realtime-overlay cardinality. UI version 4 added source-driven grouped collections/tree sheets and allow-listed public RPC context. Each phone compares it with its own `MUXR_UI_VERSION`; an older app lists the plugin as unavailable with an update message and refuses to mount its contributions instead of quietly rendering partial UI.
+`minMuxrVersion` is optional and is preserved when the host parses the manifest. UI version 14 adds the declarative `limits` node (with an `emptyText` fallback for windowless payloads), row `icon`/`meta` identity fields, runtime-bound tones (`tonePath`) on `text`, `badge`, `progress` and `row`, runtime-bound field values (`valuePath`) on switch/select fields, and an optional agent-mark `glyph` id on tab strip entries, resolved against the app's bundled agent marks with a ringed-monogram fallback. `muxr plugin check` rejects a manifest that uses 14-only nodes without declaring it, and warns on screen node types it does not recognize (unknown nodes are skipped silently at runtime so old apps tolerate new manifests). UI version 12 allows generic `item-list` rows to omit actions for honest read-only status and metric lists; actionable rows still require a validated closed action. UI version 11 adds the bounded declarative `code` node and syntax highlighting for source previews and native unified diffs. UI version 10 adds the generic declarative `tree` node: per-folder expand/collapse, expand/collapse-all controls, optional lazy `host.rpc` children, closed leaf actions, and folder selection into an existing form field. UI version 9 adds provider-neutral `host.stream` contributions and strict encrypted stream transport. UI version 8 adds bounded per-row icons/metadata and optional sheet-level actions to the generic `item-list` response. UI version 7 adds plugin-owned `navigation-item.badge` read sources and singleton tree-sheet cardinality. UI version 6 adds bounded localized values for every user-visible manifest string and runtime Android launcher projection for shortcut contributions. UI version 5 removes `url-chip`; adds bounded active-only refresh and presentation parameters to `item-list`; and defines capability actions, Android launcher shortcuts, the realtime indicator, and singleton realtime-overlay cardinality. UI version 4 added source-driven grouped collections/tree sheets and allow-listed public RPC context. Each phone compares it with its own `MUXR_UI_VERSION`; an older app lists the plugin as unavailable with an update message and refuses to mount its contributions instead of quietly rendering partial UI.
 
 ## Capabilities
 
