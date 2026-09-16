@@ -86,13 +86,13 @@ const routeNames: Record<string, string> = {
 };
 
 const routeDetails: Record<string, string> = {
-    tailscale: 'Private HTTPS through Tailscale Serve; the phone joins the same tailnet.',
-    'tailscale-direct': 'Direct tailnet address; the phone joins the same tailnet. Native app only.',
-    private: 'The phone joins the same private network. Native app only.',
-    lan: 'Only works while phone and computer share the same trusted LAN. Native app only.',
-    cloudflare: 'Public HTTPS through a temporary tunnel; its URL can change after restart.',
-    external: 'An existing WSS relay or reverse proxy managed by the host owner.',
-    remote: 'This computer connects outbound to a relay managed elsewhere.',
+    tailscale: 'For reaching this computer from anywhere: private HTTPS through Tailscale Serve; the phone joins the same tailnet.',
+    'tailscale-direct': 'For reaching this computer from anywhere without Serve: direct tailnet address; the phone joins the same tailnet. Native app only.',
+    private: 'For machines already on one private overlay network: the phone joins the same private network. Native app only.',
+    lan: 'For phone and computer sharing one trusted Wi-Fi: stops working away from it. Native app only.',
+    cloudflare: 'For a quick public route without your own server: public HTTPS through a temporary tunnel; its URL can change after restart.',
+    external: 'For an existing relay you already run: a WSS relay or reverse proxy managed by the host owner.',
+    remote: 'For a computer joining a relay managed elsewhere: this machine dials out to it.',
 };
 
 function Field(props: {

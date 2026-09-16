@@ -74,6 +74,13 @@ const stylesheet = StyleSheet.create((theme) => ({
         marginTop: 12,
         gap: 8,
     },
+    routeHint: {
+        fontSize: 13,
+        lineHeight: 18,
+        textAlign: 'center',
+        color: theme.colors.textSecondary,
+        ...Typography.default(),
+    },
     setupTitle: {
         color: theme.colors.text,
         fontSize: 22,
@@ -208,11 +215,16 @@ export const HerdView = React.memo(({
                     <FirstRunSetupCard />
                     <View style={styles.emptyAction}>
                         {Platform.OS === 'web' ? (
-                            <ActionButton title="Paste browser pairing link" icon="clipboard-outline" onPress={() => router.push('/pair')} />
+                            <>
+                                <ActionButton title="Paste browser pairing link" icon="clipboard-outline" onPress={() => router.push('/pair')} />
+                                <Text style={styles.routeHint}>Browsers pair by string: paste the link shown by `muxr pair --browser` on that computer.</Text>
+                            </>
                         ) : (
                             <>
                                 <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
+                                <Text style={styles.routeHint}>Recommended · ~1 min · for the computer in front of you.</Text>
                                 <ActionButton title="Enter pairing string" variant="secondary" icon="keypad-outline" onPress={() => router.push('/pair')} />
+                                <Text style={styles.routeHint}>For a computer you are not standing at.</Text>
                             </>
                         )}
                     </View>
