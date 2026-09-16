@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, Image, ActivityIndicator, Pressable, TextInput, Keyboard, Platform } from 'react-native';
+import { View, Image, ActivityIndicator, Pressable, TextInput, Keyboard, Platform, useWindowDimensions } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
@@ -8,8 +8,8 @@ import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { machineBash } from '@/catalog/ops';
 import { useSession, useSessionMessages, useSocketStatus } from '@/catalog/store';
-import { mapDisplayToInput, type Size, type StreamFrameMetadata } from '@/takeover';
-import { advertisedStreamPort, codeForKey, keyMessage, mouseMessage, openTakeover, parseStreamFrame, touchMessage } from '@/takeover';
+import { mapDisplayToInput, type Point, type Size, type StreamFrameMetadata } from '@/takeover';
+import { advertisedStreamPort, codeForKey, keyMessage, mouseMessage, openTakeover, parseStreamFrame, parseStreamPage, touchMessage } from '@/takeover';
 
 function selectedPort(value: string | undefined): number | undefined {
     if (value === undefined || !/^\d{1,5}$/.test(value)) return undefined;
@@ -40,6 +40,9 @@ interface LiveFrame {
 
 const TAP_SLOP_PX = 12;
 const TAP_TIMEOUT_MS = 400;
+/** The frame visually follows the finger only this far; the scroll is committed once, on release. */
+const MAX_PAN_PX = 100;
+const DRAG_STEPS = 8;
 
 /**
  * Live view of an agent-browser stream, tunnelled through the relay preview
@@ -52,7 +55,9 @@ export default function TakeoverScreen() {
     const session = useSession(id);
     const { status } = useSocketStatus();
     const { messages } = useSessionMessages(id);
+    const window = useWindowDimensions();
     const [frame, setFrame] = React.useState<LiveFrame | null>(null);
+    const [pageUrl, setPageUrl] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
     const [connecting, setConnecting] = React.useState(false);
     const [display, setDisplay] = React.useState<Size>({ width: 0, height: 0 });
@@ -73,9 +78,13 @@ export default function TakeoverScreen() {
     const closeTunnelRef = React.useRef<(() => void) | null>(null);
     const inputRef = React.useRef<TextInput>(null);
     const tapRef = React.useRef<{ x: number; y: number; at: number } | null>(null);
-    // Non-null once a touch passes the tap slop: it is a scroll drag, and
-    // `sent` marks that its touchStart went out over the wire.
-    const dragRef = React.useRef<{ sent: boolean } | null>(null);
+    // The terminal surface's scroll gesture, local-first: the frame follows
+    // the finger for instant feedback, and the drag is committed to the
+    // browser once, on release; the next frames confirm the real position.
+    const panRef = React.useRef<{ startX: number; startY: number } | null>(null);
+    const [pan, setPan] = React.useState<{ x: number; y: number }>({ x: 0, y: 0 });
+    const commitBusyRef = React.useRef(false);
+    const pendingCommitRef = React.useRef<{ from: Point; to: Point } | null>(null);
     const streamRef = React.useRef<{ command: string; cwd: string } | null>(null);
 
     const cwd = session?.metadata?.path ?? '.';
@@ -85,6 +94,28 @@ export default function TakeoverScreen() {
     const send = React.useCallback((message: string) => {
         if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(message);
     }, []);
+
+    const commitDrag = React.useCallback((from: Point, to: Point) => {
+        pendingCommitRef.current = { from, to };
+        if (commitBusyRef.current) return;
+        commitBusyRef.current = true;
+        void (async () => {
+            while (pendingCommitRef.current !== null) {
+                const drag = pendingCommitRef.current;
+                pendingCommitRef.current = null;
+                send(touchMessage('touchStart', drag.from));
+                for (let index = 1; index <= DRAG_STEPS; index += 1) {
+                    send(touchMessage('touchMove', {
+                        x: Math.round(drag.from.x + (drag.to.x - drag.from.x) * index / DRAG_STEPS),
+                        y: Math.round(drag.from.y + (drag.to.y - drag.from.y) * index / DRAG_STEPS),
+                    }));
+                    await new Promise((resolve) => setTimeout(resolve, 16));
+                }
+                send(touchMessage('touchEnd'));
+            }
+            commitBusyRef.current = false;
+        })();
+    }, [send]);
 
     const disconnect = React.useCallback(() => {
         socketRef.current?.close();
@@ -102,6 +133,11 @@ export default function TakeoverScreen() {
         try {
             await machineBash('', `${agentBrowser} stream enable --port ${streamPort}`, cwd);
             streamRef.current = { command: agentBrowser, cwd };
+            // Size the watched browser to this phone so frames arrive readable
+            // instead of a desktop viewport letterboxed into a hand-sized pane.
+            const viewportWidth = Math.max(320, Math.min(768, Math.round(window.width)));
+            const viewportHeight = Math.max(480, Math.min(1280, Math.round(window.height) - 64));
+            await machineBash('', `${agentBrowser} set viewport ${viewportWidth} ${viewportHeight}`, cwd);
             const opened = await openTakeover({ port: streamPort });
             closeTunnelRef.current = opened.close;
             const socket = new WebSocket(opened.wsUrl);
@@ -109,10 +145,13 @@ export default function TakeoverScreen() {
             socket.onmessage = (event) => {
                 const next = parseStreamFrame(event.data);
                 if (next !== undefined) setFrame({ uri: `data:image/jpeg;base64,${next.data}`, metadata: next.metadata });
+                const page = parseStreamPage(event.data);
+                if (page !== undefined) setPageUrl(page.url);
             };
             socket.onerror = () => setError('The takeover stream connection failed.');
             socket.onclose = () => {
                 setFrame(null);
+                setPageUrl(null);
                 // A close on the live socket is never silent: deliberate
                 // teardown nulls the ref first, so this only fires upstream.
                 if (socketRef.current === socket) setError('The takeover stream closed.');
@@ -123,7 +162,7 @@ export default function TakeoverScreen() {
         } finally {
             setConnecting(false);
         }
-    }, [agentBrowser, cwd, disconnect]);
+    }, [agentBrowser, cwd, disconnect, window.width, window.height]);
 
     const attempted = React.useRef<string | undefined>(undefined);
     const directPort = selectedPort(port);
@@ -150,26 +189,24 @@ export default function TakeoverScreen() {
     const moveDrag = React.useCallback((x: number, y: number) => {
         const start = tapRef.current;
         if (start === null || frame === null) return;
-        if (dragRef.current === null) {
+        if (panRef.current === null) {
             if (Math.abs(x - start.x) <= TAP_SLOP_PX && Math.abs(y - start.y) <= TAP_SLOP_PX) return;
-            dragRef.current = { sent: false };
+            panRef.current = { startX: start.x, startY: start.y };
         }
-        const point = mapDisplayToInput({ x, y }, display, frame.metadata);
-        if (!dragRef.current.sent) {
-            dragRef.current.sent = true;
-            send(touchMessage('touchStart', point));
-        } else {
-            send(touchMessage('touchMove', point));
-        }
-    }, [display, frame, send]);
+        setPan({
+            x: Math.max(-MAX_PAN_PX, Math.min(MAX_PAN_PX, x - start.x)),
+            y: Math.max(-MAX_PAN_PX, Math.min(MAX_PAN_PX, y - start.y)),
+        });
+    }, [frame]);
 
     const releaseTap = React.useCallback((x: number, y: number) => {
         const start = tapRef.current;
         tapRef.current = null;
         if (start === null || frame === null) return;
-        if (dragRef.current !== null) {
-            dragRef.current = null;
-            send(touchMessage('touchEnd'));
+        if (panRef.current !== null) {
+            panRef.current = null;
+            setPan({ x: 0, y: 0 });
+            commitDrag(mapDisplayToInput({ x: start.x, y: start.y }, display, frame.metadata), mapDisplayToInput({ x, y }, display, frame.metadata));
             return;
         }
         if (Math.abs(x - start.x) > TAP_SLOP_PX || Math.abs(y - start.y) > TAP_SLOP_PX) return;
@@ -177,7 +214,7 @@ export default function TakeoverScreen() {
         const point = mapDisplayToInput({ x, y }, display, frame.metadata);
         send(touchMessage('touchStart', point));
         send(touchMessage('touchEnd'));
-    }, [display, frame, send]);
+    }, [commitDrag, display, frame, send]);
 
     const pushText = React.useCallback((value: string) => {
         const added = value.slice(typed.length);
@@ -280,22 +317,23 @@ export default function TakeoverScreen() {
                     onLayout={(event) => setDisplay({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
                     onStartShouldSetResponder={() => true}
                     onResponderGrant={(event) => {
-                        dragRef.current = null;
+                        panRef.current = null;
+                        setPan({ x: 0, y: 0 });
                         tapRef.current = { x: event.nativeEvent.locationX, y: event.nativeEvent.locationY, at: Date.now() };
                     }}
                     onResponderMove={(event) => moveDrag(event.nativeEvent.locationX, event.nativeEvent.locationY)}
                     onResponderRelease={(event) => releaseTap(event.nativeEvent.locationX, event.nativeEvent.locationY)}
                     onResponderTerminate={() => {
                         tapRef.current = null;
-                        // Never leave a lifted drag dangling in the page.
-                        if (dragRef.current !== null) {
-                            dragRef.current = null;
-                            send(touchMessage('touchEnd'));
-                        }
+                        panRef.current = null;
+                        setPan({ x: 0, y: 0 });
                     }}
                 >
-                    <Image source={{ uri: frame.uri }} style={{ flex: 1 }} resizeMode="contain" />
+                    <Image source={{ uri: frame.uri }} style={{ flex: 1, transform: [{ translateX: pan.x }, { translateY: pan.y }] }} resizeMode="contain" />
                 </View>
+                {pageUrl !== null && (
+                    <Text numberOfLines={1} style={{ ...Typography.default(), fontSize: 11, color: theme.colors.textSecondary, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: theme.colors.surface }}>{pageUrl}</Text>
+                )}
                 {toolbar}
                 {hiddenInput}
             </View>

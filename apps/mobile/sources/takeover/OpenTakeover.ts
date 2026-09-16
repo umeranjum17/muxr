@@ -51,7 +51,16 @@ export function touchMessage(eventType: 'touchStart' | 'touchMove' | 'touchEnd',
 }
 
 export function keyMessage(eventType: 'keyDown' | 'keyUp', key: string, code: string): string {
-    return JSON.stringify({ type: 'input_keyboard', eventType, key, code });
+    return JSON.stringify({
+        type: 'input_keyboard',
+        eventType,
+        key,
+        code,
+        // A printable keyDown must carry the character itself: without the
+        // text field the stream dispatches the key but inserts nothing into
+        // a focused field (measured on a live input).
+        ...(eventType === 'keyDown' && key.length === 1 && key.charCodeAt(0) >= 32 ? { text: key } : {}),
+    });
 }
 
 /** Back/forward are browser-level mouse buttons; coordinates are ignored by the browser for them. */
@@ -68,6 +77,20 @@ export function advertisedStreamPort(text: string): number | undefined {
     if (match === null) return undefined;
     const port = Number(match[1]);
     return Number.isSafeInteger(port) && port >= 1 && port <= 65_535 ? port : undefined;
+}
+
+/** The stream's tabs message: muxr only wants the current page address. */
+export function parseStreamPage(raw: unknown): { url: string } | undefined {
+    if (typeof raw !== 'string') return undefined;
+    try {
+        const message = JSON.parse(raw) as { type?: string; tabs?: { active?: boolean; url?: string }[] };
+        if (message.type !== 'tabs' || !Array.isArray(message.tabs)) return undefined;
+        const active = message.tabs.find((tab) => tab.active) ?? message.tabs[0];
+        if (active?.url === undefined) return undefined;
+        return { url: active.url };
+    } catch {
+        return undefined;
+    }
 }
 
 /** Best-effort `code` for a printable character; the protocol dispatches on `key`. */
