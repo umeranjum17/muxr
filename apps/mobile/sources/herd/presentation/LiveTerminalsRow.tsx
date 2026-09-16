@@ -182,6 +182,17 @@ export const LiveTerminalsRow = React.memo(({
         () => ready ? unseenActivityRows(lifecycleEvents, seenEventIds, Date.now(), 8, liveTitles) : [],
         [lifecycleEvents, liveTitles, ready, seenEventIds],
     );
+    // Done is an outcome, not activity: it gets its own READY · UNSEEN tier and
+    // clears when the agent is opened (TerminalRoute acks), never by the card
+    // scrolling past on Home. Needs-you/failed keep the glance-clears rule.
+    const needsYouRows = React.useMemo(
+        () => activityRows.filter((row) => row.status !== 'done'),
+        [activityRows],
+    );
+    const readyRows = React.useMemo(
+        () => activityRows.filter((row) => row.status === 'done'),
+        [activityRows],
+    );
 
     React.useEffect(() => {
         setForeground(AppState.currentState === 'active');
@@ -213,15 +224,20 @@ export const LiveTerminalsRow = React.memo(({
         markSeen([row.eventId]);
         if (!scrollToCard(row.sessionId)) navigateToSession(row.sessionId);
     }, [markSeen, navigateToSession, scrollToCard]);
+    // Opening the tier row goes straight to the agent; the ack happens on open
+    // in TerminalRoute, so every open path clears the tier the same way.
+    const openReady = React.useCallback((row: RecentActivityRow) => {
+        navigateToSession(row.sessionId);
+    }, [navigateToSession]);
 
     React.useEffect(() => {
         if (visibilityTop === undefined || !screenFocused || !foreground) return;
-        if (stripWidth <= 0 || activityRows.length === 0 || cards.length === 0) return;
+        if (stripWidth <= 0 || needsYouRows.length === 0 || cards.length === 0) return;
         let cancelled = false;
         const timer = setTimeout(() => {
             stripListRef.current?.measureInWindow((_x: number, stripTop: number, _width: number, stripHeight: number) => {
                 if (cancelled || AppState.currentState !== 'active') return;
-                const eventIds = visibleActivityEventIds(activityRows, cards, {
+                const eventIds = visibleActivityEventIds(needsYouRows, cards, {
                     focused: screenFocused,
                     foreground,
                     viewportTop: visibilityTop,
@@ -241,7 +257,7 @@ export const LiveTerminalsRow = React.memo(({
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [activityRows, cardWidth, cards, firstVisible, foreground, markSeen, screenFocused, stripWidth, visibilityBottomInset, visibilityTop, windowHeight]);
+    }, [cardWidth, cards, firstVisible, foreground, markSeen, needsYouRows, screenFocused, stripWidth, visibilityBottomInset, visibilityTop, windowHeight]);
 
     const renderCard = ({ item: card, index }: { item: LiveTerminalOrderCard; index: number }) => (
         <LiveTerminalCard
@@ -301,8 +317,13 @@ export const LiveTerminalsRow = React.memo(({
                 </View>
             )}
             <RecentActivity
-                rows={activityRows}
+                rows={needsYouRows}
                 onSelect={selectActivity}
+            />
+            <RecentActivity
+                rows={readyRows}
+                heading="Ready · unseen"
+                onSelect={openReady}
             />
         </View>
     );

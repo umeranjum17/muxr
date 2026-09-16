@@ -3,7 +3,25 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const STORAGE_KEY = 'muxr.herd.seen-activity.v1';
 const MAX_SEEN_EVENTS = 128;
+
+// Shared module store: LiveTerminalsRow renders the unseen tiers while the
+// session route acks on open, and both must agree within one app session --
+// Home stays mounted under a pushed session route, so per-hook state would
+// keep showing rows the user just opened.
+interface Acknowledgements {
+    ready: boolean;
+    seenEventIds: ReadonlySet<string>;
+}
+
+let snapshot: Acknowledgements = { ready: false, seenEventIds: new Set() };
+const listeners = new Set<() => void>();
+let loadStarted = false;
 let writeChain = Promise.resolve();
+
+function emit(next: Acknowledgements): void {
+    snapshot = next;
+    for (const listener of listeners) listener();
+}
 
 function parseSeen(raw: string | null): Set<string> {
     if (raw === null) return new Set();
@@ -17,8 +35,38 @@ function parseSeen(raw: string | null): Set<string> {
 }
 
 function persist(seen: ReadonlySet<string>): void {
-    const snapshot = JSON.stringify([...seen]);
-    writeChain = writeChain.then(() => AsyncStorage.setItem(STORAGE_KEY, snapshot)).catch(() => undefined);
+    const snapshotJson = JSON.stringify([...seen]);
+    writeChain = writeChain.then(() => AsyncStorage.setItem(STORAGE_KEY, snapshotJson)).catch(() => undefined);
+}
+
+function subscribe(listener: () => void): () => void {
+    listeners.add(listener);
+    if (!loadStarted) {
+        loadStarted = true;
+        void AsyncStorage.getItem(STORAGE_KEY).then((raw) => {
+            // Merge rather than replace: marks made before the read answered stay.
+            emit({ ready: true, seenEventIds: new Set([...parseSeen(raw), ...snapshot.seenEventIds]) });
+        }).catch(() => {
+            emit({ ...snapshot, ready: true });
+        });
+    }
+    return () => { listeners.delete(listener); };
+}
+
+function getSnapshot(): Acknowledgements {
+    return snapshot;
+}
+
+function markSeen(eventIds: readonly string[]): void {
+    if (eventIds.length === 0) return;
+    const next = new Set(snapshot.seenEventIds);
+    for (const eventId of eventIds) next.add(eventId);
+    const bounded = new Set([...next].slice(-MAX_SEEN_EVENTS));
+    const unchanged = bounded.size === snapshot.seenEventIds.size
+        && [...bounded].every((eventId) => snapshot.seenEventIds.has(eventId));
+    if (unchanged) return;
+    persist(bounded);
+    emit({ ...snapshot, seenEventIds: bounded });
 }
 
 export function useActivityAcknowledgements(): {
@@ -26,31 +74,6 @@ export function useActivityAcknowledgements(): {
     seenEventIds: ReadonlySet<string>;
     markSeen: (eventIds: readonly string[]) => void;
 } {
-    const [ready, setReady] = React.useState(false);
-    const [seenEventIds, setSeenEventIds] = React.useState<ReadonlySet<string>>(new Set());
-
-    React.useEffect(() => {
-        let alive = true;
-        void AsyncStorage.getItem(STORAGE_KEY).then((raw) => {
-            if (!alive) return;
-            setSeenEventIds(parseSeen(raw));
-            setReady(true);
-        }).catch(() => {
-            if (alive) setReady(true);
-        });
-        return () => { alive = false; };
-    }, []);
-
-    const markSeen = React.useCallback((eventIds: readonly string[]) => {
-        if (eventIds.length === 0) return;
-        setSeenEventIds((current) => {
-            const next = new Set(current);
-            for (const eventId of eventIds) next.add(eventId);
-            const bounded = new Set([...next].slice(-MAX_SEEN_EVENTS));
-            persist(bounded);
-            return bounded;
-        });
-    }, []);
-
-    return { ready, seenEventIds, markSeen };
+    const current = React.useSyncExternalStore(subscribe, getSnapshot);
+    return { ready: current.ready, seenEventIds: current.seenEventIds, markSeen };
 }

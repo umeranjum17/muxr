@@ -2,13 +2,16 @@ import * as React from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { getCachedConnectionSettings } from '@/connection';
-import { useHerdrTree } from '@/catalog/store';
+import { useHerdrTree, useLifecycleEvents } from '@/catalog/store';
+import { useActivityAcknowledgements } from '@/herd/application/useActivityAcknowledgements';
 import { TerminalScreen } from './TerminalScreen';
 
 /** Keep an open terminal on its pane when an agent starts, exits or restarts. */
 export function TerminalRoute({ id }: { id: string }): React.JSX.Element {
     const focused = useIsFocused();
     const { workspaces } = useHerdrTree();
+    const lifecycleEvents = useLifecycleEvents();
+    const { ready, seenEventIds, markSeen } = useActivityAcknowledgements();
     const machineId = getCachedConnectionSettings().machineId;
     const binding = React.useRef<{ machineId: string; route: string; paneId: string } | null>(null);
     const panes = workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes));
@@ -26,6 +29,17 @@ export function TerminalRoute({ id }: { id: string }): React.JSX.Element {
         if (live !== undefined) binding.current = { machineId, route: id, paneId: live.paneId };
         else if (binding.current?.machineId !== machineId || binding.current.route !== id) binding.current = null;
     }, [id, machineId, live?.paneId]);
+    // Opening the agent is what "looked at its finished outcome" means. This is
+    // the single ack point for done events, so the READY · UNSEEN tier clears
+    // no matter which path opened the agent (tier row, live card, spaces tree,
+    // deep link).
+    React.useEffect(() => {
+        if (!focused || !ready) return;
+        const unseen = lifecycleEvents
+            .filter((event) => event.sessionId === id && event.state === 'done' && !seenEventIds.has(event.eventId))
+            .map((event) => event.eventId);
+        if (unseen.length > 0) markSeen(unseen);
+    }, [focused, ready, id, lifecycleEvents, seenEventIds, markSeen]);
     React.useEffect(() => {
         if (focused && currentId !== id) router.replace(`/session/${encodeURIComponent(currentId)}`);
     }, [id, currentId, focused]);

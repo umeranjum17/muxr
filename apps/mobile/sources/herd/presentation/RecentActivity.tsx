@@ -47,6 +47,7 @@ function icon(row: RecentActivityRow): 'checkmark-circle' | 'hand-left' | 'alert
 export const RecentActivity = React.memo((props: {
     rows: readonly RecentActivityRow[];
     onSelect: (row: RecentActivityRow) => void;
+    heading?: string;
 }) => {
     const { theme } = useUnistyles();
     const [expanded, setExpanded] = React.useState(false);
@@ -57,7 +58,7 @@ export const RecentActivity = React.memo((props: {
     return (
         <View style={styles.section}>
             <View style={styles.header}>
-                <Text style={styles.title}>While you were away</Text>
+                <Text style={styles.title}>{props.heading ?? 'While you were away'}</Text>
             </View>
             <View style={styles.card}>
                 {visible.map((row) => {
