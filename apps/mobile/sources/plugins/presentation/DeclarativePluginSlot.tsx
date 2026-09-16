@@ -253,7 +253,6 @@ function DataActionRow({ contribution, pluginId, manifestHash, presentation }: {
                 <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{label}</Text>
                 {data.failed && <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />}
                 <Text numberOfLines={1} style={{ maxWidth: 120, color: data.failed ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 12 }}>{shown}</Text>
-                {contribution.presentation === 'sheet' && <Ionicons name="chevron-forward-outline" size={14} color={theme.colors.textSecondary} />}
             </>;
             trigger = contribution.presentation !== 'sheet' && !data.failed
                 ? <View style={style()}>{body}</View>
