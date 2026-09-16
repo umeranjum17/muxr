@@ -259,7 +259,10 @@ export default function PairScreen() {
                             <Text accessibilityRole="alert" style={styles.errorText}>{state.message}</Text>
                         )}
                         {!browser && openedFromSettings && (
-                            <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
+                            <>
+                                <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
+                                <Text style={styles.routeHint}>Recommended · ~1 min · for the computer in front of you.</Text>
+                            </>
                         )}
                         <Text style={styles.inputLabel}>{browser ? 'Paste browser pairing string' : openedFromSettings ? 'Or paste the pairing string' : 'Enter pairing string manually'}</Text>
                         <TextInput
@@ -275,6 +278,9 @@ export default function PairScreen() {
                             onChangeText={setPairingValue}
                             onSubmitEditing={connectManual}
                         />
+                        <Text style={styles.routeHint}>{browser
+                            ? 'Shown by `muxr pair --browser` on that computer.'
+                            : 'For a computer you are not standing at — copy the string from its terminal.'}</Text>
                         <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
                         <ActionButton title="Back" variant="quiet" onPress={cancel} />
                     </>
@@ -429,6 +435,12 @@ const styles = StyleSheet.create((theme) => ({
         fontSize: 16,
     },
     inputPlaceholder: {
+        color: theme.colors.textSecondary,
+    },
+    routeHint: {
+        ...Typography.default(),
+        fontSize: 13,
+        lineHeight: 18,
         color: theme.colors.textSecondary,
     },
     errorText: {

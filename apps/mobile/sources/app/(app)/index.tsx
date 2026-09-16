@@ -99,11 +99,16 @@ function NotAuthenticated() {
                 <FirstRunSetupCard />
                 <View style={styles.actions}>
                     {Platform.OS === 'web' ? (
-                        <ActionButton title="Enter pairing string" icon="keypad-outline" action={() => promptForPairingString('Enter pairing string')} />
+                        <>
+                            <ActionButton title="Enter pairing string" icon="keypad-outline" action={() => promptForPairingString('Enter pairing string')} />
+                            <Text style={styles.routeHint}>Browsers pair by string: paste the link shown by `muxr pair --browser` on that computer.</Text>
+                        </>
                     ) : (
                         <>
                             <ActionButton title="Scan QR to pair" icon="qr-code-outline" action={scanHostedQr} />
+                            <Text style={styles.routeHint}>Recommended · ~1 min · for the computer in front of you.</Text>
                             <ActionButton variant="secondary" title="Enter pairing string" icon="keypad-outline" onPress={() => router.push('/pair')} />
+                            <Text style={styles.routeHint}>For a computer you are not standing at.</Text>
                         </>
                     )}
                     <Text style={styles.footer}>End-to-end encrypted · machine keys never leave your devices</Text>
@@ -263,6 +268,13 @@ const styles = StyleSheet.create((theme) => ({
         maxWidth: 340,
         paddingHorizontal: 24,
         gap: 10,
+    },
+    routeHint: {
+        ...Typography.default(),
+        fontSize: 13,
+        lineHeight: 18,
+        color: theme.colors.textSecondary,
+        textAlign: 'center',
     },
     footer: {
         ...Typography.default(),

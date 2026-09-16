@@ -8,6 +8,17 @@ import { loadAppConfig } from '@/catalog';
 import { setupEmptyState } from '@/commercialization';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 
+// Honest disclosure of what the copyable command does, checked against the
+// real behaviour in scripts/cli.mjs: plain `muxr` opens the interactive menu
+// (nothing changes until a plan is approved), setup installs Herdr when
+// missing and adds lifecycle detection only, and Apply registers the relay
+// and host services before showing the pairing QR/string.
+const SETUP_EFFECTS = [
+    'It opens the interactive muxr menu on the computer. Nothing is installed or changed until you approve the reviewed plan.',
+    'Approving setup installs Herdr (the local agent engine) when missing, and adds lifecycle detection to your coding agents — never agent skills or prompt files.',
+    'It registers background services (relay and agent host) and shows a short-lived QR or string to pair this device.',
+] as const;
+
 /**
  * The three-step first run, shared by the hosted landing and the never-paired
  * Herd: run muxr on the computer, connect this device, review access. Numbered
@@ -20,6 +31,7 @@ export function FirstRunSetupCard() {
     const setup = setupEmptyState(loadAppConfig().publicBaseUrl);
     const [copied, setCopied] = React.useState(false);
     const [copyFailed, setCopyFailed] = React.useState(false);
+    const [effectsOpen, setEffectsOpen] = React.useState(false);
     const copy = React.useCallback(() => {
         void Clipboard.setStringAsync(setup.command).then((ok) => {
             if (ok === false) { setCopyFailed(true); return; }
@@ -49,6 +61,27 @@ export function FirstRunSetupCard() {
                     </View>
                     {copyFailed && (
                         <Text accessibilityLiveRegion="polite" style={styles.copyStatus}>Could not copy. Enter the command shown above on your computer.</Text>
+                    )}
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded: effectsOpen }}
+                        accessibilityLabel="What running this does"
+                        hitSlop={8}
+                        style={styles.effectsToggle}
+                        onPress={() => setEffectsOpen((open) => !open)}
+                    >
+                        <Ionicons name={effectsOpen ? 'chevron-down-outline' : 'chevron-forward-outline'} size={13} color={theme.colors.textSecondary} />
+                        <Text style={styles.effectsToggleText}>What running this does</Text>
+                    </Pressable>
+                    {effectsOpen && (
+                        <View style={styles.effectsBody}>
+                            {SETUP_EFFECTS.map((line, index) => (
+                                <View key={line} style={styles.step}>
+                                    <View style={styles.badge}><Text style={styles.badgeNumber}>{index + 1}</Text></View>
+                                    <Text style={styles.effectsText}>{line}</Text>
+                                </View>
+                            ))}
+                        </View>
                     )}
                     {setup.setupUrl !== undefined && (
                         <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void openExternalUrl(setup.setupUrl!)}>
@@ -146,6 +179,29 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     copyStatus: {
         ...Typography.default(),
+        fontSize: 13,
+        lineHeight: 18,
+        color: theme.colors.textSecondary,
+    },
+    effectsToggle: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        marginTop: 2,
+        minHeight: 32,
+    },
+    effectsToggleText: {
+        ...Typography.default('semiBold'),
+        fontSize: 13,
+        color: theme.colors.textSecondary,
+    },
+    effectsBody: {
+        gap: 10,
+        paddingTop: 2,
+    },
+    effectsText: {
+        ...Typography.default(),
+        flex: 1,
         fontSize: 13,
         lineHeight: 18,
         color: theme.colors.textSecondary,
