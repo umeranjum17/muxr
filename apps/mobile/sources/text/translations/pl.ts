@@ -846,18 +846,6 @@ export const pl: TranslationStructure = {
         denyRequest: 'Odrzuć zaproszenie',
     },
 
-    usage: {
-        // Usage panel strings
-        today: 'Dzisiaj',
-        last7Days: 'Ostatnie 7 dni',
-        last30Days: 'Ostatnie 30 dni',
-        totalTokens: 'Łącznie tokenów',
-        totalCost: 'Całkowity koszt',
-        tokens: 'Tokeny',
-        cost: 'Koszt',
-        usageOverTime: 'Użycie w czasie',
-        byModel: 'Według modelu',
-    },
 
     imageUpload: {
         permissionTitle: 'Dostęp do biblioteki zdjęć',

@@ -230,7 +230,7 @@ breaks an older app. The boxed Voice plugin is the worked example: the manifest 
 External extensions compose a closed native vocabulary. A `navigation.content` screen contribution composes these nodes:
 
 - `section` and bounded `list` containers;
-- `text`, `row`, `metric`, `badge`, `progress`, `chart`, `divider`, and `empty` display nodes;
+- `text`, `row`, `metric`, `badge`, `progress`, `chart`, `limits`, `divider`, and `empty` display nodes;
 - bounded `code` and unified `diff` nodes rendered by the app with syntax highlighting, line numbers, selection, light/dark themes, and no plugin HTML;
 - an expandable/collapsible `tree` bound to flat or nested runtime nodes, with optional lazy read source, leaf action, and folder `selectionField`;
 - an RPC action `button` (with optional `fields`);
@@ -314,6 +314,12 @@ Plugin `code`/`diff` nodes stay at the existing 64 KiB / 600-line transport ceil
 
 ```json
 { "type": "chart", "variant": "bar", "path": "data.agents", "title": "Token activity", "emptyText": "No activity today" }
+```
+
+`limits` renders one card that answers "can I start now, and when do I get more" from a bounded runtime payload: `{ "plan": "OpenCode Go", "verdict": "low", "message": "", "windows": [ { "label": "Rolling", "window": "5h", "used": 0, "resetsIn": "4h 11m", "elapsed": 0.33 } ] }`. The host decides `verdict` (`go`, `ahead`, `watch`, `low`, `limited`) and normalizes every provider to a percent-`used` share; the app owns the wording, the tones, and the bar rendering, with each window drawn against the same 100 ceiling and an optional static pace tick at `elapsed`. At most 8 windows with sanitized 24-byte labels, an 8-byte `window` suffix, `used` finite 0..100 (otherwise the window is dropped), `elapsed` finite 0..1 (otherwise omitted), and no colors in the payload. With no windows, the card collapses to the section label plus `message` as one quiet line. Requires `minMuxrVersion: 14`.
+
+```json
+{ "type": "limits", "path": "data.limits", "title": "Right now" }
 ```
 
 A `section` may set `"columns": 2` or `3` to lay summary nodes (`metric`, `badge`, `progress`, `text`, `row`, `empty`, `chart`, `divider`) side by side; the app collapses three columns to two on narrow screens. Sections containing `field`, `button`, `tree`, `list`, `code`, or `diff` children must stay full width and are rejected with columns. A bound `progress`, `chart`, or `columns` requires `minMuxrVersion: 13`.
@@ -589,7 +595,7 @@ validates shape; `plugin call` proves wiring.
 { "schemaVersion": 1, "pluginId": "you.thing", "minMuxrVersion": 8, "contributions": [] }
 ```
 
-`minMuxrVersion` is optional and is preserved when the host parses the manifest. UI version 12 allows generic `item-list` rows to omit actions for honest read-only status and metric lists; actionable rows still require a validated closed action. UI version 11 adds the bounded declarative `code` node and syntax highlighting for source previews and native unified diffs. UI version 10 adds the generic declarative `tree` node: per-folder expand/collapse, expand/collapse-all controls, optional lazy `host.rpc` children, closed leaf actions, and folder selection into an existing form field. UI version 9 adds provider-neutral `host.stream` contributions and strict encrypted stream transport. UI version 8 adds bounded per-row icons/metadata and optional sheet-level actions to the generic `item-list` response. UI version 7 adds plugin-owned `navigation-item.badge` read sources and singleton tree-sheet cardinality. UI version 6 adds bounded localized values for every user-visible manifest string and runtime Android launcher projection for shortcut contributions. UI version 5 removes `url-chip`; adds bounded active-only refresh and presentation parameters to `item-list`; and defines capability actions, Android launcher shortcuts, the realtime indicator, and singleton realtime-overlay cardinality. UI version 4 added source-driven grouped collections/tree sheets and allow-listed public RPC context. Each phone compares it with its own `MUXR_UI_VERSION`; an older app lists the plugin as unavailable with an update message and refuses to mount its contributions instead of quietly rendering partial UI.
+`minMuxrVersion` is optional and is preserved when the host parses the manifest. UI version 14 adds the declarative `limits` node and an optional agent-mark `glyph` id on tab strip entries, resolved against the app's bundled agent marks with a ringed-monogram fallback. UI version 12 allows generic `item-list` rows to omit actions for honest read-only status and metric lists; actionable rows still require a validated closed action. UI version 11 adds the bounded declarative `code` node and syntax highlighting for source previews and native unified diffs. UI version 10 adds the generic declarative `tree` node: per-folder expand/collapse, expand/collapse-all controls, optional lazy `host.rpc` children, closed leaf actions, and folder selection into an existing form field. UI version 9 adds provider-neutral `host.stream` contributions and strict encrypted stream transport. UI version 8 adds bounded per-row icons/metadata and optional sheet-level actions to the generic `item-list` response. UI version 7 adds plugin-owned `navigation-item.badge` read sources and singleton tree-sheet cardinality. UI version 6 adds bounded localized values for every user-visible manifest string and runtime Android launcher projection for shortcut contributions. UI version 5 removes `url-chip`; adds bounded active-only refresh and presentation parameters to `item-list`; and defines capability actions, Android launcher shortcuts, the realtime indicator, and singleton realtime-overlay cardinality. UI version 4 added source-driven grouped collections/tree sheets and allow-listed public RPC context. Each phone compares it with its own `MUXR_UI_VERSION`; an older app lists the plugin as unavailable with an update message and refuses to mount its contributions instead of quietly rendering partial UI.
 
 ## Capabilities
 

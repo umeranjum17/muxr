@@ -24,13 +24,15 @@ export function resolvePath(data: unknown, path: string, item?: unknown): unknow
 }
 
 /** Plugin replies are untrusted: keep only well-formed, bounded tab entries. */
-export function asScreenTabs(value: unknown): Array<{ id: string; label: string }> {
+export function asScreenTabs(value: unknown): Array<{ id: string; label: string; glyph?: string }> {
     if (!Array.isArray(value)) return [];
     return value.flatMap((entry) => {
         if (typeof entry !== 'object' || entry === null) return [];
-        const { id, label } = entry as { id?: unknown; label?: unknown };
+        const { id, label, glyph } = entry as { id?: unknown; label?: unknown; glyph?: unknown };
         if (typeof id !== 'string' || id === '' || typeof label !== 'string' || label === '') return [];
-        return [{ id: id.slice(0, 64), label: label.slice(0, 32) }];
+        // An agent mark id, resolved against the app's own bundled glyphs.
+        const mark = typeof glyph === 'string' && /^[a-z0-9][a-z0-9._-]{0,31}$/.test(glyph) ? glyph : undefined;
+        return [{ id: id.slice(0, 64), label: label.slice(0, 32), ...(mark === undefined ? {} : { glyph: mark }) }];
     }).slice(0, 32);
 }
 

@@ -847,18 +847,6 @@ export const ru: TranslationStructure = {
         denyRequest: 'Отклонить запрос',
     },
 
-    usage: {
-        // Usage panel strings
-        today: 'Сегодня',
-        last7Days: 'Последние 7 дней',
-        last30Days: 'Последние 30 дней',
-        totalTokens: 'Всего токенов',
-        totalCost: 'Общая стоимость',
-        tokens: 'Токены',
-        cost: 'Стоимость',
-        usageOverTime: 'Использование во времени',
-        byModel: 'По модели',
-    },
 
     imageUpload: {
         permissionTitle: 'Доступ к библиотеке фото',

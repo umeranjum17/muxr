@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "pluginId": "muxr.status",
-  "minMuxrVersion": 13,
+  "minMuxrVersion": 14,
   "contributions": [
     {
       "slot": "host.rpc",
@@ -31,7 +31,6 @@
       "slot": "navigation.content",
       "id": "usage.details",
       "type": "screen",
-      "title": "Usage",
       "data": {
         "type": "plugin.call",
         "contributionId": "usage"
@@ -44,14 +43,19 @@
           "param": "provider"
         },
         {
-          "type": "text",
-          "text": "{{data.activityLabel}}",
-          "tone": "secondary"
+          "type": "limits",
+          "path": "data.limits",
+          "title": "Right now"
         },
         {
           "type": "section",
           "title": "Today",
           "children": [
+            {
+              "type": "text",
+              "text": "{{data.activityNotice}}",
+              "tone": "warning"
+            },
             {
               "type": "section",
               "columns": 2,
@@ -67,25 +71,6 @@
                   "value": "{{data.todayCost}}"
                 }
               ]
-            },
-            {
-              "type": "progress",
-              "path": "data.fiveHourUsed",
-              "max": 100,
-              "label": "5-hour limit",
-              "valueLabel": "{{data.fiveHourLabel}}"
-            },
-            {
-              "type": "progress",
-              "path": "data.sevenDayUsed",
-              "max": 100,
-              "label": "7-day limit",
-              "valueLabel": "{{data.sevenDayLabel}}"
-            },
-            {
-              "type": "text",
-              "text": "{{data.limitLabel}}",
-              "tone": "secondary"
             }
           ]
         },
@@ -98,18 +83,6 @@
               "variant": "bar",
               "path": "data.modelSeries",
               "emptyText": "No measured activity today"
-            },
-            {
-              "type": "chart",
-              "variant": "bar",
-              "path": "data.limitSeries",
-              "title": "Rate limits",
-              "emptyText": "No published rate limits"
-            },
-            {
-              "type": "text",
-              "text": "Pace, not percent: red is on pace to run out before the clock, amber is tight, green is comfortable.",
-              "tone": "secondary"
             }
           ]
         },

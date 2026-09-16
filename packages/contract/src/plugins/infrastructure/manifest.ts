@@ -273,6 +273,11 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
                 ...(item.title === undefined ? {} : { title: pluginText(item.title, 80) }),
                 ...(item.emptyText === undefined ? {} : { emptyText: pluginText(item.emptyText, 120) }),
             };
+        case 'limits':
+            return {
+                type: 'limits', path: bindingPath(item.path),
+                ...(item.title === undefined ? {} : { title: pluginText(item.title, 80) }),
+            };
         case 'tabs':
             return {
                 type: 'tabs',

@@ -831,18 +831,6 @@ export const zhHans: TranslationStructure = {
         denyRequest: '拒绝请求',
     },
 
-    usage: {
-        // Usage panel strings
-        today: '今天',
-        last7Days: '过去 7 天',
-        last30Days: '过去 30 天',
-        totalTokens: '总令牌数',
-        totalCost: '总费用',
-        tokens: '令牌',
-        cost: '费用',
-        usageOverTime: '使用趋势',
-        byModel: '按模型',
-    },
 
     imageUpload: {
         permissionTitle: '访问照片库',

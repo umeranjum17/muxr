@@ -830,18 +830,6 @@ export const zhHant: TranslationStructure = {
         denyRequest: '拒絕請求',
     },
 
-    usage: {
-        // Usage panel strings
-        today: '今天',
-        last7Days: '過去 7 天',
-        last30Days: '過去 30 天',
-        totalTokens: '總權杖數',
-        totalCost: '總費用',
-        tokens: '權杖',
-        cost: '費用',
-        usageOverTime: '使用趨勢',
-        byModel: '按模型',
-    },
 
     imageUpload: {
         permissionTitle: '存取照片圖庫',
