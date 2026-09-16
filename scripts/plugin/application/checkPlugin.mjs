@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { homedir, tmpdir } from 'node:os';
 
-import { MAX_PLUGIN_CONTEXT_BYTES, MAX_RPC_INPUT_BYTES, MAX_RPC_STDOUT_BYTES, boundRpcDisplay, parseManifest } from '@muxr/contract';
+import { MAX_PLUGIN_CONTEXT_BYTES, MAX_RPC_INPUT_BYTES, MAX_RPC_STDOUT_BYTES, boundRpcDisplay, parseManifestWithMeta } from '@muxr/contract';
 import { isPluginId } from '../domain/dist/index.js';
 import {
     bundledPluginsRoot,
@@ -159,10 +159,11 @@ export function checkPlugin(path) {
     if (!existsSync(uiPath)) return { root, pluginId, ui: false, manifest: undefined };
     let manifest;
     let declared;
+    let skippedScreenNodes = [];
     try {
         const raw = JSON.parse(readFileSync(uiPath, 'utf8'));
         declared = Array.isArray(raw?.contributions) ? raw.contributions.length : 0;
-        manifest = parseManifest(raw);
+        ({ manifest, skippedScreenNodes } = parseManifestWithMeta(raw));
     }
     catch (error) { fail(`${uiPath}: ${error instanceof Error ? error.message : String(error)}`); }
     if (manifest.pluginId !== pluginId) fail(`${uiPath}.pluginId: must equal ${pluginId}`);
@@ -170,6 +171,7 @@ export function checkPlugin(path) {
     // manifests. At author time that silence hides typos, so say it out loud.
     const skipped = declared - manifest.contributions.length;
     if (skipped > 0) process.stderr.write(`warning: ${uiPath}: ${skipped} of ${declared} contributions not recognized (unknown slot or type) and will not render\n`);
+    if (skippedScreenNodes.length > 0) process.stderr.write(`warning: ${uiPath}: ${skippedScreenNodes.length} screen node${skippedScreenNodes.length === 1 ? '' : 's'} not recognized (${[...new Set(skippedScreenNodes)].join(', ')}) and will not render\n`);
     return { root, pluginId, ui: true, manifest };
 }
 

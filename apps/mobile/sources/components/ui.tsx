@@ -12,10 +12,13 @@
 
 import * as React from 'react';
 import { Text, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import type { Theme } from '@/theme';
+import type { PluginScreenTone } from '@muxr/contract';
+import { toneColor } from '@/plugins/domain/pluginTone';
 
 export const ui = {
     radius: { card: 12, control: 10, meter: 2 },
@@ -77,6 +80,39 @@ export function Meter({ ratio, emphasis = 1, delay = 0, marker, style }: { ratio
                     <View style={{ width: 1, height: 8, backgroundColor: theme.colors.textSecondary }} />
                 </View>
             )}
+        </View>
+    );
+}
+
+/**
+ * A toned sentence: one 6pt dot, then the words. Colour lands on the dot;
+ * the sentence stays body text with anything after " · " quieter, so the
+ * reason reads without shouting. Dots are decorative: the words carry meaning.
+ */
+export function Notice({ tone, text, style }: { tone: 'positive' | 'warning' | 'danger'; text: string; style?: StyleProp<ViewStyle> }) {
+    const { theme } = useUnistyles();
+    const dot = toneColor(theme, tone as PluginScreenTone);
+    const divider = text.indexOf(' · ');
+    return (
+        <View style={[{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 }, style]}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: dot, marginTop: 6 }} />
+            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 13, lineHeight: 18 }}>
+                {divider < 0 ? text : text.slice(0, divider)}
+                {divider < 0 ? '' : <Text style={{ color: theme.colors.textSecondary }}>{text.slice(divider)}</Text>}
+            </Text>
+        </View>
+    );
+}
+
+/**
+ * Row identity in a 30pt tile: one Ionicon at 16 in secondary on the accent
+ * wash. Screens, ItemList and the Plugins list draw this one tile.
+ */
+export function IconTile({ name, style }: { name: string; style?: StyleProp<ViewStyle> }) {
+    const { theme } = useUnistyles();
+    return (
+        <View style={[{ width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accentSubtle }, style]}>
+            <Ionicons name={name as never} size={16} color={theme.colors.textSecondary} />
         </View>
     );
 }

@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { PluginEventTrigger, PluginManifestV1, PluginScreenButtonNode, PluginScreenContribution } from '@muxr/contract';
-import { defaultPluginText, parseManifest, parsePluginAction, resolvePluginText } from '@muxr/contract';
+import { defaultPluginText, parseManifest, parseManifestWithMeta, parsePluginAction, resolvePluginText } from '@muxr/contract';
 import { firedTriggers } from './pluginEvents';
 import { asPluginCollection } from './collectionModel';
 import { asPluginTree } from './treeModel';
-import { asScreenTabs, bindText, buttonInput, initialFieldValues, loadScreenData, runScreenButton, shouldReloadAfterAction, WriteKeyStore } from './screenModel';
+import { asScreenTabs, bindText, bindTone, buttonInput, contentMountTitle, initialFieldValues, loadScreenData, runScreenButton, shouldReloadAfterAction, WriteKeyStore } from './screenModel';
 import { asScreenTree } from './screenTreeModel';
 import { asChartSeries } from './chartModel';
 import { asLimitsPayload } from './limitsModel';
@@ -477,5 +480,101 @@ describe('usage tab marks and bounded limits payload', () => {
         ]);
         // Not an object at all: an unknown, windowless payload, never a throw.
         expect(asLimitsPayload('nope')).toEqual({ verdict: 'unknown', windows: [] });
+    });
+});
+
+describe('declarative screen identity platform', () => {
+    it('bounds bound tones, bound field values and the title rule at the untrusted-input boundary', () => {
+        const data = { tone: 'danger', evil: 'red', on: 'true', reporter: 'tap', blank: '' };
+        // A bound tone resolves a tone name; anything else is no tone, never a throw.
+        expect(bindTone({ tonePath: 'data.tone' }, data)).toBe('danger');
+        expect(bindTone({ tonePath: 'data.evil' }, data)).toBeUndefined();
+        expect(bindTone({ tonePath: 'data.missing' }, data)).toBeUndefined();
+        expect(bindTone({ tone: 'warning' }, data)).toBe('warning');
+        expect(bindTone({}, data)).toBeUndefined();
+        // A blank notice binds to nothing, which is what hides it.
+        expect(bindText('{{data.blank}}', data)).toBe('');
+        // A switch seeded from saved state reads 'true' as on; a select keeps
+        // saved state when it names an option and falls back to the first one.
+        const parsed = parseManifest({
+            schemaVersion: 1, pluginId: 'you.testrun', minMuxrVersion: 14,
+            contributions: [{
+                slot: 'navigation.content', id: 'settings', type: 'screen',
+                children: [
+                    { type: 'field', kind: 'switch', id: 'runsave', label: 'Run', valuePath: 'data.on' },
+                    { type: 'field', kind: 'switch', id: 'off', label: 'Off', valuePath: 'data.missing' },
+                    { type: 'field', kind: 'select', id: 'reporter', label: 'Reporter', options: ['spec', 'tap'], valuePath: 'data.reporter' },
+                    { type: 'field', kind: 'select', id: 'unknown', label: 'Unknown', options: ['spec', 'tap'], valuePath: 'data.evil' },
+                ],
+            }],
+        });
+        const settings = parsed.contributions[0];
+        if (!('type' in settings) || settings.type !== 'screen') throw new Error('screen missing');
+        expect(initialFieldValues(settings, data)).toEqual({ runsave: true, off: false, reporter: 'tap', unknown: 'spec' });
+        // A limits payload with one malformed window keeps the good one.
+        expect(asLimitsPayload({ verdict: 'go', windows: [{ label: 'ok', used: 10 }, { label: 'bad', used: 'x' }] }).windows)
+            .toEqual([{ label: 'ok', used: 10 }]);
+        // The header already says "Usage", so an in-body "Usage" is a duplicate.
+        const usage = parseManifest({
+            schemaVersion: 1, pluginId: 'muxr.status',
+            contributions: [
+                { slot: 'navigation.primary', id: 'usage.nav', type: 'navigation-item', label: 'Usage', icon: 'speedometer-outline', contentContributionId: 'usage.details' },
+                { slot: 'navigation.content', id: 'usage.details', type: 'screen', title: 'Usage', children: [] },
+            ],
+        });
+        const resolve = (value: string | { default: string }): string => typeof value === 'string' ? value : value.default;
+        expect(contentMountTitle(usage, 'usage.details', 'Status', resolve)).toBe('Usage');
+        expect(contentMountTitle(usage, 'usage.unknown', 'Status', resolve)).toBe('Status');
+    });
+
+    it('carries every shipped manifest through the new parser with nothing dropped, and ignores unknown fields', () => {
+        const dir = fileURLToPath(new URL('../../../../../plugins', import.meta.url));
+        // Every user-visible string on a shipped screen must flow through the
+        // new binder without throwing; paths and ids are data, not templates.
+        const TEMPLATE_KEYS = new Set(['text', 'title', 'subtitle', 'meta', 'value', 'label', 'message', 'emptyText', 'valueLabel', 'placeholder']);
+        const bound: string[] = [];
+        const walk = (value: unknown): void => {
+            if (typeof value === 'string') return;
+            if (Array.isArray(value)) { for (const entry of value) walk(entry); return; }
+            if (typeof value !== 'object' || value === null) return;
+            for (const [key, entry] of Object.entries(value)) {
+                if (TEMPLATE_KEYS.has(key) && (typeof entry === 'string' || (typeof entry === 'object' && entry !== null && 'default' in entry))) {
+                    const template = typeof entry === 'string' ? entry : (entry as { default: string }).default;
+                    bound.push(bindText(template, {}));
+                } else walk(entry);
+            }
+        };
+        let screens = 0;
+        for (const name of ['code', 'status', 'voice']) {
+            const raw = JSON.parse(readFileSync(join(dir, name, 'muxr-ui.json'), 'utf8'));
+            const { manifest, skippedScreenNodes } = parseManifestWithMeta(raw);
+            expect(skippedScreenNodes).toEqual([]);
+            for (const contribution of manifest.contributions) {
+                if (!('type' in contribution) || contribution.type !== 'screen') continue;
+                screens += 1;
+                walk(contribution);
+                expect(initialFieldValues(contribution, {})).toBeTypeOf('object');
+            }
+        }
+        // Thirteen screens ship today; every one must survive the new parser.
+        expect(screens).toBe(13);
+        expect(bound.length).toBeGreaterThan(0);
+        // An app that does not know a new field ignores it rather than breaking.
+        const unknown = parseManifest({
+            schemaVersion: 1, pluginId: 'you.future',
+            contributions: [{
+                slot: 'navigation.content', id: 's', type: 'screen',
+                children: [
+                    { type: 'row', title: 'R', frobnicate: ['tomorrow'] },
+                    { type: 'text', text: 'T', whatever: { nested: true } },
+                ],
+            }],
+        });
+        const future = unknown.contributions[0];
+        if (!('type' in future) || future.type !== 'screen') throw new Error('screen missing');
+        expect(future.children).toEqual([
+            { type: 'row', title: 'R' },
+            { type: 'text', text: 'T' },
+        ]);
     });
 });

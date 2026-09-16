@@ -63,11 +63,13 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
     // following the chart empty-state precedent (no card).
     if (payload.verdict === 'unknown' && payload.windows.length === 0) {
         const message = payload.message ?? '';
-        if (message === '' && title === undefined) return null;
+        const empty = node.emptyText === undefined ? '' : bindText(resolvePluginText(node.emptyText), data);
+        const line = message !== '' ? message : empty;
+        if (line === '' && title === undefined) return null;
         return (
             <View style={{ marginBottom: 12 }}>
                 {title !== undefined && <SectionLabel>{title}</SectionLabel>}
-                {message !== '' && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 6 }}>{message}</Text>}
+                {line !== '' && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 6 }}>{line}</Text>}
             </View>
         );
     }

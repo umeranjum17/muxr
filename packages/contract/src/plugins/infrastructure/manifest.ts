@@ -36,6 +36,7 @@ import {
     MAX_PLUGIN_TEXT_LOCALES,
     PLUGIN_TEXT_MIN_UI_VERSION,
     DYNAMIC_SCREEN_MIN_UI_VERSION,
+    SCREEN_IDENTITY_MIN_UI_VERSION,
     sanitizeDisplayText,
     parsePluginId,
 } from '../domain/plugins.js';
@@ -125,6 +126,16 @@ function tone(value: unknown): PluginScreenTone {
     if (typeof value !== 'string' || !SCREEN_TONES.has(value)) throw new Error('invalid plugin screen tone');
     return value as PluginScreenTone;
 }
+/**
+ * A static tone and a bound tone are mutually exclusive. A binding smuggled
+ * into `tone` would throw on every older parser (unknown tone string), while
+ * an unknown field is ignored, so `tonePath` is the only free form.
+ */
+function boundTone(item: Record<string, unknown>, surface: string): { tonePath: string } | Record<string, never> {
+    if (item.tonePath === undefined) return {};
+    if (item.tone !== undefined) throw new Error(`${surface} tone must be static or bound, not both`);
+    return { tonePath: bindingPath(item.tonePath) };
+}
 function variant(value: unknown): 'primary' | 'secondary' | 'danger' {
     if (typeof value !== 'string' || !SCREEN_BUTTON_VARIANTS.has(value)) throw new Error('invalid plugin screen button variant');
     return value as 'primary' | 'secondary' | 'danger';
@@ -178,9 +189,9 @@ function parseEventTrigger(item: Record<string, unknown>): PluginEventTrigger {
     return { slot: 'events', id: id(item.id), on: 'agent.status', from: lifecycle(item.from), to, action: parseEventAction(item.action) };
 }
 
-function parseScreenContribution(item: Record<string, unknown>): PluginScreenContribution {
+function parseScreenContribution(item: Record<string, unknown>, skipped: string[]): PluginScreenContribution {
     if (!Array.isArray(item.children)) throw new Error('invalid plugin screen children');
-    const budget = { nodes: 0 };
+    const budget: ScreenParseBudget = { nodes: 0, skipped };
     const children = parseScreenNodes(item.children, 1, budget);
     const fieldIds: string[] = [];
     collectScreenFieldIds(children, fieldIds);
@@ -206,14 +217,20 @@ function parseScreenContribution(item: Record<string, unknown>): PluginScreenCon
     };
 }
 
-function parseScreenNodes(value: unknown, depth: number, budget: { nodes: number }): PluginScreenNode[] {
+/** Unknown node types are recorded here so `muxr plugin check` can warn. */
+interface ScreenParseBudget { nodes: number; skipped: string[] }
+
+function parseScreenNodes(value: unknown, depth: number, budget: ScreenParseBudget): PluginScreenNode[] {
     if (!Array.isArray(value)) throw new Error('invalid plugin screen children');
     if (depth > MAX_SCREEN_DEPTH) throw new Error('plugin screen nesting is too deep');
     const nodes: PluginScreenNode[] = [];
     for (const item of value) {
         if (!isRecord(item) || typeof item.type !== 'string') continue;
         const node = parseScreenNode(item, depth, budget);
-        if (node === undefined) continue;
+        if (node === undefined) {
+            budget.skipped.push(item.type);
+            continue;
+        }
         budget.nodes += 1;
         if (budget.nodes > MAX_SCREEN_NODES) throw new Error('too many plugin screen nodes');
         nodes.push(node);
@@ -227,10 +244,10 @@ function codeViewport(value: unknown): 'fill' {
     return 'fill';
 }
 
-function parseScreenNode(item: Record<string, unknown>, depth: number, budget: { nodes: number }): PluginScreenNode | undefined {
+function parseScreenNode(item: Record<string, unknown>, depth: number, budget: ScreenParseBudget): PluginScreenNode | undefined {
     switch (item.type) {
         case 'text':
-            return { type: 'text', text: pluginText(item.text, MAX_TEXT), ...(item.tone === undefined ? {} : { tone: tone(item.tone) }) };
+            return { type: 'text', text: pluginText(item.text, MAX_TEXT), ...(item.tone === undefined ? {} : { tone: tone(item.tone) }), ...boundTone(item, 'plugin screen text') };
         case 'row':
             return parseScreenRow(item);
         case 'diff':
@@ -245,7 +262,7 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
         case 'metric':
             return { type: 'metric', label: pluginText(item.label, 80), value: pluginText(item.value, MAX_TEXT) };
         case 'badge':
-            return { type: 'badge', label: pluginText(item.label, 40), ...(item.tone === undefined ? {} : { tone: tone(item.tone) }) };
+            return { type: 'badge', label: pluginText(item.label, 40), ...(item.tone === undefined ? {} : { tone: tone(item.tone) }), ...boundTone(item, 'plugin screen badge') };
         case 'progress': {
             const hasValue = item.value !== undefined;
             const hasPath = item.path !== undefined;
@@ -262,6 +279,7 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
                 ...(item.label === undefined ? {} : { label: pluginText(item.label, 80) }),
                 ...(item.valueLabel === undefined ? {} : { valueLabel: pluginText(item.valueLabel, 80) }),
                 ...(item.tone === undefined ? {} : { tone: tone(item.tone) }),
+                ...boundTone(item, 'plugin screen progress'),
             };
         }
         case 'chart':
@@ -277,6 +295,7 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
             return {
                 type: 'limits', path: bindingPath(item.path),
                 ...(item.title === undefined ? {} : { title: pluginText(item.title, 80) }),
+                ...(item.emptyText === undefined ? {} : { emptyText: pluginText(item.emptyText, 120) }),
             };
         case 'tabs':
             return {
@@ -324,7 +343,11 @@ function parseScreenNode(item: Record<string, unknown>, depth: number, budget: {
             };
         case 'list': {
             if (!Array.isArray(item.rows) || item.rows.length > MAX_ROWS) throw new Error('invalid plugin screen list rows');
-            const rows = item.rows.flatMap((row) => (isRecord(row) && row.type === 'row' ? [parseScreenRow(row)] : []));
+            const rows: PluginScreenRowNode[] = [];
+            for (const row of item.rows) {
+                if (isRecord(row) && row.type === 'row') rows.push(parseScreenRow(row));
+                else if (isRecord(row) && typeof row.type === 'string') budget.skipped.push(row.type);
+            }
             // List rows are rendered children, so they count toward the node
             // budget (the outer loop counts the list node itself). A repeat can
             // expand to MAX_ROWS at render time, so it is charged in full here.
@@ -353,7 +376,11 @@ function parseScreenRow(row: Record<string, unknown>): PluginScreenRowNode {
         type: 'row',
         title: pluginText(row.title, 80),
         ...(row.subtitle === undefined ? {} : { subtitle: pluginText(row.subtitle, MAX_TEXT) }),
+        ...(row.meta === undefined ? {} : { meta: pluginText(row.meta, MAX_TEXT) }),
         ...(row.value === undefined ? {} : { value: pluginText(row.value, MAX_TEXT) }),
+        ...(row.icon === undefined ? {} : { icon: id(row.icon) }),
+        ...(row.tone === undefined ? {} : { tone: tone(row.tone) }),
+        ...boundTone(row, 'plugin screen row'),
         ...(row.action === undefined ? {} : { action: parsePluginAction(row.action) }),
     };
 }
@@ -454,13 +481,24 @@ function parseScreenField(item: Record<string, unknown>): PluginScreenNode {
         const optionValues = options.map(defaultText);
         if (new Set(optionValues).size !== optionValues.length) throw new Error('duplicate plugin screen select option');
         if (item.value !== undefined && !optionValues.includes(text(item.value, 80))) throw new Error('plugin screen select value is not an option');
-        return { type: 'field', kind: 'select', id: id(item.id), label: pluginText(item.label, 60), ...(item.placeholder === undefined ? {} : { placeholder: pluginText(item.placeholder, 80) }), ...(item.value === undefined ? {} : { value: text(item.value, 80) }), options };
+        return { type: 'field', kind: 'select', id: id(item.id), label: pluginText(item.label, 60), ...(item.placeholder === undefined ? {} : { placeholder: pluginText(item.placeholder, 80) }), ...(item.value === undefined ? {} : { value: text(item.value, 80) }), ...boundFieldValue(item, kind), options };
     }
     if (kind === 'switch') {
         if (item.value !== undefined && item.value !== 'true' && item.value !== 'false') throw new Error('invalid plugin screen switch value');
-        return { type: 'field', kind: 'switch', id: id(item.id), label: pluginText(item.label, 60), ...(item.value === undefined ? {} : { value: item.value as 'true' | 'false' }) };
+        return { type: 'field', kind: 'switch', id: id(item.id), label: pluginText(item.label, 60), ...(item.value === undefined ? {} : { value: item.value as 'true' | 'false' }), ...boundFieldValue(item, kind) };
     }
+    if (item.valuePath !== undefined) throw new Error('plugin screen text field value already binds; valuePath is for switch and select');
     return { type: 'field', kind: 'text', id: id(item.id), label: pluginText(item.label, 60), ...(item.placeholder === undefined ? {} : { placeholder: pluginText(item.placeholder, 80) }), ...(item.value === undefined ? {} : { value: text(item.value, 80) }) };
+}
+/**
+ * A switch or select opens showing what is saved. A static `value` and a
+ * bound `valuePath` together would disagree, so exactly one may be present.
+ */
+function boundFieldValue(item: Record<string, unknown>, kind: string): { valuePath: string } | Record<string, never> {
+    if (item.valuePath === undefined) return {};
+    if (kind === 'text') throw new Error('plugin screen text field value already binds; valuePath is for switch and select');
+    if (item.value !== undefined) throw new Error('plugin screen field value must be static or bound, not both');
+    return { valuePath: bindingPath(item.valuePath) };
 }
 
 function collectScreenFieldIds(nodes: PluginScreenNode[], fieldIds: string[]): void {
@@ -499,6 +537,20 @@ function containsLocalizedText(value: unknown, parentKey?: string): boolean {
     if (typeof value.default === 'string' && isRecord(value.translations)
         && Object.keys(value).every((key) => key === 'default' || key === 'translations')) return true;
     return Object.entries(value).some(([key, entry]) => containsLocalizedText(entry, key));
+}
+
+/** A screen is wrong without these (missing status colour, identity, saved state), so they earn a version; a glyph-less tab still reads. */
+function usesScreenIdentityNodes(nodes: PluginScreenNode[]): boolean {
+    for (const node of nodes) {
+        if (node.type === 'limits') return true;
+        if ((node.type === 'text' || node.type === 'badge' || node.type === 'progress' || node.type === 'row') && node.tonePath !== undefined) return true;
+        if (node.type === 'row' && (node.icon !== undefined || node.meta !== undefined)) return true;
+        if (node.type === 'field' && node.valuePath !== undefined) return true;
+        if (node.type === 'section' && usesScreenIdentityNodes(node.children)) return true;
+        if (node.type === 'list' && (usesScreenIdentityNodes(node.rows)
+            || (node.repeat !== undefined && usesScreenIdentityNodes([node.repeat.template])))) return true;
+    }
+    return false;
 }
 
 function usesDynamicScreenNodes(nodes: PluginScreenNode[]): boolean {
@@ -638,7 +690,7 @@ function parseNativeContribution(item: Record<string, unknown>): PluginContribut
 }
 
 /** Unknown slots/types return undefined (skipped). Known shapes with bad fields throw. */
-function parseContribution(item: Record<string, unknown>): PluginContribution | undefined {
+function parseContribution(item: Record<string, unknown>, skipped: string[]): PluginContribution | undefined {
     if (item.slot === 'settings.sections') {
         if (!Array.isArray(item.children) || item.children.length > MAX_ROWS) throw new Error('invalid plugin settings rows');
         return {
@@ -693,7 +745,7 @@ function parseContribution(item: Record<string, unknown>): PluginContribution | 
     }
     if (item.slot === 'shortcuts') return parseShortcut(item);
     if (item.slot === 'events') return parseEventTrigger(item);
-    if (item.slot === 'navigation.content' && item.type === 'screen') return parseScreenContribution(item);
+    if (item.slot === 'navigation.content' && item.type === 'screen') return parseScreenContribution(item, skipped);
     if (item.slot === 'navigation.primary' && item.type === 'navigation-item') {
         const badge = item.badge === undefined ? undefined : pluginCallSource(item.badge, 'navigation badge source');
         return {
@@ -807,9 +859,18 @@ function validateManifestGraph(
         && declaredMinVersion < DYNAMIC_SCREEN_MIN_UI_VERSION) {
         throw new Error(`dynamic plugin screen nodes require minMuxrVersion ${DYNAMIC_SCREEN_MIN_UI_VERSION}`);
     }
+    if (contributions.some((contribution) => 'type' in contribution && contribution.type === 'screen' && usesScreenIdentityNodes(contribution.children))
+        && declaredMinVersion < SCREEN_IDENTITY_MIN_UI_VERSION) {
+        throw new Error(`plugin screen identity nodes require minMuxrVersion ${SCREEN_IDENTITY_MIN_UI_VERSION}`);
+    }
 }
 
-export function parseManifest(value: unknown): PluginManifestV1 {
+/**
+ * parseManifest plus the screen node types the parser did not recognize.
+ * `muxr plugin check` warns with these: at author time a skipped node is a
+ * typo until proven otherwise, while at runtime it stays silent.
+ */
+export function parseManifestWithMeta(value: unknown): { manifest: PluginManifestV1; skippedScreenNodes: string[] } {
     assertFiniteNumbers(value);
     if (!isRecord(value) || value.schemaVersion !== 1 || typeof value.pluginId !== 'string' || !Array.isArray(value.contributions)) {
         throw new Error('invalid muxr plugin manifest');
@@ -823,20 +884,28 @@ export function parseManifest(value: unknown): PluginManifestV1 {
     const capabilities = parseCapabilities(value.capabilities);
     if (value.contributions.length > MAX_CONTRIBUTIONS) throw new Error('too many plugin contributions');
     const contributions: PluginContribution[] = [];
+    const skippedScreenNodes: string[] = [];
     for (const item of value.contributions) {
         if (!isRecord(item)) continue;
-        const contribution = parseContribution(item);
+        const contribution = parseContribution(item, skippedScreenNodes);
         if (contribution === undefined) continue;
         contributions.push(contribution);
     }
     validateManifestGraph(contributions, capabilities, typeof minMuxrVersion === 'number' ? minMuxrVersion : undefined);
     return {
-        schemaVersion: 1,
-        pluginId,
-        ...(minMuxrVersion === undefined ? {} : { minMuxrVersion }),
-        ...(capabilities === undefined ? {} : { capabilities }),
-        contributions,
+        manifest: {
+            schemaVersion: 1,
+            pluginId,
+            ...(minMuxrVersion === undefined ? {} : { minMuxrVersion }),
+            ...(capabilities === undefined ? {} : { capabilities }),
+            contributions,
+        },
+        skippedScreenNodes,
     };
+}
+
+export function parseManifest(value: unknown): PluginManifestV1 {
+    return parseManifestWithMeta(value).manifest;
 }
 
 function screenTreeSources(nodes: PluginScreenNode[]): Array<{ contributionId: string }> {

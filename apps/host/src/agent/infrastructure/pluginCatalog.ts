@@ -14,6 +14,7 @@ import {
     boundRpcDisplay,
     isValidPluginId,
     parseManifest,
+    pluginCompatibilityError,
     sanitizeDisplayText,
 } from '@muxr/contract';
 
@@ -341,6 +342,11 @@ function herdrBackendOf(plugin: HerdrPlugin): boolean {
 }
 
 function summaryOf(plugin: HerdrPlugin, manifestHash: string | undefined, capabilities: Record<string, string>, source = sourceOf(plugin.source, plugin), manifest?: PluginManifestV1): Omit<PluginSummary, 'approved'> {
+    // The host parses with its own contract, so a manifest declaring a newer
+    // UI version would otherwise forward screens this host's phones cannot
+    // render. Say so on the Plugins list instead of shipping a quieter screen.
+    const compatWarning = manifest === undefined ? undefined : pluginCompatibilityError(manifest);
+    const inherited = (plugin.warnings ?? []).filter((warning): warning is string => typeof warning === 'string').slice(0, 4).flatMap((warning) => safeText(warning, MAX_TEXT));
     return {
         pluginId: plugin.plugin_id,
         name: safeText(plugin.name, 80)[0] ?? plugin.plugin_id,
@@ -352,7 +358,7 @@ function summaryOf(plugin: HerdrPlugin, manifestHash: string | undefined, capabi
         hasBackend: herdrBackendOf(plugin)
             || manifest?.contributions.some((item) => item.slot === 'host.rpc' || item.slot === 'host.stream') === true,
         herdrBackend: herdrBackendOf(plugin),
-        warnings: (plugin.warnings ?? []).filter((warning): warning is string => typeof warning === 'string').slice(0, 4).flatMap((warning) => safeText(warning, MAX_TEXT)),
+        warnings: [...(compatWarning === undefined ? [] : [compatWarning]), ...inherited].slice(0, 4),
     };
 }
 

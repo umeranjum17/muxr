@@ -347,6 +347,8 @@ export interface PluginScreenTextNode {
     type: 'text';
     text: PluginText;
     tone?: PluginScreenTone;
+    /** Runtime path resolving to a tone name; exactly one of tone or tonePath. Ignored by older parsers. */
+    tonePath?: string;
 }
 /** Unified diff at `path`, drawn by the app's own diff viewer. */
 export interface PluginScreenDiffNode {
@@ -405,8 +407,16 @@ export type PluginScreenRowAction = PluginAction;
 export interface PluginScreenRowNode {
     type: 'row';
     title: PluginText;
+    /** Prose, sans, one line: what the thing is. */
     subtitle?: PluginText;
+    /** Facts, mono, one line: ids, paths, times, counts. */
+    meta?: PluginText;
     value?: PluginText;
+    /** Static Ionicon identifier drawn in a 30pt tile before the title. */
+    icon?: string;
+    /** Exactly one of a static tone or a runtime path resolving to a tone name. */
+    tone?: PluginScreenTone;
+    tonePath?: string;
     action?: PluginScreenRowAction;
 }
 export interface PluginScreenMetricNode {
@@ -418,6 +428,8 @@ export interface PluginScreenBadgeNode {
     type: 'badge';
     label: PluginText;
     tone?: PluginScreenTone;
+    /** Runtime path resolving to a tone name; exactly one of tone or tonePath. */
+    tonePath?: string;
 }
 export interface PluginScreenProgressNode {
     type: 'progress';
@@ -428,6 +440,8 @@ export interface PluginScreenProgressNode {
     label?: PluginText;
     valueLabel?: PluginText;
     tone?: PluginScreenTone;
+    /** Runtime path resolving to a tone name; exactly one of tone or tonePath. */
+    tonePath?: string;
 }
 export interface PluginScreenDividerNode {
     type: 'divider';
@@ -446,6 +460,8 @@ export interface PluginScreenFieldNode {
     placeholder?: PluginText;
     /** text: initial text; switch: 'true' | 'false'; select: one of options. */
     value?: string;
+    /** switch and select only: runtime path whose value seeds the field. Exactly one of value or valuePath. */
+    valuePath?: string;
     /** select only; bounded options. */
     options?: PluginText[];
 }
@@ -488,6 +504,8 @@ export interface PluginScreenLimitsNode {
     path: string;
     /** Section label; the plan name renders beside it from the payload. */
     title?: PluginText;
+    /** Shown as one quiet line when the payload has no windows and no message. */
+    emptyText?: PluginText;
 }
 export interface PluginScreenTreeNode {
     type: 'tree';
@@ -510,7 +528,11 @@ export interface PluginScreenTreeNode {
  */
 export interface PluginScreenTabsNode {
     type: 'tabs';
-    /** Runtime path to bounded `{ id, label }` entries. */
+    /**
+     * Runtime path to bounded `{ id, label }` entries. Each entry may carry
+     * an optional `glyph` agent-mark id, resolved against the app's bundled
+     * marks with a ringed-monogram fallback; older phones drop the field.
+     */
     path: string;
     /** Runtime path holding the id of the tab the payload belongs to. */
     selectedPath: string;
@@ -654,6 +676,8 @@ export const MAX_SCREEN_PARAMS = 8;
  */
 export const MUXR_UI_VERSION = 14;
 export const DYNAMIC_SCREEN_MIN_UI_VERSION = 13;
+/** Manifests using `limits`, bound tones, row identity fields or bound field values declare this. */
+export const SCREEN_IDENTITY_MIN_UI_VERSION = 14;
 export const MAX_CHART_SERIES = 8;
 export const MAX_CHART_LABEL_BYTES = 24;
 /** Static list rows, and the render cap for a repeat expansion. */
