@@ -59,7 +59,7 @@ export function SectionLabel({ children, style, numberOfLines }: { children: Rea
  * One bar for meters, limits and row progress. Always neutral: rank comes from
  * `emphasis`, and whatever the bar is warning about says so in its number.
  */
-export function Meter({ ratio, emphasis = 1, delay = 0, style }: { ratio: number; emphasis?: number; delay?: number; style?: StyleProp<ViewStyle> }) {
+export function Meter({ ratio, emphasis = 1, delay = 0, marker, style }: { ratio: number; emphasis?: number; delay?: number; /** Static 1pt tick at `marker × width` (0..1): where the window stands, e.g. elapsed pace. */ marker?: number; style?: StyleProp<ViewStyle> }) {
     const { theme } = useUnistyles();
     const reduceMotion = useReducedMotion();
     const target = Math.max(0, Math.min(1, ratio));
@@ -68,9 +68,15 @@ export function Meter({ ratio, emphasis = 1, delay = 0, style }: { ratio: number
         width.value = reduceMotion ? target : withDelay(delay, withTiming(target, { duration: 380, easing: Easing.bezier(0.23, 1, 0.32, 1) }));
     }, [delay, reduceMotion, target, width]);
     const animated = useAnimatedStyle(() => ({ width: `${width.value * 100}%` }));
+    const tick = marker === undefined ? undefined : Math.max(0, Math.min(1, marker));
     return (
         <View style={[{ height: ui.meterHeight, borderRadius: ui.radius.meter, backgroundColor: withAlpha(theme.colors.accent, 0.1), overflow: 'hidden' }, style]}>
             <Animated.View style={[{ height: '100%', borderRadius: ui.radius.meter, backgroundColor: withAlpha(theme.colors.accent, Math.max(0.35, emphasis)) }, animated]} />
+            {tick !== undefined && (
+                <View pointerEvents="none" style={{ position: 'absolute', left: `${tick * 100}%`, top: 0, bottom: 0, justifyContent: 'center' }}>
+                    <View style={{ width: 1, height: 8, backgroundColor: theme.colors.textSecondary }} />
+                </View>
+            )}
         </View>
     );
 }

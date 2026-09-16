@@ -34,6 +34,7 @@ export type {
     PluginPublicTreeWorkspace,
     PluginScreenButtonNode,
     PluginScreenChartNode,
+    PluginScreenLimitsNode,
     PluginScreenCodeNode,
     PluginScreenContribution,
     PluginScreenFieldKind,

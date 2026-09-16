@@ -4,9 +4,10 @@ import { defaultPluginText, parseManifest, parsePluginAction, resolvePluginText 
 import { firedTriggers } from './pluginEvents';
 import { asPluginCollection } from './collectionModel';
 import { asPluginTree } from './treeModel';
-import { bindText, buttonInput, initialFieldValues, loadScreenData, runScreenButton, shouldReloadAfterAction, WriteKeyStore } from './screenModel';
+import { asScreenTabs, bindText, buttonInput, initialFieldValues, loadScreenData, runScreenButton, shouldReloadAfterAction, WriteKeyStore } from './screenModel';
 import { asScreenTree } from './screenTreeModel';
 import { asChartSeries } from './chartModel';
+import { asLimitsPayload } from './limitsModel';
 import { highlightCodeLines, syntaxLanguage } from '@/components/code/syntaxHighlighting';
 
 const manifest: PluginManifestV1 = {
@@ -428,5 +429,53 @@ describe('plugin shortcuts', () => {
             schemaVersion: 1, pluginId: 'example.muxr-ui',
             contributions: [{ slot: 'shortcuts', id: 'bad', label: { default: 'Bad', translations: { 'not_a_locale': 'bad' } }, synonyms: ['bad'], action: { type: 'capability', name: 'example.open' } }],
         })).toThrow('invalid localized plugin locale');
+    });
+});
+
+describe('usage tab marks and bounded limits payload', () => {
+    it('keeps well-formed tab glyphs and drops anything else', () => {
+        const tabs = asScreenTabs([
+            { id: 'zai', label: 'Z.ai', glyph: 'zai' },
+            { id: 'claude', label: 'Claude', glyph: 'claude' },
+            { id: 'bad', label: 'Bad', glyph: '../etc' },
+            { id: 'none', label: 'No mark' },
+            { id: 'x', label: 'X', glyph: 9 },
+        ]);
+        expect(tabs).toEqual([
+            { id: 'zai', label: 'Z.ai', glyph: 'zai' },
+            { id: 'claude', label: 'Claude', glyph: 'claude' },
+            { id: 'bad', label: 'Bad' },
+            { id: 'none', label: 'No mark' },
+            { id: 'x', label: 'X' },
+        ]);
+    });
+
+    it('bounds an untrusted limits payload at the untrusted-input boundary', () => {
+        const payload = asLimitsPayload({
+            plan: 'x'.repeat(60),
+            verdict: 'catastrophic',
+            windows: [
+                { label: 'ok', used: 44, window: '5h', resetsIn: '3h 1m', elapsed: 0.4 },
+                { label: 'over', used: 240 },
+                { label: 'nan', used: Number.NaN },
+                { label: 'bad-elapsed', used: 10, elapsed: 7 },
+                { label: 'y'.repeat(60), used: 10 },
+                { label: 'reset-toolong', used: 10, resetsIn: 'z'.repeat(40) },
+                'not-an-object',
+            ],
+            extra: 'ignored',
+        });
+        expect(payload.verdict).toBe('unknown');
+        expect(payload.plan).toHaveLength(40);
+        expect(payload.windows).toEqual([
+            { label: 'ok', used: 44, window: '5h', resetsIn: '3h 1m', elapsed: 0.4 },
+            // Out-of-range shares drop the window; an impossible elapsed only
+            // loses the tick, and oversize strings cap instead of dropping.
+            { label: 'bad-elapsed', used: 10 },
+            { label: 'y'.repeat(24), used: 10 },
+            { label: 'reset-toolong', used: 10, resetsIn: 'z'.repeat(24) },
+        ]);
+        // Not an object at all: an unknown, windowless payload, never a throw.
+        expect(asLimitsPayload('nope')).toEqual({ verdict: 'unknown', windows: [] });
     });
 });

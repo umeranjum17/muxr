@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 let DatabaseSync;
 try { ({ DatabaseSync } = await import('node:sqlite')); } catch {};
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -106,13 +106,13 @@ const claudeLimits = {
     },
 };
 
-const run = (input, environment = {}) => spawnSync(process.execPath, ['plugins/status/usage.mjs'], {
+const run = (input, environment = {}) => { const r = spawnSync(process.execPath, ['plugins/status/usage.mjs'], {
     cwd: process.cwd(),
     encoding: 'utf8',
     input: JSON.stringify(input),
     env: { ...process.env, HOME: scratch, XDG_DATA_HOME: join(scratch, '.local/share'), PI_CONFIG_DIR: '.omp', OMP_PROFILE: '', PI_PROFILE: '', OPENCODE_AUTH_CONTENT: '', CLAUDE_CONFIG_DIR: join(scratch, '.claude'), TZ: 'UTC', MUXR_USAGE_NOW: today.toISOString(), PATH: `${scratch}:${process.env.PATH}`, MUXR_CCUSAGE_BIN: ccusage, MUXR_PLUGIN_STATE_DIR: scratch, ...environment },
     timeout: 20_000,
-});
+}); if (r.status !== 0 || r.stdout === '') console.error('RUN-DEBUG', JSON.stringify(input), 'status=', r.status, 'stderr=', (r.stderr||'')); return r; }
 
 try {
     writeTranscript(join(scratch, '.omp/agent/sessions/proj/session.jsonl'), [
@@ -151,11 +151,24 @@ try {
     const codexSecondary = output.items.find((item) => item.id === 'limit-codex-1');
     assert.equal(codexSecondary?.metadata[0]?.tone, 'danger');
     assert.match(codexSecondary?.metadata[1]?.value ?? '', /· burning$/);
-    assert.equal(output.codexRemaining, 10);
+    // The default tab's own windows ride the same view model.
+    assert.deepEqual(output.windows.map((vm) => [vm.provider, vm.windowKind, vm.percentUsed, vm.percentRemaining, vm.pace.verdict]), [
+        ['claude', 'session', 21, 79, 'ahead'],
+        ['claude', 'weekly', 42, 58, 'on pace'],
+    ]);
     // Only integrated providers earn tabs: measured activity this week or a
     // connected plan/account. The fixture installs many idle CLIs; none of
     // them may mint a tab.
     assert.deepEqual(output.providers.map((p) => p.id), ['omp', 'opencode', 'claude', 'kimi', 'pi', 'codex']);
+    // Every tab ships an agent mark id; the app renders bundled marks and
+    // falls back to a monogram for the allow-listed rest (today: zai).
+    const agentMarks = new Set(readdirSync(join(process.cwd(), 'apps/mobile/sources/assets/agents'))
+        .filter((name) => name.endsWith('.png')).map((name) => name.slice(0, -4)));
+    const monogramOnly = new Set(['zai']);
+    for (const provider of output.providers) {
+        assert.ok(provider.glyph === provider.id, `tab ${provider.id} must carry its own mark id`);
+        assert.ok(agentMarks.has(provider.glyph) || monogramOnly.has(provider.glyph), `unresolved mark: ${provider.glyph}`);
+    }
     assert.equal(output.badge?.value, '1.3M tokens today');
 
     // Default tab: the busiest measured provider leads.
@@ -171,12 +184,18 @@ try {
     // older total into today's slot.
     assert.equal(output.weekSeries.length, 7);
     assert.equal(output.weekSeries.at(-1)?.valueLabel, '1.3M');
-    assert.equal(output.limitLabel, 'Claude plan usage');
-    assert.equal(output.fiveHourUsed, 21);
-    assert.match(output.fiveHourLabel, /^79% left · ahead · \d{1,2}:\d{2} [AP]M$/);
-    assert.equal(output.sevenDayUsed, 42);
-    assert.match(output.sevenDayLabel, /^58% left · on pace · (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2}:\d{2} [AP]M$/);
-    assert.deepEqual(output.limitRing, []);
+    assert.equal(output.limitLabel, undefined);
+    // The limits card payload: used shares, spelled-out resets, elapsed anchors.
+    assert.equal(output.limits.plan, 'Claude plan');
+    assert.equal(output.limits.verdict, 'go');
+    assert.deepEqual(output.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['5-hour limit', '5h', 21], ['7-day limit', '7d', 42]]);
+    assert.ok(output.limits.windows.every((limit) => typeof limit.resetsIn === 'string' && limit.resetsIn !== ''));
+    assert.ok(Math.abs(output.limits.windows[0].elapsed - 0.4) < 0.01);
+    // The same windows as the plain view model every surface reads.
+    assert.deepEqual(output.windows.map((vm) => [vm.provider, vm.windowKind, vm.percentUsed, vm.percentRemaining]), [
+        ['claude', 'session', 21, 79],
+        ['claude', 'weekly', 42, 58],
+    ]);
 
     // A quiet provider reports zero today rather than its last active day.
     const kimi = JSON.parse(run({ provider: 'kimi' }).stdout);
@@ -186,7 +205,7 @@ try {
     // reports its own figure.
     assert.ok(kimi.weekSeries.some((day) => day.valueLabel === '60.0K'), 'older day must keep its total');
     assert.equal(kimi.weekSeries.at(-1)?.valueLabel, '2.5K');
-    assert.equal(kimi.limitLabel, 'Plan limits aren’t connected in muxr');
+    assert.deepEqual(kimi.limits, { verdict: 'unknown', windows: [], message: 'Plan limits aren’t connected in muxr' });
 
     // A deep link to an installed-but-idle provider no longer mints a tab;
     // it falls back to the default one instead.
@@ -227,7 +246,7 @@ try {
     const go = JSON.parse(run({ provider: 'opencode' }).stdout);
     assert.equal(go.todayTokens, '300');
     assert.equal(go.todayCost, '$0.00');
-    assert.match(go.limitLabel, /Go limits unavailable/);
+    assert.match(go.limits.message ?? '', /Go limits unavailable/);
     assert.ok(!existsSync(join(scratch, 'usage-v2-opencode.json')), 'missing Go limits must not be cached');
     writeFileSync(join(scratch, '.local/share/opencode/auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: 'fixture-secret-key' } }));
     const goFetch = join(scratch, 'go-fetch.mjs');
@@ -237,27 +256,38 @@ try {
     };`);
     const goEnv = { NODE_OPTIONS: `--import=${goFetch}`, OPENCODE_AUTH_CONTENT: '{}' };
     const override = JSON.parse(run({ provider: 'opencode' }, goEnv).stdout);
-    assert.match(override.limitLabel, /connect your Go account/, 'valid auth override must not borrow disk key');
+    assert.match(override.limits.message ?? '', /connect your Go account/, 'valid auth override must not borrow disk key');
     const connected = run({ provider: 'opencode' }, { ...goEnv, OPENCODE_AUTH_CONTENT: '' });
     const connectedGo = JSON.parse(connected.stdout);
-    assert.equal(connectedGo.limitLabel, 'OpenCode Go plan usage');
-    assert.deepEqual(connectedGo.limitSeries.map((limit) => limit.value), [80, 79, 78]);
-    assert.deepEqual(connectedGo.limitSeries.map((limit) => limit.valueLabel), ['80% left', '79% left', '78% left']);
-    // Rolling publishes no window length, so it reports headroom and the
-    // clock without claiming a projection; weekly projects comfortably ahead.
-    assert.match(connectedGo.limitSeries[0]?.detail ?? '', /^[A-Z][a-z]{2} \d{1,2}:\d{2} [AP]M · on pace$|^\d{1,2}:\d{2} [AP]M · on pace$/);
-    assert.match(connectedGo.limitSeries[1]?.detail ?? '', /· ahead$/);
+    assert.equal(connectedGo.limits.plan, 'OpenCode Go');
+    assert.deepEqual(connectedGo.limits.windows.map((limit) => [limit.label, limit.used]), [['Rolling', 20], ['Weekly', 21], ['Monthly', 22]]);
+    // Rolling is documented as five hours, so it carries a length and an
+    // elapsed anchor; monthly's anchor is the subscription date, so no length
+    // is invented. Every row spells out its reset.
+    assert.deepEqual(connectedGo.limits.windows.map((limit) => [limit.window, limit.resetsIn !== undefined]), [['5h', true], ['7d', true], [undefined, true]]);
+    assert.equal(connectedGo.limits.windows[2].elapsed, undefined);
+    assert.deepEqual(connectedGo.windows.map((vm) => [vm.provider, vm.windowKind, vm.percentUsed, vm.percentRemaining]), [
+        ['opencode', 'rolling', 20, 80],
+        ['opencode', 'weekly', 21, 79],
+        ['opencode', 'monthly', 22, 78],
+    ]);
     assert.doesNotMatch(connected.stdout, /fixture-secret-key/);
-    assert.match(JSON.parse(run({ provider: 'opencode' }, goEnv).stdout).limitLabel, /connect your Go account/, 'auth override change reused cached account limits');
+    assert.match(JSON.parse(run({ provider: 'opencode' }, goEnv).stdout).limits.message, /connect your Go account/, 'auth override change reused cached account limits');
     writeFileSync(join(scratch, '.local/share/opencode/auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: 'different-fixture-key' } }));
-    assert.match(JSON.parse(run({ provider: 'opencode' }, { ...goEnv, OPENCODE_AUTH_CONTENT: '' }).stdout).limitLabel, /limits unavailable/, 'disk key change reused cached account limits');
+    assert.match(JSON.parse(run({ provider: 'opencode' }, { ...goEnv, OPENCODE_AUTH_CONTENT: '' }).stdout).limits.message, /limits unavailable/, 'disk key change reused cached account limits');
     assert.doesNotMatch(readFileSync(join(scratch, 'usage-v2-opencode.json'), 'utf8'), /fixture-secret-key|different-fixture-key/);
 
-    // Z.ai: the GLM Coding Plan credential Pi holds earns a tab with no
-    // measured activity of its own, and the monitor endpoint fills the chart.
+    // Z.ai: the GLM Coding Plan credential Pi holds earns a tab, and its
+    // measured activity is the Z.ai-model slice of Pi's own local records --
+    // the monitor endpoint fills the windows, the transcripts fill the tokens.
     const zaiAgent = join(scratch, 'zai-agent');
     mkdirSync(zaiAgent, { recursive: true });
     writeFileSync(join(zaiAgent, 'auth.json'), JSON.stringify({ zai: { type: 'api_key', key: 'fixture-zai-key' } }));
+    writeFileSync(join(zaiAgent, 'models.json'), JSON.stringify({ providers: { zai: { models: [{ id: 'glm-fixture' }] } } }));
+    writeTranscript(join(zaiAgent, 'sessions/proj/zai-session.jsonl'), [
+        record('zai-1', '2026-09-05T11:30:00.000Z', 'glm-fixture', { input: 300, output: 100, cacheRead: 100 }, 0.7),
+        record('zai-2', '2026-09-05T11:45:00.000Z', 'other-model', { input: 50 }, 0.9),
+    ]);
     const zaiFetchOk = join(scratch, 'zai-fetch-ok.mjs');
     writeFileSync(zaiFetchOk, `globalThis.fetch = async (url, options) => {
       if (url !== 'https://api.z.ai/api/monitor/usage/quota/limit' || options.redirect !== 'error' || options.headers.authorization !== 'Bearer fixture-zai-key') throw new Error('unexpected quota request');
@@ -269,13 +299,22 @@ try {
     };`);
     const zaiRun = JSON.parse(run({ provider: 'zai' }, { NODE_OPTIONS: `--import=${zaiFetchOk}`, PI_AGENT_DIR: zaiAgent }).stdout);
     assert.equal(zaiRun.provider, 'zai');
-    assert.equal(zaiRun.limitLabel, 'Z.ai plan usage');
-    assert.deepEqual(zaiRun.limitSeries.map((limit) => [limit.label, limit.value, limit.valueLabel]), [['5-hour limit', 96, '96% left'], ['Weekly limit', 99, '99% left']]);
-    assert.match(zaiRun.limitSeries[0]?.detail ?? '', /\d{1,2}:\d{2} [AP]M · ahead$/);
-    assert.equal(zaiRun.limitSeries[0]?.tone, 'positive');
-    assert.deepEqual(zaiRun.limitRing, []);
-    assert.equal(zaiRun.todayTokens, '—');
-    assert.match(zaiRun.activityLabel, /unsupported/);
+    assert.deepEqual(zaiRun.limits.plan, 'Z.ai plan');
+    assert.deepEqual(zaiRun.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['5-hour limit', '5h', 4], ['Weekly limit', '7d', 1]]);
+    // Tokens are the local Z.ai-model slice: one model, one turn, measured
+    // once. Cost stays a dash: plan tokens are priced by the plan, and a
+    // recorded dollar figure must never stand in for one.
+    assert.equal(zaiRun.todayTokens, '500');
+    assert.equal(zaiRun.todayCost, '—');
+    assert.equal(zaiRun.weekTokens, '500');
+    assert.equal(zaiRun.weekCost, '—');
+    assert.equal(zaiRun.activityNotice, undefined);
+    assert.deepEqual(zaiRun.modelSeries.map((model) => [model.label, model.value]), [['glm-fixture', 500]]);
+    // The windows come out as one plain view model, derived remaining and all.
+    assert.deepEqual(zaiRun.windows.map((vm) => [vm.provider, vm.windowKind, vm.percentUsed, vm.percentRemaining, vm.pace.verdict]), [
+        ['zai', 'session', 4, 96, 'ahead'],
+        ['zai', 'weekly', 1, 99, 'ahead'],
+    ]);
     assert.doesNotMatch(JSON.stringify(zaiRun), /fixture-zai-key/);
     // The configured plan is a tab even with zero measured activity of its
     // own, while installed-but-idle CLIs still are not.
@@ -284,25 +323,56 @@ try {
     assert.ok(!withZai.providers.some((p) => p.id === 'cursor' || p.id === 'gemini'));
     writeFileSync(join(scratch, 'zai-fetch-denied.mjs'), "globalThis.fetch = async () => new Response('denied', { status: 401 });");
     const zaiDenied = JSON.parse(run({ provider: 'zai' }, { NODE_OPTIONS: '--import=' + join(scratch, 'zai-fetch-denied.mjs'), PI_AGENT_DIR: zaiAgent, MUXR_PLUGIN_STATE_DIR: '' }).stdout);
-    assert.match(zaiDenied.limitLabel, /reconnect in Pi/);
-    assert.deepEqual(zaiDenied.limitSeries, []);
+    assert.match(zaiDenied.limits.message ?? '', /reconnect in Pi/);
+    assert.deepEqual(zaiDenied.limits.windows, []);
     writeFileSync(join(scratch, 'zai-fetch-none.mjs'), "globalThis.fetch = async () => new Response(JSON.stringify({ code: 200, success: false, msg: 'no package' }), { status: 200 });");
     const zaiNone = JSON.parse(run({ provider: 'zai' }, { NODE_OPTIONS: '--import=' + join(scratch, 'zai-fetch-none.mjs'), PI_AGENT_DIR: zaiAgent, MUXR_PLUGIN_STATE_DIR: '' }).stdout);
-    assert.match(zaiNone.limitLabel, /coding plan unavailable/);
+    assert.match(zaiNone.limits.message ?? '', /coding plan unavailable/);
     // A valid dotted profile is isolated from the default; an invalid profile
     // must never quietly read another account's database.
     cpSync(join(scratch, '.omp/agent'), join(scratch, '.omp/profiles/work.team/agent'), { recursive: true });
     const profileEnv = { OMP_PROFILE: 'work.team', MUXR_PLUGIN_STATE_DIR: '' };
     assert.equal(JSON.parse(run({ provider: 'omp' }, profileEnv).stdout).todayTokens, '150');
     const invalidProfile = JSON.parse(run({ provider: 'omp' }, { ...profileEnv, OMP_PROFILE: '../default' }).stdout);
-    assert.match(invalidProfile.activityLabel, /Invalid OMP profile/);
+    assert.match(invalidProfile.activityNotice ?? '', /Invalid OMP profile/);
     assert.equal(invalidProfile.todayTokens, '—');
 
-    // A failure in an unselected provider cannot be cached into a healthy tab.
+    // A collector that cannot measure one agent does not stop a healthy tab
+    // from caching its own (honestly labelled) payload: the failure stays on
+    // screen, and the next open refreshes instead of pinning it.
     rmSync(join(scratch, 'usage-v2-kimi.json'));
-    assert.equal(JSON.parse(run({ provider: 'kimi' }, { OMP_PROFILE: '../default' }).stdout).todayTokens, '2.5K');
-    assert.ok(!existsSync(join(scratch, 'usage-v2-kimi.json')));
+    const kimiDuringOmpFailure = JSON.parse(run({ provider: 'kimi' }, { OMP_PROFILE: '../default' }).stdout);
+    assert.equal(kimiDuringOmpFailure.todayTokens, '2.5K');
+    assert.match(kimiDuringOmpFailure.items.find((item) => item.id === 'available-omp')?.subtitle ?? '', /Invalid OMP profile/);
+    assert.ok(existsSync(join(scratch, 'usage-v2-kimi.json')), 'a healthy tab caches despite another collector failing');
     assert.equal(JSON.parse(run({ provider: 'kimi' }).stdout).providers[0]?.id, 'omp');
+
+    // The lag fix: with any last-known payload on disk, the screen paints it
+    // at once (flagged stale) instead of holding a skeleton behind a slow
+    // collector; the paint itself never runs the collector.
+    const kimiCache = join(scratch, 'usage-v2-kimi.json');
+    const seeded = JSON.parse(readFileSync(kimiCache, 'utf8'));
+    seeded.at -= 120_000;
+    writeFileSync(kimiCache, JSON.stringify(seeded));
+    const slowMarker = join(scratch, 'slow-ccusage-ran');
+    const slowCcusage = join(scratch, 'ccusage-slow');
+    writeFileSync(slowCcusage, `#!/bin/sh\nsleep 6\ntouch "${slowMarker}"\nexit 1\n`, { mode: 0o755 });
+    const staleStarted = Date.now();
+    const stalePaint = JSON.parse(run({ provider: 'kimi' }, { MUXR_CCUSAGE_BIN: slowCcusage }).stdout);
+    const staleMs = Date.now() - staleStarted;
+    assert.equal(stalePaint.todayTokens, '2.5K');
+    assert.equal(stalePaint.stale, true);
+    assert.ok(staleMs < 5_000, `stale paint waited on its slow collector (${staleMs}ms)`);
+    assert.ok(!existsSync(slowMarker), 'stale paint must not run the collector at all');
+    // The screen's revalidation asks for fresh data by name (`_refresh`), so
+    // it re-collects past a still-valid cache and lands clean, flag-free.
+    const refreshMarker = join(scratch, 'refresh-ccusage-ran');
+    const refreshCcusage = join(scratch, 'ccusage-refresh');
+    writeFileSync(refreshCcusage, `#!/bin/sh\ntouch "${refreshMarker}"\nprintf '%s' '${JSON.stringify(report)}'\n`, { mode: 0o755 });
+    const refreshed = JSON.parse(run({ provider: 'kimi', _refresh: true }, { MUXR_CCUSAGE_BIN: refreshCcusage }).stdout);
+    assert.ok(existsSync(refreshMarker), 'revalidation re-collected past the cache');
+    assert.ok(!('stale' in refreshed));
+    assert.equal(refreshed.todayTokens, '2.5K');
     rmSync(join(scratch, 'usage-v2-all.json'));
     const codexFixture = readFileSync(join(scratch, 'codex'), 'utf8');
     rmSync(join(scratch, 'codex'));
@@ -393,7 +463,7 @@ try {
         const switched = await call(resolve('plugins/status/usage.mjs'), 'omp');
         assert.equal(switched.todayTokens, '7', 'profile switch reused another profile cache');
         const hostGo = await call(resolve('plugins/status/usage.mjs'), 'opencode');
-        assert.match(hostGo.limitLabel, /connect your Go account/);
+        assert.match(hostGo.limits.message ?? '', /connect your Go account/);
         assert.doesNotMatch(JSON.stringify(hostGo), /must-not-borrow-disk-key|_usageConfig/);
         const untrusted = join(scratch, 'usage.mjs');
         writeFileSync(untrusted, `import{readFileSync}from'node:fs';const input=JSON.parse(readFileSync(0,'utf8'));console.log(JSON.stringify({hostAuthInInput:input._usageConfig?.goAuthOverride!==undefined,hostAuthInEnv:process.env.OPENCODE_AUTH_CONTENT!==undefined,hostProfileInEnv:process.env.OMP_PROFILE!==undefined}));`);
@@ -478,7 +548,7 @@ try {
         // Yesterday's record has no recorded cost: unknown, never free.
         assert.equal(pi.weekSeries.at(-2)?.value, 500);
         assert.equal(pi.weekCost, '—');
-        assert.equal(pi.limitLabel, 'Plan limits aren’t connected in muxr');
+        assert.deepEqual(pi.limits, { verdict: 'unknown', windows: [], message: 'Plan limits aren’t connected in muxr' });
 
         const omp = flowRun('omp');
         assert.equal(omp.provider, 'omp');
@@ -495,7 +565,15 @@ try {
         // not a shape check.
         const codex = flowRun('codex');
         assert.equal(codex.provider, 'codex');
-        assert.ok(codex.limitSeries.length > 0);
+        assert.ok(codex.limits.windows.length > 0);
+        // Every limits row ships a used share inside 0..100 and a spelled-out reset.
+        assert.ok(codex.limits.windows.every((limit) => Number.isFinite(limit.used) && limit.used >= 0 && limit.used <= 100 && typeof limit.resetsIn === 'string'));
+        // Codex windows ride the same view model: kind from the published
+        // length, remaining derived, pace projected against the reset clock.
+        assert.deepEqual(codex.windows.map((vm) => [vm.provider, vm.windowKind, vm.percentUsed, vm.percentRemaining, vm.pace.verdict]), [
+            ['codex', 'weekly', 90, 10, 'burning'],
+            ['codex', 'session', 25, 75, 'ahead'],
+        ]);
         assert.equal(codex.todayTokens, '1.3K');
         assert.equal(codex.weekSeries.at(-1)?.value, 1300);
         assert.equal(codex.weekSeries[4]?.value, 700);
@@ -522,7 +600,7 @@ try {
         ]);
         const broken = flowRun('pi', { PI_AGENT_DIR: malformed });
         assert.equal(broken.todayTokens, '—');
-        assert.match(broken.activityLabel, /could not be measured/);
+        assert.match(broken.activityNotice ?? '', /could not be measured/);
         // A transcript nested past the scan's depth bound is unread, not empty.
         const deep = join(flow, 'deep-agent');
         writeTranscript(join(deep, 'sessions/a/b/c/d/e/f/g/h/i/session.jsonl'), [
@@ -548,7 +626,7 @@ try {
         ]);
         const huge = flowRun('pi', { PI_AGENT_DIR: oversized });
         assert.equal(huge.todayTokens, '—');
-        assert.match(huge.activityLabel, /could not be measured/);
+        assert.match(huge.activityNotice ?? '', /could not be measured/);
 
         // A root that is there but cannot be read is not an empty root. Only
         // portable where the process is not root, which ignores the mode.
@@ -562,7 +640,7 @@ try {
             try {
                 const denied = flowRun('pi', { PI_AGENT_DIR: locked });
                 assert.equal(denied.todayTokens, '—');
-                assert.match(denied.activityLabel, /could not be measured/);
+                assert.match(denied.activityNotice ?? '', /could not be measured/);
             } finally { chmodSync(join(locked, 'sessions/proj'), 0o755); }
         }
 
@@ -581,7 +659,7 @@ try {
         const unavailable = flowRun('pi', { PI_AGENT_DIR: exhausted });
         assert.equal(unavailable.todayTokens, '—');
         assert.equal(unavailable.todayCost, '—');
-        assert.match(unavailable.activityLabel, /could not be measured/);
+        assert.match(unavailable.activityNotice ?? '', /could not be measured/);
         assert.ok(!existsSync(join(flow, 'state', 'usage-v2-pi.json')), 'unavailable collection was cached');
     } finally {
         rmSync(flow, { recursive: true, force: true });

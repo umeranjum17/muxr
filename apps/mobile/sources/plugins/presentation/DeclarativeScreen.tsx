@@ -26,11 +26,18 @@ import { cardStyle, Meter, SectionLabel, ui, withAlpha } from '@/components/ui';
 import { layout } from '@/components/layout';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenWidthProvider, useScreenContentWidth } from './pluginScreenLayout';
+import { AgentGlyph } from '@/components/AgentGlyph';
 import { ScreenChart } from './screenCharts';
+import { ScreenLimits } from './screenLimits';
 import { ScreenTree } from './screenTree';
 
 /** Screen payloads survive a close: reopening renders at once, then refreshes. */
 const screenCache = new Map<string, unknown>();
+
+/** A plugin may flag its payload as last-known data; the screen revalidates it. */
+function isStalePayload(value: unknown): boolean {
+    return typeof value === 'object' && value !== null && (value as { stale?: unknown }).stale === true;
+}
 registerPluginDataCacheInvalidator((pluginIds) => {
     if (pluginIds === undefined) screenCache.clear();
     else for (const pluginId of pluginIds) clearPluginCache(screenCache, pluginId);
@@ -67,7 +74,7 @@ function ScreenSkeleton() {
     const { theme } = useUnistyles();
     return (
         <View style={{ gap: 12, marginTop: 4 }}>
-            {[96, 140, 72].map((height) => (
+            {[220, 96, 140].map((height) => (
                 <View key={height} style={{ height, borderRadius: 16, backgroundColor: theme.colors.surfaceHigh }} />
             ))}
         </View>
@@ -205,7 +212,23 @@ function ScreenNode(props: {
     switch (node.type) {
         case 'text': {
             const text = bind(node.text);
-            return text === '' ? null : <Text style={{ color: node.tone === undefined ? theme.colors.text : toneColor(theme, node.tone), fontSize: 15, lineHeight: 21, marginBottom: 8 }}>{text}</Text>;
+            if (text === '') return null;
+            // A toned warning or danger text reads as a notice: one tone dot,
+            // then the words, with any part after " · " quieter.
+            if (node.tone === 'warning' || node.tone === 'danger') {
+                const dot = node.tone === 'danger' ? theme.colors.box.error.text : theme.colors.box.warning.text;
+                const divider = text.indexOf(' · ');
+                return (
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: dot, marginTop: 6 }} />
+                        <Text style={{ flex: 1, color: dot, fontSize: 13, lineHeight: 18 }}>
+                            {divider < 0 ? text : text.slice(0, divider)}
+                            {divider < 0 ? '' : <Text style={{ color: theme.colors.textSecondary }}>{text.slice(divider)}</Text>}
+                        </Text>
+                    </View>
+                );
+            }
+            return <Text style={{ color: node.tone === undefined ? theme.colors.text : toneColor(theme, node.tone), fontSize: 15, lineHeight: 21, marginBottom: 8 }}>{text}</Text>;
         }
         case 'row':
             return <ScreenRow row={node} data={data} onRowAction={props.onRowAction} insideCard={props.nested === true} style={{ paddingVertical: 10 }} />;
@@ -267,6 +290,8 @@ function ScreenNode(props: {
                 </View>
             );
         }
+        case 'limits':
+            return <ScreenLimits node={node} data={data} />;
         case 'chart':
             return <ScreenChart node={node} data={data} nested={props.nested === true} />;
         case 'divider':
@@ -310,18 +335,25 @@ function ScreenNode(props: {
             const active = typeof selected === 'string' && selected !== '' ? selected : tabs[0]!.id;
             return (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }} contentContainerStyle={{ gap: 6, paddingRight: 24 }}>
-                    {tabs.map((tab) => (
-                        <Pressable key={tab.id} accessibilityRole="tab" accessibilityState={{ selected: tab.id === active }} accessibilityLabel={tab.label}
-                            onPress={() => { hapticsSelection(); props.onSelectTab(node.param, tab.id); }}
-                            style={({ pressed }) => ({
-                                paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999,
-                                borderWidth: StyleSheet.hairlineWidth,
-                                borderColor: tab.id === active ? 'transparent' : theme.colors.divider,
-                                backgroundColor: tab.id === active ? theme.colors.accent : pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh,
-                            })}>
-                            <Text style={{ fontSize: 13, fontWeight: '600', color: tab.id === active ? theme.colors.surface : theme.colors.textSecondary }}>{tab.label}</Text>
-                        </Pressable>
-                    ))}
+                    {tabs.map((tab) => {
+                        const labelColor = tab.id === active ? theme.colors.surface : theme.colors.textSecondary;
+                        return (
+                            <Pressable key={tab.id} accessibilityRole="tab" accessibilityState={{ selected: tab.id === active }} accessibilityLabel={tab.label}
+                                onPress={() => { hapticsSelection(); props.onSelectTab(node.param, tab.id); }}
+                                style={({ pressed }) => ({
+                                    flexDirection: 'row', alignItems: 'center', gap: 6,
+                                    paddingLeft: tab.glyph === undefined ? 12 : 10, paddingRight: 12, paddingVertical: 7, borderRadius: 999,
+                                    borderWidth: StyleSheet.hairlineWidth,
+                                    borderColor: tab.id === active ? 'transparent' : theme.colors.divider,
+                                    backgroundColor: tab.id === active ? theme.colors.accent : pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh,
+                                })}>
+                                {tab.glyph !== undefined && (
+                                    <AgentGlyph name={tab.glyph} size={16} color={labelColor} />
+                                )}
+                                <Text style={{ fontSize: 13, fontWeight: '600', color: labelColor }}>{tab.label}</Text>
+                            </Pressable>
+                        );
+                    })}
                 </ScrollView>
             );
         }
@@ -470,14 +502,29 @@ function ScreenBody(props: {
         // it on screen would label one provider's totals with another's name.
         setLoading(true);
         setDataError(undefined);
-        void loadScreenData(dataContributionId, props.manifest, props.pluginId, props.manifestHash, request, callParams)
+        const load = (revalidate?: boolean) => loadScreenData(
+            dataContributionId, props.manifest, props.pluginId, props.manifestHash, request,
+            revalidate ? { ...(callParams ?? {}), _refresh: true } : callParams,
+        );
+        const apply = (value: unknown) => {
+            screenCache.set(cacheKey, value);
+            setFetched({ key: cacheKey, value });
+            const defaults = initialFieldValues(screen, value);
+            setFields((current) => Object.fromEntries(Object.entries(defaults).map(([id, initial]) =>
+                [id, dirtyFields.current.has(id) ? current[id] ?? initial : initial])));
+        };
+        void load()
             .then((value) => {
                 if (cancelled) return;
-                screenCache.set(cacheKey, value);
-                setFetched({ key: cacheKey, value });
-                const defaults = initialFieldValues(screen, value);
-                setFields((current) => Object.fromEntries(Object.entries(defaults).map(([id, initial]) =>
-                    [id, dirtyFields.current.has(id) ? current[id] ?? initial : initial])));
+                apply(value);
+                // Last-known numbers paint at once; a payload flagged stale by
+                // the plugin revalidates quietly once -- asking for fresh data
+                // by name -- and swaps in place. The revalidation never
+                // chains, however stale the answer is.
+                if (!isStalePayload(value)) return;
+                void load(true).then((fresh) => {
+                    if (!cancelled && fresh !== undefined) apply(fresh);
+                }).catch(() => { /* the painted payload stands until a manual refresh */ });
             })
             .catch((error: unknown) => { if (!cancelled) setDataError(error instanceof Error ? error.message : String(error)); })
             .finally(() => { if (!cancelled) { setLoading(false); setRefreshing(false); } });

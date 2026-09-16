@@ -829,18 +829,6 @@ export const ca: TranslationStructure = {
         denyRequest: 'Rebutjar sol·licitud',
     },
 
-    usage: {
-        // Usage panel strings
-        today: 'Avui',
-        last7Days: 'Últims 7 dies',
-        last30Days: 'Últims 30 dies',
-        totalTokens: 'Tokens totals',
-        totalCost: 'Cost total',
-        tokens: 'Tokens',
-        cost: 'Cost',
-        usageOverTime: 'Ús al llarg del temps',
-        byModel: 'Per model',
-    },
 
     imageUpload: {
         permissionTitle: 'Accés a la biblioteca de fotos',

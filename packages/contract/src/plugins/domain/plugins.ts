@@ -481,6 +481,14 @@ export interface PluginScreenChartNode {
     title?: PluginText;
     emptyText?: PluginText;
 }
+/** One card that answers "can I start now, and when do I get more". */
+export interface PluginScreenLimitsNode {
+    type: 'limits';
+    /** Runtime path to a bounded limits payload (see the host plugin contract). */
+    path: string;
+    /** Section label; the plan name renders beside it from the payload. */
+    title?: PluginText;
+}
 export interface PluginScreenTreeNode {
     type: 'tree';
     title?: PluginText;
@@ -532,6 +540,7 @@ export type PluginScreenNode =
     | PluginScreenBadgeNode
     | PluginScreenProgressNode
     | PluginScreenChartNode
+    | PluginScreenLimitsNode
     | PluginScreenDividerNode
     | PluginScreenEmptyNode
     | PluginScreenFieldNode
@@ -643,7 +652,7 @@ export const MAX_SCREEN_PARAMS = 8;
  * says so instead of silently dropping contributions the app cannot render.
  * Bumped whenever a manifest can contain values an older phone cannot parse.
  */
-export const MUXR_UI_VERSION = 13;
+export const MUXR_UI_VERSION = 14;
 export const DYNAMIC_SCREEN_MIN_UI_VERSION = 13;
 export const MAX_CHART_SERIES = 8;
 export const MAX_CHART_LABEL_BYTES = 24;

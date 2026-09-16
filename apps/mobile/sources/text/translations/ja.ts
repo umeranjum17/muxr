@@ -832,18 +832,6 @@ export const ja: TranslationStructure = {
         denyRequest: '友達リクエストを拒否',
     },
 
-    usage: {
-        // Usage panel strings
-        today: '今日',
-        last7Days: '過去7日間',
-        last30Days: '過去30日間',
-        totalTokens: '合計トークン',
-        totalCost: '合計コスト',
-        tokens: 'トークン',
-        cost: 'コスト',
-        usageOverTime: '使用量の推移',
-        byModel: 'モデル別',
-    },
 
     imageUpload: {
         permissionTitle: 'フォトライブラリへのアクセス',

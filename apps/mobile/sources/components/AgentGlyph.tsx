@@ -34,7 +34,7 @@ const agentImages = {
 export const ACCENT = '#cba6f7'; // kept for components not wired to the theme; prefer theme.colors.accent
 
 export const AgentGlyph = React.memo(
-    (props: { name: string; size?: number; selected?: boolean; dim?: boolean }) => {
+    (props: { name: string; size?: number; selected?: boolean; dim?: boolean; /** Overrides the derived text/secondary colour (e.g. a pill's label colour). */ color?: string }) => {
         const { theme } = useUnistyles();
         const size = props.size ?? 32;
         const name = props.name.trim().toLowerCase();
@@ -42,7 +42,7 @@ export const AgentGlyph = React.memo(
         const selected = props.selected === true;
         const kind = agentImageKind(name);
         const image = kind === undefined ? undefined : agentImages[kind];
-        const color = selected || theme.dark ? theme.colors.text : theme.colors.textSecondary;
+        const color = props.color ?? (selected || theme.dark ? theme.colors.text : theme.colors.textSecondary);
         return (
             <View
                 style={{
@@ -59,6 +59,9 @@ export const AgentGlyph = React.memo(
                             color,
                             fontSize: size * 0.68,
                             fontWeight: '600',
+                            // A small ringed monogram reads as a placeholder mark,
+                            // not a stray character, for providers with no mark file.
+                            ...(size <= 20 ? { borderRadius: size / 2, borderWidth: 1, borderColor: color, paddingHorizontal: size * 0.12, textAlign: 'center', overflow: 'hidden' } : {}),
                         }}
                     >
                         {letter}

@@ -4,7 +4,10 @@ import { spawn } from 'node:child_process';
 import { constants, accessSync, chmodSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 
 import { createRequire } from 'node:module';
-import { headroomLabel, limitRow, paceVerdict, resetClock, WINDOW_MINUTES } from './rateLimits.mjs';
+import {
+  activityTotals, claudeWindows, codexWindows, goWindows, limitsPayload, localActivityForModels,
+  providerModelIds, windowRow, zaiWindows,
+} from './usageWindows.mjs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { delimiter, join } from 'node:path';
@@ -20,7 +23,12 @@ for (const key of ['XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'PI_
 
 /** Which provider tab the screen asked for; empty means most recently used. */
 const requested = String(input.provider ?? '').slice(0, 32);
+/** A stale paint revalidates by asking for fresh data by name; a normal read
+ *  still paints last-known values instantly. */
+const refreshRequested = input._refresh === true;
 let ccusageFailure;
+/** Short tab-strip names; every other tab falls back to its AGENTS name. */
+const TAB_LABELS = { claude: 'Claude', codex: 'Codex', copilot: 'Copilot', gemini: 'Gemini', grok: 'Grok', kimi: 'Kimi', kilo: 'Kilo', hermes: 'Hermes', qodercli: 'Qoder', mastracode: 'Mastra' };
 const AGENTS = {
   claude: 'Anthropic Claude', codex: 'OpenAI Codex', zai: 'Z.ai', opencode: 'OpenCode', amp: 'Amp', droid: 'Droid', codebuff: 'Codebuff',
   hermes: 'Hermes Agent', pi: 'Pi', goose: 'Goose', openclaw: 'OpenClaw', kilo: 'Kilo Code', kimi: 'Kimi Code', qwen: 'Qwen',
@@ -58,10 +66,10 @@ function ccusageBinary() {
     try { accessSync(binary, constants.X_OK); }
     catch {
       try { chmodSync(binary, 0o755); }
-      catch { ccusageFailure = 'ccusage backend is not executable · reinstall muxr without sudo'; return undefined; }
+      catch { ccusageFailure = 'Local activity backend is not executable · reinstall muxr without sudo'; return undefined; }
     }
     return binary;
-  } catch { ccusageFailure = 'ccusage backend is missing · reinstall muxr'; return undefined; }
+  } catch { ccusageFailure = 'Local activity backend is missing · reinstall muxr'; return undefined; }
 }
 
 function runJson(command, args, timeout = 8_000) {
@@ -136,22 +144,8 @@ async function ccusageRange() {
   const binary = ccusageBinary();
   if (!binary) return undefined;
   const result = await runJson(binary, ['daily', '--by-agent', '--sections', 'daily,session', '--json', '--offline'], 10_000);
-  if (!Array.isArray(result?.daily) && ccusageFailure === undefined) ccusageFailure = 'ccusage activity unavailable · reopen Usage in a minute';
+  if (!Array.isArray(result?.daily) && ccusageFailure === undefined) ccusageFailure = 'Local activity unavailable · reopen Usage in a minute';
   return ccusageFailure === undefined ? result : undefined;
-}
-
-function parseClaudeLimits(value) {
-  const source = value?.rate_limits ?? value;
-  return [
-    ['five_hour', '5-hour limit'],
-    ['seven_day', '7-day limit'],
-  ].flatMap(([id, label]) => {
-    const raw = source?.[id];
-    const utilization = raw?.utilization ?? raw?.used_percentage;
-    if (!Number.isFinite(utilization) || utilization < 0 || utilization > 100) return [];
-    const resetAt = typeof raw?.resets_at === 'number' ? raw.resets_at : Date.parse(raw?.resets_at) / 1000;
-    return [{ id, label, used: Math.round(utilization), resetAt }];
-  });
 }
 
 function readJson(path, maxBytes) {
@@ -176,11 +170,10 @@ async function claudePlanLimits() {
   const snapshot = readJson(join(config, 'last-statusline-input.json'), 64 * 1024);
   const snapshotAge = snapshot === undefined ? undefined : Date.now() - snapshot.modified;
   if (snapshotAge !== undefined && snapshotAge >= 0 && snapshotAge < 5 * 60_000) {
-    const limits = parseClaudeLimits(snapshot.value);
-    if (limits.length > 0) return limits;
+    if (claudeWindows(snapshot.value, { nowMs: Date.now() }).length > 0) return snapshot.value;
   }
   const token = claudeCredentials();
-  if (token === undefined) return [];
+  if (token === undefined) return undefined;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5_000);
   try {
@@ -188,10 +181,10 @@ async function claudePlanLimits() {
       headers: { accept: 'application/json', authorization: `Bearer ${token}` },
       signal: controller.signal,
     });
-    if (!response.ok) return [];
+    if (!response.ok) return undefined;
     const body = await response.text();
-    return body.length <= 64 * 1024 ? parseClaudeLimits(JSON.parse(body)) : [];
-  } catch { return []; }
+    return body.length <= 64 * 1024 ? JSON.parse(body) : undefined;
+  } catch { return undefined; }
   finally { clearTimeout(timer); }
 }
 
@@ -216,7 +209,7 @@ function goConnected() {
 }
 
 async function goPlanLimits() {
-  if (!goConnected()) return { series: [], label: 'OpenCode Go limits unavailable · connect your Go account in OpenCode' };
+  if (!goConnected()) return { label: 'OpenCode Go limits unavailable · connect your Go account in OpenCode' };
   const { auth } = goAuthSelection();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5_000);
@@ -225,48 +218,45 @@ async function goPlanLimits() {
       headers: { accept: 'application/json', authorization: `Bearer ${auth.key}` },
       redirect: 'error', signal: controller.signal,
     });
-    if (response.status === 401) return { series: [], label: 'OpenCode Go authentication unavailable · reconnect in OpenCode' };
-    if (response.status === 403) return { series: [], label: 'OpenCode Go subscription unavailable for this account' };
-    if (!response.ok) return { series: [], label: 'OpenCode Go limits unavailable · try again shortly' };
+    if (response.status === 401) return { label: 'OpenCode Go authentication unavailable · reconnect in OpenCode' };
+    if (response.status === 403) return { label: 'OpenCode Go subscription unavailable for this account' };
+    if (!response.ok) return { label: 'OpenCode Go limits unavailable · try again shortly' };
     let body = '';
     for await (const chunk of response.body) {
       body += Buffer.from(chunk).toString('utf8');
-      if (Buffer.byteLength(body) > 64 * 1024) { controller.abort(); return { series: [], label: 'OpenCode Go limits unavailable' }; }
+      if (Buffer.byteLength(body) > 64 * 1024) { controller.abort(); return { label: 'OpenCode Go limits unavailable' }; }
     }
     const usage = JSON.parse(body)?.usage;
-    const series = [['rolling', 'Rolling'], ['weekly', 'Weekly'], ['monthly', 'Monthly']].flatMap(([key, label]) => {
-      const window = usage?.[key];
-      if (!Number.isFinite(window?.percent) || window.percent < 0 || !['ok', 'rate-limited'].includes(window.status)) return [];
-      // Rolling publishes no window length, so its row reports headroom and
-      // the clock without claiming a burn projection.
-      return [limitRow({
-        label, used: Math.min(100, window.percent), windowMinutes: WINDOW_MINUTES[key],
-        // Pace runs on the real clock: resets arrive as real-clock timestamps
-        // while NOW may be pinned to a fixture date by MUXR_USAGE_NOW.
-        resetEpochSec: Date.parse(window.resetsAt) / 1000, nowMs: Date.now(), limited: window.status === 'rate-limited',
-      })];
-    });
-    if (series.length !== 3) return { series: [], label: 'OpenCode Go limits unavailable · incomplete response' };
-    return { series, label: 'OpenCode Go plan usage' };
-  } catch { return { series: [], label: 'OpenCode Go limits unavailable · try again shortly' }; }
+    const vms = goWindows(usage, { nowMs: Date.now() });
+    if (vms.length !== 3) return { label: 'OpenCode Go limits unavailable · incomplete response' };
+    return { vms, label: 'OpenCode Go plan usage' };
+  } catch { return { label: 'OpenCode Go limits unavailable · try again shortly' }; }
   finally { clearTimeout(timer); }
 }
 
 /** The Z.ai credential Pi holds for its zai provider, from Pi's own auth store. */
+function piAgentDir() {
+  return process.env.PI_AGENT_DIR?.trim() || join(process.env.HOME?.trim() || homedir(), '.pi', 'agent');
+}
+
 function zaiToken() {
-  const agentDir = process.env.PI_AGENT_DIR?.trim() || join(process.env.HOME?.trim() || homedir(), '.pi', 'agent');
-  const auth = readJson(join(agentDir, 'auth.json'), 64 * 1024)?.value?.zai;
+  const auth = readJson(join(piAgentDir(), 'auth.json'), 64 * 1024)?.value?.zai;
   const token = auth?.type === 'api_key' && typeof auth.key === 'string' ? auth.key.trim() : '';
   return token !== '' && token.length <= 16 * 1024 ? token : undefined;
 }
 
-// Monitor buckets arrive as unit/number pairs; unknown pairs are skipped
-// rather than guessed at, so a schema change degrades to "unavailable".
-const ZAI_WINDOWS = new Map([['3:5', { label: '5-hour limit', windowMinutes: 300 }], ['6:1', { label: 'Weekly limit', windowMinutes: 10080 }]]);
+/** The models Pi routes through Z.ai, from Pi's own model registries. */
+function zaiModels() {
+  const dir = piAgentDir();
+  return new Set([
+    ...providerModelIds(readJson(join(dir, 'models.json'), 256 * 1024)?.value, 'zai'),
+    ...providerModelIds(readJson(join(dir, 'models-store.json'), 256 * 1024)?.value, 'zai'),
+  ]);
+}
 
 async function zaiPlanLimits() {
   const token = zaiToken();
-  if (token === undefined) return { series: [], label: 'Z.ai limits unavailable · connect Z.ai in Pi' };
+  if (token === undefined) return { label: 'Z.ai limits unavailable · connect Z.ai in Pi' };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5_000);
   try {
@@ -274,28 +264,20 @@ async function zaiPlanLimits() {
       headers: { accept: 'application/json', authorization: `Bearer ${token}` },
       redirect: 'error', signal: controller.signal,
     });
-    if (response.status === 401) return { series: [], label: 'Z.ai authentication unavailable · reconnect in Pi' };
-    if (response.status === 403) return { series: [], label: 'Z.ai coding plan unavailable for this account' };
-    if (!response.ok) return { series: [], label: 'Z.ai limits unavailable · try again shortly' };
+    if (response.status === 401) return { label: 'Z.ai authentication unavailable · reconnect in Pi' };
+    if (response.status === 403) return { label: 'Z.ai coding plan unavailable for this account' };
+    if (!response.ok) return { label: 'Z.ai limits unavailable · try again shortly' };
     let body = '';
     for await (const chunk of response.body) {
       body += Buffer.from(chunk).toString('utf8');
-      if (Buffer.byteLength(body) > 64 * 1024) { controller.abort(); return { series: [], label: 'Z.ai limits unavailable' }; }
+      if (Buffer.byteLength(body) > 64 * 1024) { controller.abort(); return { label: 'Z.ai limits unavailable' }; }
     }
     const parsed = JSON.parse(body);
-    if (parsed?.success === false) return { series: [], label: 'Z.ai coding plan unavailable for this account' };
-    const series = (Array.isArray(parsed?.data?.limits) ? parsed.data.limits : []).flatMap((limit) => {
-      const window = ZAI_WINDOWS.get(`${limit?.unit}:${limit?.number}`);
-      const used = limit?.percentage;
-      if (window === undefined || !Number.isFinite(used) || used < 0 || used > 100) return [];
-      return [limitRow({
-        label: window.label, used: Math.min(100, used), windowMinutes: window.windowMinutes,
-        resetEpochSec: Number(limit?.nextResetTime) / 1000, nowMs: Date.now(),
-      })];
-    });
-    if (series.length === 0) return { series: [], label: 'Z.ai limits unavailable · incomplete response' };
-    return { series, label: 'Z.ai plan usage' };
-  } catch { return { series: [], label: 'Z.ai limits unavailable · try again shortly' }; }
+    if (parsed?.success === false) return { label: 'Z.ai coding plan unavailable for this account' };
+    const vms = zaiWindows(parsed?.data?.limits, { nowMs: Date.now() });
+    if (vms.length === 0) return { label: 'Z.ai limits unavailable · incomplete response' };
+    return { vms, label: 'Z.ai plan usage' };
+  } catch { return { label: 'Z.ai limits unavailable · try again shortly' }; }
   finally { clearTimeout(timer); }
 }
 
@@ -391,7 +373,12 @@ function cachedOutput() {
     const age = NOW.getTime() - saved.at;
     const maxAge = saved.output?.provider === 'claude' ? 15_000 : 60_000;
     // A payload captured yesterday would keep labelling its last day "Today".
-    if (saved.identity === cacheIdentity && saved.date === TODAY && age >= 0 && age < maxAge && Array.isArray(saved.output?.items) && Buffer.byteLength(JSON.stringify(saved.output)) <= 65_536) return saved.output;
+    // Past the fresh window the payload still paints instantly -- flagged
+    // stale so the screen refreshes itself in place -- because last-known
+    // numbers beat a skeleton while a fresh collection runs.
+    if (saved.identity === cacheIdentity && saved.date === TODAY && age >= 0 && Array.isArray(saved.output?.items) && Buffer.byteLength(JSON.stringify(saved.output)) <= 65_536) {
+      return { output: saved.output, stale: age >= maxAge };
+    }
   } catch {}
   return undefined;
 }
@@ -452,64 +439,32 @@ function codexUsage() {
 function codexItems(result) {
   const limits = Object.values(result?.rateLimitsByLimitId ?? {});
   if (!limits.length && result?.rateLimits) limits.push(result.rateLimits);
-  const parsed = limits.slice(0, 8).flatMap((limit, index) => {
-    if (!limit || typeof limit !== 'object') return [];
-    const rawName = String(limit.limitName ?? limit.limitId ?? 'Codex').replace(/[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Codex';
-    const name = rawName.toLowerCase() === 'codex' ? AGENTS.codex : rawName;
-    return ['primary', 'secondary'].flatMap((key) => {
-      const window = limit[key];
-      if (!Number.isFinite(window?.usedPercent)) return [];
-      const rawMinutes = window.windowDurationMins;
-      const windowMinutes = Number.isFinite(rawMinutes) && rawMinutes > 0 ? rawMinutes : undefined;
-      let duration = key;
-      if (windowMinutes !== undefined) duration = `${windowMinutes / 60}h`;
-      const windowName = `${name} · ${duration}`;
-      const used = Math.max(0, Math.min(100, window.usedPercent));
-      const remaining = Math.round(100 - used);
-      return [{
-        index: index * 2 + Number(key === 'secondary'), name: windowName, remaining,
-        used, windowMinutes, resetAt: window?.resetsAt,
-      }];
-    });
-  });
-  // Critical windows first: the limit you are about to hit leads the list.
-  parsed.sort((a, b) => (a.remaining ?? 101) - (b.remaining ?? 101) || a.index - b.index);
-  const details = parsed.slice(0, 8);
   // Real clock for pace: provider resets are real-clock timestamps.
   const at = Date.now();
-  const items = parsed.map(({ index, name, remaining, used, windowMinutes, resetAt }) => {
-    const { verdict, tone } = paceVerdict({ used, windowMinutes, resetEpochSec: resetAt, nowMs: at });
-    const clock = resetClock(resetAt, at);
+  // Every window becomes the same view model the other providers use; the
+  // remaining shapes below are renders of it, never a second parse.
+  const vms = codexWindows(limits.slice(0, 8).flatMap((limit) => {
+    if (!limit || typeof limit !== 'object') return [];
+    const rawName = String(limit.limitName ?? limit.limitId ?? 'Codex').replace(/[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Codex';
+    return [{ limitName: rawName.toLowerCase() === 'codex' ? AGENTS.codex : rawName, primary: limit.primary, secondary: limit.secondary }];
+  }), { nowMs: at }).map((vm, ordinal) => ({ vm, ordinal }));
+  // Critical windows first: the limit you are about to hit leads the list.
+  const ordered = vms.sort((a, b) => a.vm.percentRemaining - b.vm.percentRemaining || a.ordinal - b.ordinal).slice(0, 8);
+  const items = ordered.map(({ vm, ordinal }) => {
+    const row = windowRow(vm);
     return {
-      id: `limit-codex-${index}`, title: name, subtitle: 'OpenAI Codex current limit', icon: 'speedometer-outline',
+      id: `limit-codex-${ordinal}`, title: vm.label, subtitle: 'OpenAI Codex current limit', icon: 'speedometer-outline',
       group: 'Rate limits',
-      ...(remaining === undefined ? {} : { progress: { value: remaining / 100, tone } }),
+      progress: { value: vm.percentRemaining / 100, tone: row.tone },
       metadata: [
-        { value: remaining === undefined ? 'Available' : `${remaining}% left`, ...(remaining === undefined ? {} : { tone }) },
-        { value: clock === '' ? verdict : `${clock} · ${verdict}` },
+        { value: `${Math.round(vm.percentRemaining)}% left`, tone: row.tone },
+        { value: vm.resetClock === '' ? vm.pace.verdict : `${vm.resetClock} · ${vm.pace.verdict}` },
       ],
     };
   });
-  const first = details.length === 0 ? undefined : details.reduce((lowest, limit) => (limit.remaining < lowest.remaining ? limit : lowest));
   return {
     items,
-    // detail carries the reset clock and the pace word, so a limit row reads
-    // "60% left · 2:30 PM · on pace" with red reserved for a projected hit.
-    series: details.map((limit) => limitRow({
-      label: limit.name, used: limit.used, windowMinutes: limit.windowMinutes,
-      resetEpochSec: limit.resetAt, nowMs: at,
-    })),
-    ring: first === undefined ? [] : [
-      limitRow({
-        label: 'Remaining', used: first.used, windowMinutes: first.windowMinutes,
-        resetEpochSec: first.resetAt, nowMs: at,
-      }),
-      { label: 'Used', value: 100 - first.remaining, valueLabel: `${100 - first.remaining}%`, tone: 'secondary' },
-    ],
-    remaining: first?.remaining ?? 0,
-    remainingLabel: first === undefined ? 'Unavailable' : headroomLabel({
-      used: first.used, windowMinutes: first.windowMinutes, resetEpochSec: first.resetAt, nowMs: at,
-    }),
+    windows: ordered.map(({ vm }) => vm),
   };
 }
 
@@ -519,19 +474,8 @@ function idleLabel(agent, local, failure) {
   // duplicated one this plugin replaces, and silence is not "nothing today".
   const report = local?.[agent];
   if (agent === 'omp' || agent === 'pi') return report?.rows ? 'No measured activity today' : report?.reason ?? 'Local activity unavailable';
-  if (!CCUSAGE_AGENTS.has(agent)) return 'Local activity unsupported by ccusage';
+  if (!CCUSAGE_AGENTS.has(agent)) return 'Local activity unsupported for this provider';
   return failure ?? 'No measured activity today';
-}
-
-function providerLimits(provider, codex) {
-  return provider === 'codex' ? codex.series : [];
-}
-
-function limitLabel(provider, claudeLimits, codex) {
-  if (provider === 'claude') return claudeLimits.length ? 'Claude plan usage' : 'Claude plan limits unavailable';
-  if (provider === 'codex') return codex.series.length ? codex.remainingLabel : 'Codex plan limits unavailable';
-  // The plan may well exist; muxr just has no integration that can read it.
-  return 'Plan limits aren\u2019t connected in muxr';
 }
 
 // The identity includes the selected Go credential. Use a bounded KDF rather
@@ -540,9 +484,9 @@ const cacheIdentity = scryptSync(JSON.stringify({
   config: Object.fromEntries(['HOME', 'PATH', 'XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'PI_AGENT_DIR', 'OMP_PROFILE', 'PI_PROFILE', 'OPENCODE_DB', 'OPENCODE_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'TZ'].map((key) => [key, process.env[key] ?? null])),
   go: goAuthSelection(),
 }), 'muxr.status/usage/cache-identity/v4', 32, { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 }).toString('hex');
-const cached = cachedOutput();
+const cached = refreshRequested ? undefined : cachedOutput();
 if (cached !== undefined) {
-  process.stdout.write(JSON.stringify(cached));
+  process.stdout.write(JSON.stringify(cached.stale ? { ...cached.output, stale: true } : cached.output));
 } else {
   // Codex limits load every time: the home card lists them whatever tab the
   // details screen last showed.
@@ -583,6 +527,17 @@ if (cached !== undefined) {
     }
     agents.set(agent, days);
   }
+  // A connected plan with no collector of its own is measured from the local
+  // worker records that run it: Pi transcripts name every model per turn, so
+  // the Z.ai tab aggregates its own slice instead of reporting dashes.
+  const zaiConnected = zaiToken() !== undefined;
+  const zaiModelIds = zaiConnected ? zaiModels() : new Set();
+  const zaiLocal = zaiConnected ? localActivityForModels(reports.pi, zaiModelIds, PERIODS) : undefined;
+  if (zaiLocal) {
+    agents.set('zai', zaiLocal.days);
+    if (Number.isFinite(zaiLocal.latest) && zaiLocal.latest <= NOW.getTime()) latest.set('zai', zaiLocal.latest);
+    reports.zai = { rows: zaiLocal.days.flatMap((day) => day.row?.modelBreakdowns ?? []), latest: zaiLocal.latest };
+  }
   const activity = ccusageItems(agents);
   const installed = Object.entries(AGENT_COMMANDS).filter(([agent, command]) => installedAgent(agent, command));
   // A tab means real integration: measured activity this week, or a connected
@@ -596,29 +551,37 @@ if (cached !== undefined) {
   const providerIds = [...new Set([...agents.keys(), ...latest.keys(), ...Object.keys(reports), ...planConnected, ...(codex.items.length ? ['codex'] : [])])]
     .sort((a, b) => (latest.get(b) ?? 0) - (latest.get(a) ?? 0) || AGENTS[a].localeCompare(AGENTS[b]));
   const provider = providerIds.includes(selected) ? selected : providerIds[0] ?? '';
-  const activitySupported = CCUSAGE_AGENTS.has(provider) || provider === 'omp';
+  const activitySupported = CCUSAGE_AGENTS.has(provider) || provider === 'omp' || provider === 'zai';
   const localReport = reports[provider];
   let activityFailure = ccusageFailure;
   if (localReport?.rows) activityFailure = undefined;
   if (localReport?.unavailable) activityFailure = localReport.reason ?? 'Local activity unavailable';
+  // Z.ai is measured from Pi's records, so ccusage's health says nothing about
+  // this tab; only whether its models could be attributed does.
+  if (provider === 'zai' && zaiConnected && zaiModelIds.size === 0) activityFailure = 'Local activity unavailable for this provider';
+  else if (provider === 'zai' && zaiConnected && reports.pi?.unavailable) activityFailure = reports.pi.reason ?? 'Local activity unavailable';
+  else if (provider === 'zai' && zaiConnected) activityFailure = undefined;
   const activityAvailable = activitySupported && activityFailure === undefined;
-  let activityLabel = 'Local activity from ccusage; costs are estimates, not plan usage';
-  if (!agents.get(provider)?.some(({ row }) => row?.totalTokens > 0)) activityLabel = 'No local activity found in the last 7 days';
-  if (localReport?.rows) activityLabel = 'Recorded local activity; costs are separate from plan limits';
-  if (activityFailure) activityLabel = activityFailure;
-  if (!activitySupported) activityLabel = 'Local activity unsupported by ccusage for this provider';
-  if (!provider) activityLabel = ccusageFailure ?? 'No supported providers detected';
+  // Only failures speak on the screen now (a notice inside the Today card);
+  // the informational sentences were the footer's job all along.
   const days = agents.get(provider) ?? PERIODS.map((period) => ({ period, row: undefined }));
-  const today = days[days.length - 1]?.row;
-  const weekTokens = days.reduce((sum, day) => sum + (day.row?.totalTokens ?? 0), 0);
-  const weekCost = days.reduce((sum, day) => sum + (day.row?.totalCost ?? 0), 0);
-  const [claudeLimits, go, zaiPlan] = await Promise.all([
-    provider === 'claude' ? claudePlanLimits() : [],
+  const totals = activityTotals(days);
+  const { today, tokensToday, tokensWeek, costToday, costWeek } = totals;
+  const [claudeRaw, go, zaiPlan] = await Promise.all([
+    provider === 'claude' ? claudePlanLimits() : undefined,
     provider === 'opencode' ? goPlanLimits() : { series: [], label: '' },
     provider === 'zai' ? zaiPlanLimits() : { series: [], label: '' },
   ]);
-  const fiveHour = claudeLimits.find((limit) => limit.id === 'five_hour');
-  const sevenDay = claudeLimits.find((limit) => limit.id === 'seven_day');
+  // One transform per source, one view model for the screen: everything below
+  // renders from these, never from a provider payload.
+  const nowMs = Date.now();
+  const claudeVMs = claudeWindows(claudeRaw, { nowMs });
+  const zaiVMs = zaiPlan.vms ?? [];
+  const goVMs = go.vms ?? [];
+  let windows = goVMs;
+  if (provider === 'claude') windows = claudeVMs;
+  else if (provider === 'codex') windows = codex.windows;
+  else if (provider === 'zai') windows = zaiVMs;
   const items = [];
   if (ccusageFailure) items.push({
     id: 'ccusage-unavailable', title: 'Local activity unavailable', subtitle: ccusageFailure, icon: 'warning-outline', metadata: [],
@@ -637,6 +600,14 @@ if (cached !== undefined) {
   // Rate limits lead (they need attention), then today's activity, then idle.
   const ordered = [...codex.items, ...activity.items, ...items];
   const totalTokens = tokens(activity.totalTokens);
+  // One quiet line when the plan has nothing to card; the message is the
+  // provider-specific truth (not connected, reconnect, unavailable).
+  const limitsMessage = provider === 'claude' && claudeVMs.length === 0 ? 'Claude plan limits unavailable'
+    : provider === 'opencode' && (go.vms ?? []).length === 0 ? go.label
+    : provider === 'zai' && (zaiPlan.vms ?? []).length === 0 ? zaiPlan.label
+    : provider === 'codex' && codex.windows.length === 0 ? 'Codex plan limits unavailable'
+    : windows.length === 0 ? 'Plan limits aren\u2019t connected in muxr'
+    : undefined;
   const output = {
     items: ordered.slice(0, 50),
     actions: [{ id: 'details', label: 'Open full usage', icon: 'stats-chart-outline', action: { type: 'screen', contributionId: 'usage.details' } }],
@@ -649,51 +620,42 @@ if (cached !== undefined) {
       totalTokens: totalTokens ?? '0',
     },
     activitySeries: activity.series,
-    providers: providerIds.map((agent) => ({ id: agent, label: AGENTS[agent] })),
+    // Short tab names with the agent mark id; unknown names still fall back
+    // to a monogram in the app, so a new provider is never an empty pill.
+    providers: providerIds.map((agent) => ({ id: agent, label: TAB_LABELS[agent] ?? AGENTS[agent], glyph: agent })),
     provider,
     providerName: AGENTS[provider] ?? 'Usage',
-    activityLabel,
-    todayTokens: activityAvailable ? tokens(today?.totalTokens ?? 0) ?? '—' : '—',
+    ...(activityFailure === undefined ? {} : { activityNotice: activityFailure }),
+    todayTokens: activityAvailable ? tokens(tokensToday) ?? '—' : '—',
     // A measured day with no activity cost nothing; a measured row whose cost
     // was never recorded is unknown, and a dash is the only honest figure.
-    todayCost: activityAvailable ? (today === undefined ? '$0.00' : money(today.totalCost) ?? '—') : '—',
+    todayCost: activityAvailable ? (today === undefined ? '$0.00' : money(costToday) ?? '—') : '—',
     modelSeries: modelSeries(today),
-    weekTokens: activityAvailable ? tokens(weekTokens) ?? '—' : '—',
-    weekCost: activityAvailable && days.every(({ row }) => row === undefined || Number.isFinite(row.totalCost)) ? money(weekCost) ?? '—' : '—',
+    weekTokens: activityAvailable ? tokens(tokensWeek) ?? '—' : '—',
+    weekCost: activityAvailable && costWeek !== undefined ? money(costWeek) ?? '—' : '—',
     weekSeries: (activityAvailable ? days : []).map(({ period, row }) => ({
       label: dayLabel(period), value: row?.totalTokens ?? 0, valueLabel: tokens(row?.totalTokens ?? 0) ?? '0', detail: period,
     })),
     capturedAt: NOW.toISOString(),
     windowPeriods: PERIODS,
-    limitSeries: provider === 'opencode' ? go.series : provider === 'zai' ? zaiPlan.series : providerLimits(provider, codex),
-    limitRing: provider === 'codex' ? codex.ring : [],
-    ...(fiveHour === undefined ? {} : {
-      fiveHourUsed: fiveHour.used,
-      fiveHourLabel: headroomLabel({
-        used: fiveHour.used, windowMinutes: WINDOW_MINUTES.five_hour,
-        resetEpochSec: fiveHour.resetAt, nowMs: Date.now(),
-      }),
+    // The normalized view model behind every rendered rate-limit shape.
+    windows: windows.map((vm) => ({ ...vm })),
+    limits: limitsPayload(windows, {
+      ...(provider === 'claude' ? { plan: 'Claude plan' } : provider === 'zai' ? { plan: 'Z.ai plan' } : provider === 'opencode' ? { plan: 'OpenCode Go' } : provider === 'codex' ? { plan: 'OpenAI Codex' } : {}),
+      ...(limitsMessage === undefined ? {} : { message: limitsMessage }),
     }),
-    ...(sevenDay === undefined ? {} : {
-      sevenDayUsed: sevenDay.used,
-      sevenDayLabel: headroomLabel({
-        used: sevenDay.used, windowMinutes: WINDOW_MINUTES.seven_day,
-        resetEpochSec: sevenDay.resetAt, nowMs: Date.now(),
-      }),
-    }),
-    limitLabel: provider === 'opencode' ? go.label : provider === 'zai' ? zaiPlan.label : limitLabel(provider, claudeLimits, codex),
-    codexRemaining: codex.remaining,
-    codexRemainingLabel: codex.remainingLabel,
   };
   if (output.items.length === 0) output.items.push({ id: 'usage-unavailable', title: 'Usage unavailable', icon: 'warning-outline', metadata: [] });
   // Never pin a failure or a fallback provider under the requested key: one
-  // blocked ccusage read would otherwise own the screen for the whole TTL.
-  const goUnavailable = provider === 'opencode' && go.series.length === 0;
-  const claudeUnavailable = provider === 'claude' && claudeLimits.length === 0;
-  const zaiUnavailable = provider === 'zai' && zaiPlan.series.length === 0;
-  const codexUnavailable = installed.some(([agent]) => agent === 'codex') && codex.series.length === 0;
+  // blocked read would otherwise own the screen for the whole TTL. The gate
+  // is the selected tab's own health: another provider's blocked limits must
+  // not stop this tab from caching, or every visit pays the full rescan. A
+  // stale paint never persists its own flag: the saved payload stays clean.
+  const goUnavailable = provider === 'opencode' && (go.vms ?? []).length === 0;
+  const claudeUnavailable = provider === 'claude' && claudeVMs.length === 0;
+  const zaiUnavailable = provider === 'zai' && (zaiPlan.vms ?? []).length === 0;
+  const codexUnavailable = provider === 'codex' && codex.windows.length === 0;
   const limitsUnavailable = goUnavailable || claudeUnavailable || zaiUnavailable || codexUnavailable;
-  const localUnavailable = Object.values(reports).some((report) => report.unavailable);
-  if (ccusageFailure === undefined && activityFailure === undefined && !localUnavailable && !limitsUnavailable && (selected === '' || selected === output.provider)) saveOutput(output);
+  if (activityFailure === undefined && reports[provider]?.unavailable !== true && !limitsUnavailable && (selected === '' || selected === output.provider)) saveOutput(output);
   process.stdout.write(JSON.stringify(output));
 }

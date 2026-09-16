@@ -845,18 +845,6 @@ export const en = {
         denyRequest: 'Deny friendship',
     },
 
-    usage: {
-        // Usage panel strings
-        today: 'Today',
-        last7Days: 'Last 7 days',
-        last30Days: 'Last 30 days',
-        totalTokens: 'Total Tokens',
-        totalCost: 'Total Cost',
-        tokens: 'Tokens',
-        cost: 'Cost',
-        usageOverTime: 'Usage over time',
-        byModel: 'By Model',
-    },
 
     feed: {
         // Feed notifications for friend requests and acceptances
