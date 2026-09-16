@@ -132,6 +132,7 @@ export async function runConfigInit(args = []) {
     const relayDefault = mode === 'local' ? defaultRelayForMode(mode) : '';
     const relayPrompt = relayDefault === '' ? 'Relay URL (empty means decide during setup)' : 'Relay URL';
     let relayUrl = '';
+    let invalidRelayAttempts = 0;
     for (;;) {
         const relayAnswer = await prompt(relayPrompt, relayDefault);
         if (relayAnswer === undefined) {
@@ -141,6 +142,11 @@ export async function runConfigInit(args = []) {
         if (relayAnswer.trim() === '') break;
         if (validRelayUrl(relayAnswer.trim())) {
             relayUrl = relayAnswer.trim();
+            break;
+        }
+        invalidRelayAttempts += 1;
+        if (invalidRelayAttempts >= 3) {
+            print('Leaving relayUrl unset after 3 invalid entries; set it later in the file if needed.');
             break;
         }
         print('Relay URL must be a ws:// or wss:// URL, or empty to decide during setup.');
@@ -182,7 +188,11 @@ export async function runConfigInit(args = []) {
         }
     }
     atomicWrite(path, text, 0o600);
-    outro(`Wrote ${path}. Edit it by hand anytime, then validate with \`muxr config check\`.`);
+    if (relayUrl === '') {
+        outro(`Wrote ${path} with relayUrl unset. Edit it by hand anytime, then validate with \`muxr config check\`.`);
+    } else {
+        outro(`Wrote ${path}. Edit it by hand anytime, then validate with \`muxr config check\`.`);
+    }
     return 0;
 }
 
