@@ -102,7 +102,7 @@ export interface ActivityAcknowledgementViewport {
     gutter: number;
 }
 
-/** Activity becomes seen only while its entire terminal card is actually visible. */
+/** Needs-you activity becomes seen only while its entire terminal card is actually visible. Done outcomes clear on open instead (TerminalRoute acks), never by scrolling past. */
 export function visibleActivityEventIds(
     rows: readonly RecentActivityRow[],
     cards: readonly LiveTerminalOrderCard[],
