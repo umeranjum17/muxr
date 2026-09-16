@@ -122,7 +122,7 @@ function wrapOpenSsh(publicBlob: Uint8Array): string {
 
 describe('sshPublicKeyFromPrivate', () => {
     it('matches the platform reference for RSA in both PEM encodings', async () => {
-        const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 1024 });
+        const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
         const pkcs1 = privateKey.export({ type: 'pkcs1', format: 'pem' }).toString();
         const pkcs8 = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
         const jwk = createPublicKey(privateKey).export({ format: 'jwk' }) as { n: string; e: string };
