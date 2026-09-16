@@ -353,6 +353,18 @@ export async function startFakeHerdr(options) {
             if (pane === undefined) throw fail('pane_not_found', 'pane not found');
             return { pane: paneView(pane) };
         },
+        // Not a Herdr method: the terminal shim reports the travel it was sent
+        // so the world can move the same viewport Herdr would have moved, and
+        // clamp it the same way -- at the live edge, and at the top of whatever
+        // scrollback the pane's harness actually leaves behind.
+        'scroll.apply': (params) => {
+            const pane = live.panes.find((row) => row.pane_id === params.pane_id);
+            if (pane === undefined) throw fail('pane_not_found', 'pane not found');
+            const max = pane.scrollback_rows ?? 0;
+            const lines = Number(params.lines) || 0;
+            pane.scroll_offset = Math.max(0, Math.min(max, (pane.scroll_offset ?? 0) + lines));
+            return { offset_from_bottom: pane.scroll_offset, max_offset_from_bottom: max };
+        },
         'pane.close': (params) => {
             removePane(live, params.pane_id);
             return {};
@@ -566,6 +578,14 @@ function tabView(live, tab) {
 
 function paneView(pane) {
     return {
+        // Herdr publishes this on every pane record, and it is the only answer
+        // to "is this pane scrolled back" that is about the pane rather than
+        // about what a client asked for.
+        scroll: {
+            offset_from_bottom: pane.scroll_offset ?? 0,
+            max_offset_from_bottom: pane.scrollback_rows ?? 0,
+            viewport_rows: pane.rect?.height ?? 24,
+        },
         pane_id: pane.pane_id,
         tab_id: pane.tab_id,
         workspace_id: pane.workspace_id,

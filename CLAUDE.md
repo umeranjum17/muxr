@@ -22,6 +22,10 @@ Exception: security and crypto paths keep their coverage.
 - Never display or speak internal ids (`pp_*`, pane ids, session ids).
 - The microphone foreground service must be running before the realtime mic opens, or Android silently returns a deaf session.
 
+## Terminal
+
+- Herdr owns a pane's scrollback and its viewport. The phone must never infer how far back it is by counting the scrolls it sent: that count is of requests, and a harness on the alternate screen (Claude Code, opencode) has no scrollback ring behind it at all, so the scroll goes to the program as wheel reports it may ignore. Read `terminal.scroll-state` instead — see the frame's own comment in `packages/contract/src/control-plane/infrastructure/terminal.ts`.
+
 ## Builds
 
 - Long builds/servers run in their own shell pane, never inline inside an agent.
