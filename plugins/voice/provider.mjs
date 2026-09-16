@@ -6,10 +6,10 @@ import { join } from 'node:path';
  * $MUXR_HOME; adapters that authenticate through an existing CLI login have none.
  */
 export const PROVIDERS = [
-    { id: 'xai', name: 'Grok', configurationContributionId: 'settings-screen', secret: 'xai.key', keyLabel: 'xAI', placeholder: 'xai-…' },
-    { id: 'gemini', name: 'Gemini Live', configurationContributionId: 'settings-screen', secret: 'gemini.key', keyLabel: 'Gemini', placeholder: 'AIza…' },
-    { id: 'openai', name: 'OpenAI Realtime', configurationContributionId: 'settings-screen', secret: 'openai.key', keyLabel: 'OpenAI', placeholder: 'sk-…' },
-    { id: 'codex', name: 'Codex Voice (experimental)', configurationContributionId: 'login-screen', keyLabel: 'Codex', placeholder: '' },
+    { id: 'xai', name: 'Grok', description: 'Grok on xAI. Needs an xAI API key on this machine.', configurationContributionId: 'settings-screen', secret: 'xai.key', keyLabel: 'xAI', placeholder: 'xai-…' },
+    { id: 'gemini', name: 'Gemini Live', description: 'Gemini Live on Google. Needs a Gemini API key on this machine.', configurationContributionId: 'settings-screen', secret: 'gemini.key', keyLabel: 'Gemini', placeholder: 'AIza…' },
+    { id: 'openai', name: 'OpenAI Realtime', description: 'OpenAI Realtime. Needs an OpenAI API key on this machine.', configurationContributionId: 'settings-screen', secret: 'openai.key', keyLabel: 'OpenAI', placeholder: 'sk-…' },
+    { id: 'codex', name: 'Codex Voice (experimental)', description: 'Codex Voice, experimental. Uses the ChatGPT login on this machine, no API key.', configurationContributionId: 'login-screen', keyLabel: 'Codex', placeholder: '' },
 ];
 
 const DEFAULT_ID = 'codex';

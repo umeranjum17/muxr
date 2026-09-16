@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { reportAgentOutcome } from './coordinatorPolicy.mjs';
 import { providerSecret } from './providerSecret.mjs';
-import { PROVIDERS, selectProvider, selectedProvider } from './provider.mjs';
+import { PROVIDERS, providerById, selectProvider, selectedProvider } from './provider.mjs';
 
 /** Secrets are per provider, so the store is resolved from the current selection. */
 function secretFor(provider) {
@@ -14,6 +14,36 @@ function secretFor(provider) {
         empty: `${provider.keyLabel} key must not be empty`,
         notRegular: 'Refusing to remove non-regular key file',
     });
+}
+
+function providerEntry(provider, selected) {
+    return {
+        id: provider.id,
+        name: provider.name,
+        description: provider.description,
+        configurationContributionId: provider.configurationContributionId,
+        selected: provider.id === selected.id,
+        stateLabel: provider.id === selected.id ? 'In use' : '',
+    };
+}
+
+/** One engine's card for the Settings explainer: what it is, whether it is in use, and whether it is ready. */
+async function describeProvider(id) {
+    const provider = id === undefined || id === null || String(id).trim() === ''
+        ? selectedProvider()
+        : providerById(String(id).trim());
+    if (provider === undefined) throw new Error('unknown realtime voice provider');
+    const selected = selectedProvider();
+    const secret = secretFor(provider);
+    const readiness = secret === undefined
+        ? (await import(`./providers/${provider.id}.mjs`)).status()
+        : await secret.statusPayload();
+    return {
+        ...providerEntry(provider, selected),
+        selectedLabel: provider.id === selected.id ? 'In use' : 'Not in use',
+        configured: readiness.configured === true,
+        statusLabel: readiness.statusLabel,
+    };
 }
 
 const method = process.argv[2];
@@ -39,14 +69,16 @@ if (method === 'status') {
 } else if (method === 'provider.list') {
     output = {
         selected: provider.id,
-        providers: PROVIDERS.map(({ id, name, configurationContributionId }) => ({ id, name, configurationContributionId, selected: id === provider.id })),
+        providers: PROVIDERS.map((entry) => providerEntry(entry, provider)),
     };
 } else if (method === 'provider.set') {
     const next = selectProvider(input?.providerId);
     output = {
         selected: next.id,
-        providers: PROVIDERS.map(({ id, name, configurationContributionId }) => ({ id, name, configurationContributionId, selected: id === next.id })),
+        providers: PROVIDERS.map((entry) => providerEntry(entry, next)),
     };
+} else if (method === 'provider.describe') {
+    output = await describeProvider(input?.providerId);
 } else if (method === 'report') {
     output = { say: reportAgentOutcome(input) };
 } else {
