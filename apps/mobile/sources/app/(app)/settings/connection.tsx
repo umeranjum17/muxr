@@ -30,7 +30,9 @@ import { getCachedHostedGrant, loadHostedGrant, type StoredHostedGrant } from '@
 import { retryRelayDiscovery, useRelayDiscoveryPhase } from '@/pairing';
 import { Modal } from '@/modal';
 import { ConnectionSupport } from '@/settings';
+import { SshHostScan } from '@/settings/SshHostScan';
 import { formatLatestConnectionFailure, latestFailureIsDeadGrant } from '@/catalog/diagnostics';
+import { sshPublicKeyFromPrivate, type SshPublicKeyInfo } from '@/connection/sshPublicKey';
 
 const stylesheet = StyleSheet.create((theme) => ({
     label: {
@@ -187,6 +189,8 @@ export default function ConnectionSettingsScreen() {
     const [sshSaving, setSshSaving] = React.useState(false);
     const [error, setError] = React.useState<string | undefined>(undefined);
     const [saving, setSaving] = React.useState(false);
+    const [publicKeyCopied, setPublicKeyCopied] = React.useState(false);
+    const [publicKeyInfo, setPublicKeyInfo] = React.useState<SshPublicKeyInfo>();
     const machine = useMachine(initial.machineId);
 
     // getCachedConnectionSettings returns build-time defaults until storage has
@@ -208,6 +212,14 @@ export default function ConnectionSettingsScreen() {
         });
         return () => { cancelled = true; };
     }, []);
+
+    React.useEffect(() => {
+        let cancelled = false;
+        void sshPublicKeyFromPrivate(sshPrivateKey).then((info) => {
+            if (!cancelled) setPublicKeyInfo(info);
+        });
+        return () => { cancelled = true; };
+    }, [sshPrivateKey]);
 
     React.useEffect(() => {
         if (Platform.OS !== 'android' || initial.machineId === '') {
@@ -456,12 +468,33 @@ export default function ConnectionSettingsScreen() {
                     title="Direct SSH"
                     footer="Android native builds only. SSH forwards the host's loopback relay; pairing, device grants, and end-to-end encryption stay unchanged. PWA and iPhone use Tailscale or another supported relay."
                 >
-                    <Field label="SSH host" value={sshHost} onChange={setSshHost} placeholder="server.example.com or 192.168.1.20" />
+                    <Field label="SSH host" value={sshHost} onChange={(next) => { setSshHost(next); setPublicKeyCopied(false); }} placeholder="server.example.com or 192.168.1.20" />
+                <SshHostScan onPick={(host, port) => { setSshHost(host); if (port !== undefined && port !== 22) setSshPort(String(port)); }} />
                     <Field label="SSH username" value={sshUsername} onChange={setSshUsername} placeholder="your login on the machine" />
                     <Field label="SSH port" value={sshPort} onChange={setSshPort} placeholder="22" />
                     <Field label="Relay port on the host" value={sshRelayPort} onChange={setSshRelayPort} placeholder="8792" />
                     <Field label="SSH password (optional)" value={sshPassword} onChange={setSshPassword} placeholder={sshCredentialPresent ? 'Saved credential remains unchanged' : 'Password or private key'} secure />
                     <Field label="Private key (optional)" value={sshPrivateKey} onChange={setSshPrivateKey} placeholder={sshCredentialPresent ? 'Paste a new key to replace the saved credential' : 'Paste an OpenSSH private key'} secure multiline />
+                    {publicKeyInfo !== undefined && <>
+                        <Item
+                            title="Key fingerprint"
+                            subtitle={publicKeyInfo.algorithm === 'ssh-ed25519'
+                                ? `${publicKeyInfo.algorithm} · ${publicKeyInfo.fingerprint} · this route needs RSA or ECDSA`
+                                : `${publicKeyInfo.algorithm} · ${publicKeyInfo.fingerprint}`}
+                            subtitleLines={0}
+                            showChevron={false}
+                        />
+                        <Item
+                            title="Copy public key"
+                            subtitle={publicKeyCopied
+                                ? 'Copied. Add it to ~/.ssh/authorized_keys on the machine.'
+                                : 'The line to add to ~/.ssh/authorized_keys on the machine'}
+                            onPress={() => {
+                                void Clipboard.setStringAsync(publicKeyInfo.publicKey).then(() => setPublicKeyCopied(true)).catch(() => Modal.alert('Copy failed', 'Please try again.'));
+                            }}
+                            accessibilityLabel={publicKeyCopied ? 'Copy public key, copied' : 'Copy public key'}
+                        />
+                    </>}
                     <Field label="Private key passphrase" value={sshPassphrase} onChange={setSshPassphrase} placeholder="Only if the key is encrypted" secure />
                     <Item
                         title="SSH host key"

@@ -4,6 +4,7 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { useSettingMutable, useLocalSettingMutable } from '@/catalog/store';
+import { DEFAULT_FONT_INDEX, FONT_STEPS, clampFontIndex } from '@/terminal/domain/fontSteps';
 import { useRouter } from 'expo-router';
 import * as Localization from 'expo-localization';
 import { useUnistyles, UnistylesRuntime } from 'react-native-unistyles';
@@ -27,8 +28,9 @@ export default function AppearanceSettingsScreen() {
     const [avatarStyle, setAvatarStyle] = useSettingMutable('avatarStyle');
     const [showFlavorIcons, setShowFlavorIcons] = useSettingMutable('showFlavorIcons');
     const [themePreference, setThemePreference] = useLocalSettingMutable('themePreference');
+    const [terminalFontIndex, setTerminalFontIndex] = useLocalSettingMutable('terminalFontIndex');
     const [preferredLanguage] = useSettingMutable('preferredLanguage');
-    const [sheet, setSheet] = React.useState<'theme' | 'avatar' | null>(null);
+    const [sheet, setSheet] = React.useState<'theme' | 'avatar' | 'font' | null>(null);
     const themeOptions: ModelMode[] = [
         { key: 'adaptive', name: t('settingsAppearance.themeOptions.adaptive'), description: t('settingsAppearance.themeDescriptions.adaptive') },
         { key: 'light', name: t('settingsAppearance.themeOptions.light'), description: t('settingsAppearance.themeDescriptions.light') },
@@ -39,6 +41,11 @@ export default function AppearanceSettingsScreen() {
         { key: 'gradient', name: t('settingsAppearance.avatarOptions.gradient') },
         { key: 'brutalist', name: t('settingsAppearance.avatarOptions.brutalist') },
     ];
+    const fontIndex = clampFontIndex(terminalFontIndex);
+    const fontOptions: ModelMode[] = FONT_STEPS.map((size, index) => ({
+        key: String(index),
+        name: `${size}pt${index === DEFAULT_FONT_INDEX ? ' · default' : ''}`,
+    }));
 
     // Keep the selected value visible in the row while showing every choice in one place.
     const displayStyle: KnownAvatarStyle = isKnownAvatarStyle(avatarStyle) ? avatarStyle : 'gradient';
@@ -87,6 +94,17 @@ export default function AppearanceSettingsScreen() {
                 />
             </ItemGroup>
 
+            {/* Terminal Settings */}
+            <ItemGroup title="Terminal" footer="Text size in shells and terminal panes. Smaller text shows more history on screen; pinch the terminal to change it there too.">
+                <Item
+                    title="Terminal font size"
+                    subtitle="Applies on this device"
+                    icon={<Ionicons name="text-outline" size={29} color="#5856D6" />}
+                    detail={`${FONT_STEPS[fontIndex]}pt`}
+                    onPress={() => setSheet('font')}
+                />
+            </ItemGroup>
+
             {/* Language Settings */}
             <ItemGroup title={t('settingsLanguage.title')} footer={t('settingsLanguage.description')}>
                 <Item
@@ -132,6 +150,14 @@ export default function AppearanceSettingsScreen() {
                 options={avatarOptions}
                 selectedKey={displayStyle}
                 onSelect={(option) => { setAvatarStyle(option.key as KnownAvatarStyle); setSheet(null); }}
+                onClose={() => setSheet(null)}
+            />
+            <OptionSheet
+                visible={sheet === 'font'}
+                title="Terminal font size"
+                options={fontOptions}
+                selectedKey={String(fontIndex)}
+                onSelect={(option) => { setTerminalFontIndex(Number(option.key)); setSheet(null); }}
                 onClose={() => setSheet(null)}
             />
         </ItemList>

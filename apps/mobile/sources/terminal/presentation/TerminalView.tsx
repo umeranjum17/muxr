@@ -29,7 +29,7 @@ import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghost
  * region, never an internal identifier.
  */
 export const TERMINAL_SURFACE_LABEL = 'Terminal surface';
-import { useLocalSetting } from '@/catalog/store';
+import { useLocalSetting, useLocalSettingMutable } from '@/catalog/store';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import {
     recordTerminalGraphicsFrame,
@@ -39,6 +39,7 @@ import {
     recordTerminalScrollTimeout,
 } from '@/catalog/diagnostics';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
+import { DEFAULT_FONT_INDEX, FONT_STEPS, clampFontIndex } from '../domain/fontSteps';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { createTerminalWritePump, type TerminalWritePump } from '../application/terminalWritePump';
 import type { TerminalGraphicsReason } from '@muxr/contract';
@@ -52,8 +53,6 @@ const MAX_SCROLL_LINES = 400;
 /** A scroll whose repaint never came back must not gate scrolling forever. */
 const SCROLL_ACK_TIMEOUT_MS = 250;
 /** Text zoom reflows the terminal; graphics zoom magnifies its existing surface. */
-const FONT_STEPS = [8, 10, 12, 14, 17, 20] as const;
-const DEFAULT_FONT_INDEX = 2;
 const GRAPHICS_ZOOM_STEPS = [1, 1.25, 1.5, 2] as const;
 
 export interface TerminalViewProps {
@@ -116,7 +115,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const scrollInFlightRef = React.useRef(false);
     const scrollAckTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const graphicsActiveRef = React.useRef(false);
-    const [fontIndex, setFontIndex] = React.useState(DEFAULT_FONT_INDEX);
+    // A standing device preference: the chosen size survives pane remounts and app restarts.
+    const [fontIndex, setFontIndex] = useLocalSettingMutable('terminalFontIndex');
     const [scaleIndex, setScaleIndex] = React.useState(0);
     const scaleIndexRef = React.useRef(0);
 
@@ -153,7 +153,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             if (next !== scaleIndexRef.current) applyGraphicsZoom(next);
             return;
         }
-        setFontIndex((current) => Math.max(0, Math.min(FONT_STEPS.length - 1, current + direction)));
+        setFontIndex(clampFontIndex(fontIndex + direction));
     };
 
     const resetZoom = (): void => {
