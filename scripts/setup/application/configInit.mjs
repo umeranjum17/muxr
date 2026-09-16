@@ -130,13 +130,20 @@ export async function runConfigInit(args = []) {
         return 0;
     }
     const relayDefault = mode === 'local' ? defaultRelayForMode(mode) : '';
-    const relayAnswer = await prompt(
-        relayDefault === '' ? 'Relay URL (empty means decide during setup)' : 'Relay URL',
-        relayDefault,
-    );
-    if (relayAnswer === undefined) {
-        outro('Cancelled. Nothing changed.');
-        return 0;
+    const relayPrompt = relayDefault === '' ? 'Relay URL (empty means decide during setup)' : 'Relay URL';
+    let relayUrl = '';
+    for (;;) {
+        const relayAnswer = await prompt(relayPrompt, relayDefault);
+        if (relayAnswer === undefined) {
+            outro('Cancelled. Nothing changed.');
+            return 0;
+        }
+        if (relayAnswer.trim() === '') break;
+        if (validRelayUrl(relayAnswer.trim())) {
+            relayUrl = relayAnswer.trim();
+            break;
+        }
+        print('Relay URL must be a ws:// or wss:// URL, or empty to decide during setup.');
     }
     let hostHttpPort = DEFAULT_HOST_HTTP_PORT;
     for (;;) {
@@ -154,13 +161,7 @@ export async function runConfigInit(args = []) {
         print('Enter an integer from 1 to 65535, or empty for the default.');
     }
     const config = { mode, machineName };
-    if (relayAnswer.trim() !== '') {
-        if (!validRelayUrl(relayAnswer.trim())) {
-            error('Relay URL must be a ws:// or wss:// URL; leaving it unset.');
-        } else {
-            config.relayUrl = relayAnswer.trim();
-        }
-    }
+    if (relayUrl !== '') config.relayUrl = relayUrl;
     if (hostHttpPort !== DEFAULT_HOST_HTTP_PORT) config.hostHttpPort = hostHttpPort;
     const text = `${JSON.stringify(config, null, 2)}\n`;
     const exists = existsSync(path);
