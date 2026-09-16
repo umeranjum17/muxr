@@ -43,6 +43,7 @@ export interface HostOptions {
     domain: AgentWatchStores;
     terminals?: TerminalManager;
     hostVersion?: string;
+    connectionMode?: string;
     onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced', code?: RelayStateCode) => void;
     /** Mandatory strict v2 endpoint keys for hosted mode. */
     hostedE2ee?: HostedMachineKeys;
@@ -86,6 +87,9 @@ export function startHost(options: HostOptions): Host {
         machineId: options.machineId,
         ...(options.machineName === undefined ? {} : { machineName: options.machineName }),
         hostVersion,
+        ...(options.connectionMode === undefined ? {} : { connectionMode: options.connectionMode }),
+        ...(options.hostedE2ee === undefined ? {} : { pairedDeviceCount: () => Object.entries(options.hostedE2ee!.deviceKinds ?? {})
+            .filter(([id, kind]) => kind !== 'peer' && (options.hostedE2ee!.deviceExpiresAt?.[id] ?? 0) > Date.now()).length }),
         relayUrl: options.relayUrl,
         ...(options.terminals === undefined ? {} : { terminals: options.terminals }),
         ...(options.token === undefined ? {} : { token: options.token }),

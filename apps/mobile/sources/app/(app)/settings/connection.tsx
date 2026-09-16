@@ -1,12 +1,13 @@
 import * as React from 'react';
 import { Platform, Text, TextInput, View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { RoundButton } from '@/components/RoundButton';
 import { Typography } from '@/constants/Typography';
 import { useMachine, useSocketStatus } from '@/catalog/store';
-import { syncReconnect } from '@/catalog/sync';
+import { sync, syncReconnect } from '@/catalog/sync';
 import {
     getCachedConnectionSettings,
     loadConnectionSettingsAsync,
@@ -25,12 +26,11 @@ import {
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { Stack } from 'expo-router';
-import { getCachedHostedGrant } from '@/pairing/e2ee';
+import { getCachedHostedGrant, loadHostedGrant, type StoredHostedGrant } from '@/pairing/e2ee';
 import { retryRelayDiscovery, useRelayDiscoveryPhase } from '@/pairing';
+import { Modal } from '@/modal';
 import { ConnectionSupport } from '@/settings/presentation/ConnectionSupport';
 import { formatLatestConnectionFailure, latestFailureIsDeadGrant } from '@/catalog/infrastructure/connectionDiagnostics';
-import * as Clipboard from 'expo-clipboard';
-import { Modal } from '@/modal';
 
 const stylesheet = StyleSheet.create((theme) => ({
     label: {
@@ -74,6 +74,26 @@ const stylesheet = StyleSheet.create((theme) => ({
     dotOff: { backgroundColor: theme.colors.divider },
     dotBad: { backgroundColor: theme.colors.textDestructive },
 }));
+
+const routeNames: Record<string, string> = {
+    tailscale: 'Tailscale Serve',
+    'tailscale-direct': 'Direct Tailscale',
+    private: 'Private network',
+    lan: 'Same Wi-Fi',
+    cloudflare: 'Temporary Cloudflare tunnel',
+    external: 'Your own server',
+    remote: 'Shared remote relay',
+};
+
+const routeDetails: Record<string, string> = {
+    tailscale: 'Private HTTPS through Tailscale Serve; the phone joins the same tailnet.',
+    'tailscale-direct': 'Direct tailnet address; the phone joins the same tailnet. Native app only.',
+    private: 'The phone joins the same private network. Native app only.',
+    lan: 'Only works while phone and computer share the same trusted LAN. Native app only.',
+    cloudflare: 'Public HTTPS through a temporary tunnel; its URL can change after restart.',
+    external: 'An existing WSS relay or reverse proxy managed by the host owner.',
+    remote: 'This computer connects outbound to a relay managed elsewhere.',
+};
 
 function Field(props: {
     label: string;
@@ -121,6 +141,10 @@ function sameSshEndpoint(left: SshTarget | undefined, right: SshTarget): boolean
 export default function ConnectionSettingsScreen() {
     const styles = stylesheet;
     const [initial, setInitial] = React.useState(() => getCachedConnectionSettings());
+    const [settingsLoaded, setSettingsLoaded] = React.useState(false);
+    const [hostRefresh, setHostRefresh] = React.useState<'loading' | 'ready' | 'failed'>('loading');
+    const [grantRefresh, setGrantRefresh] = React.useState<'loading' | 'ready' | 'failed'>('loading');
+    const [grant, setGrant] = React.useState<StoredHostedGrant | undefined>();
     const { status, error: socketError } = useSocketStatus();
     const nearbyPhase = useRelayDiscoveryPhase();
     const [clock, setClock] = React.useState(Date.now());
@@ -180,6 +204,7 @@ export default function ConnectionSettingsScreen() {
             setSshPort(String(loaded.ssh?.port ?? 22));
             setSshRelayPort(String(loaded.ssh?.relayPort ?? 8792));
             setSshUsername(loaded.ssh?.username ?? '');
+            setSettingsLoaded(true);
         });
         return () => { cancelled = true; };
     }, []);
@@ -195,6 +220,39 @@ export default function ConnectionSettingsScreen() {
         });
         return () => { cancelled = true; };
     }, [initial.machineId]);
+
+    React.useEffect(() => {
+        if (!settingsLoaded || initial.mode !== 'hosted' || status !== 'connected') return undefined;
+        let cancelled = false;
+        let checking = false;
+        const refresh = () => {
+            if (checking) return;
+            checking = true;
+            setHostRefresh('loading');
+            void sync.refreshMachines().then(() => {
+                if (!cancelled) setHostRefresh('ready');
+            }).catch(() => {
+                if (!cancelled) setHostRefresh('failed');
+            }).finally(() => { checking = false; });
+        };
+        refresh();
+        const timer = setInterval(refresh, 30_000);
+        return () => { cancelled = true; clearInterval(timer); };
+    }, [settingsLoaded, initial.mode, initial.machineId, status]);
+
+    React.useEffect(() => {
+        if (!settingsLoaded || initial.mode !== 'hosted') return undefined;
+        let cancelled = false;
+        setGrantRefresh('loading');
+        void loadHostedGrant(initial.machineId).then((loaded) => {
+            if (cancelled) return;
+            setGrant(loaded);
+            setGrantRefresh('ready');
+        }).catch(() => {
+            if (!cancelled) setGrantRefresh('failed');
+        });
+        return () => { cancelled = true; };
+    }, [settingsLoaded, initial.mode, initial.machineId]);
 
     const sshSupported = Platform.OS === 'android' && initial.selfhost === true && sshTunnelAvailable();
 
@@ -287,15 +345,6 @@ export default function ConnectionSettingsScreen() {
     };
 
     if (initial.mode === 'hosted') {
-        const transport = initial.ssh !== undefined && sshSupported
-            ? 'Direct SSH tunnel + end-to-end encryption'
-            : initial.relayUrl.startsWith('wss://')
-                ? 'HTTPS/WSS transport + end-to-end encryption'
-                : 'Trusted-network WS transport + end-to-end encryption';
-        const browserGrant = Platform.OS === 'web' ? getCachedHostedGrant(initial.machineId) : undefined;
-        const browserExpiresAt = browserGrant?.expiresAt;
-        const browserRole = browserGrant?.authority === 'control' ? 'Control' : 'View only';
-        const browserMinutes = browserExpiresAt === undefined ? undefined : Math.max(0, Math.ceil((browserExpiresAt - clock) / 60_000));
         const nearbyCopy: Record<typeof nearbyPhase, string> = {
             web: 'Browsers cannot scan nearby relays. If the computer’s address changed, run muxr setup there to refresh its route, then open a new browser pairing link.',
             disabled: 'Nearby scanning is off for this route. It runs only after pairing over a local or private address.',
@@ -312,13 +361,62 @@ export default function ConnectionSettingsScreen() {
         const staleLanHint = status !== 'connected' && pairingTransport(initial.relayUrl) === 'Local network'
             ? ' The saved LAN address may have changed.' : '';
         const canRetryNearby = Platform.OS !== 'web' && !['disabled', 'unavailable'].includes(nearbyPhase);
+        const transportPrivacy = initial.ssh !== undefined && sshSupported
+            ? 'Direct SSH tunnel · end-to-end encrypted agent data'
+            : `${initial.relayUrl.startsWith('wss://') ? 'TLS (WSS)' : 'WS without TLS'} transport · end-to-end encrypted agent data`;
+        const currentGrant = grant?.machineId === initial.machineId ? grant : getCachedHostedGrant(initial.machineId);
+        const browserGrant = Platform.OS === 'web' ? currentGrant : undefined;
+        const browserExpiresAt = browserGrant?.expiresAt;
+        const browserRole = browserGrant?.authority === 'control' ? 'Control' : 'View only';
+        const mode = machine?.metadata?.connectionMode;
+        const knownRoute = mode === undefined ? undefined : routeNames[mode];
+        const route = knownRoute ?? pairingTransport(initial.relayUrl) ?? 'Unknown';
+        const routeDetail = mode !== undefined && routeDetails[mode] !== undefined
+            ? routeDetails[mode]
+            : 'The host has not reported its selected route; this label is inferred from the relay address.';
+        const pairedDeviceCount = status === 'connected' && hostRefresh === 'ready' ? machine?.metadata?.pairedDeviceCount : undefined;
+        let pairedCountText: string;
+        if (status !== 'connected') pairedCountText = 'Count unavailable while disconnected. Run muxr devices list on the computer.';
+        else if (hostRefresh === 'loading') pairedCountText = 'Checking the host…';
+        else if (hostRefresh === 'failed') pairedCountText = 'Could not refresh the count. Reconnect or run muxr devices list on the computer.';
+        else if (pairedDeviceCount === undefined) pairedCountText = 'This host has not reported a count. Run muxr devices list on the computer.';
+        else pairedCountText = `${pairedDeviceCount} paired at last check`;
+        let statusSubtitle = latestFailure ?? socketError ?? 'The app reconnects on its own when the machine is back';
+        if (status === 'connected') {
+            if (hostRefresh === 'loading') statusSubtitle = 'Relay connected; checking the computer…';
+            else if (hostRefresh === 'failed') statusSubtitle = 'Relay connected; the computer did not answer. Try Reconnect now or muxr doctor there.';
+            else statusSubtitle = 'Relay connected; the computer answered the last check.';
+        }
+        let routeTitle = 'Route from relay address';
+        if (knownRoute !== undefined) routeTitle = status === 'connected' && hostRefresh === 'ready' ? 'Current route' : 'Last reported route';
+        let trust = 'No active device grant is available here. Pair again on the computer to restore access.';
+        if (currentGrant !== undefined && !(Platform.OS === 'web' && browserExpiresAt !== undefined && browserExpiresAt <= clock)) {
+            const role = Platform.OS === 'web' ? browserRole : currentGrant.authority === 'observe' ? 'View only' : 'Control';
+            trust = `${role} access is bound to this device. The host requires its credential; agent data stays end-to-end encrypted.`;
+        } else if (grantRefresh === 'loading') trust = 'Checking the saved device grant…';
+        else if (grantRefresh === 'failed') trust = 'Could not read this device’s grant. Reopen the screen or pair again on the computer.';
+        let browserAccess = 'No active browser grant. Pair again on the computer.';
+        if (browserGrant !== undefined && browserExpiresAt !== undefined && browserExpiresAt > clock) {
+            const minutes = Math.ceil((browserExpiresAt - clock) / 60_000);
+            browserAccess = `${browserRole} · expires in ${Math.floor(minutes / 60)}h ${minutes % 60}m · ${new Date(browserExpiresAt).toLocaleString()}`;
+        } else if (browserGrant !== undefined && browserExpiresAt === undefined) browserAccess = `${browserRole} · pair again every eight hours`;
+        else if (grantRefresh === 'loading') browserAccess = 'Checking the saved browser grant…';
+        else if (grantRefresh === 'failed') browserAccess = 'Could not read the browser grant. Reopen the screen or pair again.';
+        const changeRoute = async () => {
+            try {
+                await Clipboard.setStringAsync('muxr setup');
+                Modal.alert('Command copied', 'Run muxr setup in the computer’s terminal to review and change its connection route.');
+            } catch {
+                Modal.alert('Copy failed', 'Run muxr setup in the computer’s terminal to review and change its connection route.');
+            }
+        };
         return (
             <ItemList>
-            <Stack.Screen options={{ title: 'Connection & updates' }} />
+                <Stack.Screen options={{ title: 'Connection & updates' }} />
                 <ItemGroup title="Status">
                     <Item
                         title={statusText}
-                        subtitle={status === 'connected' ? 'Your machine is reachable from this device' : socketError ?? latestFailure ?? 'The app reconnects on its own when the machine is back'}
+                        subtitle={statusSubtitle}
                         subtitleLines={0}
                         leftElement={<View style={[styles.dot, statusDot]} />}
                         loading={status === 'connecting'}
@@ -330,11 +428,12 @@ export default function ConnectionSettingsScreen() {
                             onPress={() => { void Clipboard.setStringAsync('muxr restart').then(() => setRestartCopied(true)).catch(() => Modal.alert('Copy failed', 'Please try again.')); }} />
                         <Text style={styles.hint}>Otherwise, restart muxr from the terminal where you started it. Copying never runs anything on the computer.</Text>
                     </>}
-                    <Item title="Transport" subtitle={transport} subtitleLines={0} detail="Self-host" />
+                    <Item title={routeTitle} subtitle={`${route} · ${routeDetail}`} subtitleLines={0} />
+                    <Item title="Transport & privacy" subtitle={transportPrivacy} subtitleLines={0} />
                     <Item title="Relay" subtitle={initial.relayUrl} subtitleLines={0} />
-                    {Platform.OS === 'web' && <Item title="Browser access" subtitle={browserExpiresAt === undefined || browserMinutes === undefined
-                        ? `${browserRole} · pair again every eight hours`
-                        : `${browserRole} · expires in ${Math.floor(browserMinutes / 60)}h ${browserMinutes % 60}m · ${new Date(browserExpiresAt).toLocaleString()}`} />}
+                    <Item title="Trust on this device" subtitle={trust} subtitleLines={0} />
+                    <Item title="Paired phones & browsers" subtitle={pairedCountText} subtitleLines={0} />
+                    {Platform.OS === 'web' && <Item title="Browser access" subtitle={browserAccess} subtitleLines={0} />}
                 </ItemGroup>
 
                 <ItemGroup title="Nearby reconnection" footer="Nearby discovery can locate only a computer already paired with this device. New devices still use a one-time QR or pairing string.">
@@ -344,8 +443,13 @@ export default function ConnectionSettingsScreen() {
 
                 <ConnectionSupport hostVersion={machine?.metadata?.muxrCliVersion} />
 
-                <ItemGroup title="Connection actions" footer="Your connection is end-to-end encrypted. Manage or revoke this device from muxr on the host.">
+                <ItemGroup title="Connection actions" footer="The phone cannot change host networking. Manage or revoke devices with muxr devices on the computer.">
                     <Item title="Reconnect now" subtitle="Drops the socket and dials again" onPress={() => void syncReconnect()} />
+                    {mode === 'remote'
+                        ? <Item title="Change shared relay" subtitle="Ask the relay owner for a new enrollment, then run muxr connect --enrollment on this computer. The relay owner manages its route." subtitleLines={0} />
+                        : knownRoute === undefined
+                            ? <Item title="Change route on computer" subtitle="Run muxr setup for a self-hosted relay, or ask the relay owner for a new enrollment if it is shared. This device cannot change host networking." subtitleLines={0} />
+                            : <Item title="Change route on computer" subtitle="Run muxr setup there to choose a route. If its address changes, remote devices may need a fresh pairing. Tap to copy the command." subtitleLines={0} onPress={() => void changeRoute()} />}
                 </ItemGroup>
 
                 {sshSupported && <ItemGroup

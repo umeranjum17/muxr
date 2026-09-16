@@ -19,12 +19,14 @@ export function FirstRunSetupCard() {
     const styles = stylesheet;
     const setup = setupEmptyState(loadAppConfig().publicBaseUrl);
     const [copied, setCopied] = React.useState(false);
+    const [copyFailed, setCopyFailed] = React.useState(false);
     const copy = React.useCallback(() => {
         void Clipboard.setStringAsync(setup.command).then((ok) => {
-            if (ok === false) return;
+            if (ok === false) { setCopyFailed(true); return; }
+            setCopyFailed(false);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
-        }).catch(() => {});
+        }).catch(() => setCopyFailed(true));
     }, [setup.command]);
     return (
         <View style={styles.card}>
@@ -45,6 +47,9 @@ export function FirstRunSetupCard() {
                             <Ionicons name={copied ? 'checkmark-outline' : 'copy-outline'} size={20} color={theme.colors.textSecondary} />
                         </Pressable>
                     </View>
+                    {copyFailed && (
+                        <Text accessibilityLiveRegion="polite" style={styles.copyStatus}>Could not copy. Enter the command shown above on your computer.</Text>
+                    )}
                     {setup.setupUrl !== undefined && (
                         <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void openExternalUrl(setup.setupUrl!)}>
                             <Text style={styles.link}>Not installed? Setup guide</Text>
@@ -138,5 +143,11 @@ const stylesheet = StyleSheet.create((theme) => ({
         fontSize: 13,
         color: theme.colors.accent,
         marginTop: 2,
+    },
+    copyStatus: {
+        ...Typography.default(),
+        fontSize: 13,
+        lineHeight: 18,
+        color: theme.colors.textSecondary,
     },
 }));

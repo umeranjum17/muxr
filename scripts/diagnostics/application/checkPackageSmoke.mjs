@@ -579,7 +579,7 @@ try {
     assertCompactSkillOutput(installedSkill);
     assert.equal(run(cli, ['skill'], { cwd: installDir, env: cliEnv() }).stdout, installedSkill, 'packed skill alias diverged from --skill');
     const onboardingSkill = run(cli, ['skill', 'onboarding'], { cwd: installDir, env: cliEnv() }).stdout;
-    assert.match(onboardingSkill, /proposes one route[\s\S]*NetBird[\s\S]*WireGuard/);
+    assert.match(onboardingSkill, /shows all six routes[\s\S]*NetBird[\s\S]*WireGuard/);
     assert.match(onboardingSkill, /## Diagnose and recover[\s\S]*muxr doctor[\s\S]*muxr diagnostics/);
     assert.match(run(cli, ['skill', 'collaboration'], { cwd: installDir, env: cliEnv() }).stdout, /muxr peers prompt/);
     assertUnifiedSkillOutput(run(cli, ['skill', 'all'], { cwd: installDir, env: cliEnv() }).stdout);
@@ -587,7 +587,6 @@ try {
     assert.equal(unavailablePeers.status, 1);
     assert.match(unavailablePeers.stderr, /Peer access is not ready/);
     const wizardSource = readFileSync(join(installedPackage, 'setup/presentation/setupWizard.mjs'), 'utf8');
-    assert.match(wizardSource, /Recommended route[\s\S]*Use this route and continue[\s\S]*Choose another way/);
     assert.match(wizardSource, /if \(recovered === undefined\) return stoppedAfterApply\(\)/, 'post-Apply stop falsely claimed nothing changed');
     const applyGuard = wizardSource.indexOf("if (apply !== true) return cancelSetup();");
     const tailscaleMutation = wizardSource.indexOf('await applyTailscaleConnect(found)', applyGuard);
@@ -773,7 +772,7 @@ try {
     const setupArgs = ['--relay-only', '--port', String(setupPort), '--advertise', `ws://127.0.0.1:${setupPort}`];
     assert.equal(run(cli, ['version'], { cwd: installDir, env }).stdout.trim(), packageJson.version);
     const beforeHelp = filesSnapshot(home);
-    assert.match(run(cli, ['setup', '--help'], { cwd: installDir, env }).stdout, /Interactive setup installs Herdr when missing/);
+    assert.match(run(cli, ['setup', '--help'], { cwd: installDir, env }).stdout, /Interactive setup checks this computer[\s\S]*installs Herdr when missing/);
     assert.match(run(cli, ['update', '--help'], { cwd: installDir, env }).stdout, /Check npm for a newer/);
     assert.match(run(cli, ['connect', '--help'], { cwd: installDir, env }).stdout, /--enrollment/);
     assert.match(run(cli, ['machines', '--help'], { cwd: installDir, env }).stdout, /machines enroll/);
