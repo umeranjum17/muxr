@@ -559,6 +559,7 @@ if (cached !== undefined) {
   // Z.ai is measured from Pi's records, so ccusage's health says nothing about
   // this tab; only whether its models could be attributed does.
   if (provider === 'zai' && zaiConnected && zaiModelIds.size === 0) activityFailure = 'Local activity unavailable for this provider';
+  else if (provider === 'zai' && zaiConnected && reports.pi?.unavailable) activityFailure = reports.pi.reason ?? 'Local activity unavailable';
   else if (provider === 'zai' && zaiConnected) activityFailure = undefined;
   const activityAvailable = activitySupported && activityFailure === undefined;
   // Only failures speak on the screen now (a notice inside the Today card);
