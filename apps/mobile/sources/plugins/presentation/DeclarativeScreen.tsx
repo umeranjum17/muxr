@@ -357,19 +357,25 @@ function ScreenNode(props: {
                         ...cardStyle(theme), paddingHorizontal: 16, paddingVertical: 12,
                         ...(columns === undefined ? {} : { flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 }),
                     }}>
-                    {node.children.map((child, index) => {
-                        if (columns !== undefined) {
-                            return <View key={index} style={{ flexBasis: `${100 / columns - 2}%`, flexGrow: 1, maxWidth: `${100 / columns}%` }}><ScreenNode {...props} node={child} nested /></View>;
-                        }
-                        // Adjacent rows read as one table: hairlines between them.
-                        const separated = child.type === 'row' && index > 0 && node.children[index - 1]!.type === 'row';
-                        if (!separated) return <ScreenNode key={index} {...props} node={child} nested />;
-                        return (
-                            <View key={index} style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
-                                <ScreenNode {...props} node={child} nested />
-                            </View>
-                        );
-                    })}
+                    {(() => {
+                        let prevWasRow = false;
+                        return node.children.map((child, index) => {
+                            if (child.type === 'row' && bind(child.title) === '') return null;
+                            if (columns !== undefined) {
+                                prevWasRow = child.type === 'row';
+                                return <View key={index} style={{ flexBasis: `${100 / columns - 2}%`, flexGrow: 1, maxWidth: `${100 / columns}%` }}><ScreenNode {...props} node={child} nested /></View>;
+                            }
+                            // Adjacent rows read as one table: hairlines between them.
+                            const separated = child.type === 'row' && prevWasRow;
+                            prevWasRow = child.type === 'row';
+                            if (!separated) return <ScreenNode key={index} {...props} node={child} nested />;
+                            return (
+                                <View key={index} style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
+                                    <ScreenNode {...props} node={child} nested />
+                                </View>
+                            );
+                        });
+                    })()}
                 </View>
             );
             return (
@@ -419,13 +425,14 @@ function ScreenNode(props: {
                 return entries.slice(0, MAX_SCREEN_LIST_ROWS).map((entry) => ({ row: node.repeat!.template, item: entry }));
             })();
             const all = [...node.rows.map((row) => ({ row, item: undefined as unknown })), ...repeated];
+            const visibleAll = all.filter(({ row, item }) => bindText(resolvePluginText(row.title), data, item) !== '');
             return (
                 <View style={{ marginBottom: props.nested ? 4 : 14 }}>
                     {node.title !== undefined && <SectionLabel style={{ marginBottom: 10, marginTop: props.nested ? 10 : 0 }}>{bind(node.title)}</SectionLabel>}
                     <View style={props.nested ? {} : { ...cardStyle(theme), paddingHorizontal: 16, paddingVertical: 4 }}>
-                        {all.length === 0
+                        {visibleAll.length === 0
                             ? <Text style={{ color: theme.colors.textSecondary, fontSize: 13, paddingVertical: 10 }}>{bind(node.emptyText ?? t('plugins.nothingToShow'))}</Text>
-                            : all.map(({ row, item }, index) => (
+                            : visibleAll.map(({ row, item }, index) => (
                                 <ScreenRow key={index} row={row} data={data} item={item} onRowAction={props.onRowAction} insideCard
                                     style={{ paddingVertical: 9, borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }} />
                             ))}

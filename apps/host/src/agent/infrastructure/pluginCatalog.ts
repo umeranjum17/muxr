@@ -358,7 +358,7 @@ function summaryOf(plugin: HerdrPlugin, manifestHash: string | undefined, capabi
         hasBackend: herdrBackendOf(plugin)
             || manifest?.contributions.some((item) => item.slot === 'host.rpc' || item.slot === 'host.stream') === true,
         herdrBackend: herdrBackendOf(plugin),
-        warnings: [...(compatWarning === undefined ? [] : compatWarning), ...inherited].slice(0, 4),
+        warnings: [...(compatWarning === undefined ? [] : [compatWarning]), ...inherited].slice(0, 4),
     };
 }
 
