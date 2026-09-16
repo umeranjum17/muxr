@@ -566,7 +566,7 @@ if (cached !== undefined) {
   // the informational sentences were the footer's job all along.
   const days = agents.get(provider) ?? PERIODS.map((period) => ({ period, row: undefined }));
   const totals = activityTotals(days);
-  const { today, tokensToday, tokensWeek, costToday, costWeek, modelsToday } = totals;
+  const { today, tokensToday, tokensWeek, costToday, costWeek } = totals;
   const [claudeRaw, go, zaiPlan] = await Promise.all([
     provider === 'claude' ? claudePlanLimits() : undefined,
     provider === 'opencode' ? goPlanLimits() : { series: [], label: '' },

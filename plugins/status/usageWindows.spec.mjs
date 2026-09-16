@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-    activityTotals, bindingWindow, claudeWindows, codexWindows, goWindows, localActivityForModels,
-    normalizeWindow, providerModelIds, windowHeadline, windowRow, zaiWindows,
+    activityTotals, claudeWindows, codexWindows, goWindows, localActivityForModels,
+    normalizeWindow, providerModelIds, windowRow, zaiWindows,
 } from './usageWindows.mjs';
 
 process.env.TZ = 'UTC';
@@ -58,15 +58,12 @@ describe('one usage view model behind every provider dialect', () => {
         expect(normalizeWindow({ provider: 'p', windowKind: 'session', label: 'L', nowMs: NOW })).toBeUndefined();
     });
 
-    it('renders rows and headlines through the rate-limit block module', () => {
+    it('renders rows through the rate-limit block module', () => {
         const [vm] = groups.claude;
         const row = windowRow(vm);
         expect(row.valueLabel).toBe('60% left');
         expect(row.tone).toBe('warning');
         expect(row.detail).toBe('2:30 PM · on pace');
-        expect(windowHeadline(vm)).toBe('60% left · on pace · 2:30 PM');
-        // The binding window is the one closest to its limit.
-        expect(bindingWindow([{ ...vm, percentRemaining: 50 }, { ...vm, percentRemaining: 61 }, vm]).percentRemaining).toBe(50);
     });
 
     it('reduces measured local records into provider slices without fabricated cost', () => {

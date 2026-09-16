@@ -55,19 +55,6 @@ export function windowRow(vm) {
     };
 }
 
-/** Headline string for the binding window ("61% left · on pace · 2:30 PM").
- *  Same format as the rate-limit block's headroomLabel, rendered from the
- *  view model's collection-time verdict rather than a second computation. */
-export function windowHeadline(vm) {
-    const clock = vm.resetClock === '' ? '' : ` · ${vm.resetClock}`;
-    return `${Math.round(vm.percentRemaining)}% left · ${vm.pace.verdict}${clock}`;
-}
-
-/** The window closest to its limit leads; unknown windows sink. */
-export function bindingWindow(vms) {
-    return vms.reduce((worst, vm) => (vm.percentRemaining < worst.percentRemaining ? vm : worst));
-}
-
 // --- Per-provider transforms: raw payload in, view models out. ---
 
 const CLAUDE_WINDOWS = [['five_hour', 'session', '5-hour limit'], ['seven_day', 'weekly', '7-day limit']];
@@ -154,10 +141,7 @@ export function activityTotals(days) {
     const costToday = today?.totalCost;
     const costWeekKnown = days.every(({ row }) => row === undefined || Number.isFinite(row.totalCost));
     const costWeek = costWeekKnown ? days.reduce((sum, day) => sum + (day.row?.totalCost ?? 0), 0) : undefined;
-    const modelsToday = (Array.isArray(today?.modelBreakdowns) ? today.modelBreakdowns : [])
-        .filter((model) => Number.isSafeInteger(model?.totalTokens) && model.totalTokens > 0)
-        .sort((a, b) => b.totalTokens - a.totalTokens);
-    return { today, tokensToday, tokensWeek, costToday, costWeek, modelsToday };
+    return { today, tokensToday, tokensWeek, costToday, costWeek };
 }
 
 /** The bare model id behind a recorded name ("zai/glm-x:high" -> "glm-x"). */
