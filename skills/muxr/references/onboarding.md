@@ -117,8 +117,9 @@ Machine keys are created locally on each agent machine; the relay returns only
 a credential scoped to that machine. Revoking a machine disconnects its host
 and devices and cannot affect another enrolled machine.
 
-Changing a relay endpoint requires fresh pairing because devices pin the
-endpoint from their pairing grant. Plugin and agent changes sync live.
+Changing a relay endpoint normally requires fresh pairing because devices pin the
+endpoint from their pairing grant (see `docs/SELF-HOSTING.md` for the same-LAN
+verification exception). Plugin and agent changes sync live.
 
 ## Maintenance
 

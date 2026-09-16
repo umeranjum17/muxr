@@ -60,7 +60,7 @@ muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]
                [--port <n>] [--relay-only|--host-only] [--web] [--yes]
 ```
 
-Interactive setup keeps the current healthy route, otherwise recommends Tailscale, a detected private overlay, an installed temporary tunnel, or the trusted local network in that order. An inconclusive Tailscale Serve preflight remains advisory; only proven disabled or occupied Serve changes the recommendation. Session, terminal, attachment, and plugin-stream payloads use the strict v2 E2EE data plane; the relay routes ciphertext it cannot read.
+Interactive setup recommends the healthy current route or a detected route across all six routes; your own WSS server stays selectable. An inconclusive Tailscale Serve preflight remains advisory; only proven disabled or occupied Serve changes the recommendation. Session, terminal, attachment, and plugin-stream payloads use the strict v2 E2EE data plane; the relay routes ciphertext it cannot read.
 
 For a shared VPS relay, prefer interactive `muxr`. Automation equivalents are:
 
