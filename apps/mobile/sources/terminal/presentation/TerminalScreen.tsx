@@ -31,7 +31,14 @@ import { AgentGlyph } from '@/components/AgentGlyph';
 import { ActionShortcut } from '@/components/ActionShortcut';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
 import { agentLabels, agentNameLine, agentStatusColor, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, resolveTabPane, tabLabel, useNavigateToSession } from '@/herd';
-import { terminalPaneCanSend, terminalPaneStatus } from '../domain/promptAvailability';
+import {
+    DIALOG_GUARD_ACTION,
+    DIALOG_GUARD_MESSAGE,
+    DIALOG_GUARD_TITLE,
+    terminalInputDisposition,
+    terminalPaneCanSend,
+    terminalPaneStatus,
+} from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { useDraft } from '@/hooks/useDraft';
@@ -201,6 +208,19 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         setRestoreScrollBack(0);
         setShowJump(false);
     }, []);
+    const showDialogMessage = React.useCallback(() => {
+        if (channelRef.current === undefined) {
+            router.push(`/session/${encodeURIComponent(props.id)}/history`);
+            return;
+        }
+        jumpToBottom();
+    }, [jumpToBottom, props.id]);
+    const showDialogGuard = React.useCallback(() => {
+        Modal.alert(DIALOG_GUARD_TITLE, DIALOG_GUARD_MESSAGE, [
+            { text: DIALOG_GUARD_ACTION, onPress: showDialogMessage },
+            { text: 'Dismiss', style: 'cancel' },
+        ]);
+    }, [showDialogMessage]);
 
     // One horizontal swipe pages through active agents and agents that finished
     // in the last two minutes. Old shells never sit between live work.
@@ -245,6 +265,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     );
     const [overviewOpen, setOverviewOpen] = React.useState(false);
     const currentPane = storedPane;
+    const sessionRef = React.useRef(session);
+    sessionRef.current = session;
+    const currentPaneRef = React.useRef(currentPane);
+    currentPaneRef.current = currentPane;
     const showGestureHintRef = React.useRef<(text: string) => void>(() => undefined);
     const navigateToSession = useNavigateToSession();
     const tabStripRef = React.useRef<ScrollView>(null);
@@ -301,8 +325,23 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         && socketStatus.status === 'connected' && status === 'live'
         && paneLifecycle === 'working';
     const paneMissing = currentPane === undefined || isShellLabels(agentLabels(currentPane));
+    const sendCommand = React.useCallback((command: string) => {
+        const disposition = terminalInputDisposition(currentPaneRef.current, sessionRef.current ?? undefined, command);
+        if (disposition.kind === 'blocked') {
+            showDialogGuard();
+            return;
+        }
+        const request = disposition.kind === 'answer'
+            ? sync.request('session.answer', { sessionId: props.id, answer: disposition.answer })
+            : sync.sendMessage(props.id, command);
+        void request.catch((error: unknown) => Modal.alert('Command failed', error instanceof Error ? error.message : String(error)));
+    }, [props.id, showDialogGuard]);
     const openAgentCommands = React.useCallback(() => {
         if (!canControl) return;
+        if (terminalInputDisposition(currentPaneRef.current, sessionRef.current ?? undefined, '/model').kind === 'blocked') {
+            showDialogGuard();
+            return;
+        }
         const known = agentCommands(paneKind);
         const entries: Command[] = known.map((entry) => ({
             id: entry.command,
@@ -310,8 +349,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             subtitle: `${entry.description}${entry.arguments === undefined ? '' : ` · ${entry.arguments}`}`,
             category: 'Agent commands',
             actionLabel: 'Send now',
-            action: () => { void sync.sendMessage(props.id, entry.command).catch((error: unknown) =>
-                Modal.alert('Command failed', error instanceof Error ? error.message : String(error))); },
+            action: () => sendCommand(entry.command),
             secondaryLabel: 'Edit',
             secondaryAction: () => insertDraft(`${entry.command} `),
         }));
@@ -324,7 +362,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             title: known.length > 0 ? `${paneKind} · ${known.length} commands` : 'Unknown agent · type a command',
             commands: entries,
         } } as any);
-    }, [canControl, insertDraft, paneKind, props.id]);
+    }, [canControl, insertDraft, paneKind, sendCommand, showDialogGuard]);
     React.useEffect(() => {
         if (paneMissing) {
             recordAgentGate({
@@ -422,20 +460,28 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         if (attaching || selectedImages.length > 0) return;
         const text = [draftRef.current.trim(), ...attachedPaths].filter((part) => part !== '').join(' ');
         if (text === '') return;
+        const disposition = terminalInputDisposition(currentPane, session ?? undefined, text);
+        if (disposition.kind === 'blocked') {
+            showDialogGuard();
+            return;
+        }
         const previousDraft = draftRef.current;
         const previousImages = attachedImages;
         draftRef.current = '';
         setDraft('');
         clearDraft();
         setAttachedImages([]);
-        void sync.sendMessage(props.id, text).catch((error: unknown) => {
+        const request = disposition.kind === 'answer'
+            ? sync.request('session.answer', { sessionId: props.id, answer: disposition.answer })
+            : sync.sendMessage(props.id, text);
+        void request.catch((error: unknown) => {
             const restoredDraft = [previousDraft, draftRef.current].filter(Boolean).join('\n');
             draftRef.current = restoredDraft;
             setDraft(restoredDraft);
             setAttachedImages((current) => [...previousImages, ...current]);
             Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
         });
-    }, [attachedImages, attachedPaths, attaching, clearDraft, selectedImages.length, panePromptable, props.id]);
+    }, [attachedImages, attachedPaths, attaching, clearDraft, currentPane, selectedImages.length, session, props.id, showDialogGuard]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);
 
