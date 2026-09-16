@@ -48,7 +48,7 @@ import {
     updatePlugin,
 } from './plugin/index.mjs';
 import { dumpDiagnostics, readDiagnostics } from './diagnostics/index.mjs';
-import { runMuxrConfig } from './setup/application/configInit.mjs';
+import { runMuxrConfig } from './setup/presentation/configInit.mjs';
 import { updateCli } from './release/index.mjs';
 
 const HELP = `muxr — every coding agent on your phone

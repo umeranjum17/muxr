@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { isAbsolute, join } from 'node:path';
-import { heading, intro, note, outro, prompt, select } from '../presentation/ui.mjs';
+import { heading, intro, note, outro, prompt, select } from './ui.mjs';
 import { atomicWrite, error, print, stateDir } from '../infrastructure/runtime.mjs';
 
 /**
