@@ -143,6 +143,14 @@ try {
     assert.match(emptyPi.items.find((item) => item.id === 'available-pi')?.subtitle ?? '', /No measured activity today/);
     assert.ok(output.items.some((item) => item.id === 'limit-codex-0' && item.metadata[0]?.value === '75% left' && item.group === 'Rate limits'));
     assert.ok(output.items.some((item) => item.id === 'limit-codex-1' && item.metadata[0]?.value === '10% left'));
+    // Pace, not percent: the 90%-burned weekly window projects past its reset
+    // (danger), while the 25%-burned 5-hour window survives it (positive).
+    const codexPrimary = output.items.find((item) => item.id === 'limit-codex-0');
+    assert.equal(codexPrimary?.metadata[0]?.tone, 'positive');
+    assert.match(codexPrimary?.metadata[1]?.value ?? '', /· ahead$/);
+    const codexSecondary = output.items.find((item) => item.id === 'limit-codex-1');
+    assert.equal(codexSecondary?.metadata[0]?.tone, 'danger');
+    assert.match(codexSecondary?.metadata[1]?.value ?? '', /· burning$/);
     assert.equal(output.codexRemaining, 10);
     // Only integrated providers earn tabs: measured activity this week or a
     // connected plan/account. The fixture installs many idle CLIs; none of
@@ -165,9 +173,9 @@ try {
     assert.equal(output.weekSeries.at(-1)?.valueLabel, '1.3M');
     assert.equal(output.limitLabel, 'Claude plan usage');
     assert.equal(output.fiveHourUsed, 21);
-    assert.match(output.fiveHourLabel, /^21% used · resets in /);
+    assert.match(output.fiveHourLabel, /^79% left · ahead · \d{1,2}:\d{2} [AP]M$/);
     assert.equal(output.sevenDayUsed, 42);
-    assert.match(output.sevenDayLabel, /^42% used · resets in /);
+    assert.match(output.sevenDayLabel, /^58% left · on pace · (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2}:\d{2} [AP]M$/);
     assert.deepEqual(output.limitRing, []);
 
     // A quiet provider reports zero today rather than its last active day.
@@ -233,7 +241,12 @@ try {
     const connected = run({ provider: 'opencode' }, { ...goEnv, OPENCODE_AUTH_CONTENT: '' });
     const connectedGo = JSON.parse(connected.stdout);
     assert.equal(connectedGo.limitLabel, 'OpenCode Go plan usage');
-    assert.deepEqual(connectedGo.limitSeries.map((limit) => limit.value), [20, 21, 22]);
+    assert.deepEqual(connectedGo.limitSeries.map((limit) => limit.value), [80, 79, 78]);
+    assert.deepEqual(connectedGo.limitSeries.map((limit) => limit.valueLabel), ['80% left', '79% left', '78% left']);
+    // Rolling publishes no window length, so it reports headroom and the
+    // clock without claiming a projection; weekly projects comfortably ahead.
+    assert.match(connectedGo.limitSeries[0]?.detail ?? '', /^[A-Z][a-z]{2} \d{1,2}:\d{2} [AP]M · on pace$|^\d{1,2}:\d{2} [AP]M · on pace$/);
+    assert.match(connectedGo.limitSeries[1]?.detail ?? '', /· ahead$/);
     assert.doesNotMatch(connected.stdout, /fixture-secret-key/);
     assert.match(JSON.parse(run({ provider: 'opencode' }, goEnv).stdout).limitLabel, /connect your Go account/, 'auth override change reused cached account limits');
     writeFileSync(join(scratch, '.local/share/opencode/auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: 'different-fixture-key' } }));
@@ -257,8 +270,9 @@ try {
     const zaiRun = JSON.parse(run({ provider: 'zai' }, { NODE_OPTIONS: `--import=${zaiFetchOk}`, PI_AGENT_DIR: zaiAgent }).stdout);
     assert.equal(zaiRun.provider, 'zai');
     assert.equal(zaiRun.limitLabel, 'Z.ai plan usage');
-    assert.deepEqual(zaiRun.limitSeries.map((limit) => [limit.label, limit.value, limit.valueLabel]), [['5-hour limit', 4, '4% used'], ['Weekly limit', 1, '1% used']]);
-    assert.equal(zaiRun.limitSeries[0]?.detail, '3h');
+    assert.deepEqual(zaiRun.limitSeries.map((limit) => [limit.label, limit.value, limit.valueLabel]), [['5-hour limit', 96, '96% left'], ['Weekly limit', 99, '99% left']]);
+    assert.match(zaiRun.limitSeries[0]?.detail ?? '', /\d{1,2}:\d{2} [AP]M · ahead$/);
+    assert.equal(zaiRun.limitSeries[0]?.tone, 'positive');
     assert.deepEqual(zaiRun.limitRing, []);
     assert.equal(zaiRun.todayTokens, '—');
     assert.match(zaiRun.activityLabel, /unsupported/);

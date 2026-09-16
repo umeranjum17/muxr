@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { constants, accessSync, chmodSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 
 import { createRequire } from 'node:module';
+import { headroomLabel, limitRow, paceVerdict, resetClock, WINDOW_MINUTES } from './rateLimits.mjs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { delimiter, join } from 'node:path';
@@ -149,8 +150,7 @@ function parseClaudeLimits(value) {
     const utilization = raw?.utilization ?? raw?.used_percentage;
     if (!Number.isFinite(utilization) || utilization < 0 || utilization > 100) return [];
     const resetAt = typeof raw?.resets_at === 'number' ? raw.resets_at : Date.parse(raw?.resets_at) / 1000;
-    const reset = relativeReset(resetAt);
-    return [{ id, label, used: Math.round(utilization), reset }];
+    return [{ id, label, used: Math.round(utilization), resetAt }];
   });
 }
 
@@ -237,9 +237,14 @@ async function goPlanLimits() {
     const series = [['rolling', 'Rolling'], ['weekly', 'Weekly'], ['monthly', 'Monthly']].flatMap(([key, label]) => {
       const window = usage?.[key];
       if (!Number.isFinite(window?.percent) || window.percent < 0 || !['ok', 'rate-limited'].includes(window.status)) return [];
-      const used = Math.min(100, window.percent);
-      const reset = relativeReset(Date.parse(window.resetsAt) / 1000);
-      return [{ label, value: used, valueLabel: `${Math.round(used)}% used`, tone: limitTone(100 - used), ...(reset ? { detail: reset } : {}) }];
+      // Rolling publishes no window length, so its row reports headroom and
+      // the clock without claiming a burn projection.
+      return [limitRow({
+        label, used: Math.min(100, window.percent), windowMinutes: WINDOW_MINUTES[key],
+        // Pace runs on the real clock: resets arrive as real-clock timestamps
+        // while NOW may be pinned to a fixture date by MUXR_USAGE_NOW.
+        resetEpochSec: Date.parse(window.resetsAt) / 1000, nowMs: Date.now(), limited: window.status === 'rate-limited',
+      })];
     });
     if (series.length !== 3) return { series: [], label: 'OpenCode Go limits unavailable · incomplete response' };
     return { series, label: 'OpenCode Go plan usage' };
@@ -257,7 +262,7 @@ function zaiToken() {
 
 // Monitor buckets arrive as unit/number pairs; unknown pairs are skipped
 // rather than guessed at, so a schema change degrades to "unavailable".
-const ZAI_WINDOWS = new Map([['3:5', '5-hour limit'], ['6:1', 'Weekly limit']]);
+const ZAI_WINDOWS = new Map([['3:5', { label: '5-hour limit', windowMinutes: 300 }], ['6:1', { label: 'Weekly limit', windowMinutes: 10080 }]]);
 
 async function zaiPlanLimits() {
   const token = zaiToken();
@@ -280,12 +285,13 @@ async function zaiPlanLimits() {
     const parsed = JSON.parse(body);
     if (parsed?.success === false) return { series: [], label: 'Z.ai coding plan unavailable for this account' };
     const series = (Array.isArray(parsed?.data?.limits) ? parsed.data.limits : []).flatMap((limit) => {
-      const label = ZAI_WINDOWS.get(`${limit?.unit}:${limit?.number}`);
+      const window = ZAI_WINDOWS.get(`${limit?.unit}:${limit?.number}`);
       const used = limit?.percentage;
-      const reset = relativeReset(Number(limit?.nextResetTime) / 1000);
-      if (label === undefined || !Number.isFinite(used) || used < 0 || used > 100) return [];
-      const value = Math.min(100, used);
-      return [{ label, value, valueLabel: `${Math.round(value)}% used`, tone: limitTone(100 - value), ...(reset ? { detail: reset } : {}) }];
+      if (window === undefined || !Number.isFinite(used) || used < 0 || used > 100) return [];
+      return [limitRow({
+        label: window.label, used: Math.min(100, used), windowMinutes: window.windowMinutes,
+        resetEpochSec: Number(limit?.nextResetTime) / 1000, nowMs: Date.now(),
+      })];
     });
     if (series.length === 0) return { series: [], label: 'Z.ai limits unavailable · incomplete response' };
     return { series, label: 'Z.ai plan usage' };
@@ -443,20 +449,6 @@ function codexUsage() {
   });
 }
 
-function relativeReset(seconds) {
-  if (!Number.isFinite(seconds) || seconds * 1000 < Date.now() - 86_400_000 || seconds * 1000 > Date.now() + 366 * 86_400_000) return '';
-  let minutes = Math.max(0, Math.ceil((seconds * 1000 - Date.now()) / 60_000));
-  const days = Math.floor(minutes / 1440); minutes -= days * 1440;
-  const hours = Math.floor(minutes / 60); minutes = Math.floor(minutes - hours * 60);
-  return [days && `${days}d`, hours && `${hours}h`, !days && minutes && `${minutes}m`].filter(Boolean).join(' ');
-}
-
-function limitTone(remaining) {
-  if (remaining <= 10) return 'danger';
-  if (remaining <= 25) return 'warning';
-  return 'positive';
-}
-
 function codexItems(result) {
   const limits = Object.values(result?.rateLimitsByLimitId ?? {});
   if (!limits.length && result?.rateLimits) limits.push(result.rateLimits);
@@ -467,41 +459,57 @@ function codexItems(result) {
     return ['primary', 'secondary'].flatMap((key) => {
       const window = limit[key];
       if (!Number.isFinite(window?.usedPercent)) return [];
-      const minutes = window.windowDurationMins;
+      const rawMinutes = window.windowDurationMins;
+      const windowMinutes = Number.isFinite(rawMinutes) && rawMinutes > 0 ? rawMinutes : undefined;
       let duration = key;
-      if (Number.isFinite(minutes) && minutes > 0) duration = `${minutes / 60}h`;
+      if (windowMinutes !== undefined) duration = `${windowMinutes / 60}h`;
       const windowName = `${name} · ${duration}`;
-      const remaining = Math.round(Math.max(0, Math.min(100, 100 - window.usedPercent)));
-      const reset = relativeReset(window?.resetsAt);
-      return [{ index: index * 2 + Number(key === 'secondary'), name: windowName, remaining, reset }];
+      const used = Math.max(0, Math.min(100, window.usedPercent));
+      const remaining = Math.round(100 - used);
+      return [{
+        index: index * 2 + Number(key === 'secondary'), name: windowName, remaining,
+        used, windowMinutes, resetAt: window?.resetsAt,
+      }];
     });
   });
   // Critical windows first: the limit you are about to hit leads the list.
   parsed.sort((a, b) => (a.remaining ?? 101) - (b.remaining ?? 101) || a.index - b.index);
   const details = parsed.slice(0, 8);
-  const items = parsed.map(({ index, name, remaining, reset }) => ({
-    id: `limit-codex-${index}`, title: name, subtitle: 'OpenAI Codex current limit', icon: 'speedometer-outline',
-    group: 'Rate limits',
-    ...(remaining === undefined ? {} : { progress: { value: remaining / 100, tone: limitTone(remaining) } }),
-    metadata: [
-      { value: remaining === undefined ? 'Available' : `${remaining}% left`, ...(remaining === undefined ? {} : { tone: limitTone(remaining) }) },
-      ...(reset ? [{ value: `resets in ${reset}` }] : []),
-    ],
-  }));
+  // Real clock for pace: provider resets are real-clock timestamps.
+  const at = Date.now();
+  const items = parsed.map(({ index, name, remaining, used, windowMinutes, resetAt }) => {
+    const { verdict, tone } = paceVerdict({ used, windowMinutes, resetEpochSec: resetAt, nowMs: at });
+    const clock = resetClock(resetAt, at);
+    return {
+      id: `limit-codex-${index}`, title: name, subtitle: 'OpenAI Codex current limit', icon: 'speedometer-outline',
+      group: 'Rate limits',
+      ...(remaining === undefined ? {} : { progress: { value: remaining / 100, tone } }),
+      metadata: [
+        { value: remaining === undefined ? 'Available' : `${remaining}% left`, ...(remaining === undefined ? {} : { tone }) },
+        { value: clock === '' ? verdict : `${clock} · ${verdict}` },
+      ],
+    };
+  });
   const first = details.length === 0 ? undefined : details.reduce((lowest, limit) => (limit.remaining < lowest.remaining ? limit : lowest));
   return {
     items,
-    // detail carries the reset clock, so a limit row reads "75% · 1h 53m".
-    series: details.map((limit) => ({
-      label: limit.name, value: limit.remaining, valueLabel: `${limit.remaining}%`, tone: limitTone(limit.remaining),
-      ...(limit.reset ? { detail: limit.reset } : {}),
+    // detail carries the reset clock and the pace word, so a limit row reads
+    // "60% left · 2:30 PM · on pace" with red reserved for a projected hit.
+    series: details.map((limit) => limitRow({
+      label: limit.name, used: limit.used, windowMinutes: limit.windowMinutes,
+      resetEpochSec: limit.resetAt, nowMs: at,
     })),
     ring: first === undefined ? [] : [
-      { label: 'Remaining', value: first.remaining, valueLabel: `${first.remaining}%`, tone: limitTone(first.remaining), ...(first.reset ? { detail: first.reset } : {}) },
+      limitRow({
+        label: 'Remaining', used: first.used, windowMinutes: first.windowMinutes,
+        resetEpochSec: first.resetAt, nowMs: at,
+      }),
       { label: 'Used', value: 100 - first.remaining, valueLabel: `${100 - first.remaining}%`, tone: 'secondary' },
     ],
     remaining: first?.remaining ?? 0,
-    remainingLabel: first === undefined ? 'Unavailable' : `${first.remaining}% left${first.reset ? ` · resets in ${first.reset}` : ''}`,
+    remainingLabel: first === undefined ? 'Unavailable' : headroomLabel({
+      used: first.used, windowMinutes: first.windowMinutes, resetEpochSec: first.resetAt, nowMs: at,
+    }),
   };
 }
 
@@ -531,7 +539,7 @@ function limitLabel(provider, claudeLimits, codex) {
 const cacheIdentity = scryptSync(JSON.stringify({
   config: Object.fromEntries(['HOME', 'PATH', 'XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'PI_AGENT_DIR', 'OMP_PROFILE', 'PI_PROFILE', 'OPENCODE_DB', 'OPENCODE_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'TZ'].map((key) => [key, process.env[key] ?? null])),
   go: goAuthSelection(),
-}), 'muxr.status/usage/cache-identity/v3', 32, { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 }).toString('hex');
+}), 'muxr.status/usage/cache-identity/v4', 32, { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 }).toString('hex');
 const cached = cachedOutput();
 if (cached !== undefined) {
   process.stdout.write(JSON.stringify(cached));
@@ -661,11 +669,17 @@ if (cached !== undefined) {
     limitRing: provider === 'codex' ? codex.ring : [],
     ...(fiveHour === undefined ? {} : {
       fiveHourUsed: fiveHour.used,
-      fiveHourLabel: `${fiveHour.used}% used${fiveHour.reset ? ` · resets in ${fiveHour.reset}` : ''}`,
+      fiveHourLabel: headroomLabel({
+        used: fiveHour.used, windowMinutes: WINDOW_MINUTES.five_hour,
+        resetEpochSec: fiveHour.resetAt, nowMs: Date.now(),
+      }),
     }),
     ...(sevenDay === undefined ? {} : {
       sevenDayUsed: sevenDay.used,
-      sevenDayLabel: `${sevenDay.used}% used${sevenDay.reset ? ` · resets in ${sevenDay.reset}` : ''}`,
+      sevenDayLabel: headroomLabel({
+        used: sevenDay.used, windowMinutes: WINDOW_MINUTES.seven_day,
+        resetEpochSec: sevenDay.resetAt, nowMs: Date.now(),
+      }),
     }),
     limitLabel: provider === 'opencode' ? go.label : provider === 'zai' ? zaiPlan.label : limitLabel(provider, claudeLimits, codex),
     codexRemaining: codex.remaining,
