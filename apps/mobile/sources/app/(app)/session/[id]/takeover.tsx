@@ -62,7 +62,6 @@ export default function TakeoverScreen() {
     const [connecting, setConnecting] = React.useState(false);
     const [display, setDisplay] = React.useState<Size>({ width: 0, height: 0 });
     const [keyboardOpen, setKeyboardOpen] = React.useState(false);
-    const [typed, setTyped] = React.useState('');
     // Prefill from the stream URL the agent printed into its conversation.
     const advertisedPort = React.useMemo(() => {
         for (let index = messages.length - 1; index >= Math.max(0, messages.length - 40); index -= 1) {
@@ -217,14 +216,14 @@ export default function TakeoverScreen() {
     }, [commitDrag, display, frame, send]);
 
     const pushText = React.useCallback((value: string) => {
-        const added = value.slice(typed.length);
-        for (const key of added) {
+        // The hidden field stays empty, so every change IS the newly typed
+        // text: a controlled value here would replay stale deltas and the
+        // character-carrying keys would double-insert them.
+        for (const key of value) {
             send(keyMessage('keyDown', key, codeForKey(key)));
             send(keyMessage('keyUp', key, codeForKey(key)));
         }
-        // Keep the hidden field short so diffs stay cheap and nothing accumulates.
-        setTyped(value.length > 32 ? '' : value);
-    }, [send, typed]);
+    }, [send]);
 
     const saveState = React.useCallback(async () => {
         const accepted = await Modal.confirm(
@@ -256,7 +255,6 @@ export default function TakeoverScreen() {
             Keyboard.dismiss();
             setKeyboardOpen(false);
         } else {
-            setTyped('');
             inputRef.current?.focus();
             setKeyboardOpen(true);
         }
@@ -288,7 +286,7 @@ export default function TakeoverScreen() {
     const hiddenInput = (
         <TextInput
             ref={inputRef}
-            value={typed}
+            value={''}
             onChangeText={pushText}
             onKeyPress={({ nativeEvent }) => {
                 if (nativeEvent.key === 'Backspace') {
