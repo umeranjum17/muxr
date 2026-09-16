@@ -33,6 +33,7 @@ import { surfaceModel } from '@/components/document/surfaceModel';
 import { useMonoCharWidth } from '@/components/code/monoMetrics';
 import { syntaxLanguage } from '@/components/code/syntaxHighlighting';
 import { toneColor } from '@/plugins/domain/pluginTone';
+import { FONT_STEPS } from '@/terminal/domain/fontSteps';
 import { type PluginScreenTone } from '@muxr/contract';
 import { hapticsLight } from '@/components/haptics';
 import { t } from '@/text';
@@ -50,12 +51,10 @@ export type DocumentMetadataItem = {
 };
 
 /**
- * The reading surface's zoom ladder, identical to the terminal pane's
- * `FONT_STEPS` (TerminalView.tsx:51) so one tap means one thing in both
- * panes. Worth hoisting into `codeLayout` when the terminal is not being
- * edited by someone else.
+ * The reading surface's zoom ladder. Hoisted into `terminal/domain/fontSteps`
+ * so one tap means one thing in both panes; re-exported for existing importers.
  */
-export const FONT_STEPS = [8, 10, 12, 14, 17, 20] as const;
+export { FONT_STEPS } from '@/terminal/domain/fontSteps';
 
 export const EDGE_INSET = 24;
 export const X_ACTIVATE = 16;
