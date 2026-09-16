@@ -8,7 +8,7 @@ host, and the pairing between them and the app.
 [Prerequisites](#prerequisites) · [Install](#install) · [First run](#first-run) ·
 [Connection choices](#connection-choices) · [Pairing](#pairing) ·
 [Shared relay](#shared-relay-on-a-vps) · [Maintenance](#maintenance) ·
-[Recovery](#diagnose-and-recover) · [Report](#report-an-issue) ·
+[Host settings](#host-settings-file) · [Recovery](#diagnose-and-recover) · [Report](#report-an-issue) ·
 [Uninstall](#uninstall) · [Verify](#verify)
 
 ## Prerequisites
@@ -184,7 +184,7 @@ bounded deadline. Then follow the matching remedy:
 | Tailscale Serve | if Tailscale proves Serve is disabled, use its printed `login.tailscale.com` link or accept direct Tailscale. A timeout is inconclusive: let bounded Apply retry or choose another route. Restart `tailscaled` only when another connection can survive the interruption. |
 | Local relay port | `curl --max-time 3 http://127.0.0.1:8792/health`; inspect the owner with `ss -ltnp 'sport = :8792'` on Linux or `lsof -nP -iTCP:8792 -sTCP:LISTEN` on macOS; stop only a process you recognize or rerun `muxr setup --port <free-port>` |
 | Expired or interrupted pairing | `muxr pair` for a new single-use code |
-| Connection choice or tunnel | rerun interactive `muxr`; do not edit `~/.muxr` |
+| Connection choice or tunnel | rerun interactive `muxr`; do not edit `~/.muxr` except [`config.json`](#host-settings-file) |
 
 On Linux, a Tailscale daemon stall can be confirmed without waiting forever:
 
@@ -197,7 +197,7 @@ Exit status `124` means the local Tailscale command timed out. Capture
 `journalctl -u tailscaled -b --no-pager` locally before restarting it. Do not
 restart `tailscaled` from a session reachable only through Tailscale.
 
-Do not delete or hand-edit `~/.muxr` as a repair. If doctor reports corrupt or
+Do not delete or hand-edit `~/.muxr` as a repair, except [`config.json`](#host-settings-file). If doctor reports corrupt or
 incomplete state, stop and back up the exact file it names before moving it
 aside; that state contains machine identity and pairing authority. `muxr
 uninstall` is destructive recovery, not first aid.
