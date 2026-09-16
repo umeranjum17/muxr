@@ -315,7 +315,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
             }
             const preferred = connectionChoices.findIndex((choice) => choice.value === proposal?.mode && !choice.disabled);
             const initial = preferred >= 0 ? preferred : Math.max(0, connectionChoices.findIndex((choice) => !choice.disabled));
-            const other = await select('Other connection routes', connectionChoices, initial, 'return to recommended route');
+            const other = await select('Other connection routes', connectionChoices, initial, recommended ? 'return to recommended route' : undefined);
             if (other === BACK && recommended) continue;
             if (aborted(other)) return undefined;
             mode = other;

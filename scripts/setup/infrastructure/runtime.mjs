@@ -39,7 +39,7 @@ export const INTEGRATION_COMMANDS = {
 export const print = (text = '') => process.stdout.write(`${text}\n`);
 export const error = (text) => process.stderr.write(`${text}\n`);
 export async function printTerminalQr(value) {
-    if (!process.stdout.isTTY || process.env.TERM === 'dumb' || process.env.MUXR_NO_TUI === '1') {
+    if (!process.stdout.isTTY || process.env.TERM === 'dumb' || process.env.NO_COLOR !== undefined || process.env.MUXR_NO_TUI === '1') {
         print('QR omitted in append-only/plain output; use the exact pairing string below.');
         return;
     }
