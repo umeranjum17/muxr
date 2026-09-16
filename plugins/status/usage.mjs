@@ -464,10 +464,11 @@ function codexItems(result) {
       let duration = key;
       if (windowMinutes !== undefined) duration = `${windowMinutes / 60}h`;
       const windowName = `${name} · ${duration}`;
-      const remaining = Math.round(Math.max(0, Math.min(100, 100 - window.usedPercent)));
+      const used = Math.max(0, Math.min(100, window.usedPercent));
+      const remaining = Math.round(100 - used);
       return [{
         index: index * 2 + Number(key === 'secondary'), name: windowName, remaining,
-        used: 100 - remaining, windowMinutes, resetAt: window?.resetsAt,
+        used, windowMinutes, resetAt: window?.resetsAt,
       }];
     });
   });

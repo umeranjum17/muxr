@@ -89,12 +89,13 @@ export function limitRow({ label, used, windowMinutes, resetEpochSec, nowMs, lim
   const remaining = Math.max(0, Math.min(100, 100 - used));
   const { verdict, tone } = paceVerdict({ used, windowMinutes, resetEpochSec, nowMs, limited });
   const clock = resetClock(resetEpochSec, nowMs);
+  const full = `${clock} · ${verdict}`;
   return {
     label,
     value: remaining,
     valueLabel: `${Math.round(remaining)}% left`,
     tone,
-    ...(clock === '' ? { detail: verdict } : { detail: `${clock} · ${verdict}` }),
+    ...(clock === '' || Buffer.byteLength(full, 'utf8') > 24 ? { detail: verdict } : { detail: full }),
   };
 }
 
