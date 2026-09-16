@@ -12,14 +12,13 @@ import {
 } from '../domain/layout.js';
 import { lifecycleReasonForObservation } from '../domain/lifecycle.js';
 import { AgentRouteStore, isMuxrLaunchSession, shouldAdoptPublishedLaunch, type HerdrAgentSessionRef } from './agentRouteStore.js';
-import { runPluginProcess } from './pluginCatalog.js';
+import { closeAgent, isRetryableHerdr } from './agentClose.js';
 import { RealtimeCodingCoordinator } from './realtimeCoordinator.js';
 import { closeExactPane, closeExactTab, closeExactWorkspace, herdrAgentIsPromptable, isRetryableCloseFailure, mergeHerdrAgentEvent, promptHerdrAgent, promptPromptableHerdrAgent, resolveClosePaneId, sendKeysToLiveAgent } from './herdrSessionSource.js';
-import { createConnection, createServer } from 'node:net';
-import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
+import { createConnection } from 'node:net';
+import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { join } from 'node:path';
 
 function assert(condition: boolean, message: string): void {
     if (!condition) throw new Error(message);
@@ -362,42 +361,16 @@ async function demo(): Promise<void> {
         'parent worktree workspace requires an explicit group action without mutation');
     assert(explicitCloseCalls.every(({ method }) => !method.startsWith('worktree.')), 'no ordinary close action can close a worktree group');
 
-    let closeModuleDir = dirname(fileURLToPath(import.meta.url));
-    let closeModulePath: string | undefined;
-    for (let depth = 0; depth < 8; depth += 1) {
-        const candidate = join(closeModuleDir, 'plugins', 'workspace-hierarchy', 'close.mjs');
-        if (existsSync(candidate)) { closeModulePath = candidate; break; }
-        const parent = dirname(closeModuleDir);
-        if (parent === closeModuleDir) break;
-        closeModuleDir = parent;
-    }
-    assert(closeModulePath !== undefined, 'workspace-hierarchy close.mjs is present for the live close ladder');
-    // The packaged plugin root is resolved at runtime; it is not a TypeScript module dependency.
-    const { closeAgent, createSocketCall, isRetryableHerdr } = await import(pathToFileURL(closeModulePath!).href) as {
-        closeAgent: (options: {
-            paneId: string;
-            confirmedScope?: 'tab' | 'workspace' | 'worktreeGroup';
-            call: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
-        }) => Promise<
-            | { status: 'closed'; alreadyGone?: true }
-            | { status: 'confirmationRequired'; scope: 'tab' | 'workspace' | 'worktreeGroup'; label: string; message: string }
-            | { status: 'retryable'; message: string }
-        >;
-        createSocketCall: (
-            socketPath?: string,
-            timeoutMs?: number,
-        ) => (method: string, params?: Record<string, unknown>) => Promise<unknown>;
-        isRetryableHerdr: (error: unknown) => boolean;
-    };
+    // The close ladder is host code; drive it directly against fixture topology.
     const sanitizedRetryCodes = ['EACCES', 'ECONNRESET', 'ETIMEDOUT'];
     assert(sanitizedRetryCodes.every((code) => {
         const error = new Error(`herdr: session.snapshot: ${code}`);
         return isRetryableHerdr(error) && isRetryableCloseFailure(error);
-    }), 'sanitized socket permission, reset, and timeout codes stay retryable at plugin and host boundaries');
+    }), 'sanitized socket permission, reset, and timeout codes stay retryable at the host boundary');
     type ClosePhase = 'split' | 'two-tabs' | 'last-tab' | 'group' | 'herdr-group' | 'revalidation-outage' | 'empty' | 'outage';
     let closePhase: ClosePhase = 'split';
     let revalidationSnapshots = 0;
-    const pluginCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const hostCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
     const snapshots: Record<Exclude<ClosePhase, 'outage' | 'revalidation-outage'>, Record<string, unknown>> = {
         split: {
             panes: [{ pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1' }],
@@ -435,8 +408,8 @@ async function demo(): Promise<void> {
             workspaces: [{ workspace_id: 'w1', tab_count: 2, label: 'App' }],
         },
     };
-    const pluginCall = async (method: string, params: Record<string, unknown> = {}): Promise<unknown> => {
-        pluginCalls.push({ method, params });
+    const hostCall = async (method: string, params: Record<string, unknown> = {}): Promise<unknown> => {
+        hostCalls.push({ method, params });
         if (closePhase === 'outage') throw new Error('herdr: session.snapshot: connect ECONNREFUSED');
         if (method === 'session.snapshot') {
             if (closePhase === 'revalidation-outage') {
@@ -454,106 +427,61 @@ async function demo(): Promise<void> {
     };
 
     closePhase = 'split';
-    const paneClosed = await closeAgent({ paneId: 'w1:p1', call: pluginCall });
-    assert(paneClosed.status === 'closed' && pluginCalls.some((call) => call.method === 'pane.close'),
+    const paneClosed = await closeAgent({ paneId: 'w1:p1', call: hostCall });
+    assert(paneClosed.status === 'closed' && hostCalls.some((call) => call.method === 'pane.close'),
         'unconfirmed split-pane close issues exact pane.close');
 
     closePhase = 'two-tabs';
-    const beforeTabAsk = pluginCalls.length;
-    const tabAsk = await closeAgent({ paneId: 'w1:p1', call: pluginCall });
+    const beforeTabAsk = hostCalls.length;
+    const tabAsk = await closeAgent({ paneId: 'w1:p1', call: hostCall });
     assert(tabAsk.status === 'confirmationRequired' && tabAsk.scope === 'tab' && tabAsk.label === 'Review'
-        && !pluginCalls.slice(beforeTabAsk).some((call) => call.method.endsWith('.close')),
+        && !hostCalls.slice(beforeTabAsk).some((call) => call.method.endsWith('.close')),
         'last pane in a multi-tab workspace asks for tab confirmation without mutation');
-    assert(!pluginCalls.some((call) => call.method === 'tab.close' || call.method === 'workspace.close'),
+    assert(!hostCalls.some((call) => call.method === 'tab.close' || call.method === 'workspace.close'),
         'cancel is no additional request: unconfirmed close never widens');
 
     closePhase = 'last-tab';
-    const beforeWorkspaceAsk = pluginCalls.length;
-    const workspaceAsk = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'tab', call: pluginCall });
+    const beforeWorkspaceAsk = hostCalls.length;
+    const workspaceAsk = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'tab', call: hostCall });
     assert(workspaceAsk.status === 'confirmationRequired' && workspaceAsk.scope === 'workspace' && workspaceAsk.label === 'App'
-        && !pluginCalls.slice(beforeWorkspaceAsk).some((call) => call.method === 'tab.close'),
+        && !hostCalls.slice(beforeWorkspaceAsk).some((call) => call.method === 'tab.close'),
         'confirmed tab after topology change to a last tab returns the newly required workspace scope');
 
     closePhase = 'group';
-    const beforeGroupAsk = pluginCalls.length;
-    const groupAsk = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'workspace', call: pluginCall });
+    const beforeGroupAsk = hostCalls.length;
+    const groupAsk = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'workspace', call: hostCall });
     assert(groupAsk.status === 'confirmationRequired' && groupAsk.scope === 'worktreeGroup' && groupAsk.label === 'repo'
-        && !pluginCalls.slice(beforeGroupAsk).some((call) => call.method === 'workspace.close'),
+        && !hostCalls.slice(beforeGroupAsk).some((call) => call.method === 'workspace.close'),
         'confirmed workspace on a parent worktree group asks for worktreeGroup without mutation');
 
-    const groupClosed = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'worktreeGroup', call: pluginCall });
+    const groupClosed = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'worktreeGroup', call: hostCall });
     assert(groupClosed.status === 'closed'
-        && pluginCalls.some((call) => call.method === 'workspace.close' && call.params.workspace_id === 'w1'),
+        && hostCalls.some((call) => call.method === 'workspace.close' && call.params.workspace_id === 'w1'),
         'confirmed worktreeGroup invokes exact workspace.close');
 
     closePhase = 'herdr-group';
-    const herdrGroup = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'tab', call: pluginCall });
+    const herdrGroup = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'tab', call: hostCall });
     assert(herdrGroup.status === 'confirmationRequired' && herdrGroup.scope === 'workspace',
         'a raced Herdr tab no-widen response asks for the exact next workspace scope');
-    const beyondConfirmed = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'workspace', call: pluginCall });
+    const beyondConfirmed = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'workspace', call: hostCall });
     assert(beyondConfirmed.status === 'confirmationRequired' && beyondConfirmed.scope === 'worktreeGroup',
         'a Herdr refusal asks strictly beyond both the attempted tab and confirmed workspace');
 
     closePhase = 'revalidation-outage';
     revalidationSnapshots = 0;
-    const revalidationDown = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'tab', call: pluginCall });
+    const revalidationDown = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'tab', call: hostCall });
     assert(revalidationDown.status === 'retryable',
         'temporary outage while revalidating a Herdr refusal never reports the pane already gone');
 
     closePhase = 'empty';
-    const gone = await closeAgent({ paneId: 'w1:p1', call: pluginCall });
+    const gone = await closeAgent({ paneId: 'w1:p1', call: hostCall });
     assert(gone.status === 'closed' && gone.alreadyGone === true
-        && !pluginCalls.slice(-2).some((call) => call.method.endsWith('.close')),
+        && !hostCalls.slice(-2).some((call) => call.method.endsWith('.close')),
         'already missing pane maps to closed alreadyGone');
 
     closePhase = 'outage';
-    const down = await closeAgent({ paneId: 'w1:p1', call: pluginCall });
+    const down = await closeAgent({ paneId: 'w1:p1', call: hostCall });
     assert(down.status === 'retryable', 'temporary Herdr socket failure is retryable');
-
-    const closeRpcDir = mkdtempSync(join(tmpdir(), 'muxr-close-rpc-'));
-    const closeRpcSocket = join(closeRpcDir, 'herdr.sock');
-    const closeRpcServer = createServer((socket) => {
-        let request = '';
-        socket.on('data', (chunk) => {
-            request += chunk.toString('utf8');
-            const newline = request.indexOf('\n');
-            if (newline === -1) return;
-            const message = JSON.parse(request.slice(0, newline)) as { id: string };
-            socket.end(`${JSON.stringify({
-                id: message.id,
-                result: { snapshot: { panes: [], tabs: [], workspaces: [] } },
-            })}\n`);
-        });
-    });
-    await new Promise<void>((resolve, reject) => {
-        closeRpcServer.once('error', reject);
-        closeRpcServer.listen(closeRpcSocket, resolve);
-    });
-    let closeRpcResult: unknown;
-    try {
-        closeRpcResult = await runPluginProcess({
-            pluginId: 'self-check',
-            method: 'close',
-            script: join(dirname(closeModulePath!), 'rpc.mjs'),
-            serializedInput: JSON.stringify({ paneId: 'w1:p1' }),
-            stateDir: closeRpcDir,
-            trustedHerdrSocketPath: closeRpcSocket,
-        });
-    } finally {
-        await new Promise<void>((resolve) => closeRpcServer.close(() => resolve()));
-    }
-    assert(JSON.stringify(closeRpcResult) === JSON.stringify({ status: 'closed', alreadyGone: true })
-        && !JSON.stringify(closeRpcResult).includes(closeRpcSocket),
-    'packaged close RPC receives the non-default Herdr socket only through private process context');
-    const missingPrivateSocket = join(closeRpcDir, 'private-missing.sock');
-    let privateSocketError: unknown;
-    try {
-        await createSocketCall(missingPrivateSocket, 100)('session.snapshot');
-    } catch (error) {
-        privateSocketError = error;
-    }
-    assert(privateSocketError instanceof Error && !privateSocketError.message.includes(missingPrivateSocket),
-        'close transport errors never expose the private Herdr socket path');
 
     const socketDir = mkdtempSync(join(tmpdir(), 'pph-coord-check-'));
     const socketPath = join(socketDir, 'realtime-coding.sock');

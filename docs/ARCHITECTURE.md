@@ -125,7 +125,7 @@ phone.
 | session.start | workspace-per-cwd → tab → `agent.start` | `workspace.create` / `tab.create` / `agent.start --kind` |
 | session.prompt | submit text to the agent | `agent.prompt` |
 | session.abort | interrupt | `agent.send_keys esc` |
-| session.stop | close the selected live Agent Route through an explicit pane → tab → workspace → worktree-group ladder | packaged `muxr.workspace-hierarchy` capability `agent.close`; guarded write, live revalidation, and confirmation for every broader scope |
+| session.stop | close the selected live Agent Route through an explicit pane → tab → workspace → worktree-group ladder | host close ladder (`agentClose.ts`) on the live Herdr socket; live revalidation and confirmation for every broader scope |
 | pane.close | close only the selected pane | `pane.close`; refuse if its tab could not remain |
 | tab.close | close only the selected tab | `tab.close`; refuse if its workspace could not remain |
 | workspace.close | close only the selected workspace | `workspace.close`; refuse if its worktree group would also close |

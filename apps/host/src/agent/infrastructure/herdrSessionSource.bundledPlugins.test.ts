@@ -18,8 +18,7 @@ import type { HerdrPlugin } from './pluginCatalog.js';
  *
  * This drives the real session source against a fake Herdr socket whose
  * registry points bundled ids at a stale "older installed release" tree, then
- * asserts the phone-facing projection (titles, RPC wiring, agent.close
- * capability) comes from this package's own plugins/ directory.
+ * asserts the phone-facing projection (titles, RPC wiring) comes from this package's own plugins/ directory.
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..', '..', '..', '..');
@@ -38,16 +37,6 @@ function stalePanesManifest(): Record<string, unknown> {
         return contribution;
     });
     return { ...manifest, contributions };
-}
-
-function staleHierarchyManifest(): Record<string, unknown> {
-    const { capabilities: _dropped, ...rest } = packagedManifest('muxr.workspace-hierarchy') as unknown as Record<string, unknown> & { capabilities?: unknown };
-    const contributions = (rest.contributions as Array<Record<string, unknown>>).map((contribution) =>
-        contribution.slot === 'session.overlay' && contribution.id === 'hierarchy'
-            ? { ...contribution, params: { ...(contribution.params as Record<string, unknown>), title: 'STALE Workspace' } }
-            : contribution,
-    );
-    return { ...rest, contributions };
 }
 
 function pluginEntry(plugin: HerdrPlugin): HerdrPlugin {
@@ -98,19 +87,16 @@ describe('bundled plugins resolve to the host package', () => {
         // The "older installed release": valid manifests with stale labels and
         // stale RPC wiring for ids this package also ships.
         const stalePanes = join(dir, 'old-release', 'panes');
-        const staleHierarchy = join(dir, 'old-release', 'workspace-hierarchy');
         const extraRoot = join(dir, 'third-party', 'extra');
-        for (const root of [stalePanes, staleHierarchy, extraRoot]) {
+        for (const root of [stalePanes, extraRoot]) {
             mkdirSync(root, { recursive: true });
         }
         writeFileSync(join(stalePanes, 'muxr-ui.json'), JSON.stringify(stalePanesManifest()));
-        writeFileSync(join(staleHierarchy, 'muxr-ui.json'), JSON.stringify(staleHierarchyManifest()));
         const extraManifest = { schemaVersion: 1, pluginId: 'example.extra', contributions: [] };
         writeFileSync(join(extraRoot, 'muxr-ui.json'), JSON.stringify(extraManifest));
 
         const herdr = fakeHerdr(dir, [
             pluginEntry({ plugin_id: 'muxr.panes', name: 'Panes', version: '0.0.1', plugin_root: stalePanes, enabled: true }),
-            pluginEntry({ plugin_id: 'muxr.workspace-hierarchy', name: 'Hierarchy', version: '0.0.1', plugin_root: staleHierarchy, enabled: true }),
             pluginEntry({ plugin_id: 'example.extra', name: 'Extra', version: '1.0.0', plugin_root: extraRoot, enabled: true }),
             // Herdr stays the authority on enabled state: bundled but disabled here.
             pluginEntry({ plugin_id: 'muxr.voice', name: 'Voice', version: '0.0.1', plugin_root: join(dir, 'old-release', 'voice'), enabled: false }),
@@ -145,15 +131,6 @@ describe('bundled plugins resolve to the host package', () => {
                 if (contribution.slot !== 'host.rpc' && contribution.slot !== 'host.stream') continue;
                 expect(existsSync(join(packagedRoot('muxr.panes'), (contribution as { entry: string }).entry))).toBe(true);
             }
-
-            // agent.close capability wiring comes from the packaged hierarchy manifest.
-            const hierarchy = byId.get('muxr.workspace-hierarchy');
-            expect(hierarchy).toBeDefined();
-            const hierarchyManifest = await source.pluginManifest({ pluginId: 'muxr.workspace-hierarchy', manifestHash: hierarchy!.manifestHash! });
-            expect(hierarchyManifest.capabilities?.['agent.close']).toBe('close');
-            const close = hierarchyManifest.contributions.find((contribution) => contribution.slot === 'host.rpc' && contribution.id === 'close');
-            expect(close).toMatchObject({ method: 'close', entry: 'rpc.mjs' });
-            expect(existsSync(join(packagedRoot('muxr.workspace-hierarchy'), 'rpc.mjs'))).toBe(true);
 
             // Adversarial: a plugin this package does not ship keeps Herdr's root.
             const extra = byId.get('example.extra');

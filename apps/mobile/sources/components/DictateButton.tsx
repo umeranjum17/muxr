@@ -6,7 +6,6 @@ import { useUnistyles } from 'react-native-unistyles';
 import { useReducedMotion } from 'react-native-reanimated';
 import { BubblePressable } from '@/components/BubblePressable';
 import { useDictation } from '@/utils/dictation';
-import type { PrimitiveProps } from '../../domain/primitiveTypes'
 import { t } from '@/text';
 
 const BAR_COUNT = 7;
@@ -44,13 +43,9 @@ function DictationWaveform({ level, live, barColor }: { level: number; live: boo
     );
 }
 
-export function DictateButton({ context }: PrimitiveProps) {
+export function DictateButton({ context }: { context: { getText: () => string; setText: (text: string) => void } }) {
     const { theme } = useUnistyles();
-    const ready = 'getText' in context && 'setText' in context;
-    const getText = ready ? context.getText : () => '';
-    const setText = ready ? context.setText : () => {};
-    const dictation = useDictation(getText, setText);
-    if (!ready) return null;
+    const dictation = useDictation(context.getText, context.setText);
     const pill = {
         borderRadius: 21,
         backgroundColor: theme.colors.code.surface,

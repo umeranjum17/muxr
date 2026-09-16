@@ -12,7 +12,6 @@ import { dirname, join } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { encodePayload, decodePayload, nextRequestId } from '@muxr/contract';
 import { waitForRelay } from './waitForRelay.mjs';
-import { packagedCloseAvailable } from './packagedCloseAvailable.mjs';
 
 const repo = mkdtempSync(join(tmpdir(), 'pph-wt-repo-'));
 const branch = `pph-e2e-${process.pid}`;
@@ -136,14 +135,8 @@ ws.on('open', async () => {
         const mine = list.find((s) => s.id === id);
         if (mine?.cwd !== startCwd) done(1, `FAIL: detected cwd drifted: ${mine?.cwd}`);
         console.log(`ok: herdr detected the agent inside the worktree (${mine.paneId})`);
-        const closable = packagedCloseAvailable();
-        if (closable.ok) await request('session.stop', { sessionId: id });
-        else {
-            try {
-                execFileSync(process.env.HERDR_BIN || 'herdr', ['pane', 'close', mine.paneId], { stdio: 'ignore', timeout: 5_000 });
-            } catch { /* the cleanup below removes the checkout either way */ }
-            console.log(`SKIP: session.stop (${closable.reason})`);
-        }
+        // Close is host code, always available.
+        await request('session.stop', { sessionId: id });
         done(0, 'PASS e2e: worktree session');
     } catch (e) {
         done(1, `FAIL: ${e.message}`);

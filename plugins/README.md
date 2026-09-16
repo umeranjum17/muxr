@@ -6,9 +6,6 @@ These packages install into Herdr during muxr setup. Each can have an optional H
 |---|---|---|
 | `control` | muxr control command | setup/control surface |
 | `voice` | machine-held realtime provider adapter | generic capability buttons, provider-neutral realtime overlay, declarative settings + voice shortcut |
-| `terminal-keys` | none | declarative terminal key row |
-| `dictation` | none | home composer using `dictate` |
-| `workspace-hierarchy` | public workspace-tree context RPC | session overlay using source-driven `tree-sheet` |
 | `panes` | Herdr pane/tool catalog + launch | Applications chip (Running / Terminal apps / Plugin tools / Plugin commands) and Panes destination |
 | `status` | pinned offline ccusage + bounded plan limits (see `status/README.md`); disk/memory/load/uptime | Usage rows + chart detail screen; Home machine card |
 

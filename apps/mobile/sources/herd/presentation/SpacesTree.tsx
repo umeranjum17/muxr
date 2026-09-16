@@ -180,6 +180,8 @@ interface SpacesTreeProps {
     refresh: () => Promise<void>;
     density?: 'comfortable' | 'compact';
     selectedSessionId?: string;
+    /** Override pane navigation (a sheet closes itself, then navigates). */
+    onNavigatePane?: (sessionId: string) => void;
     searchQuery?: string;
     topContentInset?: number;
     bottomContentInset?: number;
@@ -194,6 +196,7 @@ const AgentRow = React.memo(({
     pane,
     first,
     onClose,
+    onNavigatePane,
     compact,
     selected,
     canClose,
@@ -201,6 +204,7 @@ const AgentRow = React.memo(({
     pane: HerdrTreePane;
     first?: boolean;
     onClose: () => void;
+    onNavigatePane?: (sessionId: string) => void;
     compact: boolean;
     selected: boolean;
     canClose: boolean;
@@ -219,7 +223,7 @@ const AgentRow = React.memo(({
         <View style={[styles.agentRow, compact && styles.agentRowCompact]}>
             {first !== true && <View style={styles.separator} />}
             <Pressable
-                onPress={sessionId === undefined ? undefined : () => navigateToSession(sessionId)}
+                onPress={sessionId === undefined ? undefined : () => (onNavigatePane ?? navigateToSession)(sessionId)}
                 onLongPress={canClose ? onClose : undefined}
                 disabled={sessionId === undefined}
                 style={({ pressed }) => [
@@ -252,6 +256,7 @@ const WorkspaceCard = React.memo(({
     onToggle,
     onClose,
     onClosePane,
+    onNavigatePane,
     compact,
     selectedSessionId,
     canClose,
@@ -263,6 +268,7 @@ const WorkspaceCard = React.memo(({
     onToggle: () => void;
     onClose: () => void;
     onClosePane: (pane: HerdrTreePane) => void;
+    onNavigatePane?: (sessionId: string) => void;
     compact: boolean;
     selectedSessionId?: string;
     canClose: boolean;
@@ -315,6 +321,7 @@ const WorkspaceCard = React.memo(({
                     pane={pane}
                     first={index === 0}
                     onClose={() => onClosePane(pane)}
+                    onNavigatePane={onNavigatePane}
                     compact={compact}
                     selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
                     canClose={canClose}
@@ -330,6 +337,7 @@ export const SpacesTree = React.memo(({
     refresh,
     density = 'comfortable',
     selectedSessionId,
+    onNavigatePane,
     searchQuery = '',
     topContentInset = 0,
     bottomContentInset = 0,
@@ -428,11 +436,12 @@ export const SpacesTree = React.memo(({
             onToggle={() => toggleWorkspace(item.workspace.workspaceId)}
             onClose={() => confirmCloseWorkspace(item.workspace)}
             onClosePane={confirmClosePane}
+            onNavigatePane={onNavigatePane}
             compact={compact}
             selectedSessionId={selectedSessionId}
             canClose={canClose}
         />
-    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, selectedSessionId, toggleWorkspace]);
+    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, onNavigatePane, selectedSessionId, toggleWorkspace]);
 
     return (
         <View style={[styles.contentContainer, { maxWidth: maxContentWidth }]}>
