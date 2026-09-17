@@ -13,6 +13,7 @@ import { MMKV } from 'react-native-mmkv';
 export type DictationModel = {
     id: string;
     name: string;
+    engine: string;
     description: string;
     fileName: string;
     sizeBytes: number;
@@ -29,16 +30,18 @@ const downloadOptions: DownloadOptions = { sessionType: FileSystemSessionType.BA
 export const DICTATION_MODELS: readonly DictationModel[] = [
     {
         id: BUNDLED_DICTATION_MODEL_ID,
-        name: 'Whisper Base English',
-        description: 'English optimized · bundled with muxr',
+        name: 'English',
+        engine: 'Whisper Base',
+        description: 'bundled',
         fileName: 'ggml-base.en-q5_1.bin',
         sizeBytes: 59_721_011,
         bundled: true,
     },
     {
         id: 'base-q5_1',
-        name: 'Whisper Base multilingual',
-        description: '99 languages · download once, then works offline',
+        name: 'Multilingual',
+        engine: 'Whisper Base',
+        description: '99 languages',
         fileName: 'ggml-base-q5_1.bin',
         sizeBytes: 59_707_625,
         bundled: false,
