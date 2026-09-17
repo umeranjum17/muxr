@@ -18,7 +18,6 @@ const branch = `pph-e2e-${process.pid}`;
 execFileSync('git', ['init', '-q'], { cwd: repo });
 execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: repo });
 
-const PORT = String(8940 + Math.floor(Math.random() * 40));
 const machineId = `wt-check-${process.pid}`;
 const dataDir = mkdtempSync(join(tmpdir(), 'muxr-wt-'));
 const children = [];
@@ -29,8 +28,9 @@ for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_AUTH']) {
 Object.assign(env, {
     MUXR_MODE: 'local',
     MUXR_RELAY_DEVELOPMENT_API: '1',
-    MUXR_RELAY_PORT: PORT,
-    MUXR_RELAY_URL: `ws://127.0.0.1:${PORT}`,
+    // Kernel-picked, then read back from the relay's own announcement: a check
+    // must never pass against a relay it did not start.
+    MUXR_RELAY_PORT: '0',
     MUXR_MACHINE_ID: machineId,
     MUXR_DATA_DIR: dataDir,
     MUXR_RELAY_DATA_DIR: join(dataDir, 'relay'),
@@ -40,6 +40,7 @@ const start = (name, args) => {
     child.stdout.on('data', (d) => process.stdout.write(`      [${name}] ${d}`));
     child.stderr.on('data', (d) => process.stderr.write(`      [${name}] ${d}`));
     children.push(child);
+    return child;
 };
 
 let ws;
@@ -106,8 +107,9 @@ function onMessage(raw) {
     }
 }
 
-start('relay', ['apps/relay/dist/main.js']);
-await waitForRelay(Number(PORT));
+const PORT = await waitForRelay(start('relay', ['apps/relay/dist/main.js']))
+    .catch((error) => done(1, `FAIL: ${error.message}`));
+env.MUXR_RELAY_URL = `ws://127.0.0.1:${PORT}`;
 start('host', ['apps/host/dist/main.js']);
 await new Promise((r) => setTimeout(r, 1500));
 

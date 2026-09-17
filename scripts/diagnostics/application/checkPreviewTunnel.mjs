@@ -26,19 +26,7 @@ process.stdout.write('frame codec OK\n');
 
 // --- end to end -------------------------------------------------------------
 
-// A fixed port collides with whatever the developer already has running, which
-// reads as a failure of this check rather than of the port.
-async function freePort() {
-    const probe = createServer();
-    await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
-    const { port } = probe.address();
-    await new Promise((resolve) => probe.close(resolve));
-    return String(port);
-}
-
-const PORT = process.env.MUXR_RELAY_PORT ?? (await freePort());
 const MACHINE = 'preview-check';
-const RELAY = `ws://127.0.0.1:${PORT}`;
 const MARKER = 'muxr-preview-marker-9f2c';
 
 const children = [];
@@ -69,8 +57,10 @@ for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_AUTH']) {
 Object.assign(env, {
     MUXR_MODE: 'local',
     MUXR_RELAY_DEVELOPMENT_API: '1',
-    MUXR_RELAY_PORT: PORT,
-    MUXR_RELAY_URL: RELAY,
+    // A fixed port collides with whatever the developer already has running,
+    // and -- worse -- lets this check pass against that relay instead of its
+    // own. The kernel picks; the relay reports back what it bound.
+    MUXR_RELAY_PORT: '0',
     MUXR_MACHINE_ID: MACHINE,
     MUXR_RELAY_DATA_DIR: join(scratch, 'relay'),
 });
@@ -79,10 +69,13 @@ const start = (name, args) => {
     child.stdout.on('data', (d) => process.stdout.write(`[${name}] ${d}`));
     child.stderr.on('data', (d) => process.stderr.write(`[${name}] ${d}`));
     children.push(child);
+    return child;
 };
 
-start('relay', ['apps/relay/dist/main.js']);
-await waitForRelay(PORT);
+const PORT = await waitForRelay(start('relay', ['apps/relay/dist/main.js']))
+    .catch((error) => done(1, `\nFAIL: ${error.message}\n`));
+const RELAY = `ws://127.0.0.1:${PORT}`;
+env.MUXR_RELAY_URL = RELAY;
 start('host', ['apps/host/dist/main.js', '--fake']);
 await delay(900);
 

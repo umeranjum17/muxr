@@ -15,6 +15,14 @@ Write a **small number of bigger flow-level tests** that drive a real user-visib
 
 Exception: security and crypto paths keep their coverage.
 
+A test that cannot fail is worse than no test. Before adding one, break the
+behaviour it claims to cover and watch it go red.
+
+## Checks
+
+- `yarn check` is yarn v1's built-in dependency checker, not this repo's suite. The suite is `yarn run check`; the automatic pull-request lane is `yarn run check:fast`. `scripts/diagnostics/application/runSuite.mjs` owns both lists.
+- An e2e check must own the relay it starts: spawn with `MUXR_RELAY_PORT=0` and take the real port from `waitForRelay(child)`. Naming a port instead lets a relay from another worktree answer the health probe, and the check then passes having tested nothing it started.
+
 ## Voice
 
 - Realtime voice stays a native streaming speech-to-speech path. Never replace it with an STT+LLM+TTS pipeline.

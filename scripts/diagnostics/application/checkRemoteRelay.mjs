@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { createServer } from 'node:net';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,17 +21,15 @@ rmSync(authorityDir, { recursive: true, force: true });
 
 const dataDir = mkdtempSync(join(tmpdir(), 'muxr-remote-relay-'));
 const cliHome = mkdtempSync(join(tmpdir(), 'muxr-remote-cli-'));
-const port = await new Promise((resolve, reject) => {
-    const server = createServer();
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => { const address = server.address(); server.close(() => resolve(address.port)); });
-});
-const base = `http://127.0.0.1:${port}`;
 const relayUrl = 'wss://relay.example.test';
+// Port 0 and the child's own announcement: a check must never be satisfied by
+// a relay it did not start.
 const child = spawn(process.execPath, ['apps/relay/dist/main.js'], {
-    env: { ...process.env, MUXR_RELAY_LOCAL_AUTHORITY: '1', MUXR_RELAY_PORT: String(port), MUXR_RELAY_HOST: '127.0.0.1', MUXR_RELAY_DATA_DIR: dataDir },
-    stdio: ['ignore', 'ignore', 'inherit'],
+    env: { ...process.env, MUXR_RELAY_LOCAL_AUTHORITY: '1', MUXR_RELAY_PORT: '0', MUXR_RELAY_HOST: '127.0.0.1', MUXR_RELAY_DATA_DIR: dataDir },
+    stdio: ['ignore', 'pipe', 'inherit'],
 });
+let port;
+let base;
 const json = async (path, options = {}) => {
     const response = await fetch(`${base}${path}`, { ...options, headers: { 'content-type': 'application/json', ...options.headers } });
     return { response, body: await response.json() };
@@ -68,7 +65,8 @@ async function ticket(machine, target = machine.slug) {
 let mint;
 let socket;
 try {
-    await waitForRelay(port);
+    port = await waitForRelay(child);
+    base = `http://127.0.0.1:${port}`;
     mint = JSON.parse(readFileSync(join(dataDir, 'mint-secret'), 'utf8'));
     const badEnrollment = await json('/v1/selfhost/enrollments', { method: 'POST', headers: bearer(mint), body: JSON.stringify({ relay_url: relayUrl }) });
     const badKey = nacl.sign.keyPair();

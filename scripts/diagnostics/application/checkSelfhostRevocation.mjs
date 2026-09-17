@@ -1,5 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import { createServer } from 'node:net';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -36,16 +35,13 @@ const machineBox = generateKeyPair();
 const initialDataKey = randomBytes(32).toString('base64');
 const expiresAt = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
 
-const freePort = await new Promise((resolve, reject) => {
-    const server = createServer();
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-        const address = server.address();
-        server.close(() => resolve(address.port));
-    });
-});
-const base = `http://127.0.0.1:${freePort}`;
-const wsBase = `ws://127.0.0.1:${freePort}`;
+// The kernel picks the port on the first start and the relay announces it; the
+// restart below reuses exactly that one, so the sockets under test reconnect to
+// the same data directory. Nothing here is ever satisfied by a relay this check
+// did not start.
+let port;
+let base;
+let wsBase;
 
 const json = async (path, options = {}) => {
     const response = await fetch(`${base}${path}`, {
@@ -145,13 +141,15 @@ const startRelay = async () => {
             ...process.env,
             MUXR_RELAY_LOCAL_AUTHORITY: '1',
             MUXR_RELAY_MDNS: '1',
-            MUXR_RELAY_PORT: String(freePort),
+            MUXR_RELAY_PORT: String(port ?? 0),
             MUXR_RELAY_HOST: '127.0.0.1',
             MUXR_RELAY_DATA_DIR: dataDir,
         },
-        stdio: ['ignore', 'ignore', 'inherit'],
+        stdio: ['ignore', 'pipe', 'inherit'],
     });
-    await waitForRelay(freePort);
+    port = await waitForRelay(child.current);
+    base = `http://127.0.0.1:${port}`;
+    wsBase = `ws://127.0.0.1:${port}`;
 };
 const stopRelay = async () => {
     const running = child.current;

@@ -4,12 +4,11 @@ import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
 import { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from './hostedE2ee';
+import { looksLikePairingLink } from '../domain/pairingString';
 import { getCachedConnectionSettings } from '@/connection';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
 import { deliverScannedPairingLink } from './deliverScannedPairing';
-
-const PAIR_LINK = /^https:\/\/[^#]+\/pair#|^muxr:\/\/pair[?#]|^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=|^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/pair#/i;
 
 /**
  * Confirm + claim + save + login for a muxr pair link, wherever it came from
@@ -80,7 +79,7 @@ function ensureScanSubscription(): void {
     if (scanSubscription !== null || !CameraView.isModernBarcodeScannerAvailable) return;
     scanSubscription = CameraView.onModernBarcodeScanned((event) => {
         const handler = pendingScan;
-        if (handler === null || !PAIR_LINK.test(event.data)) return;
+        if (handler === null || !looksLikePairingLink(event.data)) return;
         pendingScan = null;
         void deliverScannedPairingLink(event.data, handler, {
             dismissScanner: () => CameraView.dismissScanner(),

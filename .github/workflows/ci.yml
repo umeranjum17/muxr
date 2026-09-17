@@ -5,6 +5,10 @@ name: ci
 # validation while its checks tab can still read green. Change this block and main's
 # branch protection together. Deliberately no push trigger: merging to main must never
 # invoke automated pipelines, and releases stay manual-dispatch only.
+#
+# `fast` runs beside it, not before it: a type error or a broken flow test should
+# be visible in about two minutes rather than behind a full build, a web export
+# and an install smoke. Neither job publishes, deploys, packs, or tags anything.
 on:
   pull_request:
     branches: [main]
@@ -18,6 +22,24 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Typecheck, the compiled self-checks, every vitest flow, and the architecture
+  # policies -- the exact list `yarn check:fast` runs, so a red mark here is
+  # reproducible in one local command. It deliberately does NOT build a package,
+  # export the web app, drive an install, or touch a release artifact: it is
+  # early feedback on a pull request, never a release trigger.
+  fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --frozen-lockfile --non-interactive
+      - name: Fast lane (typecheck, self-checks, vitest flows, architecture)
+        run: yarn run check:fast
+
   suite:
     runs-on: ubuntu-latest
     timeout-minutes: 30

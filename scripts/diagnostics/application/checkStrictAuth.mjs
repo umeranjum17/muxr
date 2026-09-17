@@ -14,9 +14,6 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import WebSocket from 'ws';
 
-const PORT = process.env.MUXR_RELAY_PORT ?? '8817';
-const BASE = `http://127.0.0.1:${PORT}`;
-const WS = `ws://127.0.0.1:${PORT}`;
 const dataDir = mkdtempSync(join(tmpdir(), 'muxr-strict-'));
 const kids = [];
 const done = (code, msg) => {
@@ -26,12 +23,14 @@ const done = (code, msg) => {
 };
 
 const relay = spawn('node', ['apps/relay/dist/main.js'], {
-    env: { ...process.env, MUXR_RELAY_PORT: PORT, MUXR_RELAY_DATA_DIR: dataDir, MUXR_RELAY_AUTH: 'strict' },
+    env: { ...process.env, MUXR_RELAY_PORT: '0', MUXR_RELAY_DATA_DIR: dataDir, MUXR_RELAY_AUTH: 'strict' },
     stdio: ['ignore', 'pipe', 'pipe'],
 });
 relay.stderr.on('data', (d) => process.stderr.write(`[relay] ${d}`));
 kids.push(relay);
-await waitForRelay(PORT);
+const PORT = await waitForRelay(relay).catch((error) => done(1, `\nFAIL: ${error.message}\n`));
+const BASE = `http://127.0.0.1:${PORT}`;
+const WS = `ws://127.0.0.1:${PORT}`;
 
 /**
  * True only when the socket opens AND stays open. The relay refuses by

@@ -18,7 +18,6 @@ for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_URL', 'MUXR_MACHINE_ID', 'MUX
     delete env[key];
 }
 
-const PORT = process.env.MUXR_RELAY_PORT ?? '8813';
 const dataDir = mkdtempSync(join(tmpdir(), 'muxr-takeover-'));
 const children = [];
 const done = (code, msg) => {
@@ -29,12 +28,12 @@ const done = (code, msg) => {
 
 const relay = spawn('node', ['apps/relay/dist/main.js'], {
     env: { ...env, MUXR_RELAY_DEVELOPMENT_API: '1',
-    MUXR_RELAY_PORT: PORT, MUXR_RELAY_DATA_DIR: dataDir },
+    MUXR_RELAY_PORT: '0', MUXR_RELAY_DATA_DIR: dataDir },
     stdio: ['ignore', 'pipe', 'pipe'],
 });
 relay.stderr.on('data', (d) => process.stderr.write(`[relay] ${d}`));
 children.push(relay);
-await waitForRelay(PORT);
+const PORT = await waitForRelay(relay).catch((error) => done(1, `\nFAIL: ${error.message}\n`));
 
 const startHost = () => {
     const host = spawn('node', ['apps/host/dist/main.js', '--fake'], {
