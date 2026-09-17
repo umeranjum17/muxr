@@ -301,7 +301,19 @@ export const pt: TranslationStructure = {
     },
 
     commandPalette: {
-        placeholder: 'Digite um comando ou pesquise...',
+        placeholder: 'Pesquisar comandos',
+        commandsTitle: 'Comandos',
+        agentCommands: ({ agent }: { agent: string }) => `Comandos de ${agent}`,
+        common: 'Comuns',
+        allCommands: ({ kind }: { kind: string }) => `Todos os comandos de ${kind}`,
+        destructive: 'Destrutivos · pedem confirmação',
+        custom: 'Personalizado',
+        typeCommand: 'Digite um comando…',
+        insertSlash: 'Insere / no compositor',
+        noMatch: 'Nenhum comando corresponde',
+        noCatalogue: ({ kind }: { kind: string }) => `Ainda não há catálogo para ${kind} · digite um comando abaixo`,
+        thisAgent: 'este agente',
+        sent: ({ command }: { command: string }) => `Enviado ${command}`,
     },
 
 

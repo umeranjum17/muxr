@@ -61,9 +61,12 @@ export function useCommandPalette(commands: Command[], onClose: () => void) {
         setSelectedIndex(0);
     }, [searchQuery]);
 
+    // An action resolves to false to keep the palette open (a destructive
+    // confirm the user walked away from); anything else closes it.
     const handleSelectCommand = useCallback((command: Command) => {
-        command.action();
-        onClose();
+        void Promise.resolve(command.action()).then((result) => {
+            if (result !== false) onClose();
+        });
     }, [onClose]);
     const handleSecondaryCommand = useCallback((command: Command) => {
         command.secondaryAction?.();

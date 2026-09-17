@@ -402,7 +402,19 @@ export const ru: TranslationStructure = {
     },
 
     commandPalette: {
-        placeholder: 'Введите команду или поиск...',
+        placeholder: 'Поиск команд',
+        commandsTitle: 'Команды',
+        agentCommands: ({ agent }: { agent: string }) => `Команды ${agent}`,
+        common: 'Частые',
+        allCommands: ({ kind }: { kind: string }) => `Все команды ${kind}`,
+        destructive: 'Опасные · спрашивают перед отправкой',
+        custom: 'Своё',
+        typeCommand: 'Введите команду…',
+        insertSlash: 'Вставить / в композер',
+        noMatch: 'Нет подходящих команд',
+        noCatalogue: ({ kind }: { kind: string }) => `Каталога для ${kind} пока нет · введите команду ниже`,
+        thisAgent: 'этого агента',
+        sent: ({ command }: { command: string }) => `Отправлено ${command}`,
     },
 
     agentInput: {

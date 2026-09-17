@@ -301,7 +301,19 @@ export const ca: TranslationStructure = {
     },
 
     commandPalette: {
-        placeholder: 'Escriu una comanda o cerca...',
+        placeholder: 'Cerca ordres',
+        commandsTitle: 'Ordres',
+        agentCommands: ({ agent }: { agent: string }) => `Ordres de ${agent}`,
+        common: 'Comú',
+        allCommands: ({ kind }: { kind: string }) => `Totes les ordres de ${kind}`,
+        destructive: 'Destructives · demanen confirmació',
+        custom: 'Personalitzada',
+        typeCommand: 'Escriu una comanda…',
+        insertSlash: 'Insereix / al composador',
+        noMatch: 'Cap ordre coincideix',
+        noCatalogue: ({ kind }: { kind: string }) => `Encara no hi ha catàleg per a ${kind} · escriu una comanda a continuació`,
+        thisAgent: 'aquest agent',
+        sent: ({ command }: { command: string }) => `Enviat ${command}`,
     },
 
 

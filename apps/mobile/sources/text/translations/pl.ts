@@ -318,7 +318,19 @@ export const pl: TranslationStructure = {
     },
 
     commandPalette: {
-        placeholder: 'Wpisz polecenie lub wyszukaj...',
+        placeholder: 'Szukaj poleceń',
+        commandsTitle: 'Polecenia',
+        agentCommands: ({ agent }: { agent: string }) => `Polecenia ${agent}`,
+        common: 'Częste',
+        allCommands: ({ kind }: { kind: string }) => `Wszystkie polecenia ${kind}`,
+        destructive: 'Destrukcyjne · potwierdzenie przed wysłaniem',
+        custom: 'Własne',
+        typeCommand: 'Wpisz polecenie…',
+        insertSlash: 'Wstaw / w kompozytorze',
+        noMatch: 'Brak pasujących poleceń',
+        noCatalogue: ({ kind }: { kind: string }) => `Nie ma jeszcze katalogu dla ${kind} · wpisz polecenie poniżej`,
+        thisAgent: 'tego agenta',
+        sent: ({ command }: { command: string }) => `Wysłano ${command}`,
     },
 
 

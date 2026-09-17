@@ -316,7 +316,19 @@ export const en = {
     },
 
     commandPalette: {
-        placeholder: 'Type a command or search...',
+        placeholder: 'Search commands',
+        commandsTitle: 'Commands',
+        agentCommands: ({ agent }: { agent: string }) => `${agent} commands`,
+        common: 'Common',
+        allCommands: ({ kind }: { kind: string }) => `All ${kind} commands`,
+        destructive: 'Destructive · asks before sending',
+        custom: 'Custom',
+        typeCommand: 'Type a command…',
+        insertSlash: 'Insert / in the composer',
+        noMatch: 'No commands match',
+        noCatalogue: ({ kind }: { kind: string }) => `No catalogue for ${kind} yet · type a command below`,
+        thisAgent: 'this agent',
+        sent: ({ command }: { command: string }) => `Sent ${command}`,
     },
 
 

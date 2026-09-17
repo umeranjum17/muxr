@@ -66,7 +66,10 @@ import { displayLink } from '../domain/TerminalLink';
 import { humanError } from '@/utils/errors';
 import { CommandPalette } from '@/components/CommandPalette';
 import type { Command } from '@/components/CommandPalette/types';
+import { CUSTOM_CATEGORY } from '@/components/CommandPalette/types';
 import { agentCommands, type AgentCommand } from '../domain/agentCommands';
+import { agentKindLabel } from '@/herd';
+import { t } from '@/text';
 import { FindOutputSheet } from './FindOutputSheet';
 import { useTerminalQuickReplies } from '@/plugins/ui';
 
@@ -403,34 +406,46 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             return;
         }
         const known = agentCommands(paneKind);
-        const sendDangerous = (entry: AgentCommand) => {
-            void Modal.confirm(`Send ${entry.command}?`, `${entry.description}.${entry.reversible === true ? '' : ' This discards the current context.'}`, {
+        const kindLabel = agentKindLabel(paneKind) ?? paneKind;
+        const sendDangerous = async (entry: AgentCommand) => {
+            const ok = await Modal.confirm(`Send ${entry.command}?`, `${entry.description}.${entry.reversible === true ? '' : ' This discards the current context.'}`, {
                 confirmText: `Send ${entry.command}`,
                 destructive: true,
-            }).then((ok) => { if (ok) sendCommand(entry.command); });
+            });
+            // Cancelling resolves false so the palette stays open beneath the dialog.
+            if (!ok) return false;
+            showGestureHintRef.current(t('commandPalette.sent', { command: entry.command }));
+            sendCommand(entry.command);
+            return true;
         };
         const toEntry = (entry: AgentCommand, category: string): Command => ({
             id: entry.command,
-            title: entry.dangerous === true ? `⚠ ${entry.command}` : entry.command,
-            subtitle: `${entry.dangerous === true ? 'Destructive · ' : ''}${entry.description}${entry.arguments === undefined ? '' : ` · ${entry.arguments}`}`,
+            title: entry.command,
+            hint: entry.arguments,
+            subtitle: entry.description,
+            destructive: entry.dangerous === true || undefined,
             category,
-            actionLabel: 'Send now',
-            action: entry.dangerous === true ? () => sendDangerous(entry) : () => sendCommand(entry.command),
-            secondaryLabel: 'Edit',
+            action: entry.dangerous === true
+                ? () => sendDangerous(entry)
+                : () => {
+                    showGestureHintRef.current(t('commandPalette.sent', { command: entry.command }));
+                    sendCommand(entry.command);
+                },
             secondaryAction: () => insertDraft(`${entry.command} `),
         });
         const entries: Command[] = [
-            ...known.filter((entry) => entry.common === true && entry.dangerous !== true).map((entry) => toEntry(entry, 'Common commands')),
-            ...known.filter((entry) => entry.common !== true && entry.dangerous !== true).map((entry) => toEntry(entry, `All ${paneKind} commands`)),
-            ...known.filter((entry) => entry.dangerous === true).map((entry) => toEntry(entry, 'Destructive · confirm before sending')),
+            ...known.filter((entry) => entry.common === true && entry.dangerous !== true).map((entry) => toEntry(entry, t('commandPalette.common'))),
+            ...known.filter((entry) => entry.common !== true && entry.dangerous !== true).map((entry) => toEntry(entry, t('commandPalette.allCommands', { kind: kindLabel ?? '' }))),
+            ...known.filter((entry) => entry.dangerous === true).map((entry) => toEntry(entry, t('commandPalette.destructive'))),
         ];
         entries.push({
-            id: 'custom-command', title: 'Custom command', subtitle: 'Type a slash command in the composer',
-            category: 'Composer', actionLabel: 'Edit command', action: () => insertDraft('/'),
+            id: 'custom-command', title: t('commandPalette.typeCommand'), subtitle: t('commandPalette.insertSlash'),
+            category: CUSTOM_CATEGORY, action: () => insertDraft('/'),
         });
         Modal.show({ component: CommandPalette, props: {
             appearance: 'terminal',
-            title: known.length > 0 ? `${paneKind} · ${known.length} commands` : 'Unknown agent · type a command',
+            title: known.length > 0 ? t('commandPalette.agentCommands', { agent: kindLabel ?? '' }) : t('commandPalette.commandsTitle'),
+            quietLine: known.length > 0 ? undefined : t('commandPalette.noCatalogue', { kind: paneKind ?? t('commandPalette.thisAgent') }),
             commands: entries,
         } } as any);
     }, [canControl, insertDraft, paneKind, sendCommand, showDialogGuard]);

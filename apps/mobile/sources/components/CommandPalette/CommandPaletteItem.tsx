@@ -13,46 +13,55 @@ interface CommandPaletteItemProps {
     onSecondaryPress?: () => void;
     onHover?: () => void;
     appearance?: 'terminal';
-    compact?: boolean;
 }
 
-export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPress, onHover, appearance, compact }: CommandPaletteItemProps) {
+export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPress, onHover, appearance }: CommandPaletteItemProps) {
     const { theme: appTheme } = useUnistyles();
     const theme = appearance === 'terminal' ? darkTheme : appTheme;
     const [isHovered, setIsHovered] = React.useState(false);
     const active = isSelected || isHovered;
-    const rowStyle = [styles.container, {
-        backgroundColor: active ? theme.colors.surfaceHighest : 'transparent',
-        borderColor: isSelected ? theme.colors.textSecondary : 'transparent',
-    }];
-    const hoverProps = {
-        onHoverIn: () => { setIsHovered(true); onHover?.(); },
-        onHoverOut: () => setIsHovered(false),
-    };
 
-    if (command.secondaryAction !== undefined) return (
-        <View style={[rowStyle, styles.agentContainer, compact && styles.compactAgentContainer]}>
-            <Text numberOfLines={1} style={[styles.agentTitle, { color: theme.colors.text }, Typography.mono()]}>{command.title}</Text>
-            {command.subtitle && <Text numberOfLines={2} style={[styles.agentSubtitle, compact && styles.compactAgentSubtitle, { color: theme.colors.textSecondary }, Typography.default()]}>{command.subtitle}</Text>}
-            <View style={[styles.agentActions, compact && styles.compactAgentActions]}>
-                <Pressable {...hoverProps} onPress={onPress} accessibilityRole="button"
-                    accessibilityLabel={`Send now: ${command.title}. ${command.subtitle ?? ''}`}
-                    style={({ pressed }) => [styles.sendButton, { backgroundColor: theme.colors.button.primary.background, opacity: pressed ? 0.72 : 1 }]}>
-                    <Text style={[styles.actionText, { color: theme.colors.button.primary.tint }, Typography.default('semiBold')]}>Send now</Text>
-                </Pressable>
-                <Pressable {...hoverProps} onPress={onSecondaryPress} accessibilityRole="button"
-                    accessibilityLabel={`${command.secondaryLabel ?? 'Edit arguments'} for ${command.title}`}
-                    style={({ pressed }) => [styles.editButton, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
-                    <Ionicons name="create-outline" size={17} color={theme.colors.text} />
-                    <Text style={[styles.actionText, { color: theme.colors.text }, Typography.default('semiBold')]}>{command.secondaryLabel ?? 'Edit'}</Text>
-                </Pressable>
+    // Terminal command row: tap sends, the pencil edits, destructive is said by
+    // its section, a dot and the colour — never by a second button.
+    if (appearance === 'terminal') return (
+        <Pressable
+            onPress={onPress}
+            onHoverIn={() => { setIsHovered(true); onHover?.(); }}
+            onHoverOut={() => setIsHovered(false)}
+            accessibilityRole="button"
+            accessibilityLabel={command.destructive === true
+                ? `${command.title}, destructive, ${command.subtitle ?? ''}. Asks before sending.`
+                : `${command.title}, ${command.subtitle ?? ''}. Sends now.`}
+            style={({ pressed }) => [styles.row, (active || pressed) && { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHighest }]}>
+            <View style={styles.rowCopy}>
+                <View style={styles.commandLine}>
+                    {command.destructive === true && <View style={[styles.destructiveDot, { backgroundColor: theme.colors.status.error }]} />}
+                    <Text numberOfLines={1} style={[styles.command, { color: command.destructive === true ? theme.colors.status.error : theme.colors.text }, Typography.mono()]}>
+                        {command.title}
+                        {command.hint !== undefined && <Text style={[styles.hint, { color: theme.colors.textSecondary }, Typography.mono()]}> {command.hint}</Text>}
+                    </Text>
+                </View>
+                {command.subtitle !== undefined && <Text numberOfLines={1} style={[styles.description, { color: theme.colors.textSecondary }, Typography.default()]}>{command.subtitle}</Text>}
             </View>
-        </View>
+            {command.secondaryAction !== undefined && (
+                <Pressable onPress={onSecondaryPress} accessibilityRole="button" accessibilityLabel={`Edit ${command.title}`}
+                    style={({ pressed }) => [styles.editTarget, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
+                    <Ionicons name="create-outline" size={18} color={theme.colors.textSecondary} />
+                </Pressable>
+            )}
+        </Pressable>
     );
 
     return (
-        <View style={rowStyle}>
-            <Pressable {...hoverProps} onPress={onPress} accessibilityRole="button"
+        <View style={[styles.container, {
+            backgroundColor: active ? theme.colors.surfaceHighest : 'transparent',
+            borderColor: isSelected ? theme.colors.textSecondary : 'transparent',
+        }]}>
+            <Pressable
+                onPress={onPress}
+                onHoverIn={() => { setIsHovered(true); onHover?.(); }}
+                onHoverOut={() => setIsHovered(false)}
+                accessibilityRole="button"
                 accessibilityLabel={`${command.title}. ${command.subtitle ?? ''}. ${command.actionLabel ?? 'Open'}`}
                 style={({ pressed }) => [styles.main, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
                 {command.icon && <View style={[styles.iconContainer, { backgroundColor: theme.colors.surfaceHigh }]}>
@@ -72,16 +81,14 @@ export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPr
 
 const styles = StyleSheet.create({
     container: { marginHorizontal: 8, marginVertical: 3, borderRadius: 12, borderWidth: 1, borderLeftWidth: 3 },
-    agentContainer: { paddingHorizontal: 14, paddingVertical: 12 },
-    compactAgentContainer: { paddingVertical: 8 },
-    agentTitle: { fontSize: 15, lineHeight: 22 },
-    agentSubtitle: { fontSize: 14, lineHeight: 20, marginTop: 3 },
-    compactAgentSubtitle: { lineHeight: 18 },
-    agentActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
-    compactAgentActions: { marginTop: 8 },
-    sendButton: { flex: 1, minHeight: 40, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-    editButton: { flex: 1, minHeight: 40, borderRadius: 9, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-    actionText: { fontSize: 14 },
+    row: { minHeight: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10 },
+    rowCopy: { flex: 1, minWidth: 0 },
+    commandLine: { flexDirection: 'row', alignItems: 'center' },
+    destructiveDot: { width: 6, height: 6, borderRadius: 3, marginRight: 8 },
+    command: { fontSize: 15, lineHeight: 20, flexShrink: 1 },
+    hint: { fontSize: 15, lineHeight: 20 },
+    description: { fontSize: 12, lineHeight: 16, marginTop: 2 },
+    editTarget: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginLeft: 4, borderRadius: 10 },
     main: { flex: 1, minHeight: 44, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, flexDirection: 'row', alignItems: 'center' },
     iconContainer: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
     textContainer: { flex: 1, marginRight: 12 },

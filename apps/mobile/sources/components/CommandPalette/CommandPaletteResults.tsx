@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { View, ScrollView, Text, StyleSheet, Platform } from 'react-native';
 import { Command, CommandCategory } from '@/components/CommandPalette/types';
 import { CommandPaletteItem } from '@/components/CommandPalette/CommandPaletteItem';
+import { SectionLabel, withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { useUnistyles } from 'react-native-unistyles';
 import { darkTheme } from '@/theme';
@@ -13,23 +14,24 @@ interface CommandPaletteResultsProps {
     onSecondaryCommand?: (command: Command) => void;
     onSelectionChange: (index: number) => void;
     appearance?: 'terminal';
-    compact?: boolean;
+    /** Quiet line drawn above the rows (unknown kind, no search matches). */
+    quietLine?: string;
 }
 
-export function CommandPaletteResults({ 
-    categories, 
-    selectedIndex, 
-    onSelectCommand, 
+export function CommandPaletteResults({
+    categories,
+    selectedIndex,
+    onSelectCommand,
     onSecondaryCommand,
     onSelectionChange,
     appearance,
-    compact,
+    quietLine,
 }: CommandPaletteResultsProps) {
     const { theme: appTheme } = useUnistyles();
     const theme = appearance === 'terminal' ? darkTheme : appTheme;
     const scrollViewRef = useRef<ScrollView>(null);
     const itemRefs = useRef<{ [key: number]: View | null }>({});
-    
+
     // Flatten commands for index tracking
     const allCommands = React.useMemo(() => {
         return categories.flatMap(cat => cat.commands);
@@ -60,23 +62,26 @@ export function CommandPaletteResults({
     }
 
     let currentIndex = 0;
+    let shownCategories = 0;
 
     return (
-        <ScrollView 
+        <ScrollView
             ref={scrollViewRef}
-            style={[styles.container, compact && styles.compactContainer]}
+            style={[styles.container, appearance === 'terminal' && styles.terminalContainer]}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
         >
+            {quietLine !== undefined && <Text style={[styles.quietLine, { color: theme.colors.textSecondary }, Typography.default()]}>{quietLine}</Text>}
             {categories.map(category => {
                 if (category.commands.length === 0) return null;
-                
+
                 const categoryStartIndex = currentIndex;
+                const isDestructive = category.commands.some((command) => command.destructive === true);
                 const categoryCommands = category.commands.map((command, idx) => {
                     const commandIndex = categoryStartIndex + idx;
                     const isSelected = commandIndex === selectedIndex;
                     currentIndex++;
-                    
+
                     return (
                         <View
                             key={command.id}
@@ -84,6 +89,7 @@ export function CommandPaletteResults({
                                 itemRefs.current[commandIndex] = ref;
                             }}
                         >
+                            {appearance === 'terminal' && idx > 0 && <View style={[styles.rowSeparator, { backgroundColor: theme.colors.divider }]} />}
                             <CommandPaletteItem
                                 command={command}
                                 isSelected={isSelected}
@@ -91,17 +97,19 @@ export function CommandPaletteResults({
                                 onSecondaryPress={() => onSecondaryCommand?.(command)}
                                 onHover={() => onSelectionChange(commandIndex)}
                                 appearance={appearance}
-                                compact={compact}
                             />
                         </View>
                     );
                 });
 
+                shownCategories++;
                 return (
                     <View key={category.id}>
-                        {!(compact && appearance === 'terminal') && <Text style={[styles.categoryTitle, { color: theme.colors.textSecondary }, Typography.default('semiBold')]}>
+                        {isDestructive && shownCategories > 1 && <View style={[styles.destructiveSeparator, { backgroundColor: theme.colors.divider }]} />}
+                        {category.title !== '' && <SectionLabel
+                            style={[styles.categoryLabel, appearance === 'terminal' && { color: withAlpha(darkTheme.colors.textSecondary, 0.85) }]}>
                             {category.title}
-                        </Text>}
+                        </SectionLabel>}
                         {categoryCommands}
                     </View>
                 );
@@ -121,7 +129,11 @@ const styles = StyleSheet.create({
         paddingVertical: 8,
         flexShrink: 1,
     },
-    compactContainer: { paddingVertical: 4 },
+    terminalContainer: { paddingTop: 0 },
+    quietLine: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6, fontSize: 13, lineHeight: 18 },
+    rowSeparator: { height: StyleSheet.hairlineWidth, marginLeft: 16 },
+    destructiveSeparator: { height: 1, marginHorizontal: 16, marginTop: 8 },
+    categoryLabel: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 },
     emptyContainer: {
         padding: 48,
         alignItems: 'center',
@@ -129,14 +141,5 @@ const styles = StyleSheet.create({
     emptyText: {
         fontSize: 15,
         letterSpacing: -0.2,
-    },
-    categoryTitle: {
-        paddingHorizontal: Platform.OS === 'web' ? 32 : 16,
-        paddingTop: Platform.OS === 'web' ? 16 : 8,
-        paddingBottom: 8,
-        fontSize: 13,
-        textTransform: 'uppercase',
-        letterSpacing: 0.8,
-        fontWeight: '600',
     },
 });

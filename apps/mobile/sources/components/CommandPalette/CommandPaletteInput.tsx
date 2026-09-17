@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, TextInput, StyleSheet, Platform, useWindowDimensions } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
+import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { darkTheme } from '@/theme';
@@ -12,16 +13,19 @@ interface CommandPaletteInputProps {
     inputRef?: React.RefObject<TextInput | null>;
     appearance?: 'terminal';
     compact?: boolean;
+    onFocusChange?: (focused: boolean) => void;
 }
 
-export function CommandPaletteInput({ value, onChangeText, onKeyPress, inputRef, appearance, compact }: CommandPaletteInputProps) {
+export function CommandPaletteInput({ value, onChangeText, onKeyPress, inputRef, appearance, onFocusChange }: CommandPaletteInputProps) {
     const { theme: appTheme } = useUnistyles();
     const theme = appearance === 'terminal' ? darkTheme : appTheme;
+    // A physical keyboard is the only kind on wide screens, so the field can
+    // take focus immediately; on a phone the sheet opens with the IME down.
     const wide = useWindowDimensions().width >= 500;
     const handleKeyDown = React.useCallback((e: any) => {
         if (Platform.OS === 'web' && onKeyPress) {
             const key = e.nativeEvent.key;
-            
+
             // Handle navigation keys
             if (['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(key)) {
                 e.preventDefault();
@@ -32,32 +36,44 @@ export function CommandPaletteInput({ value, onChangeText, onKeyPress, inputRef,
     }, [onKeyPress]);
 
     return (
-        <View style={[styles.container, { borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }]}>
-            <TextInput
-                ref={inputRef}
-                style={[styles.input, { paddingHorizontal: wide ? 24 : 16, paddingVertical: compact ? 8 : wide ? 18 : 12, fontSize: wide ? 20 : 16, color: theme.colors.text }, Typography.default()]}
-                value={value}
-                onChangeText={onChangeText}
-                placeholder={t('commandPalette.placeholder')}
-                placeholderTextColor={theme.colors.textSecondary}
-                autoFocus
-                autoCorrect={false}
-                autoCapitalize="none"
-                returnKeyType="go"
-                onKeyPress={handleKeyDown}
-                onSubmitEditing={Platform.OS === 'web' ? undefined : () => onKeyPress?.('Enter')}
-                blurOnSubmit={false}
-            />
+        <View style={styles.container}>
+            <View style={[styles.field, { backgroundColor: theme.colors.surfaceHigh }]}>
+                <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
+                <TextInput
+                    ref={inputRef}
+                    style={[styles.input, { color: theme.colors.text }, Typography.default()]}
+                    value={value}
+                    onChangeText={onChangeText}
+                    placeholder={t('commandPalette.placeholder')}
+                    placeholderTextColor={theme.colors.textSecondary}
+                    autoFocus={wide}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                    returnKeyType="go"
+                    onKeyPress={handleKeyDown}
+                    onFocus={() => onFocusChange?.(true)}
+                    onBlur={() => onFocusChange?.(false)}
+                    onSubmitEditing={Platform.OS === 'web' ? undefined : () => onKeyPress?.('Enter')}
+                    blurOnSubmit={false}
+                />
+            </View>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        borderBottomWidth: 1,
+    container: { paddingHorizontal: 12, paddingVertical: 8 },
+    field: {
+        height: 44,
+        borderRadius: 10,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 12,
     },
     input: {
-        letterSpacing: -0.3,
+        flex: 1,
+        fontSize: 16,
         // Remove outline on web
         ...(Platform.OS === 'web' ? {
             outlineStyle: 'none',
