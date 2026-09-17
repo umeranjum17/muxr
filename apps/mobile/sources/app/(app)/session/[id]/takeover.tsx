@@ -73,6 +73,10 @@ export default function TakeoverScreen() {
         return undefined;
     }, [messages]);
     const [portDraft, setPortDraft] = React.useState(advertisedPort === undefined ? '' : String(advertisedPort));
+    const portEditedRef = React.useRef(false);
+    React.useEffect(() => {
+        if (!portEditedRef.current && advertisedPort !== undefined) setPortDraft(String(advertisedPort));
+    }, [advertisedPort]);
     const socketRef = React.useRef<WebSocket | null>(null);
     const closeTunnelRef = React.useRef<(() => void) | null>(null);
     const inputRef = React.useRef<TextInput>(null);
@@ -127,6 +131,8 @@ export default function TakeoverScreen() {
     // unmount, so the screencast never outlives its last watcher.
     const connect = React.useCallback(async (streamPort: number) => {
         disconnect();
+        setFrame(null);
+        setPageUrl(null);
         setConnecting(true);
         setError(null);
         try {
@@ -217,15 +223,15 @@ export default function TakeoverScreen() {
 
     const typedRef = React.useRef('');
     const pushText = React.useCallback((value: string) => {
-        // The field is uncontrolled and its content is tracked in a ref, so
-        // every change yields exactly the newly typed characters. A controlled
-        // value here replays stale deltas and the character-carrying keys
-        // would re-insert them. The field is never trimmed mid-typing: a
-        // clear() that has not landed yet would make the next change replay
-        // the whole accumulated text.
-        const added = value.slice(typedRef.current.length);
+        const previous = typedRef.current;
+        let common = 0;
+        while (common < previous.length && common < value.length && previous[common] === value[common]) common += 1;
         typedRef.current = value;
-        for (const key of added) {
+        for (let index = 0; index < previous.length - common; index += 1) {
+            send(keyMessage('keyDown', 'Backspace', 'Backspace'));
+            send(keyMessage('keyUp', 'Backspace', 'Backspace'));
+        }
+        for (const key of value.slice(common)) {
             send(keyMessage('keyDown', key, codeForKey(key)));
             send(keyMessage('keyUp', key, codeForKey(key)));
         }
@@ -258,11 +264,12 @@ export default function TakeoverScreen() {
 
     const toggleKeyboard = React.useCallback(() => {
         if (keyboardOpen) {
+            typedRef.current = '';
+            inputRef.current?.clear();
             Keyboard.dismiss();
             setKeyboardOpen(false);
         } else {
             typedRef.current = '';
-            inputRef.current?.clear();
             inputRef.current?.focus();
             setKeyboardOpen(true);
         }
@@ -305,7 +312,11 @@ export default function TakeoverScreen() {
                 send(keyMessage('keyDown', 'Enter', 'Enter'));
                 send(keyMessage('keyUp', 'Enter', 'Enter'));
             }}
-            onBlur={() => setKeyboardOpen(false)}
+            onBlur={() => {
+                typedRef.current = '';
+                inputRef.current?.clear();
+                setKeyboardOpen(false);
+            }}
             autoCapitalize="none"
             autoCorrect={false}
             blurOnSubmit={false}
@@ -371,7 +382,10 @@ export default function TakeoverScreen() {
                     </Text>
                     <TextInput
                         value={portDraft}
-                        onChangeText={setPortDraft}
+                        onChangeText={(value) => {
+                            portEditedRef.current = true;
+                            setPortDraft(value);
+                        }}
                         placeholder="Stream port"
                         placeholderTextColor={theme.colors.textSecondary}
                         keyboardType={Platform.OS === 'web' ? undefined : 'number-pad'}

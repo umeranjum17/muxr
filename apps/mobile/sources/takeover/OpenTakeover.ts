@@ -59,7 +59,7 @@ export function keyMessage(eventType: 'keyDown' | 'keyUp', key: string, code: st
         // A printable keyDown must carry the character itself: without the
         // text field the stream dispatches the key but inserts nothing into
         // a focused field (measured on a live input).
-        ...(eventType === 'keyDown' && key.length === 1 && key.charCodeAt(0) >= 32 ? { text: key } : {}),
+        ...(eventType === 'keyDown' && [...key].length === 1 && key.charCodeAt(0) >= 32 ? { text: key } : {}),
     });
 }
 
@@ -86,7 +86,7 @@ export function parseStreamPage(raw: unknown): { url: string } | undefined {
         const message = JSON.parse(raw) as { type?: string; tabs?: { active?: boolean; url?: string }[] };
         if (message.type !== 'tabs' || !Array.isArray(message.tabs)) return undefined;
         const active = message.tabs.find((tab) => tab.active) ?? message.tabs[0];
-        if (active?.url === undefined) return undefined;
+        if (typeof active?.url !== 'string') return undefined;
         return { url: active.url };
     } catch {
         return undefined;
