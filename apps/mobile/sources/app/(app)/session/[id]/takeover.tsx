@@ -98,7 +98,7 @@ export default function TakeoverScreen() {
     const deadlineRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const gotFrameRef = React.useRef(false);
     const connectBusyRef = React.useRef(false);
-    const mountedRef = React.useRef(true);
+    const mountedRef = React.useRef<boolean>(true);
     React.useEffect(() => () => { mountedRef.current = false; }, []);
 
     const cwd = session?.metadata?.path ?? '.';
