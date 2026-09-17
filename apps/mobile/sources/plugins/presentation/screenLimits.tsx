@@ -8,6 +8,7 @@ import { resolvePluginText } from '../domain/pluginText';
 import { toneColor } from '../domain/pluginTone';
 import { cardStyle, SectionLabel, Meter } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
+import { t } from '@/text';
 
 /** Share of a window used at which the row turns warning, then danger. The
  *  host decided the verdict; these only colour the evidence rows. */
@@ -20,12 +21,14 @@ const rowTone = (used: number): PluginScreenTone => {
     return 'positive';
 };
 
-const VERDICT_WORDS: Record<Exclude<PluginLimitsPayload['verdict'], 'unknown'>, string> = {
-    limited: 'Rate limited',
-    low: 'Nearly out',
-    watch: 'Pace yourself',
-    ahead: 'Ahead of pace',
-    go: 'Go ahead',
+/** One verdict vocabulary for every limit surface; the Right now card reads
+ *  the same five words. */
+export const VERDICT_KEYS: Record<Exclude<PluginLimitsPayload['verdict'], 'unknown'>, Parameters<typeof t>[0]> = {
+    limited: 'plugins.limits.limited',
+    low: 'plugins.limits.low',
+    watch: 'plugins.limits.watch',
+    ahead: 'plugins.limits.ahead',
+    go: 'plugins.limits.go',
 };
 
 /** The tightest window leads the card: highest share used; on ties, the first
@@ -38,7 +41,7 @@ function bindingWindow(windows: PluginLimitsWindow[]): PluginLimitsWindow | unde
 
 function limitsSummary(payload: PluginLimitsPayload): string {
     const tightest = bindingWindow(payload.windows);
-    const verdict = payload.verdict === 'unknown' ? undefined : VERDICT_WORDS[payload.verdict];
+    const verdict = payload.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.verdict]);
     const head = [verdict, tightest === undefined ? undefined : `${100 - Math.round(tightest.used)} percent left`]
         .filter((part) => part !== undefined).join(', ');
     const rows = payload.windows.map((window) => {
@@ -74,7 +77,7 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
         );
     }
     const tightest = bindingWindow(payload.windows);
-    const verdictWord = payload.verdict === 'unknown' ? undefined : VERDICT_WORDS[payload.verdict];
+    const verdictWord = payload.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.verdict]);
     const verdictTone: PluginScreenTone = payload.verdict === 'go' ? 'positive' : payload.verdict === 'unknown' ? 'secondary' : payload.verdict === 'watch' || payload.verdict === 'ahead' ? 'warning' : 'danger';
     const headlineTone: PluginScreenTone = payload.verdict === 'go' ? 'secondary' : verdictTone;
     return (

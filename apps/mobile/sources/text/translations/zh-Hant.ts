@@ -82,6 +82,26 @@ export const zhHant: TranslationStructure = {
         realtimeOff: '語音工作階段已關閉',
         openConversation: '開啟語音對話',
         realtime: '語音',
+
+        limits: {
+            go: '可以繼續',
+            ahead: '進度超前',
+            watch: '注意節奏',
+            low: '即將用盡',
+            limited: '已限速',
+        },
+        rightNow: {
+            title: '目前狀態',
+            collecting: '正在收集用量…',
+            unavailable: '用量無法使用 · 點按重試',
+            notConnected: '未連線方案限額',
+            resetsIn: ({ time }: { time: string }) => `${time}後重置`,
+            opensUsage: '開啟用量',
+            memory: '記憶體',
+            disk: '磁碟',
+            load: '負載',
+            up: '已運行',
+        },
     },
 
     common: {

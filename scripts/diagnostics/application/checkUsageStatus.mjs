@@ -106,13 +106,14 @@ const claudeLimits = {
     },
 };
 
-const run = (input, environment = {}) => { const r = spawnSync(process.execPath, ['plugins/status/usage.mjs'], {
+const runPlugin = (entry, input, environment = {}) => { const r = spawnSync(process.execPath, [entry], {
     cwd: process.cwd(),
     encoding: 'utf8',
     input: JSON.stringify(input),
     env: { ...process.env, HOME: scratch, XDG_DATA_HOME: join(scratch, '.local/share'), PI_CONFIG_DIR: '.omp', OMP_PROFILE: '', PI_PROFILE: '', OPENCODE_AUTH_CONTENT: '', CLAUDE_CONFIG_DIR: join(scratch, '.claude'), TZ: 'UTC', MUXR_USAGE_NOW: today.toISOString(), PATH: `${scratch}:${process.env.PATH}`, MUXR_CCUSAGE_BIN: ccusage, MUXR_PLUGIN_STATE_DIR: scratch, ...environment },
     timeout: 20_000,
-}); if (r.status !== 0 || r.stdout === '') console.error('RUN-DEBUG', JSON.stringify(input), 'status=', r.status, 'stderr=', (r.stderr||'')); return r; }
+}); if (r.status !== 0 || r.stdout === '') console.error('RUN-DEBUG', JSON.stringify(input), 'status=', r.status, 'stderr=', (r.stderr||'')); return r; };
+const run = (input, environment = {}) => runPlugin('plugins/status/usage.mjs', input, environment);
 
 try {
     writeTranscript(join(scratch, '.omp/agent/sessions/proj/session.jsonl'), [
@@ -665,6 +666,28 @@ try {
         rmSync(flow, { recursive: true, force: true });
     }
     process.stdout.write('PASS e2e: per-provider ccusage tabs + safe live limits + deduped local accounting\n');
+
+    // The Right now card renders a typed payload, not prose: whatever the
+    // fixtures feed Usage must also parse into the card's bounded shape.
+    // Runs after the scan-counting assertions: now.mjs invokes usage.mjs, and
+    // a warm-cache answer still counts as one ccusage scan.
+    const nowPayload = JSON.parse(runPlugin('plugins/status/now.mjs', {}).stdout);
+    if (nowPayload.limit !== undefined) {
+        assert.ok(['go', 'ahead', 'watch', 'low', 'limited', 'unknown'].includes(nowPayload.limit.verdict));
+        assert.ok(Number.isInteger(nowPayload.limit.used) && nowPayload.limit.used >= 0 && nowPayload.limit.used <= 100);
+        assert.ok(typeof nowPayload.limit.label === 'string' && nowPayload.limit.label !== '');
+        assert.ok(nowPayload.limit.resetsIn === undefined || typeof nowPayload.limit.resetsIn === 'string');
+        assert.ok(nowPayload.limit.elapsed === undefined || (Number.isFinite(nowPayload.limit.elapsed) && nowPayload.limit.elapsed >= 0 && nowPayload.limit.elapsed <= 1));
+    } else {
+        assert.ok(typeof nowPayload.message === 'string' || nowPayload.collecting === true);
+    }
+    assert.ok(Number.isFinite(nowPayload.vitals.memoryTotal) && nowPayload.vitals.memoryTotal > 0);
+    assert.ok(Number.isFinite(nowPayload.vitals.diskTotal) && nowPayload.vitals.diskTotal > 0);
+    assert.ok(Number.isFinite(nowPayload.vitals.load1) && Number.isFinite(nowPayload.vitals.uptimeSeconds));
+    // The cold-cache fallback never withholds the vitals line.
+    const coldNow = JSON.parse(runPlugin('plugins/status/now.mjs', {}, { MUXR_PLUGIN_STATE_DIR: '' }).stdout);
+    assert.ok(Number.isFinite(coldNow.vitals.memoryTotal) && coldNow.vitals.memoryTotal > 0);
+    process.stdout.write('PASS now: the home card payload parses for the fixtures\n');
 } finally {
     rmSync(scratch, { recursive: true, force: true });
 }

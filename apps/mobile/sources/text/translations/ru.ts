@@ -91,6 +91,26 @@ export const ru: TranslationStructure = {
         realtimeOff: 'Голосовой сеанс выключен',
         openConversation: 'Открыть голосовой разговор',
         realtime: 'Голос',
+
+        limits: {
+            go: 'Вперёд',
+            ahead: 'С опережением',
+            watch: 'Сдерживайте темп',
+            low: 'Почти исчерпано',
+            limited: 'Ограничение скорости',
+        },
+        rightNow: {
+            title: 'Прямо сейчас',
+            collecting: 'Собираем данные использования…',
+            unavailable: 'Данные использования недоступны · нажмите, чтобы повторить',
+            notConnected: 'Лимиты плана не подключены',
+            resetsIn: ({ time }: { time: string }) => `обновится через ${time}`,
+            opensUsage: 'Открывает использование',
+            memory: 'Память',
+            disk: 'Диск',
+            load: 'нагрузка',
+            up: 'работает',
+        },
     },
 
     common: {

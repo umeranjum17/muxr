@@ -80,6 +80,25 @@ export const en = {
         realtimeOff: 'Realtime session off',
         openConversation: 'Open realtime conversation',
         realtime: 'Realtime',
+        limits: {
+            go: 'Go ahead',
+            ahead: 'Ahead of pace',
+            watch: 'Pace yourself',
+            low: 'Nearly out',
+            limited: 'Rate limited',
+        },
+        rightNow: {
+            title: 'Right now',
+            collecting: 'Collecting usage…',
+            unavailable: 'Usage unavailable · tap to retry',
+            notConnected: 'Plan limits aren’t connected',
+            resetsIn: ({ time }: { time: string }) => `resets in ${time}`,
+            opensUsage: 'Opens Usage',
+            memory: 'Memory',
+            disk: 'Disk',
+            load: 'load',
+            up: 'up',
+        },
     },
 
     common: {

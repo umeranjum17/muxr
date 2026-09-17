@@ -80,6 +80,26 @@ export const es: TranslationStructure = {
         realtimeOff: 'Sesión de voz apagada',
         openConversation: 'Abrir conversación de voz',
         realtime: 'Voz',
+
+        limits: {
+            go: 'Adelante',
+            ahead: 'Por delante',
+            watch: 'Modera el ritmo',
+            low: 'Casi agotado',
+            limited: 'Limitado',
+        },
+        rightNow: {
+            title: 'Ahora mismo',
+            collecting: 'Recopilando uso…',
+            unavailable: 'Uso no disponible · toca para reintentar',
+            notConnected: 'Límites del plan no conectados',
+            resetsIn: ({ time }: { time: string }) => `se renueva en ${time}`,
+            opensUsage: 'Abre Uso',
+            memory: 'Memoria',
+            disk: 'Disco',
+            load: 'carga',
+            up: 'activo',
+        },
     },
 
     common: {

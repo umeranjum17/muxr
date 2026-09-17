@@ -22,6 +22,7 @@ import { pluginHref } from '@/plugins';
 import { HomeDock, MOBILE_HOME_DOCK_CONTENT_INSET } from '@/spawn/ui';
 import { HerdView } from './HerdView';
 import { LiveTerminalsRow } from './LiveTerminalsRow';
+import { RightNowCard } from './RightNowCard';
 import { SessionItem } from './SessionsList';
 import { Header } from '@/components/navigation/Header';
 import { HeaderLogo } from '@/components/HeaderLogo';
@@ -578,6 +579,7 @@ export const MainView = React.memo(() => {
 
     const homeHeader = <>
         <PluginSlot slot="home.cards" context={{}} />
+        <RightNowCard />
         <DeclarativeHomeCards />
         <DeclarativePhoneNavRow onSelect={(pluginId, contentId) => router.push(pluginHref(pluginId, contentId))} />
     </>;
@@ -625,6 +627,7 @@ export const MainView = React.memo(() => {
                     {homeTreeLoaded && !homeWorkspaces.some(hasAgent) && !splitRecovering && socketStatus.status === 'connected'
                         ? <HomeDiscoveryRows /> : null}
                     <PluginSlot slot="home.cards" context={{}} />
+                    <RightNowCard />
                     <DeclarativeHomeCards />
                     {recentSessions.length > 0 && (
                         <View style={styles.recentSection}>

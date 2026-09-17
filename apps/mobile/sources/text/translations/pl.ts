@@ -91,6 +91,26 @@ export const pl: TranslationStructure = {
         realtimeOff: 'Sesja głosowa wyłączona',
         openConversation: 'Otwórz rozmowę głosową',
         realtime: 'Głos',
+
+        limits: {
+            go: 'Dalej',
+            ahead: 'Przed tempem',
+            watch: 'Kontroluj tempo',
+            low: 'Prawie wyczerpane',
+            limited: 'Ograniczenie',
+        },
+        rightNow: {
+            title: 'Teraz',
+            collecting: 'Zbieranie danych użycia…',
+            unavailable: 'Użycie niedostępne · dotknij, aby ponowić',
+            notConnected: 'Limity planu nie są połączone',
+            resetsIn: ({ time }: { time: string }) => `odnowienie za ${time}`,
+            opensUsage: 'Otwiera użycie',
+            memory: 'Pamięć',
+            disk: 'Dysk',
+            load: 'obciążenie',
+            up: 'działa',
+        },
     },
 
     common: {
