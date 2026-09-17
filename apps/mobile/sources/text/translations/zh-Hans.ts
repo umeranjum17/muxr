@@ -882,6 +882,20 @@ export const zhHans: TranslationStructure = {
         notSupportedMessage: '此代理不支持图片附件。图片未发送。',
     },
 
+    browser: {
+        statusBrowsing: ({ agent }: { agent: string }) => `${agent}正在浏览`,
+        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent}正在等待你登录`,
+        statusStopped: ({ agent }: { agent: string }) => `${agent}已停止`,
+        statusIdleBrowser: ({ agent }: { agent: string }) => `${agent}的浏览器`,
+        waitingForConnection: ({ machine }: { machine: string }) => `正在等待连接到${machine}…`,
+        lostBody: ({ machine }: { machine: string }) => `页面可能仍在${machine}上打开。`,
+        openFailedTitle: ({ machine }: { machine: string }) => `无法在${machine}上打开浏览器。`,
+        goTo: '前往',
+        goToPlaceholder: '网站或地址',
+        goToConfirm: '前往',
+        goToFailed: '无法打开该地址',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
     }

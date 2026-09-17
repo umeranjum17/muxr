@@ -883,6 +883,20 @@ export const ja: TranslationStructure = {
         notSupportedMessage: 'このエージェントは画像の添付に対応していません。画像は送信されませんでした。',
     },
 
+    browser: {
+        statusBrowsing: ({ agent }: { agent: string }) => `${agent}がブラウジング中`,
+        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent}がサインインを待っています`,
+        statusStopped: ({ agent }: { agent: string }) => `${agent}が停止しました`,
+        statusIdleBrowser: ({ agent }: { agent: string }) => `${agent}のブラウザ`,
+        waitingForConnection: ({ machine }: { machine: string }) => `${machine}への接続を待っています…`,
+        lostBody: ({ machine }: { machine: string }) => `ページは${machine}で開いたままかもしれません。`,
+        openFailedTitle: ({ machine }: { machine: string }) => `${machine}でブラウザを開けませんでした。`,
+        goTo: '移動',
+        goToPlaceholder: 'サイトまたはアドレス',
+        goToConfirm: '開く',
+        goToFailed: 'そのアドレスを開けませんでした',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
     }

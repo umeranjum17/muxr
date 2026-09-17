@@ -881,6 +881,22 @@ export const en = {
     },
 
 
+    browser: {
+        // The agent's browser screen (takeover): status line and new states
+        statusBrowsing: ({ agent }: { agent: string }) => `${agent} is browsing`,
+        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent} is waiting for you to sign in`,
+        statusStopped: ({ agent }: { agent: string }) => `${agent} stopped`,
+        statusIdleBrowser: ({ agent }: { agent: string }) => `${agent}'s browser`,
+        waitingForConnection: ({ machine }: { machine: string }) => `Waiting for the connection to ${machine}…`,
+        lostBody: ({ machine }: { machine: string }) => `The page may still be open on ${machine}.`,
+        openFailedTitle: ({ machine }: { machine: string }) => `Couldn't open a browser on ${machine}.`,
+        goTo: 'Go to',
+        goToPlaceholder: 'Site or address',
+        goToConfirm: 'Go',
+        goToFailed: "Couldn't open that address",
+    },
+
+
     feed: {
         // Feed notifications for friend requests and acceptances
     },
