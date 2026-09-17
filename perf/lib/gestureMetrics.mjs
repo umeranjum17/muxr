@@ -3,21 +3,16 @@
  * dumps and this module turns them into the numbers the limits judge.
  */
 const NATIVE_PHASES = new Set(['herd tree fling', 'herd strip paging', 'document scroll']);
-// One zoom phase per surface. A single phase had to discover which pane it had
-// landed on and then judge itself by that, so whichever surface answered was
-// the one it graded -- and a text pane standing in for the graphics fixture
-// looked like a pass rather than the missing coverage it was.
-export const ZOOM_PHASES = new Set(['text zoom tap', 'graphics zoom tap']);
-const TERMINAL_PHASES = new Set(['terminal text fling', 'graphics pane scroll', ...ZOOM_PHASES]);
+export const ZOOM_PHASES = new Set(['text zoom tap']);
+const TERMINAL_PHASES = new Set(['terminal text fling', ...ZOOM_PHASES]);
 const SCROLL_PHASES = new Set([
     'herd tree fling',
     'herd strip paging',
     'document scroll',
     'terminal text fling',
-    'graphics pane scroll',
 ]);
 
-/** Same threshold the graphics-pane screenshot comparison uses. */
+/** Same threshold the screenshot movement comparison uses. */
 export const PIXEL_MOVE_THRESHOLD = 8 / 255;
 
 function asNumber(value) {
@@ -574,23 +569,6 @@ export function reduceGridTransitions(records = []) {
     };
 }
 
-/**
- * Pipeline notches for one bout. `notchesDropped` is intent the cap ate —
- * the honest companion to `gestureDroppedPercent`, not a slow-frame count.
- */
-export function reducePipelineNotches(events = []) {
-    let notchesSent = 0;
-    let notchesDropped = 0;
-    let frames = 0;
-    for (const event of events) {
-        if (event?.event !== 'graphics.pipeline') continue;
-        notchesSent += Number(event.notchesSent) || 0;
-        notchesDropped += Number(event.notchesDropped) || 0;
-        frames += Number(event.frames) || 0;
-    }
-    return { notchesSent, notchesDropped, frames };
-}
-
 function rawPixels(raw) {
     if (raw === undefined || raw === null) return Buffer.alloc(0);
     const bytes = Buffer.isBuffer(raw.bytes) ? raw.bytes : Buffer.isBuffer(raw) ? raw : Buffer.alloc(0);
@@ -645,62 +623,6 @@ export function meanAbsDiff(before, after) {
         }
     }
     return count === 0 ? 0 : sum / count / 255;
-}
-
-/**
- * The width of one block of the fixture's checkerboard, in screen pixels.
- *
- * Scanned across the middle rows of a crop: a colour step is a block edge, and
- * the median gap between edges is the block's size on screen. It survives the
- * load churning the pane, because the producer repaints the same board every
- * frame, and it is the only thing that changes when a local transform
- * magnifies a surface without touching the remote grid.
- */
-export function checkerPeriod(crop, { minStep = 60, rows = 5 } = {}) {
-    const width = Number(crop?.width) || 0;
-    const height = Number(crop?.height) || 0;
-    if (width < 8 || height < 8) return undefined;
-    const pixels = rawPixels(crop);
-    const gaps = [];
-    for (let sample = 1; sample <= rows; sample += 1) {
-        const y = Math.floor(height * sample / (rows + 1));
-        let previousEdge;
-        for (let x = 1; x < width; x += 1) {
-            const left = (y * width + x - 1) * 4;
-            const right = (y * width + x) * 4;
-            const step = Math.abs((pixels[left] ?? 0) - (pixels[right] ?? 0))
-                + Math.abs((pixels[left + 1] ?? 0) - (pixels[right + 1] ?? 0))
-                + Math.abs((pixels[left + 2] ?? 0) - (pixels[right + 2] ?? 0));
-            if (step < minStep) continue;
-            if (previousEdge !== undefined && x - previousEdge > 1) gaps.push(x - previousEdge);
-            previousEdge = x;
-        }
-    }
-    if (gaps.length < 3) return undefined;
-    gaps.sort((left, right) => left - right);
-    return gaps[Math.floor(gaps.length / 2)];
-}
-
-/**
- * Did the surface really magnify in place? One zoom step scales the pane by a
- * known factor, so its blocks must grow by that factor. A tap that changed
- * nothing, or a pane that reflowed instead of magnifying, does not.
- */
-export function reduceMagnification(before, after, { expected, tolerance = 0.15 } = {}) {
-    const beforePeriod = checkerPeriod(before);
-    const afterPeriod = checkerPeriod(after);
-    if (beforePeriod === undefined || afterPeriod === undefined) {
-        return { proven: false, why: 'the surface has no measurable pattern to magnify', beforePeriod, afterPeriod };
-    }
-    const ratio = afterPeriod / beforePeriod;
-    const want = Number(expected) > 0 ? Number(expected) : 1;
-    return {
-        proven: Math.abs(ratio - want) <= want * tolerance,
-        beforePeriod,
-        afterPeriod,
-        ratio: Number(ratio.toFixed(3)),
-        expected: want,
-    };
 }
 
 export function pixelsMoved(before, after, { minMean = PIXEL_MOVE_THRESHOLD } = {}) {
@@ -954,8 +876,7 @@ export function scrollableBounds(surface, dump, screen = {}) {
     // The terminal is the node that says it is the terminal. A view of about
     // the right size is a guess, and a guess crops whatever is under it.
     const ghostty = nodes.find((node) => node.desc === TERMINAL_SURFACE);
-    if (name === 'terminal' || name === 'terminal text fling'
-        || name === 'graphics' || name === 'graphics pane scroll') {
+    if (name === 'terminal' || name === 'terminal text fling') {
         return ghostty;
     }
     // The strip is cropped to the scroller it was measured on, or to nothing:
@@ -1080,9 +1001,7 @@ export function phaseMetrics(driven, context = {}) {
         zoomAtRestDefault: driven.zoomAtRestDefault,
         zoomWindow: driven.zoomWindow,
         attachRecords: driven.attachRecords,
-        surfaceKind: driven.surfaceKind ?? context.surfaceKind,
         terminal: driven.terminal,
-        graphicsRowsPerSecond: driven.graphicsRowsPerSecond,
         zoomTransitions: driven.zoomTransitions,
         injectFailed: driven.injectFailed,
         movement: driven.movement,
@@ -1157,48 +1076,30 @@ export function verdict(phase, metrics, limits) {
         // surface, that the phone asked for rows and the clamp ate none, that
         // no scroll went unanswered, and that Android's own framestats show a
         // frame driven by the touch -- gated above for every scroll phase.
-        failWhen(failures, 'the phase did not stand on a text terminal surface', metrics.surfaceKind !== 'text');
         failWhen(failures, 'the phone reported no scroll totals for this phase', terminal.scrollRequests === undefined);
         failWhen(failures, 'terminalRowsPerSecond', under(terminal.rowsPerSecond, limits.terminalRowsPerSecond));
         failWhen(failures, 'terminalScrollClamped', over(terminal.clamped, limits.terminalScrollClamped));
         failWhen(failures, 'a scroll timed out with no repaint', (terminal.timedOut ?? 0) > 0);
         failWhen(failures, 'accidentalOwners', over(terminal.agentPages, limits.accidentalOwners));
     }
-    if (name === 'graphics pane scroll') {
-        failWhen(failures, 'graphicsRowsPerSecond', under(terminal.rowsPerSecond ?? metrics.graphicsRowsPerSecond, limits.graphicsRowsPerSecond));
-    }
     if (ZOOM_PHASES.has(name)) {
         // The pane has to have been this phase's own, taken over rather than
-        // merely rendered, standing on the surface the phase claims to measure,
-        // and untouched at its default before anything was tapped. A step read
-        // off a pane that was already part-way up its ladder describes whatever
-        // it was doing before the harness arrived.
+        // merely rendered, and untouched at its default before anything was
+        // tapped. A step read off a pane that was already part-way up its
+        // ladder describes whatever it was doing before the harness arrived.
         failWhen(failures, 'the zoom pane was not under control attach', !(metrics.attachRecords > 0));
-        failWhen(failures, 'this phase measured the wrong zoom surface',
-            metrics.zoomSurface !== metrics.surfaceKind);
         failWhen(failures, 'the zoom pane was not settled at its default before the tap',
             metrics.zoomAtRestDefault !== true);
         // Fail closed on the window itself. A geometry file that went missing,
         // could not be read, could not be parsed or was caught half-written is
         // an unavailable window, and the empty series it used to reduce to
-        // passed a graphics pane by describing evidence nobody collected.
+        // described evidence nobody collected.
         failWhen(failures, 'the zoom observation window is unavailable', metrics.zoomWindow !== true);
         failWhen(failures, 'zoomTapped', metrics.zoomTapped !== true);
-        // Which surface answered decides what the proof is. A text pane zooms by
-        // re-gridding, which the host records; a graphics pane holds the remote
-        // grid and magnifies its own surface, which only its pixels can show --
-        // and those pixels, taken from this phase's own pane after the step, are
-        // themselves the proof that a frame was delivered.
-        if (metrics.zoomSurface === 'text') {
-            failWhen(failures, 'zoomResizeCount', metrics.zoomTransitions !== limits.zoomResizeCount);
-            failWhen(failures, 'the text zoom did not re-grid to fewer columns and rows',
-                metrics.zoomShrankOnce !== true);
-        } else if (metrics.zoomSurface === 'graphics') {
-            failWhen(failures, 'zoomResizeCount', (metrics.zoomTransitions ?? 0) !== 0);
-            failWhen(failures, 'zoom did not magnify the surface', metrics.zoomMagnified?.proven !== true);
-        } else {
-            failures.push('the zoom surface could not be identified');
-        }
+        // A text pane zooms by re-gridding, which the host records.
+        failWhen(failures, 'zoomResizeCount', metrics.zoomTransitions !== limits.zoomResizeCount);
+        failWhen(failures, 'the zoom did not re-grid to fewer columns and rows',
+            metrics.zoomShrankOnce !== true);
         failWhen(failures, 'zoom out did not return the surface', metrics.zoomedOut !== true);
         failWhen(failures, 'reset zoom did not return the surface', metrics.zoomReset !== true);
     }

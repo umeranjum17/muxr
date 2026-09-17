@@ -102,13 +102,8 @@ or opening it. Its success message confirms intent dispatch, not application
 survival; post-launch crashes are not retried or masked.
 
 Only the visible native terminal route holds a control stream. Returning to it
-reacquires the stream and selects its Herdr pane, because Herdr publishes graphics
-for the foreground tab. Hidden terminal routes release control; Home's observe
-previews never move desktop focus.
-
-The first Herdr terminal paint is forwarded before graphics registration replays
-cached images. Earlier resize metrics are retained, but cannot start graphics
-first: the initial ANSI screen clear would otherwise erase the replay.
+reacquires the stream and selects its Herdr pane. Hidden terminal routes release
+control; Home's observe previews never move desktop focus.
 
 Source plugin behavior follows the registered entries, not a separate matching
 catalog: the development host maps only plugins Herdr already has registered and
@@ -281,7 +276,7 @@ whose JNI reference has been invalidated cannot install another callback.
 The initial lifetime repair completed 40 normal restored cold starts and 30
 source-instrumented AddressSanitizer starts without a crash; final-candidate
 results remain pinned to their APK/native hashes. These emulator checks cover
-the reproduced startup failure, not all device or graphics behavior.
+the reproduced startup failure, not all device behavior.
 
 ## OTA updates
 

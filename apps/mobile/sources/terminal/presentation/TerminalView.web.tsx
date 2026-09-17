@@ -1,12 +1,11 @@
 /**
  * xterm.js in the DOM. Web only -- Metro picks TerminalView.tsx on native.
- * Kitty APC is stripped here because xterm 6 has no APC handler.
+ * Kitty APC bytes pass through untouched because xterm 6 has no APC handler.
  */
 
 import * as React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { View } from 'react-native';
 import type { TerminalCommand } from './FloatingTerminalControls';
-import type { TerminalGraphicsReason } from '@muxr/contract';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -14,14 +13,6 @@ import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
-import { t } from '@/text';
-import {
-    createKittyDecoderState,
-    inflateZlib,
-    materializeKittyCommands,
-    splitKittyFrame,
-    type KittyPlacement,
-} from '../application/kittyDecoder';
 
 export interface TerminalViewProps {
     sessionId: string;
@@ -40,27 +31,9 @@ function decodeBase64(value: string): Uint8Array {
     return bytes;
 }
 
-type CellMetrics = { width: number; height: number };
-
-function deviceCells(term: Terminal, dpr: number): CellMetrics {
-    const dims = (term as unknown as { _core?: { _renderService?: { dimensions?: {
-        css?: { cell?: { width?: number; height?: number } };
-        device?: { cell?: { width?: number; height?: number } };
-    } } } })._core?._renderService?.dimensions;
-    const device = dims?.device?.cell;
-    if (device?.width && device.height) return { width: device.width, height: device.height };
-    const css = dims?.css?.cell;
-    return {
-        width: (css?.width && css.width > 0 ? css.width : 8) * dpr,
-        height: (css?.height && css.height > 0 ? css.height : 16) * dpr,
-    };
-}
-
 export const TerminalView = React.memo((props: TerminalViewProps) => {
     const hostRef = React.useRef<View | null>(null);
     const { sessionId, onStatus, onChannel } = props;
-    const [graphicsUnavailable, setGraphicsUnavailable] = React.useState(false);
-    const [graphicsReason, setGraphicsReason] = React.useState<TerminalGraphicsReason | undefined>();
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
 
     React.useEffect(() => {
@@ -116,82 +89,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         killNativeScroll(element.querySelector('.xterm-viewport'));
         killNativeScroll(element.querySelector('.xterm-screen'));
 
-        const canvas = document.createElement('canvas');
-        canvas.setAttribute('aria-hidden', 'true');
-        canvas.style.position = 'absolute';
-        canvas.style.pointerEvents = 'none';
-        canvas.style.zIndex = '1';
-        element.appendChild(canvas);
-        const context = canvas.getContext('2d');
-        const placements: KittyPlacement[] = [];
-        const decoder = createKittyDecoderState();
-        let graphicsActive = false;
-        let graphicsFailed = false;
         let channel: TerminalChannel | undefined;
-        let pointerSuppressed = false;
-        let paintGeneration = 0;
-
-        const dpr = (): number => window.devicePixelRatio || 1;
-        const physicalMetrics = (): CellMetrics => deviceCells(term, dpr());
-        const reportMetrics = (includeCells: boolean): void => {
-            const cells = physicalMetrics();
-            channel?.resize(term.cols, term.rows, includeCells && !graphicsFailed ? { width: cells.width, height: cells.height } : undefined);
-        };
-        const alignCanvas = (): void => {
-            const screen = element.querySelector('.xterm-screen') as HTMLElement | null;
-            const width = screen?.offsetWidth ?? element.offsetWidth;
-            const height = screen?.offsetHeight ?? element.offsetHeight;
-            const left = screen?.offsetLeft ?? 0;
-            const top = screen?.offsetTop ?? 0;
-            const scale = dpr();
-            canvas.style.left = `${left}px`;
-            canvas.style.top = `${top}px`;
-            canvas.style.width = `${width}px`;
-            canvas.style.height = `${height}px`;
-            canvas.width = Math.max(1, Math.floor(width * scale));
-            canvas.height = Math.max(1, Math.floor(height * scale));
-        };
-        const clearCanvas = (): void => {
-            paintGeneration += 1;
-            placements.length = 0;
-            context?.clearRect(0, 0, canvas.width, canvas.height);
-        };
-        const paint = (): void => {
-            if (context === null) return;
-            paintGeneration += 1;
-            const generation = paintGeneration;
-            alignCanvas();
-            context.clearRect(0, 0, canvas.width, canvas.height);
-            const cells = physicalMetrics();
-            for (const image of placements) {
-                const imageData = new ImageData(new Uint8ClampedArray(image.rgba), image.width, image.height);
-                const destX = image.col * cells.width;
-                const destY = image.row * cells.height;
-                const destW = image.cols * cells.width;
-                const destH = image.rows * cells.height;
-                createImageBitmap(imageData).then((bitmap) => {
-                    if (disposed || generation !== paintGeneration) { bitmap.close(); return; }
-                    context.drawImage(bitmap, destX, destY, destW, destH);
-                    bitmap.close();
-                }).catch(() => { /* keep last frame */ });
-            }
-        };
-        const failGraphics = (): void => {
-            graphicsFailed = true;
-            graphicsActive = false;
-            pointerSuppressed = true;
-            clearCanvas();
-            reportMetrics(false);
-            setGraphicsUnavailable(true);
-        };
 
         onStatus?.('connecting');
-        const initialCells = physicalMetrics();
         const controller = new AbortController();
         void openTerminal({
             agentRoute: sessionId,
             signal: controller.signal,
-            size: { cols: term.cols, rows: term.rows, cellWidthPx: initialCells.width, cellHeightPx: initialCells.height },
+            size: { cols: term.cols, rows: term.rows },
         })
             .then((opened) => {
                 if (disposed) {
@@ -201,55 +106,20 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 channel = opened;
                 channelRef.current = opened;
                 onChannel?.(opened);
-                opened.onGraphics((active, reason) => {
-                    graphicsActive = active && !graphicsFailed;
-                    setGraphicsReason(active ? undefined : reason);
-                });
                 // Nothing re-scrolls on attach: the pane's viewport belongs to
                 // herdr, which reports it back on `terminal.scroll-state`.
-                let pending: { bytes: string; graphics?: boolean }[] = [];
+                let pending: string[] = [];
                 let frameScheduled = false;
                 const flushFrames = (): void => {
                     frameScheduled = false;
                     if (disposed || pending.length === 0) return;
                     const chunks = pending;
                     pending = [];
-                    for (const chunk of chunks) {
-                        const bytes = decodeBase64(chunk.bytes);
-                        if (chunk.graphics === undefined) {
-                            term.write(bytes);
-                            continue;
-                        }
-                        const split = splitKittyFrame(bytes, decoder);
-                        if (split.error === 'unsupported') {
-                            term.write(bytes);
-                            continue;
-                        }
-                        if (split.error !== undefined) {
-                            if (split.ansi.length > 0) term.write(split.ansi);
-                            failGraphics();
-                            return;
-                        }
-                        if (split.ansi.length > 0) term.write(split.ansi);
-                        if (split.commands.length === 0) continue;
-                        void materializeKittyCommands(split.commands, inflateZlib).then((result) => {
-                            if (disposed) return;
-                            if (result.error !== undefined) { failGraphics(); return; }
-                            if (result.deleteAll) clearCanvas();
-                            for (const id of result.deleteIds) {
-                                const index = placements.findIndex((item) => item.id === id);
-                                if (index >= 0) placements.splice(index, 1);
-                            }
-                            if (result.placements.length > 0) {
-                                placements.splice(0, placements.length, ...result.placements);
-                            }
-                            paint();
-                        });
-                    }
+                    for (const chunk of chunks) term.write(decodeBase64(chunk));
                 };
-                opened.onData((base64, graphics) => {
-                    if (graphics !== true) recordTerminalOutput(sessionId, base64);
-                    pending.push({ bytes: base64, graphics });
+                opened.onData((base64) => {
+                    recordTerminalOutput(sessionId, base64);
+                    pending.push(base64);
                     if (!frameScheduled) {
                         frameScheduled = true;
                         requestAnimationFrame(flushFrames);
@@ -258,7 +128,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 opened.onState((state) => onStatus?.(state));
                 opened.onClose((reason) => onStatus?.(reason ?? 'closed'));
                 term.onData((data) => opened.sendText(data));
-                reportMetrics(true);
+                opened.resize(term.cols, term.rows);
             })
             .catch((error: unknown) => {
                 if (disposed) return;
@@ -272,13 +142,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 if (disposed) return;
                 fit.fit();
                 setTerminalColumns(sessionId, term.cols);
-                reportMetrics(!graphicsFailed && document.visibilityState === 'visible');
-                paint();
+                channel?.resize(term.cols, term.rows);
             });
         };
         const resizeObserver = new ResizeObserver(resize);
         resizeObserver.observe(element);
         window.addEventListener('resize', resize);
+        const dpr = (): number => window.devicePixelRatio || 1;
         const dprQuery = window.matchMedia(`(resolution: ${dpr()}dppx)`);
         const onDpr = (): void => resize();
         dprQuery.addEventListener?.('change', onDpr);
@@ -293,19 +163,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         let scrollScheduled = false;
         let velocity = 0;
         let momentumRunning = false;
-        const wheelCell = (event: WheelEvent): { column: number; row: number } | undefined => {
-            const screen = element.querySelector('.xterm-screen') as HTMLElement | null;
-            if (screen === null) return undefined;
-            const rect = screen.getBoundingClientRect();
-            const css = (term as unknown as { _core?: { _renderService?: { dimensions?: { css?: { cell?: { width?: number; height?: number } } } } } })
-                ._core?._renderService?.dimensions?.css?.cell;
-            const width = css?.width && css.width > 0 ? css.width : 8;
-            const height = css?.height && css.height > 0 ? css.height : 16;
-            const column = Math.floor((event.clientX - rect.left) / width);
-            const row = Math.floor((event.clientY - rect.top) / height);
-            if (column < 0 || row < 0 || column >= term.cols || row >= term.rows) return undefined;
-            return { column, row };
-        };
         const emitScroll = (): void => {
             scrollScheduled = false;
             if (disposed) return;
@@ -331,12 +188,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         const onWheel = (event: WheelEvent): void => {
             event.preventDefault();
             event.stopPropagation();
-            if (graphicsActive && !pointerSuppressed) {
-                const at = wheelCell(event) ?? { column: Math.floor(term.cols / 2), row: Math.floor(term.rows / 2) };
-                const lines = Math.max(-40, Math.min(40, Math.trunc(-event.deltaY / cellHeight()) || (event.deltaY < 0 ? 1 : -1)));
-                channel?.scroll(lines, at);
-                return;
-            }
             scrollAcc -= event.deltaY;
             scheduleScroll();
         };
@@ -351,18 +202,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             const dy = touches[0]!.clientY - touches[1]!.clientY;
             return Math.hypot(dx, dy);
         };
-        const localPoint = (event: MouseEvent | Touch, physical: boolean): { x: number; y: number; width: number; height: number } => {
-            const screen = element.querySelector('.xterm-screen') as HTMLElement | null;
-            const origin = screen ?? element;
-            const rect = origin.getBoundingClientRect();
-            const scale = physical ? dpr() : 1;
-            return {
-                x: (event.clientX - rect.left) * scale,
-                y: (event.clientY - rect.top) * scale,
-                width: rect.width * scale,
-                height: rect.height * scale,
-            };
-        };
         const onTouchStart = (event: TouchEvent): void => {
             velocity = 0;
             momentumRunning = false;
@@ -371,7 +210,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             scrollAcc = 0;
             gesturePx = 0;
             if (event.touches.length === 2) {
-                pointerSuppressed = true;
                 pinchStart = term.options.fontSize ?? 13;
                 pinchDistance = distance(event.touches);
             }
@@ -383,8 +221,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 term.options.fontSize = next;
                 fit.fit();
                 setTerminalColumns(sessionId, term.cols);
-                reportMetrics(!graphicsFailed);
-                paint();
+                channel?.resize(term.cols, term.rows);
                 return;
             }
             if (touchY === null || event.touches.length !== 1) return;
@@ -403,15 +240,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             scheduleScroll();
         };
         const onTouchEnd = (event: TouchEvent): void => {
-            if (event.touches.length < 2) {
-                pointerSuppressed = false;
-                pinchDistance = 0;
-            }
-            if (graphicsActive && !pointerSuppressed && Math.abs(gesturePx) < 8 && event.changedTouches[0] !== undefined) {
-                const point = localPoint(event.changedTouches[0], true);
-                channel?.pointer('down', point.x, point.y, point.width, point.height);
-                channel?.pointer('up', point.x, point.y, point.width, point.height);
-            }
+            if (event.touches.length < 2) pinchDistance = 0;
             touchY = null;
             gesturePx = 0;
             if (!momentumRunning && Math.abs(velocity) >= 0.5) {
@@ -419,41 +248,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 requestAnimationFrame(momentum);
             }
         };
-        const onMouseDown = (event: MouseEvent): void => {
-            if (!graphicsActive || pointerSuppressed || event.button !== 0) return;
-            event.preventDefault();
-            const point = localPoint(event, true);
-            channel?.pointer('down', point.x, point.y, point.width, point.height);
-        };
-        const onMouseMove = (event: MouseEvent): void => {
-            if (!graphicsActive || pointerSuppressed || (event.buttons & 1) === 0) return;
-            const point = localPoint(event, true);
-            channel?.pointer('move', point.x, point.y, point.width, point.height);
-        };
-        const onMouseUp = (event: MouseEvent): void => {
-            if (!graphicsActive || pointerSuppressed || event.button !== 0) return;
-            const point = localPoint(event, true);
-            channel?.pointer('up', point.x, point.y, point.width, point.height);
-        };
         const onVisibility = (): void => {
-            if (document.visibilityState !== 'visible') {
-                pointerSuppressed = true;
-                clearCanvas();
-                reportMetrics(false);
-                return;
-            }
-            if (webgl === undefined && !graphicsFailed) attachWebgl();
-            pointerSuppressed = graphicsFailed;
-            reportMetrics(!graphicsFailed);
-            paint();
+            if (document.visibilityState !== 'visible') return;
+            if (webgl === undefined) attachWebgl();
         };
         element.addEventListener('wheel', onWheel, { capture: true, passive: false });
         element.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
         element.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
         element.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
-        element.addEventListener('mousedown', onMouseDown);
-        window.addEventListener('mousemove', onMouseMove);
-        window.addEventListener('mouseup', onMouseUp);
         document.addEventListener('visibilitychange', onVisibility);
 
         return () => {
@@ -466,11 +268,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             element.removeEventListener('touchstart', onTouchStart, { capture: true });
             element.removeEventListener('touchmove', onTouchMove, { capture: true });
             element.removeEventListener('touchend', onTouchEnd, { capture: true });
-            element.removeEventListener('mousedown', onMouseDown);
-            window.removeEventListener('mousemove', onMouseMove);
-            window.removeEventListener('mouseup', onMouseUp);
             document.removeEventListener('visibilitychange', onVisibility);
-            canvas.remove();
             channelRef.current = undefined;
             onChannel?.(undefined);
             channel?.close();
@@ -482,56 +280,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     return (
         <View style={{ flex: 1, backgroundColor: '#0c0c0b' }}>
             <View ref={hostRef} style={{ flex: 1, backgroundColor: '#0c0c0b' }} />
-            {graphicsUnavailable && (
-                <Text accessibilityRole="summary" accessibilityLiveRegion="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}>
-                    {t('files.graphicsUnavailable')}
-                </Text>
-            )}
-            {graphicsReason !== undefined && (
-                <View
-                    // A pane Herdr is not rendering is not broken, and the user
-                    // may well keep typing into it, so this variant is a label
-                    // rather than a control and never takes a touch.
-                    pointerEvents={graphicsReason === 'pane-off-surface' ? 'none' : 'auto'}
-                    style={{
-                    position: 'absolute',
-                    left: 10,
-                    right: 10,
-                    bottom: 10,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 10,
-                    borderRadius: 10,
-                    paddingVertical: 9,
-                    paddingLeft: 12,
-                    paddingRight: 8,
-                    backgroundColor: 'rgba(28, 28, 27, 0.96)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(255,255,255,0.12)',
-                }}>
-                    <Text style={{ flex: 1, color: '#d8d8d4', fontSize: 12, lineHeight: 16 }}>
-                        {graphicsReason === 'pane-off-surface'
-                            ? 'No picture: this pane is not on the active workspace, tab, or zoomed pane on the desktop. Text still works. Open it there and the picture returns.'
-                            : 'Graphics stopped. Retry brings them back to this phone and resizes Herdr on the desktop.'}
-                    </Text>
-                    {graphicsReason !== 'pane-off-surface' && (
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Retry terminal graphics"
-                        onPress={() => channelRef.current?.repaint(true)}
-                        style={({ pressed }) => ({
-                            minHeight: 36,
-                            justifyContent: 'center',
-                            borderRadius: 8,
-                            paddingHorizontal: 12,
-                            backgroundColor: pressed ? '#d7d7d2' : '#f2f2ed',
-                        })}
-                    >
-                        <Text style={{ color: '#11110f', fontSize: 12, fontWeight: '600' }}>Retry</Text>
-                    </Pressable>
-                    )}
-                </View>
-            )}
         </View>
     );
 });

@@ -25,10 +25,9 @@ const hostRoot = resolve(option('--host-root', '.'));
 const seconds = Number(option('--seconds', '35'));
 const flow = option('--flow', 'full');
 const pkg = 'com.trymuxr.app';
-const load = { panes: 30, agents: 6, titleChurnHz: 2, terminalBytesPerSecond: 4096, graphicsFrameHz: 4 };
+const load = { panes: 30, agents: 6, titleChurnHz: 2, terminalBytesPerSecond: 4096 };
 const report = { flow, startedAt: new Date().toISOString(), serial, load, phases: [], failures: [], limits: { minimumSampledSeconds: 25, jsBusyPercent: 60, pssDriftKb: 102400, frameStallSeconds: 30 }, performanceScope: flow !== 'full' ? `Not measured: ${flow}-only feature flow` : 'Emulator pathology smoke; not physical-device feel or a release soak' };
 let stack;
-let graphicsProof;
 let ownsLock = false;
 let deviceTouched = false;
 const lock = `/tmp/muxr-pr-gate-${serial}.lock`;
@@ -198,7 +197,7 @@ async function feature(name, work) {
     if (flow === 'usage' && name !== 'usage-switch-and-recency') return;
     if (flow === 'polish' && name !== 'polish') return;
     if (flow === 'rich' && name !== 'rich') return;
-    if (flow === 'controls' && !['terminal-text', 'graphics'].includes(name)) return;
+    if (flow === 'controls' && name !== 'terminal-text') return;
     if (name === 'rich' && flow !== 'rich') return;
     if (flow !== 'polish' && name === 'polish') return;
     console.log(`start: ${name}`);
@@ -207,7 +206,7 @@ async function feature(name, work) {
 }
 async function changesScopeControls() {
     await herd();
-    check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open session for Changes review');
+    check((await maestro('openSession.yaml')).code === 0, 'Could not open session for Changes review');
     await tapText('Changes');
     await requireScreen('changes-context', /Working tree/);
     await tapText('Choose worktree');
@@ -237,7 +236,7 @@ async function changesScopeControls() {
 }
 async function viewerControls() {
     await herd();
-    check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open session for native file viewer');
+    check((await maestro('openSession.yaml')).code === 0, 'Could not open session for native file viewer');
     await tapText('Changes');
     await requireScreen('changed-files', /viewer.ts/);
     await tapText('viewer.ts');
@@ -305,15 +304,15 @@ const readJsonl = (path) => {
     const text = existsSync(path) ? readFileSync(path, 'utf8').trim() : '';
     return text === '' ? [] : text.split('\n').map((line) => JSON.parse(line));
 };
-// The graphics proof pane is the first pane of its tab: the fake herd pins its
-// checkerboard producer there, so that is the pane the gate has to be watching.
+// The proof pane is the first pane of its tab, so that is the pane the gate
+// has to be watching.
 const proofPane = () => stack.world.panes[0];
 const proofHeader = () => `· 1/${stack.world.panes.filter((row) => row.tab_id === proofPane().tab_id).length}`;
-// Observer thumbnail reads carry no cell pixels; only a real terminal.resize
-// with positive cell dimensions proves a native attach to this exact pane.
+// Observer thumbnail reads carry no grid; only a real terminal.resize with
+// positive dimensions proves a native attach to this exact pane.
 const proofResizes = (sinceMs) => readJsonl(stack.cellMetricsJsonl).filter((row) => row.source === 'terminal.resize'
     && row.pane_id === proofPane().pane_id && Date.parse(row.at) >= sinceMs
-    && [row.cols, row.rows, row.cellWidthPx, row.cellHeightPx].every((value) => Number.isFinite(value) && value > 0));
+    && [row.cols, row.rows].every((value) => Number.isFinite(value) && value > 0));
 // A `pane.read` is a read-only thumbnail of whatever pane the herd screen is
 // showing. Only a control terminal session is the pane the phone took over, so
 // that is what proves this gate is standing on the pane it names.
@@ -476,7 +475,7 @@ async function polishControls() {
     await capture('polish-settings.png');
     report.polish = { installedVersion: version, settingsVersion: true, compatibilityWarningScope: 'Same-version fixture; mismatched release comparison is covered by the existing version flow' };
     await herd();
-    check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open owned terminal for composer');
+    check((await maestro('openSession.yaml')).code === 0, 'Could not open owned terminal for composer');
     await requireScreen('polish-composer', /Add attachment/);
     const photo = new PNG({ width: 360, height: 1080 });
     for (let y = 0; y < photo.height; y++) for (let x = 0; x < photo.width; x++) {
@@ -635,7 +634,7 @@ async function richPreviews() {
     pdf += `xref\n0 7\n0000000000 65535 f \n${offsets.map((n) => `${String(n).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
     writeFileSync(join(attachmentDir, 'preview.pdf'), pdf);
     await herd();
-    check((await maestro('graphicsScroll.yaml')).code === 0, 'Could not open owned attachment session');
+    check((await maestro('openSession.yaml')).code === 0, 'Could not open owned attachment session');
     await tapText('Pane actions');
     await tapText('Open attachments');
     await requireScreen('rich-attachments', /preview.md/);
@@ -704,9 +703,7 @@ async function main() {
     check(report.installedApkSha256 === report.apk.apkSha256, 'Installed APK bytes differ from tested artifact');
     save('package.txt', await adb('shell', 'dumpsys', 'package', pkg));
     await adb('logcat', '-c');
-    const graphicsEnableFile = join(out, '.graphics-enabled');
-    rmSync(graphicsEnableFile, { force: true });
-    stack = await startFakeStack({ ...load, sourceRoot: hostRoot, setupHome: usageHome, setupPlugins: usagePlugins(hostRoot), graphicsEnableFile });
+    stack = await startFakeStack({ ...load, sourceRoot: hostRoot, setupHome: usageHome, setupPlugins: usagePlugins(hostRoot) });
     report.fixtures = { usage: 'Synthetic SQLite aggregates + ccusage CLI output; scratch entry restores test env then imports actual usage plugin; no real auth/quota calls' };
     const lines = ['export function fixture() {', ...Array.from({ length: 250 }, (_, i) => `// PR gate document line ${i + 1}: deterministic readable content with a long tail for panning END_${i + 1}`), '}'];
     lines[2] = `// CJK_START ${'漢字'.repeat(40)} CJK_END`;
@@ -759,56 +756,23 @@ async function main() {
         await herd();
         // Open the proof pane through its real persisted session binding
         // instead of tapping a live card: a coordinate tap lands on whichever
-        // card the churning herd has under it, and the checkerboard producer
-        // paints the first pane only. Tap navigation of the first live card
-        // stays covered by the Changes and native viewer features.
+        // card the churning herd has under it. Tap navigation of the first
+        // live card stays covered by the Changes and native viewer features.
         const openedAt = Date.now();
         await openUri(`muxr://session/${encodeURIComponent(firstPaneRoute())}`);
         if (flow === 'controls') await requireScreen('controls-text-mounted', /Type a prompt|text="Terminal"/);
         else await phase('terminal-text', /text="(Terminal|ctrl)"|Type a prompt/, true);
         check(proofAttaches(openedAt).length > 0, `No control terminal attach was observed for pane ${proofPane().pane_id}`);
-        check(!existsSync(graphicsEnableFile), 'Text phase accidentally enabled graphics');
         await terminalKeyboard('text-keyboard');
         // Identity of the pane we are about to sample, not just "a terminal":
         // the header counter has to name the first pane of its tab, and the
-        // host has to have recorded a fresh positive-cell attach for that exact
-        // pane id since this open. The keyboard cycle above resizes it.
+        // host has to have recorded a fresh resize for that exact pane id
+        // since this open. The keyboard cycle above resizes it.
         const mounted = await dump('proof-pane');
         check(mounted.includes(proofHeader()), `Proof pane not mounted: expected header ${proofHeader()}`);
-        const attach = proofResizes(openedAt);
-        check(attach.length > 0, 'No fresh native attach with positive cell dimensions for the graphics proof pane');
-        graphicsProof = { paneId: proofPane().pane_id, header: proofHeader(), openedAt: new Date(openedAt).toISOString(), sinceMs: openedAt, attach: attach.slice(-3) };
-        report.proofPane = graphicsProof;
-    });
-    await feature('graphics', async () => {
-        // The text phase opened this pane by its real session binding and
-        // proved a fresh native attach for it. The producer paints that pane
-        // and no other, so re-assert the mounted identity here instead of
-        // sampling whatever the last interaction left on screen.
-        const mounted = await requireScreen('graphics-mounted', /text="(Terminal|ctrl)"|Type a prompt/);
-        check(graphicsProof !== undefined && mounted.includes(proofHeader()), `Graphics proof pane is not mounted: expected header ${proofHeader()}`);
-        writeFileSync(graphicsEnableFile, 'enabled');
-        const pixels = await graphicsPixels();
-        report.graphics = { proofPane: graphicsProof, pixels };
-        await capture('graphics-pixels.png');
-        check(pixels.magenta > 100 && pixels.teal > 100, 'Kitty checkerboard did not paint in terminal region; see graphics-pixels.png');
-        const since = Date.now();
-        if (flow !== 'controls') await phase('graphics', /text="(Terminal|ctrl)"|Type a prompt/, true);
-        const delivered = () => (JSON.parse(readFileSync(stack.journalPath, 'utf8')).events ?? []).filter((e) => e.event === 'graphics.pipeline' && Date.parse(e.at) >= since);
-        if (flow === 'controls') {
-            const deadline = Date.now() + 25_000;
-            while (!delivered().some((event) => event.frames > 0) && Date.now() < deadline) await sleep(500);
-        }
-        const pipeline = delivered();
-        const cellSamples = proofResizes(graphicsProof.sinceMs).slice(-3);
-        const helloSamples = readJsonl(stack.graphicsInputJsonl).filter((row) => row.source === 'graphics.ClientHello' && [row.cols, row.rows, row.cellWidthPx, row.cellHeightPx].every((value) => Number.isFinite(value) && value > 0)).slice(-3);
-        report.graphics = { proofPane: graphicsProof, pixels, cellSamples, helloSamples, cellEvidenceScope: 'Fresh native resize for the pinned proof pane since its route open, or real graphics connection ClientHello populated from native attach', declaredCellMetrics: stack.phoneDeclaredCellMetrics(), pipeline };
-        check(cellSamples.length > 0 || helloSamples.length > 0, 'No positive native cell dimensions recorded in resize or graphics ClientHello');
-        check(pipeline.some((event) => event.frames > 0), 'No delivered graphics frames during mounted phase');
-        await terminalKeyboard('graphics-keyboard');
-        const restoredPixels = await graphicsPixels();
-        check(restoredPixels.magenta > 100 && restoredPixels.teal > 100, 'Graphics missing after explicit keyboard resize');
-        report.graphics.afterKeyboard = restoredPixels;
+        const resizes = proofResizes(openedAt);
+        check(resizes.length > 0, `No fresh native resize for pane ${proofPane().pane_id}`);
+        report.proofPane = { paneId: proofPane().pane_id, header: proofHeader(), openedAt: new Date(openedAt).toISOString(), resizes: resizes.slice(-3) };
     });
     await feature('usage-switch-and-recency', async () => {
         if (flow === 'usage') await requireScreen('usage-home', /text="LIVE"/, 25_000, true);
@@ -847,24 +811,6 @@ const flowChildren = new Set();
 function killFlow(child) {
     scope.kill(child);
 }
-async function graphicsPixels() {
-    let result;
-    for (let attempt = 0; attempt < 10; attempt++) {
-        const raw = await screencapRaw();
-        check(raw.format === 1, 'Graphics pixel proof needs an RGBA8888 framebuffer');
-        result = { magenta: 0, teal: 0, samples: 0, region: 'x10..85%, y20..75%', tolerance: 12 };
-        for (let y = Math.round(raw.height * .2); y < raw.height * .75; y += 4) for (let x = Math.round(raw.width * .1); x < raw.width * .85; x += 4) {
-            const at = 16 + (y * raw.width + x) * 4;
-            const matches = (color) => color.every((value, channel) => Math.abs(raw.bytes[at + channel] - value) <= 12);
-            result.samples++;
-            if (matches([235, 35, 170])) result.magenta++;
-            if (matches([20, 215, 185])) result.teal++;
-        }
-        if (result.magenta > 100 && result.teal > 100) return result;
-        await sleep(1500);
-    }
-    return result;
-}
 async function finish(code) {
     if (finishing) return;
     finishing = true; clearTimeout(watchdog);
@@ -882,7 +828,7 @@ async function finish(code) {
     }
     if (stack) {
         save('host.log', stack.hostLog()); save('relay.log', stack.relayLog());
-        for (const [name, path] of [['host-journal.json', stack.journalPath], ['attach.jsonl', stack.attachJsonl], ['cell-metrics.jsonl', stack.cellMetricsJsonl], ['graphics-input.jsonl', stack.graphicsInputJsonl]]) if (existsSync(path)) copyFileSync(path, join(out, name));
+        for (const [name, path] of [['host-journal.json', stack.journalPath], ['attach.jsonl', stack.attachJsonl], ['cell-metrics.jsonl', stack.cellMetricsJsonl]]) if (existsSync(path)) copyFileSync(path, join(out, name));
     }
     await diagnostics.close().catch((error) => { terminated = false; report.failures.push(error.message); });
     scope.cleanup();

@@ -2,7 +2,7 @@
 
 For bounded PR review, use [the local emulator smoke gate](PR_GATE.md). It
 requires matching APK/native-patch provenance and mounted document, terminal,
-graphics and Usage flows. Run it locally from frozen reviewed source and retain
+terminal and Usage flows. Run it locally from frozen reviewed source and retain
 the APK, provenance and full evidence; there is no GitHub emulator job. The longer gate below remains the gesture/soak check.
 
 `yarn perf` drives the release APK on a real device against a real relay and a
@@ -11,7 +11,7 @@ thread, a dead React runtime, a frozen screen, runaway memory.
 
 Relay, host and app are the builds we ship. Herdr is third party, so the gate
 brings its own: `perf/fake-herdr` speaks Herdr's three wire seams (the JSON-RPC
-control socket, the `HERDR_BIN` CLI, the protocol-20 graphics socket), which
+control socket, the `HERDR_BIN` CLI), which
 makes the load identical run to run and means the gate never touches the desk
 you work on. Conformance against the real Herdr belongs to `yarn run check`
 (`scripts/diagnostics/application/checkHerdrE2E.mjs`), which runs when a Herdr
@@ -119,7 +119,7 @@ movement candidates and host records.
 ## The scenario contract
 
 `perf/lib/scenario.mjs` is the one definition of the world both platforms
-measure: 100 panes, 30 agents, titles at 2 Hz, terminal at 4096 B/s, graphics at
+measure: 100 panes, 30 agents, titles at 2 Hz, terminal at 4096 B/s
 4 Hz, and one document fixture with a fixed payload, digest and served-line
 count (222 of 240 generated lines survive the file plugin's 24 KiB read). The
 Android gate, the iOS gate and the probe all consume it, so a document number
@@ -137,20 +137,16 @@ from one platform means the same thing on the other.
 | Gesture jank | gfxinfo reset before a bout, wait until frames are 0, read after | janky 20% / 3%, p95 100 / 17 ms, p99 250 / 34 ms, >4 frames 3% / 0. An empty window (0 frames) fails as `no frames in window`, not as a 4950 ms percentile — dumpsys writes that sentinel into an empty histogram |
 
 | Frames dropped | `framestats` Flags=0 and completed − intended > 2 frames | 12% / 3% of a fling |
-| Gesture notches dropped | host `graphics.pipeline` `notchesDropped` for the bout | reported beside `gestureDroppedPercent`, never gated. The governor caps intent at 8; a fling that under-travels with `notchesDropped > 0` was bounded by frames in flight, not a slow one |
 | Input-to-first-movement | `/proc/uptime` in the same `adb shell` as the swipe, then first input `framestats` row | p95 120 / 60 ms. A bout with no framestats ring fails as `no framestats frames`, and one whose frames were never input-driven as `no input-driven frame`; neither reduces to a passing zero. A zoom tap is a touch like any other: its own tap-and-settle window is captured the same way and held to the same account, with the declared jank thresholds unchanged |
 | Missed vsync | gfxinfo delta per fling | 3 / 1 |
 | Accidental owners | phone trail agent-page during a vertical bout | any |
 | Content moved | `screencapRaw` of the scrollable rect, mean |Δ| ≥ 8/255; strip card label, document gutter line, terminal trail | injected at intended velocity and the surface did not move |
 | Terminal fling | the panel's own surface identity, phone trail `terminal.scroll-rows` / `terminal.scroll-clamped` / `timedOut`, and the bout's gesture-scoped Android framestats | judged as **rendering performance, not input latency**. Terminal history has no host response a repaint can be attributed to, so no scroll-to-write latency is measured or gated. The phase must have stood on a text pane, the phone must have asked for rows, the clamp must have eaten none, no scroll may have timed out, and the viewport must have visibly changed -- or be unchanged because the clamp held it, which is reported as the clamp rather than as content that never moved. Travel is < 40 / 60 rows/s |
-| Graphics fling | host `graphics.pipeline` bout-scoped `notchesSent` × 3 | < 9 rows/s |
-| Named surface | the panel's own `Zoom out` state, read before the bout | `terminal text fling` and `text zoom tap` must be on a text pane, `graphics pane scroll` and `graphics zoom tap` on a graphics pane; a mismatch, or a surface the probe could not identify, fails the phase before a number is read |
-| Zoom | the panel's own `Zoom out` / `Reset zoom` state, and one complete observation window of `cell-metrics.jsonl` geometry for this phase's pane | **Two phases, one per surface**: `text zoom tap` on the text fixture and `graphics zoom tap` on the pinned checkerboard. A single phase had to discover which pane it had landed on and grade itself by that, so whichever surface answered was the only one covered. Guards first, on both: a **control** attach of this phase's own pane, the probed surface matching the one the phase declares, and `Reset zoom` disabled -- the app's own report that the pane is untouched at its default. The window is then fail-closed: geometry is drained and validated to quiet, the cursor is taken **immediately before** the first `Zoom in`, the app's control transition is confirmed, observation continues through a bounded settle, and a valid closing read is taken **before any other action** -- so a re-grid that arrives while a UI state dump is being read is still inside the window. Its baseline may be the grid the pane **attached** with; no prior resize is required, and every `terminal.resize` grid change is recorded whether or not the phone declared cell pixels. Text pane: exactly **one** grid transition in that complete window, onto fewer columns *and* fewer rows; a record repeating the grid before it is a repaint and ignored, and a reversal is a second transition and fails. Graphics pane: **no** grid transition, and the fixture's checkerboard measurably 1.25x larger in the phone's own pixels -- that crop, taken from this phase's pane after its own step, *is* the phase-local graphics frame. No aggregate host `graphics.pipeline` count stands in for delivery; it dated publication rather than this pane's step, and was removed rather than replaced with more telemetry. Either way the second `Zoom in` must be seen to step, and `Zoom out` and `Reset zoom` must return the surface to its default, all of it after the closing read. A JSONL that is missing, unreadable, unparsable or caught half-written is **unavailable**, never an empty series: the phase aborts as inconclusive instead of passing on a silent zero |
+| Zoom | the panel's own `Zoom out` / `Reset zoom` state, and one complete observation window of `cell-metrics.jsonl` geometry for this phase's pane | A **control** attach of this phase's own pane and `Reset zoom` disabled -- the app's own report that the pane is untouched at its default -- come first. The window is then fail-closed: geometry is drained and validated to quiet, the cursor is taken **immediately before** the first `Zoom in`, the app's control transition is confirmed, observation continues through a bounded settle, and a valid closing read is taken **before any other action** -- so a re-grid that arrives while a UI state dump is being read is still inside the window. Its baseline may be the grid the pane **attached** with; no prior resize is required. Exactly **one** grid transition in that complete window, onto fewer columns *and* fewer rows; a record repeating the grid before it is a repaint and ignored, and a reversal is a second transition and fails. The second `Zoom in` must be seen to step, and `Zoom out` and `Reset zoom` must return the surface to its default, all of it after the closing read. A JSONL that is missing, unreadable, unparsable or caught half-written is **unavailable**, never an empty series: the phase aborts as inconclusive instead of passing on a silent zero |
 | Runtime continuity | sampler `restarts` and `gaps` | any restart, or any sample where the JS thread could not be read |
 | Memory | TOTAL PSS from meminfo | over 100 MB drift in a phase. Fewer than two comparable samples, or any missed sample, fails as unmeasured rather than as flat. Across the tour, a pane whose memory never sampled fails: the remaining samples are not the whole tour |
 | Completion | phases recorded against `PHASES`, and the exit code | a run that was interrupted, or that did not record every phase, names the phases it did not run and can never print `PASS` |
-| Flows | Maestro exit code | pairing, soak, navigation, document open or graphics open did not complete |
-| Graphics pipeline | host journal `graphics.pipeline` | no event, p95 over 250 ms, or frame bytes p95 over 800 kB |
+| Flows | Maestro exit code | pairing, soak, navigation, document open or session open did not complete |
 
 `adb shell top -H -n 1` is not used anywhere. It reports a thread's lifetime
 average, which once made a saturating build and a healthy one measure
@@ -169,12 +165,6 @@ absorb comes from many panes, not one fast one:
 - 30 of them agent sessions
 - terminal streams at 4 kB/s with periodic full repaints, and a full repaint for
   every scroll and resize, which is Herdr's real cost model
-- leased Herdr graphics frames at 4 Hz through the host's graphics bridge: a
-  direct-graphics producer that repaints on scroll, pane-sized like a phone
-  attach (539x575 RGBA per frame, ~1.24 MB of pixels) and paced at the ~3 MB/s
-  the real transport sustains
-- cap the producer's frame rate where it offers one, e.g. `TERMINAL_BROWSER_FPS=10`:
-  fewer paints before anything hits the socket, and it costs no code
 
 The same 100/30 profile is in `perf/releaseGate.mjs` and `perf/iosReleaseGate.mjs`.
 The smaller 30 panes / 6 agents profile belongs to the PR smoke gate in
@@ -188,14 +178,14 @@ including on Ctrl-C.
 ## The tour
 
 After the phases, every session the herd serves is opened by deep link and
-scrolled hard, with memory sampled after each visit. A leaked terminal, write
-pump or decoded image shows up as a rising floor that no single-screen soak can
-see. The list comes from the herd, so a bigger world means a longer tour.
+scrolled hard, with memory sampled after each visit. A leaked terminal or write
+pump shows up as a rising floor that no single-screen soak can see. The list
+comes from the herd, so a bigger world means a longer tour.
 
 ## The phases
 
 30 s warmup after the herd screen appears, then the original four sampled
-windows plus six scripted gesture phases. Maestro only navigates. Measured
+windows plus five scripted gesture phases. Maestro only navigates. Measured
 motion is `perf/lib/gestures.mjs`: one `adb shell input swipe` per gesture.
 A bout whose median velocity is under 70% of intended is retried once and
 then fails as `device could not inject`.
@@ -214,37 +204,27 @@ for taps and for a press-hold-then-drag where the hold matters.
 The four that were already here: idle on the herd (120 s),
 `flows/herdSoak.yaml` (strip and tree scrolling), `flows/herdNavigate.yaml`
 (attach an agent's terminal, drag its scrollback, detach, walk the plugin
-tabs, leave the app and return). The graphics pane is established by the gate
-itself, by the same label-selected card the terminal phases use, and never
-inherited from a previous phase. Graphics limits
-are `graphicsPipelineP95Ms` 250 and `graphicsBytesP95` 800 kB. Superseded
-frames are reported, not gated.
+tabs, leave the app and return).
 
-The seven that measure feel:
+The five that measure feel:
 
 | Phase | Seconds | Drive |
 | --- | --- | --- |
 | `herd tree fling` | 30 | `scrollBout` on the herd |
 | `herd strip paging` | 20 | `stripBout` (horizontal, y = 33%, 60% of width) |
 | `document scroll` | 30 | `flows/openDocument.yaml`, then 30 s of `scrollBout`. The viewer reached from the herd carries no file navigator, so there is no `File n of m` to move and nothing horizontal to measure |
-| `terminal text fling` | 30 | open the **text fixture pane** by identity, assert the surface is a text pane, `scrollBout` |
-| `graphics pane scroll` | 90 | open the **pinned checkerboard pane** by identity, assert the surface is a graphics pane, `scrollBout` |
-| `text zoom tap` | 60 | open the **text fixture pane** by identity, assert the surface is a text pane, `Show terminal controls`, tap `Zoom in` / `Zoom out` / `Reset zoom`, then pane tap / fling / pan |
-| `graphics zoom tap` | 60 | open the **pinned checkerboard pane** by identity, assert the surface is a graphics pane, same tap sequence, and prove the magnification in the pane's own pixels |
+| `terminal text fling` | 30 | open the **text fixture pane** by identity, `scrollBout` |
+| `text zoom tap` | 60 | open the **text fixture pane** by identity, `Show terminal controls`, tap `Zoom in` / `Zoom out` / `Reset zoom`, then pane tap / fling / pan |
 
 The terminal phases are routed by pane identity, never by card order: the fake herd publishes
-`fixturePanes.graphics` (its first pane, where the checkerboard producer is pinned for the run)
-and `fixturePanes.text` (the first pane with no agent and not the pinned one). An agent pane is
+`fixturePanes.text` (the first pane with no agent). An agent pane is
 opened through the host's own persisted session binding, a shell pane through its deep link, and
 the phase only starts once the host has recorded an attach for that exact pane id since the route
-was opened. Because the producer is pinned, a wheel notch on the text pane cannot pull the board
-onto it and turn the surface it measures into a graphics one mid-bout.
+was opened.
 
 Every scroll phase also proves the content moved. The gate captures `screencapRaw` of the
-scrollable rect before and after the bout -- and, on the graphics pane, once more while the
-travel is still one-way, since a bout that flings up and back can end on the picture it started
-from -- and compares the largest mean absolute RGB difference to 8/255
-(the same helper the graphics pane uses). The strip additionally requires the first visible
+scrollable rect before and after the bout and compares the largest mean absolute RGB
+difference to 8/255. The strip additionally requires the first visible
 card label to change (or the pixel diff if no label is exposed), the document requires the
 first gutter line number to change, and a terminal fling requires
 `terminal.scroll-rows` > 0 with at least one scroll request, and
@@ -265,14 +245,6 @@ both the input (`gestures`, `medianVelocityPxPerSecond`) and the movement it pro
 The emulator column is the software-rendered floor (no pathology). The device
 column is feel on a 120 Hz phone.
 
-A graphics bridge only opens for a phone that declares cell pixels. This
-emulator's software-rendered terminal does not, so a run there prints
-`note: no phone declared cell pixels` and leaves the graphics cost unmeasured
-rather than failing; a phone that *did* declare them and produced no account is
-a hard failure. The account itself is proven end to end by
-`node perf/fake-herdr/stack.smoke.mjs`, which drives the real host with a client
-that declares them.
-
 The host journal is a 512-event, 256 kB ring. A long run can rotate
 `terminal.attach` out of the file by the time the gate would have read it
 once at the end. The gate snapshots `diagnostics.json` after pairing and after
@@ -288,10 +260,8 @@ New fake-Herdr records, paths exposed on `startFakeStack`:
 - `cell-metrics.jsonl` — the phone's declared geometry per pane and time: `source: terminal.attach`
   carries the `mode` (`control` or `observe`) and the grid the pane opened on -- a usable zoom
   baseline on its own, since a pane the phone never re-gridded still declared a grid -- and is the **only**
-  proof that a phase's own pane was really taken over; `source: terminal.resize` adds the cell
-  pixels. A phase with no control attach, or no geometry for its own pane, fails as unmeasured
+  proof that a phase's own pane was really taken over. A phase with no control attach, or no geometry for its own pane, fails as unmeasured
   rather than reading an earlier phase's pane
-- `graphics-input.jsonl` — every non-welcome graphics-socket message, with the decoded SGR report
 - `input.jsonl` — every `pane.send_keys` / `agent.send_keys`
 - `--terminal-bytes-per-second 0` — hold a pane static for a screenshot comparison
 
@@ -310,14 +280,14 @@ optional.
 node perf/iosReleaseGate.mjs --udid <UDID> --app /path/muxr.app --record <report.json>
 node perf/iosReleaseGate.mjs ... --verify-controls    # control preflight before the clock starts
 node perf/iosReleaseGate.mjs ... --start-file PATH     # hold after pairing until PATH appears
-node perf/iosReleaseGate.mjs ... --phases soak,navigate,tree,strip,document,graphics,zoom --skip-tour
+node perf/iosReleaseGate.mjs ... --phases soak,navigate,tree,strip,document,terminal,zoom --skip-tour
 ```
 
 `--verify-controls` drives the strip, an agent, the same agent reopened and a
 shell pane after pairing, so a run producing numbers is known to have been driving
 real surfaces. `--start-file` holds the run until a named file appears, for
 preflight review before the timed window opens. `--phases` selects by drive name
-(`idle`, `soak`, `navigate`, `tree`, `strip`, `document`, `graphics`, `terminal`,
+(`idle`, `soak`, `navigate`, `tree`, `strip`, `document`, `terminal`,
 `zoom`), refusing unknown or repeated names; with `--skip-tour` it is how a
 followup reruns only what a previous attempt could not complete.
 
@@ -349,9 +319,9 @@ the first 240 lines or 24 KiB, larger than the cap on purpose.
 
 ### Timing
 
-A full run samples 650 seconds before the tour: a 30 second warmup plus nine
-phases totalling 620 (idle 120, soak 120, navigate 120, tree 30, strip 20,
-document 30, terminal 30, graphics 90, zoom 60). That is sampled seconds, not
+A full run samples 560 seconds before the tour: a 30 second warmup plus eight
+phases totalling 530 (idle 120, soak 120, navigate 120, tree 30, strip 20,
+document 30, terminal 30, zoom 60). That is sampled seconds, not
 wall time — per-phase setup and in-flight AX overruns are additional, and the
 40-pane tour follows and scales with the world.
 
@@ -380,7 +350,7 @@ utilization. AX command elapsed time is not input-to-frame latency.
 
 Screenshots are captured, but this runner has **no validated automated
 content-movement comparison** — nothing in it establishes that a surface moved
-the way Android's `screencapRaw` check does. Treat a completed scroll or graphics
+the way Android's `screencapRaw` check does. Treat a completed scroll
 phase as evidence the driver ran, not that pixels changed. Whether
 identifiable pixels reached the screen is settled by a separate probe, and a
 frame count at a write boundary is not the same fact as identifiable colours.

@@ -7,17 +7,11 @@
  *
  * herdr owns the history, so a drag has to move herdr's viewport and be
  * repainted back. Ghostty's buffer holds only repaint diffs.
- *
- * Pointer mode (both platforms): tap emits a pointer click; drag scrolls the
- * pane. One gesture never emits pointer-drag and pane-scroll together.
  */
 
 import * as React from 'react';
 import type { TerminalCommand } from './FloatingTerminalControls';
-import { AppState, PixelRatio, Platform, Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import { AppState, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
@@ -32,7 +26,6 @@ export const TERMINAL_SURFACE_LABEL = 'Terminal surface';
 import { useLocalSetting, useLocalSettingMutable } from '@/catalog/store';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import {
-    recordTerminalGraphicsFrame,
     recordTerminalResize,
     recordTerminalScrollClamped,
     recordTerminalScrollRows,
@@ -43,10 +36,6 @@ import { createTerminalScrollGate } from '../application/terminalScrollGate';
 import { DEFAULT_FONT_INDEX, FONT_STEPS, clampFontIndex } from '../domain/fontSteps';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { createTerminalWritePump, type TerminalWritePump } from '../application/terminalWritePump';
-import type { TerminalGraphicsReason } from '@muxr/contract';
-
-/** Text zoom reflows the terminal; graphics zoom magnifies its existing surface. */
-const GRAPHICS_ZOOM_STEPS = [1, 1.25, 1.5, 2] as const;
 
 export interface TerminalViewProps {
     sessionId: string;
@@ -90,16 +79,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
     const openAbortRef = React.useRef<AbortController | undefined>(undefined);
     const openedRef = React.useRef(false);
-    const lastSizeRef = React.useRef<{ cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number } | null>(null);
-    const [graphicsActive, setGraphicsActive] = React.useState(false);
-    const [graphicsReason, setGraphicsReason] = React.useState<TerminalGraphicsReason | undefined>();
-    const pointerTouchesRef = React.useRef(0);
-    const suppressPointerRef = React.useRef(false);
+    const lastSizeRef = React.useRef<{ cols: number; rows: number } | null>(null);
     const resizeTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const writePumpRef = React.useRef<TerminalWritePump | undefined>(undefined);
     const writeGenerationRef = React.useRef(0);
-    const scrollOriginRef = React.useRef<{ x: number; y: number; width: number; height: number } | undefined>(undefined);
     const scrollGateRef = React.useRef<ReturnType<typeof createTerminalScrollGate> | undefined>(undefined);
+    const scrollOriginRef = React.useRef<{ x: number; y: number; width: number; height: number } | undefined>(undefined);
     scrollGateRef.current ??= createTerminalScrollGate({
         send: (lines) => {
             const size = lastSizeRef.current;
@@ -107,7 +92,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             channelRef.current?.scroll(lines, size === null ? undefined : {
                 column: Math.min(size.cols - 1, Math.floor((origin ? origin.x / origin.width : .5) * size.cols)),
                 row: Math.min(size.rows - 1, Math.floor((origin ? origin.y / origin.height : .5) * size.rows)),
-                ...origin,
             });
         },
         onDiscarded: recordTerminalScrollClamped,
@@ -117,65 +101,26 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         cancelFrame: (handle) => cancelAnimationFrame(handle),
     });
     const scrollGate = scrollGateRef.current;
-    const graphicsActiveRef = React.useRef(false);
     // A standing device preference: the chosen size survives pane remounts and app restarts.
     const [fontIndex, setFontIndex] = useLocalSettingMutable('terminalFontIndex');
     const fontIndexRef = React.useRef(fontIndex);
     fontIndexRef.current = clampFontIndex(fontIndex);
     const safeFontIndex = fontIndexRef.current;
-    const [scaleIndex, setScaleIndex] = React.useState(0);
-    const scaleIndexRef = React.useRef(0);
-
-    const zoomScale = useSharedValue(1), panX = useSharedValue(0), panY = useSharedValue(0);
-    const panStartX = useSharedValue(0), panStartY = useSharedValue(0);
-    React.useEffect(() => {
-        const scale = graphicsActive ? GRAPHICS_ZOOM_STEPS[scaleIndex] : 1;
-        zoomScale.value = scale;
-        const boundX = viewport.width * (scale - 1) / 2, boundY = viewport.height * (scale - 1) / 2;
-        panX.value = Math.max(-boundX, Math.min(boundX, panX.value));
-        panY.value = Math.max(-boundY, Math.min(boundY, panY.value));
-    }, [graphicsActive, scaleIndex, viewport.width, viewport.height, zoomScale, panX, panY]);
-    // One finger still targets the program. Two fingers move the magnified
-    // viewport, without resizing the remote app or reopening its connection.
-    const pan = Gesture.Pan().minPointers(2).enabled(graphicsActive && scaleIndex > 0)
-        .onStart(() => { panStartX.value = panX.value; panStartY.value = panY.value; })
-        .onUpdate((event) => {
-            const boundX = viewport.width * (zoomScale.value - 1) / 2;
-            const boundY = viewport.height * (zoomScale.value - 1) / 2;
-            panX.value = Math.max(-boundX, Math.min(boundX, panStartX.value + event.translationX));
-            panY.value = Math.max(-boundY, Math.min(boundY, panStartY.value + event.translationY));
-        });
-    const surfaceStyle = useAnimatedStyle(() => ({ transform: [{ translateX: panX.value }, { translateY: panY.value }, { scale: zoomScale.value }] }));
-    const cellFor = (size: { cellWidthPx?: number; cellHeightPx?: number }): { width: number; height: number } | undefined =>
-        size.cellWidthPx === undefined || size.cellHeightPx === undefined ? undefined : { width: size.cellWidthPx, height: size.cellHeightPx };
-    const applyGraphicsZoom = (index: number): void => {
-        scaleIndexRef.current = index;
-        setScaleIndex(index);
-    };
 
     const zoom = (direction: 1 | -1): void => {
-        if (graphicsActiveRef.current) {
-            const next = Math.max(0, Math.min(GRAPHICS_ZOOM_STEPS.length - 1, scaleIndexRef.current + direction));
-            if (next !== scaleIndexRef.current) applyGraphicsZoom(next);
-            return;
-        }
         const next = clampFontIndex(fontIndexRef.current + direction);
         fontIndexRef.current = next;
         setFontIndex(next);
     };
 
     const resetZoom = (): void => {
-        if (graphicsActiveRef.current) {
-            if (scaleIndexRef.current !== 0) applyGraphicsZoom(0);
-            return;
-        }
         fontIndexRef.current = DEFAULT_FONT_INDEX;
         setFontIndex(DEFAULT_FONT_INDEX);
     };
 
-    const atMaxZoom = graphicsActive ? scaleIndex >= GRAPHICS_ZOOM_STEPS.length - 1 : safeFontIndex >= FONT_STEPS.length - 1;
-    const atMinZoom = graphicsActive ? scaleIndex <= 0 : safeFontIndex <= 0;
-    const atDefaultZoom = graphicsActive ? scaleIndex === 0 : safeFontIndex === DEFAULT_FONT_INDEX;
+    const atMaxZoom = safeFontIndex >= FONT_STEPS.length - 1;
+    const atMinZoom = safeFontIndex <= 0;
+    const atDefaultZoom = safeFontIndex === DEFAULT_FONT_INDEX;
 
     const cancelCoalesce = (): void => {
         writeGenerationRef.current += 1;
@@ -191,30 +136,23 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             const channel = channelRef.current;
             if (size === null || channel === undefined) return;
             if (state !== 'active') {
-                suppressPointerRef.current = true;
-                pointerTouchesRef.current = 0;
-                scaleIndexRef.current = 0;
-                setScaleIndex(0);
-                setGraphicsActive(false);
                 channel.resize(size.cols, size.rows);
                 return;
             }
-            suppressPointerRef.current = false;
-            channel.resize(size.cols, size.rows, cellFor(size));
+            channel.resize(size.cols, size.rows);
             channel.repaint();
         });
         return () => subscription.remove();
     }, [focused]);
 
     const attach = React.useCallback(
-        (cols: number, rows: number, cellWidthPx?: number, cellHeightPx?: number) => {
-            recordTerminalResize(cols, rows, cellWidthPx, cellHeightPx);
+        (cols: number, rows: number) => {
+            recordTerminalResize(cols, rows);
             setTerminalColumns(sessionId, cols);
             const last = lastSizeRef.current;
-            lastSizeRef.current = { cols, rows, ...(cellWidthPx === undefined ? {} : { cellWidthPx }), ...(cellHeightPx === undefined ? {} : { cellHeightPx }) };
+            lastSizeRef.current = { cols, rows };
             if (!focused) return;
-            if (openedRef.current && last !== null && last.cols === cols && last.rows === rows
-                && last.cellWidthPx === cellWidthPx && last.cellHeightPx === cellHeightPx) return;
+            if (openedRef.current && last !== null && last.cols === cols && last.rows === rows) return;
 
             if (openedRef.current) {
                 if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
@@ -224,7 +162,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // draw the whole screen again. Ghostty reflows its grid on
                     // its own for a keyboard or a pinch, and herdr would keep
                     // sending diffs for a screen that no longer matches.
-                    channelRef.current?.resize(cols, rows, cellFor({ cellWidthPx, cellHeightPx }));
+                    channelRef.current?.resize(cols, rows);
                     channelRef.current?.repaint();
                 }, RESIZE_DEBOUNCE_MS);
                 return;
@@ -243,7 +181,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 .then(() => openTerminal({
                     agentRoute: sessionId,
                     signal: controller.signal,
-                    size: { cols, rows, ...(cellWidthPx === undefined ? {} : { cellWidthPx }), ...(cellHeightPx === undefined ? {} : { cellHeightPx }) },
+                    size: { cols, rows },
                 }))
                 .then((channel) => {
                     if (writeGenerationRef.current !== attachGen) {
@@ -259,14 +197,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // position, and on a pane with no scrollback that replay
                     // went to the program as a 5 000-row wheel burst.
                     writePumpRef.current = createTerminalWritePump({
-                        write: async (bytes, graphics) => {
+                        write: async (bytes) => {
                             const view = termRef.current;
                             if (view === null) return;
                             await view.write(bytes);
                             recoveryRequested = false;
                             channel.recordFrameWritten();
-                            if (graphics !== true) return;
-                            recordTerminalGraphicsFrame(bytes.length);
                         },
                         combineText: combineTextFrames,
                         schedule: (run) => requestAnimationFrame(() => run()),
@@ -279,29 +215,15 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                             channel.repaint();
                         },
                     });
-                    channel.onGraphics((active, reason) => {
-                        const live = suppressPointerRef.current ? false : active;
-                        graphicsActiveRef.current = live;
-                        if (!live) {
-                            scaleIndexRef.current = 0;
-                            setScaleIndex(0);
-                        }
-                        setGraphicsActive(live);
-                        setGraphicsReason(active ? undefined : reason);
-                    });
-                    // One Ghostty write at a time, in wire order. Graphics can
-                    // update independent placements or delete an earlier image;
-                    // they cannot be coalesced merely because graphics is true.
-                    channel.onData((base64, graphics) => {
-                        if (graphics !== true) recordTerminalOutput(sessionId, base64);
+                    // One Ghostty write at a time, in wire order.
+                    channel.onData((base64) => {
+                        recordTerminalOutput(sessionId, base64);
                         // Output came back, so the next scroll may go. A stream
                         // repaints itself whether or not anything was scrolled,
                         // so this is flow control and nothing more: which frame
                         // answered which scroll is not knowable here.
                         scrollGate.release();
-                        writePumpRef.current?.push(
-                            typeof graphics === 'boolean' ? { bytes: base64, graphics } : { bytes: base64 },
-                        );
+                        writePumpRef.current?.push({ bytes: base64 });
                     });
                     channel.onState((state) => onStatus?.(state));
                     channel.onClose((reason) => onStatus?.(reason ?? 'closed'));
@@ -311,11 +233,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // replay the latest size now or the prompt is painted below
                     // the visible grid until this screen is reopened.
                     const latest = lastSizeRef.current;
-                    if (latest !== null && (latest.cols !== cols || latest.rows !== rows
-                        || latest.cellWidthPx !== cellWidthPx || latest.cellHeightPx !== cellHeightPx)) {
+                    if (latest !== null && (latest.cols !== cols || latest.rows !== rows)) {
                         if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
                         resizeTimerRef.current = undefined;
-                        channel.resize(latest.cols, latest.rows, cellFor(latest));
+                        channel.resize(latest.cols, latest.rows);
                         channel.repaint();
                     }
                 })
@@ -334,7 +255,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     // pixels while away, but reacquire a fresh stream when returning.
     useFocusEffect(React.useCallback(() => {
         const size = lastSizeRef.current;
-        if (size !== null) attach(size.cols, size.rows, size.cellWidthPx, size.cellHeightPx);
+        if (size !== null) attach(size.cols, size.rows);
         return () => {
             cancelCoalesce();
             clearTimeout(resizeTimerRef.current);
@@ -345,12 +266,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             openAbortRef.current = undefined;
             channelRef.current = undefined;
             openedRef.current = false;
-            setGraphicsActive(false);
         };
     }, [attach, onChannel]));
 
-    // The commands stay owned here — zoom steps, the graphics scale and the
-    // terminal IME never leave this view; only their descriptions travel up.
+    // The commands stay owned here — zoom steps and the terminal IME never
+    // leave this view; only their descriptions travel up.
     const latest = React.useRef({ zoom, resetZoom, onStatus });
     latest.current = { zoom, resetZoom, onStatus };
     const { onViewControls } = props;
@@ -388,15 +308,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 scrollOriginRef.current = { x: Math.max(0, nativeEvent.locationX), y: Math.max(0, nativeEvent.locationY), ...viewport };
             }}
             style={{ flex: 1, backgroundColor: '#0c0c0b', overflow: 'hidden' }}>
-            <GestureDetector gesture={pan}>
             {/* The native surface renders as a plain android.view.View and does
                 not publish its own class name, so this wrapper -- which is
                 exactly the terminal's box -- carries the surface's name. */}
-            <Animated.View accessible accessibilityLabel={TERMINAL_SURFACE_LABEL} style={[{ flex: 1 }, surfaceStyle]}>
+            <View accessible accessibilityLabel={TERMINAL_SURFACE_LABEL} style={{ flex: 1 }}>
             <GhosttyView
                 ref={termRef}
                 style={{ flex: 1 }}
-                pointerMode={graphicsActive}
                 autoShowKeyboard={!terminalKeyboardDisabled}
                 fontSize={FONT_STEPS[safeFontIndex]}
                 theme={{ background: '#0c0c0b' }}
@@ -405,21 +323,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     else if (nativeEvent.text) channelRef.current?.sendText(nativeEvent.text);
                 }}
                 onResize={({ nativeEvent }) => {
-                    attach(nativeEvent.cols, nativeEvent.rows, nativeEvent.cellWidthPx, nativeEvent.cellHeightPx);
-                }}
-                onTerminalPointer={({ nativeEvent }) => {
-                    if (!graphicsActive || suppressPointerRef.current) return;
-                    if (nativeEvent.phase === 'down') pointerTouchesRef.current += 1;
-                    if (nativeEvent.phase === 'up') pointerTouchesRef.current = Math.max(0, pointerTouchesRef.current - 1);
-                    if (nativeEvent.phase === 'move' && pointerTouchesRef.current > 1) return;
-                    const scale = Platform.OS === 'ios' ? PixelRatio.get() : 1;
-                    channelRef.current?.pointer(
-                        nativeEvent.phase,
-                        nativeEvent.x * scale,
-                        nativeEvent.y * scale,
-                        nativeEvent.width * scale,
-                        nativeEvent.height * scale,
-                    );
+                    attach(nativeEvent.cols, nativeEvent.rows);
                 }}
                 // herdr owns the history, so a drag has to move herdr's
                 // viewport and be repainted back to us. Ghostty's own buffer
@@ -428,53 +332,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // them the way the text does, hence the negation.
                 onScroll={({ nativeEvent }) => scrollGate.queue(-nativeEvent.rows)}
             />
-            </Animated.View>
-            </GestureDetector>
-            {graphicsReason !== undefined && (
-                <View
-                    // A pane Herdr is not rendering is not broken, and the user
-                    // may well keep typing into it, so this variant is a label
-                    // rather than a control and never takes a touch.
-                    pointerEvents={graphicsReason === 'pane-off-surface' ? 'none' : 'auto'}
-                    style={{
-                    position: 'absolute',
-                    left: 10,
-                    right: 10,
-                    bottom: 10,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 10,
-                    borderRadius: 10,
-                    paddingVertical: 9,
-                    paddingLeft: 12,
-                    paddingRight: 8,
-                    backgroundColor: 'rgba(28, 28, 27, 0.96)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(255,255,255,0.12)',
-                }}>
-                    <Text style={{ flex: 1, color: '#d8d8d4', fontSize: 12, lineHeight: 16 }}>
-                        {graphicsReason === 'pane-off-surface'
-                            ? 'No picture: this pane is not on the active workspace, tab, or zoomed pane on the desktop. Text still works. Open it there and the picture returns.'
-                            : 'Graphics stopped. Retry brings them back to this phone and resizes Herdr on the desktop.'}
-                    </Text>
-                    {graphicsReason !== 'pane-off-surface' && (
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Retry terminal graphics"
-                        onPress={() => channelRef.current?.repaint(true)}
-                        style={({ pressed }) => ({
-                            minHeight: 36,
-                            justifyContent: 'center',
-                            borderRadius: 8,
-                            paddingHorizontal: 12,
-                            backgroundColor: pressed ? '#d7d7d2' : '#f2f2ed',
-                        })}
-                    >
-                        <Text style={{ color: '#11110f', fontSize: 12, fontWeight: '600' }}>Retry</Text>
-                    </Pressable>
-                    )}
-                </View>
-            )}
+            </View>
         </View>
     );
 });

@@ -186,7 +186,6 @@ describe('connection diagnostic codes', () => {
             recordTerminalChannel,
             recordAgentGate,
             recordTerminalScrollTimeout,
-            recordTerminalGraphicsFrame,
             readConnectionDiagnostics,
             formatConnectionDiagnosticsForReport,
             connectionDiagnosticCode,
@@ -219,13 +218,11 @@ describe('connection diagnostic codes', () => {
         ]));
         expect(readConnectionDiagnostics().some((event) => event.event === 'agent.gate' && 'kind' in event && event.kind === 'w1ew:ph')).toBe(false);
         recordTerminalScrollTimeout();
-        recordTerminalGraphicsFrame(2048);
         const report = formatConnectionDiagnosticsForReport();
         expect(report).toMatch(/socket\.reconnect dead-socket/);
         expect(report).toMatch(/rpc session\.prompt rejected agent-not-ready/);
         expect(report).toMatch(/rpc session\.start rejected start-launch-failed/);
         expect(report).toMatch(/agent\.gate omp idle promptable=false not-interactive/);
-        expect(report).toMatch(/graphics frames=1 p95=2048B/);
         expect(report).not.toMatch(/pp_|pwt-|devtok_|machine-|session-|w1EW:pH/);
     });
 
@@ -243,13 +240,13 @@ describe('connection diagnostic codes', () => {
         recordTerminalScrollRows(12);
         recordTerminalScrollRows(8);
         recordTerminalScrollClamped(3);
-        recordTerminalResize(80, 24, 8, 16);
-        recordTerminalResize(66, 20, 10, 20);
+        recordTerminalResize(80, 24);
+        recordTerminalResize(66, 20);
         // Same shapes, out of bounds: the recorder must not let them through.
         recordConnectionDiagnostic({ event: 'terminal.scroll-rows', rows: Number.NaN } as never);
         recordConnectionDiagnostic({ event: 'terminal.scroll-clamped', rows: -1 } as never);
         recordConnectionDiagnostic({ event: 'terminal.resize', cols: 80 } as never);
-        recordConnectionDiagnostic({ event: 'terminal.resize', cols: 80, rows: 24, cellWidthPx: 'wide' } as never);
+        recordConnectionDiagnostic({ event: 'terminal.resize', cols: 80, rows: 'wide' } as never);
         expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.scroll-rows')).toHaveLength(2);
         expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.scroll-clamped')).toHaveLength(1);
         expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.resize')).toHaveLength(2);

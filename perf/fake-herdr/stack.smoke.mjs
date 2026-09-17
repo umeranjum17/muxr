@@ -20,7 +20,7 @@ const machineId = `fake-herdr-smoke-${process.pid}`;
 const dataDir = mkdtempSync(join(tmpdir(), 'fake-herdr-smoke-'));
 const TIMEOUT_MS = 120_000;
 
-const fake = await startFakeHerdr({ dir: join(dataDir, 'herdr'), panes: Number(process.env.SMOKE_PANES ?? 6), agents: 2, titleChurnHz: 2, graphicsFrameHz: 4 });
+const fake = await startFakeHerdr({ dir: join(dataDir, 'herdr'), panes: Number(process.env.SMOKE_PANES ?? 6), agents: 2, titleChurnHz: 2,  });
 
 const env = { ...process.env };
 for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_AUTH', 'MUXR_RELAY_URL', 'MUXR_MACHINE_ID']) delete env[key];
@@ -148,15 +148,12 @@ async function run() {
         channel: agentChannel,
         cols: 80,
         rows: 24,
-        cellWidthPx: 10,
-        cellHeightPx: 20,
         mode: 'control',
     }).catch((error) => { fail(`attaching an agent terminal failed: ${error.message}`); });
     if (typeof agentAttached?.paneId !== 'string') fail('an agent terminal.attach returned no paneId');
     console.log(`ok: an agent terminal attaches (${treePanes.length} tree panes, no orphan ids)`);
 
-    // A shell pane, attached the way the phone attaches: cell metrics included,
-    // so the graphics path is live too.
+    // A shell pane, attached the way the phone attaches.
     const shell = sessions.find((session) => session.agentKind === undefined);
     if (shell === undefined) fail('the herd published no shell session');
     const channel = newTerminalChannel();
@@ -165,8 +162,6 @@ async function run() {
         channel,
         cols: 80,
         rows: 24,
-        cellWidthPx: 10,
-        cellHeightPx: 20,
         mode: 'control',
     });
     if (typeof attached?.paneId !== 'string') fail('terminal.attach returned no paneId');
@@ -194,9 +189,6 @@ async function run() {
     terminal.send(JSON.stringify({ type: 'terminal.scroll', delta: -10 }));
     await waitFor(() => frames.slice(before).some((frame) => frame.full === true), 'a full repaint after a scroll');
     console.log('ok: a scroll answered with a full repaint');
-
-    await waitFor(() => frames.some((frame) => frame.graphics === true), 'a graphics frame');
-    console.log('ok: a leased Herdr image reached the client as a graphics frame');
 
     // Title churn is a load generator, not news. Every pane renames itself
     // twice a second and the host deliberately keeps the terminal title out of

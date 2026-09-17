@@ -87,10 +87,9 @@ export type ConnectionDiagnosticEvent =
     | { at: string; event: 'terminal.first-frame'; ms: number }
     | { at: string; event: 'terminal.frames'; received: number; written: number }
     | { at: string; event: 'terminal.scroll-timeout' }
-    | { at: string; event: 'terminal.graphics-frame'; bytes: number }
     | { at: string; event: 'terminal.scroll-rows'; rows: number }
     | { at: string; event: 'terminal.scroll-clamped'; rows: number }
-    | { at: string; event: 'terminal.resize'; cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number };
+    | { at: string; event: 'terminal.resize'; cols: number; rows: number };
 
 declare const terminalFrameCountBrand: unique symbol;
 export type TerminalFrameCountToken = { readonly [terminalFrameCountBrand]?: never };
@@ -403,10 +402,6 @@ export function recordTerminalScrollTimeout(): void {
     scrollTotals.timedOut = boundedCount(scrollTotals.timedOut + 1);
 }
 
-export function recordTerminalGraphicsFrame(bytes: number): void {
-    recordConnectionDiagnostic({ event: 'terminal.graphics-frame', bytes: boundedBytes(bytes) });
-}
-
 /** Rows a gesture asked the pane for, so a fling's travel can be judged. */
 export function recordTerminalScrollRows(rows: number): void {
     const bounded = boundedCount(rows);
@@ -424,14 +419,10 @@ export function recordTerminalScrollClamped(rows: number): void {
 }
 
 /** A grid change, which is what a zoom really is. Numbers only. */
-export function recordTerminalResize(cols: number, rows: number, cellWidthPx?: number, cellHeightPx?: number): void {
-    // An image pane zooms by cell pixels while the grid stays put, so a resize
-    // that only changes the cell is still a resize and has to be countable.
+export function recordTerminalResize(cols: number, rows: number): void {
     const entry = {
         cols: boundedCount(cols),
         rows: boundedCount(rows),
-        ...(cellWidthPx === undefined ? {} : { cellWidthPx: boundedCount(cellWidthPx) }),
-        ...(cellHeightPx === undefined ? {} : { cellHeightPx: boundedCount(cellHeightPx) }),
     };
     recordConnectionDiagnostic({ event: 'terminal.resize', ...entry });
 }
@@ -454,16 +445,14 @@ export function recordTerminalChannel(
 }
 
 export function formatConnectionDiagnosticsForReport(): string {
-    const folded = new Set(['terminal.scroll-timeout', 'terminal.graphics-frame', 'terminal.scroll-rows', 'terminal.scroll-clamped', 'terminal.resize']);
+    const folded = new Set(['terminal.scroll-timeout', 'terminal.scroll-rows', 'terminal.scroll-clamped', 'terminal.resize']);
     const trail = events.filter((event) => !folded.has(event.event));
     const body = trail.length === 0
         ? 'No phone transport events yet.'
         : trail.map((event) => `${event.at} #${eventSequence.get(event) ?? 0} ${summarize(event)}`).join('\n');
     const live = liveFrameLine();
-    const graphics = graphicsLine();
     let report = `${PRIVACY_HEADER}\n${body}`;
     if (live !== undefined) report += `\n${live}`;
-    if (graphics !== undefined) report += `\n${graphics}`;
     const gesture = gestureLine();
     if (gesture !== undefined) report += `\n${gesture}`;
     return report;
@@ -489,12 +478,6 @@ export function formatLatestConnectionFailure(): string | undefined {
         ? ''
         : ` · ${failure.closeCode} ${failure.closeReason ?? 'other'}`;
     return `Latest failure: ${failure.stage} · ${failure.code}${close}`;
-}
-
-function graphicsLine(): string | undefined {
-    const frames = events.flatMap((event) => event.event === 'terminal.graphics-frame' ? [event.bytes] : []);
-    if (frames.length === 0) return undefined;
-    return `graphics frames=${frames.length} p95=${percentile(frames, 95)}B`;
 }
 
 /**
@@ -539,13 +522,9 @@ function summarize(event: ConnectionDiagnosticEvent): string {
     if (event.event === 'terminal.first-frame') return `terminal.first-frame ${event.ms}ms`;
     if (event.event === 'terminal.frames') return `terminal.frames received=${event.received} written=${event.written}`;
     if (event.event === 'terminal.scroll-timeout') return 'terminal.scroll-timeout';
-    if (event.event === 'terminal.graphics-frame') return `terminal.graphics-frame ${event.bytes}B`;
     if (event.event === 'terminal.scroll-rows') return `terminal.scroll-rows ${event.rows}`;
     if (event.event === 'terminal.scroll-clamped') return `terminal.scroll-clamped ${event.rows}`;
-    if (event.event === 'terminal.resize') {
-        const cell = event.cellWidthPx === undefined ? '' : ` cell=${event.cellWidthPx}x${event.cellHeightPx ?? 0}`;
-        return `terminal.resize ${event.cols}x${event.rows}${cell}`;
-    }
+    if (event.event === 'terminal.resize') return `terminal.resize ${event.cols}x${event.rows}`;
     const code = event.code === undefined ? '' : ` ${event.code}`;
     return `terminal.channel ${event.phase} ${event.outcome}${code}`;
 }
@@ -627,17 +606,12 @@ function isValidEvent(value: unknown): value is ConnectionDiagnosticEvent {
     if (event.event === 'terminal.first-frame') return isFiniteCount(event.ms);
     if (event.event === 'terminal.frames') return isFiniteCount(event.received) && isFiniteCount(event.written);
     if (event.event === 'terminal.scroll-timeout') return true;
-    if (event.event === 'terminal.graphics-frame') {
-        return typeof event.bytes === 'number' && Number.isFinite(event.bytes) && event.bytes >= 0 && event.bytes <= 64 * 1024 * 1024;
-    }
     // The gesture and zoom events the release gate reads. Without these three
     // the recorder dropped every one of them and the trail described a phone
     // that never scrolled, resized or clamped.
     if (event.event === 'terminal.scroll-rows' || event.event === 'terminal.scroll-clamped') return isFiniteCount(event.rows);
     if (event.event === 'terminal.resize') {
-        return isFiniteCount(event.cols) && isFiniteCount(event.rows)
-            && (event.cellWidthPx === undefined || isFiniteCount(event.cellWidthPx))
-            && (event.cellHeightPx === undefined || isFiniteCount(event.cellHeightPx));
+        return isFiniteCount(event.cols) && isFiniteCount(event.rows);
     }
     return false;
 }

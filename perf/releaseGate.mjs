@@ -76,9 +76,7 @@ import {
     reduceFrameStats,
     reduceGridTransitions,
     reduceJank,
-    reduceMagnification,
     reduceMovement,
-    reducePipelineNotches,
     documentPosition,
     documentViewport,
     scrollableBounds,
@@ -119,17 +117,10 @@ const SHARED_LIMITS = {
     herdVisibleMs: 90_000,
     /** A Herdr call the host waits on; anything near seconds is a stall. */
     hostRequestMs: 5_000,
-    /** First admitted byte of a graphics frame -> written to the phone channel. */
-    graphicsPipelineP95Ms: 250,
-    /** Bytes of the terminal.frame payload written to the phone. */
-    graphicsBytesP95: 800 * 1024,
     accidentalOwners: 0,
     terminalScrollClamped: 0,
-    graphicsRowsPerSecond: 9,
     /** One tap on `Zoom in` is one font step, and one re-grid on the wire. */
     zoomResizeCount: 1,
-    /** `GRAPHICS_ZOOM_STEPS[1]`: the first step a graphics pane magnifies by. */
-    graphicsZoomStep: 1.25,
 };
 
 const EMULATOR_LIMITS = {
@@ -175,24 +166,12 @@ const PHASES = [
     { name: 'herd tree fling', seconds: 30, drive: 'treeFling' },
     { name: 'herd strip paging', seconds: 20, drive: 'stripPaging', oneWayMovement: true },
     { name: 'document scroll', seconds: 30, nav: 'openDocument.yaml', drive: 'documentScroll', oneWayMovement: true },
-    // `surfaceKind` is the pane this phase claims to measure. It is read off the
-    // app's own controls before the bout, so a graphics pane cannot be judged
-    // against the text terminal's latency contract or the other way round.
-    // `fixture` is the pane the phase is routed to by identity. `text` is a pane
-    // no graphics producer serves; `graphics` is the pane the checkerboard is
-    // pinned to. Opening "the first live card" left which pane answered up to
-    // whatever the churning herd had under the tap.
-    { name: 'terminal text fling', seconds: 30, drive: 'terminalTextFling', surfaceKind: 'text', fixture: 'text' },
-    { name: 'graphics pane scroll', seconds: 90, drive: 'graphicsScroll', surfaceKind: 'graphics', fixture: 'graphics', oneWayMovement: true },
-    // One zoom phase per surface, each routed to its own fixture. A single
-    // phase had to discover which pane it had landed on and then grade itself
-    // by that, so the surface it happened to get was the only one covered.
-    { name: 'text zoom tap', seconds: 60, drive: 'zoomTapNavigate', surfaceKind: 'text', fixture: 'text' },
-    { name: 'graphics zoom tap', seconds: 60, drive: 'zoomTapNavigate', surfaceKind: 'graphics', fixture: 'graphics' },
+    // `fixture` is the pane the phase is routed to by identity. Opening
+    // "the first live card" left which pane answered up to whatever the
+    // churning herd had under the tap.
+    { name: 'terminal text fling', seconds: 30, drive: 'terminalTextFling', fixture: 'text' },
+    { name: 'text zoom tap', seconds: 60, drive: 'zoomTapNavigate', fixture: 'text' },
 ];
-
-/** Paints the fixture's identifiable checkerboard instead of a flat fill. */
-const GRAPHICS_PROOF_FILE = '/tmp/muxr-perf-graphics-proof';
 
 
 const args = process.argv.slice(2);
@@ -831,7 +810,7 @@ async function preparePhase(phase, screen, hz) {
     if (phase.drive === undefined) {
         return await returnToHerd() ? { ok: true } : { ok: false, why: 'the herd never came back on screen' };
     }
-    const surface = { treeFling: 'tree', stripPaging: 'strip', documentScroll: 'document', terminalTextFling: 'terminal', graphicsScroll: 'graphics', zoomTapNavigate: 'terminal' }[phase.drive];
+    const surface = { treeFling: 'tree', stripPaging: 'strip', documentScroll: 'document', terminalTextFling: 'terminal', zoomTapNavigate: 'terminal' }[phase.drive];
     // Only the phases graded on the phone's own counters pay for a baseline
     // pull; it costs a round trip through Settings and back.
     const wantsTrail = phase.drive === 'terminalTextFling' || phase.drive === 'zoomTapNavigate';
@@ -879,19 +858,6 @@ async function preparePhase(phase, screen, hz) {
         if (why !== undefined) return { ok: false, flowExit, why };
     }
 
-    // A phase that names its surface has to be standing on that surface. A
-    // graphics pane judged against the text terminal's latency contract passes
-    // it on numbers that describe something else entirely.
-    let surfaceKind;
-    if (phase.surfaceKind !== undefined) {
-        const probed = await probeSurfaceKind();
-        if (probed.kind === undefined) return { ok: false, flowExit, why: `the surface could not be identified (${probed.why})` };
-        if (probed.kind !== phase.surfaceKind) {
-            return { ok: false, flowExit, why: `this phase measures a ${phase.surfaceKind} pane but the surface is ${probed.kind}` };
-        }
-        surfaceKind = probed.kind;
-    }
-
     // The strip is driven on the scroller the hierarchy publishes, so the
     // bounds are resolved -- and refused when missing or ambiguous -- before the
     // counters are zeroed and before a single gesture is injected.
@@ -912,7 +878,6 @@ async function preparePhase(phase, screen, hz) {
         flowExit,
         trailBefore,
         enteredAt,
-        surfaceKind,
         stripBounds,
         documentBounds,
         paneId: phase.fixture === undefined ? undefined : stack.fixturePanes?.[phase.fixture],
@@ -946,15 +911,10 @@ function paneAttaches(paneId, since) {
 
 /**
  * The geometry the phone actually declared on the wire, from the attach and
- * terminal.resize records the fake herd writes beside its socket. This is the
- * source a zoom step changes: a text pane re-grids, a graphics pane holds the
- * grid and moves its cell pixels. Reads are phase-local and pinned to one pane,
- * so an earlier phase's pane can never supply this phase's before-and-after.
- *
- * The attach record carries the grid but no cell pixels, and it is the only
- * geometry a pane the phone never re-gridded has. Requiring cell pixels here
- * discarded exactly that baseline, so the grid is what makes a record usable
- * and the cell is carried when the phone sent it.
+ * terminal.resize records the fake herd writes beside its socket. A zoom step
+ * re-grids, so this series is the step's before-and-after. Reads are
+ * phase-local and pinned to one pane, so an earlier phase's pane can never
+ * supply this phase's before-and-after.
  */
 function paneGeometry(paneId, since) {
     if (stack?.cellMetricsJsonl === undefined) return [];
@@ -991,24 +951,6 @@ async function settleGeometry(read, { quietMs = 900, timeoutMs = 8000 } = {}) {
         if (Date.now() - quietSince >= quietMs) return { ok: true, rows: now.rows };
     }
     return { ok: false, why: 'the pane never stopped re-gridding' };
-}
-
-/**
- * Text or graphics, from the state the app publishes on the controls panel
- * before anything is tapped: a text pane opens in the middle of its font ladder,
- * so `Zoom out` is live; a graphics pane opens at scale 1, its smallest, so it
- * is not.
- */
-async function probeSurfaceKind() {
-    if (!await tapBounds('content-desc="Show terminal controls"')) return { why: 'the terminal controls never opened' };
-    await sleep(600);
-    const panel = await dumpUi();
-    const zoomOutAtRest = controlEnabled(panel, 'Zoom out');
-    const zoomInPresent = controlEnabled(panel, 'Zoom in');
-    await tapBounds('content-desc="Close terminal controls"');
-    await sleep(400);
-    if (zoomInPresent === undefined || zoomOutAtRest === undefined) return { why: 'the panel published no zoom controls' };
-    return { kind: zoomOutAtRest ? 'text' : 'graphics', zoomOutAtRest };
 }
 
 async function drivePhase(phase, screen, hz, ready) {
@@ -1049,34 +991,7 @@ async function drivePhase(phase, screen, hz, ready) {
             timedOut: trail.timedOut,
             agentPages: trail.agentPages,
         };
-        return { ...withTrailMovement(measured, phase, terminal), surfaceKind: ready.surfaceKind };
-    }
-    if (phase.drive === 'graphicsScroll') {
-        ingestHostJournal(journalAcc, stack.journalPath ?? join(stack.dataDir, 'diagnostics.json'));
-        const startedAt = new Date().toISOString();
-        const measured = await measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'graphics', screen, phase, prepared });
-        // The host flushes graphics.pipeline every 15 s. Give the last window
-        // a chance to land so notchesDropped is this bout, not a later phase.
-        const deadline = Date.now() + 16_000;
-        let pipeline = { notchesSent: 0, notchesDropped: 0, frames: 0 };
-        do {
-            await sleep(1000);
-            ingestHostJournal(journalAcc, stack.journalPath ?? join(stack.dataDir, 'diagnostics.json'));
-            pipeline = reducePipelineNotches(
-                journalAcc.events.filter((event) => event.event === 'graphics.pipeline' && event.at >= startedAt),
-            );
-            if (pipeline.notchesSent > 0 || pipeline.notchesDropped > 0) break;
-        } while (Date.now() < deadline);
-        const rowsPerSecond = seconds > 0 ? Number((3 * pipeline.notchesSent / seconds).toFixed(1)) : 0;
-        return {
-            ...measured,
-            terminal: {
-                notchesSent: pipeline.notchesSent,
-                notchesDropped: pipeline.notchesDropped,
-                rowsPerSecond,
-            },
-            graphicsRowsPerSecond: rowsPerSecond,
-        };
+        return withTrailMovement(measured, phase, terminal);
     }
     if (phase.drive === 'zoomTapNavigate') {
         const before = prepared.before;
@@ -1125,16 +1040,11 @@ async function drivePhase(phase, screen, hz, ready) {
         // missing feature.
         const opened = await tapBounds('content-desc="Show terminal controls"');
         await sleep(600);
-        // The surface is told apart by the state the app itself publishes before
-        // anything is tapped: a text pane opens in the middle of its font
-        // ladder, so `Zoom out` is live; a graphics pane opens at scale 1, its
-        // smallest, so it is not. `Reset zoom` disabled is the app's own report
-        // that the pane is still at its untouched default.
+        // `Reset zoom` disabled is the app's own report that the pane is still
+        // at its untouched default, and `Zoom in` present proves the panel.
         const panel = await dumpUi();
         const zoomOutAtRest = controlEnabled(panel, 'Zoom out');
-        const zoomSurface = controlEnabled(panel, 'Zoom in') === undefined || zoomOutAtRest === undefined
-            ? undefined
-            : zoomOutAtRest ? 'text' : 'graphics';
+        const panelHasZoom = controlEnabled(panel, 'Zoom in') !== undefined && zoomOutAtRest !== undefined;
         const atRestDefault = controlEnabled(panel, 'Reset zoom') === false;
 
         // Drain and validate the baseline, then take the cursor immediately
@@ -1151,7 +1061,7 @@ async function drivePhase(phase, screen, hz, ready) {
         // that dump would put the whole dump inside the frame window -- the
         // first frame the tap drove would then look seconds late against a
         // limit meant for the tap alone.
-        const zoomInBounds = opened && zoomSurface !== undefined
+        const zoomInBounds = opened && panelHasZoom
             ? await viewBounds('content-desc="Zoom in"')
             : undefined;
         if (zoomInBounds === undefined) return unavailable('the Zoom in control is not on the panel');
@@ -1241,17 +1151,9 @@ async function drivePhase(phase, screen, hz, ready) {
             uncredited: zoomLedger.uncredited,
         };
 
-        // Only now may anything else be driven. The pixels below are this
-        // phase's own pane after its own step: on a graphics surface they are
-        // both the magnification and the proof that a frame was delivered, so
-        // no aggregate host publication count stands in for either.
+        // Only now may anything else be driven.
         await tapBounds('content-desc="Close terminal controls"');
         await sleep(400);
-        const magnified = zoomSurface !== 'graphics' ? undefined : reduceMagnification(
-            prepared.beforeSurface?.crop,
-            cropRaw(await screencapRaw().catch(() => undefined) ?? {}, prepared.beforeSurface?.bounds),
-            { expected: LIMITS.graphicsZoomStep },
-        );
         // Back down the same ladder. `Reset zoom` is the surface's own report of
         // where it stands, so a step that returned it to the default disables
         // that control again; a tap the app ignored leaves it live.
@@ -1305,8 +1207,6 @@ async function drivePhase(phase, screen, hz, ready) {
             // other gesture: a window with no ring, or none the touch drove,
             // measured nothing rather than measuring a perfect zero.
             frameStats: zoomFrames,
-            surfaceKind: ready.surfaceKind,
-            zoomSurface,
             zoomControlsOpened: opened,
             zoomAtRestDefault: atRestDefault,
             zoomTransitions: transitions.count,
@@ -1316,12 +1216,10 @@ async function drivePhase(phase, screen, hz, ready) {
             zoomWindow: true,
             zoomTapped: steppedIn,
             steppedInAgain,
-            zoomMagnified: magnified,
             zoomedOut,
             zoomReset,
             zoom: {
                 paneId,
-                surface: zoomSurface,
                 zoomOutAtRest,
                 atRestDefault,
                 steppedIn,
@@ -1329,7 +1227,6 @@ async function drivePhase(phase, screen, hz, ready) {
                 baselineRecords: baseline.rows.length,
                 observed,
                 transitions: transitions.transitions,
-                magnified,
             },
             attachRecords: attaches.rows.length,
             geometryRecords: closing.rows.length,
@@ -1460,7 +1357,6 @@ function gestureEvidence(driven, idleJs) {
         movementCandidates: driven.movementCandidates,
         beforeObservation: driven.beforeObservation,
         injectFailed: driven.injectFailed === true,
-        zoomSurface: driven.zoomSurface,
         zoomTransitions: driven.zoomTransitions,
         zoomShrankOnce: driven.zoomShrankOnce,
         zoomAtRestDefault: driven.zoomAtRestDefault,
@@ -1468,7 +1364,6 @@ function gestureEvidence(driven, idleJs) {
         attachRecords: driven.attachRecords,
         geometryRecords: driven.geometryRecords,
         zoomTapped: driven.zoomTapped,
-        zoomMagnified: driven.zoomMagnified,
         zoomedOut: driven.zoomedOut,
         zoomReset: driven.zoomReset,
         zoomControlsOpened: driven.zoomControlsOpened,
@@ -1548,18 +1443,8 @@ try {
     // The plugin fixtures the PR gate already owns: without them the fake herd
     // advertises no plugins at all, `Files` never renders, and the document
     // phase measures a herd screen it never left.
-    // The proof board is the fixture's identifiable frame: a flat fill looks
-    // the same at every magnification, so the zoom phase could never show a
-    // graphics pane really magnified. The file is written first, because it
-    // also gates painting and the load must start at full rate.
-    writeFileSync(GRAPHICS_PROOF_FILE, 'enabled');
     stack = await startFakeStack({
         ...LOAD,
-        graphicsEnableFile: GRAPHICS_PROOF_FILE,
-        // The board paints one named pane for the whole run. Without the pin,
-        // the first wheel notch on any pane pulled the producer onto it, so the
-        // phase that measures a text terminal made one out of it mid-bout.
-        pinGraphicsPane: true,
         setupPlugins: usagePlugins(process.cwd()),
     });
 } catch (cause) {
@@ -1580,11 +1465,11 @@ try {
     finish(1);
 }
 report.fixturePanes = stack.fixturePanes;
-if (stack.fixturePanes?.text === undefined || stack.fixturePanes?.graphics === undefined) {
-    fail('the herd published no text/graphics fixture panes to route the phases to');
+if (stack.fixturePanes?.text === undefined) {
+    fail('the herd published no text fixture pane to route the phases to');
     finish(1);
 }
-ok(`fixture panes: text ${stack.fixturePanes.text}, graphics ${stack.fixturePanes.graphics}`);
+ok(`fixture pane: text ${stack.fixturePanes.text}`);
 ok(`herd up on relay :${stack.relayPort}: ${stack.world.panes.length} panes, ${stack.world.agents.length} agents`);
 ok(scenarioSummary());
 
@@ -1658,12 +1543,11 @@ for (const phase of PHASES) {
         : verdict(phase, phaseMetrics(driven, {
             jsBusyDeltaPoints: gesture?.jsBusyDeltaPoints,
             accidentalOwners: gesture?.accidentalOwners,
-            surfaceKind: ready.surfaceKind,
         }), LIMITS);
     const entry = {
         ...phase,
         ...measured,
-        navigation: { ok: ready.ok, ...(ready.surfaceKind === undefined ? {} : { surfaceKind: ready.surfaceKind }), ...(ready.ok ? {} : { why: ready.why, flowOutput: ready.flowOutput }) },
+        navigation: { ok: ready.ok, ...(ready.ok ? {} : { why: ready.why, flowOutput: ready.flowOutput }) },
         flowExit: flowRun?.code ?? ready.flowExit,
         ...(gesture === undefined ? {} : { gesture }),
         ...(driven?.terminal === undefined ? {} : { terminal: driven.terminal }),
@@ -1772,81 +1656,6 @@ if (journalAcc.events.length === 0 && journalAcc.lastError !== undefined) {
 }
 const events = journalAcc.events;
 const requests = events.filter((event) => event.event === 'client.request');
-const graphicsEvents = events.filter((event) => event.event === 'graphics.pipeline');
-const controlAttaches = paneAttaches(undefined, '');
-report.hostJournal = {
-    path: journalAcc.path,
-    reads: journalAcc.reads,
-    events: events.length,
-    eventCounts: journalEventCounts(events),
-    controlAttaches: controlAttaches.length,
-};
-if (controlAttaches.length > 0 && requests.filter((event) => event.request === 'terminal.attach').length === 0) {
-    fail(`fake-herdr started ${controlAttaches.length} control terminal session(s) but the host journal has no terminal.attach`);
-}
-const attaches = requests.filter((event) => event.request === 'terminal.attach');
-const rejected = requests.filter((event) => event.outcome !== 'ok');
-const slowest = requests.reduce((peak, event) => Math.max(peak, event.durationMs ?? 0), 0);
-report.hostRequests = {
-    total: requests.length,
-    attaches: attaches.length,
-    rejected: rejected.map((event) => ({ request: event.request, outcome: event.outcome, code: event.code, durationMs: event.durationMs })),
-    slowestMs: slowest,
-};
-process.stdout.write(`\nhost requests: ${requests.length} (${attaches.length} terminal attaches), slowest ${slowest} ms\n`);
-if (attaches.filter((event) => event.outcome === 'ok').length === 0) fail('no terminal ever attached on the host');
-else ok(`${attaches.filter((event) => event.outcome === 'ok').length} terminal attach(es) succeeded`);
-if (rejected.length > 0) fail(`the host rejected ${rejected.length} request(s): ${rejected.map((event) => `${event.request}/${event.code ?? event.outcome}`).join(', ')}`);
-else ok('the host rejected nothing');
-if (slowest > LIMITS.hostRequestMs) fail(`a host request took ${slowest} ms`);
-
-const asInt = (value) => {
-    const n = Number(value);
-    return Number.isFinite(n) ? Math.round(n) : 0;
-};
-const graphics = graphicsEvents.reduce((acc, event) => ({
-    frames: acc.frames + asInt(event.frames),
-    superseded: acc.superseded + asInt(event.superseded),
-    p50Ms: Math.max(acc.p50Ms, asInt(event.p50Ms)),
-    p95Ms: Math.max(acc.p95Ms, asInt(event.p95Ms)),
-    bytesP95: Math.max(acc.bytesP95, asInt(event.bytesP95)),
-    pixelsP95: Math.max(acc.pixelsP95, asInt(event.pixelsP95)),
-    notchesSent: acc.notchesSent + asInt(event.notchesSent),
-    notchesDropped: acc.notchesDropped + asInt(event.notchesDropped),
-}), { frames: 0, superseded: 0, p50Ms: 0, p95Ms: 0, bytesP95: 0, pixelsP95: 0, notchesSent: 0, notchesDropped: 0 });
-report.graphics = graphics;
-process.stdout.write(`\ngraphics: frames ${graphics.frames} superseded ${graphics.superseded}`
-    + `  p50 ${graphics.p50Ms} ms  p95 ${graphics.p95Ms} ms`
-    + `  bytes p95 ${graphics.bytesP95}  pixels p95 ${graphics.pixelsP95}`
-    + `  notches sent ${graphics.notchesSent} dropped ${graphics.notchesDropped}\n`);
-if (graphicsEvents.length === 0) {
-    // Two very different runs look the same here, so say which one this was.
-    // A phone that never declared cell pixels never got a graphics bridge at
-    // all -- true of a software-rendered emulator -- and a run that had one and
-    // produced no account is a real regression.
-    const asked = stack?.phoneDeclaredCellMetrics() === true;
-    report.graphicsAsked = asked;
-    if (asked) fail('a phone declared cell metrics but the host wrote no graphics.pipeline account');
-    else process.stdout.write('note: no phone declared cell pixels, so no graphics bridge opened; graphics cost unmeasured this run\n');
-    const graphicsLog = (stack?.hostLog() ?? '')
-        .split('\n')
-        .filter((line) => /graphics/i.test(line))
-        .slice(-6);
-    for (const line of graphicsLog) process.stdout.write(`  host: ${line.trim()}\n`);
-    report.graphicsHostLog = graphicsLog;
-} else {
-    if (graphics.p95Ms > LIMITS.graphicsPipelineP95Ms) fail(`graphics pipeline p95 ${graphics.p95Ms} ms`);
-    else ok(`graphics pipeline p95 ${graphics.p95Ms} ms`);
-    if (graphics.bytesP95 > LIMITS.graphicsBytesP95) fail(`graphics frame ${graphics.bytesP95} bytes`);
-    else ok(`graphics frame p95 ${graphics.bytesP95} bytes`);
-    ok(`graphics notches sent ${graphics.notchesSent} dropped ${graphics.notchesDropped}`);
-    // Superseded frames are reported, never gated: measured against the real
-    // producer the pipeline answers in 6 ms p50, so a burst is delivered rather
-    // than dropped, and a run that never had to drop anything is the good case.
-    // What proves newest-wins is the p95 above, plus the host flow test.
-    ok(`graphics superseded ${graphics.superseded}`);
-}
-
 const pid = await appPid(PKG);
 const tid = pid === undefined ? undefined : await jsThreadId(pid);
 report.runtimeAlive = tid !== undefined;

@@ -18,21 +18,6 @@ export type DiagnosticClientRejectOutcome = 'decrypt-rejected' | 'malformed';
 export type DiagnosticRealtimePromptOutcome = 'queued' | 'rejected' | 'failed';
 export type DiagnosticReadinessGate = 'ready' | 'starting' | 'not-interactive' | 'unbound' | 'no-agent' | 'unnamed' | 'no-session';
 
-export type DiagnosticGraphicsPipeline = {
-    frames: number;
-    superseded: number;
-    p50Ms: number;
-    p95Ms: number;
-    bytesP95: number;
-    pixelsP95: number;
-    /** Wheel notches released to the pane, and gesture intent the cap dropped. */
-    notchesSent: number;
-    notchesDropped: number;
-    /** How the rest of a gesture got out: a delivered frame, or the fallback clock. */
-    notchesByFrame: number;
-    notchesByTimer: number;
-};
-
 type ClientCounts = Record<DiagnosticClientKind, number>;
 type RelationshipCounts = Record<'pending' | 'connected' | 'repair-needed' | 'disconnecting' | 'revoked', number>;
 
@@ -48,8 +33,7 @@ export type HostDiagnosticEvent =
     | { at: string; event: 'peer.broker'; operation: DiagnosticBrokerOperation; outcome: DiagnosticOutcome; durationMs: number; code?: string }
     | { at: string; event: 'realtime.prompt'; provider: string; action: 'prompt'; requestedAgentName: string; resolvedAgentName: string | null; outcome: DiagnosticRealtimePromptOutcome }
     | { at: string; event: 'agent.readiness'; reason: 'starting' | 'ready' | 'not-promptable'; promptable: boolean; kind?: string; lifecycle?: string; gate?: DiagnosticReadinessGate }
-    | { at: string; event: 'agent.launch'; outcome: DiagnosticOutcome; kind?: string; detected?: string; gate?: DiagnosticReadinessGate }
-    | { at: string; event: 'graphics.pipeline'; frames: number; superseded: number; p50Ms: number; p95Ms: number; bytesP95: number; pixelsP95: number; notchesSent: number; notchesDropped: number; notchesByFrame: number; notchesByTimer: number };
+    | { at: string; event: 'agent.launch'; outcome: DiagnosticOutcome; kind?: string; detected?: string; gate?: DiagnosticReadinessGate };
 
 interface HostDiagnosticState {
     version: 1;
@@ -328,22 +312,6 @@ export class HostDiagnosticsJournal {
         });
     }
 
-    graphicsPipeline(value: DiagnosticGraphicsPipeline): void {
-        this.record({
-            at: this.timestamp(),
-            event: 'graphics.pipeline',
-            frames: diagnosticInt(value.frames, 1_000_000_000),
-            superseded: diagnosticInt(value.superseded, 1_000_000_000),
-            p50Ms: diagnosticInt(value.p50Ms, 10 * 60_000),
-            p95Ms: diagnosticInt(value.p95Ms, 10 * 60_000),
-            bytesP95: diagnosticInt(value.bytesP95, 1_000_000_000),
-            pixelsP95: diagnosticInt(value.pixelsP95, 1_000_000_000),
-            notchesSent: diagnosticInt(value.notchesSent, 1_000_000_000),
-            notchesDropped: diagnosticInt(value.notchesDropped, 1_000_000_000),
-            notchesByFrame: diagnosticInt(value.notchesByFrame, 1_000_000_000),
-            notchesByTimer: diagnosticInt(value.notchesByTimer, 1_000_000_000),
-        });
-    }
 
     relationships(peers: Array<{ state: keyof RelationshipCounts }>): void {
         const counts = relationshipCounts();

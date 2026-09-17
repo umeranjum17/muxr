@@ -106,7 +106,7 @@ Use distinct deep-link schemes/associated-domain configuration, notification con
 
 **iOS:** retain the current disabled status until the local Mac path, signing, native voice, and TestFlight build are verified. Then use a distinct development scheme and promote the tested production-identity build through App Store Connect. Android success must not silently mark the iOS release ready.
 
-**OTA:** keep OTA disabled or tightly restricted until runtime compatibility is established. Current `runtimeVersion: "2"` is not sufficient evidence that arbitrary future native changes are compatible. Derive and validate native runtime fingerprints, and scope update channels to app identity, environment and compatible runtime. A native voice/graphics change requires a new binary; do not deliver it as a JavaScript-only update. [Expo runtime compatibility](https://docs.expo.dev/eas-update/runtime-versions/).
+**OTA:** keep OTA disabled or tightly restricted until runtime compatibility is established. Current `runtimeVersion: "2"` is not sufficient evidence that arbitrary future native changes are compatible. Derive and validate native runtime fingerprints, and scope update channels to app identity, environment and compatible runtime. A native voice change requires a new binary; do not deliver it as a JavaScript-only update. [Expo runtime compatibility](https://docs.expo.dev/eas-update/runtime-versions/).
 
 ## One release manifest binds the products together
 

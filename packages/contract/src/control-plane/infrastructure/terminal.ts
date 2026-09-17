@@ -27,21 +27,7 @@ export interface TerminalOutputFrame {
     width?: number;
     height?: number;
     encoding?: string;
-    /** true on image frames, false on retire/detach. Absent on ordinary ANSI. */
-    graphics?: boolean;
-    /** Why direct graphics ended. Absent on ordinary clears and active frames. */
-    graphicsReason?: TerminalGraphicsReason;
 }
-
-/**
- * `pane-off-surface` is not a failure: Herdr renders graphics for the one
- * globally active workspace and tab, and narrows that to the focused pane while
- * a tab is zoomed, so a pane the desktop has navigated away from produces no
- * images at all. Its text keeps flowing, because a terminal attachment is by id
- * and not bound to that view. Naming it is the point -- otherwise the picture
- * simply stops and nothing connects it to what happened on the desktop.
- */
-export type TerminalGraphicsReason = 'retired' | 'bridge-closed' | 'pane-off-surface';
 
 /** host -> client: the underlying stream ended. */
 export interface TerminalClosedFrame {
@@ -79,17 +65,6 @@ export interface TerminalResizeFrame {
     type: 'terminal.resize';
     cols: number;
     rows: number;
-    cellWidthPx?: number;
-    cellHeightPx?: number;
-}
-
-export interface TerminalPointerFrame {
-    type: 'terminal.pointer';
-    phase: 'down' | 'move' | 'up';
-    x: number;
-    y: number;
-    width: number;
-    height: number;
 }
 
 /** client -> host scroll. herdr owns the pane's scrollback, so the client
@@ -101,14 +76,9 @@ export interface TerminalScrollFrame {
     lines: number;
     column?: number;
     row?: number;
-    /** Gesture origin within the displayed terminal, for program hit testing. */
-    x?: number;
-    y?: number;
-    width?: number;
-    height?: number;
 }
 
-export type TerminalClientFrame = TerminalInputFrame | TerminalResizeFrame | TerminalScrollFrame | TerminalPointerFrame;
+export type TerminalClientFrame = TerminalInputFrame | TerminalResizeFrame | TerminalScrollFrame;
 export type TerminalHostFrame = TerminalOutputFrame | TerminalClosedFrame | TerminalScrollStateFrame;
 
 /** Random channel id. The relay pairs the two sockets quoting the same one. */

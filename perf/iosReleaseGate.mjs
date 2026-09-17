@@ -25,7 +25,6 @@ export const PHASES = [
     { name:'herd strip paging', seconds:20, drive:'strip' },
     { name:'document scroll and swipe', seconds:30, drive:'document' },
     { name:'terminal text fling', seconds:30, drive:'terminal' },
-    { name:'graphics pane scroll', seconds:90, drive:'graphics' },
     { name:'zoom tap navigate', seconds:60, drive:'zoom' },
 ];
 const args=process.argv.slice(2);
@@ -91,11 +90,10 @@ async function proveAttach(paneId,since){
         const nodes=await ui.ui();
         const current=nodes.find(n=>ui.visible(n)&&/^Current /.test(n.AXLabel??''));
         const headerMatches=agent ? current?.AXLabel.includes(`${agent.agent}/${agent.name}`) : nodes.some(n=>ui.visible(n)&&/^(Enter|Control)$/.test(n.AXLabel??''));
-        const resizes=jsonl(stack.cellMetricsJsonl).filter(row=>row.pane_id===paneId&&Date.parse(row.at)>=since&&[row.cols,row.rows,row.cellWidthPx,row.cellHeightPx].every(v=>Number.isFinite(v)&&v>0));
-        const hellos=jsonl(stack.graphicsInputJsonl).filter(row=>row.source==='graphics.ClientHello'&&[row.cols,row.rows,row.cellWidthPx,row.cellHeightPx].every(v=>Number.isFinite(v)&&v>0));
-        if(controls.length&&requests.length&&headerMatches&&(!agent||resizes.length||hellos.length))return {paneId,since,controls,paneReads:attaches,requests,header:current?.AXLabel??'shell terminal controls',resizes,hellos:hellos.slice(-1),helloFresh:hellos.some(row=>Date.parse(row.at)>=since),geometryScope:'latest connection hello plus fresh selected-route attach and current header'};
+        const resizes=jsonl(stack.cellMetricsJsonl).filter(row=>row.pane_id===paneId&&Date.parse(row.at)>=since&&[row.cols,row.rows].every(v=>Number.isFinite(v)&&v>0));
+        if(controls.length&&requests.length&&headerMatches&&(!agent||resizes.length))return {paneId,since,controls,paneReads:attaches,requests,header:current?.AXLabel??'shell terminal controls',resizes,geometryScope:'fresh selected-route attach, resize and current header'};
         await sleep(300);
-    }while(Date.now()<deadline); throw new Error('Fresh selected-pane attachment/header/native graphics evidence absent');
+    }while(Date.now()<deadline); throw new Error('Fresh selected-pane attachment/header evidence absent');
 }
 async function firstAgent(){await ui.home();const since=Date.now();await ui.open(`session/${encodeURIComponent(firstRoute())}`);await terminal();return proveAttach(stack.world.panes[0].pane_id,since);}
 async function shell(pane){const since=Date.now();await ui.open(`session/${encodeURIComponent('shell:'+pane.pane_id)}`);await terminal();return proveAttach(pane.pane_id,since);}
@@ -114,11 +112,7 @@ async function drive(phase, end, entry, prepareOnly=false){
     if(['idle','soak','navigate','tree','strip'].includes(phase.drive))await step('verify herd',()=>ui.home());
     if(phase.drive==='document')await step('open actual document',document);
     if(phase.drive==='terminal')await step('open text shell',()=>shell(firstShell));
-    if(['graphics','zoom'].includes(phase.drive)){
-        await step('open graphics agent',firstAgent);
-        entry.graphicsTargetSeen=true; // firstAgent requires fresh native metrics for the persisted route
-        if(!entry.graphicsTargetSeen)throw new Error('Graphics fixture pane attach not proven');
-    }
+    if(phase.drive==='zoom')await step('open agent',firstAgent);
     entry.screenSetupVerified=true;entry.beforeScreenshot=await shot(`${phase.drive}-before`);
     }
     if(prepareOnly)return;
@@ -132,7 +126,7 @@ async function drive(phase, end, entry, prepareOnly=false){
             for(const label of ['Usage','Files']){if(Date.now()>=end)break;await step('plugin '+label,async()=>{await ui.tapMatch(new RegExp('^'+label+'$'));await ui.waitFor(label==='Files'?/Repositories|repositories|All files|No git repositories/:/Today|This week|Usage by|Total|tokens|No usage|Cost|Local activity|limits unavailable/i);await ui.home();});}
             if(Date.now()<end)await step('background foreground',async()=>{await ui.background();entry.resumeProof=await ui.foreground();if(entry.resumeProof.pid!==initialPid)throw new Error('App PID changed on resume');await ui.restoreHomeTop();await ui.waitFor(/^(LIVE|SPACES|Machine)$/);});
         }
-        if(['tree','terminal','graphics'].includes(phase.drive))await step('scroll pair',()=>ui.scrollPair(.12));
+        if(['tree','terminal'].includes(phase.drive))await step('scroll pair',()=>ui.scrollPair(.12));
         if(phase.drive==='strip')await step('strip paging',()=>ui.stripPair());
         if(phase.drive==='document'){
             await step('document vertical scroll',()=>ui.scrollPair(.25));
@@ -140,10 +134,10 @@ async function drive(phase, end, entry, prepareOnly=false){
         }
         if(phase.drive==='zoom'){
             await step('zoom controls',async()=>{if((await ui.ui()).some(n=>ui.visible(n)&&n.AXLabel==='Show terminal controls'))await command('axe',['tap','--label','Show terminal controls','--tap-style','physical','--udid',udid]);await ui.waitFor(/^Zoom in$/);await ui.tapMatch(/^Zoom in$/);await sleep(450);await ui.tapMatch(/^Zoom out$/);await sleep(450);await ui.tapMatch(/^Reset zoom$/);});
-            await step('graphics tap and navigate',async()=>{await ui.tap(160,300);await ui.scrollPair(.12);await ui.swipe(300,440,100,440,.3);await sleep(700);});
+            await step('tap and navigate',async()=>{await ui.tap(160,300);await ui.scrollPair(.12);await ui.swipe(300,440,100,440,.3);await sleep(700);});
         }
     }
-    entry.requiredScreenVerified=entry.screenSetupVerified&&(phase.drive==='idle'||entry.actions.some(a=>a.ok&&Date.parse(a.completedAt)<=end&&!/^(verify|open actual|open text|open graphics)/.test(a.name)));
+    entry.requiredScreenVerified=entry.screenSetupVerified&&(phase.drive==='idle'||entry.actions.some(a=>a.ok&&Date.parse(a.completedAt)<=end&&!/^(verify|open actual|open text|open agent)/.test(a.name)));
     if(!entry.requiredScreenVerified)throw new Error('No completed workload action during phase');
 }
 async function tour(){
@@ -164,15 +158,14 @@ async function finish(){
     if(finished)return;finished=true;collectJournal();
     report.finishedAt=new Date().toISOString();report.hostLoadAfter=hostLoad();report.crashes=crashFiles(started,udid);
     if(report.crashes.length)fail('New muxr crash report(s) detected');
-    report.hostEvents=[...journal.values()];report.graphics=report.hostEvents.filter(e=>e.event==='graphics.pipeline');
+    report.hostEvents=[...journal.values()];
     report.hostRequests=report.hostEvents.filter(e=>e.event==='client.request');
-    if(stack){for(const [key,path] of Object.entries({attaches:stack.attachJsonl,graphicsInput:stack.graphicsInputJsonl,terminalInput:stack.inputJsonl,cellMetrics:stack.cellMetricsJsonl})){
+    if(stack){for(const [key,path] of Object.entries({attaches:stack.attachJsonl,terminalInput:stack.inputJsonl,cellMetrics:stack.cellMetricsJsonl})){
         report[key]=jsonl(path);if(existsSync(path))copyFileSync(path,join(evidence,key+'.jsonl'));}
         writeFileSync(join(evidence,'host.log'),stack.hostLog());writeFileSync(join(evidence,'relay.log'),stack.relayLog());
         report.catalog={panes:stack.world.panes.length,agents:stack.world.agents.length};
     }
-    report.pipelinePresent=report.hostRequests.length>0&&report.graphics.length>0&&(report.cellMetrics?.some(row=>row.cellWidthPx>0&&row.cellHeightPx>0)||report.graphicsInput?.some(row=>row.source==='graphics.ClientHello'&&row.cellWidthPx>0&&row.cellHeightPx>0));
-    report.observedRunComplete=!report.splitAcceptance&&report.pipelinePresent&&report.phases.length===9&&report.phases.every(p=>p.requiredScreenVerified&&p.measuredSeconds>=p.seconds&&!p.error)&&report.tour?.opened===40;
+    report.observedRunComplete=!report.splitAcceptance&&report.hostRequests.length>0&&report.phases.length===8&&report.phases.every(p=>p.requiredScreenVerified&&p.measuredSeconds>=p.seconds&&!p.error)&&report.tour?.opened===40;
     report.observedStabilityPassed=failures.length===0&&report.observedRunComplete;
     report.verdict=failures.length?'FAILED_OBSERVATIONS':report.observedRunComplete?'COMPLETED_WITH_METRIC_LIMITATIONS':'INCOMPLETE';
     persist();await scope.close();scope.cleanup();log(`result ${report.verdict}; evidence ${record}`);

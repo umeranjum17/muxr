@@ -584,7 +584,6 @@ export const pl: TranslationStructure = {
         diffUnavailable: 'Różnice, niedostępne, brak zmian w tym pliku',
         previousChangeAt: ({ current, total }: { current: number; total: number }) => `Poprzednia zmiana, ${current} z ${total}`,
         nextChangeAt: ({ current, total }: { current: number; total: number }) => `Następna zmiana, ${current} z ${total}`,
-        graphicsUnavailable: 'Grafika niedostępna',
         folderNotFile: 'Ta ścieżka to folder, nie plik.',
         showFullPath: 'Pokaż pełną ścieżkę',
         pathShowFullPath: ({ label }: { label: string }) => `Ścieżka ${label}, pokaż pełną ścieżkę`,

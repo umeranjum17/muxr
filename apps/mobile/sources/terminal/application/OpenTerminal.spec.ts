@@ -101,8 +101,7 @@ class FakeWebSocket {
 vi.stubGlobal('WebSocket', FakeWebSocket);
 vi.stubGlobal('fetch', mocks.fetch);
 
-import { decodeBase64, encodeBase64 } from '@/encryption/base64';
-import { createKittyDecoderState, inflateZlib, materializeKittyCommands, splitKittyFrame } from './kittyDecoder';
+import { encodeBase64 } from '@/encryption/base64';
 import { openTerminal } from './OpenTerminal';
 import { TerminalRoute } from '../presentation/TerminalRoute';
 import { createTerminalWritePump } from './terminalWritePump';
@@ -147,56 +146,26 @@ describe('openTerminal reconnect ownership', () => {
         await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
         const socket = FakeWebSocket.instances[0]!;
         socket.open();
-        const graphics: Array<{ active: boolean; reason?: string }> = [];
-        channel.onGraphics((active, reason) => graphics.push({ active, ...(reason === undefined ? {} : { reason }) }));
-        expect(graphics).toEqual([{ active: false }]);
-        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-paint', graphics: true }) });
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'full-paint' }) });
 
-        const frames: Array<{ bytes: string; graphics?: boolean }> = [];
-        channel.onData((bytes, graphicsFlag) => frames.push({ bytes, graphics: graphicsFlag }));
-        expect(frames).toEqual([{ bytes: 'full-paint', graphics: true }]);
-        expect(graphics).toEqual([{ active: false }, { active: true }]);
+        const frames: string[] = [];
+        channel.onData((bytes) => frames.push(bytes));
+        expect(frames).toEqual(['full-paint']);
 
-        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'ansi', graphics: false }) });
-        expect(frames).toEqual([{ bytes: 'full-paint', graphics: true }, { bytes: 'ansi', graphics: false }]);
-        expect(graphics).toEqual([{ active: false }, { active: true }, { active: false }]);
-
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'ansi' }) });
         socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'plain-herdr' }) });
-        expect(frames.at(-1)).toEqual({ bytes: 'plain-herdr' });
+        expect(frames).toEqual(['full-paint', 'ansi', 'plain-herdr']);
 
-        const deleteBytes = encodeBase64(new TextEncoder().encode('\x1b_Ga=d,d=A;\x1b\\'));
-        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: deleteBytes, graphics: false }) });
-        expect(frames.at(-1)).toEqual({ bytes: deleteBytes, graphics: false });
-        const routed = splitKittyFrame(decodeBase64(deleteBytes), createKittyDecoderState());
-        expect(routed.error).toBeUndefined();
-        expect(routed.commands).toEqual([{ kind: 'delete-all' }]);
-        expect(new TextDecoder().decode(routed.ansi)).toBe('');
-        const cleared = await materializeKittyCommands(routed.commands, inflateZlib);
-        expect(cleared.deleteAll).toBe(true);
-        expect(cleared.placements).toEqual([]);
-
-        socket.onmessage?.({ data: JSON.stringify({
-            type: 'terminal.frame',
-            bytes: deleteBytes,
-            graphics: false,
-            graphicsReason: 'retired',
-        }) });
-        expect(graphics.at(-1)).toEqual({ active: false, reason: 'retired' });
-        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'draw-again', graphics: true }) });
-        expect(graphics.at(-1)).toEqual({ active: true });
-
-        channel.repaint(true);
-        expect(graphics.at(-1)).toEqual({ active: false });
-        await vi.waitFor(() => expect(mocks.request).toHaveBeenCalledWith(
-            'terminal.attach',
-            expect.objectContaining({ graphicsReset: true }),
-        ));
+        channel.repaint();
+        await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2));
+        expect(mocks.request).toHaveBeenLastCalledWith('terminal.attach', expect.objectContaining({
+            sessionId: 'session', channel: expect.any(String), cols: 100, rows: 30,
+        }));
 
         channel.close();
-        expect(graphics.at(-1)).toEqual({ active: false });
     });
 
-    it('drives socket frames through one in-flight graphics-aware write pump', async () => {
+    it('drives socket frames through one in-flight write pump with a bounded backlog', async () => {
         mocks.request.mockResolvedValue({});
         const channel = await openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } });
         await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
@@ -236,80 +205,62 @@ describe('openTerminal reconnect ownership', () => {
             cancelSchedule: (handle) => { scheduled.delete(handle as number); },
             onRejected: (error) => { recoveries.push(error); },
         });
-        channel.onData((bytes, graphics) => {
-            pump.push(typeof graphics === 'boolean' ? { bytes, graphics } : { bytes });
+        channel.onData((bytes) => {
+            pump.push({ bytes });
         });
 
-        const frame = (bytes: string, graphics?: boolean) => {
-            socket.onmessage?.({ data: JSON.stringify(typeof graphics === 'boolean'
-                ? { type: 'terminal.frame', bytes, graphics }
-                : { type: 'terminal.frame', bytes }) });
+        const frame = (bytes: string) => {
+            socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes }) });
         };
 
-        frame('draw-1', true);
-        await vi.waitFor(() => expect(writes).toEqual(['draw-1']));
+        // Single-flight: a stalled native write holds every later frame back,
+        // and adjacent text coalesces into one native write.
         frame('text-A');
-        frame('draw-2', true);
+        await vi.waitFor(() => expect(writes).toEqual(['text-A']));
         frame('text-B');
-        frame('draw-3', true);
-        frame('retire-F', false);
-        expect(writes).toEqual(['draw-1']);
-        expect(maxConcurrent).toBe(1);
-
-        // Each graphics draw can be an independent placement; text and
-        // targeted deletes must retain their position between those draws.
-        const expected = ['draw-1', 'text-A', 'draw-2', 'text-B', 'draw-3', 'retire-F'];
-        for (let index = 0; index < expected.length; index++) {
-            if (index > 0) await vi.waitFor(() => expect(writes).toEqual(expected.slice(0, index + 1)));
-            gates[index]!.resolve();
-        }
-        await vi.waitFor(() => expect(concurrent).toBe(0));
-        expect(maxConcurrent).toBe(1);
-
-        frame('draw-4', true);
-        await vi.waitFor(() => expect(writes.at(-1)).toBe('draw-4'));
-        frame('draw-5', true);
-        frame('draw-6', true);
-        gates[6]!.resolve();
-        await vi.waitFor(() => expect(writes.at(-1)).toBe('draw-5'));
-        gates[7]!.resolve();
-        await vi.waitFor(() => expect(writes.at(-1)).toBe('draw-6'));
-        gates[8]!.resolve();
-        await vi.waitFor(() => expect(concurrent).toBe(0));
-
         frame('text-C');
-        await vi.waitFor(() => expect(writes.at(-1)).toBe('text-C'));
+        expect(writes).toEqual(['text-A']);
+        expect(maxConcurrent).toBe(1);
+        gates[0]!.resolve();
+        await vi.waitFor(() => expect(writes).toEqual(['text-A', 'text-Btext-C']));
+        expect(maxConcurrent).toBe(1);
+        gates[1]!.resolve();
+        await vi.waitFor(() => expect(concurrent).toBe(0));
+
+        // Cancel drops queued frames but lets the admitted write settle.
         frame('text-D');
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('text-D'));
+        frame('text-E');
         const cancelled = pump.cancel();
-        gates[9]!.resolve();
+        gates[2]!.resolve();
         await cancelled;
         await Promise.resolve();
-        expect(writes.at(-1)).toBe('text-C');
-        expect(writes).not.toContain('text-D');
+        expect(writes.at(-1)).toBe('text-D');
+        expect(writes).not.toContain('text-E');
 
-        frame('text-E');
-        frame('draw-7', true);
-        await vi.waitFor(() => expect(writes.at(-1)).toBe('text-E'));
+        // A failed write rejects once and drops the backlog, so recovery is a
+        // fresh repaint rather than a replay of stale cells.
         frame('text-F');
-        gates[10]!.reject(undefined);
+        await vi.waitFor(() => expect(writes.at(-1)).toBe('text-F'));
+        frame('text-G');
+        gates[3]!.reject(undefined);
         await vi.waitFor(() => expect(recoveries).toEqual([undefined]));
-        expect(writes).not.toContain('draw-7');
-        expect(writes).not.toContain('text-F');
+        expect(writes).not.toContain('text-G');
         expect(maxConcurrent).toBe(1);
 
         // A stalled native writer cannot accumulate unlimited frames. Recover
         // only after its admitted write settles, never overlap a new surface.
-        frame('blocked-write', true);
+        frame('blocked-write');
         await vi.waitFor(() => expect(writes.at(-1)).toBe('blocked-write'));
-        for (let i = 0; i < 129; i++) frame(`queued-${i}`, true);
+        for (let i = 0; i < 129; i++) frame(`queued-${i}`);
         expect(recoveries).toHaveLength(1);
-        gates[11]!.resolve();
+        gates[4]!.resolve();
         await vi.waitFor(() => expect(recoveries).toHaveLength(2));
         expect(String(recoveries[1])).toContain('backlog exceeded');
         expect(writes.some((entry) => entry.startsWith('queued-'))).toBe(false);
-        frame('recovered-paint', true);
+        frame('recovered-paint');
         await vi.waitFor(() => expect(writes.at(-1)).toBe('recovered-paint'));
-        gates[12]!.resolve();
+        gates[5]!.resolve();
         await vi.waitFor(() => expect(concurrent).toBe(0));
         expect(maxConcurrent).toBe(1);
 

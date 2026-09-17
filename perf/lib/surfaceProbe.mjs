@@ -133,7 +133,7 @@ export function validateSession(session, { platform, device, source, harness, wo
     if (children) return children;
     if ((session.host?.childHealth ?? []).some((entry) => entry.exitCode !== null || entry.signal !== null)) return 'fake-stack child health recorded a dead child';
     if (connection !== undefined && connection !== true) return 'connected app/host proof is absent';
-    if (session.host?.fixturePanes?.text === undefined || session.host?.fixturePanes?.graphics === undefined) return 'expected fixture panes are absent';
+    if (session.host?.fixturePanes?.text === undefined) return 'the expected fixture pane is absent';
     if (!session.lock || !session.probeLock) return 'session lock identity is absent';
     return undefined;
 }

@@ -519,16 +519,12 @@ export interface RequestMap extends PeerRequestMap {
             channel: string;
             cols: number;
             rows: number;
-            cellWidthPx?: number;
-            cellHeightPx?: number;
             /** control (default) takes over the pane; observe just watches. */
             mode?: 'control' | 'observe';
             /** Authenticated v2 sender. Required by a hosted host, ignored in explicit local mode. */
             deviceId?: string;
             /** User explicitly chose to take control from another device. */
             takeover?: boolean;
-            /** Reopen Herdr's direct-graphics client before this control attach. */
-            graphicsReset?: boolean;
         };
         result: { paneId: string };
     };
