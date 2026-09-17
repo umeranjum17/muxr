@@ -12,6 +12,7 @@ import { ShortcutHintBadge, useShortcutHints } from '@/components/ShortcutHints'
 import { useDeviceAuthority } from '@/pairing';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
 import { DeclarativeNavigationItems } from '@/plugins/ui';
+import { pluginSnapshot, useSlotContributions } from '@/plugins';
 import { pluginHref } from '@/plugins';
 
 const stylesheet = StyleSheet.create((theme) => ({
@@ -127,6 +128,11 @@ export const SidebarView = React.memo(() => {
         ? pathname.split('/')[2]
         : undefined;
     const newSessionDisabled = authorityLoading || authority !== 'control';
+    // The hook below only refreshes on catalog changes; the count reads the
+    // snapshot so this render tracks third-party navigation contributions.
+    useSlotContributions('navigation.primary');
+    const navToolCount = pluginSnapshot().reduce((count, { manifest }) => count
+        + manifest.contributions.filter((contribution) => 'type' in contribution && contribution.type === 'navigation-item').length, 0);
     const emptyText = !loaded && !attempted
         ? 'Loading spaces…'
         : herdrConnected === false
@@ -175,13 +181,15 @@ export const SidebarView = React.memo(() => {
                     </Text>
                 ) : undefined}
             />
-            <View style={styles.toolsSection}>
-                <Text style={styles.toolsTitle}>Tools</Text>
-                <DeclarativeNavigationItems
-                    compact
-                    onSelect={(_key, pluginId, contentId) => router.push(pluginHref(pluginId, contentId))}
-                />
-            </View>
+            {navToolCount > 0 && (
+                <View style={styles.toolsSection}>
+                    <Text style={styles.toolsTitle}>Tools</Text>
+                    <DeclarativeNavigationItems
+                        compact
+                        onSelect={(_key, pluginId, contentId) => router.push(pluginHref(pluginId, contentId))}
+                    />
+                </View>
+            )}
 
             {/* Settings at bottom */}
             <Pressable

@@ -736,6 +736,7 @@ function parseContribution(item: Record<string, unknown>, skipped: string[]): Pl
             source: { type: 'plugin.call', contributionId: id(item.source.contributionId) },
             ...(item.emptyText === undefined ? {} : { emptyText: pluginText(item.emptyText, 120) }),
             ...(item.presentation === undefined ? {} : { presentation: presentation(item.presentation) }),
+            ...(item.contentContributionId === undefined ? {} : { contentContributionId: id(item.contentContributionId) }),
             ...(item.icon === undefined ? {} : { icon: id(item.icon) }),
         };
     }
@@ -796,6 +797,12 @@ function validateManifestGraph(
                 `data card source is not declared: ${contribution.source.contributionId}`,
                 `data card source must be read mode: ${contribution.source.contributionId}`,
             );
+            if (contribution.contentContributionId !== undefined && !contributions.some((candidate) =>
+                'type' in candidate && candidate.slot === 'navigation.content'
+                && (candidate.type === 'native' || candidate.type === 'screen')
+                && candidate.id === contribution.contentContributionId)) {
+                throw new Error(`data card content is not declared: ${contribution.contentContributionId}`);
+            }
         }
         if (contribution.type === 'native' && contribution.source !== undefined) {
             requireReadRpc(

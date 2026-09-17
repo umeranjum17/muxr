@@ -318,6 +318,12 @@ export interface PluginDataCard {
     emptyText?: PluginText;
     /** `card` inlines the value on Home; `sheet` shows a pill that opens it. */
     presentation?: 'card' | 'sheet';
+    /**
+     * Cross-references a `navigation.content` contribution: tapping the card
+     * opens that screen. Product surfaces never order themselves by plugin
+     * contributions; this only gives a card somewhere to go.
+     */
+    contentContributionId?: string;
     icon?: string;
 }
 
@@ -329,7 +335,9 @@ export interface PluginNavigationItem {
     icon: string;
     /**
      * Cross-references a `navigation.content` contribution: a bundled native
-     * contribution or a declarative `screen` contribution.
+     * contribution or a declarative `screen` contribution. Product chrome
+     * decides where this renders (home chips, sidebar tools) and in what
+     * order; the declaration never positions product navigation.
      */
     contentContributionId: string;
     /** Optional read RPC returning `{ count }`; the plugin owns badge policy. */
