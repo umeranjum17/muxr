@@ -62,7 +62,7 @@ export function useCommandPalette(commands: Command[], onClose: () => void, quie
     const { categories, quiet } = useMemo(() => {
         if (searchQuery.trim() === '') {
             return quietLine === undefined
-                ? { categories: filteredCategories, quiet: undefined }
+                ? { categories: filteredCategories.map((category) => category.title === CUSTOM_CATEGORY ? { ...category, title: t('commandPalette.custom') } : category), quiet: undefined }
                 : { categories: filteredCategories.map((category) => ({ ...category, title: '' })), quiet: quietLine };
         }
         const matches = filteredCategories.flatMap((category) => category.commands);
