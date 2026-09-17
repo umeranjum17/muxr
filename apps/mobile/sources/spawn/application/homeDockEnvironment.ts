@@ -8,6 +8,7 @@ import type { Session } from '@/catalog';
 import { AGENT_TYPES, type NewSessionAgentType, type NewSessionSessionType } from '@/catalog';
 import { formatPathRelativeToHome } from '@/herd';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
+import { listWorktrees } from './worktree';
 
 export interface DockOption {
     key: string;
@@ -68,6 +69,16 @@ export function projectDockOptions(input: {
 
 export function selectedWorktreeKey(sessionType: NewSessionSessionType, worktreeKey: string | null): string {
     return new WorktreeSelection(sessionType, worktreeKey).pickerKey();
+}
+
+/** Worktrees that already exist on the machine, as dock options. */
+export async function listWorktreeOptions(machineId: string, path: string): Promise<DockOption[]> {
+    const worktrees = await listWorktrees(machineId, path);
+    return worktrees.map((worktree) => ({
+        key: worktree.path,
+        name: worktree.branch,
+        description: worktree.path,
+    }));
 }
 
 export function worktreeDockOptions(existing: DockOption[], worktreeKey: string | null): DockOption[] {

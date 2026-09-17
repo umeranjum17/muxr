@@ -105,12 +105,17 @@ describe('mobile features', () => {
             const source = readFileSync(file, 'utf8');
             for (const line of source.split('\n')) {
                 const trimmed = line.trim();
-                if (trimmed.startsWith('import type ')) continue;
-                if (/from ['"]react['"]/.test(trimmed) || /from ['"]react-native['"]/.test(trimmed)) {
-                    violations.push(`${rel}: model imports React runtime`);
-                }
-                if (/from ['"]expo($|\/|-)/.test(trimmed)) {
-                    violations.push(`${rel}: model imports expo`);
+                // Type-only imports still count for the outer-layer rules below:
+                // a domain type borrowed from an implementation layer couples
+                // domain to that layer's module graph even when elided.
+                const isTypeOnlyImport = trimmed.startsWith('import type ');
+                if (!isTypeOnlyImport) {
+                    if (/from ['"]react['"]/.test(trimmed) || /from ['"]react-native['"]/.test(trimmed)) {
+                        violations.push(`${rel}: model imports React runtime`);
+                    }
+                    if (/from ['"]expo($|\/|-)/.test(trimmed)) {
+                        violations.push(`${rel}: model imports expo`);
+                    }
                 }
                 if (/\.\.\/(application|presentation|infrastructure)\//.test(trimmed) && /from ['"]/.test(trimmed)) {
                     violations.push(`${rel}: model imports ${trimmed}`);
@@ -119,6 +124,9 @@ describe('mobile features', () => {
                     violations.push(`${rel}: model imports presentation barrel ${trimmed}`);
                 }
                 if (/\/(application|infrastructure|presentation)\//.test(trimmed) && /from ['"]\./.test(trimmed)) {
+                    violations.push(`${rel}: model imports outer layer ${trimmed}`);
+                }
+                if (/from ['"]@\/[a-z]+\/(application|infrastructure|presentation)(?=\/|'|"| )/.test(trimmed)) {
                     violations.push(`${rel}: model imports outer layer ${trimmed}`);
                 }
             }

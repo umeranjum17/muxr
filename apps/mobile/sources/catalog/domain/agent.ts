@@ -1,6 +1,6 @@
 import { isSessionIdle, type SessionInfo, type SessionStatus } from '@muxr/contract';
 import deepEqual from 'fast-deep-equal';
-import type { Session } from '../infrastructure/storageTypes';
+import type { Session } from './sessionTypes';
 import {
     lifecycleIsBusy,
     lifecycleNeedsApproval,

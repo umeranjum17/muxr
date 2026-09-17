@@ -2,11 +2,11 @@ import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import React from 'react';
 import deepEqual from 'fast-deep-equal';
-import type { Session, Machine, SessionAgentModesPatch } from '../infrastructure/storageTypes';
+import type { Session, SessionAgentModesPatch } from '../domain/sessionTypes';
 import type { Settings } from './settings';
 import { settingsDefaults } from './settings';
 import type { LocalSettings } from './localSettings';
-import type { Profile } from './profile';
+import type { Profile } from '../domain/profile';
 import {
     loadSettings,
     loadLocalSettings,
@@ -22,9 +22,9 @@ import {
 } from '@/watch/store';
 import { boundSessionFileCache } from './sessionFileCache';
 import type { Message } from '../infrastructure/typesMessage';
-import type { GitStatus } from '../infrastructure/storageTypes';
-import type { GitStatusFiles } from '../infrastructure/gitStatusFiles';
-import type { ProjectFilesList } from '../infrastructure/projectFiles';
+import type { Machine, GitStatus } from '../infrastructure/storageTypes';
+import type { GitStatusFiles } from './gitStatusFiles';
+import type { ProjectFilesList } from './projectFiles';
 import type { DecryptedArtifact } from '../infrastructure/artifactTypes';
 import type { UserProfile, RelationshipUpdatedEvent } from '../infrastructure/friendTypes';
 import type { FeedItem } from '../infrastructure/feedTypes';

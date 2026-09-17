@@ -27,6 +27,7 @@ export * from './infrastructure/sessionMapping';
 export * from './infrastructure/rig';
 export * from './infrastructure/serverConfig';
 export * from './infrastructure/apiSocket';
+export * from './domain/sessionTypes';
 export * from './infrastructure/storageTypes';
 export * from './infrastructure/friendTypes';
 export * from './infrastructure/typesMessage';

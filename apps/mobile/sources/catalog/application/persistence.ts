@@ -2,7 +2,7 @@ import { MMKV } from 'react-native-mmkv';
 import type { SessionAttachment } from '@muxr/contract';
 import { Settings, settingsDefaults, settingsParse, SettingsSchema } from './settings';
 import { LocalSettings, localSettingsDefaults, localSettingsParse } from './localSettings';
-import { Profile, profileDefaults, profileParse } from './profile';
+import { Profile, profileDefaults, profileParse } from '../domain/profile';
 import { AGENT_KINDS } from '../domain/agentKinds';
 type PermissionModeKey = string;
 

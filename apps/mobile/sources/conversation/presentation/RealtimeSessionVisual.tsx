@@ -14,7 +14,7 @@ import Animated, {
     withTiming,
     type SharedValue,
 } from 'react-native-reanimated';
-import { subscribeEnergy } from '../infrastructure/audioEnergy';
+import { subscribeEnergy } from '../application/audioEnergy';
 import type { RealtimeSessionState } from '../application/realtimeSessionState';
 
 /**

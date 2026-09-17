@@ -7,7 +7,7 @@ import {
     type SessionStatus,
 } from '@muxr/contract';
 import { applyStatusToSession } from '../infrastructure/sessionMapping';
-import type { SessionAgentModesPatch } from '../infrastructure/storageTypes';
+import type { SessionAgentModesPatch } from '../domain/sessionTypes';
 import { startAgent } from './startAgent';
 import { readAgentFile } from './readAgentFile';
 import {

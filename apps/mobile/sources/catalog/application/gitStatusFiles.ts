@@ -3,10 +3,10 @@
  * Provides detailed git status with file-level changes and line statistics
  */
 
-import { sessionBash } from '../application/ops';
-import { storage } from '../application/storage';
-import { parseStatusSummaryV2, getCurrentBranchV2 } from './git-parsers/parseStatusV2';
-import { parseNumStat, createDiffStatsMap } from './git-parsers/parseDiff';
+import { sessionBash } from './ops';
+import { storage } from './storage';
+import { parseStatusSummaryV2, getCurrentBranchV2 } from '../infrastructure/git-parsers/parseStatusV2';
+import { parseNumStat, createDiffStatsMap } from '../infrastructure/git-parsers/parseDiff';
 
 export interface GitFileStatus {
     fileName: string;

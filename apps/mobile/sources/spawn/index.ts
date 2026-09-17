@@ -10,4 +10,4 @@ export * from './application/useNewSessionDraft';
 export * from './application/useStartSessionFromDraft';
 export * from './domain/SpawnRequest';
 export * from './domain/WorktreeSelection';
-export * from './infrastructure/worktree';
+export * from './application/worktree';

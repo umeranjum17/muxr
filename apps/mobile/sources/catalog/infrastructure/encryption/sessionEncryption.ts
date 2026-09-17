@@ -1,7 +1,7 @@
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { RawRecord } from '../typesRaw';
 import { ApiMessage } from '../apiTypes';
-import { DecryptedMessage, Metadata, MetadataSchema, AgentState, AgentStateSchema } from '../storageTypes';
+import { DecryptedMessage, Metadata, MetadataSchema, AgentState, AgentStateSchema } from '../../domain/sessionTypes';
 import { EncryptionCache } from './encryptionCache';
 import { Decryptor, Encryptor } from './encryptor';
 

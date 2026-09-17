@@ -1,4 +1,4 @@
-import type { SessionAgentModesPatch } from '../infrastructure/storageTypes';
+import type { SessionAgentModesPatch } from '../domain/sessionTypes';
 
 /**
  * Tracks per-session agent-mode fields that have an optimistic metadata push

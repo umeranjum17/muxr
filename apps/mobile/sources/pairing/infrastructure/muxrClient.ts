@@ -32,6 +32,7 @@ import {
     type ConnectionDiagnosticSocketFailureCode,
 } from '@/catalog/diagnostics';
 import { sshRelayUrl, stopSshTunnel, SshConnectionError } from '@/connection/sshTunnel';
+// Type-only: keeps the connection barrel out of this module's runtime graph.
 import type { SshTarget } from '@/connection';
 
 /** `stale`: host liveness is unproven because a request timed out without newer authenticated host traffic. */
