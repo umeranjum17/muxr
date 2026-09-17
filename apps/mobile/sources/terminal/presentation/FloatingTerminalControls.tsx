@@ -158,9 +158,10 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, co
     const available = Math.max(headerHeight, height - OPEN_MARGIN * 2);
     const fits = measured && naturalHeight <= available;
     const [revealClamped, setRevealClamped] = React.useState(false);
+    const [panelReady, setPanelReady] = React.useState(false);
     // Nothing is painted until every row has its full height, so a common
     // action is never revealed clipped.
-    const painted = fits || revealClamped;
+    const painted = (fits || revealClamped) && panelReady;
     const panelHeight = measured ? Math.min(naturalHeight, available) : headerHeight;
     const actionsMaxHeight = Math.max(0, available - headerHeight);
 
@@ -207,6 +208,10 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, co
     keyRangeRef.current = keyRange;
     const keyToFracRef = React.useRef(keyToFrac);
     keyToFracRef.current = keyToFrac;
+    React.useEffect(() => {
+        keyFrac.current = keyDock ?? { fx: 1, fy: 1 };
+        keyDefaulted.current = keyDock === null;
+    }, [keyDock]);
 
     // Every terminal resize (rotation, keyboard, split) re-clamps both into
     // the surface they live on, so neither can strand off-screen or under
@@ -226,7 +231,7 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, co
         }
     }, [placeKey, width, height, open, panelX, panelY, panelWidth, panelHeight, panelDock]);
 
-    React.useEffect(() => { if (!open) { panelPlaced.current = false; setContentHeight(undefined); } }, [open]);
+    React.useEffect(() => { if (!open) { panelPlaced.current = false; setPanelReady(false); setContentHeight(undefined); } }, [open]);
 
     // Open: the panel grows out of the puck -- centred above it, falling
     // below when there is no headroom -- unless the person put it somewhere
@@ -235,6 +240,7 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, co
     React.useEffect(() => {
         if (!open || !measured || panelPlaced.current) return;
         panelPlaced.current = true;
+        setPanelReady(true);
         if (panelDock) {
             panelX.value = OPEN_MARGIN + clamp01(panelDock.fx) * Math.max(0, width - panelWidth - OPEN_MARGIN * 2);
             panelY.value = OPEN_MARGIN + clamp01(panelDock.fy) * Math.max(0, height - panelHeight - OPEN_MARGIN * 2);
