@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import { useDictation } from '@/utils/dictation';
-import { pcm16ChunksToArrayBuffer } from '@/utils/transcription';
+import { applyWordReplacements, pcm16ChunksToArrayBuffer } from '@/utils/transcription';
 import { wakeAndReport } from '@/watch/wakeAndReport';
 import { usePluginEvents } from '@/plugins/events';
 import { cancelRealtimeReportWait, configureVadStandby, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, retryVadStandby, startRealtimeSession, stopRealtimeSession, useRealtimeMuted } from '@/conversation/session';
@@ -206,6 +206,7 @@ describe('on-device dictation flow', () => {
 
         expect(mocks.transcribe).toHaveBeenCalledWith([pcm], undefined);
         expect(appended).toEqual(['hello world']);
+        expect(applyWordReplacements('muxer muxer opens othermuxer', [{ from: 'muxer', to: 'muxr' }])).toBe('muxr muxr opens othermuxer');
         expect(micOwners()).toEqual([]);
     });
 

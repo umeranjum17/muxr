@@ -15,3 +15,28 @@ export function appendTranscript(base: string, spoken: string): string {
     if (!trimmed) return base;
     return base.trim() ? `${base.trimEnd()} ${trimmed}` : trimmed;
 }
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\[\]\\]/g, '\\$&');
+}
+
+function isWordCharacter(value: string | undefined): boolean {
+    return value !== undefined && /[\p{L}\p{N}_]/u.test(value);
+}
+
+/** Apply user-owned corrections without changing larger words that merely contain one. */
+export function applyWordReplacements(
+    text: string,
+    replacements: readonly { from: string; to: string }[],
+): string {
+    return replacements.reduce((result, replacement) => {
+        const from = replacement.from.trim();
+        const to = replacement.to.trim();
+        if (!from || !to) return result;
+        const pattern = new RegExp(escapeRegExp(from), 'gi');
+        return result.replace(pattern, (match: string, offset: number, source: string) => {
+            if (isWordCharacter(source[offset - 1]) || isWordCharacter(source[offset + match.length])) return match;
+            return to;
+        });
+    }, text);
+}

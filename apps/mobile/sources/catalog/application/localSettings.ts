@@ -26,6 +26,9 @@ export const LocalSettingsSchema = z.object({
     terminalCommandKeyDock: z.object({ fx: z.number(), fy: z.number() }).nullable().describe('Where the floating terminal command puck rests, as fractions of the terminal surface'),
     terminalPanelDock: z.object({ fx: z.number(), fy: z.number() }).nullable().describe('Where the floating terminal command panel was last placed, as fractions of the terminal surface'),
     vadStandbyEnabled: z.boolean().describe('Persistently wake realtime voice from local speech activity standby'),
+    dictationLanguage: z.string().nullable().describe('Spoken dictation language (null for automatic detection)'),
+    dictationModel: z.string().describe('Selected on-device dictation model'),
+    dictationWordReplacements: z.array(z.object({ from: z.string(), to: z.string() })).describe('On-device dictation word replacements'),
     lifecycleNotificationLevel: z.enum(LIFECYCLE_NOTIFICATION_LEVELS).describe('Which agent lifecycle events may emit notifications'),
     // Herd tab: bucket the agents section under workspace subheaders (herdr's "grouped" toggle).
     // Saved herdr tab layouts (split tree + agent kind per pane), newest first.
@@ -64,6 +67,9 @@ export const localSettingsDefaults: LocalSettings = {
     terminalCommandKeyDock: null,
     terminalPanelDock: null,
     vadStandbyEnabled: false,
+    dictationLanguage: null,
+    dictationModel: 'base.en-q5_1',
+    dictationWordReplacements: [],
     lifecycleNotificationLevel: 'important',
     savedLayouts: [],
 };

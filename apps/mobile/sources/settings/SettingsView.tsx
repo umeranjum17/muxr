@@ -78,7 +78,7 @@ export const SettingsView = React.memo(function SettingsView({
     const openPreferences = React.useCallback(() => router.push('/settings/features' as never), [router]);
     const openNotifications = React.useCallback(() => router.push('/settings/notifications' as never), [router]);
     useRealtimeAppControl('Connection', openConnection, '/settings');
-    useRealtimeAppControl('Realtime voice', openVoice, '/settings');
+    useRealtimeAppControl('Voice & dictation', openVoice, '/settings');
     useRealtimeAppControl('Plugins', openPlugins, '/settings');
     useRealtimeAppControl('Appearance', openAppearance, '/settings');
     useRealtimeAppControl('Preferences', openPreferences, '/settings');
@@ -437,8 +437,8 @@ export const SettingsView = React.memo(function SettingsView({
                     onPress={openPreferences}
                 />
                 <Item
-                    title="Realtime voice"
-                    subtitle="Provider and wake-on-speech for this computer"
+                    title="Voice & dictation"
+                    subtitle="Realtime provider, on-device dictation and wake-on-speech"
                     icon={<Ionicons name="pulse-outline" size={29} color="#34C759" />}
                     onPress={openVoice}
                 />
