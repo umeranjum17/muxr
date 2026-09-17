@@ -400,7 +400,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         }
         const known = agentCommands(paneKind);
         const sendDangerous = (entry: { command: string; description: string }) => {
-            void Modal.confirm(`Send ${entry.command}?`, `${entry.description}. This cannot be undone.`, {
+            void Modal.confirm(`Send ${entry.command}?`, `${entry.description}. This discards the current context.`, {
                 confirmText: `Send ${entry.command}`,
                 destructive: true,
             }).then((ok) => { if (ok) sendCommand(entry.command); });
