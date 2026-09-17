@@ -622,6 +622,17 @@ export const SpacesTree = React.memo(({
         });
     }, []);
 
+    // The card cannot visually close while its group row is forced open, so
+    // collapsing the card closes the group with it.
+    const toggleWorkspaceCard = React.useCallback((workspaceId: string) => {
+        setExpanded((previous) => {
+            const next = new Set(previous);
+            if (next.delete(workspaceId)) next.delete(`group:${workspaceId}`);
+            else next.add(workspaceId);
+            return next;
+        });
+    }, []);
+
     const confirmCloseWorkspace = React.useCallback((workspace: HerdrTreeWorkspace) => {
         const name = workspaceName(workspace);
         Modal.alert('Close workspace?', `Closes only the "${name}" workspace in herdr. If that would close its worktree group, nothing closes.`, [
@@ -692,7 +703,7 @@ export const SpacesTree = React.memo(({
             panes={item.panes}
             childSpaces={item.children}
             groupExpanded={item.groupExpanded}
-            onToggle={() => toggleWorkspace(item.workspace.workspaceId)}
+            onToggle={() => toggleWorkspaceCard(item.workspace.workspaceId)}
             onToggleGroup={() => toggleWorkspace(`group:${item.workspace.workspaceId}`)}
             onToggleChild={toggleWorkspace}
             onClose={() => confirmCloseWorkspace(item.workspace)}
@@ -705,7 +716,7 @@ export const SpacesTree = React.memo(({
             unseenDoneSessionIds={unseenDoneSessionIds}
         />
         );
-    }, [canClose, compact, confirmClosePane, confirmCloseWorkspace, emptyText, onNavigatePane, searchQuery, selectedSessionId, toggleWorkspace, unseenDoneSessionIds]);
+    }, [canClose, compact, confirmClosePane, confirmCloseWorkspace, emptyText, onNavigatePane, searchQuery, selectedSessionId, toggleWorkspace, toggleWorkspaceCard, unseenDoneSessionIds]);
 
     if (loading === true) {
         return (
