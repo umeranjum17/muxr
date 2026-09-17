@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Declared terminal applications in Applications (`tools` RPC); ordinary agent-less panes in Panes.
+ * Declared terminal applications in Applications (`tools`/`launch` RPCs); there is no Panes phone destination.
  *
  * Applications exposes enabled plugins' explicitly global actions. Pane definitions
  * alone may be setup/administration screens; they are not app launchers.

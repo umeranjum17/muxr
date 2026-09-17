@@ -1,8 +1,9 @@
 # Panes and Applications
 
-Panes lists ordinary shells and terminal applications. Applications lists enabled Herdr
+Applications lists enabled Herdr
 plugins' explicitly global launch actions, using their declared names. Shells
-and plugin setup panes are not duplicate application launchers.
+and plugin setup panes are not duplicate application launchers. There is no
+top-level Panes destination; ordinary shells are managed from their sessions.
 
 An Applications tap resolves the current session on the host, creates a dedicated tab in
 that workspace, and runs the enabled plugin's declared command against the
@@ -18,7 +19,7 @@ mobile action dispatcher accepts only session navigation from this completion;
 it cannot recursively execute another RPC, capability or external URL.
 
 A failed launch reports an error. An unused anchor is cleaned up. If the action
-partially created a pane, it remains available through Panes for diagnosis;
+partially created a pane, it remains available in the session list for diagnosis;
 unrelated panes are never closed. The launcher does not run a detached action
 and report success before checking its outcome.
 
