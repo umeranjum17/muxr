@@ -4,7 +4,7 @@ import type { PrimitiveProps } from '../domain/primitiveTypes';
 import { CapabilityButton } from './primitives/CapabilityButton';
 import { CollectionView } from './primitives/CollectionView';
 import { RealtimeSessionOverlay } from './primitives/RealtimeSessionOverlay';
-import { DictateButton } from './primitives/DictateButton';
+import { DictateButton } from '@/components/DictateButton';
 import { TreeSheet } from './primitives/TreeSheet';
 import { ItemList } from './primitives/ItemList';
 
@@ -23,7 +23,7 @@ const registry: Record<PluginPrimitive, PrimitiveRenderer> = {
     'icon-button': (props) => <CapabilityButton {...props} />,
     'realtime-session-overlay': () => <RealtimeSessionOverlay />,
     'tree-sheet': (props) => <TreeSheet {...props} />,
-    dictate: (props) => <DictateButton {...props} />,
+    dictate: (props) => <DictateButton context={props.context as { getText: () => string; setText: (text: string) => void }} />,
 };
 
 export function renderPrimitive(props: PrimitiveProps): React.ReactNode {

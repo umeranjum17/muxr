@@ -73,8 +73,6 @@ export interface SessionShellOutcome {
 }
 
 export interface SessionStopOptions {
-    deviceId: string;
-    idempotencyKey: string;
     confirmedScope?: CloseScope;
 }
 

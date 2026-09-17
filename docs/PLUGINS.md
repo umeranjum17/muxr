@@ -78,7 +78,7 @@ Package management keeps Herdr as the only executable registry and runtime:
 ```bash
 muxr plugin docs
 muxr plugin create hello-muxr
-muxr plugin clone muxr.terminal-keys ./my-keys
+muxr plugin clone muxr.panes ./my-panes
 muxr plugin check ./hello-muxr
 muxr plugin dev ./hello-muxr
 muxr plugin list
@@ -551,23 +551,26 @@ a missing figure is information.
 ## Overriding a bundled plugin
 
 Bundled plugins have no special status: they are ordinary plugins linked from
-the muxr install. The terminal key row is the clearest example — it is pure
-JSON with no compiled primitive. Use the clone command so package identity is rewritten and your source lives outside npm ownership:
+the muxr install. To override a bundled surface, use the clone command so
+package identity is rewritten and your source lives outside npm ownership:
 
 ```bash
-muxr plugin clone muxr.terminal-keys ./my-keys
-# edit ./my-keys/muxr-ui.json
-herdr plugin disable muxr.terminal-keys
-muxr plugin dev ./my-keys
-# if linking fails: herdr plugin enable muxr.terminal-keys
+muxr plugin clone muxr.panes ./my-panes
+# edit ./my-panes/muxr-ui.json
+herdr plugin disable muxr.panes
+muxr plugin dev ./my-panes
+# if linking fails: herdr plugin enable muxr.panes
 ```
 
 The same `terminal.key-row` contribution accepts up to eight `quickReplies`:
 `{"label":"Run tests","text":"Run the relevant tests and report failures."}`.
 Each phrase appears in the session tools panel and inserts text into the phone
-composer; the person can edit it and must still press Send. The `keys` array is
-the host-configurable key set and sends only validated terminal control sequences.
-Clone the bundled plugin to keep your replies and keys across upgrades.
+composer; the person can edit it and must still press Send. The `keys` array
+sends only validated terminal control sequences. The built-in key row is product
+code; author your own replies and keys with a `terminal.key-row` contribution in
+your own plugin (see `muxr plugin create`).
+
+Dictation, terminal keys, and the workspace tree are no longer bundled plugins — they are product code in the app, so there is nothing left to clone or override. This is a **breaking change** if you cloned `muxr.dictation`, `muxr.terminal-keys`, or `muxr.workspace-hierarchy` under the previously documented path: the clone keeps running after you upgrade, and because muxr never lets one plugin suppress another, you will see the surface twice — two dictate buttons, two key rows, a duplicated workspace tree. Disable the clone after upgrading (`herdr plugin disable <your-clone-id>`); author your own version with a `terminal.key-row` contribution or the `dictate`/`tree-sheet` primitives in your own plugin instead.
 
 Direct edits under the global npm package work live but are replaced by the next npm install. A cloned folder and its Herdr registration survive package upgrades; subsequent `muxr setup` runs preserve both plugins' explicit enabled/disabled states.
 
@@ -647,23 +650,15 @@ validates shape; `plugin call` proves wiring.
 { "slot": "host.stream", "id": "session", "type": "stream", "entry": "stream.mjs" }
 ```
 
-### Packaged Agent close policy
+### Agent close policy
 
-`agent.close` is a reserved kernel capability, not a general extension claim. The host pins it to the packaged `muxr.workspace-hierarchy` root and this exact manifest tuple:
-
-```json
-"capabilities": {
-  "agent.close": "close"
-}
-```
-
-```json
-{ "slot": "host.rpc", "id": "close", "type": "rpc", "method": "close", "entry": "rpc.mjs", "mode": "write" }
-```
-
-The host rejects a mismatched package identity, root, capability mapping, contribution id, method, or mode. It never resolves an arbitrary enabled RPC named `close`, and disabling Workspace Hierarchy's optional UI does not disable the kernel's Agent close operation. Execution uses the guarded write path: bounded input/output sanitation, concurrency admission, replay/idempotency fencing, timeout/abort, and process-group cleanup.
-
-`session.stop` uses the selected Agent Route only inside the host to resolve authority. RPC input is exactly `{ "paneId": string, "confirmedScope"?: "tab" | "workspace" | "worktreeGroup" }`. A non-default Herdr socket path is supplied only to the validated packaged child as private `MUXR_HERDR_SOCKET_PATH` process context; it is excluded from RPC input, replay input digests, output, and errors. The RPC returns exactly one of:
+Agent close is host code (`session.stop` calls the close ladder in
+`apps/host/src/agent/infrastructure/agentClose.ts` directly on the live Herdr
+socket), not a plugin RPC — there is no `close` entrypoint to claim and no
+package identity to pin, and no `agent.close` capability name is consumed.
+`session.stop` uses the
+selected Agent Route only inside the host to resolve authority. The ladder
+returns exactly one of:
 
 - `{ "status": "closed" }`, optionally with `"alreadyGone": true`;
 - `{ "status": "confirmationRequired", "scope": "tab" | "workspace" | "worktreeGroup", "label": string, "message": string }`;

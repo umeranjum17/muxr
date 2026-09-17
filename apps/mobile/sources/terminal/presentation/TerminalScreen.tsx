@@ -23,7 +23,7 @@ import { sync } from '@/catalog/sync';
 import { resolveMessageModeMeta } from '@/catalog';
 import { recordAgentGate, recordTrackedRpc } from '@/catalog/diagnostics';
 import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/sessionStatusBar';
-import { PaneOverviewSheet, SessionMetaLine } from '@/herd/ui';
+import { PaneOverviewSheet, SessionMetaLine, WorkspaceTreeSheet } from '@/herd/ui';
 import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import type { HerdrTreeTab } from '@muxr/contract';
 import { TerminalView, type TerminalViewControls } from './TerminalView';
@@ -44,6 +44,7 @@ import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { useDraft } from '@/hooks/useDraft';
 import { ComposerAttachments, type ComposerAttachment } from '@/components/ComposerAttachments';
+import { DictateButton } from '@/components/DictateButton';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
 import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
@@ -52,6 +53,7 @@ import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, De
 import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
 import { FloatingTerminalControls } from './FloatingTerminalControls';
+import { TERMINAL_QUICK_REPLIES, TerminalKeyRow } from './TerminalKeyRow';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins';
@@ -102,7 +104,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const declaredActions = useDeclarativeSessionActions(session?.metadata?.path);
     const quickActions = React.useMemo(() => declaredActions.filter((action) => action.quickAction), [declaredActions]);
     const paneActions = React.useMemo(() => declaredActions.filter((action) => !action.quickAction), [declaredActions]);
-    const quickReplies = useTerminalQuickReplies();
+    const pluginQuickReplies = useTerminalQuickReplies();
+    const quickReplies = [...TERMINAL_QUICK_REPLIES, ...pluginQuickReplies];
     const [changesCount, setChangesCount] = React.useState<number | null>(null);
     useFocusEffect(React.useCallback(() => {
         let cancelled = false;
@@ -336,10 +339,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // Another modal owns the screen: the quick-actions card yields.
     React.useEffect(() => { if (actionsOpen || overviewOpen || treeOpen) setToolsOpen(false); }, [actionsOpen, overviewOpen, treeOpen]);
     const overlayContributions = useSlotContributions('session.overlay');
-    const hasOverlay = overlayContributions.length > 0;
+    // The workspace tree is product and always opens from the header;
+    // third-party overlays mount beside it when they contribute.
     const overlayLabel = overlayContributions[0]?.type === 'native' && overlayContributions[0].title !== undefined
         ? resolvePluginText(overlayContributions[0].title)
-        : 'Session tools';
+        : 'Workspace';
     // A tab tap goes straight to a pane; a tab with nothing to open yet asks
     // the tree again instead of guessing.
     const openTab = React.useCallback((tab: HerdrTreeTab) => {
@@ -669,6 +673,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 style={{ flex: 1, color: theme.colors.text, backgroundColor: theme.colors.surfaceHigh, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 16 }}
             />;
             const composerPlugins = <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <DictateButton context={{ getText: () => draftRef.current, setText: setDraft }} />
                 <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
             </View>;
             const sendAction = <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
@@ -708,7 +713,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         }}
                     >
                         <HeaderBackButton onPress={() => router.back()} style={{ marginLeft: -6 }} />
-                        <Pressable onPress={() => hasOverlay && setTreeOpen(true)} disabled={!hasOverlay} hitSlop={6} accessibilityRole="button" accessibilityLabel={`${contextTitle}. ${agentNameLine(labels)}. ${overlayLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 44, paddingVertical: 4 }}>
+                        <Pressable onPress={() => setTreeOpen(true)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`${contextTitle}. ${agentNameLine(labels)}. ${overlayLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 44, paddingVertical: 4 }}>
                             <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={18} />
                             <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
                                 <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
@@ -718,7 +723,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     {agentNameLine(labels)}
                                 </Text>
                             </View>
-                            {hasOverlay && <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />}
+                            {<Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />}
                         </Pressable>
                         {/* Position in the tab and the way into the pane overview: its own
                             44dp target, present even for a one-pane tab so a new pane
@@ -972,6 +977,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             style={{ flex: 1, maxHeight: 52 }}
                             contentContainerStyle={{ alignItems: 'center', gap: 6, paddingLeft: 8, paddingRight: 6, paddingVertical: 6 }}
                         >
+                            <TerminalKeyRow channel={channel} />
                             <DeclarativeTerminalKeySlot channel={channel} />
                         </ScrollView>
                     </View>
@@ -1016,6 +1022,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     )}
 
                     <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} onClose={() => setOverviewOpen(false)} />
+                    <WorkspaceTreeSheet visible={treeOpen} sessionId={props.id} onClose={() => setTreeOpen(false)} />
                     <PluginSlot
                         slot="session.overlay"
                         context={{ sessionId: props.id, visible: treeOpen, onClose: () => setTreeOpen(false), openMenu: setMenu, showHint: showGestureHint }}

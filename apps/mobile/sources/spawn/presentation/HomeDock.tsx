@@ -15,6 +15,7 @@ import Animated, {
     type SharedValue,
 } from 'react-native-reanimated';
 import { MobileGlassSurface } from '@/components/MobileGlass';
+import { DictateButton } from '@/components/DictateButton';
 import { OptionSheet } from '@/components/OptionSheet';
 import { BubblePressable } from '@/components/BubblePressable';
 import { NativeSettingsMenu } from '@/settings';
@@ -820,6 +821,7 @@ export const HomeDock = React.memo(({
                         style={styles.input}
                     />
                 )}
+                <DictateButton context={composerDraft} />
                 <PluginSlot slot="home.composer.trailing" context={composerDraft} />
                 <BubblePressable
                     onPress={onSend}
@@ -914,6 +916,7 @@ export const HomeDock = React.memo(({
                                 </Text>
                             </View>
                         </View>
+                        <DictateButton context={composerDraft} />
                         <PluginSlot slot="home.composer.trailing" context={composerDraft} />
                         <BubblePressable
                             onPress={submitFromFocusMode}

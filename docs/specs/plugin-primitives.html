@@ -14,7 +14,7 @@
   <div class="kicker">muxr spec</div>
   <h1>Plugins on primitives</h1>
   <span class="badge">tested</span>
-  <p class="meta">plugin-primitives.md · created 2026-08-15 · updated 2026-08-29 · umer</p>
+  <p class="meta">plugin-primitives.md · created 2026-08-15 · updated 2026-09-17 · umer</p>
   <p class="lead">Primitives, slots, actions, capabilities, and runtime contracts are the public platform. Voice, Changes, Attachments, and future product features are plugins composed entirely from it; browser takeover transport remains kernel-owned.</p>
   <div class="card"><h2>Decision</h2><p>Enabled Herdr plugins remain trusted and default-on. Enabling or linking is the user's trust decision. Explicit disable and revoke remain authoritative. This rework strengthens the platform without adding per-device hash reapproval.</p></div>
   <div class="card"><h2>Five platform layers</h2><ol>
@@ -31,7 +31,7 @@
     <li>Hard-kill stuck RPCs, isolate concurrency, and stop repeated full catalog reparsing.</li>
     <li>Publish schemas and prove bundled plus adversarial third-party plugins on Android.</li>
   </ol></div>
-  <div class="card"><h2>Latest revision</h2><p>Kernel Agent close is pinned to packaged <code>muxr.workspace-hierarchy</code> capability <code>agent.close</code>, contribution <code>close</code>, backend method <code>close</code>, in write mode. It runs through the guarded write pipeline even when the optional Workspace Hierarchy UI is disabled; third-party <code>close</code> methods cannot claim it. The backend revalidates live Herdr topology before mutation, moves race-driven refusal prompts beyond both attempted and confirmed scopes, and reports failed revalidation as Retry or error rather than already closed.</p><p>Muxr displays Herdr <code>name</code> and <code>title</code> only. A community Herdr plugin writes those fields. One host adapter maps Herdr <code>name</code>, <code>title</code>, <code>agent</code>, <code>display_agent</code>, <code>agent_status</code>, and readiness one-to-one into the stable <code>AgentInfo</code> contract.</p></div>
+  <div class="card"><h2>Latest revision</h2><p>Dictation, the terminal key row, and the workspace tree are product code, no longer bundled plugins; Agent close left the packaged-plugin world entirely — <code>session.stop</code> runs the close ladder in host <code>agentClose.ts</code> on the live Herdr socket, and no <code>agent.close</code> capability name is consumed. The authoritative contract lives in <code>plugin-primitives.md</code>.</p><p>Muxr displays Herdr <code>name</code> and <code>title</code> only. A community Herdr plugin writes those fields. One host adapter maps Herdr <code>name</code>, <code>title</code>, <code>agent</code>, <code>display_agent</code>, <code>agent_status</code>, and readiness one-to-one into the stable <code>AgentInfo</code> contract.</p></div>
   <div class="card"><h2>Verification</h2><ul class="check">
     <li>Automation and all 15 bundled plugins, including the three mutually exclusive realtime providers, validate correctly.</li>
     <li>The v11 manifest/tokenization flow, mobile typecheck, web export, and Android production JS bundle pass.</li>

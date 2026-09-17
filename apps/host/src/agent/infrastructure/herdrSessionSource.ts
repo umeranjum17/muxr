@@ -12,7 +12,7 @@ import { execFile } from 'node:child_process';
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, delimiter, dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import type {
@@ -29,7 +29,8 @@ import type {
     SessionStartResult,
     SessionStatus,
 } from '@muxr/contract';
-import { ATTENTION_REASONS, parseCloseResult, realtimePluginPublicContext, relayControlUrl } from '@muxr/contract';
+import { ATTENTION_REASONS, realtimePluginPublicContext, relayControlUrl } from '@muxr/contract';
+import { closeAgent } from './agentClose.js';
 import { AttachmentWatcher } from './attachmentWatcher.js';
 import { AttachmentDownloadServer } from './attachmentDownloads.js';
 import type { AgentWatchStores } from '../application/watchStores.js';
@@ -166,15 +167,6 @@ function bundledPluginsDirectory(start: string): string | undefined {
     return undefined;
 }
 const BROWSER_RPC_PLUGINS_ROOT = bundledPluginsDirectory(moduleRoot);
-const AGENT_CLOSE_CAPABILITY = 'agent.close';
-const AGENT_CLOSE_CONTRIBUTION_ID = 'close';
-const AGENT_CLOSE_METHOD = 'close';
-function packagedWorkspaceHierarchyRoot(): string | undefined {
-    if (BROWSER_RPC_PLUGINS_ROOT === undefined) return undefined;
-    const candidate = join(BROWSER_RPC_PLUGINS_ROOT, 'workspace-hierarchy');
-    return existsSync(candidate) ? realpathSync(candidate) : undefined;
-}
-const WORKSPACE_HIERARCHY_PLUGIN_ROOT = packagedWorkspaceHierarchyRoot();
 /**
  * The bundled plugins this host ships, by id. What a host projects to the
  * phone (muxr-ui.json) and the RPC scripts it runs for a bundled plugin
@@ -2158,33 +2150,6 @@ export async function createHerdrSessionSource(
         return writeReplayFence.run(`${deviceId}\0${target.pluginId}`, key, inputDigest, run);
     }
 
-    function hostContractMismatch(message: string): Error {
-        return Object.assign(new Error(message), { code: 'host-contract-mismatch' });
-    }
-
-    function trustedCloseTarget(manifestHash?: string): PluginBackendCallTarget {
-        if (WORKSPACE_HIERARCHY_PLUGIN_ROOT === undefined) {
-            throw hostContractMismatch('Agent close plugin RPC is missing.');
-        }
-        let target: PluginBackendCallTarget;
-        try {
-            target = catalog.trustedCapabilityCallTarget({
-                pluginRoot: WORKSPACE_HIERARCHY_PLUGIN_ROOT,
-                capability: AGENT_CLOSE_CAPABILITY,
-                mode: 'write',
-                ...(manifestHash === undefined ? {} : { manifestHash }),
-            });
-        } catch {
-            throw hostContractMismatch('Agent close plugin RPC is unavailable or changed.');
-        }
-        if (target.contributionId !== AGENT_CLOSE_CONTRIBUTION_ID || target.method !== AGENT_CLOSE_METHOD
-            || target.pluginId !== `muxr.${basename(WORKSPACE_HIERARCHY_PLUGIN_ROOT)}`
-            || !existsSync(join(target.pluginRoot, target.entry))) {
-            throw hostContractMismatch('Agent close plugin RPC has an invalid contract.');
-        }
-        return target;
-    }
-
     async function invokeHerdrAction({ sessionId, pluginId, actionId }: { sessionId: string; pluginId: string; actionId: string }): Promise<void> {
         if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(pluginId) || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(actionId)) {
             throw new Error('plugin invoke rejected invalid identifier');
@@ -2857,43 +2822,26 @@ export async function createHerdrSessionSource(
                 await routes.flush();
                 return { status: 'closed', alreadyGone: true };
             }
+            // The close ladder is host behavior: call it directly on the live
+            // Herdr socket instead of routing through a plugin RPC.
+            let result: CloseResult;
             try {
-                await refreshPlugins();
-            } catch {
-                return { status: 'retryable', message: 'Herdr is temporarily unavailable. Try again.' };
-            }
-            const target = trustedCloseTarget();
-            const input = {
-                paneId,
-                ...(options.confirmedScope === undefined ? {} : { confirmedScope: options.confirmedScope }),
-            };
-            let raw: unknown;
-            try {
-                raw = await guardedPluginCall({
-                    deviceId: options.deviceId,
-                    idempotencyKey: rpcInputDigest({ operation: 'session.stop', requestId: options.idempotencyKey }),
-                    target,
-                    targetAtExecution: () => trustedCloseTarget(target.manifestHash),
-                    input,
-                    trustedHerdrSocketPath: socketPath,
-                    requireApproval: false,
+                result = await closeAgent({
+                    paneId,
+                    ...(options.confirmedScope === undefined ? {} : { confirmedScope: options.confirmedScope }),
+                    call: (method, params) => client.call(method, params),
                 });
             } catch (error) {
-                if ((error as { code?: unknown }).code === 'host-contract-mismatch') throw error;
                 if (isRetryableCloseFailure(error)) {
                     return { status: 'retryable', message: 'Herdr is temporarily unavailable. Try again.' };
                 }
-                throw hostContractMismatch('Agent close plugin RPC failed.');
+                throw error;
             }
-            const parsed = parseCloseResult(raw);
-            if (!parsed.ok) {
-                throw hostContractMismatch('Agent close plugin RPC returned an invalid result.');
-            }
-            if (parsed.value.status === 'closed') {
+            if (result.status === 'closed') {
                 forgetClosedSession(sessionId, paneId);
                 await routes.flush();
             }
-            return parsed.value;
+            return result;
         },
 
         async abort(sessionId: string): Promise<void> {
