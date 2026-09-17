@@ -56,7 +56,7 @@ function formatModelSize(bytes: number): string {
 }
 
 function modelProgressText(progress: DictationDownloadProgress): string {
-    return `Downloading · ${formatModelSize(progress.bytesWritten)} of ${formatModelSize(progress.totalBytes)}`;
+    return `Downloading · ${Math.round(progress.bytesWritten / 1_000_000)} of ${formatModelSize(progress.totalBytes)}`;
 }
 
 async function loadVoicePlugin() {
