@@ -12,12 +12,16 @@ export function useHerdTreeLive() {
     const [error, setError] = React.useState<string | null>(null);
     const [herdrConnected, setHerdrConnected] = React.useState<boolean | undefined>(undefined);
     const [hasPairedGrant, setHasPairedGrant] = React.useState<boolean | undefined>(undefined);
+    const [machineName, setMachineName] = React.useState<string | undefined>(undefined);
     const activeMachineId = getCachedConnectionSettings().machineId;
 
     React.useEffect(() => {
         let cancelled = false;
         void listPairedGrants().then((grants) => {
-            if (!cancelled) setHasPairedGrant(grants.some((grant) => grant.machineId === activeMachineId));
+            if (cancelled) return;
+            const active = grants.find((grant) => grant.machineId === activeMachineId);
+            setHasPairedGrant(active !== undefined);
+            setMachineName(active?.machineName);
         });
         return () => { cancelled = true; };
     }, [activeMachineId]);
@@ -73,6 +77,7 @@ export function useHerdTreeLive() {
         error,
         herdrConnected,
         hasPairedGrant,
+        machineName,
         defaultExpandedWorkspaceIds,
         refresh,
         refreshStatus,

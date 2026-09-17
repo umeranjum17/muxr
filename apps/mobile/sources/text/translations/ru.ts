@@ -248,7 +248,30 @@ export const ru: TranslationStructure = {
 
     liveTerminals: {
         // Live terminals strip on the home screen
-        title: 'LIVE',
+        title: 'Активные',
+    },
+
+    recentActivity: {
+        // Home tiers: agents that need a decision, then finished work not yet opened
+        needsYou: 'Требует вас',
+        readyUnseen: 'Готово · не просмотрено',
+        showMore: ({ count }: { count: number }) => `Показать ещё: ${count}`,
+        showLess: 'Свернуть',
+    },
+
+    spacesTree: {
+        // Spaces section on Home
+        title: 'Пространства',
+        empty: 'Нет открытых пространств',
+    },
+
+    homeNotices: {
+        // Quiet notices at the top of Home
+        versions: 'Версии приложения и хоста различаются',
+        reviewUpdates: 'проверить обновления',
+        runtimeOffline: ({ name }: { name: string }) => `herdr не отвечает на ${name}`,
+        runtimeStale: 'сессии могут быть устаревшими',
+        liveEmpty: 'Нет активных агентов · запустите ниже',
     },
 
     emptySessions: {

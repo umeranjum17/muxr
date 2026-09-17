@@ -153,11 +153,12 @@ function NavigationItemButton({ contribution, pluginId, manifestHash, active, on
     const label = resolvePluginText(contribution.label);
     const count = useBadgeCount(pluginId, manifestHash, contribution.badge);
     const badge = count > 0 ? `${count > 99 ? '99+' : count}` : undefined;
-    const compactStyle = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: active ? theme.colors.surfaceHigh : 'transparent' };
+    // Home chips draw as the spine's pill (design-system home.md §3.4):
+    // surfaceHigh, hairline, radius 999, 15pt glyph, 13 semibold text.
+    const compactStyle = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 8, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider };
     const tabStyle = { flex: 1, alignItems: 'center' as const, paddingTop: 8, paddingBottom: 4 };
     let labelColor = theme.colors.text;
     if (active) labelColor = theme.colors.accent;
-    else if (compact) labelColor = theme.colors.textSecondary;
     return <Pressable onPress={onPress} accessibilityRole={compact ? 'button' : 'tab'} accessibilityLabel={`${label}${badge === undefined ? '' : `, ${badge}`}`} hitSlop={compact ? 9 : undefined}
         accessibilityState={compact ? undefined : { selected: active === true }}
         style={compact ? compactStyle : tabStyle}>
@@ -182,8 +183,8 @@ function DataCard({ contribution, pluginId, manifestHash, pluginName }: { contri
     if (contribution.presentation === 'sheet') {
         return <View>
             <Pressable hitSlop={8} onPress={() => { if (data.failed) data.retry(); setOpen(true); }} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : resolvePluginText(contribution.title)}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh }}>
-                <Ionicons name="stats-chart-outline" size={15} color={theme.colors.text} />
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider }}>
+                <Ionicons name="stats-chart-outline" size={15} color={theme.colors.textSecondary} />
                 <Text style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>{resolvePluginText(contribution.title)}</Text>
             </Pressable>
             <OptionSheet visible={open} title={resolvePluginText(contribution.title)} options={[]} onSelect={() => {}} onClose={() => setOpen(false)}

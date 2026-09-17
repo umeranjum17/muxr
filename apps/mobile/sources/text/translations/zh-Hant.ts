@@ -265,6 +265,29 @@ export const zhHant: TranslationStructure = {
         title: '直播中',
     },
 
+    recentActivity: {
+        // Home tiers: agents that need a decision, then finished work not yet opened
+        needsYou: '需要你處理',
+        readyUnseen: '已完成 · 未讀',
+        showMore: ({ count }: { count: number }) => `顯示更多 ${count} 條`,
+        showLess: '收合',
+    },
+
+    spacesTree: {
+        // Spaces section on Home
+        title: '空間',
+        empty: '沒有開啟的空間',
+    },
+
+    homeNotices: {
+        // Quiet notices at the top of Home
+        versions: '應用與主機版本不一致',
+        reviewUpdates: '查看更新',
+        runtimeOffline: ({ name }: { name: string }) => `herdr 在 ${name} 上沒有回應`,
+        runtimeStale: '工作階段可能已過期',
+        liveEmpty: '沒有執行中的代理 · 在下方啟動',
+    },
+
     emptySessions: {
         // Empty state shown on tablets when no sessions are active
         noActiveSessions: '沒有使用中的會話',

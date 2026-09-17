@@ -275,7 +275,30 @@ export const en = {
 
     liveTerminals: {
         // Live terminals strip on the home screen
-        title: 'LIVE',
+        title: 'Live',
+    },
+
+    recentActivity: {
+        // Home tiers: agents that need a decision, then finished work not yet opened
+        needsYou: 'Needs you',
+        readyUnseen: 'Ready · unseen',
+        showMore: ({ count }: { count: number }) => `Show ${count} more`,
+        showLess: 'Show less',
+    },
+
+    spacesTree: {
+        // Spaces section on Home
+        title: 'Spaces',
+        empty: 'No spaces open',
+    },
+
+    homeNotices: {
+        // Quiet notices at the top of Home
+        versions: 'App and host versions differ',
+        reviewUpdates: 'review updates',
+        runtimeOffline: ({ name }: { name: string }) => `herdr isn't answering on ${name}`,
+        runtimeStale: 'sessions may be stale',
+        liveEmpty: 'No live agents · start one below',
     },
 
     emptySessions: {

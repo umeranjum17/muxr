@@ -266,6 +266,29 @@ export const zhHans: TranslationStructure = {
         title: '直播中',
     },
 
+    recentActivity: {
+        // Home tiers: agents that need a decision, then finished work not yet opened
+        needsYou: '需要你处理',
+        readyUnseen: '已完成 · 未读',
+        showMore: ({ count }: { count: number }) => `显示更多 ${count} 条`,
+        showLess: '收起',
+    },
+
+    spacesTree: {
+        // Spaces section on Home
+        title: '空间',
+        empty: '没有打开的空间',
+    },
+
+    homeNotices: {
+        // Quiet notices at the top of Home
+        versions: '应用与主机版本不一致',
+        reviewUpdates: '查看更新',
+        runtimeOffline: ({ name }: { name: string }) => `herdr 在 ${name} 上没有响应`,
+        runtimeStale: '会话可能已过期',
+        liveEmpty: '没有运行中的代理 · 在下方启动',
+    },
+
     emptySessions: {
         // Empty state shown on tablets when no sessions are active
         noActiveSessions: '没有活动会话',

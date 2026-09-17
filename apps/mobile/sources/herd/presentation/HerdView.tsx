@@ -1,4 +1,4 @@
-import { VersionNotice } from '@/components/VersionNotice';
+import { HomeNotices } from '@/components/VersionNotice';
 /**
  * Phone/root Herd surface: live terminal previews, then the shared Spaces tree.
  * Split layouts mount that tree once in the permanent sidebar instead.
@@ -6,7 +6,6 @@ import { VersionNotice } from '@/components/VersionNotice';
 
 import * as React from 'react';
 import {
-    ActivityIndicator,
     View,
     NativeScrollEvent,
     NativeSyntheticEvent,
@@ -24,6 +23,7 @@ import { getCachedConnectionSettings } from '@/connection';
 import { setupEmptyState } from '@/commercialization';
 import { RoundButton } from '@/components/RoundButton';
 import { ActionButton } from '@/components/ActionButton';
+import { withAlpha } from '@/components/ui';
 import { useSocketStatus } from '@/catalog/store';
 import { syncReconnect } from '@/catalog/sync';
 import { hasAgent } from '../domain/herdTree';
@@ -33,6 +33,7 @@ import { LiveTerminalsRow } from './LiveTerminalsRow';
 import { SpacesTree } from './SpacesTree';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
 import { Typography } from '@/constants/Typography';
+import { t } from '@/text';
 import { layout } from '@/components/layout';
 import { FirstRunSetupCard } from './FirstRunSetupCard';
 
@@ -41,6 +42,14 @@ const stylesheet = StyleSheet.create((theme) => ({
         flex: 1,
         backgroundColor: theme.colors.groupped.background,
     },
+    quietLine: {
+        marginHorizontal: 16,
+        marginTop: 8,
+        color: theme.colors.textSecondary,
+        fontSize: 13,
+        lineHeight: 18,
+        ...Typography.default(),
+    },
     empty: {
         flex: 1,
         alignItems: 'center',
@@ -48,21 +57,10 @@ const stylesheet = StyleSheet.create((theme) => ({
         gap: 8,
         padding: 32,
     },
-    banner: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        gap: 8,
+    skeletonBlock: {
         marginHorizontal: 16,
-        marginTop: 8,
-        padding: 12,
-        borderRadius: 10,
-        backgroundColor: theme.colors.surfaceHigh,
-    },
-    bannerText: {
-        flex: 1,
-        fontSize: 13,
-        lineHeight: 18,
-        ...Typography.default(),
+        borderRadius: 12,
+        backgroundColor: withAlpha(theme.colors.surfaceHigh, 0.6),
     },
     emptyText: {
         color: theme.colors.textSecondary,
@@ -125,6 +123,7 @@ export const HerdView = React.memo(({
         error,
         herdrConnected,
         hasPairedGrant,
+        machineName,
         defaultExpandedWorkspaceIds,
         refresh,
         refreshStatus,
@@ -189,23 +188,23 @@ export const HerdView = React.memo(({
         />
     ) : null;
 
-    if (!loaded && !attempted) {
-        return (
-            <View style={[styles.empty, { paddingBottom: safeArea.bottom }]}>
-                <ActivityIndicator color={theme.colors.textSecondary} />
-            </View>
-        );
-    }
+    // First paint draws the screen's known shape (design-system home.md §4):
+    // three skeleton blocks at the gutter, no spinner.
+    const skeleton = (
+        <View style={[styles.container, { paddingTop: topContentInset + 8, gap: 14, paddingBottom: safeArea.bottom }]}>
+            <View style={[styles.skeletonBlock, { height: 64 }]} />
+            <View style={[styles.skeletonBlock, { height: 200 }]} />
+            <View style={[styles.skeletonBlock, { height: 120 }]} />
+        </View>
+    );
+
+    if (!loaded && !attempted) return skeleton;
 
     if (agentsEmpty) {
         if (connection.mode === 'hosted' && hasPairedGrant === undefined) {
             // Grant storage has not answered yet: showing either the onboarding
             // card or the error branch now would be a guess.
-            return (
-                <View style={[styles.empty, { paddingBottom: safeArea.bottom }]}>
-                    <ActivityIndicator color={theme.colors.textSecondary} />
-                </View>
-            );
+            return skeleton;
         }
         if (neverPaired) {
             return (
@@ -240,35 +239,19 @@ export const HerdView = React.memo(({
                 onScroll={onScroll}
                 scrollEventThrottle={16}
             >
-                <VersionNotice />
+                <HomeNotices runtimeOffline={herdrConnected === false && !needsRecovery} machineName={machineName} />
                 {header}
                 {recoveryCard}
-                {!needsRecovery && <LiveTerminalsRow
-                    showZeroState={false}
+                {!needsRecovery && searchQuery.trim() === '' && <LiveTerminalsRow
                     visibilityTop={topContentInset}
                     visibilityBottomInset={bottomContentInset}
                 />}
-            {herdrConnected === false && !needsRecovery ? (
-                <View style={styles.banner}>
-                    <Ionicons name="warning-outline" size={16} color={theme.colors.box.warning.text} />
-                    <Text style={[styles.bannerText, { color: theme.colors.box.warning.text }]}>
-                        This computer is online, but its agent runtime (herdr) is not answering — sessions may be stale. Restart herdr on the machine to refresh them.
-                    </Text>
-                </View>
-            ) : null}
             {!needsRecovery && searchQuery.trim() === '' ? <HomeDiscoveryRows /> : null}
-            <View style={styles.empty}>
-                <Ionicons name="albums-outline" size={40} color={theme.colors.textSecondary} />
-                <Text style={styles.emptyText}>
-                    {needsRecovery
-                        ? 'Your terminals will reappear when the computer reconnects.'
-                        : error !== null
-                        ? error
-                        : searchQuery.trim() !== ''
-                            ? 'No matches'
-                            : 'No live agents · Start one below'}
-                </Text>
-                {error === null || needsRecovery ? null : (
+            {needsRecovery ? (
+                <Text style={styles.quietLine}>Your terminals will reappear when the computer reconnects.</Text>
+            ) : error !== null ? (
+                <View style={styles.empty}>
+                    <Text style={styles.emptyText}>{error}</Text>
                     <View style={styles.emptyAction}>
                         <RoundButton
                             title="Set up connection"
@@ -276,8 +259,12 @@ export const HerdView = React.memo(({
                             onPress={() => router.push('/settings/connection' as any)}
                         />
                     </View>
-                )}
-            </View>
+                </View>
+            ) : (
+                <Text style={styles.quietLine}>
+                    {searchQuery.trim() !== '' ? 'No matches' : t('spacesTree.empty')}
+                </Text>
+            )}
             </ScrollView>
         );
     }
@@ -287,24 +274,17 @@ export const HerdView = React.memo(({
             {error === null || needsRecovery ? null : (
                 <Text style={[styles.error, { color: theme.colors.status.error }]}>{error}</Text>
             )}
-            {herdrConnected === false && !needsRecovery ? (
-                <View style={styles.banner}>
-                    <Ionicons name="warning-outline" size={16} color={theme.colors.box.warning.text} />
-                    <Text style={[styles.bannerText, { color: theme.colors.box.warning.text }]}>
-                        This computer is online, but its agent runtime (herdr) is not answering — sessions below may be stale. Restart herdr on the machine to refresh them.
-                    </Text>
-                </View>
-            ) : null}
             <SpacesTree
                 workspaces={workspaces}
                 defaultExpandedWorkspaceIds={defaultExpandedWorkspaceIds}
                 refresh={refresh}
                 searchQuery={searchQuery}
+                emptyText={searchQuery.trim() === '' ? undefined : 'No matches'}
                 listHeaderComponent={<>
-                    <VersionNotice />
+                    <HomeNotices runtimeOffline={herdrConnected === false && !needsRecovery} machineName={machineName} />
                     {header}
                     {recoveryCard}
-                    {!needsRecovery && <LiveTerminalsRow
+                    {!needsRecovery && searchQuery.trim() === '' && <LiveTerminalsRow
                         visibilityTop={topContentInset}
                         visibilityBottomInset={bottomContentInset}
                     />}
