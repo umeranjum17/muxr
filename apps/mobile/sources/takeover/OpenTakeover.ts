@@ -51,15 +51,19 @@ export function touchMessage(eventType: 'touchStart' | 'touchMove' | 'touchEnd',
 }
 
 export function keyMessage(eventType: 'keyDown' | 'keyUp', key: string, code: string): string {
+    // Control keys dispatch on windowsVirtualKeyCode server-side: without it
+    // Backspace/Enter payloads are ignored and the field never edits.
+    const windowsVirtualKeyCode = key === 'Backspace' ? 8 : key === 'Enter' ? 13 : undefined;
     return JSON.stringify({
         type: 'input_keyboard',
         eventType,
         key,
         code,
+        ...(windowsVirtualKeyCode !== undefined ? { windowsVirtualKeyCode } : {}),
         // A printable keyDown must carry the character itself: without the
         // text field the stream dispatches the key but inserts nothing into
-        // a focused field (measured on a live input).
-        ...(eventType === 'keyDown' && [...key].length === 1 && key.charCodeAt(0) >= 32 ? { text: key } : {}),
+        // a focused field (measured on a live input). Enter submits as CR.
+        ...(eventType === 'keyDown' && [...key].length === 1 && key.charCodeAt(0) >= 32 ? { text: key } : eventType === 'keyDown' && key === 'Enter' ? { text: '\r' } : {}),
     });
 }
 
