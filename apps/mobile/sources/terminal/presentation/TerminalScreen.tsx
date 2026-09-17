@@ -64,7 +64,7 @@ import { displayLink } from '../domain/TerminalLink';
 import { humanError } from '@/utils/errors';
 import { CommandPalette } from '@/components/CommandPalette';
 import type { Command } from '@/components/CommandPalette/types';
-import { agentCommands } from '../domain/agentCommands';
+import { agentCommands, type AgentCommand } from '../domain/agentCommands';
 import { FindOutputSheet } from './FindOutputSheet';
 import { useTerminalQuickReplies } from '@/plugins/ui';
 
@@ -399,13 +399,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             return;
         }
         const known = agentCommands(paneKind);
-        const sendDangerous = (entry: { command: string; description: string }) => {
+        const sendDangerous = (entry: AgentCommand) => {
             void Modal.confirm(`Send ${entry.command}?`, `${entry.description}. This discards the current context.`, {
                 confirmText: `Send ${entry.command}`,
                 destructive: true,
             }).then((ok) => { if (ok) sendCommand(entry.command); });
         };
-        const toEntry = (entry: { command: string; description: string; arguments?: string; dangerous?: boolean }, category: string): Command => ({
+        const toEntry = (entry: AgentCommand, category: string): Command => ({
             id: entry.command,
             title: entry.dangerous === true ? `⚠ ${entry.command}` : entry.command,
             subtitle: `${entry.dangerous === true ? 'Destructive · ' : ''}${entry.description}${entry.arguments === undefined ? '' : ` · ${entry.arguments}`}`,
