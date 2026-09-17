@@ -223,15 +223,17 @@ export default function TakeoverScreen() {
 
     const typedRef = React.useRef('');
     const pushText = React.useCallback((value: string) => {
-        const previous = typedRef.current;
+        const previous = [...typedRef.current];
+        const current = [...value];
         let common = 0;
-        while (common < previous.length && common < value.length && previous[common] === value[common]) common += 1;
+        while (common < previous.length && common < current.length && previous[common] === current[common]) common += 1;
         typedRef.current = value;
         for (let index = 0; index < previous.length - common; index += 1) {
             send(keyMessage('keyDown', 'Backspace', 'Backspace'));
             send(keyMessage('keyUp', 'Backspace', 'Backspace'));
         }
-        for (const key of value.slice(common)) {
+        for (let index = common; index < current.length; index += 1) {
+            const key = current[index];
             send(keyMessage('keyDown', key, codeForKey(key)));
             send(keyMessage('keyUp', key, codeForKey(key)));
         }
@@ -303,7 +305,7 @@ export default function TakeoverScreen() {
             ref={inputRef}
             onChangeText={pushText}
             onKeyPress={({ nativeEvent }) => {
-                if (nativeEvent.key === 'Backspace') {
+                if (nativeEvent.key === 'Backspace' && typedRef.current === '') {
                     send(keyMessage('keyDown', 'Backspace', 'Backspace'));
                     send(keyMessage('keyUp', 'Backspace', 'Backspace'));
                 }
