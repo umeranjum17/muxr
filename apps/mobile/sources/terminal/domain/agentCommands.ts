@@ -74,7 +74,7 @@ const COMMANDS: Record<string, readonly AgentCommand[]> = {
         { command: '/help', description: 'Show OpenCode commands' },
         { command: '/init', description: 'Scaffold agent instructions for this project' },
         { command: '/share', description: 'Share the current session' },
-        { command: '/theme', description: 'Change the theme', arguments: '[theme]' },
+        { command: '/themes', description: 'Change the theme', arguments: '[theme]' },
     ],
 };
 
