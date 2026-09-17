@@ -5,8 +5,6 @@ export type StopAgentCommand =
     | {
           sessionId: string;
           action: 'stop';
-          deviceId: string;
-          idempotencyKey: string;
           confirmedScope?: CloseScope;
       }
     | { sessionId: string; action: 'abort' | 'reload' };
@@ -39,11 +37,7 @@ export async function stopAgent(ports: StopAgentPorts, command: StopAgentCommand
             ok: true,
             data: await ports.sessions.stop(
                 route.value,
-                {
-                    deviceId: command.deviceId,
-                    idempotencyKey: command.idempotencyKey,
-                    ...(command.confirmedScope === undefined ? {} : { confirmedScope: command.confirmedScope }),
-                },
+                command.confirmedScope === undefined ? {} : { confirmedScope: command.confirmedScope },
             ),
         };
     }

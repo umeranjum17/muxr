@@ -214,12 +214,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
         'session.answer': async (params) => useCaseData(await answerAgent(source, params)),
         'pane.zoom': (params) => source.paneZoom(params),
-        'session.stop': async (params, context) => useCaseData(await stopAgent(
+        'session.stop': async (params) => useCaseData(await stopAgent(
             { sessions: source }, {
                 sessionId: params.sessionId,
                 action: 'stop',
-                deviceId: context.deviceId,
-                idempotencyKey: context.requestId,
                 ...(params.confirmedScope === undefined ? {} : { confirmedScope: params.confirmedScope }),
             },
         )),

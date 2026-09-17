@@ -54,42 +54,6 @@ describe('plugin catalog flow', () => {
         expect(pluginInvalidationFrame(baseline, many)).toMatchObject({ reason: 'linked', pluginIds: [] });
     });
 
-    it('resolves a disabled packaged capability by exact identity while ignoring a competing method', async () => {
-        const root = await mkdtemp(join(tmpdir(), 'muxr-plugin-provider-'));
-        await writeFile(join(root, 'muxr-ui.json'), JSON.stringify({
-            schemaVersion: 1,
-            pluginId: 'example.muxr-ui',
-            capabilities: { 'voice.session': 'session', 'agent.close': 'close' },
-            contributions: [
-                { slot: 'host.stream', id: 'session', type: 'stream', entry: 'stream.mjs' },
-                { slot: 'host.rpc', id: 'close', type: 'rpc', method: 'close', entry: 'rpc.mjs', mode: 'write' },
-            ],
-        }));
-        const competingRoot = await mkdtemp(join(tmpdir(), 'muxr-plugin-competing-'));
-        await writeFile(join(competingRoot, 'muxr-ui.json'), JSON.stringify({
-            schemaVersion: 1,
-            pluginId: 'example.competing',
-            capabilities: { 'agent.close': 'close' },
-            contributions: [{ slot: 'host.rpc', id: 'close', type: 'rpc', method: 'close', entry: 'rpc.mjs', mode: 'write' }],
-        }));
-        const catalog = new PluginCatalog();
-        await catalog.refresh([
-            { ...plugin(root), enabled: false },
-            { ...plugin(competingRoot), plugin_id: 'example.competing' },
-        ]);
-        expect(catalog.list(() => true).map(({ pluginId }) => pluginId)).toEqual(['example.competing']);
-        expect(catalog.trustedCapabilityCallTarget({
-            pluginRoot: await realpath(root),
-            capability: 'agent.close',
-            mode: 'write',
-        })).toMatchObject({
-            pluginId: 'example.muxr-ui', contributionId: 'close', method: 'close', mode: 'write',
-        });
-
-        await catalog.refresh([plugin(root)]);
-        expect(catalog.list(() => true).map(({ pluginId }) => pluginId)).toEqual(['example.muxr-ui']);
-    });
-
     it('allow-lists and bounds public RPC context without internal ids', async () => {
         const root = await mkdtemp(join(tmpdir(), 'muxr-plugin-context-'));
         const manifestPath = join(root, 'muxr-ui.json');

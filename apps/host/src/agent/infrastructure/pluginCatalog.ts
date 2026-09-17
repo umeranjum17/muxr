@@ -191,31 +191,6 @@ export class PluginCatalog {
         return { ...call, pluginRoot: snapshot.pluginRoot };
     }
 
-    /** Resolve a kernel capability only from its exact packaged identity and root.
-     * Installed snapshots remain available while their user-facing UI is disabled. */
-    trustedCapabilityCallTarget(options: {
-        pluginRoot: string;
-        capability: string;
-        mode: PluginRpcMode;
-        manifestHash?: string;
-    }): PluginBackendCallTarget {
-        const matches = [...this.installed].filter(([, installed]) => installed.snapshot.pluginRoot === options.pluginRoot);
-        if (matches.length !== 1) throw new Error('packaged plugin is unavailable or ambiguous');
-        const [pluginId, installed] = matches[0]!;
-        const snapshot = installed.snapshot;
-        const manifestHash = snapshot.summary.manifestHash;
-        if (manifestHash === undefined || (options.manifestHash !== undefined && options.manifestHash !== manifestHash)) {
-            throw new Error('packaged plugin changed');
-        }
-        const contributionId = snapshot.manifest.capabilities?.[options.capability];
-        if (contributionId === undefined) throw new Error(`packaged capability ${options.capability} is unavailable`);
-        const call = snapshot.calls.get(contributionId);
-        if (call === undefined || !call.modeDeclared || call.mode !== options.mode) {
-            throw new Error(`packaged capability ${options.capability} has an invalid RPC contract`);
-        }
-        return { pluginId, manifestHash, contributionId, pluginRoot: snapshot.pluginRoot, ...call };
-    }
-
     /** Return the validated stream contribution and plugin root from one active catalog snapshot. */
     streamTarget(pluginId: string, manifestHash: string, contributionId: string): PluginStream & { pluginRoot: string } {
         this.assertActive(pluginId, manifestHash);

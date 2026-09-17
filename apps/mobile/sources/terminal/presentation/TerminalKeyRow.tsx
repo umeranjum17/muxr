@@ -100,7 +100,11 @@ export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: strin
                     accessibilityLabel={key.accessibilityLabel}
                     onPress={tap(key)}
                     onLongPress={key.repeat !== true ? undefined : () => {
-                        repeatTimer.current = setInterval(() => send(keyRowSend(key, ctrl, shift)), 80);
+                        repeatTimer.current = setInterval(() => {
+                            send(keyRowSend(key, ctrl, shift));
+                            setCtrl(false);
+                            setShift(false);
+                        }, 80);
                     }}
                     delayLongPress={400}
                     onPressOut={stopRepeat}
