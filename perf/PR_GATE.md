@@ -99,7 +99,7 @@ The full flow requires:
   retaining local tokens. No live authentication/error matrix is claimed.
 
 Only Herdr and upstream usage fixture inputs are controlled. The fake Herdr
-advertises the real code/status/terminal-keys plugin manifests. Its cwd is a real
+advertises the real code/status plugin manifests. Its cwd is a real
 scratch git repository. OMP/OpenCode databases contain synthetic aggregate rows.
 A scratch Usage entry wrapper sets test-only clock/backend environment variables
 then imports the original plugin: the production host intentionally sanitizes

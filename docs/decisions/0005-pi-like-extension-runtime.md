@@ -12,7 +12,7 @@ muxr becomes a native extension shell modeled after Pi's TUI architecture. Produ
 - a muxr UI contribution only; or
 - both halves as one extension.
 
-Bundled plugins include Inbox, Voice, Changes, Attachments, Preview/Run Server, terminal keys, and usage. They install during muxr setup, can be disabled independently, and use the same public hooks and declarative component vocabulary as third-party plugins.
+Bundled plugins include Inbox, Voice, Changes, Attachments, Preview/Run Server, and usage. They install during muxr setup, can be disabled independently, and use the same public hooks and declarative component vocabulary as third-party plugins.
 
 ## Honest Pi analogy
 

@@ -78,9 +78,9 @@ talks `plugin.list` / `plugin.manifest` / `plugin.call` / `plugin.invoke`. Proto
 v1 ships settings sections, session toolbar actions, approved host RPC, generic
 native slots, declarative terminal keys/navigation/settings/data cards, shortcuts,
 and a central primitive registry. The phone is a dumb translator of `muxr-ui.json`:
-it mounts slots and draws widgets. Inbox, Voice, Changes, Attachments, terminal
-keys, usage, and the workspace sheet are ordinary plugins that compose those
-widgets and call host backends. Preview transport is kernel substrate for
+it mounts slots and draws widgets. Inbox, Voice, Changes, Attachments, and
+usage are ordinary plugins that compose those widgets and call host backends.
+Dictation, the terminal key row, and the workspace tree are product code. Preview transport is kernel substrate for
 browser takeover; plugins do not expose a preview action.
 Navigation destinations open `/plugin`.
 

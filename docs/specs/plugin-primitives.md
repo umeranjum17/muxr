@@ -78,7 +78,7 @@ Muxr is presentation-only for Agent Name and Task Title. Those values come from 
 
 ## Verification
 
-- `node scripts/diagnostics/application/runSuite.mjs` passes 29/29, including the structured Usage agent-item flow and actionless read-only item-list rows; `node scripts/diagnostics/application/checkBundledPlugins.mjs` validates all 15 bundled plugins and rejects wrong target/primitive/parameter combinations.
+- `node scripts/diagnostics/application/runSuite.mjs` passes 29/29, including the structured Usage agent-item flow and actionless read-only item-list rows; `node scripts/diagnostics/application/checkBundledPlugins.mjs` validates every bundled plugin and rejects wrong target/primitive/parameter combinations.
 - The mobile typecheck, focused manifest/tokenization flow, web export, and Android production JS bundle all pass with the v11 `code` node.
 - Workspace and mobile typechecks pass; focused Android acceptance checks pass 62/62.
 - Existing host/mobile flow tests cover catalog snapshots, explicit disable/revoke, event/action modes, write refresh, timeout isolation, cache invalidation, and process-group cleanup.
@@ -95,6 +95,8 @@ Muxr is presentation-only for Agent Name and Task Title. Those values come from 
 - Naming proof exercises the packaged Agent Name RPC against a live Claude session, preserves its generated Task Title and Agent Kind through rename-and-restore, and verifies Claude/Codex/Cursor/OpenCode ACP routing, Cursor Auto, Pi-only Pi routing, and the offline fallback. Live terminal, terminal header, pane-grid, workspace, and recent-activity cards render Agent Kind beside the Task Title; historical activity without a title falls back to Agent Name. The final API 36 x86_64 naming APK was rebuilt from the completed runtime source and installed byte-for-byte identically: 178,294,807 bytes, SHA-256 `75a9274aeb699d5d9d94ed9bc0c67b3b52065539316d1c9cef085f5acf6b2d9e`.
 
 ## Revisions
+
+- 2026-09-17 — Dictation, the terminal key row, and the workspace tree are product code, no longer bundled plugins: there is nothing left to clone or override, and legacy clones keep rendering beside the product surfaces until disabled. Agent close is host code — `session.stop` runs the close ladder in `agentClose.ts` on the live Herdr socket — so the packaged capability pin is gone and no `agent.close` capability name is consumed.
 
 - 2026-09-15 — Usage paragraph now points to `plugins/status/README.md` (integrated-only tabs, Z.ai plan limits); the spec no longer carries a second copy of the Usage contract.
 
