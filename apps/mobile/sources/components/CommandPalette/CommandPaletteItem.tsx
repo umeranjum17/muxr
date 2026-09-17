@@ -23,36 +23,43 @@ export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPr
     const active = isSelected || isHovered;
 
     // Terminal command row: tap sends, the pencil edits, destructive is said by
-    // its section, a dot and the colour — never by a second button.
+    // its section, a dot and the colour — never by a second button. The tap
+    // target and the pencil are siblings, not button-in-button: react-native-web
+    // refuses to nest them (validateDOMNesting) and the a11y tree follows suit.
+    const hoverIn = () => { setIsHovered(true); onHover?.(); };
+    const hoverOut = () => setIsHovered(false);
     if (appearance === 'terminal') return (
-        <Pressable
-            onPress={onPress}
-            onHoverIn={() => { setIsHovered(true); onHover?.(); }}
-            onHoverOut={() => setIsHovered(false)}
-            accessibilityRole="button"
-            accessibilityLabel={command.destructive === true
-                ? `${command.title}, destructive, ${command.subtitle ?? ''}. Asks before sending.`
-                : command.category === CUSTOM_CATEGORY
-                    ? `${command.title}, ${command.subtitle ?? ''}. Inserts a draft and closes.`
-                    : `${command.title}, ${command.subtitle ?? ''}. Sends now.`}
-            style={({ pressed }) => [styles.row, (active || pressed) && { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHighest }]}>
-            <View style={styles.rowCopy}>
-                <View style={styles.commandLine}>
-                    {command.destructive === true && <View style={[styles.destructiveDot, { backgroundColor: theme.colors.status.error }]} />}
-                    <Text numberOfLines={1} style={[styles.command, { color: command.destructive === true ? theme.colors.status.error : theme.colors.text }, Typography.mono()]}>
-                        {command.title}
-                        {command.hint !== undefined && <Text style={[styles.hint, { color: theme.colors.textSecondary }, Typography.mono()]}> {command.hint}</Text>}
-                    </Text>
+        <View style={[styles.row, active && { backgroundColor: theme.colors.surfaceHighest }]}>
+            <Pressable
+                onPress={onPress}
+                onHoverIn={hoverIn}
+                onHoverOut={hoverOut}
+                accessibilityRole="button"
+                accessibilityLabel={command.destructive === true
+                    ? `${command.title}, destructive, ${command.subtitle ?? ''}. Asks before sending.`
+                    : command.category === CUSTOM_CATEGORY
+                        ? `${command.title}, ${command.subtitle ?? ''}. Inserts a draft and closes.`
+                        : `${command.title}, ${command.subtitle ?? ''}. Sends now.`}
+                style={({ pressed }) => [styles.rowTap, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
+                <View style={styles.rowCopy}>
+                    <View style={styles.commandLine}>
+                        {command.destructive === true && <View style={[styles.destructiveDot, { backgroundColor: theme.colors.status.error }]} />}
+                        <Text numberOfLines={1} style={[styles.command, { color: command.destructive === true ? theme.colors.status.error : theme.colors.text }, Typography.mono()]}>
+                            {command.title}
+                            {command.hint !== undefined && <Text style={[styles.hint, { color: theme.colors.textSecondary }, Typography.mono()]}> {command.hint}</Text>}
+                        </Text>
+                    </View>
+                    {command.subtitle !== undefined && <Text numberOfLines={1} style={[styles.description, { color: theme.colors.textSecondary }, Typography.default()]}>{command.subtitle}</Text>}
                 </View>
-                {command.subtitle !== undefined && <Text numberOfLines={1} style={[styles.description, { color: theme.colors.textSecondary }, Typography.default()]}>{command.subtitle}</Text>}
-            </View>
+            </Pressable>
             {command.secondaryAction !== undefined && (
-                <Pressable onPress={onSecondaryPress} accessibilityRole="button" accessibilityLabel={`Edit ${command.title}`}
+                <Pressable onPress={onSecondaryPress} onHoverIn={hoverIn} onHoverOut={hoverOut}
+                    accessibilityRole="button" accessibilityLabel={`Edit ${command.title}`}
                     style={({ pressed }) => [styles.editTarget, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
                     <Ionicons name="create-outline" size={18} color={theme.colors.textSecondary} />
                 </Pressable>
             )}
-        </Pressable>
+        </View>
     );
 
     return (
@@ -85,6 +92,7 @@ export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPr
 const styles = StyleSheet.create({
     container: { marginHorizontal: 8, marginVertical: 3, borderRadius: 12, borderWidth: 1, borderLeftWidth: 3 },
     row: { minHeight: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10 },
+    rowTap: { flex: 1, minWidth: 0, borderRadius: 10 },
     rowCopy: { flex: 1, minWidth: 0 },
     commandLine: { flexDirection: 'row', alignItems: 'center' },
     destructiveDot: { width: 6, height: 6, borderRadius: 3, marginRight: 8 },
