@@ -14,18 +14,22 @@ import { useUnistyles } from 'react-native-unistyles';
 interface CommandPaletteModalProps {
     visible: boolean;
     onClose?: () => void;
+    /** Terminal appearance on a phone renders as a bottom sheet, not a centred card. */
+    appearance?: 'terminal';
     children: React.ReactNode;
 }
 
 export function CommandPaletteModal({
     visible,
     onClose,
+    appearance,
     children
 }: CommandPaletteModalProps) {
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const scaleAnim = useRef(new Animated.Value(0.95)).current;
     const [isModalVisible, setIsModalVisible] = React.useState(true);
-    const { height } = useWindowDimensions();
+    const { width, height } = useWindowDimensions();
+    const sheet = appearance === 'terminal' && width < 500;
     const insets = useSafeAreaInsets();
     const { theme } = useUnistyles();
 
@@ -88,15 +92,15 @@ export function CommandPaletteModal({
             onRequestClose={handleClose}
             statusBarTranslucent={Platform.OS === 'android'}
         >
-            <KeyboardAvoidingView 
-                style={[styles.container, {
-                    paddingTop: Platform.OS === 'web' ? Math.min(140, height * 0.12) : insets.top + 12,
-                    paddingBottom: Platform.OS === 'web' ? 12 : Math.max(insets.bottom, 12),
+            <KeyboardAvoidingView
+                style={[styles.container, sheet && styles.containerSheet, {
+                    paddingTop: sheet ? 0 : Platform.OS === 'web' ? Math.min(140, height * 0.12) : insets.top + 12,
+                    paddingBottom: sheet ? insets.bottom : Platform.OS === 'web' ? 12 : Math.max(insets.bottom, 12),
                 }]}
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             >
                 <TouchableWithoutFeedback onPress={handleBackdropPress}>
-                    <Animated.View 
+                    <Animated.View
                         style={[
                             styles.backdrop,
                             { backgroundColor: theme.colors.scrim },
@@ -109,10 +113,11 @@ export function CommandPaletteModal({
                         ]}
                     />
                 </TouchableWithoutFeedback>
-                
+
                 <Animated.View
                     style={[
                         styles.content,
+                        sheet && styles.contentSheet,
                         {
                             opacity: fadeAnim,
                             transform: [{ scale: scaleAnim }]
@@ -133,6 +138,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         minHeight: 0,
     },
+    containerSheet: {
+        justifyContent: 'flex-end',
+        alignItems: 'stretch',
+    },
     backdrop: {
         ...StyleSheet.absoluteFillObject,
     },
@@ -141,5 +150,9 @@ const styles = StyleSheet.create({
         width: '90%',
         maxWidth: 800,
         flexShrink: 1,
-    }
+    },
+    contentSheet: {
+        width: '100%',
+        maxWidth: '100%',
+    },
 });

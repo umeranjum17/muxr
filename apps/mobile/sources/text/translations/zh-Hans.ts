@@ -303,7 +303,19 @@ export const zhHans: TranslationStructure = {
     },
 
     commandPalette: {
-        placeholder: '输入命令或搜索...',
+        placeholder: '搜索命令',
+        commandsTitle: '命令',
+        agentCommands: ({ agent }: { agent: string }) => `${agent}的命令`,
+        common: '常用',
+        allCommands: ({ kind }: { kind: string }) => `${kind}的全部命令`,
+        destructive: '破坏性 · 发送前确认',
+        custom: '自定义',
+        typeCommand: '输入命令…',
+        insertSlash: '在输入框插入 /',
+        noMatch: '没有匹配的命令',
+        noCatalogue: ({ kind }: { kind: string }) => `${kind}尚无命令目录 · 在下方输入命令`,
+        thisAgent: '该代理',
+        sent: ({ command }: { command: string }) => `已发送 ${command}`,
     },
 
 

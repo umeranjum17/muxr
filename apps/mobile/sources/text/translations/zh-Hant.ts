@@ -302,7 +302,19 @@ export const zhHant: TranslationStructure = {
     },
 
     commandPalette: {
-        placeholder: '輸入命令或搜尋...',
+        placeholder: '搜尋命令',
+        commandsTitle: '命令',
+        agentCommands: ({ agent }: { agent: string }) => `${agent}的命令`,
+        common: '常用',
+        allCommands: ({ kind }: { kind: string }) => `${kind}的全部命令`,
+        destructive: '破壞性 · 送出前確認',
+        custom: '自訂',
+        typeCommand: '輸入命令…',
+        insertSlash: '在輸入框插入 /',
+        noMatch: '沒有符合的命令',
+        noCatalogue: ({ kind }: { kind: string }) => `${kind}尚無命令目錄 · 在下方輸入命令`,
+        thisAgent: '該代理',
+        sent: ({ command }: { command: string }) => `已送出 ${command}`,
     },
 
 

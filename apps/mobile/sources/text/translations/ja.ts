@@ -303,7 +303,19 @@ export const ja: TranslationStructure = {
     },
 
     commandPalette: {
-        placeholder: 'コマンドを入力または検索...',
+        placeholder: 'コマンドを検索',
+        commandsTitle: 'コマンド',
+        agentCommands: ({ agent }: { agent: string }) => `${agent}のコマンド`,
+        common: 'よく使う',
+        allCommands: ({ kind }: { kind: string }) => `${kind}のコマンド`,
+        destructive: '破壊的 · 送信前に確認',
+        custom: 'カスタム',
+        typeCommand: 'コマンドを入力…',
+        insertSlash: 'コンポーザーに / を挿入',
+        noMatch: '一致するコマンドがありません',
+        noCatalogue: ({ kind }: { kind: string }) => `${kind}のカタログはまだありません · 以下にコマンドを入力`,
+        thisAgent: 'このエージェント',
+        sent: ({ command }: { command: string }) => `${command}を送信しました`,
     },
 
 
