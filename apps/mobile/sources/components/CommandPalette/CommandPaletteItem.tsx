@@ -91,8 +91,8 @@ export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPr
 
 const styles = StyleSheet.create({
     container: { marginHorizontal: 8, marginVertical: 3, borderRadius: 12, borderWidth: 1, borderLeftWidth: 3 },
-    row: { minHeight: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10 },
-    rowTap: { flex: 1, minWidth: 0, borderRadius: 10 },
+    row: { minHeight: 48, flexDirection: 'row', alignItems: 'center', paddingRight: 16, borderRadius: 10 },
+    rowTap: { flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'center', paddingLeft: 16, paddingVertical: 8, borderRadius: 10 },
     rowCopy: { flex: 1, minWidth: 0 },
     commandLine: { flexDirection: 'row', alignItems: 'center' },
     destructiveDot: { width: 6, height: 6, borderRadius: 3, marginRight: 8 },
