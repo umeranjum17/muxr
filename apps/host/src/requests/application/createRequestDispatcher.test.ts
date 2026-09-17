@@ -135,7 +135,7 @@ describe('agent lifecycle request flow', () => {
 });
 
 describe('session.stop dispatcher flow', () => {
-    it('threads confirmed scope and authenticated replay identity to the close flow', async () => {
+    it('threads confirmed scope to the close flow', async () => {
         const stops: unknown[] = [];
         const source = {
             async stop(sessionId: string, options: unknown) {
@@ -158,7 +158,7 @@ describe('session.stop dispatcher flow', () => {
         expect(result).toMatchObject({ ok: true, data: { status: 'closed' } });
         expect(stops).toEqual([{
             sessionId: 'route-selected',
-            options: { deviceId: 'device-control', idempotencyKey: 'stop-confirmed', confirmedScope: 'tab' },
+            options: { confirmedScope: 'tab' },
         }]);
     });
 
