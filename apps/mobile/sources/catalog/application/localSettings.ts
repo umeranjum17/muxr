@@ -6,6 +6,9 @@ import { DEFAULT_FONT_INDEX, FONT_STEPS } from '../../terminal/domain/fontSteps'
 // Schema
 //
 
+/** The stored row's entry cap; the key-row editor enforces the same limit where keys are added. */
+export const TERMINAL_KEY_ROW_LIMIT = 32;
+
 export const LocalSettingsSchema = z.object({
     // Developer settings (device-specific)
     devModeEnabled: z.boolean().describe('Enable developer menu in settings'),
@@ -28,7 +31,7 @@ export const LocalSettingsSchema = z.object({
         accessibilityLabel: z.string().min(1).max(64).optional(),
         send: z.string().min(1).max(512),
         repeat: z.boolean().optional(),
-    })])).max(32).nullable().catch(null).describe('Customised terminal key row (null follows the operator or built-in row)'),
+    })])).max(TERMINAL_KEY_ROW_LIMIT).nullable().catch(null).describe('Customised terminal key row (null follows the operator or built-in row)'),
     // Terminal command puck and its open panel rest where the person drags
     // them, as fractions of the terminal surface's travel range.
     terminalCommandKeyDock: z.object({ fx: z.number(), fy: z.number() }).nullable().describe('Where the floating terminal command puck rests, as fractions of the terminal surface'),

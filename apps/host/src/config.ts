@@ -148,7 +148,7 @@ function parseTerminalKeys(path: string, value: unknown): TerminalKeyDefinition[
         const { label, accessibilityLabel, send, repeat } = entry as Record<string, unknown>;
         if (typeof label !== 'string' || label.trim() === '' || label.length > 12) fail(path, 'terminalKeys', 'each key needs a label of 1 to 12 characters');
         if (typeof send !== 'string' || send === '' || send.length > 512) fail(path, 'terminalKeys', 'each key needs a send of 1 to 512 characters (use \\e, \\n, \\t, \\xHH, \\\\ escapes)');
-        if (accessibilityLabel !== undefined && (typeof accessibilityLabel !== 'string' || accessibilityLabel === '')) fail(path, 'terminalKeys', 'accessibilityLabel must be a non-empty string');
+        if (accessibilityLabel !== undefined && (typeof accessibilityLabel !== 'string' || accessibilityLabel === '' || accessibilityLabel.length > 64)) fail(path, 'terminalKeys', 'accessibilityLabel must be a non-empty string of 1 to 64 characters');
         if (repeat !== undefined && typeof repeat !== 'boolean') fail(path, 'terminalKeys', 'repeat must be true or false');
         const bytes = decodeKeyBytes(send);
         if (bytes === null || bytes === '') fail(path, 'terminalKeys', `send "${send}" holds an incomplete escape (use \\\\ for a literal backslash)`);

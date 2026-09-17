@@ -30,6 +30,18 @@ function validRelayUrl(value) {
     }
 }
 
+/** Same escape syntax the host decodes: `\e` `\n` `\r` `\t` `\xHH` `\\`; anything else after a backslash fails. */
+function validKeyBytes(text) {
+    for (let i = 0; i < text.length; i += 1) {
+        if (text[i] !== '\\') continue;
+        const next = text[i + 1];
+        if (next === 'e' || next === 'n' || next === 'r' || next === 't' || next === '\\') { i += 1; continue; }
+        if (next === 'x' && /^[0-9a-fA-F]{2}$/.test(text.slice(i + 2, i + 4))) { i += 3; continue; }
+        return false;
+    }
+    return true;
+}
+
 /** Same shape the host enforces: unknown keys and bad values fail loudly. */
 export function validateMuxrConfig(path, text) {
     let parsed;
@@ -65,7 +77,10 @@ export function validateMuxrConfig(path, text) {
     const keyArray = parsed.terminalKeys;
     if (keyArray !== undefined && (!Array.isArray(keyArray) || keyArray.length === 0 || keyArray.length > 24
         || keyArray.some((k) => typeof k !== 'object' || k === null || typeof k.label !== 'string' || k.label.trim() === ''
-            || k.label.length > 12 || typeof k.send !== 'string' || k.send === '' || k.send.length > 256))) {
+            || k.label.length > 12 || typeof k.send !== 'string' || k.send === '' || k.send.length > 512
+            || !validKeyBytes(k.send)
+            || (k.accessibilityLabel !== undefined && (typeof k.accessibilityLabel !== 'string' || k.accessibilityLabel === '' || k.accessibilityLabel.length > 64))
+            || (k.repeat !== undefined && typeof k.repeat !== 'boolean')))) {
         return { ok: false, error: configError(path, 'terminalKeys', 'must be an array of 1 to 24 { label, send } keys') };
     }
     const replyArray = parsed.quickReplies;

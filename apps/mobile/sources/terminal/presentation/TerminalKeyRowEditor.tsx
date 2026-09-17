@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { encodeKeyBytes } from '@muxr/contract';
 import { Typography } from '@/constants/Typography';
+import { TERMINAL_KEY_ROW_LIMIT } from '@/catalog/application/localSettings';
 import { hapticsLight, hapticsSelection } from '@/components/haptics';
 import { Switch } from '@/components/Switch';
 import { ui } from '@/components/ui';
@@ -44,6 +45,7 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
     const workingRef = React.useRef<RowEntry[]>([]);
     const dragIndex = React.useRef(0);
     const accumulated = React.useRef(0);
+    const dragging = React.useRef(false);
     workingRef.current = working;
 
     // Re-seed only on the closed→open transition: commits during an open edit
@@ -72,6 +74,7 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
     };
 
     const appendEntry = (entry: RowEntry) => {
+        if (working.length >= TERMINAL_KEY_ROW_LIMIT) return;
         hapticsSelection();
         commit([...working, entry]);
     };
@@ -86,13 +89,17 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
 
     const onDrag = (phase: 'start' | 'update' | 'end', index: number, translationY: number) => {
         if (phase === 'start') {
+            if (dragging.current) return;
+            dragging.current = true;
             hapticsLight();
             dragIndex.current = index;
             accumulated.current = 0;
             setDrag({ index, translate: 0 });
             return;
         }
-        if (phase === 'end' || dragIndex.current !== index) {
+        if (!dragging.current) return;
+        if (phase === 'end') {
+            dragging.current = false;
             setDrag(null);
             return;
         }
@@ -143,32 +150,40 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
                         {keys.length === 0 && <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Empty row</Text>}
                     </View>
 
-                    {working.map((entry, index) => {
-                        const label = typeof entry === 'string' ? BUILTIN_KEY_CATALOG[entry]?.label ?? entry : entry.label;
-                        const send = typeof entry === 'string' ? BUILTIN_KEY_CATALOG[entry]?.send ?? '' : entry.send;
-                        const isDragging = drag?.index === index;
-                        return (
-                            <View
-                                key={`${index}:${typeof entry === 'string' ? entry : entry.label}`}
-                                style={[
-                                    styles.row,
-                                    { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider },
-                                    isDragging && { transform: [{ translateY: drag.translate }], zIndex: 10, borderColor: theme.colors.accent },
-                                ]}
-                            >
-                                <Handle index={index} onDrag={onDrag} tint={theme.colors.textSecondary} />
-                                <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{label}</Text>
-                                <Text style={[styles.rowSend, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                                    sends {encodeKeyBytes(send)}
-                                </Text>
-                                <Pressable onPress={() => removeAt(index)} accessibilityRole="button" accessibilityLabel={`Remove ${label}`} hitSlop={6}>
-                                    <Ionicons name="remove-circle-outline" size={22} color={theme.colors.textSecondary} />
-                                </Pressable>
-                            </View>
-                        );
-                    })}
+                    {(() => {
+                        const occurrence = new Map<string, number>();
+                        return working.map((entry, index) => {
+                            // Content identity, not position: a stable key keeps the dragged
+                            // row's GestureDetector alive across the swaps it causes.
+                            const id = typeof entry === 'string' ? entry : JSON.stringify([entry.label, entry.send]);
+                            const nth = occurrence.get(id) ?? 0;
+                            occurrence.set(id, nth + 1);
+                            const label = typeof entry === 'string' ? BUILTIN_KEY_CATALOG[entry]?.label ?? entry : entry.label;
+                            const send = typeof entry === 'string' ? BUILTIN_KEY_CATALOG[entry]?.send ?? '' : entry.send;
+                            const isDragging = drag?.index === index;
+                            return (
+                                <View
+                                    key={`${id}:${nth}`}
+                                    style={[
+                                        styles.row,
+                                        { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider },
+                                        isDragging && { transform: [{ translateY: drag.translate }], zIndex: 10, borderColor: theme.colors.accent },
+                                    ]}
+                                >
+                                    <Handle index={index} onDrag={onDrag} tint={theme.colors.textSecondary} />
+                                    <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{label}</Text>
+                                    <Text style={[styles.rowSend, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                                        sends {encodeKeyBytes(send)}
+                                    </Text>
+                                    <Pressable onPress={() => removeAt(index)} accessibilityRole="button" accessibilityLabel={`Remove ${label}`} hitSlop={6}>
+                                        <Ionicons name="remove-circle-outline" size={22} color={theme.colors.textSecondary} />
+                                    </Pressable>
+                                </View>
+                            );
+                        });
+                    })()}
 
-                    {!adding && (
+                    {!adding && working.length < TERMINAL_KEY_ROW_LIMIT && (
                         <Pressable
                             onPress={() => setAdding(true)}
                             accessibilityRole="button"
@@ -180,11 +195,11 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
                         </Pressable>
                     )}
 
-                    {adding && <AddPanel onAppend={appendEntry} onDone={() => setAdding(false)} />}
+                    {adding && working.length < TERMINAL_KEY_ROW_LIMIT && <AddPanel onAppend={appendEntry} onDone={() => setAdding(false)} />}
 
                     {entries !== null && (
-                        <Pressable onPress={() => { hapticsSelection(); onChange(null); onClose(); }} accessibilityRole="button" accessibilityLabel="Reset key row to default" style={styles.resetRow}>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the default row</Text>
+                        <Pressable onPress={() => { hapticsSelection(); onChange(null); onClose(); }} accessibilityRole="button" accessibilityLabel="Reset key row to the shared row" style={styles.resetRow}>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the shared row</Text>
                         </Pressable>
                     )}
                     </ScrollView>
@@ -196,13 +211,17 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
 
 /** Hold the handle to lift the row, then drag; the list swaps underneath. */
 function Handle({ index, onDrag, tint }: { index: number; onDrag: (phase: 'start' | 'update' | 'end', index: number, translationY: number) => void; tint: string }) {
+    // Built once per row; callbacks read the row's live position through a ref
+    // so a swap never rebuilds (and cancels) the pan mid-gesture.
+    const live = React.useRef({ index, onDrag });
+    live.current = { index, onDrag };
     const pan = React.useMemo(() => Gesture.Pan()
         .activateAfterLongPress(250)
         .runOnJS(true)
-        .onStart(() => onDrag('start', index, 0))
-        .onUpdate((event) => onDrag('update', index, event.translationY))
-        .onEnd(() => onDrag('end', index, 0))
-        .onFinalize(() => onDrag('end', index, 0)), [index, onDrag]);
+        .onStart(() => live.current.onDrag('start', live.current.index, 0))
+        .onUpdate((event) => live.current.onDrag('update', live.current.index, event.translationY))
+        .onEnd(() => live.current.onDrag('end', live.current.index, 0))
+        .onFinalize(() => live.current.onDrag('end', live.current.index, 0)), []);
     return (
         <GestureDetector gesture={pan}>
             <Pressable accessibilityLabel="Drag to reorder" hitSlop={8} style={styles.handle}>

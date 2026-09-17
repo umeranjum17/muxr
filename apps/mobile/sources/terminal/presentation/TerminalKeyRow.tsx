@@ -7,13 +7,10 @@ import { hapticsSelection } from '@/components/haptics';
 import { ui } from '@/components/ui';
 import { useLocalSettingMutable } from '@/catalog/store';
 import { useOperatorTerminalKeys } from '../application/operatorTerminalKeys';
-import { BUILTIN_KEY_CATALOG, DEFAULT_ROW_IDS, resolveKeyRow, type RowEntry, type TerminalKey } from '../domain/keyRow';
+import { DEFAULT_ROW_IDS, resolveKeyRow, type RowEntry, type TerminalKey } from '../domain/keyRow';
 import { TerminalKeyRowEditor } from './TerminalKeyRowEditor';
 
 export type { TerminalKey };
-
-/** The row a person sees before customising anything and before an operator declares one. */
-export const TERMINAL_KEYS: readonly TerminalKey[] = DEFAULT_ROW_IDS.map((id) => BUILTIN_KEY_CATALOG[id]);
 
 export const TERMINAL_QUICK_REPLIES: readonly { label: string; text: string }[] = [
     { label: 'Continue', text: 'Continue with the current task.' },
@@ -154,12 +151,4 @@ export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: strin
             />
         </>
     );
-}
-
-export function defaultRowEntries(): RowEntry[] {
-    return [...DEFAULT_ROW_IDS];
-}
-
-export function catalogKey(id: string): TerminalKey | undefined {
-    return BUILTIN_KEY_CATALOG[id];
 }
