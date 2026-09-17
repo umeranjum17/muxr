@@ -29,7 +29,7 @@ import type {
     SessionStartResult,
     SessionStatus,
 } from '@muxr/contract';
-import { ATTENTION_REASONS, realtimePluginPublicContext, relayControlUrl } from '@muxr/contract';
+import { ATTENTION_REASONS, capUtf8Bytes, realtimePluginPublicContext, relayControlUrl, sanitizeDisplayText } from '@muxr/contract';
 import { closeAgent } from './agentClose.js';
 import { AttachmentWatcher } from './attachmentWatcher.js';
 import { AttachmentDownloadServer } from './attachmentDownloads.js';
@@ -511,6 +511,10 @@ interface WorkspaceRecord {
     workspace_id: string;
     label?: string;
     focused?: boolean;
+    /** Herdr's creation order. */
+    number?: number;
+    /** Display-only producer tokens (`workspace report-metadata`). */
+    tokens?: Record<string, string>;
     worktree?: {
         repo_key?: string;
         repo_name?: string;
@@ -529,15 +533,34 @@ interface TabRecord {
 function mappedWorktree(
     worktree: WorkspaceRecord['worktree'],
     branch: string | undefined,
-): { worktree?: { repo: string; branch?: string; path: string } } {
+): { worktree?: { repo: string; branch?: string; path: string; repoKey?: string; linked?: boolean } } {
     if (worktree?.checkout_path === undefined) return {};
     return {
         worktree: {
             repo: worktree.repo_name ?? worktree.repo_root ?? 'repo',
             ...(branch === undefined ? {} : { branch }),
             path: worktree.checkout_path,
+            ...(worktree.repo_key === undefined ? {} : { repoKey: worktree.repo_key }),
+            ...(worktree.is_linked_worktree === undefined ? {} : { linked: worktree.is_linked_worktree }),
         },
     };
+}
+
+/** Producer lineage tokens: bounded before they cross to clients; unknown keys drop. */
+const WORKSPACE_TOKEN_KEY = /^[a-z][a-z0-9_]{0,23}$/;
+const MAX_WORKSPACE_TOKENS = 8;
+const MAX_WORKSPACE_TOKEN_BYTES = 64;
+
+export function boundedWorkspaceTokens(tokens: unknown): Record<string, string> | undefined {
+    if (tokens === null || typeof tokens !== 'object' || Array.isArray(tokens)) return undefined;
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(tokens)) {
+        if (Object.keys(out).length >= MAX_WORKSPACE_TOKENS) break;
+        if (!WORKSPACE_TOKEN_KEY.test(key) || typeof value !== 'string') continue;
+        const clean = capUtf8Bytes(sanitizeDisplayText(value), MAX_WORKSPACE_TOKEN_BYTES);
+        if (clean !== '') out[key] = clean;
+    }
+    return Object.keys(out).length === 0 ? undefined : out;
 }
 
 const EVENT_KINDS = [
@@ -2485,6 +2508,8 @@ export async function createHerdrSessionSource(
                     ...(workspace.label === undefined ? {} : { label: workspace.label }),
                     focused: workspace.focused === true,
                     agentStatus: rollupLifecycle(tabs.map((tab) => tab.agentStatus)),
+                    ...(workspace.number === undefined ? {} : { order: workspace.number }),
+                    ...boundedWorkspaceTokens(workspace.tokens),
                     ...mappedWorktree(worktree, workspace.label),
                     tabs,
                 });

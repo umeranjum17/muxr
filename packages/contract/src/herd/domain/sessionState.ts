@@ -132,7 +132,16 @@ export interface HerdrTreeWorkspace {
     label?: string;
     focused: boolean;
     agentStatus: AgentLifecycle;
-    worktree?: { repo: string; branch?: string; path: string };
+    /** Herdr's creation order; the list never re-sorts by anything else. */
+    order?: number;
+    worktree?: { repo: string; branch?: string; path: string; repoKey?: string; linked?: boolean };
+    /**
+     * Display-only tokens reported by the producer (`workspace report-metadata`).
+     * Bounded by the host: 8 keys, key /^[a-z][a-z0-9_]{0,23}$/, value 64 bytes.
+     * Only `parent`, `kind` and `projection` mean anything to clients; unknown
+     * tokens ride along and are never rendered.
+     */
+    tokens?: Record<string, string>;
     tabs: HerdrTreeTab[];
 }
 

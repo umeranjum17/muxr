@@ -1,7 +1,7 @@
 import { herdPanes } from './herd';
 import { selectLiveTerminalCards } from '../application/liveTerminalOrder';
 import { describe, expect, it, vi } from 'vitest';
-import { buildSpaceRows, middleTruncate, workspaceName } from './herdTree';
+import { buildSpaceRows, middleTruncate, parentOf, spaceExpansionDefaults, workspaceName } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
 import { agentIdentityLine, agentKindLabel, agentLabels, agentNameLine, isShellLabels } from './agentPresentation';
 
@@ -61,6 +61,50 @@ describe('visible herd tree flow', () => {
         expect(isShellLabels(labels)).toBe(false);
         expect(buildSpaceRows([ws('w2', 'repo-b', [tab('1', undefined, [shell])])], new Set(), '')[0])
             .toMatchObject({ agentCount: 0, expanded: false });
+    });
+
+    it('groups task workspaces behind their parent from declared lineage, never the label', () => {
+        const mine = ws('w1', 'firstmate', [tab('t1', 'main', [agent])]);
+        const byToken = { ...ws('w2', '└ opencode-extdir1 · p:8NwSBmQ5YerlAcFOBfSrqg', [tab('t2', undefined, [pane('p2', 'opencode', { agentName: 'donkey', agentStatus: 'idle' })])]), tokens: { parent: 'w1', kind: 'task' }, order: 2 };
+        const byWorktree = { ...ws('w3', 'pock-design-system1', [tab('t3', undefined, [pane('p3', 'pi', { agentName: 'lemur', agentStatus: 'working' })])]), worktree: { repo: 'pockit', path: '/srv/wt/pock-design-system1', repoKey: 'pockit', linked: true }, order: 3 };
+        const orphan = { ...ws('w4', 'closed-parent-task1', [tab('t4', undefined, [pane('p4', 'pi', { agentStatus: 'blocked' })])]), tokens: { parent: 'w-gone', kind: 'task' }, order: 4 };
+        const shellWorkspace = { ...ws('w5', '/home/umer', [tab('t5', undefined, [shell])]), order: 5 };
+        const workspaces = [shellWorkspace, orphan, byWorktree, byToken, mine];
+        const byId = new Map(workspaces.map((entry) => [entry.workspaceId, entry] as const));
+        expect(parentOf(byToken, byId)).toBe('w1');
+        expect(parentOf(byWorktree, byId)).toBe(undefined);
+        const primary = workspaces.find((entry) => entry.workspaceId === 'w1');
+        const primaryWithWorktree = { ...primary!, worktree: { repo: 'pockit', path: '/home/umer/pockit', repoKey: 'pockit', linked: false } };
+        const grouped = new Map([...byId, ['w1', primaryWithWorktree] as const]);
+        expect(parentOf(byWorktree, grouped)).toBe('w1');
+
+        const rows = buildSpaceRows(workspaces.map((entry) => entry.workspaceId === 'w1' ? primaryWithWorktree : entry), new Set(['w1', 'group:w1']), '');
+        expect(rows).toHaveLength(3);
+        const [orphanRow, shells, card] = rows;
+        expect(card!.workspace.workspaceId).toBe('w1');
+        expect(card!.children.map((child) => child.workspace.workspaceId)).toEqual(['w2', 'w3']);
+        expect(card!.groupExpanded).toBe(true);
+        expect(card!.agentCount).toBe(1);
+        expect(shells!.children).toEqual([]);
+        expect(shells!.workspace.workspaceId).toBe('w5');
+        // The orphan's parent points outside the tree: it stays top-level.
+        expect(orphanRow!.workspace.workspaceId).toBe('w4');
+        expect(orphanRow!.children).toEqual([]);
+        const flat = buildSpaceRows([orphan, mine], new Set(), '');
+        expect(flat).toHaveLength(2);
+        expect(flat[1]!.children).toEqual([]);
+
+        // Search: a matching child keeps its parent, whose card opens with the group open.
+        const searched = buildSpaceRows(workspaces.map((entry) => entry.workspaceId === 'w1' ? primaryWithWorktree : entry), new Set(), 'extdir');
+        expect(searched).toHaveLength(1);
+        expect(searched[0]!.workspace.workspaceId).toBe('w1');
+        expect(searched[0]!.groupExpanded).toBe(true);
+        expect(searched[0]!.children.map((child) => child.workspace.workspaceId)).toEqual(['w2']);
+        expect(searched[0]!.panes).toEqual([]);
+        expect(buildSpaceRows(workspaces, new Set(), 'nimbus')).toEqual([]);
+        // The sheet seeds: a child opens its parent card and the group instead of itself.
+        expect(spaceExpansionDefaults(workspaces, 'w2')).toEqual(['w1', 'group:w1']);
+        expect(spaceExpansionDefaults(workspaces, 'w5')).toEqual(['w5']);
     });
 
     it('keeps workspace labels readable in the card and path UI', () => {

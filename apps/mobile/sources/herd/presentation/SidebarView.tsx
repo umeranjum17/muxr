@@ -174,6 +174,7 @@ export const SidebarView = React.memo(() => {
                 refresh={refresh}
                 density="compact"
                 selectedSessionId={selectedSessionId}
+                loading={!loaded && !attempted}
                 emptyText={emptyText}
                 listHeaderComponent={error !== null || herdrConnected === false ? (
                     <Text style={styles.treeNotice}>
