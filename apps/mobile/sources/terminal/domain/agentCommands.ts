@@ -50,6 +50,7 @@ const COMMANDS: Record<string, readonly AgentCommand[]> = {
         { command: '/init', description: 'Scaffold an AGENTS.md for this directory' },
         { command: '/mention', description: 'Attach a file or folder to the conversation', arguments: '[path]' },
         { command: '/approve', description: 'Approve one retry of a denied command' },
+        { command: '/skills', description: 'Browse and use skills' },
         { command: '/theme', description: 'Preview and save a theme', arguments: '[theme]' },
     ],
     pi: [
@@ -74,7 +75,7 @@ const COMMANDS: Record<string, readonly AgentCommand[]> = {
         { command: '/help', description: 'Show OpenCode commands' },
         { command: '/init', description: 'Scaffold agent instructions for this project' },
         { command: '/share', description: 'Share the current session' },
-        { command: '/themes', description: 'Change the theme', arguments: '[theme]' },
+        { command: '/themes', description: 'List available themes' },
     ],
 };
 
