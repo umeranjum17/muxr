@@ -46,8 +46,8 @@ const DRAG_STEPS = 8;
 
 /**
  * Live view of an agent-browser stream, tunnelled through the relay preview
- * channel. The user clears a login / 2FA / CAPTCHA wall here by touch while
- * the agent waits. Nothing rendered or typed is logged or persisted.
+ * channel. The user clears a login / 2FA / CAPTCHA wall here by touch
+ * and type while the agent waits. Nothing rendered or typed is logged or persisted.
  */
 export default function TakeoverScreen() {
     const { theme } = useUnistyles();
@@ -81,7 +81,7 @@ export default function TakeoverScreen() {
     const closeTunnelRef = React.useRef<(() => void) | null>(null);
     const inputRef = React.useRef<TextInput>(null);
     const tapRef = React.useRef<{ x: number; y: number; at: number } | null>(null);
-    // The terminal surface's scroll gesture, local-first: the frame follows
+    // The takeover screen's scroll gesture, local-first: the frame follows
     // the finger for instant feedback, and the drag is committed to the
     // browser once, on release; the next frames confirm the real position.
     const panRef = React.useRef<{ startX: number; startY: number } | null>(null);
