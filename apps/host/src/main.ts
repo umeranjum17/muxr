@@ -689,6 +689,15 @@ async function main(): Promise<void> {
         terminals,
         ...(peerRuntime === undefined ? {} : { peerRuntime }),
         ...(diagnostics === undefined ? {} : { diagnostics }),
+        // Operator-declared terminal keys/quick replies re-read per request so a
+        // hand edit lands without restarting; a broken file errors the request
+        // with the path and key, matching the startup behavior.
+        readOperatorTerminalKeys: () => {
+            const file = readMuxrConfigFile(configPath);
+            return file.terminalKeys === undefined && file.quickReplies === undefined
+                ? undefined
+                : { ...(file.terminalKeys === undefined ? {} : { keys: file.terminalKeys }), ...(file.quickReplies === undefined ? {} : { quickReplies: file.quickReplies }) };
+        },
         hostVersion,
         ...(selfhostAuth?.connectionMode === undefined ? {} : { connectionMode: selfhostAuth.connectionMode }),
         onStateChange: (state) => {

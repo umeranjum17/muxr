@@ -9,6 +9,7 @@ import type {
     RequestResponse,
     RequestResult,
     RequestType,
+    TerminalKeyDefinition,
 } from '@muxr/contract';
 import type { AgentWatchStores, SessionSource, TerminalManager } from '../../agent/index.js';
 import { changesBrowse, changesList, changesPatch, changesWorktrees } from '../../agent/index.js';
@@ -54,6 +55,8 @@ export interface RequestDispatcherOptions {
     canMutateDevice?: (deviceId: string) => boolean;
     peerRuntime?: PeerRuntime;
     getDeviceContext?: (deviceId: string) => PeerDeviceContext | undefined;
+    /** Fresh read of operator-declared terminal keys and quick replies; absent means none. */
+    readOperatorTerminalKeys?: () => { keys?: TerminalKeyDefinition[]; quickReplies?: { label: string; text: string }[] } | undefined;
 }
 
 type RequestContext = { deviceId: string; requestId: string };
@@ -65,7 +68,7 @@ type PluginExecutionRequest = Extract<ClientRequest, {
 
 const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'session.list', 'session.open', 'session.status',
-    'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest',
+    'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest', 'terminal.keys',
     'attachment.fetch', 'attachment.read', 'unread.catalog',
     'attention.catalog', 'lifecycle.catalog', 'machines.list', 'terminal.attach',
     'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
@@ -158,6 +161,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             const kinds = await source.agentKinds();
             return { kinds, installed: await source.installedAgentKinds(kinds) };
         },
+        'terminal.keys': async () => options.readOperatorTerminalKeys?.() ?? {},
         'plugin.list': () => { throw new Error('authenticated device context required'); },
         'plugin.manifest': async (params) => useCaseData(
             await runPluginAction(source, { action: 'manifest', ...params }),

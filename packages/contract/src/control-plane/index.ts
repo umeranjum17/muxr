@@ -23,6 +23,9 @@ export type {
 } from './domain/requests.js';
 export { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure, requestRequiresE2ee } from './domain/requests.js';
 
+export { decodeKeyBytes, encodeKeyBytes } from './domain/terminalKeys.js';
+export type { TerminalKeyDefinition } from './domain/terminalKeys.js';
+
 export type { ClientFrame, Envelope, EnvelopeHeader, PluginsInvalidatedFrame, HostFrame, RoutingChannel } from './domain/envelope.js';
 export {
     decodePayload,

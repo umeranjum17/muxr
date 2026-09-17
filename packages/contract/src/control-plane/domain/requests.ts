@@ -31,6 +31,7 @@ import type {
     UnreadCatalog,
 } from '../../herd/index.js';
 import type { PluginManifestV1, PluginSource, PluginSummary } from '../../plugins/index.js';
+import type { TerminalKeyDefinition } from './terminalKeys.js';
 import type { LandWorktreeResult } from '../../worktree/index.js';
 import type { AttentionCatalog, CloseResult, CloseScope, HerdrTreeWorkspace, LifecycleCatalog, SessionInfo, SessionShellOutcome, SessionStatus } from '../../herd/index.js';
 import type {
@@ -210,6 +211,11 @@ export interface RequestMap extends PeerRequestMap {
     /** The whole herd: workspaces -> tabs -> panes with live agent state. `connected` is herdr liveness; absent from pre-liveness hosts. */
     'herdr.tree': { params: Record<string, never>; result: { workspaces: HerdrTreeWorkspace[]; connected?: boolean } };
     'herdr.agentKinds': { params: Record<string, never>; result: { kinds: string[]; installed?: string[] } };
+    /** Operator-declared terminal key row and quick replies from $MUXR_HOME/config.json. Both absent when unconfigured. */
+    'terminal.keys': {
+        params: Record<string, never>;
+        result: { keys?: TerminalKeyDefinition[]; quickReplies?: { label: string; text: string }[] };
+    };
     /** Immutable native UI plugin catalog. Safe to enumerate from read-only clients. */
     'plugin.list': {
         params: Record<string, never>;

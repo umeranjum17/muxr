@@ -4,5 +4,15 @@
   "machineId": "desk",
   "machineName": "desk",
   "dataDir": "/home/you/.muxr/host",
-  "hostHttpPort": 8793
+  "hostHttpPort": 8793,
+  "terminalKeys": [
+    { "label": "esc", "accessibilityLabel": "Escape", "send": "\\e" },
+    { "label": "tab", "accessibilityLabel": "Tab", "send": "\\t" },
+    { "label": "^C", "accessibilityLabel": "Control C", "send": "\\x03" },
+    { "label": "←", "accessibilityLabel": "Left arrow", "send": "\\e[D", "repeat": true }
+  ],
+  "quickReplies": [
+    { "label": "Continue", "text": "Continue with the current task." },
+    { "label": "Run tests", "text": "Run the relevant tests and report any failures." }
+  ]
 }

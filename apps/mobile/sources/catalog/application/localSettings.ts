@@ -21,6 +21,14 @@ export const LocalSettingsSchema = z.object({
     reopenLastTerminal: z.boolean().describe('Reopen the last accessible terminal when the app launches'),
     lastTerminal: z.object({ machineId: z.string(), sessionId: z.string() }).nullable().describe('Last terminal viewed on this device'),
     terminalFontIndex: z.number().int().min(0).max(FONT_STEPS.length - 1).catch(DEFAULT_FONT_INDEX).describe('Terminal text size as an index into FONT_STEPS'),
+    // Customised key row: catalog ids plus inline custom keys. Null follows the
+    // operator's declared row from the host config, else the built-in default.
+    terminalKeyRow: z.array(z.union([z.string(), z.object({
+        label: z.string().min(1).max(12),
+        accessibilityLabel: z.string().min(1).max(64).optional(),
+        send: z.string().min(1).max(512),
+        repeat: z.boolean().optional(),
+    })])).max(32).nullable().catch(null).describe('Customised terminal key row (null follows the operator or built-in row)'),
     // Terminal command puck and its open panel rest where the person drags
     // them, as fractions of the terminal surface's travel range.
     terminalCommandKeyDock: z.object({ fx: z.number(), fy: z.number() }).nullable().describe('Where the floating terminal command puck rests, as fractions of the terminal surface'),
@@ -64,6 +72,7 @@ export const localSettingsDefaults: LocalSettings = {
     reopenLastTerminal: true,
     lastTerminal: null,
     terminalFontIndex: DEFAULT_FONT_INDEX,
+    terminalKeyRow: null,
     terminalCommandKeyDock: null,
     terminalPanelDock: null,
     vadStandbyEnabled: false,

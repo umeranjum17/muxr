@@ -14,7 +14,7 @@ import { atomicWrite, error, print, stateDir } from '../infrastructure/runtime.m
 
 export const configFilePath = () => join(stateDir(), 'config.json');
 
-const KNOWN_KEYS = ['mode', 'relayUrl', 'machineId', 'machineName', 'dataDir', 'hostHttpPort'];
+const KNOWN_KEYS = ['mode', 'relayUrl', 'machineId', 'machineName', 'dataDir', 'hostHttpPort', 'terminalKeys', 'quickReplies'];
 const DEFAULT_HOST_HTTP_PORT = 8793;
 
 function configError(path, key, reason) {
@@ -61,6 +61,18 @@ export function validateMuxrConfig(path, text) {
     if (parsed.hostHttpPort !== undefined
         && (!Number.isInteger(parsed.hostHttpPort) || parsed.hostHttpPort < 1 || parsed.hostHttpPort > 65535)) {
         return { ok: false, error: configError(path, 'hostHttpPort', 'must be an integer from 1 to 65535') };
+    }
+    const keyArray = parsed.terminalKeys;
+    if (keyArray !== undefined && (!Array.isArray(keyArray) || keyArray.length === 0 || keyArray.length > 24
+        || keyArray.some((k) => typeof k !== 'object' || k === null || typeof k.label !== 'string' || k.label.trim() === ''
+            || k.label.length > 12 || typeof k.send !== 'string' || k.send === '' || k.send.length > 256))) {
+        return { ok: false, error: configError(path, 'terminalKeys', 'must be an array of 1 to 24 { label, send } keys') };
+    }
+    const replyArray = parsed.quickReplies;
+    if (replyArray !== undefined && (!Array.isArray(replyArray) || replyArray.length === 0 || replyArray.length > 8
+        || replyArray.some((r) => typeof r !== 'object' || r === null || typeof r.label !== 'string' || r.label.trim() === ''
+            || r.label.length > 24 || typeof r.text !== 'string' || r.text.trim() === '' || r.text.length > 500))) {
+        return { ok: false, error: configError(path, 'quickReplies', 'must be an array of 1 to 8 { label, text } replies') };
     }
     return { ok: true, config: parsed };
 }

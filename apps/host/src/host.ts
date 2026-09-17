@@ -6,7 +6,7 @@
  * events start getting dropped and transcripts start feeling thin.
  */
 
-import type { ClientFrame, ClientRequest, SessionEvent, SessionEventBody } from '@muxr/contract';
+import type { ClientFrame, ClientRequest, SessionEvent, SessionEventBody, TerminalKeyDefinition } from '@muxr/contract';
 import { connectToRelay, deviceTableCanMutate, type RelayLink, type RelayStateCode, type HostedMachineKeys } from './machine/index.js';
 import { createRequestDispatcher } from './requests/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
@@ -50,6 +50,8 @@ export interface HostOptions {
     token?: string;
     peerRuntime?: PeerRuntime;
     diagnostics?: HostDiagnosticsJournal;
+    /** Fresh read of operator-declared terminal keys and quick replies; absent means none. */
+    readOperatorTerminalKeys?: () => { keys?: TerminalKeyDefinition[]; quickReplies?: { label: string; text: string }[] } | undefined;
 }
 
 export interface Host {
@@ -94,6 +96,7 @@ export function startHost(options: HostOptions): Host {
         ...(options.terminals === undefined ? {} : { terminals: options.terminals }),
         ...(options.token === undefined ? {} : { token: options.token }),
         ...(options.peerRuntime === undefined ? {} : { peerRuntime: options.peerRuntime }),
+        ...(options.readOperatorTerminalKeys === undefined ? {} : { readOperatorTerminalKeys: options.readOperatorTerminalKeys }),
         ...hostedDispatcherOptions,
     });
 
