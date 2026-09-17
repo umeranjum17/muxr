@@ -2,7 +2,7 @@ import type { Machine } from '@/catalog';
 import { machineSpawnNewSession } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
 import { isMachineOnline } from '@/pairing';
-import { createWorktree } from '../infrastructure/worktree';
+import { createWorktree } from './worktree';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import type { NewSessionAgentType } from '@/catalog';
 import type { AttachmentPreview } from '@/catalog';

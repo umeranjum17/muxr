@@ -1,4 +1,4 @@
-import type { Session } from './storageTypes';
+import type { Session } from '../domain/sessionTypes';
 type PermissionModeKey = string;
 import {
     getRigCurrentModel,

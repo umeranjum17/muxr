@@ -30,7 +30,6 @@ import { PluginSlot } from '@/plugins/ui';
 import { useAllMachines, useSessions, useSocketStatus } from '@/catalog/store';
 import { isMachineOnline } from '@/pairing';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
-import { listWorktrees } from '../infrastructure/worktree';
 import { type NewSessionAgentType } from '@/catalog';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { sync } from '@/catalog/sync';
@@ -38,6 +37,7 @@ import { resolveAgentCatalog } from '@/catalog';
 import {
     applyWorktreeSelection,
     currentDockAgent,
+    listWorktreeOptions,
     projectDockOptions,
     resolveDockOption,
     selectedWorktreeKey,
@@ -548,13 +548,9 @@ export const HomeDock = React.memo(({
         }
 
         let cancelled = false;
-        listWorktrees(activeMachineId, path).then((worktrees) => {
+        listWorktreeOptions(activeMachineId, path).then((worktreeOptions) => {
             if (cancelled) return;
-            setExistingWorktrees(worktrees.map((worktree) => ({
-                key: worktree.path,
-                name: worktree.branch,
-                description: worktree.path,
-            })));
+            setExistingWorktrees(worktreeOptions);
         });
         return () => {
             cancelled = true;

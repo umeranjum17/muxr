@@ -1,4 +1,4 @@
-import type { Metadata } from './storageTypes';
+import type { Metadata } from '../domain/sessionTypes';
 
 export type ProviderIconKind = 'codex' | 'claude' | 'grok' | 'kimi' | 'generic';
 

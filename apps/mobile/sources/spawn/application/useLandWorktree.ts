@@ -4,7 +4,7 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { ActionError } from '@/utils/errors';
 import { useAsyncAction } from '@/hooks/useAsyncAction';
-import { isWorktreePath } from '../infrastructure/worktree';
+import { isWorktreePath } from './worktree';
 import { getSessionName, herdrPaneForSession } from '@/herd';
 import { useHerdrTree } from '@/catalog/store';
 import type { Session } from '@/catalog';

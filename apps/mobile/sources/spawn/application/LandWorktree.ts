@@ -1,4 +1,4 @@
-import { getRepoPath, isWorktreePath, landWorktree } from '../infrastructure/worktree';
+import { getRepoPath, isWorktreePath, landWorktree } from './worktree';
 import { machineSpawnNewSession } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
 

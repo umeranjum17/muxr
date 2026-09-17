@@ -1,5 +1,5 @@
 import * as z from 'zod';
-import { ImageRefSchema } from '../application/profile';
+import { ImageRefSchema } from '../domain/profile';
 
 //
 // Relationship Status

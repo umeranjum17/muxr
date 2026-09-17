@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GitHubProfileSchema, ImageRefSchema } from '../application/profile';
+import { GitHubProfileSchema, ImageRefSchema } from '../domain/profile';
 import { RelationshipStatusSchema, UserProfileSchema } from './friendTypes';
 import { FeedBodySchema } from './feedTypes';
 

@@ -17,8 +17,7 @@ apps/mobile/sources/
     ui.ts                       screens
   spawn/
     domain/                     SpawnRequest, WorktreeSelection
-    application/                startNewAgent, dock environment, drafts
-    infrastructure/             git worktree RPCs
+    application/                startNewAgent, dock environment, drafts, git worktree RPCs
     presentation/               HomeDock, directory picker
     index.ts                    domain + use cases
     ui.ts                       screens
