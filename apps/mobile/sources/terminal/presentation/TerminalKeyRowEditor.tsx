@@ -59,6 +59,7 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
             setWorking(openState.current.entries ?? [...openState.current.seed]);
             setAdding(false);
             setDrag(null);
+            dragging.current = false;
         }
         if (!visible) wasOpen.current = false;
     }, [visible]);
@@ -69,6 +70,7 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
     };
 
     const removeAt = (index: number) => {
+        if (dragging.current) return;
         hapticsSelection();
         commit(working.filter((_, i) => i !== index));
     };
