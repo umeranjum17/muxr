@@ -211,7 +211,8 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, co
     React.useEffect(() => {
         keyFrac.current = keyDock ?? { fx: 1, fy: 1 };
         keyDefaulted.current = keyDock === null;
-    }, [keyDock]);
+        placeKey();
+    }, [keyDock, placeKey]);
 
     // Every terminal resize (rotation, keyboard, split) re-clamps both into
     // the surface they live on, so neither can strand off-screen or under
