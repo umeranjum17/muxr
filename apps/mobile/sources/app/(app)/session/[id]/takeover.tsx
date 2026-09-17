@@ -98,6 +98,8 @@ export default function TakeoverScreen() {
     const deadlineRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const gotFrameRef = React.useRef(false);
     const connectBusyRef = React.useRef(false);
+    const mountedRef = React.useRef(true);
+    React.useEffect(() => () => { mountedRef.current = false; }, []);
 
     const cwd = session?.metadata?.path ?? '.';
     const sessionFlag = selectedSession(browserSession);
@@ -188,6 +190,10 @@ export default function TakeoverScreen() {
                 }
             }
             lastPortRef.current = resolvedPort;
+            if (mountedRef.current === false) {
+                await machineBash('', `${agentBrowser} stream disable`, cwd);
+                return;
+            }
             streamRef.current = { command: agentBrowser, cwd };
             // Size the watched browser to this phone so frames arrive readable
             // instead of a desktop viewport letterboxed into a hand-sized pane.
@@ -198,6 +204,15 @@ export default function TakeoverScreen() {
             closeTunnelRef.current = opened.close;
             const socket = new WebSocket(opened.wsUrl);
             socketRef.current = socket;
+            if (mountedRef.current === false) {
+                disconnect();
+                if (streamRef.current !== null) {
+                    const prev = streamRef.current;
+                    streamRef.current = null;
+                    await machineBash('', `${prev.command} stream disable`, prev.cwd);
+                }
+                return;
+            }
             // The wait is bounded: if no picture has arrived when the deadline
             // fires, say so instead of spinning forever.
             deadlineRef.current = setTimeout(() => {
@@ -235,6 +250,14 @@ export default function TakeoverScreen() {
             };
         } catch (cause: unknown) {
             disconnect();
+            if (mountedRef.current === false) {
+                if (streamRef.current !== null) {
+                    const prev = streamRef.current;
+                    streamRef.current = null;
+                    await machineBash('', `${prev.command} stream disable`, prev.cwd);
+                }
+                return;
+            }
             setDetail(cause instanceof Error ? cause.message : String(cause));
             setPhase('unreachable');
         }
