@@ -190,7 +190,7 @@ export default function TakeoverScreen() {
                 }
             }
             lastPortRef.current = resolvedPort;
-            if (mountedRef.current === false) {
+            if (!mountedRef.current) {
                 await machineBash('', `${agentBrowser} stream disable`, cwd);
                 return;
             }
@@ -204,7 +204,7 @@ export default function TakeoverScreen() {
             closeTunnelRef.current = opened.close;
             const socket = new WebSocket(opened.wsUrl);
             socketRef.current = socket;
-            if (mountedRef.current === false) {
+            if (!mountedRef.current) {
                 disconnect();
                 if (streamRef.current !== null) {
                     const prev = streamRef.current;
@@ -250,7 +250,7 @@ export default function TakeoverScreen() {
             };
         } catch (cause: unknown) {
             disconnect();
-            if (mountedRef.current === false) {
+            if (!mountedRef.current) {
                 if (streamRef.current !== null) {
                     const prev = streamRef.current;
                     streamRef.current = null;
