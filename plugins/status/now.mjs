@@ -2,7 +2,8 @@
 // Home "Right now" line: the tightest plan limit and its reset, with the
 // machine vitals folded underneath. Reads the usage RPC's on-disk cache via
 // usage.mjs itself, so the identity, TTL and provider selection stay in one
-// place: a warm cache returns instantly, a cold one pays one collection.
+// place: a warm cache returns instantly, a cold one falls back after a
+// bounded wait so the vitals line below is never withheld.
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { vitalsLine } from './vitals.mjs';
@@ -27,20 +28,16 @@ function nowLine(limits) {
 }
 
 const usage = fileURLToPath(new URL('./usage.mjs', import.meta.url));
-const collected = spawnSync(process.execPath, [usage], {
-  input: '{}',
-  timeout: 30_000,
-  maxBuffer: 1024 * 1024,
-  encoding: 'utf8',
-});
-if (collected.error !== undefined || collected.status !== 0) {
-  const reason = collected.error instanceof Error ? collected.error.message : `exit ${collected.status}`;
-  throw new Error(`Usage is being collected · try again shortly (${reason})`);
-}
-let limits;
+let headline = 'Usage is being collected · try again shortly';
 try {
-  limits = JSON.parse(collected.stdout).limits;
-} catch {
-  throw new Error('Usage is being collected · try again shortly');
-}
-process.stdout.write(JSON.stringify(`${nowLine(limits)}\n${vitalsLine()}`));
+  const collected = spawnSync(process.execPath, [usage], {
+    input: '{}',
+    timeout: 5_000,
+    maxBuffer: 1024 * 1024,
+    encoding: 'utf8',
+  });
+  if (collected.error === undefined && collected.status === 0) {
+    headline = nowLine(JSON.parse(collected.stdout).limits);
+  }
+} catch {}
+process.stdout.write(JSON.stringify(`${headline}\n${vitalsLine()}`));
