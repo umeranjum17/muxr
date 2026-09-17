@@ -30,6 +30,6 @@ Use the moment browser automation (agent-browser) hits a wall only a human can c
 - If HERDR_PANE_ID is unset you are not in a herdr pane — there is no phone to take over; say out loud that you are blocked instead.
 
 ## Verification
-1. `agent-browser stream status` shows the stream server enabled on the port you announced (and disabled after you resume).
-2. The phone shows the pane blocked with your message; the user opens the takeover screen, sees the live page, and clears the wall by touch.
+1. `agent-browser stream status` shows the stream server enabled (and disabled after you resume).
+2. The phone shows the pane blocked with your message; the user opens the browser screen, sees the live page, and clears the wall by touch.
 3. `agent-browser state list` shows the saved state file after step 5; a fresh `--restore` run does not hit the wall again.
