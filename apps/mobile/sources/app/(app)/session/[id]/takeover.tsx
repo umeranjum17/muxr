@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, Image, ActivityIndicator, Pressable, TextInput, Keyboard, Platform, useWindowDimensions } from 'react-native';
+import { View, Image, ActivityIndicator, Pressable, TextInput, Keyboard, useWindowDimensions } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
@@ -7,9 +7,9 @@ import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { machineBash } from '@/catalog/ops';
-import { useSession, useSessionMessages, useSocketStatus } from '@/catalog/store';
+import { useSession, useSocketStatus } from '@/catalog/store';
 import { mapDisplayToInput, type Point, type Size, type StreamFrameMetadata } from '@/takeover';
-import { advertisedStreamPort, codeForKey, keyMessage, mouseMessage, openTakeover, parseStreamFrame, parseStreamPage, touchMessage } from '@/takeover';
+import { codeForKey, keyMessage, mouseMessage, openTakeover, parseStreamFrame, parseStreamPage, touchMessage } from '@/takeover';
 
 function selectedPort(value: string | undefined): number | undefined {
     if (value === undefined || !/^\d{1,5}$/.test(value)) return undefined;
@@ -33,6 +33,17 @@ function selectedSession(value: string | undefined): string | undefined {
     return value !== undefined && /^[a-zA-Z0-9_-]{1,64}$/.test(value) ? value : undefined;
 }
 
+/** Reads the port out of `agent-browser stream enable --json` output. */
+function parseEnablePort(stdout: string): number | undefined {
+    try {
+        const parsed = JSON.parse(stdout) as { port?: unknown };
+        if (typeof parsed.port === 'number') return selectedPort(String(parsed.port));
+    } catch {
+        // Fall through to the regex for non-JSON output.
+    }
+    return selectedPort(/"port"\s*:\s*(\d+)/.exec(stdout)?.[1]);
+}
+
 interface LiveFrame {
     uri: string;
     metadata: StreamFrameMetadata;
@@ -43,6 +54,14 @@ const TAP_TIMEOUT_MS = 400;
 /** The frame visually follows the finger only this far; the scroll is committed once, on release. */
 const MAX_PAN_PX = 100;
 const DRAG_STEPS = 8;
+const OPEN_TIMEOUT_MS = 15_000;
+
+/**
+ * What the person can be looking at: the page, the wait for it, or one of
+ * three plain-language failures (no browser to open, could not reach it,
+ * lost it mid-session).
+ */
+type Phase = 'opening' | 'live' | 'unreachable' | 'noBrowser' | 'lost';
 
 /**
  * Live view of an agent-browser stream, tunnelled through the relay preview
@@ -54,29 +73,15 @@ export default function TakeoverScreen() {
     const { id, port, session: browserSession } = useLocalSearchParams<{ id: string; port?: string; session?: string }>();
     const session = useSession(id);
     const { status } = useSocketStatus();
-    const { messages } = useSessionMessages(id);
     const window = useWindowDimensions();
+    const [phase, setPhase] = React.useState<Phase>('opening');
     const [frame, setFrame] = React.useState<LiveFrame | null>(null);
     const [pageUrl, setPageUrl] = React.useState<string | null>(null);
-    const [error, setError] = React.useState<string | null>(null);
-    const [connecting, setConnecting] = React.useState(false);
+    // Raw shell output, kept for the Details disclosure only.
+    const [detail, setDetail] = React.useState<string | null>(null);
+    const [detailOpen, setDetailOpen] = React.useState(false);
     const [display, setDisplay] = React.useState<Size>({ width: 0, height: 0 });
     const [keyboardOpen, setKeyboardOpen] = React.useState(false);
-    // Prefill from the stream URL the agent printed into its conversation.
-    const advertisedPort = React.useMemo(() => {
-        for (let index = messages.length - 1; index >= Math.max(0, messages.length - 40); index -= 1) {
-            const message = messages[index] as { text?: unknown };
-            if (typeof message.text !== 'string') continue;
-            const found = advertisedStreamPort(message.text);
-            if (found !== undefined) return found;
-        }
-        return undefined;
-    }, [messages]);
-    const [portDraft, setPortDraft] = React.useState(advertisedPort === undefined ? '' : String(advertisedPort));
-    const portEditedRef = React.useRef(false);
-    React.useEffect(() => {
-        if (!portEditedRef.current && advertisedPort !== undefined) setPortDraft(String(advertisedPort));
-    }, [advertisedPort]);
     const socketRef = React.useRef<WebSocket | null>(null);
     const closeTunnelRef = React.useRef<(() => void) | null>(null);
     const inputRef = React.useRef<TextInput>(null);
@@ -89,10 +94,15 @@ export default function TakeoverScreen() {
     const commitBusyRef = React.useRef(false);
     const pendingCommitRef = React.useRef<{ from: Point; to: Point } | null>(null);
     const streamRef = React.useRef<{ command: string; cwd: string } | null>(null);
+    const lastPortRef = React.useRef<number | undefined>(undefined);
+    const deadlineRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const gotFrameRef = React.useRef(false);
 
     const cwd = session?.metadata?.path ?? '.';
     const sessionFlag = selectedSession(browserSession);
     const agentBrowser = sessionFlag === undefined ? 'agent-browser' : `agent-browser --session ${sessionFlag}`;
+    const machineName = session?.metadata?.host ?? 'this computer';
+    const agentName = session?.metadata?.name ?? 'The agent';
 
     const send = React.useCallback((message: string) => {
         if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(message);
@@ -127,53 +137,116 @@ export default function TakeoverScreen() {
         closeTunnelRef.current = null;
     }, []);
 
+    const clearDeadline = React.useCallback(() => {
+        if (deadlineRef.current !== null) clearTimeout(deadlineRef.current);
+        deadlineRef.current = null;
+    }, []);
+
     // Refcounted stream lifecycle: the screen enables on mount and disables on
     // unmount, so the screencast never outlives its last watcher.
-    const connect = React.useCallback(async (streamPort: number) => {
+    const connect = React.useCallback(async (streamPort: number | undefined) => {
         disconnect();
+        clearDeadline();
+        setDetail(null);
+        setDetailOpen(false);
         setFrame(null);
         setPageUrl(null);
-        setConnecting(true);
-        setError(null);
+        gotFrameRef.current = false;
+        setPhase('opening');
         try {
-            await machineBash('', `${agentBrowser} stream enable --port ${streamPort}`, cwd);
+            let resolvedPort = streamPort;
+            if (resolvedPort === undefined) {
+                const enabled = await machineBash('', `${agentBrowser} stream enable --json`, cwd);
+                if (!enabled.success) {
+                    // No live browser (or the stream would not start): the raw
+                    // output stays behind Details.
+                    setDetail([enabled.stderr, enabled.stdout].filter(Boolean).join('\n') || null);
+                    setPhase('noBrowser');
+                    return;
+                }
+                resolvedPort = parseEnablePort(enabled.stdout);
+                if (resolvedPort === undefined) {
+                    void machineBash('', `${agentBrowser} stream disable`, cwd);
+                    setPhase('unreachable');
+                    return;
+                }
+            } else {
+                const enabled = await machineBash('', `${agentBrowser} stream enable --port ${resolvedPort}`, cwd);
+                if (!enabled.success) {
+                    setDetail([enabled.stderr, enabled.stdout].filter(Boolean).join('\n') || null);
+                    setPhase('noBrowser');
+                    return;
+                }
+            }
+            lastPortRef.current = resolvedPort;
             streamRef.current = { command: agentBrowser, cwd };
             // Size the watched browser to this phone so frames arrive readable
             // instead of a desktop viewport letterboxed into a hand-sized pane.
             const viewportWidth = Math.max(320, Math.min(768, Math.round(window.width)));
             const viewportHeight = Math.max(480, Math.min(1280, Math.round(window.height) - 64));
             await machineBash('', `${agentBrowser} set viewport ${viewportWidth} ${viewportHeight}`, cwd);
-            const opened = await openTakeover({ port: streamPort });
+            const opened = await openTakeover({ port: resolvedPort });
             closeTunnelRef.current = opened.close;
             const socket = new WebSocket(opened.wsUrl);
             socketRef.current = socket;
+            // The wait is bounded: if no picture has arrived when the deadline
+            // fires, say so instead of spinning forever.
+            deadlineRef.current = setTimeout(() => {
+                if (socketRef.current === socket) {
+                    disconnect();
+                    setPhase('unreachable');
+                }
+            }, OPEN_TIMEOUT_MS);
             socket.onmessage = (event) => {
                 const next = parseStreamFrame(event.data);
-                if (next !== undefined) setFrame({ uri: `data:image/jpeg;base64,${next.data}`, metadata: next.metadata });
+                if (next === undefined) return;
+                clearDeadline();
+                gotFrameRef.current = true;
+                setFrame({ uri: `data:image/jpeg;base64,${next.data}`, metadata: next.metadata });
+                setPhase('live');
                 const page = parseStreamPage(event.data);
                 if (page !== undefined) setPageUrl(page.url);
             };
-            socket.onerror = () => setError('The takeover stream connection failed.');
+            socket.onerror = () => {
+                if (socketRef.current !== socket) return;
+                disconnect();
+                clearDeadline();
+                setPhase(gotFrameRef.current ? 'lost' : 'unreachable');
+            };
             socket.onclose = () => {
-                setFrame(null);
-                setPageUrl(null);
                 // A close on the live socket is never silent: deliberate
                 // teardown nulls the ref first, so this only fires upstream.
-                if (socketRef.current === socket) setError('The takeover stream closed.');
+                if (socketRef.current !== socket) return;
+                setFrame(null);
+                setPageUrl(null);
+                clearDeadline();
+                setPhase(gotFrameRef.current ? 'lost' : 'unreachable');
             };
         } catch (cause: unknown) {
             disconnect();
-            setError(cause instanceof Error ? cause.message : String(cause));
-        } finally {
-            setConnecting(false);
+            setDetail(cause instanceof Error ? cause.message : String(cause));
+            setPhase('unreachable');
         }
-    }, [agentBrowser, cwd, disconnect, window.width, window.height]);
+    }, [agentBrowser, clearDeadline, cwd, disconnect, window.width, window.height]);
 
+    const openBrowser = React.useCallback(async () => {
+        // A browser this screen can show: open one, then come back through the
+        // normal path so every failure keeps one wording.
+        const opened = await machineBash('', `${agentBrowser} open`, cwd);
+        if (!opened.success) {
+            setDetail([opened.stderr, opened.stdout].filter(Boolean).join('\n') || null);
+            return;
+        }
+        await connect(undefined);
+    }, [agentBrowser, connect, cwd]);
+
+    // First entry: an explicit port in the URL wins (deep links), otherwise the
+    // screen finds the running stream itself.
     const attempted = React.useRef<string | undefined>(undefined);
     const directPort = selectedPort(port);
     React.useEffect(() => {
-        if (directPort === undefined || status !== 'connected' || session === undefined) return;
-        const key = `${id}:${directPort}`;
+        if (status !== 'connected' || session === undefined) return;
+        const key = `${id}:${directPort ?? 'auto'}`;
         if (attempted.current === key) return;
         attempted.current = key;
         void connect(directPort);
@@ -184,6 +257,7 @@ export default function TakeoverScreen() {
     const cleanupRef = React.useRef<() => void>(() => {});
     cleanupRef.current = () => {
         disconnect();
+        clearDeadline();
         if (streamRef.current !== null) {
             void machineBash('', `${streamRef.current.command} stream disable`, streamRef.current.cwd);
             streamRef.current = null;
@@ -243,15 +317,15 @@ export default function TakeoverScreen() {
 
     const saveState = React.useCallback(async () => {
         const accepted = await Modal.confirm(
-            'Save browser login?',
-            'Stores the cookies and session state on the machine so this wall does not come back. The file holds plaintext session tokens and is kept private to your user.',
-            { confirmText: 'Save' },
+            `Remember this login on ${machineName}?`,
+            "Saves the site's cookies on your computer so the agent doesn't hit this sign-in again. Only you can read the file.",
+            { confirmText: 'Remember' },
         );
         if (!accepted) return;
         const name = `takeover-${Date.now()}.json`;
         const result = await machineBash('', `${agentBrowser} state save ${name} && chmod 600 "$HOME/.agent-browser/sessions/${name}"`, cwd);
-        if (!result.success) Modal.alert('Could not save state', result.stderr || result.stdout);
-    }, [agentBrowser, cwd]);
+        if (!result.success) Modal.alert("Couldn't remember this login", result.stderr || result.stdout);
+    }, [agentBrowser, cwd, machineName]);
 
     const navigateStream = React.useCallback((button: 'back' | 'forward') => {
         send(mouseMessage('mousePressed', { x: 0, y: 0 }, button));
@@ -289,17 +363,16 @@ export default function TakeoverScreen() {
             <Pressable onPress={() => navigateStream('forward')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Browser forward">
                 <Ionicons name="arrow-forward" size={20} color={theme.colors.text} />
             </Pressable>
-            <Pressable onPress={toggleKeyboard} hitSlop={10} accessibilityRole="button" accessibilityLabel="Toggle keyboard" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Pressable onPress={toggleKeyboard} hitSlop={10} accessibilityRole="button" accessibilityLabel="Keyboard" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Ionicons name={keyboardOpen ? 'keypad' : 'keypad-outline'} size={20} color={theme.colors.text} />
-                <Text style={{ ...Typography.default(), color: theme.colors.text }}>Type</Text>
             </Pressable>
             <View style={{ flex: 1 }} />
             <Pressable onPress={() => void openAddress()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Open address" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} disabled={status !== 'connected'}>
                 <Ionicons name="globe-outline" size={20} color={theme.colors.text} />
             </Pressable>
-            <Pressable onPress={() => void saveState()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Save browser login" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Pressable onPress={() => void saveState()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Remember login" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Ionicons name="key-outline" size={20} color={theme.colors.text} />
-                <Text style={{ ...Typography.default(), color: theme.colors.text }}>Save login</Text>
+                <Text style={{ ...Typography.default(), color: theme.colors.text }}>Remember login</Text>
             </Pressable>
         </View>
     );
@@ -331,7 +404,7 @@ export default function TakeoverScreen() {
             autoCorrect={false}
             blurOnSubmit={false}
             style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}
-            accessibilityLabel="Takeover keyboard input"
+            accessibilityLabel="Keyboard input"
         />
     );
 
@@ -366,53 +439,66 @@ export default function TakeoverScreen() {
         );
     }
 
-    return (
-        <View style={{ flex: 1, backgroundColor: theme.colors.groupped.background, padding: 16 }}>
-            {error !== null && <Text style={{ ...Typography.default(), color: theme.colors.textDestructive, marginBottom: 12 }}>{error}</Text>}
+    const retry = () => void connect(lastPortRef.current);
 
-            {(connecting || (directPort !== undefined && error === null)) && (
+    return (
+        <View style={{ flex: 1, backgroundColor: theme.colors.groupped.background, padding: 16, gap: 12 }}>
+            {phase === 'opening' && (
                 <View style={{ alignItems: 'center', paddingVertical: 24, gap: 12 }}>
                     <ActivityIndicator size="small" color={theme.colors.text} />
-                    <Text style={{ ...Typography.default(), color: theme.colors.textSecondary }}>Connecting to the browser stream…</Text>
+                    <Text style={{ ...Typography.default(), color: theme.colors.textSecondary }}>Opening…</Text>
                 </View>
             )}
 
-            {error !== null && directPort !== undefined && !connecting && (
-                <Pressable onPress={() => void connect(directPort)} accessibilityRole="button" accessibilityLabel="Retry takeover" style={{ paddingVertical: 14, alignItems: 'center' }}>
-                    <Text style={{ ...Typography.default('semiBold'), color: theme.colors.textLink }}>Retry</Text>
-                </Pressable>
+            {phase === 'noBrowser' && (
+                <View style={{ alignItems: 'center', paddingVertical: 24, gap: 16 }}>
+                    <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center' }}>
+                        {agentName} hasn't opened a browser.
+                    </Text>
+                    <Pressable onPress={() => void openBrowser()} accessibilityRole="button" accessibilityLabel="Open a browser" style={{ paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.colors.surface }}>
+                        <Text style={{ ...Typography.default('semiBold'), color: theme.colors.textLink }}>Open one</Text>
+                    </Pressable>
+                </View>
             )}
 
-            {directPort === undefined && !connecting && (
-                <View style={{ gap: 12 }}>
-                    <Text style={{ ...Typography.default(), color: theme.colors.textSecondary }}>
-                        {advertisedPort === undefined
-                            ? 'Enter the agent-browser stream port from the blocked-agent message.'
-                            : `Found the stream port from the agent message (${advertisedPort}).`}
+            {phase === 'unreachable' && (
+                <View style={{ alignItems: 'center', paddingVertical: 24, gap: 16 }}>
+                    <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center' }}>
+                        Couldn't reach the browser on {machineName}.
                     </Text>
-                    <TextInput
-                        value={portDraft}
-                        onChangeText={(value) => {
-                            portEditedRef.current = true;
-                            setPortDraft(value);
-                        }}
-                        placeholder="Stream port"
-                        placeholderTextColor={theme.colors.textSecondary}
-                        keyboardType={Platform.OS === 'web' ? undefined : 'number-pad'}
-                        style={{ ...Typography.default(), color: theme.colors.text, backgroundColor: theme.colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12 }}
-                    />
-                    <Pressable
-                        onPress={() => {
-                            const picked = selectedPort(portDraft);
-                            if (picked !== undefined) void connect(picked);
-                        }}
-                        disabled={selectedPort(portDraft) === undefined || status !== 'connected'}
-                        accessibilityRole="button"
-                        accessibilityLabel="Connect to stream"
-                        style={{ alignItems: 'center', paddingVertical: 14, borderRadius: 12, backgroundColor: theme.colors.surface, opacity: selectedPort(portDraft) === undefined ? 0.4 : 1 }}
-                    >
-                        <Text style={{ ...Typography.default('semiBold'), color: theme.colors.textLink }}>Connect</Text>
+                    <Pressable onPress={retry} accessibilityRole="button" accessibilityLabel="Try again" style={{ paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.colors.surface }}>
+                        <Text style={{ ...Typography.default('semiBold'), color: theme.colors.textLink }}>Try again</Text>
                     </Pressable>
+                </View>
+            )}
+
+            {phase === 'lost' && (
+                <View style={{ alignItems: 'center', paddingVertical: 24, gap: 16 }}>
+                    <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center' }}>
+                        Lost the browser.
+                    </Text>
+                    <Pressable onPress={retry} accessibilityRole="button" accessibilityLabel="Reconnect" style={{ paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.colors.surface }}>
+                        <Text style={{ ...Typography.default('semiBold'), color: theme.colors.textLink }}>Reconnect</Text>
+                    </Pressable>
+                </View>
+            )}
+
+            {detail !== null && (
+                <View style={{ gap: 4 }}>
+                    <Pressable
+                        onPress={() => setDetailOpen(!detailOpen)}
+                        accessibilityRole="button"
+                        accessibilityLabel={detailOpen ? 'Hide details' : 'Show details'}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 }}
+                    >
+                        <Ionicons name={detailOpen ? 'chevron-down' : 'chevron-forward'} size={14} color={theme.colors.textSecondary} />
+                        <Text style={{ ...Typography.default(), color: theme.colors.textSecondary }}>Details</Text>
+                    </Pressable>
+                    {detailOpen && (
+                        <Text selectable style={{ ...Typography.default(), color: theme.colors.textSecondary, fontSize: 12 }}>
+                            {detail}
+                        </Text>
+                    )}
                 </View>
             )}
         </View>

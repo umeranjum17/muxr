@@ -284,7 +284,7 @@ export default function ComputerCollaborationScreen() {
                 )}
             </ItemGroup>
 
-            <ItemGroup title="Permission" footer="Turn this off to revoke access. Starting new agents is not available yet. Shell, terminal takeover, destructive actions, and arbitrary plugin calls are never included.">
+            <ItemGroup title="Permission" footer="Turn this off to revoke access. Starting new agents is not available yet. Shell, typing into a terminal, destructive actions, and arbitrary plugin calls are never included.">
                 <Item
                     title="Agent collaboration"
                     subtitle="Read agent output, watch completion, and send prompts"

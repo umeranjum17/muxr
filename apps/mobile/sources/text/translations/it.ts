@@ -661,7 +661,7 @@ export const it: TranslationStructure = {
         connectTerminal: 'Connetti terminale',
         linkNewDevice: 'Collega nuovo dispositivo', 
         restoreWithSecretKey: 'Ripristina con chiave segreta',
-        browserTakeover: 'Controllo del browser',
+        browserTakeover: 'Browser',
         whatsNew: 'Novità',
         friends: 'Amici',
     },

@@ -677,7 +677,7 @@ export const en = {
         connectTerminal: 'Connect Terminal',
         linkNewDevice: 'Link New Device', 
         restoreWithSecretKey: 'Restore with Secret Key',
-        browserTakeover: 'Browser takeover',
+        browserTakeover: 'Browser',
         whatsNew: "What's New",
         friends: 'Friends',
     },

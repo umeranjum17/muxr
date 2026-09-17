@@ -373,7 +373,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     openedRef.current = false;
                     lastSizeRef.current = null;
                     const message = error instanceof Error ? error.message : String(error);
-                    onStatus?.(message.includes('explicit takeover required') ? 'Controlled on another device — tap to take control' : message);
+                    onStatus?.(message.includes('explicit takeover required') ? 'Open on another device · Tap to use it here' : message);
                 });
         },
         [focused, sessionId, onStatus, onChannel],

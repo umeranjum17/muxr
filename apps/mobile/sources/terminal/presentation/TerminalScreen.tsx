@@ -851,7 +851,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     onPress={() => channelRef.current?.reconnect(true)}
                                     hitSlop={8}
                                     accessibilityRole="button"
-                                    accessibilityLabel={status.includes('another device') ? 'Take control from another device' : `Reconnect terminal. ${statusText}`}
+                                    accessibilityLabel={status.includes('another device') ? 'Use this terminal here' : `Reconnect terminal. ${statusText}`}
                                     style={({ pressed }) => ({
                                         position: 'absolute',
                                         top: 12,
