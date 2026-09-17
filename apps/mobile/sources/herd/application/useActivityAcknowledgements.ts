@@ -82,10 +82,12 @@ export function useActivityAcknowledgements(): {
 
 /** Sessions whose finished outcome is still unopened — one seen rule, shared by the tier, the strip cards and the Spaces tree. */
 export function useUnseenDoneSessionIds(): ReadonlySet<string> {
-    const { seenEventIds } = useActivityAcknowledgements();
+    const { ready, seenEventIds } = useActivityAcknowledgements();
     const lifecycleEvents = useLifecycleEvents();
     return React.useMemo(
-        () => unseenDoneSessionIds(lifecycleEvents, seenEventIds),
-        [lifecycleEvents, seenEventIds],
+        // Silent until AsyncStorage answers, like the tier: a persisted seen
+        // mark would otherwise flash the settled row loud on cold start.
+        () => ready ? unseenDoneSessionIds(lifecycleEvents, seenEventIds) : new Set<string>(),
+        [ready, lifecycleEvents, seenEventIds],
     );
 }

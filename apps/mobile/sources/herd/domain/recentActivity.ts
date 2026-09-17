@@ -82,11 +82,10 @@ export function unseenDoneSessionIds(
     events: readonly LifecycleEvent[],
     seenEventIds: ReadonlySet<string>,
     now = Date.now(),
-    liveTitles?: ReadonlyMap<string, string>,
 ): ReadonlySet<string> {
     // ponytail: same 8-row ceiling as the tier; an agent beyond the 8 newest
     // unseen outcomes stays unhighlighted. Raise both together if that bites.
-    return new Set(unseenActivityRows(events, seenEventIds, now, 8, liveTitles)
+    return new Set(unseenActivityRows(events, seenEventIds, now, 8)
         .filter((row) => row.status === 'done')
         .map((row) => row.sessionId));
 }
