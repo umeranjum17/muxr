@@ -152,7 +152,7 @@ export default function RootLayout() {
             <Stack.Screen
                 name="settings/voice"
                 options={{
-                    headerTitle: 'Realtime voice',
+                    headerTitle: 'Voice & dictation',
                 }}
             />
             <Stack.Screen
