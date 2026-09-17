@@ -1151,7 +1151,7 @@ async function drivePhase(phase, screen, hz, ready) {
             uncredited: zoomLedger.uncredited,
         };
 
-        // Only now may anything else be driven; the window above is closed.
+        // Only now may anything else be driven.
         await tapBounds('content-desc="Close terminal controls"');
         await sleep(400);
         // Back down the same ladder. `Reset zoom` is the surface's own report of
