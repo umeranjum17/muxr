@@ -2503,13 +2503,14 @@ export async function createHerdrSessionSource(
                     };
                 });
                 const worktree = workspace.worktree;
+                const tokens = boundedWorkspaceTokens(workspace.tokens);
                 workspaces.push({
                     workspaceId: workspace.workspace_id,
                     ...(workspace.label === undefined ? {} : { label: workspace.label }),
                     focused: workspace.focused === true,
                     agentStatus: rollupLifecycle(tabs.map((tab) => tab.agentStatus)),
                     ...(workspace.number === undefined ? {} : { order: workspace.number }),
-                    ...boundedWorkspaceTokens(workspace.tokens),
+                    ...(tokens === undefined ? {} : { tokens }),
                     ...mappedWorktree(worktree, workspace.label),
                     tabs,
                 });
