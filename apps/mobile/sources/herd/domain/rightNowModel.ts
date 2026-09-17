@@ -99,9 +99,10 @@ function rightNowVitals(value: unknown): RightNowVitals | undefined {
     const uptimeSeconds = raw.uptimeSeconds;
     // Every figure finite and non-negative, and a zero ceiling would make the
     // shares divide by zero — one bad number drops the whole line.
-    const usable = [memoryUsed, memoryTotal, diskUsed, diskTotal, load1, uptimeSeconds]
-        .every((figure) => typeof figure === 'number' && Number.isFinite(figure) && figure >= 0)
-        && memoryTotal > 0 && diskTotal > 0;
+    const usable = typeof memoryTotal === 'number' && memoryTotal > 0
+        && typeof diskTotal === 'number' && diskTotal > 0
+        && [memoryUsed, memoryTotal, diskUsed, diskTotal, load1, uptimeSeconds]
+            .every((figure) => typeof figure === 'number' && Number.isFinite(figure) && figure >= 0);
     if (!usable) return undefined;
     return { memoryUsed, memoryTotal, diskUsed, diskTotal, load1, uptimeSeconds } as RightNowVitals;
 }
