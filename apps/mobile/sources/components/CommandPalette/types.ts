@@ -9,7 +9,7 @@ export interface Command {
     hint?: string;
     /** Draws the destructive dot and colour; the section and confirm carry the rest. */
     destructive?: boolean;
-    action: () => void | Promise<void>;
+        action: () => void | false | Promise<void | false>;
     secondaryAction?: () => void | Promise<void>;
     secondaryLabel?: string;
     actionLabel?: string;
