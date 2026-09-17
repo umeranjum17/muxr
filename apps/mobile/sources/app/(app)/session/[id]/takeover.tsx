@@ -97,6 +97,7 @@ export default function TakeoverScreen() {
     const lastPortRef = React.useRef<number | undefined>(undefined);
     const deadlineRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const gotFrameRef = React.useRef(false);
+    const connectBusyRef = React.useRef(false);
 
     const cwd = session?.metadata?.path ?? '.';
     const sessionFlag = selectedSession(browserSession);
@@ -145,6 +146,9 @@ export default function TakeoverScreen() {
     // Refcounted stream lifecycle: the screen enables on mount and disables on
     // unmount, so the screencast never outlives its last watcher.
     const connect = React.useCallback(async (streamPort: number | undefined) => {
+        if (connectBusyRef.current) return;
+        connectBusyRef.current = true;
+        try {
         disconnect();
         clearDeadline();
         if (streamRef.current !== null) {
@@ -233,6 +237,9 @@ export default function TakeoverScreen() {
             disconnect();
             setDetail(cause instanceof Error ? cause.message : String(cause));
             setPhase('unreachable');
+        }
+        } finally {
+            connectBusyRef.current = false;
         }
     }, [agentBrowser, clearDeadline, cwd, disconnect, window.width, window.height]);
 
