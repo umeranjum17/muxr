@@ -37,7 +37,12 @@ const session = (overrides = {}) => {
 
 // One compact flow through the exported gates. It intentionally uses no device,
 // build, install, pairing, emulator, or simulator.
-test('warm probe fails closed across identity, ownership, fixture, movement, sampling, deadline, and envelope', async () => {
+// The served-bytes leg shells out to the real muxr.code add-on, so without its
+// checkout the flow skips loudly with the remedy in the reason (never a quiet
+// pass). The gate is the same filesystem probe the test itself uses, not an
+// environment name or a CI flag.
+const codeAddonAvailability = () => { try { codeAddonDir(); } catch (error) { return error.message; } };
+test('warm probe fails closed across identity, ownership, fixture, movement, sampling, deadline, and envelope', { skip: codeAddonAvailability() }, async () => {
     assert.throws(() => validateDeadline(180), /<=110/);
     const base = session();
     assert.deepEqual(scenarioDescriptor().load, { panes: 100, agents: 30, titleChurnHz: 2, terminalBytesPerSecond: 4096, graphicsFrameHz: 4 });

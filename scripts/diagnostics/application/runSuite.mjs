@@ -33,6 +33,10 @@ const checks = [
     ['unit: setup domain (pairing/connection/crypto)', 'node', ['scripts/setup/domain/dist/selfCheck.js']],
     ['policy: host/relay architecture', 'npx', ['vitest', 'run', 'apps/host/src/architecture.test.ts', 'apps/relay/src/architecture.test.ts']],
     ['unit: all vitest flows', 'npx', ['vitest', 'run', '--root', '.']],
+    // The perf/lib tests are node:test, not vitest (perf/** is excluded from
+    // the sweep above), so only this step runs them. Without the muxr.code
+    // add-on checkout the warm-probe flow skips loudly instead of passing.
+    ['unit: perf gate (gesture metrics, warm-probe gates, node --test)', 'node', ['--test', 'perf/lib/gestureMetrics.test.mjs', 'perf/lib/surfaceProbe.test.mjs']],
     ['policy: mobile architecture', 'npx', ['vitest', 'run', 'apps/mobile/sources/architecture.spec.ts', '--config', 'apps/mobile/vitest.config.ts']],
     ['policy: store/direct mobile commerce builds', 'node', ['scripts/diagnostics/application/checkMobileCommerceBuilds.mjs']],
     ['e2e: device pairing through relay', 'node', ['scripts/diagnostics/application/checkPairing.mjs']],
@@ -81,6 +85,7 @@ const FAST = new Set([
     'unit: layout snapshot round-trip',
     'unit: setup domain (pairing/connection/crypto)',
     'unit: all vitest flows',
+    'unit: perf gate (gesture metrics, warm-probe gates, node --test)',
     'policy: host/relay architecture',
     'policy: mobile architecture',
     'policy: package architecture (module boundaries, domain purity, no nested ternaries)',
