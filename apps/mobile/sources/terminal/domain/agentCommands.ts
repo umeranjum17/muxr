@@ -31,7 +31,7 @@ const COMMANDS: Record<string, readonly AgentCommand[]> = {
         { command: '/clear', description: 'Start fresh; the old conversation stays in /resume', dangerous: true },
         { command: '/rewind', description: 'Restore code and conversation to a checkpoint', dangerous: true },
         { command: '/cost', description: 'Token usage and cost' },
-        { command: '/help', description: 'Show all commands', arguments: '[topic]' },
+        { command: '/help', description: 'Show all commands' },
         { command: '/init', description: 'Scaffold a CLAUDE.md for this project' },
         { command: '/memory', description: 'Refine project memory' },
         { command: '/permissions', description: 'View or update tool permissions' },
@@ -41,8 +41,8 @@ const COMMANDS: Record<string, readonly AgentCommand[]> = {
         { command: '/doctor', description: 'Diagnose the installation' },
     ],
     codex: [
-        { command: '/compact', description: 'Summarize the conversation', arguments: '[instructions]', common: true },
-        { command: '/model', description: 'Choose model and reasoning effort', arguments: '[model]', common: true },
+        { command: '/compact', description: 'Summarize the conversation', common: true },
+        { command: '/model', description: 'Choose model and reasoning effort', common: true },
         { command: '/review', description: 'Review the working tree', arguments: '[instructions]', common: true },
         { command: '/diff', description: 'Show the git diff, including untracked files', common: true },
         { command: '/new', description: 'Start fresh in the same session, dropping this context', dangerous: true },
@@ -51,7 +51,7 @@ const COMMANDS: Record<string, readonly AgentCommand[]> = {
         { command: '/mention', description: 'Attach a file or folder to the conversation', arguments: '[path]' },
         { command: '/approve', description: 'Approve one retry of a denied command' },
         { command: '/skills', description: 'Browse and use skills' },
-        { command: '/theme', description: 'Preview and save a theme', arguments: '[theme]' },
+        { command: '/theme', description: 'Preview and save a theme' },
     ],
     pi: [
         { command: '/compact', description: 'Compact context', arguments: '[prompt]', common: true },
