@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/StyledText';
+import { cardStyle } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 
 const HOST_RESTART_COMMAND = 'muxr daemon restart';
@@ -12,8 +13,7 @@ const HOST_RESTART_COMMAND = 'muxr daemon restart';
 const styles = StyleSheet.create((theme) => ({
     card: {
         width: '92%', maxWidth: 800, alignSelf: 'center', marginTop: 12,
-        padding: 16, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.divider,
-        backgroundColor: theme.colors.surfaceHigh, gap: 10,
+        padding: 16, gap: 10,
     },
     title: { color: theme.colors.text, fontSize: 17, ...Typography.default('semiBold') },
     body: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, ...Typography.default() },
@@ -45,7 +45,7 @@ export function HomeRecoveryCard({
     const router = useRouter();
     const { theme } = useUnistyles();
     return (
-        <View style={styles.card}>
+        <View style={[styles.card, cardStyle(theme)]}>
             <Text style={styles.title}>{mode === 'host' ? 'Computer unavailable' : 'Agent runtime unavailable'}</Text>
             <Text style={styles.body}>
                 {mode === 'host'

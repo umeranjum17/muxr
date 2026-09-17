@@ -19,6 +19,8 @@ import { buildSpaceRows, workspaceName, type HerdRow } from '../domain/herdTree'
 import { agentIdentityLine, agentLabels, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
+import { SectionLabel } from '@/components/ui';
+import { t } from '@/text';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { layout } from '@/components/layout';
 import { useDeviceAuthority } from '@/pairing';
@@ -33,25 +35,17 @@ const stylesheet = StyleSheet.create((theme) => ({
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 16,
-        paddingTop: 18,
-        paddingBottom: 6,
+        paddingTop: 20,
+        paddingBottom: 8,
     },
     sectionHeaderCompact: {
         paddingTop: 12,
         paddingBottom: 4,
     },
-    sectionTitle: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: theme.colors.groupped.sectionTitle,
-        letterSpacing: 0.2,
-        textTransform: 'uppercase',
-        ...Typography.default('semiBold'),
-    },
     card: {
         backgroundColor: theme.colors.surfaceHigh,
-        borderRadius: 14,
-        marginHorizontal: 12,
+        borderRadius: 12,
+        marginHorizontal: 16,
         marginTop: 10,
         overflow: 'hidden',
         borderWidth: StyleSheet.hairlineWidth,
@@ -98,22 +92,23 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     branchPill: {
         backgroundColor: theme.colors.surface,
-        borderRadius: 5,
+        borderRadius: 999,
         paddingHorizontal: 6,
         paddingVertical: 2,
         maxWidth: 140,
     },
     branchPillText: {
         fontSize: 10,
+        lineHeight: 13,
         color: theme.colors.textSecondary,
-        ...Typography.default(),
+        ...Typography.mono(),
     },
     agentCount: {
         marginLeft: 'auto',
         fontSize: 12,
-        fontWeight: '600',
+        lineHeight: 16,
         color: theme.colors.textSecondary,
-        ...Typography.default('semiBold'),
+        ...Typography.default(),
     },
     agentRow: {
         paddingHorizontal: 16,
@@ -163,13 +158,14 @@ const stylesheet = StyleSheet.create((theme) => ({
     separator: {
         height: StyleSheet.hairlineWidth,
         backgroundColor: theme.colors.divider,
-        marginLeft: 43,
+        marginLeft: 44,
     },
     empty: {
         paddingHorizontal: 16,
         paddingVertical: 18,
         color: theme.colors.textSecondary,
         fontSize: 13,
+        lineHeight: 18,
         ...Typography.default(),
     },
 }));
@@ -345,7 +341,7 @@ export const SpacesTree = React.memo(({
     listHeaderComponent,
     listFooterComponent,
     onScroll,
-    emptyText = 'No spaces open',
+    emptyText,
 }: SpacesTreeProps) => {
     const styles = stylesheet;
     const compact = density === 'compact';
@@ -423,7 +419,7 @@ export const SpacesTree = React.memo(({
     }, [refresh]);
 
     const sections = React.useMemo(
-        () => [{ key: 'spaces', title: 'spaces', data: buildSpaceRows(workspaces, expanded, searchQuery) }],
+        () => [{ key: 'spaces', title: t('spacesTree.title'), data: buildSpaceRows(workspaces, expanded, searchQuery) }],
         [expanded, searchQuery, workspaces],
     );
 
@@ -451,13 +447,15 @@ export const SpacesTree = React.memo(({
                 renderItem={renderItem}
                 renderSectionHeader={({ section }) => (
                     <View style={[styles.sectionHeader, compact && styles.sectionHeaderCompact]}>
-                        <Text style={styles.sectionTitle}>{section.title}</Text>
+                        <SectionLabel>{section.title}</SectionLabel>
                     </View>
                 )}
                 stickySectionHeadersEnabled={false}
                 ListHeaderComponent={listHeaderComponent === undefined ? undefined : <>{listHeaderComponent}</>}
-                ListFooterComponent={listFooterComponent === undefined ? undefined : <>{listFooterComponent}</>}
-                ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
+                ListFooterComponent={<>
+                    {(sections[0]?.data.length ?? 0) === 0 ? <Text style={styles.empty}>{emptyText ?? t('spacesTree.empty')}</Text> : null}
+                    {listFooterComponent === undefined ? undefined : <>{listFooterComponent}</>}
+                </>}
                 onScroll={onScroll}
                 scrollEventThrottle={100}
                 contentContainerStyle={{ paddingTop: topContentInset, paddingBottom: bottomContentInset }}

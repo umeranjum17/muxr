@@ -18,6 +18,7 @@ import { useActivityAcknowledgements } from '../application/useActivityAcknowled
 import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
 import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import { AgentGlyph } from '@/components/AgentGlyph';
+import { SectionLabel } from '@/components/ui';
 import { TerminalPreview } from '@/terminal/ui';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { RecentActivity } from './RecentActivity';
@@ -36,24 +37,16 @@ const stylesheet = StyleSheet.create((theme) => ({
         alignItems: 'center',
         gap: 8,
     },
-    heading: { color: theme.colors.groupped.sectionTitle, fontSize: 11, fontWeight: '700', letterSpacing: 1.2 },
     attentionIndicator: { width: 18, height: 28, alignItems: 'center', justifyContent: 'center' },
     attentionDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: theme.colors.status.error },
-    reconnecting: { marginLeft: 'auto', color: theme.colors.textSecondary, fontSize: 10 },
-    zeroState: {
-        height: 96,
+    reconnecting: { marginLeft: 'auto', color: theme.colors.textSecondary, fontSize: 11, lineHeight: 14 },
+    zeroLine: {
         marginHorizontal: STRIP_GUTTER,
-        paddingHorizontal: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 6,
-        borderRadius: 12,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.colors.divider,
-        backgroundColor: theme.colors.surfaceHigh,
+        marginTop: 8,
+        color: theme.colors.textSecondary,
+        fontSize: 13,
+        lineHeight: 18,
     },
-    zeroText: { color: theme.colors.textSecondary, fontSize: 13 },
     card: {
         height: CARD_HEIGHT,
         borderRadius: 12,
@@ -68,13 +61,13 @@ const stylesheet = StyleSheet.create((theme) => ({
     cardFooter: { minHeight: 48, paddingHorizontal: 10, paddingVertical: 6 },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     footerCopy: { flex: 1, minWidth: 0, gap: 2 },
-    title: { color: theme.colors.text, fontSize: 12, lineHeight: 15, fontWeight: '600' },
-    identity: { color: theme.colors.textSecondary, fontSize: 10, lineHeight: 13 },
+    title: { color: theme.colors.text, fontSize: 13, lineHeight: 16, fontWeight: '600' },
+    identity: { color: theme.colors.textSecondary, fontSize: 11, lineHeight: 14 },
     status: {
         flexShrink: 0,
         marginLeft: 8,
     },
-    statusText: { fontSize: 10, lineHeight: 13, fontVariant: ['tabular-nums'] },
+    statusText: { fontSize: 11, lineHeight: 14, fontVariant: ['tabular-nums'] },
 }));
 
 interface CardProps {
@@ -272,7 +265,7 @@ export const LiveTerminalsRow = React.memo(({
     return (
         <View style={stylesheet.strip} onLayout={handleLayout}>
             <View style={stylesheet.header}>
-                <Text style={stylesheet.heading}>{t('liveTerminals.title')}</Text>
+                <SectionLabel>{t('liveTerminals.title')}</SectionLabel>
                 {attentionIndex === -1 ? null : (
                     <Pressable
                         accessibilityRole="button"
@@ -287,9 +280,7 @@ export const LiveTerminalsRow = React.memo(({
             </View>
             {cards.length === 0 ? (
                 showZeroState ? (
-                    <View style={stylesheet.zeroState}>
-                        <Text style={stylesheet.zeroText}>No live agents · Start one below</Text>
-                    </View>
+                    <Text style={stylesheet.zeroLine}>{t('homeNotices.liveEmpty')}</Text>
                 ) : null
             ) : (
                 <View ref={stripListRef} collapsable={false}>

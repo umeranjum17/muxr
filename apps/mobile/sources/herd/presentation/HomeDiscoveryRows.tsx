@@ -12,7 +12,7 @@ const styles = StyleSheet.create((theme) => ({
     container: { width: '100%', maxWidth: 800, alignSelf: 'center', paddingHorizontal: 16, marginTop: 12, gap: 8 },
     row: { flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 12, padding: 14, backgroundColor: theme.colors.surfaceHigh },
     title: { color: theme.colors.text, fontSize: 14, ...Typography.default('semiBold') },
-    breadcrumb: { color: theme.colors.textSecondary, fontSize: 10, ...Typography.default() },
+    breadcrumb: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 16, ...Typography.default() },
 }));
 
 export function HomeDiscoveryRows() {
@@ -21,8 +21,8 @@ export function HomeDiscoveryRows() {
     const { authority, loading } = useDeviceAuthority();
     const connected = useSocketStatus().status === 'connected';
     const rows = [
-        ...(connected && !loading && authority === 'control' ? [{ title: 'Start an agent', location: 'NEW AGENT → CHOOSE COMPUTER', icon: 'add-circle-outline' as const, href: '/new-agent' }] : []),
-        { title: 'Connect another computer', location: 'SETTINGS → CONNECTION', icon: 'desktop-outline' as const, href: '/settings/connection' },
+        ...(connected && !loading && authority === 'control' ? [{ title: 'Start an agent', location: 'New agent · choose computer', icon: 'add-circle-outline' as const, href: '/new-agent' }] : []),
+        { title: 'Connect another computer', location: 'Settings · connection', icon: 'desktop-outline' as const, href: '/settings/connection' },
     ];
     return (
         <View style={styles.container}>

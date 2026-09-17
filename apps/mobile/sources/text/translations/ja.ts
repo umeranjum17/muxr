@@ -266,6 +266,29 @@ export const ja: TranslationStructure = {
         title: 'ライブ',
     },
 
+    recentActivity: {
+        // Home tiers: agents that need a decision, then finished work not yet opened
+        needsYou: '対応が必要',
+        readyUnseen: '完了 · 未読',
+        showMore: ({ count }: { count: number }) => `他 ${count} 件を表示`,
+        showLess: '表示を減らす',
+    },
+
+    spacesTree: {
+        // Spaces section on Home
+        title: 'スペース',
+        empty: '開いているスペースはありません',
+    },
+
+    homeNotices: {
+        // Quiet notices at the top of Home
+        versions: 'アプリとホストのバージョンが異なります',
+        reviewUpdates: 'アップデートを確認',
+        runtimeOffline: ({ name }: { name: string }) => `${name} で herdr が応答していません`,
+        runtimeStale: 'セッションが古い可能性があります',
+        liveEmpty: '稼働中のエージェントなし · 下から開始',
+    },
+
     emptySessions: {
         // Empty state shown on tablets when no sessions are active
         noActiveSessions: 'アクティブなセッションがありません',

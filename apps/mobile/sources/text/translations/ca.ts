@@ -261,7 +261,30 @@ export const ca: TranslationStructure = {
 
     liveTerminals: {
         // Live terminals strip on the home screen
-        title: 'EN DIRECTE',
+        title: 'En directe',
+    },
+
+    recentActivity: {
+        // Home tiers: agents that need a decision, then finished work not yet opened
+        needsYou: 'Et cal',
+        readyUnseen: 'Acabat · sense veure',
+        showMore: ({ count }: { count: number }) => `Mostra ${count} més`,
+        showLess: 'Mostra menys',
+    },
+
+    spacesTree: {
+        // Spaces section on Home
+        title: 'Espais',
+        empty: 'Cap espai obert',
+    },
+
+    homeNotices: {
+        // Quiet notices at the top of Home
+        versions: 'Les versions de l\'app i de l\'amfitrió difereixen',
+        reviewUpdates: 'revisa les actualitzacions',
+        runtimeOffline: ({ name }: { name: string }) => `herdr no respon a ${name}`,
+        runtimeStale: 'les sessions poden estar desactualitzades',
+        liveEmpty: 'Cap agent actiu · inicia\'n un a sota',
     },
 
     emptySessions: {

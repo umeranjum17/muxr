@@ -260,7 +260,30 @@ export const it: TranslationStructure = {
 
     liveTerminals: {
         // Live terminals strip on the home screen
-        title: 'DAL VIVO',
+        title: 'Dal vivo',
+    },
+
+    recentActivity: {
+        // Home tiers: agents that need a decision, then finished work not yet opened
+        needsYou: 'Richiede te',
+        readyUnseen: 'Completato · non visto',
+        showMore: ({ count }: { count: number }) => `Mostra ${count} altri`,
+        showLess: 'Mostra meno',
+    },
+
+    spacesTree: {
+        // Spaces section on Home
+        title: 'Spazi',
+        empty: 'Nessuno spazio aperto',
+    },
+
+    homeNotices: {
+        // Quiet notices at the top of Home
+        versions: 'Le versioni dell\'app e dell\'host differiscono',
+        reviewUpdates: 'rivedi gli aggiornamenti',
+        runtimeOffline: ({ name }: { name: string }) => `herdr non risponde su ${name}`,
+        runtimeStale: 'le sessioni potrebbero non essere aggiornate',
+        liveEmpty: 'Nessun agente attivo · avviane uno qui sotto',
     },
 
     emptySessions: {
