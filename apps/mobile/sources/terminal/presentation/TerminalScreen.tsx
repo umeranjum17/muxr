@@ -394,16 +394,16 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         }
         const known = agentCommands(paneKind);
         const kindLabel = agentKindLabel(paneKind) ?? paneKind;
-        const sendDangerous = (entry: AgentCommand) => {
-            void Modal.confirm(`Send ${entry.command}?`, `${entry.description}.${entry.reversible === true ? '' : ' This discards the current context.'}`, {
+        const sendDangerous = async (entry: AgentCommand) => {
+            const ok = await Modal.confirm(`Send ${entry.command}?`, `${entry.description}.${entry.reversible === true ? '' : ' This discards the current context.'}`, {
                 confirmText: `Send ${entry.command}`,
                 destructive: true,
-            }).then((ok) => {
-                if (ok) {
-                    showGestureHintRef.current(t('commandPalette.sent', { command: entry.command }));
-                    sendCommand(entry.command);
-                }
             });
+            // Cancelling resolves false so the palette stays open beneath the dialog.
+            if (!ok) return false;
+            showGestureHintRef.current(t('commandPalette.sent', { command: entry.command }));
+            sendCommand(entry.command);
+            return true;
         };
         const toEntry = (entry: AgentCommand, category: string): Command => ({
             id: entry.command,
