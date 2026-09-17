@@ -98,6 +98,8 @@ export const ru: TranslationStructure = {
             watch: 'Сдерживайте темп',
             low: 'Почти исчерпано',
             limited: 'Ограничение скорости',
+            percentLeft: ({ percent }: { percent: number }) => `осталось ${percent}%`,
+            percentUsed: ({ percent }: { percent: number }) => `использовано ${percent}%`,
         },
         rightNow: {
             title: 'Прямо сейчас',

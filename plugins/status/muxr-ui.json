@@ -139,7 +139,6 @@
       "id": "usage.settings",
       "type": "settings-item",
       "label": "Usage",
-      "subtitle": "Plan limits, today and this week",
       "icon": "speedometer-outline",
       "action": {
         "type": "screen",

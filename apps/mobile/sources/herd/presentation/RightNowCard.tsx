@@ -184,7 +184,7 @@ function cardAccessibilityLabel(payload: RightNowPayload): string {
     const limit = payload.limit;
     if (limit !== undefined) {
         const verdict = limit.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[limit.verdict]);
-        const line = [verdict, `${limit.label} ${Math.round(limit.used)} percent used`]
+        const line = [verdict, [limit.label, t('plugins.limits.percentUsed', { percent: Math.round(limit.used) })].join(' ')]
             .filter((part) => part !== undefined).join(', ');
         parts.push(limit.resetsIn === undefined ? line : `${line}, ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`);
     } else if (payload.collecting === true) {
@@ -196,7 +196,12 @@ function cardAccessibilityLabel(payload: RightNowPayload): string {
     }
     if (payload.vitals !== undefined) {
         const { memoryPercent, diskPercent, load, uptime } = vitalsFacts(payload.vitals);
-        parts.push(`${t('plugins.rightNow.memory')} ${memoryPercent} percent, ${t('plugins.rightNow.disk')} ${diskPercent} percent, ${t('plugins.rightNow.load')} ${load}, ${t('plugins.rightNow.up')} ${uptime}`);
+        parts.push([
+            `${t('plugins.rightNow.memory')} ${t('plugins.limits.percentUsed', { percent: memoryPercent })}`,
+            `${t('plugins.rightNow.disk')} ${t('plugins.limits.percentUsed', { percent: diskPercent })}`,
+            `${t('plugins.rightNow.load')} ${load}`,
+            `${t('plugins.rightNow.up')} ${uptime}`,
+        ].join(', '));
     }
     parts.push(t('plugins.rightNow.opensUsage'));
     return parts.join('. ');

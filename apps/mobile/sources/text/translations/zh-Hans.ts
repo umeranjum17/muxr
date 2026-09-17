@@ -89,6 +89,8 @@ export const zhHans: TranslationStructure = {
             watch: '注意节奏',
             low: '即将用尽',
             limited: '已限速',
+            percentLeft: ({ percent }: { percent: number }) => `剩余 ${percent}%`,
+            percentUsed: ({ percent }: { percent: number }) => `已使用 ${percent}%`,
         },
         rightNow: {
             title: '当前状态',

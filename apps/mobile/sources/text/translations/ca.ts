@@ -87,6 +87,8 @@ export const ca: TranslationStructure = {
             watch: 'Modera el ritme',
             low: 'Gairebé esgotat',
             limited: 'Limitat',
+            percentLeft: ({ percent }: { percent: number }) => `${percent}% restant`,
+            percentUsed: ({ percent }: { percent: number }) => `${percent}% usat`,
         },
         rightNow: {
             title: 'Ara mateix',

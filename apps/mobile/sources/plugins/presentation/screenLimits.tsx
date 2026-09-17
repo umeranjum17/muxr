@@ -42,14 +42,14 @@ function bindingWindow(windows: PluginLimitsWindow[]): PluginLimitsWindow | unde
 function limitsSummary(payload: PluginLimitsPayload): string {
     const tightest = bindingWindow(payload.windows);
     const verdict = payload.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.verdict]);
-    const head = [verdict, tightest === undefined ? undefined : `${100 - Math.round(tightest.used)} percent left`]
+    const head = [verdict, tightest === undefined ? undefined : t('plugins.limits.percentLeft', { percent: 100 - Math.round(tightest.used) })]
         .filter((part) => part !== undefined).join(', ');
     const rows = payload.windows.map((window) => {
-        const parts = [`${window.label} ${Math.round(window.used)} percent used`];
-        if (window.resetsIn !== undefined) parts.push(`resets in ${window.resetsIn}`);
+        const parts = [[window.label, t('plugins.limits.percentUsed', { percent: Math.round(window.used) })].join(' ')];
+        if (window.resetsIn !== undefined) parts.push(t('plugins.rightNow.resetsIn', { time: window.resetsIn }));
         return parts.join(', ');
     });
-    return [`${payload.plan ?? 'Right now'}: ${head}`, ...rows].join('. ');
+    return [`${payload.plan ?? t('plugins.rightNow.title')}: ${head}`, ...rows].join('. ');
 }
 
 /**

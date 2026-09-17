@@ -86,6 +86,8 @@ export const en = {
             watch: 'Pace yourself',
             low: 'Nearly out',
             limited: 'Rate limited',
+            percentLeft: ({ percent }: { percent: number }) => `${percent}% left`,
+            percentUsed: ({ percent }: { percent: number }) => `${percent}% used`,
         },
         rightNow: {
             title: 'Right now',

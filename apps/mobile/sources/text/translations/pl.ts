@@ -98,6 +98,8 @@ export const pl: TranslationStructure = {
             watch: 'Kontroluj tempo',
             low: 'Prawie wyczerpane',
             limited: 'Ograniczenie',
+            percentLeft: ({ percent }: { percent: number }) => `pozostało ${percent}%`,
+            percentUsed: ({ percent }: { percent: number }) => `wykorzystano ${percent}%`,
         },
         rightNow: {
             title: 'Teraz',

@@ -90,6 +90,8 @@ export const ja: TranslationStructure = {
             watch: 'ペース注意',
             low: 'まもなく上限',
             limited: 'レート制限中',
+            percentLeft: ({ percent }: { percent: number }) => `残り ${percent}%`,
+            percentUsed: ({ percent }: { percent: number }) => `${percent}% 使用済み`,
         },
         rightNow: {
             title: '現在の状態',
