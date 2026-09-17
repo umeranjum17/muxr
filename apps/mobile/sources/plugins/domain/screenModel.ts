@@ -1,4 +1,4 @@
-import type { PluginAction, PluginManifestV1, PluginRpcCapability, PluginScreenButtonNode, PluginScreenContribution, PluginScreenNode, PluginScreenTone, PluginText, RequestParams } from '@muxr/contract';
+import type { PluginAction, PluginContribution, PluginManifestV1, PluginRpcCapability, PluginScreenButtonNode, PluginScreenContribution, PluginScreenNode, PluginScreenTone, PluginText, RequestParams } from '@muxr/contract';
 import { MAX_RPC_DISPLAY_BYTES, capUtf8Bytes, defaultPluginText, sanitizeDisplayText } from '@muxr/contract';
 
 /** `{{data.dotted.path}}` bindings only; no expressions. Unresolved paths render empty. */
@@ -167,11 +167,25 @@ export async function loadScreenData(
  * to this same string, so a plugin whose label equals its title prints once.
  */
 export function contentMountTitle(manifest: PluginManifestV1, contentId: string, pluginName: string, resolve: (value: PluginText) => string): string {
-    const mounts = manifest.contributions.filter((contribution) => 'contentContributionId' in contribution);
+    const mounts = manifest.contributions.filter(
+        (contribution): contribution is PluginContribution & { contentContributionId: string } =>
+            'contentContributionId' in contribution
+            && typeof (contribution as { contentContributionId?: unknown }).contentContributionId === 'string',
+    );
     const mount = nearestContentMount(mounts, contentId);
-    if (mount !== undefined && 'label' in mount) return resolve(mount.label);
-    if (mount !== undefined && 'title' in mount && mount.title !== undefined) return resolve(mount.title);
+    if (mount !== undefined) {
+        const candidate = mount as { label?: unknown; title?: unknown };
+        if (isPluginText(candidate.label)) return resolve(candidate.label);
+        if (isPluginText(candidate.title)) return resolve(candidate.title);
+    }
     return pluginName;
+}
+
+/** Manifest text is untrusted: only a string or a `{ default }` object resolves. */
+function isPluginText(value: unknown): value is PluginText {
+    if (typeof value === 'string') return true;
+    return typeof value === 'object' && value !== null && 'default' in value
+        && typeof (value as { default?: unknown }).default === 'string';
 }
 
 /** Stable canonical input solely for hashing; plaintext is never retained by the key store. */
