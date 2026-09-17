@@ -196,6 +196,14 @@ function packagedBundledRoots(): Map<string, string> {
     return roots;
 }
 const PACKAGED_BUNDLED_ROOTS = packagedBundledRoots();
+/**
+ * Retired bundled plugins: dictation, terminal keys, and the workspace tree
+ * are product code now. Their registrations survive in herdr (global to the
+ * machine), so a host that still projected them would double every surface —
+ * two key rows, two dictate buttons. Never serve these ids to clients; a
+ * user-authored plugin under its own id is unaffected.
+ */
+const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys', 'muxr.dictation', 'muxr.workspace-hierarchy']);
 function fromPackagedRoot(plugin: HerdrPlugin): HerdrPlugin {
     const root = PACKAGED_BUNDLED_ROOTS.get(plugin.plugin_id);
     return root === undefined ? plugin : { ...plugin, plugin_root: root };
@@ -1942,7 +1950,7 @@ export async function createHerdrSessionSource(
 
     const pluginRefreshGate = new PluginRefreshGate(async () => {
             const result = await client.call<{ plugins?: HerdrPlugin[] }>('plugin.list');
-            const plugins = (result.plugins ?? []).map(fromPackagedRoot);
+            const plugins = (result.plugins ?? []).map(fromPackagedRoot).filter((plugin) => !RETIRED_PLUGIN_IDS.has(plugin.plugin_id));
             const nextDigests = await catalog.refresh(plugins);
             const nextEnabled = new Map(plugins.map((plugin) => [plugin.plugin_id, plugin.enabled]));
             const previousDigests = pluginDigests;

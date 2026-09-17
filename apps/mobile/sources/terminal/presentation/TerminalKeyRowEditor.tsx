@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { encodeKeyBytes } from '@muxr/contract';
@@ -18,8 +18,9 @@ import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, escapeToBytes, type CustomKey, typ
  * `\e` `\n` `\xHH` escape syntax as the operator's config file.
  */
 
-// ponytail: drag list has no autoscroll, so a row count that overflows the
-// sheet cannot be dragged past the fold; wrap or autoscroll if that bites.
+// ponytail: rows live in one ScrollView; a drag cannot autoscroll the list,
+// so a drag that reaches the visible edge stops there. Wrap or autoscroll if
+// a longer row ever needs it.
 const STEP = 62;
 
 export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, onClose }: {
@@ -120,7 +121,7 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
                 <Pressable style={styles.dismiss} onPress={onClose} accessibilityLabel="Close key row editor" />
                 <View style={[styles.sheet, {
                     backgroundColor: theme.colors.surface,
-                    maxHeight: sheetHeight,
+                    height: sheetHeight,
                     paddingBottom: insets.bottom + 12,
                     borderColor: theme.colors.divider,
                 }]}>
@@ -131,6 +132,7 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
                         </Pressable>
                     </View>
 
+                    <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
                     <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Live preview</Text>
                     <View style={[styles.preview, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
                         {keys.map((key, index) => (
@@ -185,6 +187,7 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
                             <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the default row</Text>
                         </Pressable>
                     )}
+                    </ScrollView>
                 </View>
             </GestureHandlerRootView>
         </Modal>
@@ -299,6 +302,8 @@ const styles = StyleSheet.create({
     backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
     dismiss: { flex: 1 },
     sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingTop: 12 },
+    body: { flex: 1 },
+    bodyContent: { paddingBottom: 8 },
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
     title: { fontSize: 17, fontWeight: '600' },
     caption: { fontSize: 12, marginTop: 10, marginBottom: 6 },
