@@ -371,7 +371,7 @@ const GroupRow = React.memo(({
             android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
             accessibilityRole="button"
             accessibilityState={{ expanded }}
-            accessibilityLabel={`${noun}, ${summaryWords}. ${expanded ? t('spacesTree.expand') : t('spacesTree.collapse')}`}
+            accessibilityLabel={`${noun}, ${summaryWords}. ${expanded ? t('spacesTree.collapse') : t('spacesTree.expand')}`}
         >
             <View style={styles.chevron}>
                 <Ionicons
@@ -627,8 +627,12 @@ export const SpacesTree = React.memo(({
     const toggleWorkspaceCard = React.useCallback((workspaceId: string) => {
         setExpanded((previous) => {
             const next = new Set(previous);
-            if (next.delete(workspaceId)) next.delete(`group:${workspaceId}`);
-            else next.add(workspaceId);
+            if (next.has(workspaceId) || next.has(`group:${workspaceId}`)) {
+                next.delete(workspaceId);
+                next.delete(`group:${workspaceId}`);
+            } else {
+                next.add(workspaceId);
+            }
             return next;
         });
     }, []);
