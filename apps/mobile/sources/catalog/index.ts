@@ -32,6 +32,6 @@ export * from './infrastructure/storageTypes';
 export * from './infrastructure/friendTypes';
 export * from './infrastructure/typesMessage';
 export * from './infrastructure/attachmentTypes';
-export * from './infrastructure/gitStatusFiles';
+export * from './application/gitStatusFiles';
 export * from './infrastructure/appConfig';
 export * from './infrastructure/messageMeta';
