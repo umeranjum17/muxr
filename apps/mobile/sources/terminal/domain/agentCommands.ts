@@ -11,7 +11,8 @@
  * `docs/usage.md` slash table, opencode `opencode.ai/docs/tui`.
  *
  * `common` surfaces first on a phone; `dangerous` moves the row into a
- * separated destructive section behind a two-tap confirm.
+ * separated destructive section behind a two-tap confirm, whose context-loss
+ * sentence is skipped for `reversible` entries.
  */
 export type AgentCommand = {
     command: string;
@@ -19,6 +20,7 @@ export type AgentCommand = {
     arguments?: string;
     common?: boolean;
     dangerous?: boolean;
+    reversible?: boolean;
 };
 
 const COMMANDS: Record<string, readonly AgentCommand[]> = {
@@ -67,7 +69,7 @@ const COMMANDS: Record<string, readonly AgentCommand[]> = {
         { command: '/models', description: 'List available models', common: true },
         { command: '/sessions', description: 'List and switch sessions', common: true },
         { command: '/new', description: 'Start a new session, dropping this one', dangerous: true },
-        { command: '/undo', description: 'Undo the last message and its changes', dangerous: true },
+        { command: '/undo', description: 'Undo the last message and its changes', dangerous: true, reversible: true },
         { command: '/redo', description: 'Redo an undone message' },
         { command: '/help', description: 'Show OpenCode commands' },
         { command: '/init', description: 'Scaffold agent instructions for this project' },
