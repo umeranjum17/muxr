@@ -664,7 +664,7 @@ export const zhHans: TranslationStructure = {
         connectTerminal: '连接终端',
         linkNewDevice: '链接新设备', 
         restoreWithSecretKey: '通过密钥恢复',
-        browserTakeover: '浏览器接管',
+        browserTakeover: '浏览器',
         whatsNew: "更新日志",
         friends: '好友',
     },

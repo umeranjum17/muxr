@@ -662,7 +662,7 @@ export const pt: TranslationStructure = {
         connectTerminal: 'Conectar terminal',
         linkNewDevice: 'Vincular novo dispositivo', 
         restoreWithSecretKey: 'Restaurar com chave secreta',
-        browserTakeover: 'Controlo do navegador',
+        browserTakeover: 'Navegador',
         whatsNew: 'Novidades',
         friends: 'Amigos',
     },

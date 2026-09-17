@@ -663,7 +663,7 @@ export const zhHant: TranslationStructure = {
         connectTerminal: '連線終端',
         linkNewDevice: '連結新裝置',
         restoreWithSecretKey: '透過金鑰恢復',
-        browserTakeover: '瀏覽器接管',
+        browserTakeover: '瀏覽器',
         whatsNew: "更新日誌",
         friends: '好友',
     },

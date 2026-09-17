@@ -664,7 +664,7 @@ export const ja: TranslationStructure = {
         connectTerminal: 'ターミナルを接続',
         linkNewDevice: '新しいデバイスをリンク',
         restoreWithSecretKey: 'シークレットキーで復元',
-        browserTakeover: 'ブラウザ引き継ぎ',
+        browserTakeover: 'ブラウザ',
         whatsNew: "新機能",
         friends: '友達',
     },
