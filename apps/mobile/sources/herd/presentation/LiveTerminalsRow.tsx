@@ -76,13 +76,14 @@ interface CardProps {
     height: number;
     paused: boolean;
     disconnected: boolean;
+    unseenDone: boolean;
 }
 
 function terminalIsLive(card: LiveTerminalOrderCard): boolean {
     return card.agentStatus === 'working' || card.agentStatus === 'starting' || card.agentStatus === 'blocked';
 }
 
-const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected }: CardProps) => {
+const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected, unseenDone }: CardProps) => {
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
     const labels = agentLabels(card);
@@ -100,7 +101,7 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
                 { width, height, opacity: pressed ? 0.8 : disconnected ? 0.55 : 1 },
             ]}
         >
-            <View style={[stylesheet.cardBody, !live && stylesheet.endedBody]}>
+            <View style={[stylesheet.cardBody, !live && !unseenDone && stylesheet.endedBody]}>
                 <TerminalPreview sessionId={card.id} paused={paused} live={live} />
             </View>
             <View style={stylesheet.cardFooter}>
@@ -186,6 +187,12 @@ export const LiveTerminalsRow = React.memo(({
         () => activityRows.filter((row) => row.status === 'done'),
         [activityRows],
     );
+    // The card highlight set IS the tier, so a card and the tier can never
+    // disagree about which finished outcomes are still unopened.
+    const readySessionIds = React.useMemo(
+        () => new Set(readyRows.map((row) => row.sessionId)),
+        [readyRows],
+    );
 
     React.useEffect(() => {
         setForeground(AppState.currentState === 'active');
@@ -259,6 +266,7 @@ export const LiveTerminalsRow = React.memo(({
             height={CARD_HEIGHT}
             paused={Math.abs(index - firstVisible) > 2}
             disconnected={socketStatus !== 'connected'}
+            unseenDone={readySessionIds.has(card.id)}
         />
     );
 

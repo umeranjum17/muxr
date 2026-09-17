@@ -3,7 +3,7 @@ import type { LifecycleEvent } from '@muxr/contract';
 import type { Session } from '@/catalog';
 import type { HerdPane } from '../domain/herd';
 import { agentAccessibilityLabel, agentLabels, agentStateLabel } from '../domain/agentPresentation';
-import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
+import { unseenActivityRows, unseenDoneSessionIds, type RecentActivityRow } from '../domain/recentActivity';
 import {
     nextWorkingAgentId,
     orderLiveTerminalCards,
@@ -138,6 +138,31 @@ describe('agent lifecycle presentation', () => {
             event('seen', 'seen-agent', 'done', '2026-01-01T23:59:30.000Z'),
             event('older-unseen', 'seen-agent', 'blocked', '2026-01-01T23:58:30.000Z'),
         ], new Set(['seen']), now)).toEqual([]);
+    });
+
+    it('derives the unseen-done highlight set from the same rows as the tier', () => {
+        const now = Date.parse('2026-01-02T00:00:00.000Z');
+        const event = (eventId: string, sessionId: string, state: LifecycleEvent['state'], at: string): LifecycleEvent => ({
+            eventId,
+            sessionId,
+            agentName: 'Otter',
+            agentKind: 'codex',
+            state,
+            reasonCode: 'state-reconciled',
+            at,
+        });
+        // Highlight and tier cannot disagree: one derivation, done rows only.
+        // Newest first, the order the host catalog serves. A restart (three:
+        // done then working) does not erase the missed outcome — the tier keeps
+        // it until the agent is opened, so the highlight keeps it too.
+        expect(unseenDoneSessionIds([
+            event('working-again', 'three', 'working', '2026-01-01T23:59:30.000Z'),
+            event('unseen-done', 'one', 'done', '2026-01-01T23:59:00.000Z'),
+            event('seen-done', 'two', 'done', '2026-01-01T23:58:00.000Z'),
+            event('restarted', 'three', 'done', '2026-01-01T23:57:00.000Z'),
+            event('blocked', 'four', 'blocked', '2026-01-01T23:56:00.000Z'),
+            event('old', 'five', 'done', '2025-12-31T23:00:00.000Z'),
+        ], new Set(['seen-done']), now)).toEqual(new Set(['one', 'three']));
     });
 
     it('acknowledges only fully visible cards on a focused foreground Herd screen', () => {

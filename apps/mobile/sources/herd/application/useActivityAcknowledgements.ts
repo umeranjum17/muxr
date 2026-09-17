@@ -1,5 +1,7 @@
 import * as React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useLifecycleEvents } from '@/catalog/store';
+import { unseenDoneSessionIds } from '../domain/recentActivity';
 
 const STORAGE_KEY = 'muxr.herd.seen-activity.v1';
 const MAX_SEEN_EVENTS = 128;
@@ -76,4 +78,16 @@ export function useActivityAcknowledgements(): {
 } {
     const current = React.useSyncExternalStore(subscribe, getSnapshot);
     return { ready: current.ready, seenEventIds: current.seenEventIds, markSeen };
+}
+
+/** Sessions whose finished outcome is still unopened — one seen rule, shared by the tier, the strip cards and the Spaces tree. */
+export function useUnseenDoneSessionIds(): ReadonlySet<string> {
+    const { ready, seenEventIds } = useActivityAcknowledgements();
+    const lifecycleEvents = useLifecycleEvents();
+    return React.useMemo(
+        // Silent until AsyncStorage answers, like the tier: a persisted seen
+        // mark would otherwise flash the settled row loud on cold start.
+        () => ready ? unseenDoneSessionIds(lifecycleEvents, seenEventIds) : new Set<string>(),
+        [ready, lifecycleEvents, seenEventIds],
+    );
 }
