@@ -1,13 +1,18 @@
 import * as React from 'react';
-import { View, Image, ActivityIndicator, Pressable, TextInput, Keyboard, useWindowDimensions } from 'react-native';
+import { View, Image, ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, Keyboard, useWindowDimensions } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
+import { useKeyboardState } from 'react-native-keyboard-controller';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
+import { StatusDot } from '@/components/StatusDot';
+import { cardStyle, ui } from '@/components/ui';
 import { Modal } from '@/modal';
 import { machineBash } from '@/catalog/ops';
-import { useSession, useSocketStatus } from '@/catalog/store';
+import { useHerdrTree, useSession, useSocketStatus } from '@/catalog/store';
+import { agentLabels, herdrPaneForSession, isShellLabels, middleTruncate } from '@/herd';
+import { t } from '@/text';
 import { mapDisplayToInput, type Point, type Size, type StreamFrameMetadata } from '@/takeover';
 import { codeForKey, keyMessage, mouseMessage, openTakeover, parseStreamFrame, parseStreamPage, touchMessage } from '@/takeover';
 
@@ -57,11 +62,11 @@ const DRAG_STEPS = 8;
 const OPEN_TIMEOUT_MS = 15_000;
 
 /**
- * What the person can be looking at: the page, the wait for it, or one of
- * three plain-language failures (no browser to open, could not reach it,
- * lost it mid-session).
+ * What the person can be looking at: the page, the wait for the connection
+ * or for the page, or one of four plain-language failures (no browser to
+ * open, could not reach it, lost it mid-session, could not open one).
  */
-type Phase = 'opening' | 'live' | 'unreachable' | 'noBrowser' | 'lost';
+type Phase = 'waiting' | 'opening' | 'live' | 'unreachable' | 'noBrowser' | 'lost' | 'openFailed';
 
 /**
  * Live view of an agent-browser stream, tunnelled through the relay preview
@@ -73,8 +78,10 @@ export default function TakeoverScreen() {
     const { id, port, session: browserSession } = useLocalSearchParams<{ id: string; port?: string; session?: string }>();
     const session = useSession(id);
     const { status } = useSocketStatus();
+    const { workspaces } = useHerdrTree();
     const window = useWindowDimensions();
-    const [phase, setPhase] = React.useState<Phase>('opening');
+    const keyboard = useKeyboardState();
+    const [phase, setPhase] = React.useState<Phase>('waiting');
     const [frame, setFrame] = React.useState<LiveFrame | null>(null);
     const [pageUrl, setPageUrl] = React.useState<string | null>(null);
     // Raw shell output, kept for the Details disclosure only.
@@ -101,11 +108,55 @@ export default function TakeoverScreen() {
     const mountedRef = React.useRef<boolean>(true);
     React.useEffect(() => () => { mountedRef.current = false; }, []);
 
+    // The pane says whose browser this is and what the agent is doing there;
+    // a shell pane or no pane at all stays nameless.
+    const pane = herdrPaneForSession(workspaces, id);
+    const paneLabels = agentLabels(pane);
     const cwd = session?.metadata?.path ?? '.';
     const sessionFlag = selectedSession(browserSession);
     const agentBrowser = sessionFlag === undefined ? 'agent-browser' : `agent-browser --session ${sessionFlag}`;
     const machineName = session?.metadata?.host ?? 'this computer';
-    const agentName = session?.metadata?.name ?? 'The agent';
+    const agentName = isShellLabels(paneLabels) ? 'The agent' : paneLabels.agentName;
+
+    const pageHost = React.useMemo(() => {
+        if (pageUrl === null) return undefined;
+        try {
+            return new URL(pageUrl).hostname || undefined;
+        } catch {
+            return undefined;
+        }
+    }, [pageUrl]);
+
+    // Status line words (one surface, decided): the pane lifecycle says what
+    // the agent is doing, the active URL says where. Dots are decorative.
+    const paneStatus = pane?.agentStatus;
+    const statusSentence = paneStatus === 'working' || paneStatus === 'starting'
+        ? t('browser.statusBrowsing', { agent: agentName })
+        : paneStatus === 'blocked'
+            ? t('browser.statusWaitingForYou', { agent: agentName })
+            : paneStatus === 'failed'
+                ? t('browser.statusStopped', { agent: agentName })
+                : undefined;
+    const statusDot = paneStatus === 'working' || paneStatus === 'starting'
+        ? theme.colors.status.working
+        : paneStatus === 'blocked' || paneStatus === 'failed'
+            ? theme.colors.status.error
+            : undefined;
+    const statusLineView = (
+        <View
+            accessibilityLiveRegion="polite"
+            style={{ height: 44, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, backgroundColor: theme.colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider }}
+        >
+            {statusDot !== undefined && <StatusDot color={statusDot} isPulsing={paneStatus === 'working' || paneStatus === 'starting'} />}
+            <Text numberOfLines={1} style={{ ...Typography.default(), fontSize: 13, lineHeight: 18, color: theme.colors.text, flex: 1 }}>
+                {statusSentence !== undefined
+                    ? <>{statusSentence}{pageHost !== undefined && <Text style={{ color: theme.colors.textSecondary }}>{` · ${middleTruncate(pageHost, 32)}`}</Text>}</>
+                    : pageHost !== undefined
+                        ? pageHost
+                        : t('browser.statusIdleBrowser', { agent: agentName })}
+            </Text>
+        </View>
+    );
 
     const send = React.useCallback((message: string) => {
         if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(message);
@@ -222,14 +273,16 @@ export default function TakeoverScreen() {
                 }
             }, OPEN_TIMEOUT_MS);
             socket.onmessage = (event) => {
+                // The tabs message rides its own frame; parse it before the
+                // frame check or the status line never learns the host.
+                const page = parseStreamPage(event.data);
+                if (page !== undefined) setPageUrl(page.url);
                 const next = parseStreamFrame(event.data);
                 if (next === undefined) return;
                 clearDeadline();
                 gotFrameRef.current = true;
                 setFrame({ uri: `data:image/jpeg;base64,${next.data}`, metadata: next.metadata });
                 setPhase('live');
-                const page = parseStreamPage(event.data);
-                if (page !== undefined) setPageUrl(page.url);
             };
             socket.onerror = () => {
                 if (socketRef.current !== socket) return;
@@ -273,6 +326,7 @@ export default function TakeoverScreen() {
         if (!opened.success) {
             setDetail([opened.stderr, opened.stdout].filter(Boolean).join('\n') || 'Could not open a browser.');
             setDetailOpen(true);
+            setPhase('openFailed');
             return;
         }
         await connect(undefined);
@@ -371,11 +425,14 @@ export default function TakeoverScreen() {
     }, [send]);
 
     const openAddress = React.useCallback(async () => {
-        const entered = await Modal.prompt('Open address', 'Navigate the watched browser to a web address.', { placeholder: 'https://…', confirmText: 'Open' });
-        const url = openableAddress(entered ?? undefined);
+        const entered = await Modal.prompt(t('browser.goTo'), undefined, { placeholder: t('browser.goToPlaceholder'), confirmText: t('browser.goToConfirm') });
+        const value = (entered ?? '').trim();
+        if (value === '') return;
+        // A bare host ("github.com") gets https:// before the openable check.
+        const url = openableAddress(/^[a-z][a-z0-9+.-]*:/i.test(value) ? value : `https://${value}`);
         if (url === undefined) return;
         const result = await machineBash('', `${agentBrowser} open '${url}'`, cwd);
-        if (!result.success) Modal.alert('Could not open the address', result.stderr || result.stdout);
+        if (!result.success) Modal.alert(t('browser.goToFailed'), result.stderr || result.stdout);
     }, [agentBrowser, cwd]);
 
     const toggleKeyboard = React.useCallback(() => {
@@ -393,24 +450,36 @@ export default function TakeoverScreen() {
         }
     }, [keyboardOpen]);
 
+    const streamDown = status !== 'connected';
+    const toolbarTarget = { width: 44, height: 44, alignItems: 'center' as const, justifyContent: 'center' as const };
     const toolbar = (
-        <View style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: theme.colors.surface }}>
-            <Pressable onPress={() => navigateStream('back')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Browser back">
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
+            <Pressable onPress={() => navigateStream('back')} disabled={streamDown} accessibilityRole="button" accessibilityLabel="Browser back" style={[toolbarTarget, streamDown && { opacity: 0.4 }]}>
                 <Ionicons name="arrow-back" size={20} color={theme.colors.text} />
             </Pressable>
-            <Pressable onPress={() => navigateStream('forward')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Browser forward">
+            <Pressable onPress={() => navigateStream('forward')} disabled={streamDown} accessibilityRole="button" accessibilityLabel="Browser forward" style={[toolbarTarget, streamDown && { opacity: 0.4 }]}>
                 <Ionicons name="arrow-forward" size={20} color={theme.colors.text} />
             </Pressable>
-            <Pressable onPress={toggleKeyboard} hitSlop={10} accessibilityRole="button" accessibilityLabel="Keyboard" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Pressable onPress={toggleKeyboard} disabled={streamDown} accessibilityRole="button" accessibilityLabel="Keyboard" style={[toolbarTarget, streamDown && { opacity: 0.4 }]}>
                 <Ionicons name={keyboardOpen ? 'keypad' : 'keypad-outline'} size={20} color={theme.colors.text} />
             </Pressable>
             <View style={{ flex: 1 }} />
-            <Pressable onPress={() => void openAddress()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Open address" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} disabled={status !== 'connected'}>
+            <Pressable onPress={() => void openAddress()} disabled={streamDown} accessibilityRole="button" accessibilityLabel="Go to" style={[toolbarTarget, streamDown && { opacity: 0.4 }]}>
                 <Ionicons name="globe-outline" size={20} color={theme.colors.text} />
             </Pressable>
-            <Pressable onPress={() => void saveState()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Remember login" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Pressable
+                onPress={() => void saveState()}
+                disabled={streamDown}
+                accessibilityRole="button"
+                accessibilityLabel="Remember login"
+                style={({ pressed }) => [
+                    { flexDirection: 'row', alignItems: 'center', gap: 6, height: 44, paddingHorizontal: 12, borderRadius: ui.radius.control },
+                    pressed && { backgroundColor: theme.colors.surfacePressed },
+                    streamDown && { opacity: 0.4 },
+                ]}
+            >
                 <Ionicons name="key-outline" size={20} color={theme.colors.text} />
-                <Text style={{ ...Typography.default(), color: theme.colors.text }}>Remember login</Text>
+                <Text numberOfLines={1} style={{ ...Typography.default('semiBold'), fontSize: 13, color: theme.colors.text }}>Remember login</Text>
             </Pressable>
         </View>
     );
@@ -448,7 +517,8 @@ export default function TakeoverScreen() {
 
     if (frame !== null) {
         return (
-            <View style={{ flex: 1, backgroundColor: '#000' }}>
+            <View style={{ flex: 1, backgroundColor: '#000', paddingBottom: keyboard.isVisible ? keyboard.height : 0 }}>
+                {statusLineView}
                 <View
                     style={{ flex: 1 }}
                     onLayout={(event) => setDisplay({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
@@ -465,12 +535,12 @@ export default function TakeoverScreen() {
                         panRef.current = null;
                         setPan({ x: 0, y: 0 });
                     }}
+                    accessible
+                    accessibilityLabel={`${agentName}'s browser page`}
+                    accessibilityHint="Tap and drag to use the page; the keyboard button types into it."
                 >
                     <Image source={{ uri: frame.uri }} style={{ flex: 1, transform: [{ translateX: pan.x }, { translateY: pan.y }] }} resizeMode="contain" />
                 </View>
-                {pageUrl !== null && (
-                    <Text numberOfLines={1} style={{ ...Typography.default(), fontSize: 11, color: theme.colors.textSecondary, paddingHorizontal: 16, paddingBottom: 8, backgroundColor: theme.colors.surface }}>{pageUrl}</Text>
-                )}
                 {toolbar}
                 {hiddenInput}
             </View>
@@ -478,67 +548,77 @@ export default function TakeoverScreen() {
     }
 
     const retry = () => void connect(lastPortRef.current);
+    const tryOpenBrowser = () => void openBrowser();
+    const waitingForConnection = phase === 'opening' || phase === 'waiting';
+    const errorTitle = phase === 'noBrowser'
+        ? `${agentName} hasn't opened a browser.`
+        : phase === 'unreachable'
+            ? `Couldn't reach the browser on ${machineName}.`
+            : phase === 'lost'
+                ? 'Lost the browser.'
+                : phase === 'openFailed'
+                    ? t('browser.openFailedTitle', { machine: machineName })
+                    : undefined;
+    const errorBody = phase === 'lost' ? t('browser.lostBody', { machine: machineName }) : undefined;
+    const errorAction = errorTitle === undefined ? undefined : {
+        label: phase === 'noBrowser' ? 'Open one' : phase === 'lost' ? 'Reconnect' : 'Try again',
+        onPress: phase === 'noBrowser' || phase === 'openFailed' ? tryOpenBrowser : retry,
+    };
 
     return (
-        <View style={{ flex: 1, backgroundColor: theme.colors.groupped.background, padding: 16, gap: 12 }}>
-            {phase === 'opening' && (
-                <View style={{ alignItems: 'center', paddingVertical: 24, gap: 12 }}>
-                    <ActivityIndicator size="small" color={theme.colors.text} />
-                    <Text style={{ ...Typography.default(), color: theme.colors.textSecondary }}>Opening…</Text>
-                </View>
-            )}
-
-            {phase === 'noBrowser' && (
-                <View style={{ alignItems: 'center', paddingVertical: 24, gap: 16 }}>
-                    <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center' }}>
-                        {agentName} hasn't opened a browser.
-                    </Text>
-                    <Pressable onPress={() => void openBrowser()} accessibilityRole="button" accessibilityLabel="Open a browser" style={{ paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.colors.surface }}>
-                        <Text style={{ ...Typography.default('semiBold'), color: theme.colors.textLink }}>Open one</Text>
-                    </Pressable>
-                </View>
-            )}
-
-            {phase === 'unreachable' && (
-                <View style={{ alignItems: 'center', paddingVertical: 24, gap: 16 }}>
-                    <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center' }}>
-                        Couldn't reach the browser on {machineName}.
-                    </Text>
-                    <Pressable onPress={retry} accessibilityRole="button" accessibilityLabel="Try again" style={{ paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.colors.surface }}>
-                        <Text style={{ ...Typography.default('semiBold'), color: theme.colors.textLink }}>Try again</Text>
-                    </Pressable>
-                </View>
-            )}
-
-            {phase === 'lost' && (
-                <View style={{ alignItems: 'center', paddingVertical: 24, gap: 16 }}>
-                    <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center' }}>
-                        Lost the browser.
-                    </Text>
-                    <Pressable onPress={retry} accessibilityRole="button" accessibilityLabel="Reconnect" style={{ paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.colors.surface }}>
-                        <Text style={{ ...Typography.default('semiBold'), color: theme.colors.textLink }}>Reconnect</Text>
-                    </Pressable>
-                </View>
-            )}
-
-            {detail !== null && (
-                <View style={{ gap: 4 }}>
-                    <Pressable
-                        onPress={() => setDetailOpen(!detailOpen)}
-                        accessibilityRole="button"
-                        accessibilityLabel={detailOpen ? 'Hide details' : 'Show details'}
-                        style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 }}
-                    >
-                        <Ionicons name={detailOpen ? 'chevron-down' : 'chevron-forward'} size={14} color={theme.colors.textSecondary} />
-                        <Text style={{ ...Typography.default(), color: theme.colors.textSecondary }}>Details</Text>
-                    </Pressable>
-                    {detailOpen && (
-                        <Text selectable style={{ ...Typography.default(), color: theme.colors.textSecondary, fontSize: 12 }}>
-                            {detail}
+        <View style={{ flex: 1, backgroundColor: theme.colors.groupped.background }}>
+            <View style={{ alignItems: 'center', paddingHorizontal: 24, paddingTop: 48, gap: 12 }}>
+                {waitingForConnection && (
+                    <>
+                        <ActivityIndicator size="small" color={theme.colors.text} />
+                        <Text style={{ ...Typography.default(), fontSize: 15, lineHeight: 21, color: theme.colors.textSecondary, textAlign: 'center' }}>
+                            {phase === 'opening' ? 'Opening…' : t('browser.waitingForConnection', { machine: machineName })}
                         </Text>
-                    )}
-                </View>
-            )}
+                    </>
+                )}
+                {errorTitle !== undefined && (
+                    <Text numberOfLines={3} style={{ ...Typography.default('semiBold'), fontSize: 17, lineHeight: 22, color: theme.colors.text, textAlign: 'center' }}>
+                        {errorTitle}
+                    </Text>
+                )}
+                {errorBody !== undefined && (
+                    <Text style={{ ...Typography.default(), fontSize: 15, lineHeight: 21, color: theme.colors.textSecondary, textAlign: 'center' }}>
+                        {errorBody}
+                    </Text>
+                )}
+                {errorAction !== undefined && (
+                    <Pressable
+                        onPress={errorAction.onPress}
+                        accessibilityRole="button"
+                        accessibilityLabel={errorAction.label}
+                        style={{ height: 44, minWidth: 140, paddingHorizontal: 20, borderRadius: ui.radius.control, backgroundColor: theme.colors.button.primary.background, alignItems: 'center', justifyContent: 'center' }}
+                    >
+                        <Text style={{ ...Typography.default('semiBold'), fontSize: 14, color: theme.colors.button.primary.tint }}>{errorAction.label}</Text>
+                    </Pressable>
+                )}
+                {detail !== null && (
+                    <>
+                        <Pressable
+                            onPress={() => setDetailOpen(!detailOpen)}
+                            accessibilityRole="button"
+                            accessibilityLabel={detailOpen ? 'Hide details' : 'Show details'}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 44, paddingHorizontal: 8 }}
+                        >
+                            <Ionicons name={detailOpen ? 'chevron-down' : 'chevron-forward'} size={14} color={theme.colors.textSecondary} />
+                            <Text style={{ ...Typography.default(), fontSize: 13, color: theme.colors.textSecondary }}>Details</Text>
+                        </Pressable>
+                        {detailOpen && (
+                            <View style={[cardStyle(theme), { alignSelf: 'stretch', padding: 12, maxHeight: '40%' }]}>
+                                <ScrollView>
+                                    <Text selectable style={{ ...Typography.mono(), fontSize: 12, lineHeight: 16, color: theme.colors.textSecondary }}>
+                                        {detail}
+                                    </Text>
+                                </ScrollView>
+                            </View>
+                        )}
+                    </>
+                )}
+            </View>
         </View>
     );
 }

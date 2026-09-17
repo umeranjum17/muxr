@@ -897,6 +897,20 @@ export const pl: TranslationStructure = {
         notSupportedMessage: 'Ten agent nie obsługuje załączników obrazów. Obrazy nie zostały wysłane.',
     },
 
+    browser: {
+        statusBrowsing: ({ agent }: { agent: string }) => `${agent} przegląda`,
+        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent} czeka na Twoje zalogowanie`,
+        statusStopped: ({ agent }: { agent: string }) => `${agent} zatrzymał się`,
+        statusIdleBrowser: ({ agent }: { agent: string }) => `Przeglądarka agenta ${agent}`,
+        waitingForConnection: ({ machine }: { machine: string }) => `Oczekiwanie na połączenie z ${machine}…`,
+        lostBody: ({ machine }: { machine: string }) => `Strona może być nadal otwarta na ${machine}.`,
+        openFailedTitle: ({ machine }: { machine: string }) => `Nie można otworzyć przeglądarki na ${machine}.`,
+        goTo: 'Przejdź do',
+        goToPlaceholder: 'Strona lub adres',
+        goToConfirm: 'Przejdź',
+        goToFailed: 'Nie można otworzyć tego adresu',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
     },

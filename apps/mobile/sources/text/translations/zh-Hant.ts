@@ -881,6 +881,20 @@ export const zhHant: TranslationStructure = {
         notSupportedMessage: '此代理不支援圖片附件。圖片未傳送。',
     },
 
+    browser: {
+        statusBrowsing: ({ agent }: { agent: string }) => `${agent}正在瀏覽`,
+        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent}正在等待你登入`,
+        statusStopped: ({ agent }: { agent: string }) => `${agent}已停止`,
+        statusIdleBrowser: ({ agent }: { agent: string }) => `${agent}的瀏覽器`,
+        waitingForConnection: ({ machine }: { machine: string }) => `正在等待連線到${machine}…`,
+        lostBody: ({ machine }: { machine: string }) => `頁面可能仍在${machine}上開啟。`,
+        openFailedTitle: ({ machine }: { machine: string }) => `無法在${machine}上開啟瀏覽器。`,
+        goTo: '前往',
+        goToPlaceholder: '網站或地址',
+        goToConfirm: '前往',
+        goToFailed: '無法開啟該地址',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
     },

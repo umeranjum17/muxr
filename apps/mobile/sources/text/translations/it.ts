@@ -880,6 +880,20 @@ export const it: TranslationStructure = {
         notSupportedMessage: 'Questo agente non supporta gli allegati immagine. Le immagini non sono state inviate.',
     },
 
+    browser: {
+        statusBrowsing: ({ agent }: { agent: string }) => `${agent} sta navigando`,
+        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent} attende che tu acceda`,
+        statusStopped: ({ agent }: { agent: string }) => `${agent} si è fermato`,
+        statusIdleBrowser: ({ agent }: { agent: string }) => `Browser di ${agent}`,
+        waitingForConnection: ({ machine }: { machine: string }) => `In attesa della connessione a ${machine}…`,
+        lostBody: ({ machine }: { machine: string }) => `La pagina potrebbe essere ancora aperta su ${machine}.`,
+        openFailedTitle: ({ machine }: { machine: string }) => `Impossibile aprire un browser su ${machine}.`,
+        goTo: 'Vai a',
+        goToPlaceholder: 'Sito o indirizzo',
+        goToConfirm: 'Vai',
+        goToFailed: "Impossibile aprire quell'indirizzo",
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
     }

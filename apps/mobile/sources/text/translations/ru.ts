@@ -898,6 +898,20 @@ export const ru: TranslationStructure = {
         notSupportedMessage: 'Этот агент не поддерживает вложения изображений. Изображения не были отправлены.',
     },
 
+    browser: {
+        statusBrowsing: ({ agent }: { agent: string }) => `${agent} просматривает`,
+        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent} ждёт вашего входа`,
+        statusStopped: ({ agent }: { agent: string }) => `${agent} остановился`,
+        statusIdleBrowser: ({ agent }: { agent: string }) => `Браузер ${agent}`,
+        waitingForConnection: ({ machine }: { machine: string }) => `Ожидание подключения к ${machine}…`,
+        lostBody: ({ machine }: { machine: string }) => `Возможно, страница всё ещё открыта на ${machine}.`,
+        openFailedTitle: ({ machine }: { machine: string }) => `Не удалось открыть браузер на ${machine}.`,
+        goTo: 'Перейти',
+        goToPlaceholder: 'Сайт или адрес',
+        goToConfirm: 'Открыть',
+        goToFailed: 'Не удалось открыть этот адрес',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
     },
