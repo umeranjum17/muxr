@@ -68,7 +68,7 @@ import { CommandPalette } from '@/components/CommandPalette';
 import type { Command } from '@/components/CommandPalette/types';
 import { CUSTOM_CATEGORY } from '@/components/CommandPalette/types';
 import { agentCommands, type AgentCommand } from '../domain/agentCommands';
-import { agentKindLabel } from '@/herd';
+import { agentKindLabel } from '@/herd/domain/agentPresentation';
 import { t } from '@/text';
 import { FindOutputSheet } from './FindOutputSheet';
 import { useTerminalQuickReplies } from '@/plugins/ui';
@@ -394,16 +394,16 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         }
         const known = agentCommands(paneKind);
         const kindLabel = agentKindLabel(paneKind) ?? paneKind;
-        const sendDangerous = async (entry: AgentCommand) => {
-            const ok = await Modal.confirm(`Send ${entry.command}?`, `${entry.description}.${entry.reversible === true ? '' : ' This discards the current context.'}`, {
+        const sendDangerous = (entry: AgentCommand) => {
+            void Modal.confirm(`Send ${entry.command}?`, `${entry.description}.${entry.reversible === true ? '' : ' This discards the current context.'}`, {
                 confirmText: `Send ${entry.command}`,
                 destructive: true,
+            }).then((ok) => {
+                if (ok) {
+                    showGestureHintRef.current(t('commandPalette.sent', { command: entry.command }));
+                    sendCommand(entry.command);
+                }
             });
-            // Cancelling resolves false so the palette stays open beneath the dialog.
-            if (!ok) return false;
-            showGestureHintRef.current(t('commandPalette.sent', { command: entry.command }));
-            sendCommand(entry.command);
-            return true;
         };
         const toEntry = (entry: AgentCommand, category: string): Command => ({
             id: entry.command,
