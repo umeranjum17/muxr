@@ -15,6 +15,7 @@ import { storage } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
+import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
 import { buildSpaceRows, workspaceName, type HerdRow } from '../domain/herdTree';
 import { agentIdentityLine, agentLabels, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
@@ -151,6 +152,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     agentNameCompact: {
         fontSize: 13,
     },
+    agentNameQuiet: {
+        color: theme.colors.textSecondary,
+    },
     agentSubtitle: {
         fontSize: 12,
         color: theme.colors.textSecondary,
@@ -200,6 +204,7 @@ const AgentRow = React.memo(({
     compact,
     selected,
     canClose,
+    unseenDone,
 }: {
     pane: HerdrTreePane;
     first?: boolean;
@@ -208,6 +213,7 @@ const AgentRow = React.memo(({
     compact: boolean;
     selected: boolean;
     canClose: boolean;
+    unseenDone: boolean;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -218,6 +224,9 @@ const AgentRow = React.memo(({
     const shell = isShellLabels(labels);
     const title = labels.taskTitle;
     const subtitle = agentIdentityLine(labels);
+    // One weight rule: bright means "has something for you". A finished
+    // outcome you have not opened stays loud; settled-and-seen goes quiet.
+    const quiet = (pane.agentStatus === 'done' || pane.agentStatus === 'idle') && !unseenDone;
 
     return (
         <View style={[styles.agentRow, compact && styles.agentRowCompact]}>
@@ -235,14 +244,14 @@ const AgentRow = React.memo(({
                 android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                accessibilityLabel={[`Open ${title}`, subtitle].filter(Boolean).join(', ')}
+                accessibilityLabel={[`Open ${title}`, unseenDone ? 'new result' : undefined, subtitle].filter(Boolean).join(', ')}
             >
                 <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
                 <View style={styles.agentText}>
-                    <Text numberOfLines={1} style={[styles.agentName, compact && styles.agentNameCompact]}>{title}</Text>
+                    <Text numberOfLines={1} style={[styles.agentName, compact && styles.agentNameCompact, quiet && styles.agentNameQuiet]}>{title}</Text>
                     <Text numberOfLines={1} style={[styles.agentSubtitle, compact && styles.agentSubtitleCompact]}>{subtitle}</Text>
                 </View>
-                <StatusDot color={dot.color} isPulsing={dot.pulsing} size={7} />
+                <StatusDot color={quiet ? theme.colors.status.disconnected : dot.color} isPulsing={dot.pulsing} size={7} />
             </Pressable>
         </View>
     );
@@ -260,6 +269,7 @@ const WorkspaceCard = React.memo(({
     compact,
     selectedSessionId,
     canClose,
+    unseenDoneSessionIds,
 }: {
     workspace: HerdrTreeWorkspace;
     expanded: boolean;
@@ -272,6 +282,7 @@ const WorkspaceCard = React.memo(({
     compact: boolean;
     selectedSessionId?: string;
     canClose: boolean;
+    unseenDoneSessionIds: ReadonlySet<string>;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -325,6 +336,7 @@ const WorkspaceCard = React.memo(({
                     compact={compact}
                     selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
                     canClose={canClose}
+                    unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
                 />
             ))}
         </View>
@@ -351,6 +363,7 @@ export const SpacesTree = React.memo(({
     const compact = density === 'compact';
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canClose = authority === 'control' && !authorityLoading;
+    const unseenDoneSessionIds = useUnseenDoneSessionIds();
     const seededDefaults = React.useRef(defaultExpandedWorkspaceIds.length > 0);
     const [expanded, setExpanded] = React.useState<ReadonlySet<string>>(
         () => new Set(defaultExpandedWorkspaceIds),
@@ -440,8 +453,9 @@ export const SpacesTree = React.memo(({
             compact={compact}
             selectedSessionId={selectedSessionId}
             canClose={canClose}
+            unseenDoneSessionIds={unseenDoneSessionIds}
         />
-    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, onNavigatePane, selectedSessionId, toggleWorkspace]);
+    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, onNavigatePane, selectedSessionId, toggleWorkspace, unseenDoneSessionIds]);
 
     return (
         <View style={[styles.contentContainer, { maxWidth: maxContentWidth }]}>

@@ -72,3 +72,21 @@ export function recentActivityStatus(row: RecentActivityRow): string {
     if (row.status === 'done') return 'Done';
     return 'Failed';
 }
+
+/**
+ * Sessions whose latest meaningful transition is a done outcome you have not
+ * opened, derived from the same rows as the READY · UNSEEN tier so a highlight
+ * and the tier can never disagree about seen-ness.
+ */
+export function unseenDoneSessionIds(
+    events: readonly LifecycleEvent[],
+    seenEventIds: ReadonlySet<string>,
+    now = Date.now(),
+    liveTitles?: ReadonlyMap<string, string>,
+): ReadonlySet<string> {
+    // ponytail: same 8-row ceiling as the tier; an agent beyond the 8 newest
+    // unseen outcomes stays unhighlighted. Raise both together if that bites.
+    return new Set(unseenActivityRows(events, seenEventIds, now, 8, liveTitles)
+        .filter((row) => row.status === 'done')
+        .map((row) => row.sessionId));
+}
