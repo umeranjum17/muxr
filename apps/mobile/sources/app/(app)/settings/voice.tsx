@@ -15,7 +15,6 @@ import { useRouter } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
 import { configureVadStandby } from '@/conversation/session';
 import { ensureRealtimeProviderConfigured, requestRealtimePermission } from '@/conversation';
-import { Meter } from '@/components/ui';
 import {
     BUNDLED_DICTATION_MODEL_ID,
     DICTATION_MODELS,
@@ -53,12 +52,11 @@ const DICTATION_LANGUAGE_NAMES = new Map(
 );
 
 function formatModelSize(bytes: number): string {
-    return `${(bytes / 1_000_000).toFixed(1)} MB`;
+    return `${Math.round(bytes / 1_000_000)} MB`;
 }
 
 function modelProgressText(progress: DictationDownloadProgress): string {
-    const ratio = progress.totalBytes > 0 ? Math.min(1, progress.bytesWritten / progress.totalBytes) : 0;
-    return `Downloading ${Math.round(ratio * 100)}% · ${formatModelSize(progress.bytesWritten)} of ${formatModelSize(progress.totalBytes)}`;
+    return `Downloading · ${formatModelSize(progress.bytesWritten)} of ${formatModelSize(progress.totalBytes)}`;
 }
 
 async function loadVoicePlugin() {
@@ -147,8 +145,8 @@ export default function VoiceProviderScreen() {
             setDictationModel(model.id);
         } catch (cause) {
             const message = cause instanceof Error ? cause.message : String(cause);
-            setModelError(`Could not download ${model.name}. ${message}`);
-            Modal.alert('Could not download dictation model', message);
+            setModelError(`Couldn't download the ${model.name.toLowerCase()} model · ${message}`);
+            Modal.alert(`Couldn't download the ${model.name.toLowerCase()} model`, message);
         } finally {
             setModelBusy(undefined);
             setModelProgress(undefined);
@@ -270,23 +268,30 @@ export default function VoiceProviderScreen() {
         }
     }, []);
 
-    if (status === 'connected' && !loaded) return <ActivityIndicator style={{ flex: 1 }} />;
+    const providersLoading = status === 'connected' && !loaded;
 
     const providerFooter = error
         ?? (disabled ? 'Realtime voice is turned off for this device. Enable it from Plugins if you want it back.' : undefined)
         ?? (status === 'connected' ? 'One provider runs on this machine at a time.' : 'Connect to a machine to choose its voice provider.');
     const activeDictationModelId = installedModelIds.has(dictationModel) ? dictationModel : BUNDLED_DICTATION_MODEL_ID;
-    const languageNeedsMultilingual = dictationLanguage !== null && dictationLanguage !== 'en' && activeDictationModelId === BUNDLED_DICTATION_MODEL_ID;
-    const modelFooter = modelError
-        ?? (languageNeedsMultilingual
-            ? 'This pinned language needs the multilingual model. Download it above; English remains the current fallback.'
-            : Platform.OS === 'web'
-                ? 'Dictation models run on-device. Download another model from the Android or iOS app.'
-                : 'Dictation stays on this device. Downloads continue in the background where supported. Tap to use an installed model; hold a downloaded model to remove it.');
+    const downloadableModel = DICTATION_MODELS.find((model) => !model.bundled);
+    const languageNeedsMultilingual = dictationLanguage !== null
+        && dictationLanguage !== 'en'
+        && downloadableModel !== undefined
+        && !installedModelIds.has(downloadableModel.id);
+    const dictationFooter = modelError
+        ?? 'Dictation runs on this device. Pin a language when you know what you\'ll speak; the multilingual model covers 99 languages. Hold a downloaded model to remove it.';
 
     return (
         <ItemList>
-            <ItemGroup title="Provider" footer={providerFooter}>
+            {providersLoading ? (
+                <ItemGroup title="Provider">
+                    <View style={{ minHeight: 56, alignItems: 'center', justifyContent: 'center' }}>
+                        <ActivityIndicator />
+                    </View>
+                </ItemGroup>
+            ) : (
+                <ItemGroup title="Provider" footer={providerFooter}>
                 {disabled ? (
                     <Item
                         title="Voice plugin disabled"
@@ -315,7 +320,8 @@ export default function VoiceProviderScreen() {
                         onPress={() => router.push(pluginHref(voicePluginId, 'engines-screen') as any)}
                     />
                 )}
-            </ItemGroup>
+                </ItemGroup>
+            )}
             {selected !== undefined && (
                 <ItemGroup title="Setup">
                     <Item
@@ -327,36 +333,46 @@ export default function VoiceProviderScreen() {
                     />
                 </ItemGroup>
             )}
-            <ItemGroup title="Models" footer={modelFooter}>
+            <ItemGroup title="Dictation" footer={dictationFooter}>
+                <Item
+                    title="Spoken language"
+                    detail={DICTATION_LANGUAGE_NAMES.get(dictationLanguage ?? 'auto') ?? 'Automatic'}
+                    icon={<Ionicons name="language-outline" size={28} color={theme.colors.textSecondary} />}
+                    onPress={() => setDictationSheet('language')}
+                />
                 {DICTATION_MODELS.map((model) => {
                     const installed = installedModelIds.has(model.id);
                     const selectedModel = activeDictationModelId === model.id;
-                    const progress = modelBusy === model.id ? modelProgress : undefined;
-                    const ratio = progress === undefined || progress.totalBytes <= 0 ? 0 : progress.bytesWritten / progress.totalBytes;
-                    const detail = selectedModel
-                        ? `${model.bundled ? 'Bundled' : 'Installed'} · In use`
-                        : model.bundled
-                            ? 'Bundled'
-                            : installed ? 'Installed' : `Download · ${formatModelSize(model.sizeBytes)}`;
+                    const downloading = modelBusy === model.id;
+                    const progress = downloading ? modelProgress : undefined;
+                    const ratio = progress === undefined || progress.totalBytes <= 0 ? 0 : Math.min(1, progress.bytesWritten / progress.totalBytes);
+                    const webBlocked = Platform.OS === 'web' && !model.bundled && !installed;
+                    const warning = languageNeedsMultilingual && downloadableModel?.id === model.id;
+                    const languageName = DICTATION_LANGUAGE_NAMES.get(dictationLanguage ?? 'auto') ?? 'Automatic';
+                    const statePart = model.bundled ? undefined : installed ? 'installed' : `${formatModelSize(model.sizeBytes)} download`;
+                    const subtitle = progress !== undefined
+                        ? modelProgressText(progress)
+                        : webBlocked
+                            ? 'Download from the Android or iOS app'
+                            : warning
+                                ? `Needed for ${languageName} · ${formatModelSize(model.sizeBytes)} download`
+                                : [model.engine, model.description, statePart].filter(Boolean).join(' · ');
+                    const a11ySubtitle = warning
+                        ? `Needed for ${languageName}. ${Math.round(model.sizeBytes / 1_000_000)} megabyte download.`
+                        : subtitle;
                     return (
                         <Item
                             key={model.id}
                             title={model.name}
-                            subtitle={progress === undefined ? model.description : modelProgressText(progress)}
-                            subtitleLines={2}
-                            detail={progress === undefined ? detail : undefined}
+                            subtitle={subtitle}
                             icon={<Ionicons name={model.bundled ? 'phone-portrait-outline' : 'cloud-download-outline'} size={28} color={theme.colors.textSecondary} />}
                             selected={selectedModel}
-                            loading={modelBusy === model.id && progress === undefined}
-                            disabled={modelBusy !== undefined && modelBusy !== model.id}
-                            showChevron={progress === undefined}
-                            accessibilityLabel={`${model.name}, ${detail}`}
-                            rightElement={progress !== undefined ? (
-                                <View style={{ width: 78, gap: 4 }}>
-                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, textAlign: 'right' }}>{`${Math.round(Math.min(1, ratio) * 100)}%`}</Text>
-                                    <Meter ratio={ratio} />
-                                </View>
-                            ) : selectedModel ? <Ionicons name="checkmark-circle" size={24} color={theme.colors.textLink} /> : undefined}
+                            loading={downloading && progress === undefined}
+                            progress={progress === undefined ? undefined : ratio}
+                            disabled={webBlocked || (modelBusy !== undefined && !downloading)}
+                            showChevron={!model.bundled && !installed && !webBlocked && progress === undefined}
+                            accessibilityLabel={`${model.name}, ${a11ySubtitle}${selectedModel ? ', in use' : ''}${progress !== undefined ? `, downloading ${Math.round(ratio * 100)} percent` : ''}`}
+                            rightElement={selectedModel ? <Ionicons name="checkmark-circle" size={24} color={theme.colors.textLink} /> : undefined}
                             onPress={() => void selectModel(model)}
                             onLongPress={() => void removeModel(model)}
                         />
@@ -364,32 +380,16 @@ export default function VoiceProviderScreen() {
                 })}
             </ItemGroup>
             <ItemGroup
-                title="Dictation"
-                footer="Transcription stays on this device. Automatic detects the language; pin one when you know what you will speak. Tap a replacement to edit it, or hold it to delete it."
+                title="Word replacements"
+                footer={dictationWordReplacements.length === 0
+                    ? 'Fix words the engine keeps getting wrong: names, jargon, commands.'
+                    : 'Tap a replacement to edit it, or hold it to delete it.'}
             >
-                <Item
-                    title="Spoken language"
-                    subtitle={languageNeedsMultilingual
-                        ? 'Pin a language; the multilingual model is needed for non-English speech'
-                        : 'Choose automatic detection or pin one language'}
-                    detail={DICTATION_LANGUAGE_NAMES.get(dictationLanguage ?? 'auto') ?? 'Automatic'}
-                    icon={<Ionicons name="language-outline" size={28} color={theme.colors.textSecondary} />}
-                    onPress={() => setDictationSheet('language')}
-                />
-                <Item
-                    title="Word replacements"
-                    subtitle={dictationWordReplacements.length === 0
-                        ? 'No replacements yet. Add one to fix a word the engine keeps getting wrong.'
-                        : `${dictationWordReplacements.length} saved correction${dictationWordReplacements.length === 1 ? '' : 's'}`}
-                    icon={<Ionicons name="text-outline" size={28} color={theme.colors.textSecondary} />}
-                    showChevron={false}
-                />
                 {dictationWordReplacements.map((replacement, index) => (
                     <Item
                         key={`${replacement.from}-${index}`}
-                        title={`${replacement.from} → ${replacement.to}`}
-                        subtitle="Tap to edit · hold to delete"
-                        icon={<Ionicons name="create-outline" size={24} color={theme.colors.textSecondary} />}
+                        title={<Text>{replacement.from}<Text style={{ color: theme.colors.textSecondary }}>{' → '}</Text>{replacement.to}</Text>}
+                        showChevron={false}
                         accessibilityLabel={`Replace ${replacement.from} with ${replacement.to}`}
                         onPress={() => { void editWordReplacement(replacement, index); }}
                         onLongPress={() => { void removeWordReplacement(replacement, index); }}
@@ -397,8 +397,7 @@ export default function VoiceProviderScreen() {
                 ))}
                 <Item
                     title="Add replacement"
-                    subtitle="Correct a name, jargon term, or command"
-                    icon={<Ionicons name="add-circle-outline" size={28} color={theme.colors.textLink} />}
+                    showChevron={false}
                     onPress={() => { void editWordReplacement(undefined, undefined); }}
                 />
             </ItemGroup>

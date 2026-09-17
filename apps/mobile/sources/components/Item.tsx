@@ -15,9 +15,10 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { BubblePressable } from '@/components/BubblePressable';
+import { Meter } from '@/components/ui';
 
 export interface ItemProps {
-    title: string;
+    title: string | React.ReactNode;
     subtitle?: string;
     subtitleLines?: number; // set 0 or undefined for auto/multiline
     detail?: string;
@@ -39,6 +40,8 @@ export interface ItemProps {
     dividerInset?: number;
     pressableStyle?: StyleProp<ViewStyle>;
     copy?: boolean | string;
+    /** Ratio 0..1: a 4pt meter drawn under the subtitle inside the text column. */
+    progress?: number;
     accessibilityLabel?: string;
 }
 
@@ -141,6 +144,7 @@ export const Item = React.memo<ItemProps>((props) => {
         dividerInset = isIOS ? 15 : 16,
         pressableStyle,
         copy,
+        progress,
         accessibilityLabel
     } = props;
 
@@ -156,12 +160,12 @@ export const Item = React.memo<ItemProps>((props) => {
         } else {
             // If copy is true, try to figure out what to copy
             // Priority: detail > subtitle > title
-            textToCopy = detail || subtitle || title;
+            textToCopy = detail || subtitle || (typeof title === 'string' ? title : '');
         }
         
         try {
             await Clipboard.setStringAsync(textToCopy);
-            Modal.alert(t('common.copied'), t('items.copiedToClipboard', { label: title }));
+            Modal.alert(t('common.copied'), t('items.copiedToClipboard', { label: typeof title === 'string' ? title : textToCopy }));
         } catch (error) {
             console.error('Failed to copy:', error);
         }
@@ -215,6 +219,9 @@ export const Item = React.memo<ItemProps>((props) => {
                             </Text>
                         );
                     })()}
+                    {progress !== undefined && subtitle !== undefined && (
+                        <Meter ratio={progress} style={{ marginTop: 6 }} />
+                    )}
                 </View>
 
                 {/* Right Section */}
