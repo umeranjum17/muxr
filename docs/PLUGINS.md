@@ -655,8 +655,8 @@ validates shape; `plugin call` proves wiring.
 Agent close is host code (`session.stop` calls the close ladder in
 `apps/host/src/agent/infrastructure/agentClose.ts` directly on the live Herdr
 socket), not a plugin RPC — there is no `close` entrypoint to claim and no
-package identity to pin. `agent.close` remains a reserved kernel capability
-name so no third-party extension can claim it. `session.stop` uses the
+package identity to pin, and no `agent.close` capability name is consumed.
+`session.stop` uses the
 selected Agent Route only inside the host to resolve authority. The ladder
 returns exactly one of:
 
