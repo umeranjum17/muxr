@@ -570,6 +570,8 @@ sends only validated terminal control sequences. The built-in key row is product
 code; author your own replies and keys with a `terminal.key-row` contribution in
 your own plugin (see `muxr plugin create`).
 
+Dictation, terminal keys, and the workspace tree are no longer bundled plugins — they are product code in the app, so there is nothing left to clone or override. This is a **breaking change** if you cloned `muxr.dictation`, `muxr.terminal-keys`, or `muxr.workspace-hierarchy` under the previously documented path: the clone keeps running after you upgrade, and because muxr never lets one plugin suppress another, you will see the surface twice — two dictate buttons, two key rows, a duplicated workspace tree. Disable the clone after upgrading (`herdr plugin disable <your-clone-id>`); author your own version with a `terminal.key-row` contribution or the `dictate`/`tree-sheet` primitives in your own plugin instead.
+
 Direct edits under the global npm package work live but are replaced by the next npm install. A cloned folder and its Herdr registration survive package upgrades; subsequent `muxr setup` runs preserve both plugins' explicit enabled/disabled states.
 
 Both stay enabled if you do not disable the bundled one, and both render — muxr
