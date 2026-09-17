@@ -66,7 +66,7 @@ import { displayLink } from '../domain/TerminalLink';
 import { humanError } from '@/utils/errors';
 import { CommandPalette } from '@/components/CommandPalette';
 import type { Command } from '@/components/CommandPalette/types';
-import { agentCommands } from '../domain/agentCommands';
+import { agentCommands, type AgentCommand } from '../domain/agentCommands';
 import { FindOutputSheet } from './FindOutputSheet';
 import { useTerminalQuickReplies } from '@/plugins/ui';
 
@@ -403,16 +403,27 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             return;
         }
         const known = agentCommands(paneKind);
-        const entries: Command[] = known.map((entry) => ({
+        const sendDangerous = (entry: AgentCommand) => {
+            void Modal.confirm(`Send ${entry.command}?`, `${entry.description}.${entry.reversible === true ? '' : ' This discards the current context.'}`, {
+                confirmText: `Send ${entry.command}`,
+                destructive: true,
+            }).then((ok) => { if (ok) sendCommand(entry.command); });
+        };
+        const toEntry = (entry: AgentCommand, category: string): Command => ({
             id: entry.command,
-            title: entry.command,
-            subtitle: `${entry.description}${entry.arguments === undefined ? '' : ` · ${entry.arguments}`}`,
-            category: 'Agent commands',
+            title: entry.dangerous === true ? `⚠ ${entry.command}` : entry.command,
+            subtitle: `${entry.dangerous === true ? 'Destructive · ' : ''}${entry.description}${entry.arguments === undefined ? '' : ` · ${entry.arguments}`}`,
+            category,
             actionLabel: 'Send now',
-            action: () => sendCommand(entry.command),
+            action: entry.dangerous === true ? () => sendDangerous(entry) : () => sendCommand(entry.command),
             secondaryLabel: 'Edit',
             secondaryAction: () => insertDraft(`${entry.command} `),
-        }));
+        });
+        const entries: Command[] = [
+            ...known.filter((entry) => entry.common === true && entry.dangerous !== true).map((entry) => toEntry(entry, 'Common commands')),
+            ...known.filter((entry) => entry.common !== true && entry.dangerous !== true).map((entry) => toEntry(entry, `All ${paneKind} commands`)),
+            ...known.filter((entry) => entry.dangerous === true).map((entry) => toEntry(entry, 'Destructive · confirm before sending')),
+        ];
         entries.push({
             id: 'custom-command', title: 'Custom command', subtitle: 'Type a slash command in the composer',
             category: 'Composer', actionLabel: 'Edit command', action: () => insertDraft('/'),
