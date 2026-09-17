@@ -68,7 +68,7 @@ import { CommandPalette } from '@/components/CommandPalette';
 import type { Command } from '@/components/CommandPalette/types';
 import { CUSTOM_CATEGORY } from '@/components/CommandPalette/types';
 import { agentCommands, type AgentCommand } from '../domain/agentCommands';
-import { agentKindLabel } from '@/herd/domain/agentPresentation';
+import { agentKindLabel } from '@/herd';
 import { t } from '@/text';
 import { FindOutputSheet } from './FindOutputSheet';
 import { useTerminalQuickReplies } from '@/plugins/ui';
