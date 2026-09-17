@@ -34,6 +34,7 @@ export function WorkspaceTreeSheet(props: { visible: boolean; sessionId: string;
             options={[]}
             onSelect={() => {}}
             onClose={props.onClose}
+            virtualizedBody
             body={(
                 <SpacesTree
                     workspaces={workspaces}
