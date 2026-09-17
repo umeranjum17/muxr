@@ -33,8 +33,6 @@ export interface TerminalScrollGateOptions {
     /** Coalesce within a frame. Injected so tests drive frames deterministically. */
     scheduleFrame: (run: () => void) => number;
     cancelFrame: (handle: number) => void;
-    ackTimeoutMs?: number;
-    maxLines?: number;
 }
 
 export interface TerminalScrollGate {
@@ -49,9 +47,6 @@ export interface TerminalScrollGate {
 }
 
 export function createTerminalScrollGate(options: TerminalScrollGateOptions): TerminalScrollGate {
-    const ackTimeoutMs = options.ackTimeoutMs ?? SCROLL_ACK_TIMEOUT_MS;
-    const maxLines = options.maxLines ?? MAX_SCROLL_LINES;
-
     let pending = 0;
     let frame: number | undefined;
     let inFlight = false;
@@ -80,11 +75,11 @@ export function createTerminalScrollGate(options: TerminalScrollGateOptions): Te
         if (lines === 0) return;
         // A guard that discards a gesture in silence is how scrolling comes to
         // feel arbitrary. Count what it eats.
-        const clamped = Math.max(-maxLines, Math.min(maxLines, lines));
+        const clamped = Math.max(-MAX_SCROLL_LINES, Math.min(MAX_SCROLL_LINES, lines));
         if (clamped !== lines) options.onDiscarded(Math.abs(lines - clamped));
         options.onSent(Math.abs(clamped));
         inFlight = true;
-        ackTimer = setTimeout(timeOut, ackTimeoutMs);
+        ackTimer = setTimeout(timeOut, SCROLL_ACK_TIMEOUT_MS);
         options.send(clamped);
     }
 
