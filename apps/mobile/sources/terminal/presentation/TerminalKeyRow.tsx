@@ -45,6 +45,14 @@ export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: strin
     const { theme } = useUnistyles();
     const [ctrl, setCtrl] = React.useState(false);
     const [shift, setShift] = React.useState(false);
+    const ctrlRef = React.useRef(false);
+    const shiftRef = React.useRef(false);
+    const applyMods = (nextCtrl: boolean, nextShift: boolean) => {
+        ctrlRef.current = nextCtrl;
+        shiftRef.current = nextShift;
+        setCtrl(nextCtrl);
+        setShift(nextShift);
+    };
     const repeatTimer = React.useRef<ReturnType<typeof setInterval> | null>(null);
     const stopRepeat = React.useCallback(() => {
         if (repeatTimer.current !== null) {
@@ -69,14 +77,13 @@ export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: strin
     });
     const labelStyle = (tint: string) => ({ color: tint, fontSize: 13, ...Typography.mono() });
     const tap = (key: TerminalKey) => () => {
-        send(keyRowSend(key, ctrl, shift));
-        setCtrl(false);
-        setShift(false);
+        send(keyRowSend(key, ctrlRef.current, shiftRef.current));
+        applyMods(false, false);
     };
     return (
         <>
             <Pressable
-                onPress={() => setCtrl(!ctrl)}
+                onPress={() => applyMods(!ctrlRef.current, shiftRef.current)}
                 accessibilityRole="button"
                 accessibilityLabel="Control"
                 accessibilityState={{ selected: ctrl }}
@@ -85,7 +92,7 @@ export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: strin
                 <Text style={labelStyle(ctrl ? theme.colors.button.primary.tint : theme.colors.text)}>ctrl</Text>
             </Pressable>
             <Pressable
-                onPress={() => setShift(!shift)}
+                onPress={() => applyMods(ctrlRef.current, !shiftRef.current)}
                 accessibilityRole="button"
                 accessibilityLabel="Shift"
                 accessibilityState={{ selected: shift }}
@@ -101,9 +108,8 @@ export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: strin
                     onPress={tap(key)}
                     onLongPress={key.repeat !== true ? undefined : () => {
                         repeatTimer.current = setInterval(() => {
-                            send(keyRowSend(key, ctrl, shift));
-                            setCtrl(false);
-                            setShift(false);
+                            send(keyRowSend(key, ctrlRef.current, shiftRef.current));
+                            applyMods(false, false);
                         }, 80);
                     }}
                     delayLongPress={400}
