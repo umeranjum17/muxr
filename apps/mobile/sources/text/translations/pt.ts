@@ -568,7 +568,6 @@ export const pt: TranslationStructure = {
         diffUnavailable: 'Diff, indisponível, sem alterações neste arquivo',
         previousChangeAt: ({ current, total }: { current: number; total: number }) => `Alteração anterior, ${current} de ${total}`,
         nextChangeAt: ({ current, total }: { current: number; total: number }) => `Próxima alteração, ${current} de ${total}`,
-        graphicsUnavailable: 'Gráficos indisponíveis',
         folderNotFile: 'Esse caminho é uma pasta, não um arquivo.',
         showFullPath: 'Mostrar caminho completo',
         pathShowFullPath: ({ label }: { label: string }) => `Caminho ${label}, mostrar caminho completo`,

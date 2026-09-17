@@ -149,7 +149,7 @@ async function main() {
     releaseLock = acquireOwnerLock(lockPath, owner);
     lockOwner = releaseLock.owner;
     stack = await startFakeStack({ ...LOAD, sourceRoot: process.cwd(), transport: platform === 'ios' ? 'loopback' : undefined, setupPlugins: bundledPlusAddons(process.cwd()) });
-    if (stack.fixturePanes?.text === undefined || stack.fixturePanes?.graphics === undefined) throw new Error('the herd published no text/graphics fixture panes');
+    if (stack.fixturePanes?.text === undefined) throw new Error('the herd published no text fixture pane');
     const fixture = await prepareFixture();
     let paired;
     if (platform === 'android') {
@@ -180,7 +180,7 @@ async function main() {
         version: 1, startedAt: new Date().toISOString(), pid: process.pid, pidStartIdentity, platform, device,
         scenario: scenarioDescriptor(), candidate: { source: currentSource, harness: currentHarness, artifact: device.artifact, installed: device.installed, manifest: device.manifest, manifestPath: resolve(candidateManifestPath ?? `${device.artifact.path}.json`) },
         hostBuild: readJson(hostBuildPath, 'host build evidence'),
-        host: { relayPort: stack.relayPort, dataDir: stack.dataDir, cwd: fixture.cwd, fixturePanes: stack.fixturePanes, world: stack.world, pids, pidIdentities, childHealth: stack.childHealth().filter((entry) => entry.name !== 'pair'), attachJsonl: stack.attachJsonl, graphicsInputJsonl: stack.graphicsInputJsonl, inputJsonl: stack.inputJsonl, cellMetricsJsonl: stack.cellMetricsJsonl, worldIdentityPath: stack.worldIdentityPath, worldIdentity: hashObject(world), identity: stack.identity, fixture },
+        host: { relayPort: stack.relayPort, dataDir: stack.dataDir, cwd: fixture.cwd, fixturePanes: stack.fixturePanes, world: stack.world, pids, pidIdentities, childHealth: stack.childHealth().filter((entry) => entry.name !== 'pair'), attachJsonl: stack.attachJsonl, inputJsonl: stack.inputJsonl, cellMetricsJsonl: stack.cellMetricsJsonl, worldIdentityPath: stack.worldIdentityPath, worldIdentity: hashObject(world), identity: stack.identity, fixture },
         plugins: runtimeIdentity('.'), paired, lock: lockPath, lockOwner: lockOwner, probeLock: join(lockPath, 'active-probe'), worldWitness: stack.worldIdentityPath,
     };
     writeDescriptor(descriptor);

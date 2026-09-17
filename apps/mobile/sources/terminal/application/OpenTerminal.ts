@@ -11,7 +11,7 @@
  * closed when the host says the stream ended or retries run out.
  */
 
-import { issueWsTicket, newTerminalChannel, ticketSocketUrl, type Envelope, type TerminalGraphicsReason } from '@muxr/contract';
+import { issueWsTicket, newTerminalChannel, ticketSocketUrl, type Envelope } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 import { storage } from '@/catalog/store';
@@ -29,10 +29,9 @@ export type TerminalChannelState = 'live' | 'reconnecting' | 'unconfirmed';
 export interface TerminalChannel {
     /** Count a successful native write. Stale after the channel finalizes. */
     recordFrameWritten: () => void;
-    /** base64 ANSI chunks from the pane. Graphics frames set the second flag. */
-    onData: (listener: (base64: string, graphics?: boolean) => void) => () => void;
+    /** base64 ANSI chunks from the pane. */
+    onData: (listener: (base64: string) => void) => () => void;
     onClose: (listener: (reason?: string) => void) => () => void;
-    onGraphics: (listener: (active: boolean, reason?: TerminalGraphicsReason) => void) => () => void;
     /**
      * Where herdr's viewport sits in this pane, as herdr reports it. Nothing
      * else can be trusted for that: a scroll the phone sent may have moved
@@ -44,21 +43,20 @@ export interface TerminalChannel {
     onState: (listener: (state: TerminalChannelState) => void) => () => void;
     sendText: (text: string) => void;
     sendBytes: (base64: string) => void;
-    resize: (cols: number, rows: number, cell?: { width: number; height: number }) => void;
-    pointer: (phase: 'down' | 'move' | 'up', x: number, y: number, width: number, height: number) => void;
+    resize: (cols: number, rows: number) => void;
     /** Scroll the real pane. Positive lines go back (up), negative go forward. */
-    scroll: (lines: number, at?: { column: number; row: number; x?: number; y?: number; width?: number; height?: number }) => void;
+    scroll: (lines: number, at?: { column: number; row: number }) => void;
     /** Retry now: resets backoff and re-attaches unless the stream is live or closed. */
     /** Pass true only for a user's explicit same-pane takeover action. */
     reconnect: (explicitTakeover?: boolean) => void;
-    /** Re-attach a live stream; true also recreates Herdr's graphics client. */
-    repaint: (graphicsReset?: boolean) => void;
+    /** Re-attach a live stream so herdr repaints the whole screen. */
+    repaint: () => void;
     close: () => void;
 }
 
 export type OpenTerminalCommand = {
     agentRoute: string;
-    size: { cols: number; rows: number; cellWidthPx?: number; cellHeightPx?: number };
+    size: { cols: number; rows: number };
     mode?: 'control' | 'observe';
     signal?: AbortSignal;
 };
@@ -98,7 +96,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     let current = size;
 
     // The host must be on the channel before the relay will pair a client.
-    const sendAttachRequest = async (takeover: boolean, graphicsReset: boolean): Promise<unknown> => {
+    const sendAttachRequest = async (takeover: boolean): Promise<unknown> => {
         assertOpen();
         attachSent = true;
         try {
@@ -107,11 +105,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 channel,
                 cols: current.cols,
                 rows: current.rows,
-                ...(current.cellWidthPx === undefined ? {} : { cellWidthPx: current.cellWidthPx }),
-                ...(current.cellHeightPx === undefined ? {} : { cellHeightPx: current.cellHeightPx }),
                 ...(options?.mode === undefined ? {} : { mode: options.mode }),
                 ...(grant === undefined ? {} : { deviceId: grant.deviceId, takeover }),
-                ...(graphicsReset ? { graphicsReset: true } : {}),
             });
         } finally {
             // A detach during the request can precede host-side registration.
@@ -122,8 +117,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             }
         }
     };
-    const attachOnce = (takeover: boolean, graphicsReset: boolean): Promise<unknown> => grant === undefined
-        ? sendAttachRequest(takeover, graphicsReset)
+    const attachOnce = (takeover: boolean): Promise<unknown> => grant === undefined
+        ? sendAttachRequest(takeover)
         : (async () => {
             const latest = await refreshHostedGrant(settings.machineId, grant!.credential);
             if (latest !== undefined && latest.keyVersion >= grant!.keyVersion) {
@@ -131,11 +126,11 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 grant = latest;
                 hosted = new DeviceV2Crypto(latest);
             }
-            return sendAttachRequest(takeover, graphicsReset);
+            return sendAttachRequest(takeover);
         })();
-    const attach = async (takeover: boolean, graphicsReset: boolean): Promise<unknown> => {
+    const attach = async (takeover: boolean): Promise<unknown> => {
         try {
-            const result = await attachOnce(takeover, graphicsReset);
+            const result = await attachOnce(takeover);
             recordTerminalChannel('attach', { ok: true });
             return result;
         } catch (error) {
@@ -154,24 +149,14 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         throw new Error('terminal: relay ticket required');
     }
 
-    const dataListeners = new Set<(base64: string, graphics?: boolean) => void>();
-    const pendingData: { bytes: string; graphics?: boolean }[] = [];
+    const dataListeners = new Set<(base64: string) => void>();
+    const pendingData: string[] = [];
     const closeListeners = new Set<(reason?: string) => void>();
     const stateListeners = new Set<(state: TerminalChannelState) => void>();
-    const graphicsListeners = new Set<(active: boolean, reason?: TerminalGraphicsReason) => void>();
     const scrollStateListeners = new Set<(state: { offsetFromBottom: number; maxOffsetFromBottom: number }) => void>();
     // Until the host has answered for this pane, nothing is known about its
     // scrollback -- which is not the same as knowing it has none.
     let lastScrollState: { offsetFromBottom: number; maxOffsetFromBottom: number } | undefined;
-    let graphicsActive = false;
-    let graphicsReason: TerminalGraphicsReason | undefined;
-    const emitGraphics = (active: boolean, reason?: TerminalGraphicsReason): void => {
-        const nextReason = active ? undefined : reason;
-        if (graphicsActive === active && graphicsReason === nextReason) return;
-        graphicsActive = active;
-        graphicsReason = nextReason;
-        for (const listener of graphicsListeners) listener(active, nextReason);
-    };
     const outbox: string[] = [];
     let socket: WebSocket | undefined;
     let frameCounts: TerminalFrameCountToken | undefined;
@@ -187,7 +172,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     let attachInFlight: Promise<void> | undefined;
     let attachRequested = false;
     let takeoverRequested = false;
-    let graphicsResetRequested = false;
 
     // The link is what this channel knows first-hand: attaching, or frames
     // flowing. There is no terminal heartbeat, so the only evidence that an
@@ -251,16 +235,15 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         outbox.length = 0;
         retryTimer = setTimeout(() => {
             retryTimer = undefined;
-            requestAttach(false, false);
+            requestAttach(false);
         }, Math.min(1500 * attempts, 10_000));
     }
 
     /** Collapse focus, foreground and transport retries into one attach owner. */
-    function requestAttach(takeover = false, graphicsReset = false): void {
+    function requestAttach(takeover = false): void {
         if (closedByUser) return;
         attachRequested = true;
         takeoverRequested ||= takeover;
-        graphicsResetRequested ||= graphicsReset;
         if (attachInFlight !== undefined) return;
 
         const pending = (async () => {
@@ -269,10 +252,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             while (attachRequested && !closedByUser) {
                 attachRequested = false;
                 const takeover = takeoverRequested;
-                const resetGraphics = graphicsResetRequested;
                 takeoverRequested = false;
-                graphicsResetRequested = false;
-                await attach(takeover, resetGraphics);
+                await attach(takeover);
             }
             if (!closedByUser) await connectSocket();
         })();
@@ -281,7 +262,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             .catch(scheduleRetry)
             .finally(() => {
                 if (attachInFlight === pending) attachInFlight = undefined;
-                if (attachRequested && !closedByUser) requestAttach(takeoverRequested, graphicsResetRequested);
+                if (attachRequested && !closedByUser) requestAttach(takeoverRequested);
             });
     }
 
@@ -304,13 +285,13 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             stale.close();
         }
         if (attachInFlight !== undefined) {
-            if (explicitTakeover) requestAttach(true, false);
+            if (explicitTakeover) requestAttach(true);
             return;
         }
         if (socket !== undefined && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) return;
         attempts = 0;
         emitState('reconnecting');
-        requestAttach(explicitTakeover, false);
+        requestAttach(explicitTakeover);
     };
 
     async function connectSocket(): Promise<void> {
@@ -380,11 +361,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 }
                 if (frame.type === 'terminal.frame' && 'bytes' in frame && typeof frame.bytes === 'string') {
                     const bytes = frame.bytes;
-                    const graphics = 'graphics' in frame && typeof frame.graphics === 'boolean' ? frame.graphics : undefined;
-                    const rawReason = 'graphicsReason' in frame ? frame.graphicsReason : undefined;
-                    const reason = rawReason === 'retired' || rawReason === 'bridge-closed' || rawReason === 'pane-off-surface'
-                        ? rawReason
-                        : undefined;
                     if (frameCounts !== undefined) recordTerminalFrameReceived(frameCounts);
                     hostAnswered();
                     if (!firstFrame) {
@@ -398,9 +374,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                         emitState('live');
                         recordTerminalFirstFrame(Date.now() - openStarted);
                     }
-                    if (typeof graphics === 'boolean') emitGraphics(graphics, reason);
-                    if (dataListeners.size === 0) pendingData.push(typeof graphics === 'boolean' ? { bytes, graphics } : { bytes });
-                    else for (const listener of dataListeners) listener(bytes, graphics);
+                    if (dataListeners.size === 0) pendingData.push(bytes);
+                    else for (const listener of dataListeners) listener(bytes);
                 } else if (frame.type === 'terminal.scroll-state'
                     && 'offsetFromBottom' in frame && typeof frame.offsetFromBottom === 'number'
                     && 'maxOffsetFromBottom' in frame && typeof frame.maxOffsetFromBottom === 'number') {
@@ -413,7 +388,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 } else if (frame.type === 'terminal.closed') {
                     clearTimeout(openTimer);
                     const reason = 'reason' in frame && typeof frame.reason === 'string' ? frame.reason : undefined;
-                    emitGraphics(false);
                     // Automatic foreground/reconnect must not steal control back.
                     // Only the user's visible retry action may reverse a takeover.
                     closedByTakeover = reason === 'control moved to another device';
@@ -439,7 +413,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             if (socket !== next) return;
             socket = undefined;
             finalizeCounts();
-            emitGraphics(false);
             scheduleRetry();
         };
     }
@@ -448,11 +421,9 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         closedByTakeover = false;
         unwatchHost();
         command.signal?.removeEventListener('abort', close);
-        emitGraphics(false);
         finalizeCounts();
         attachRequested = false;
         takeoverRequested = false;
-        graphicsResetRequested = false;
         if (retryTimer !== undefined) {
             clearTimeout(retryTimer);
             retryTimer = undefined;
@@ -467,7 +438,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     command.signal?.addEventListener('abort', close, { once: true });
     try {
         assertOpen();
-        await attach(true, false);
+        await attach(true);
         assertOpen();
         await connectSocket();
         assertOpen();
@@ -499,17 +470,12 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     return {
         onData: (listener) => {
             dataListeners.add(listener);
-            for (const frame of pendingData.splice(0)) listener(frame.bytes, frame.graphics);
+            for (const frame of pendingData.splice(0)) listener(frame);
             return () => dataListeners.delete(listener);
         },
         onClose: (listener) => {
             closeListeners.add(listener);
             return () => closeListeners.delete(listener);
-        },
-        onGraphics: (listener) => {
-            graphicsListeners.add(listener);
-            listener(graphicsActive, graphicsReason);
-            return () => graphicsListeners.delete(listener);
         },
         onScrollState: (listener) => {
             scrollStateListeners.add(listener);
@@ -524,21 +490,11 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         sendText: (text) => send({ type: 'terminal.input', text }),
         reconnect: reconnectNow,
         sendBytes: (base64) => send({ type: 'terminal.input', bytes: base64 }),
-        resize: (cols, rows, cell) => {
-            current = {
-                cols,
-                rows,
-                ...(cell === undefined ? {} : { cellWidthPx: cell.width, cellHeightPx: cell.height }),
-            };
-            send({
-                type: 'terminal.resize',
-                cols,
-                rows,
-                ...(cell === undefined ? {} : { cellWidthPx: cell.width, cellHeightPx: cell.height }),
-            });
+        resize: (cols, rows) => {
+            current = { cols, rows };
+            send({ type: 'terminal.resize', cols, rows });
         },
-        pointer: (phase, x, y, width, height) => send({ type: 'terminal.pointer', phase, x, y, width, height }),
-        repaint: (graphicsReset = false) => {
+        repaint: () => {
             // herdr sends a complete screen only on attach; everything after is
             // a diff against the screen it thinks we hold. So once the two
             // disagree -- a reflow, a font change, a dropped frame -- the cells
@@ -553,12 +509,11 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             const stale = socket;
             socket = undefined;
             emitState('reconnecting');
-            emitGraphics(false);
             if (stale !== undefined) {
                 stale.close();
             }
             attempts = 0;
-            requestAttach(false, graphicsReset);
+            requestAttach(false);
         },
         scroll: (lines, at) => {
             const n = Math.abs(Math.trunc(lines));

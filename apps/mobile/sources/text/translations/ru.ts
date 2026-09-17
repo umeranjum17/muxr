@@ -585,7 +585,6 @@ export const ru: TranslationStructure = {
         diffUnavailable: 'Различия, недоступны, для этого файла нет изменений',
         previousChangeAt: ({ current, total }: { current: number; total: number }) => `Предыдущее изменение, ${current} из ${total}`,
         nextChangeAt: ({ current, total }: { current: number; total: number }) => `Следующее изменение, ${current} из ${total}`,
-        graphicsUnavailable: 'Графика недоступна',
         folderNotFile: 'Этот путь — папка, а не файл.',
         showFullPath: 'Показать полный путь',
         pathShowFullPath: ({ label }: { label: string }) => `Путь ${label}, показать полный путь`,

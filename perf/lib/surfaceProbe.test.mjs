@@ -25,7 +25,7 @@ const block = (source, marker, end = '\n}') => { const start = source.indexOf(ma
 const started = processStartIdentity(process.pid);
 const session = (overrides = {}) => {
     const world = { panes: [], agents: [], workspaces: [] };
-    const fixturePanes = { text: 'pane-text', graphics: 'pane-graphics' };
+    const fixturePanes = { text: 'pane-text' };
     return {
         version: 1, pid: process.pid, platform: 'android', device: { serial: 'serial-a', package: 'com.trymuxr.app' },
         candidate: { source: { sourceSha256: digest('source'), mobileSha256: digest('mobile'), dirty: false }, harness: { revision: 'head', sha256: digest('harness') }, artifact: { path: '/candidate.apk', sha256: digest('apk'), package: 'com.trymuxr.app', versionName: '1.0.0', versionCode: 1, signerDigest: 'AA' }, installed: { sha256: digest('apk'), remotePath: '/data/app/base.apk' }, manifestPath: '/candidate.apk.json' },
@@ -45,7 +45,7 @@ const codeAddonAvailability = () => { try { codeAddonDir(); } catch (error) { re
 test('warm probe fails closed across identity, ownership, fixture, movement, sampling, deadline, and envelope', { skip: codeAddonAvailability() }, async () => {
     assert.throws(() => validateDeadline(180), /<=110/);
     const base = session();
-    assert.deepEqual(scenarioDescriptor().load, { panes: 100, agents: 30, titleChurnHz: 2, terminalBytesPerSecond: 4096, graphicsFrameHz: 4 });
+    assert.deepEqual(scenarioDescriptor().load, { panes: 100, agents: 30, titleChurnHz: 2, terminalBytesPerSecond: 4096 });
     assert.deepEqual(scenarioDescriptor().document, { name: 'perf-document.md', generatedLines: 240, bytes: 26640, sha256: '6041d293b6ec060a8e4b388ca4f9c4b16d4a7a4b0d681f99fa81553b16c2190f', servedSha256: '0403252d0bace2dd34b7a83184cd33e3e8b0e0e8e5e159758b83fdf1393b8a0d', servedBytes: 24576, servedLines: 222, marker: 'PERF_LINE_' });
     assert.equal(block(readFileSync(join(root, 'perf/releaseGate.mjs'), 'utf8'), 'const PHASES = [', '\n];'), block(baseline('perf/releaseGate.mjs'), 'const PHASES = [', '\n];'));
     assert.equal(block(readFileSync(join(root, 'perf/iosReleaseGate.mjs'), 'utf8'), 'export const PHASES = [', '\n];'), block(baseline('perf/iosReleaseGate.mjs'), 'export const PHASES = [', '\n];'));

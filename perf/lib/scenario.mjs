@@ -22,7 +22,6 @@ export const LOAD = {
     agents: 30,
     titleChurnHz: 2,
     terminalBytesPerSecond: 4096,
-    graphicsFrameHz: 4,
 };
 
 /** The reading surface's fixture: one file, one payload, both platforms. */
@@ -78,5 +77,5 @@ export function scenarioSummary() {
     const document = documentContract();
     return `scenario ${SCENARIO_VERSION}: ${LOAD.panes} panes, ${LOAD.agents} agents,`
         + ` titles ${LOAD.titleChurnHz} Hz, terminal ${LOAD.terminalBytesPerSecond} B/s,`
-        + ` graphics ${LOAD.graphicsFrameHz} Hz, document ${document.servedLines}/${document.generatedLines} lines served`;
+        + `, document ${document.servedLines}/${document.generatedLines} lines served`;
 }

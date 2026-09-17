@@ -92,7 +92,7 @@ function collectTitleFrames(socketPath, needed, timeoutMs) {
 }
 
 const dir = await mkdtemp(join(tmpdir(), 'fake-herdr-smoke-'));
-const handle = await startFakeHerdr({ dir, panes: 8, agents: 4, titleChurnHz: 4, graphicsFrameHz: 0 });
+const handle = await startFakeHerdr({ dir, panes: 8, agents: 4, titleChurnHz: 4 });
 try {
     const snapshotReply = await call(handle.socketPath, 'session.snapshot');
     const snapshot = snapshotReply.result?.snapshot;

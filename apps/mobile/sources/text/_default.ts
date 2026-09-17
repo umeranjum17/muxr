@@ -583,7 +583,6 @@ export const en = {
         diffUnavailable: 'Diff, unavailable, no changes for this file',
         previousChangeAt: ({ current, total }: { current: number; total: number }) => `Previous change, ${current} of ${total}`,
         nextChangeAt: ({ current, total }: { current: number; total: number }) => `Next change, ${current} of ${total}`,
-        graphicsUnavailable: 'Graphics unavailable',
         folderNotFile: 'That path is a folder, not a file.',
         showFullPath: 'Show full path',
         pathShowFullPath: ({ label }: { label: string }) => `Path ${label}, show full path`,

@@ -185,14 +185,14 @@ async function retireOwnedBrowser(browser, deadline = Date.now() + 10000) {
     } while (Date.now() < deadline);
     throw new Error('Owned browser remained after scoped quit; retain lock and scratch');
 }
-async function prepareGraphicsPane() {
+async function prepareTerminalPane() {
     const deadline = Date.now() + 30_000;
     const previousDeadline = operationDeadline;
     operationDeadline = deadline;
     try {
         for (let attempt = 0; Date.now() < deadline; attempt++) {
             const xml = await ui();
-            save(`graphics-preflight-${attempt}.xml`, xml);
+            save(`terminal-preflight-${attempt}.xml`, xml);
             if (xml.includes('Show live agent updates?')) { await tap('CANCEL'); await sleep(250); continue; }
             if (/text="(Terminal|ctrl)"/.test(xml)) return;
             await sleep(500);
@@ -200,20 +200,11 @@ async function prepareGraphicsPane() {
     } finally {
         operationDeadline = previousDeadline;
     }
-    throw new Error('Terminal not mounted during bounded graphics preflight');
-}
-function graphicsEvidence() {
-    if (!stack || !existsSync(stack.journalPath)) return [];
-    const journal = JSON.parse(readFileSync(stack.journalPath, 'utf8'));
-    return (journal.events ?? []).filter((event) => event.event === 'graphics.pipeline').slice(-32).map((event) => ({
-        at: evidenceTimestamp(event.at),
-        ...Object.fromEntries(['frames', 'superseded', 'p50Ms', 'p95Ms', 'bytesP95', 'pixelsP95', 'notchesSent', 'notchesDropped']
-            .filter((key) => Number.isFinite(event[key]) && event[key] >= 0).map((key) => [key, event[key]])),
-    }));
+    throw new Error('Terminal not mounted during bounded preflight');
 }
 async function github() {
     check(tab && !producer, 'Create owned producer pane and mount it first');
-    await prepareGraphicsPane();
+    await prepareTerminalPane();
     const pid = (await adb('shell', 'pidof', pkg)).trim(); check(/^\d+$/.test(pid), 'Expected one APK PID');
     await memory('baseline', pid);
     // This script reports its own PID before exec; only that exact PID/start is retired.
@@ -267,7 +258,6 @@ async function github() {
             save(`${name}.png`, await adbRun(['exec-out', 'screencap', '-p'], { encoding: 'buffer' }));
             const proof = { at: new Date().toISOString(), ...bodyPixelProof(join(out, `${name}.png`)) };
             report.githubPaintSamples.push(proof);
-            report.graphicsPipeline = graphicsEvidence();
             if (proof.proven && !report.githubPaint?.proven) {
                 report.githubPaint = proof;
                 copyFileSync(join(out, `${name}.png`), join(out, 'github-paint.png'));
@@ -311,9 +301,9 @@ async function github() {
             try {
                 await open('muxr:///settings/connection');
                 await tap('Show diagnostics');
-                await capture('graphics-input-diagnostics');
+                await capture('connection-diagnostics');
             } catch (cause) {
-                report.graphicsDiagnosticsUnavailable = String(cause.message).slice(0, 160);
+                report.diagnosticsUnavailable = String(cause.message).slice(0, 160);
             } finally { operationDeadline = Infinity; }
         }
     }
@@ -343,7 +333,7 @@ async function command(input) {
     if (op === 'back') return adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
     if (op === 'pane') {
         check(!tab, 'Probe pane already exists');
-        const result = JSON.parse(await herdr('tab', 'create', '--workspace', process.env.HERDR_PANE_ID.split(':')[0], '--cwd', scratchRoot, '--label', 'Owned live graphics probe', '--no-focus')).result;
+        const result = JSON.parse(await herdr('tab', 'create', '--workspace', process.env.HERDR_PANE_ID.split(':')[0], '--cwd', scratchRoot, '--label', 'Owned live probe', '--no-focus')).result;
         tab = { id: result.tab.tab_id, pane: result.root_pane.pane_id };
         await herdr('pane', 'run', tab.pane, "printf '\\nMEMORY PROBE READY\\n'");
         await herdr('tab', 'focus', tab.id);

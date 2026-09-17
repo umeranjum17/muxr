@@ -180,7 +180,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
 
     const { selectedImages, pickImages, clearImages } = useImagePicker();
 
-    const graphicsOwnsScroll = React.useRef(false);
     /**
      * How far herdr's viewport sits above the live edge, as herdr reports it.
      * Where herdr owns scrollback this is authoritative and the request counter
@@ -205,24 +204,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const onChannel = React.useCallback((channel: TerminalChannel | undefined) => {
         stopWatchingChannel.current?.();
         stopWatchingChannel.current = undefined;
-        graphicsOwnsScroll.current = false;
         scrollBack.current = 0;
         hostHasScrollback.current = false;
         altBack.current = 0;
         if (channel !== undefined) {
             setShowJump(false);
-            const stopGraphics = channel.onGraphics((active) => {
-                if (active === graphicsOwnsScroll.current) return;
-                graphicsOwnsScroll.current = active;
-                scrollBack.current = 0;
-                hostHasScrollback.current = false;
-                altBack.current = 0;
-                setShowJump(false);
-            });
-            // A pane drawing its own image scrolls that image, so herdr's
-            // viewport says nothing about what the eye is looking at.
             const stopScrollState = channel.onScrollState(({ offsetFromBottom, maxOffsetFromBottom }) => {
-                if (graphicsOwnsScroll.current) return;
                 if (maxOffsetFromBottom > 0) {
                     hostHasScrollback.current = true;
                     scrollBack.current = offsetFromBottom;
@@ -237,20 +224,20 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             });
             const rawScroll = channel.scroll.bind(channel);
             channel.scroll = (lines, at) => {
-                if (!graphicsOwnsScroll.current && !hostHasScrollback.current) {
+                if (!hostHasScrollback.current) {
                     altBack.current = Math.max(0, altBack.current + lines);
                     setShowJump(altBack.current > 0);
                 }
                 rawScroll(lines, at);
             };
-            stopWatchingChannel.current = () => { stopGraphics(); stopScrollState(); };
+            stopWatchingChannel.current = stopScrollState;
         }
         channelRef.current = channel;
         setChannel(channel);
     }, []);
     const jumpToBottom = React.useCallback(() => {
         const channel = channelRef.current;
-        if (channel === undefined || graphicsOwnsScroll.current) return;
+        if (channel === undefined) return;
         if (hostHasScrollback.current) {
             // Exactly the distance herdr reported, not an overshoot: a pane whose
             // scrolling belongs to a program would receive that overshoot as

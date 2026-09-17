@@ -1,13 +1,11 @@
 /**
- * Single-flight native terminal writer. Graphics records may change independent
- * placements or delete a specific earlier image, so all stay in wire order.
- * Only adjacent plain text is combined. A bounded backlog fails explicitly and
- * requests a repaint after the admitted native write has settled.
+ * Single-flight native terminal writer. Adjacent frames are combined into one
+ * native write. A bounded backlog fails explicitly and requests a repaint after
+ * the admitted native write has settled.
  */
 
 export type TerminalWriteFrame = {
     bytes: string;
-    graphics?: boolean;
 };
 
 export type TerminalWritePump = {
@@ -16,7 +14,7 @@ export type TerminalWritePump = {
 };
 
 export function createTerminalWritePump(options: {
-    write: (bytes: string, graphics?: boolean) => Promise<unknown>;
+    write: (bytes: string) => Promise<unknown>;
     combineText: (frames: readonly string[]) => string;
     schedule: (run: () => void) => unknown;
     cancelSchedule: (handle: unknown) => void;
@@ -33,22 +31,15 @@ export function createTerminalWritePump(options: {
     let scheduled: unknown;
     let inFlight: Promise<void> | undefined;
 
-    const nextPayload = (): TerminalWriteFrame | undefined => {
+    const nextPayload = (): string | undefined => {
         if (pending.length === 0) return undefined;
-        const head = pending[0]!;
-        if (typeof head.graphics === 'boolean') {
-            pending.shift();
-            pendingChars -= head.bytes.length;
-            return head;
-        }
         const texts: string[] = [];
-        while (pending.length > 0 && typeof pending[0]!.graphics !== 'boolean') {
+        while (pending.length > 0) {
             const text = pending.shift()!.bytes;
             pendingChars -= text.length;
             texts.push(text);
         }
-        if (texts.length === 0) return undefined;
-        return { bytes: texts.length === 1 ? texts[0]! : options.combineText(texts) };
+        return texts.length === 1 ? texts[0] : options.combineText(texts);
     };
 
     const kick = (): void => {
@@ -60,7 +51,7 @@ export function createTerminalWritePump(options: {
             if (payload === undefined) return;
             writing = true;
             const admittedGen = generation;
-            const admitted = Promise.resolve().then(() => options.write(payload.bytes, payload.graphics));
+            const admitted = Promise.resolve().then(() => options.write(payload));
             inFlight = admitted.then(() => undefined, () => undefined);
             void admitted.then(
                 () => finish(admittedGen, false),

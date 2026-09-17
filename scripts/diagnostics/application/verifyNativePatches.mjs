@@ -110,25 +110,6 @@ const checks = [
     ],
     ['Ghostty patch forwards scroll rows', ghosttyPatch.includes('onScrollRows') && ghosttyTerminal.includes('onScrollRows') && ghosttyView.includes('onScroll')],
     [
-        'Ghostty patch keeps Android Kitty snapshot plus metrics and pointer on both platforms',
-        ghosttyPatch.includes('nativeKittyGeneration') &&
-            ghosttyPatch.includes('nativeKittySnapshot') &&
-            ghosttyPatch.includes('drawKitty') &&
-            ghosttyPatch.includes('imageWidth.toLong() * imageHeight.toLong()') &&
-            ghosttyPatch.includes('pointerMode') &&
-            ghosttyPatch.includes('cellWidthPx') &&
-            ghosttyPatch.includes('onTerminalPointer') &&
-            ghosttyTerminal.includes('drawKitty') &&
-            ghosttyTerminal.includes('nativeKittySnapshot') &&
-            ghosttyView.includes('pointerMode') &&
-            ghosttyView.includes('cellWidthPx') &&
-            ghosttyIosModule.includes('onTerminalPointer') &&
-            ghosttyIosView.includes('pointerMode') &&
-            ghosttyIosView.includes('cellWidthPx') &&
-            !ghosttyIosView.includes('nativeKittySnapshot') &&
-            !ghosttyIosView.includes('drawKitty'),
-    ],
-    [
         'dictation recorder releases AudioRecord only after the read loop exits',
         liveAudioPatch.includes('stopAndReleaseRecorder') &&
             liveAudioPatch.includes('thread.join()') &&

@@ -46,7 +46,7 @@ are deliverables. A failed run's evidence must remain available alongside reruns
 The build requires a private dependency directory, runs a frozen forced install
 (including postinstall/patch-package), and verifies the native patch guard.
 Copying another branch's already-patched node_modules is insufficient: it once
-produced a working text terminal with no Kitty support or cell metrics. The build
+produced a working build that silently missed patch updates. The build
 uses package.json's version and an explicit ANDROID_VERSION_CODE or Git revision
 count, generates a test keystore, and builds a release x86_64 APK.
 The manifest beside it binds the APK SHA256 to the source revision and content
@@ -63,11 +63,11 @@ reported separately; a mobile change requires rebuilding the APK. The gate build
 the host checkout itself and verifies its source fingerprint stayed fixed during
 the run. Do not edit measured source or run competing builds while measuring.
 
-For a standalone Usage PR without the release viewer/graphics changes, use
+For a standalone Usage PR without the release viewer changes, use
 `--flow usage` with an APK built from that PR's exact source. This runs the same
 fresh pairing, isolated provider-switch/recency flow, APK/native/source identity
 checks and cleanup. The report explicitly says performance was not measured;
-`flow: usage` is not full-gate or graphics acceptance. The default is `--flow full`.
+`flow: usage` is not full-gate acceptance. The default is `--flow full`.
 
 The full flow requires:
 
@@ -89,10 +89,8 @@ The full flow requires:
   missing-session-root error on cold launch; restoring it must reach line200 again.
   This file-mode check does not claim diff deletion-collision
   or folded-target device coverage.
-- Mounted text terminal plus a recorded real host attach, while graphics are off.
-- Mounted terminal with an opaque magenta/teal Kitty checkerboard verified in
-  the terminal framebuffer region, positive cell dimensions and positive delivered
-  graphics frames during that window. Chrome or scroll-notch events cannot pass.
+- Mounted text terminal plus a recorded real host attach, a real resize, and
+  the explicit keyboard cycle.
 - Mounted Usage, OMP before OpenCode by timestamp (11:00 vs 10:00), and provider
   switching with token totals 150 → 300 → 150 and matching selected tab states.
   Without credentials, Go must show its actionable limits-unavailable state while
@@ -115,7 +113,7 @@ runtime, JS busy above 60%, PSS drift above 100 MiB, a 30-second frame stall, no
 rendered frames, fatal crashes and React update-depth errors fail. These broad
 limits come from the existing emulator pathology profile. Jank percent/percentiles
 are measured diagnostics here, not gesture-feel acceptance. Use the full release
-gate for targeted jank, movement, input latency, graphics budget and memory soak.
+gate for targeted jank, movement, input latency and memory soak.
 
 Before measurement, a foreground transition surfaces deferred Android setup prompts.
 The gate retains exact prompt/Cancel evidence and requires a quiet connected herd;

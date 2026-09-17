@@ -7,9 +7,32 @@ import { chmodSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_WORLD, tileRects } from './graphics.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
+
+const DEFAULT_WORLD = {
+    workspaces: [{ workspace_id: 'w1', label: '/tmp/demo', focused: true, active_tab_id: 't1', tab_count: 1 }],
+    tabs: [{ tab_id: 't1', workspace_id: 'w1', label: 'demo' }],
+    panes: [{
+        pane_id: 'p1', tab_id: 't1', workspace_id: 'w1', cwd: '/tmp/demo',
+        focused: true, rect: { x: 0, y: 0, width: 80, height: 24 },
+    }],
+    agents: [],
+};
+
+function tileRects(count) {
+    if (count <= 1) return [{ x: 0, y: 0, width: 80, height: 24 }];
+    const cols = Math.ceil(Math.sqrt(count));
+    const rows = Math.ceil(count / cols);
+    const width = Math.max(1, Math.floor(80 / cols));
+    const height = Math.max(1, Math.floor(24 / rows));
+    return Array.from({ length: count }, (_, index) => ({
+        x: (index % cols) * width,
+        y: Math.floor(index / cols) * height,
+        width,
+        height,
+    }));
+}
 
 function flag(args, name) {
     const index = args.indexOf(name);
@@ -205,28 +228,16 @@ function wheelReports(text) {
     return { count, notches };
 }
 
-/** One wheel notch travels three rows, and a cell is 32 px tall. */
-const WHEEL_OFFSET_PX = 3 * 32;
-
 function runTerminal(args) {
     // `herdr terminal session <control|observe> <pane>`. The mode is the whole
     // difference between a live pane a phone drives and a read-only preview, so
     // it is recorded with the attach rather than inferred later.
     const mode = args[0] === 'observe' ? 'observe' : 'control';
     const paneId = args[1] ?? 'p1';
-    // A one-line marker beside the socket: the gate needs to tell "the phone
-    // never asked for graphics" apart from "graphics were asked for and lost".
-    const noteGeometry = (source, message = {}) => {
+    const noteGeometry = (source) => {
         const socketPath = process.env.FAKE_HERDR_SOCKET;
         if (socketPath === undefined) return;
         try {
-            // The marker means "a phone declared cell pixels", which is what
-            // decides whether a graphics bridge opens at all. Every re-grid is
-            // recorded below, but a cell-less one must not set this.
-            if (source === 'terminal.resize'
-                && Number(message.cellWidthPx) > 0 && Number(message.cellHeightPx) > 0) {
-                writeFileSync(`${socketPath}.cell-metrics`, 'seen\n', { encoding: 'utf8' });
-            }
             appendFileSync(`${socketPath}.cell-metrics.jsonl`, `${JSON.stringify({
                 at: new Date().toISOString(),
                 pane_id: paneId,
@@ -234,14 +245,11 @@ function runTerminal(args) {
                 mode,
                 cols,
                 rows,
-                ...(message.cellWidthPx === undefined ? {} : { cellWidthPx: message.cellWidthPx }),
-                ...(message.cellHeightPx === undefined ? {} : { cellHeightPx: message.cellHeightPx }),
             })}\n`);
         } catch { /* best effort */ }
     };
     let cols = Number(flag(args, '--cols') ?? 80) || 80;
     let rows = Number(flag(args, '--rows') ?? 24) || 24;
-    let scrollOffset = 0;
     const bps = Math.max(0, Number(process.env.FAKE_HERDR_TERMINAL_BPS ?? 4096) || 0);
     let seq = 0;
     const writeFrame = (record) => {
@@ -291,8 +299,6 @@ function runTerminal(args) {
         buffer += chunk;
         const lines = buffer.split('\n');
         buffer = lines.pop() ?? '';
-        let burst = 0;
-        let notches = 0;
         for (const line of lines) {
             if (line.trim() === '') continue;
             try {
@@ -301,14 +307,10 @@ function runTerminal(args) {
                 else if (message.type === 'terminal.resize') {
                     cols = Number(message.cols) || cols;
                     rows = Number(message.rows) || rows;
-                    // Every re-grid is recorded, cell pixels or not. A text
-                    // zoom is a grid change and nothing else, so dropping the
-                    // cell-less resizes left the font ladder with no record at
-                    // all on a phone that never declares a cell. The marker
-                    // beside the socket still only fires for a declared cell:
-                    // that is what decides whether a graphics bridge opens, and
-                    // a run with no graphics account has to say which it was.
-                    noteGeometry('terminal.resize', message);
+                    // Every re-grid is recorded. A text zoom is a grid change
+                    // and nothing else, so dropping the resizes left the font
+                    // ladder with no record at all.
+                    noteGeometry('terminal.resize');
                     emit(true);
                 }
                 else if (message.type === 'terminal.scroll') {
@@ -326,23 +328,10 @@ function runTerminal(args) {
                 else if (message.type === 'terminal.input') {
                     const wheel = wheelReports(inputBytes(message));
                     if (wheel.count > 0) appendFileSync(process.env.FAKE_HERDR_INPUT_LOG ?? `${process.env.FAKE_HERDR_SOCKET}.input.jsonl`, `${JSON.stringify({ at: new Date().toISOString(), source: 'terminal.input', pane_id: paneId, count: wheel.count, notches: wheel.notches })}\n`);
-                    burst += wheel.count;
-                    notches += wheel.notches;
                 }
             } catch {
                 /* phone JSON is forwarded as-is; ignore non-JSON */
             }
-        }
-        // The pane the phone is actually watching is the one whose repaints
-        // matter; a round robin across a hundred panes measures nothing.
-        //
-        // The graphics server lives in the control-plane process, not in this
-        // shim: the host execs this binary, so an in-process call reaches a
-        // module nobody bound and the wheel is silently dropped. It goes over the
-        // control socket, carrying the pane and where it has been scrolled to.
-        if (burst > 0) {
-            scrollOffset += notches * WHEEL_OFFSET_PX;
-            void rpc('graphics.request', { count: burst, pane_id: paneId, offset: scrollOffset });
         }
     });
     process.stdin.on('end', finish);

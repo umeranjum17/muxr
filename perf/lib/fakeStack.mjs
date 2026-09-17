@@ -44,13 +44,10 @@ async function spawnFakeHerdr(dir, options) {
         ['--agents', options.agents],
         ['--title-churn-hz', options.titleChurnHz],
         ['--terminal-bytes-per-second', options.terminalBytesPerSecond],
-        ['--graphics-frame-hz', options.graphicsFrameHz],
-        ['--graphics-enable-file', options.graphicsEnableFile],
         ['--plugins-root', options.pluginsRoot],
     ]) {
         if (value !== undefined) args.push(flag, String(value));
     }
-    if (options.pinGraphicsPane === true) args.push('--pin-graphics-pane');
     const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const log = [];
     child.stderr.on('data', (chunk) => log.push(String(chunk)));
@@ -112,7 +109,7 @@ function childEnv(home, muxrHome, extra, base = process.env) {
 
 /**
  * @param {{ panes?: number, agents?: number, titleChurnHz?: number,
- *   terminalBytesPerSecond?: number, graphicsFrameHz?: number,
+ *   terminalBytesPerSecond?: number,
  *   transport?: 'adb' | 'loopback' }} [options]
  */
 export async function startFakeStack(options = {}) {
@@ -311,7 +308,6 @@ async function startStack(options, live) {
             // a card position is whatever the churning herd left under it.
             fixturePanes: fake.fixturePanes,
             attachJsonl: fake.attachJsonl,
-            graphicsInputJsonl: fake.graphicsInputJsonl,
             inputJsonl: fake.inputJsonl,
             worldIdentityPath: fake.worldIdentityPath,
             // The service's own processes, for a memory budget. Terminal shims
@@ -324,9 +320,8 @@ async function startStack(options, live) {
             /** Bounded, credential-free lifecycle of everything this run spawned. */
             childHealth: () => health.map((entry) => ({ ...entry })),
             relayLog: () => relayLog.join(''),
-            /** Did any attached phone declare cell pixels this run? */
+            /** The attach and re-grid records a measuring phase reads back. */
             cellMetricsJsonl: `${fake.socketPath}.cell-metrics.jsonl`,
-            phoneDeclaredCellMetrics: () => existsSync(`${fake.socketPath}.cell-metrics`),
             /**
              * A real pairing string for this throwaway host. The CLI keeps
              * polling until the phone claims it, so the child stays up and the
