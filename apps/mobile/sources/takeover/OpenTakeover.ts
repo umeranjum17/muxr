@@ -35,9 +35,6 @@ export function parseStreamFrame(raw: unknown): StreamFrame | undefined {
                 deviceWidth: metadata.deviceWidth,
                 deviceHeight: metadata.deviceHeight,
                 pageScaleFactor: typeof metadata.pageScaleFactor === 'number' && metadata.pageScaleFactor > 0 ? metadata.pageScaleFactor : 1,
-                offsetTop: typeof metadata.offsetTop === 'number' ? metadata.offsetTop : 0,
-                scrollOffsetX: typeof metadata.scrollOffsetX === 'number' ? metadata.scrollOffsetX : 0,
-                scrollOffsetY: typeof metadata.scrollOffsetY === 'number' ? metadata.scrollOffsetY : 0,
             },
         };
     } catch {
@@ -45,7 +42,7 @@ export function parseStreamFrame(raw: unknown): StreamFrame | undefined {
     }
 }
 
-export function touchMessage(eventType: 'touchStart' | 'touchEnd', point?: Point): string {
+export function touchMessage(eventType: 'touchStart' | 'touchMove' | 'touchEnd', point?: Point): string {
     return JSON.stringify({
         type: 'input_touch',
         eventType,
@@ -54,7 +51,50 @@ export function touchMessage(eventType: 'touchStart' | 'touchEnd', point?: Point
 }
 
 export function keyMessage(eventType: 'keyDown' | 'keyUp', key: string, code: string): string {
-    return JSON.stringify({ type: 'input_keyboard', eventType, key, code });
+    // Control keys dispatch on windowsVirtualKeyCode server-side: without it
+    // Backspace/Enter payloads are ignored and the field never edits.
+    const windowsVirtualKeyCode = key === 'Backspace' ? 8 : key === 'Enter' ? 13 : undefined;
+    return JSON.stringify({
+        type: 'input_keyboard',
+        eventType,
+        key,
+        code,
+        ...(windowsVirtualKeyCode !== undefined ? { windowsVirtualKeyCode } : {}),
+        // A printable keyDown must carry the character itself: without the
+        // text field the stream dispatches the key but inserts nothing into
+        // a focused field (measured on a live input). Enter submits as CR.
+        ...(eventType === 'keyDown' && [...key].length === 1 && key.charCodeAt(0) >= 32 ? { text: key } : eventType === 'keyDown' && key === 'Enter' ? { text: '\r' } : {}),
+    });
+}
+
+/** Back/forward are browser-level mouse buttons; coordinates are ignored by the browser for them. */
+export function mouseMessage(eventType: 'mousePressed' | 'mouseReleased', point: Point, button: 'back' | 'forward'): string {
+    return JSON.stringify({ type: 'input_mouse', eventType, x: point.x, y: point.y, button, clickCount: 1 });
+}
+
+/**
+ * The stream port an agent advertises when it enables its browser stream:
+ * the `ws://127.0.0.1:<port>` URL printed into its conversation.
+ */
+export function advertisedStreamPort(text: string): number | undefined {
+    const match = /ws:\/\/127\.0\.0\.1:(\d{1,5})(?!\d)/.exec(text);
+    if (match === null) return undefined;
+    const port = Number(match[1]);
+    return Number.isSafeInteger(port) && port >= 1 && port <= 65_535 ? port : undefined;
+}
+
+/** The stream's tabs message: muxr only wants the current page address. */
+export function parseStreamPage(raw: unknown): { url: string } | undefined {
+    if (typeof raw !== 'string') return undefined;
+    try {
+        const message = JSON.parse(raw) as { type?: string; tabs?: { active?: boolean; url?: string }[] };
+        if (message.type !== 'tabs' || !Array.isArray(message.tabs)) return undefined;
+        const active = message.tabs.find((tab) => tab.active) ?? message.tabs[0];
+        if (typeof active?.url !== 'string') return undefined;
+        return { url: active.url };
+    } catch {
+        return undefined;
+    }
 }
 
 /** Best-effort `code` for a printable character; the protocol dispatches on `key`. */
