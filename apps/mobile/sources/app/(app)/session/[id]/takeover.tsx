@@ -147,6 +147,11 @@ export default function TakeoverScreen() {
     const connect = React.useCallback(async (streamPort: number | undefined) => {
         disconnect();
         clearDeadline();
+        if (streamRef.current !== null) {
+            const prev = streamRef.current;
+            streamRef.current = null;
+            await machineBash('', `${prev.command} stream disable`, prev.cwd);
+        }
         setDetail(null);
         setDetailOpen(false);
         setFrame(null);
@@ -211,6 +216,8 @@ export default function TakeoverScreen() {
                 if (socketRef.current !== socket) return;
                 disconnect();
                 clearDeadline();
+                setFrame(null);
+                setPageUrl(null);
                 setPhase(gotFrameRef.current ? 'lost' : 'unreachable');
             };
             socket.onclose = () => {
@@ -234,7 +241,8 @@ export default function TakeoverScreen() {
         // normal path so every failure keeps one wording.
         const opened = await machineBash('', `${agentBrowser} open`, cwd);
         if (!opened.success) {
-            setDetail([opened.stderr, opened.stdout].filter(Boolean).join('\n') || null);
+            setDetail([opened.stderr, opened.stdout].filter(Boolean).join('\n') || 'Could not open a browser.');
+            setDetailOpen(true);
             return;
         }
         await connect(undefined);
