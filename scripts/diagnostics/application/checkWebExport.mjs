@@ -157,14 +157,19 @@ if (!existsSync(distIndex)) {
     });
     check('dist initial payload has no marketing origin', !hasMarketingOrigin);
     check('dist initial payload carries no mermaid engine', !distText.includes('__esbuild_esm_mermaid_nm'));
-    check('dist initial payload carries no whisper model', !distText.includes('ggml-base'));
+    // Expo hashes asset names, so inspect emitted model-sized binaries instead
+    // of grepping JS metadata for a legitimate filename.
+    const MIN_WHISPER_MODEL_BYTES = 50 * 1024 * 1024;
     const distModels = [];
     const walkDistModels = (dir) => {
         if (!existsSync(dir)) return;
         for (const entry of readdirSync(dir, { withFileTypes: true })) {
             const path = join(dir, entry.name);
             if (entry.isDirectory()) walkDistModels(path);
-            else if (/ggml|whisper/i.test(entry.name) && /\.(bin|pt|onnx)$/i.test(entry.name)) distModels.push(path);
+            else if (/\.(bin|pt|onnx)$/i.test(entry.name)) {
+                const size = statSync(path).size;
+                if (size >= MIN_WHISPER_MODEL_BYTES) distModels.push(`${path} (${size} bytes)`);
+            }
         }
     };
     walkDistModels(join(mobile, 'dist'));
