@@ -82,7 +82,12 @@ export type HerdSpaceRow = {
     groupExpanded: boolean;
 };
 
-export type HerdRow = HerdSpaceRow;
+/** The quiet line under the Spaces label when nothing matches (no fleets, or a search). */
+export type HerdEmptyRow = { type: 'empty' };
+
+export type HerdRow = HerdSpaceRow | HerdEmptyRow;
+
+export const HERD_EMPTY_ROW: HerdEmptyRow = { type: 'empty' };
 
 /** Counts behind a group row's summary: needs you, working, done. */
 export function groupSummaryCounts(children: readonly HerdChildSpace[]): { needsYou: number; working: number; done: number } {

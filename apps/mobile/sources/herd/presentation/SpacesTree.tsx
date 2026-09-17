@@ -16,7 +16,7 @@ import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
-import { buildSpaceRows, groupKind, groupSummaryCounts, workspaceName, type HerdChildSpace, type HerdRow } from '../domain/herdTree';
+import { buildSpaceRows, groupKind, groupSummaryCounts, workspaceName, HERD_EMPTY_ROW, type HerdChildSpace, type HerdRow } from '../domain/herdTree';
 import { agentIdentityLine, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
@@ -673,12 +673,18 @@ export const SpacesTree = React.memo(({
         ]);
     }, [refresh]);
 
-    const sections = React.useMemo(
-        () => [{ key: 'spaces', title: t('spacesTree.title'), data: buildSpaceRows(workspaces, expanded, searchQuery) }],
-        [expanded, searchQuery, workspaces],
-    );
+    // A header-only section never renders ListEmptyComponent (the header counts
+    // as an item), so the quiet line rides as one pseudo-row instead.
+    const sections = React.useMemo(() => {
+        const rows = buildSpaceRows(workspaces, expanded, searchQuery);
+        return [{ key: 'spaces', title: t('spacesTree.title'), data: rows.length > 0 ? rows : [HERD_EMPTY_ROW] }];
+    }, [expanded, searchQuery, workspaces]);
 
-    const renderItem = React.useCallback(({ item }: { item: HerdRow }) => (
+    const renderItem = React.useCallback(({ item }: { item: HerdRow }) => {
+        if (item.type === 'empty') {
+            return <Text style={styles.empty}>{searchQuery.trim() === '' ? (emptyText ?? t('spacesTree.empty')) : 'No matches'}</Text>;
+        }
+        return (
         <WorkspaceCard
             workspace={item.workspace}
             expanded={item.expanded}
@@ -698,7 +704,8 @@ export const SpacesTree = React.memo(({
             canClose={canClose}
             unseenDoneSessionIds={unseenDoneSessionIds}
         />
-    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, onNavigatePane, selectedSessionId, toggleWorkspace, unseenDoneSessionIds]);
+        );
+    }, [canClose, compact, confirmClosePane, confirmCloseWorkspace, emptyText, onNavigatePane, searchQuery, selectedSessionId, toggleWorkspace, unseenDoneSessionIds]);
 
     if (loading === true) {
         return (
@@ -712,7 +719,7 @@ export const SpacesTree = React.memo(({
         <View style={[styles.contentContainer, { maxWidth: maxContentWidth }]}>
             <SectionList
                 sections={sections}
-                keyExtractor={(item) => `ws-${item.workspace.workspaceId}`}
+                keyExtractor={(item) => item.type === 'empty' ? 'spaces-empty' : `ws-${item.workspace.workspaceId}`}
                 renderItem={renderItem}
                 renderSectionHeader={({ section }) => (
                     <View style={[styles.sectionHeader, compact && styles.sectionHeaderCompact]}>
@@ -722,9 +729,6 @@ export const SpacesTree = React.memo(({
                 stickySectionHeadersEnabled={false}
                 ListHeaderComponent={listHeaderComponent === undefined ? undefined : <>{listHeaderComponent}</>}
                 ListFooterComponent={listFooterComponent === undefined ? undefined : <>{listFooterComponent}</>}
-                ListEmptyComponent={
-                    <Text style={styles.empty}>{searchQuery.trim() === '' ? emptyText : 'No matches'}</Text>
-                }
                 onScroll={onScroll}
                 scrollEventThrottle={100}
                 contentContainerStyle={{ paddingTop: topContentInset, paddingBottom: bottomContentInset }}
