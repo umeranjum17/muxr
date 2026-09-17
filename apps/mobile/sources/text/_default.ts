@@ -290,6 +290,20 @@ export const en = {
         // Spaces section on Home
         title: 'Spaces',
         empty: 'No spaces open',
+        // Group row: child workspaces folded behind a parent card
+        groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
+            ? `${count} ${plural({ count, singular: 'workspace', plural: 'workspaces' })}`
+            : `${count} ${kind} ${plural({ count, singular: 'workspace', plural: 'workspaces' })}`,
+        needsYou: 'needs you',
+        working: 'working',
+        done: 'done',
+        shell: 'shell',
+        childEmpty: 'empty',
+        childAgents: ({ count }: { count: number }) => `${count} ${plural({ count, singular: 'agent', plural: 'agents' })}`,
+        noMatches: 'No matches',
+        expand: 'Expand',
+        collapse: 'Collapse',
+        openLabel: ({ label, line2 }: { label: string; line2: string }) => `Open ${label}, ${line2}`,
     },
 
     homeNotices: {

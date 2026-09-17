@@ -278,6 +278,19 @@ export const zhHans: TranslationStructure = {
         // Spaces section on Home
         title: '空间',
         empty: '没有打开的空间',
+        groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
+            ? `${count} 个工作区`
+            : `${count} 个工作区（${kind}）`,
+        needsYou: '需要你处理',
+        working: '运行中',
+        done: '已完成',
+        shell: '终端',
+        childEmpty: '空',
+        childAgents: ({ count }: { count: number }) => `${count} 个代理`,
+        noMatches: '没有匹配的空间',
+        expand: '显示更多',
+        collapse: '收起',
+        openLabel: ({ label, line2 }: { label: string; line2: string }) => `打开 ${label}, ${line2}`,
     },
 
     homeNotices: {

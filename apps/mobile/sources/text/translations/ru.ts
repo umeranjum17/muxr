@@ -263,6 +263,19 @@ export const ru: TranslationStructure = {
         // Spaces section on Home
         title: 'Пространства',
         empty: 'Нет открытых пространств',
+        groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
+            ? `${count} ${plural({ count, one: 'рабочее пространство', few: 'рабочих пространства', many: 'рабочих пространств' })}`
+            : `${count} ${plural({ count, one: 'рабочее пространство', few: 'рабочих пространства', many: 'рабочих пространств' })} (${kind})`,
+        needsYou: 'Требует вас',
+        working: 'работают',
+        done: 'готово',
+        shell: 'терминал',
+        childEmpty: 'пусто',
+        childAgents: ({ count }: { count: number }) => `${count} ${plural({ count, one: 'агент', few: 'агента', many: 'агентов' })}`,
+        noMatches: 'Нет подходящих пространств',
+        expand: 'Показать ещё',
+        collapse: 'Свернуть',
+        openLabel: ({ label, line2 }: { label: string; line2: string }) => `Открыть ${label}, ${line2}`,
     },
 
     homeNotices: {

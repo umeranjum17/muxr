@@ -332,11 +332,11 @@ const AgentRow = React.memo(({
 function childLine2(child: HerdChildSpace): string {
     const panes = child.workspace.tabs.flatMap((tab) => tab.panes);
     const agentPanes = panes.filter((pane) => pane.agentKind !== undefined);
-    if (panes.length === 0) return 'empty';
-    if (agentPanes.length === 0) return 'shell';
-    if (agentPanes.length > 1) return `${agentPanes.length} agents`;
+    if (panes.length === 0) return t('spacesTree.childEmpty');
+    if (agentPanes.length === 0) return t('spacesTree.shell');
+    if (agentPanes.length > 1) return t('spacesTree.childAgents', { count: agentPanes.length });
     const agent = agentPanes[0];
-    if (agent === undefined) return 'empty';
+    if (agent === undefined) return t('spacesTree.childEmpty');
     return `${agentNameLine(agentLabels(agent))} · ${agentStateLabel(agent.agentStatus)}`;
 }
 
@@ -357,11 +357,11 @@ const GroupRow = React.memo(({
     const styles = stylesheet;
     const counts = groupSummaryCounts(groupChildren);
     const summary = [
-        { count: counts.needsYou, word: 'needs you', error: true },
-        { count: counts.working, word: 'working', error: false },
-        { count: counts.done, word: 'done', error: false },
+        { count: counts.needsYou, word: t('spacesTree.needsYou'), error: true },
+        { count: counts.working, word: t('spacesTree.working'), error: false },
+        { count: counts.done, word: t('spacesTree.done'), error: false },
     ].filter((entry) => entry.count > 0).slice(0, 2);
-    const noun = `${count} ${kind === undefined ? '' : `${kind} `}workspace${count === 1 ? '' : 's'}`;
+    const noun = t('spacesTree.groupCount', { count, kind });
     const summaryWords = summary.map((entry) => `${entry.count} ${entry.word}`).join(' · ');
 
     return (
@@ -371,7 +371,7 @@ const GroupRow = React.memo(({
             android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
             accessibilityRole="button"
             accessibilityState={{ expanded }}
-            accessibilityLabel={`${noun}, ${summaryWords}. ${expanded ? 'Collapse' : 'Expand'}`}
+            accessibilityLabel={`${noun}, ${summaryWords}. ${expanded ? t('spacesTree.expand') : t('spacesTree.collapse')}`}
         >
             <View style={styles.chevron}>
                 <Ionicons
@@ -438,7 +438,7 @@ const ChildRow = React.memo(({
                 ]}
                 android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
                 accessibilityRole="button"
-                accessibilityLabel={`Open ${label}, ${line2}`}
+                accessibilityLabel={t('spacesTree.openLabel', { label, line2 })}
             >
                 <StatusDot color={dot.color} isPulsing={dot.pulsing} size={8} />
                 <View style={styles.childText}>
@@ -507,7 +507,7 @@ const WorkspaceCard = React.memo(({
     const paneCount = workspace.tabs.reduce((count, tab) => count + tab.panes.length, 0);
     const countLabel = agentCount > 0
         ? `${agentCount} agent${agentCount === 1 ? '' : 's'}`
-        : paneCount > 0 ? 'shell' : undefined;
+        : paneCount > 0 ? t('spacesTree.shell') : undefined;
 
     return (
         <View style={[styles.card, compact && styles.cardCompact]}>
@@ -682,7 +682,7 @@ export const SpacesTree = React.memo(({
 
     const renderItem = React.useCallback(({ item }: { item: HerdRow }) => {
         if (item.type === 'empty') {
-            return <Text style={styles.empty}>{searchQuery.trim() === '' ? (emptyText ?? t('spacesTree.empty')) : 'No matches'}</Text>;
+            return <Text style={styles.empty}>{searchQuery.trim() === '' ? (emptyText ?? t('spacesTree.empty')) : t('spacesTree.noMatches')}</Text>;
         }
         return (
         <WorkspaceCard
