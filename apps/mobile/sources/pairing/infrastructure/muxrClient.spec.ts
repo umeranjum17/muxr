@@ -265,3 +265,75 @@ describe('connection diagnostic codes', () => {
     });
 
 });
+
+/*
+ * The schedule itself, on the shipped defaults. Raising the 30s cap to five
+ * minutes -- a plausible "stop hammering the relay" edit -- left the phone dark
+ * for minutes after a drop, and nothing in the estate noticed, because every
+ * other reconnect test passes its own tiny reconnectDelayMs.
+ */
+describe('reconnect schedule after a drop', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        FakeWebSocket.current = undefined;
+        vi.useRealTimers();
+    });
+
+    /**
+     * Drop the live socket and report how long the phone waited before it
+     * redialled, or 0 once it has given up rather than scheduled anything.
+     */
+    const dropAndMeasureWait = async (client: MuxrClient): Promise<number> => {
+        const dropped = FakeWebSocket.current!;
+        dropped.failClose(1006, 'network lost');
+        await vi.advanceTimersByTimeAsync(0);
+        if (client.state === 'stale') return 0;
+        const before = Date.now();
+        await vi.advanceTimersToNextTimerAsync();
+        return FakeWebSocket.current === dropped ? Number.POSITIVE_INFINITY : Date.now() - before;
+    };
+
+    const deliverHostFrame = async (): Promise<void> => {
+        FakeWebSocket.current!.onmessage?.({ data: JSON.stringify({
+            header: { machineId: 'machine-1', seq: 1, at: Date.now() },
+            payload: encodePayload({ type: 'plugins.invalidated', reason: 'changed', pluginIds: ['example.ui'] } as never),
+        }) });
+        await vi.advanceTimersByTimeAsync(0);
+    };
+
+    it('widens to a 30s ceiling, gives up inside 90s, and starts over once the host answers', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('WebSocket', FakeWebSocket);
+        const client = new MuxrClient({ mode: 'local', relayUrl: 'ws://relay.test', machineId: 'machine-1' });
+        client.connect();
+        await vi.advanceTimersByTimeAsync(0);
+
+        const waits: number[] = [];
+        while (waits.length < 12) {
+            const waited = await dropAndMeasureWait(client);
+            if (waited === 0) break;
+            waits.push(waited);
+        }
+
+        // Backing off is right; disappearing for minutes is not. A phone that
+        // has just left a lift must find the relay within one long wait.
+        expect(Math.max(...waits)).toBeLessThanOrEqual(30_000);
+        expect(waits).toEqual([1500, 3000, 6000, 12000, 24000, 30_000]);
+        for (const [index, wait] of waits.entries()) {
+            if (index > 0) expect(wait).toBeGreaterThan(waits[index - 1]!);
+        }
+
+        // Then it stops and says so, rather than reconnecting for ever.
+        expect(client.state).toBe('stale');
+        expect(waits.reduce((total, wait) => total + wait, 0)).toBeLessThan(90_000);
+
+        // Coming back resets the count: the next drop must not inherit the
+        // ceiling the failed run climbed to.
+        client.connect();
+        await vi.advanceTimersByTimeAsync(0);
+        await deliverHostFrame();
+        expect(client.state).toBe('open');
+        expect(await dropAndMeasureWait(client)).toBe(1500);
+        client.close();
+    }, 30_000);
+});

@@ -1,7 +1,7 @@
 # Contributing
 
 muxr is a small, opinionated codebase. This file is the whole contract
-between you and it. Architecture checks in `yarn check` enforce the package,
+between you and it. Architecture checks in `yarn run check` enforce the package,
 mobile UI, and mobile runtime rules below; they are not optional style.
 
 ## Set up
@@ -25,15 +25,15 @@ The unsupported local relay fixture lives in
 
 ## Verify before you push
 
-The exact check path CI runs on every pull request:
+The automatic pull-request lane, and the full suite behind it:
 
 ```bash
-yarn run check
+yarn run check:fast   # typechecks, package self-checks, vitest flows, architecture
+yarn run check        # everything above plus the e2e, web-export, install and secret checks
 ```
 
-That invokes `scripts/diagnostics/application/runSuite.mjs`. It includes
-workspace and mobile typechecks, package self-checks, architecture guards, and
-flow tests.
+Both invoke `scripts/diagnostics/application/runSuite.mjs`, which owns both
+lists; CI's `fast` and `suite` jobs run these on every pull request.
 
 Two e2e checks in the suite — the live herdr backend loop and the worktree
 session — skip automatically when no herdr socket is present, so on a GitHub
@@ -155,7 +155,7 @@ No nested ternaries. No boolean piles that decide three things at once. Flatten 
 
 ### Tests
 
-Flow-level checks through real modules. Default to zero new test files. Architecture checks live in `apps/mobile/sources/architecture.spec.ts` and run in `yarn check`. Security and crypto keep their coverage.
+Flow-level checks through real modules. Default to zero new test files. Architecture checks live in `apps/mobile/sources/architecture.spec.ts` and run in `yarn run check`. Security and crypto keep their coverage.
 
 ## Tooling architecture
 

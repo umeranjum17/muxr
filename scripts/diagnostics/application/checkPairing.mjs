@@ -12,8 +12,6 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import sodium from 'libsodium-wrappers';
 
-const PORT = process.env.MUXR_RELAY_PORT ?? '8812';
-const BASE = `http://127.0.0.1:${PORT}`;
 const dataDir = mkdtempSync(join(tmpdir(), 'muxr-pairing-'));
 const children = [];
 const done = (code, msg) => {
@@ -22,14 +20,17 @@ const done = (code, msg) => {
     process.exit(code);
 };
 
+// Port 0: the kernel picks, the relay announces what it bound, and two lanes
+// running this check at once can never land on each other's process.
 const relay = spawn('node', ['apps/relay/dist/main.js'], {
     env: { ...process.env, MUXR_RELAY_DEVELOPMENT_API: '1',
-    MUXR_RELAY_PORT: PORT, MUXR_RELAY_DATA_DIR: dataDir },
+    MUXR_RELAY_PORT: '0', MUXR_RELAY_DATA_DIR: dataDir },
     stdio: ['ignore', 'pipe', 'pipe'],
 });
 relay.stderr.on('data', (d) => process.stderr.write(`[relay] ${d}`));
 children.push(relay);
-await waitForRelay(PORT);
+const PORT = await waitForRelay(relay).catch((error) => done(1, `\nFAIL: ${error.message}\n`));
+const BASE = `http://127.0.0.1:${PORT}`;
 
 const post = async (path, body, token) => {
     const res = await fetch(`${BASE}${path}`, {

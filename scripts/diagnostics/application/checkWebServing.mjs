@@ -54,20 +54,19 @@ try {
     writeFileSync(join(root, 'assets', 'app-a1b2c3d4e5.js'), 'console.log("app");');
     writeFileSync(join(root, 'canvaskit.wasm'), Buffer.concat([Buffer.from([0x00, 0x61, 0x73, 0x6d]), Buffer.alloc(1024)]));
 
-    const relayPort = await freePort();
-    const relayBase = `http://127.0.0.1:${relayPort}`;
-    children.push(spawn('node', ['apps/relay/dist/main.js'], {
+    const relay = spawn('node', ['apps/relay/dist/main.js'], {
         env: {
             ...process.env,
             MUXR_RELAY_LOCAL_AUTHORITY: '1',
-            MUXR_RELAY_PORT: String(relayPort),
+            MUXR_RELAY_PORT: '0',
             MUXR_RELAY_HOST: '127.0.0.1',
             MUXR_RELAY_DATA_DIR: dataDir,
             MUXR_WEB_ROOT: root,
         },
-        stdio: ['ignore', 'ignore', 'inherit'],
-    }));
-    await waitForRelay(relayPort);
+        stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    children.push(relay);
+    const relayBase = `http://127.0.0.1:${await waitForRelay(relay)}`;
 
     const index = await get(relayBase, '/index.html');
     check('relay serves index.html as html', index.status === 200 && (contentType(index)).includes('text/html'));

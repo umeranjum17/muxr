@@ -9,8 +9,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-// Not 8792: that is the real default, so a live relay would collide with this check.
-const PORT = process.env.MUXR_RELAY_PORT ?? '8795';
 // Isolate HOME + data dirs so the realtime.token handler takes its deterministic
 // no-key path (no ~/.muxr/openai.key, no OPENAI_API_KEY => no OpenAI call),
 // and the fake host/relay never touch the live ~/.muxr state.
@@ -22,8 +20,10 @@ const env = {
     MUXR_DATA_DIR: join(isolate, 'host'),
     MUXR_RELAY_DATA_DIR: join(isolate, 'relay'),
     MUXR_RELAY_DEVELOPMENT_API: '1',
-    MUXR_RELAY_PORT: PORT,
-    MUXR_RELAY_URL: `ws://127.0.0.1:${PORT}`,
+    // The kernel picks; the relay announces what it bound and the host is told
+    // afterwards. A fixed port here is how a check ends up talking to someone
+    // else's relay and passing without its own having ever started.
+    MUXR_RELAY_PORT: '0',
     MUXR_MACHINE_ID: 'skeleton',
 };
 const children = [];
@@ -40,8 +40,12 @@ function shutdown() {
     for (const child of children) child.kill('SIGTERM');
 }
 
-start('relay', ['apps/relay/dist/main.js']);
-await waitForRelay(PORT);
+const PORT = await waitForRelay(start('relay', ['apps/relay/dist/main.js'])).catch((error) => {
+    process.stderr.write(`\nFAIL: ${error.message}\n`);
+    shutdown();
+    process.exit(1);
+});
+env.MUXR_RELAY_URL = `ws://127.0.0.1:${PORT}`;
 start('host', ['apps/host/dist/main.js', '--fake']);
 await delay(600);
 

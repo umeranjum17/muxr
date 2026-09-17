@@ -2,6 +2,18 @@ import { decodeBase64 } from '@/encryption/base64';
 
 const UNSAFE_PAIRING_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
 
+/**
+ * The camera reports every barcode in view, so the scanner needs a cheap way to
+ * tell a pairing QR from a wifi code or a poster. It lives beside the parser
+ * because the two have to agree: a shape this rejects never reaches pairing at
+ * all, which the user sees as a scan that silently does nothing.
+ */
+const PAIR_LINK = /^https:\/\/[^#]+\/pair#|^muxr:\/\/pair[?#]|^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=|^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/pair#/i;
+
+export function looksLikePairingLink(value: string): boolean {
+    return PAIR_LINK.test(value);
+}
+
 export function pairingSearchParams(url: string): URLSearchParams {
     const paramsStart = url.search(/[?#]/);
     return new URLSearchParams(paramsStart >= 0 ? url.slice(paramsStart + 1) : '');

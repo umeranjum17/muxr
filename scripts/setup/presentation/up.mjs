@@ -163,7 +163,10 @@ prefixOutput(relay, 'relay', process.stdout);
 relay.on('exit', (code, signal) => onChildExit('relay', code, signal));
 
 try {
-    await waitForRelay(port);
+    // Waits on the relay we just spawned, not on the port: a relay that dies at
+    // startup says so here instead of burning the timeout, and a stranger
+    // already on the port can never be mistaken for ours.
+    await waitForRelay(relay);
 } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`${message}\n`);

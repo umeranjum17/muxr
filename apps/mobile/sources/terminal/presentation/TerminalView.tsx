@@ -39,19 +39,12 @@ import {
     recordTerminalScrollTimeout,
 } from '@/catalog/diagnostics';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
+import { createTerminalScrollGate } from '../application/terminalScrollGate';
 import { DEFAULT_FONT_INDEX, FONT_STEPS, clampFontIndex } from '../domain/fontSteps';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { createTerminalWritePump, type TerminalWritePump } from '../application/terminalWritePump';
 import type { TerminalGraphicsReason } from '@muxr/contract';
 
-/**
- * One scroll message costs herdr one full-screen repaint whatever the line
- * count, so a fling should travel as one big jump, not as forty queued small
- * ones. The cap only guards against a runaway accumulator.
- */
-const MAX_SCROLL_LINES = 400;
-/** A scroll whose repaint never came back must not gate scrolling forever. */
-const SCROLL_ACK_TIMEOUT_MS = 250;
 /** Text zoom reflows the terminal; graphics zoom magnifies its existing surface. */
 const GRAPHICS_ZOOM_STEPS = [1, 1.25, 1.5, 2] as const;
 
@@ -105,11 +98,25 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const resizeTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const writePumpRef = React.useRef<TerminalWritePump | undefined>(undefined);
     const writeGenerationRef = React.useRef(0);
-    const pendingScrollRef = React.useRef(0);
     const scrollOriginRef = React.useRef<{ x: number; y: number; width: number; height: number } | undefined>(undefined);
-    const scrollRafRef = React.useRef<number | undefined>(undefined);
-    const scrollInFlightRef = React.useRef(false);
-    const scrollAckTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const scrollGateRef = React.useRef<ReturnType<typeof createTerminalScrollGate> | undefined>(undefined);
+    scrollGateRef.current ??= createTerminalScrollGate({
+        send: (lines) => {
+            const size = lastSizeRef.current;
+            const origin = scrollOriginRef.current;
+            channelRef.current?.scroll(lines, size === null ? undefined : {
+                column: Math.min(size.cols - 1, Math.floor((origin ? origin.x / origin.width : .5) * size.cols)),
+                row: Math.min(size.rows - 1, Math.floor((origin ? origin.y / origin.height : .5) * size.rows)),
+                ...origin,
+            });
+        },
+        onDiscarded: recordTerminalScrollClamped,
+        onSent: recordTerminalScrollRows,
+        onTimedOut: recordTerminalScrollTimeout,
+        scheduleFrame: (run) => requestAnimationFrame(run),
+        cancelFrame: (handle) => cancelAnimationFrame(handle),
+    });
+    const scrollGate = scrollGateRef.current;
     const graphicsActiveRef = React.useRef(false);
     // A standing device preference: the chosen size survives pane remounts and app restarts.
     const [fontIndex, setFontIndex] = useLocalSettingMutable('terminalFontIndex');
@@ -174,67 +181,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         writeGenerationRef.current += 1;
         void writePumpRef.current?.cancel();
         writePumpRef.current = undefined;
-        if (scrollRafRef.current !== undefined) cancelAnimationFrame(scrollRafRef.current);
-        if (scrollAckTimerRef.current !== undefined) clearTimeout(scrollAckTimerRef.current);
-        scrollRafRef.current = undefined;
-        scrollAckTimerRef.current = undefined;
-        scrollInFlightRef.current = false;
-        pendingScrollRef.current = 0;
-    };
-
-    /**
-     * Latest-wins gating: while one scroll's repaint is on the wire, new drag
-     * and fling deltas pile into the accumulator instead of the network. Each
-     * queued round trip behind a fling is felt as rubber-band lag; one bigger
-     * jump repaints the same screen once.
-     */
-    const flushScroll = (): void => {
-        scrollRafRef.current = undefined;
-        if (scrollInFlightRef.current) return;
-        const lines = Math.trunc(pendingScrollRef.current);
-        pendingScrollRef.current = 0;
-        if (lines === 0) return;
-        // The clamp is a runaway guard, and a guard that discards a gesture in
-        // silence is how a scroll comes to feel arbitrary. Count what it eats.
-        const clamped = Math.max(-MAX_SCROLL_LINES, Math.min(MAX_SCROLL_LINES, lines));
-        if (clamped !== lines) recordTerminalScrollClamped(Math.abs(lines - clamped));
-        recordTerminalScrollRows(Math.abs(clamped));
-        scrollInFlightRef.current = true;
-        scrollAckTimerRef.current = setTimeout(dropScroll, SCROLL_ACK_TIMEOUT_MS);
-        const size = lastSizeRef.current;
-        const origin = scrollOriginRef.current;
-        channelRef.current?.scroll(clamped, size === null ? undefined : {
-            column: Math.min(size.cols - 1, Math.floor((origin ? origin.x / origin.width : .5) * size.cols)),
-            row: Math.min(size.rows - 1, Math.floor((origin ? origin.y / origin.height : .5) * size.rows)),
-            ...origin,
-        });
-    };
-
-    /**
-     * Output came back, so the next scroll may go. A terminal stream repaints
-     * itself whether or not anything was scrolled, so this is flow control and
-     * nothing more: which frame answered which scroll is not knowable here, and
-     * a duration measured against a frame we cannot attribute is not a latency.
-     */
-    const releaseScroll = (): void => {
-        if (!scrollInFlightRef.current) return;
-        if (scrollAckTimerRef.current !== undefined) clearTimeout(scrollAckTimerRef.current);
-        scrollAckTimerRef.current = undefined;
-        scrollInFlightRef.current = false;
-        if (Math.trunc(pendingScrollRef.current) !== 0 && scrollRafRef.current === undefined) {
-            scrollRafRef.current = requestAnimationFrame(flushScroll);
-        }
-    };
-
-    /**
-     * Nothing came back inside the budget. The gate opens anyway so a lost
-     * repaint cannot wedge scrolling, and the phone records that it happened:
-     * a pane that keeps timing out is not keeping up with the finger.
-     */
-    const dropScroll = (): void => {
-        if (!scrollInFlightRef.current) return;
-        recordTerminalScrollTimeout();
-        releaseScroll();
+        scrollGate.reset();
     };
 
     React.useEffect(() => {
@@ -347,7 +294,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // they cannot be coalesced merely because graphics is true.
                     channel.onData((base64, graphics) => {
                         if (graphics !== true) recordTerminalOutput(sessionId, base64);
-                        releaseScroll();
+                        // Output came back, so the next scroll may go. A stream
+                        // repaints itself whether or not anything was scrolled,
+                        // so this is flow control and nothing more: which frame
+                        // answered which scroll is not knowable here.
+                        scrollGate.release();
                         writePumpRef.current?.push(
                             typeof graphics === 'boolean' ? { bytes: base64, graphics } : { bytes: base64 },
                         );
@@ -433,8 +384,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 if (viewport.width <= 0 || viewport.height <= 0) return;
                 // A new touch stops the old gesture; never deliver its queued
                 // travel to the newly touched editor/sidebar.
-                if (pendingScrollRef.current !== 0) recordTerminalScrollClamped(Math.abs(pendingScrollRef.current));
-                pendingScrollRef.current = 0;
+                scrollGate.beginGesture();
                 scrollOriginRef.current = { x: Math.max(0, nativeEvent.locationX), y: Math.max(0, nativeEvent.locationY), ...viewport };
             }}
             style={{ flex: 1, backgroundColor: '#0c0c0b', overflow: 'hidden' }}>
@@ -476,12 +426,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // holds nothing but repaint diffs; scrolling it shows garbage.
                 // Ghostty counts rows the way the finger moved, herdr counts
                 // them the way the text does, hence the negation.
-                onScroll={({ nativeEvent }) => {
-                    pendingScrollRef.current -= nativeEvent.rows;
-                    if (scrollRafRef.current === undefined) {
-                        scrollRafRef.current = requestAnimationFrame(flushScroll);
-                    }
-                }}
+                onScroll={({ nativeEvent }) => scrollGate.queue(-nativeEvent.rows)}
             />
             </Animated.View>
             </GestureDetector>

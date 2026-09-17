@@ -2,6 +2,10 @@
  * Full local suite. One command, one exit code.
  * Every check runs even if an earlier one fails, so a single run reports
  * everything that is broken rather than only the first thing.
+ *
+ * `--fast` runs only the lane a pull request validates automatically. It is the
+ * same list in both places on purpose: a fast lane described in YAML drifts
+ * from the one developers can run, and then nobody knows what green means.
  */
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -58,6 +62,40 @@ const checks = [
     ['security: tracked/package secret scan', 'node', ['scripts/diagnostics/application/checkNoSecrets.mjs']],
 ];
 
+/**
+ * The fast lane: typecheck, the compiled self-checks, every vitest flow, and
+ * the architecture policies. Nothing here packs a tarball, exports the web
+ * build, or drives an install, so it finishes in about a minute.
+ *
+ * Deliberately absent: the package/install smoke, the web export and serving
+ * checks, the export-chain scan, and the live-herdr e2e. Those still run in the
+ * full suite -- the fast lane is early feedback, not a release gate.
+ */
+const FAST = new Set([
+    'typecheck: workspace (strict)',
+    'typecheck: mobile (expo/RN)',
+    'unit: crypto (strict v2/replay/grants/adversarial)',
+    'unit: host domain (unread/attention/restart)',
+    'unit: contract vocabulary round-trip',
+    'unit: relay pairing (expiry, cap, validation)',
+    'unit: layout snapshot round-trip',
+    'unit: setup domain (pairing/connection/crypto)',
+    'unit: all vitest flows',
+    'policy: host/relay architecture',
+    'policy: mobile architecture',
+    'policy: package architecture (module boundaries, domain purity, no nested ternaries)',
+    'policy: tooling architecture (feature boundaries, layers, no nested ternaries)',
+]);
+
+const fastOnly = process.argv.includes('--fast');
+// A renamed check must not fall out of the fast lane in silence; that is how a
+// pull request ends up green having validated less than anyone thinks.
+const missing = [...FAST].filter((name) => !checks.some(([existing]) => existing === name));
+if (missing.length > 0) {
+    process.stderr.write(`fast lane names no longer in the suite:\n  ${missing.join('\n  ')}\n`);
+    process.exit(1);
+}
+
 const results = [];
 
 function run(name, cmd, args, timeoutMs = 150000) {
@@ -66,8 +104,10 @@ function run(name, cmd, args, timeoutMs = 150000) {
         // A live deployment exports these. Inherited, they make every check
         // point a real token and key at the throwaway relays these checks spawn,
         // which then refuse the host -- failures that look like code regressions.
+        // RELAY_PORT is worse than that: it aims a check at a relay it did not
+        // start, which is how a check goes green having tested nothing.
         const env = { ...process.env };
-        for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH']) {
+        for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH', 'RELAY_PORT']) {
             delete env[`MUXR_${key}`];
         }
         if (cmd === 'npx' && args[0] === 'vitest') env.NODE_ENV = 'test';
@@ -91,8 +131,8 @@ function run(name, cmd, args, timeoutMs = 150000) {
     });
 }
 
-process.stdout.write('\n=== MUXR SUITE ===\n\n');
-if (!hasHerdr) {
+process.stdout.write(`\n=== MUXR SUITE${fastOnly ? ' (fast lane)' : ''} ===\n\n`);
+if (!fastOnly && !hasHerdr) {
     process.stdout.write(
         `No herdr socket at ${herdrSocket}.\n`
         + `Skipping the live-herdr check. Run \`herdr server\` to enable it.\n\n`,
@@ -100,14 +140,15 @@ if (!hasHerdr) {
 }
 let skipped = 0;
 for (const [name, cmd, args, needs, timeoutMs] of checks) {
+    if (fastOnly && !FAST.has(name)) continue;
     if (needs === 'herdr' && !hasHerdr) {
         skipped += 1;
         process.stdout.write(`SKIP  ${name}  (no herdr server)\n`);
         continue;
     }
+    // No settle wait between checks: every relay they spawn now takes a
+    // kernel-picked port, so nothing is left holding a number the next one needs.
     await run(name, cmd, args, timeoutMs);
-    // e2e checks bind ports; let them release before the next one.
-    await new Promise((r) => setTimeout(r, 500));
 }
 
 const failed = results.filter((r) => r.code !== 0);

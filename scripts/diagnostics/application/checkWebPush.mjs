@@ -30,14 +30,6 @@ const assert = (condition, message) => {
     if (!condition) throw new Error(message);
 };
 
-const freePort = await new Promise((resolve, reject) => {
-    const server = createNetServer();
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-        const address = server.address();
-        server.close(() => resolve(address.port));
-    });
-});
 const stubPort = await new Promise((resolve, reject) => {
     const server = createNetServer();
     server.once('error', reject);
@@ -54,7 +46,8 @@ const signing = generateSigningKeyPair();
 const machineBox = generateKeyPair();
 const initialDataKey = randomBytes(32).toString('base64');
 const expiresAt = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
-const base = `http://127.0.0.1:${freePort}`;
+// Assigned from the relay's own announcement once it is listening.
+let base;
 const json = async (path, options = {}) => {
     const response = await fetch(`${base}${path}`, {
         ...options,
@@ -103,13 +96,13 @@ try {
         env: {
             ...process.env,
             MUXR_RELAY_LOCAL_AUTHORITY: '1',
-            MUXR_RELAY_PORT: String(freePort),
+            MUXR_RELAY_PORT: '0',
             MUXR_RELAY_HOST: '127.0.0.1',
             MUXR_RELAY_DATA_DIR: dataDir,
         },
-        stdio: ['ignore', 'ignore', 'inherit'],
+        stdio: ['ignore', 'pipe', 'inherit'],
     });
-    await waitForRelay(freePort);
+    base = `http://127.0.0.1:${await waitForRelay(child.current)}`;
     mintSecret = JSON.parse(readFileSync(join(dataDir, 'mint-secret'), 'utf8'));
 
     const browser = await pairBrowser('browser-pwa');

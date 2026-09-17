@@ -27,8 +27,10 @@ import {
 } from '@muxr/contract';
 import { waitForRelay } from './waitForRelay.mjs';
 
-const PORT = String(8890 + Math.floor(Math.random() * 40));
-const relayUrl = `ws://127.0.0.1:${PORT}`;
+// A port picked from a 40-wide range still collides across worktrees, and a
+// collision used to read as a pass against the other lane's relay. The kernel
+// picks instead, and the relay reports back what it bound.
+let relayUrl;
 const machineId = `herdr-check-${process.pid}`;
 const dataDir = mkdtempSync(join(tmpdir(), 'muxr-herdr-'));
 const workdir = mkdtempSync(join(tmpdir(), 'muxr-cwd-'));
@@ -66,8 +68,7 @@ for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_AUTH']) {
 Object.assign(env, {
     MUXR_MODE: 'local',
     MUXR_RELAY_DEVELOPMENT_API: '1',
-    MUXR_RELAY_PORT: PORT,
-    MUXR_RELAY_URL: relayUrl,
+    MUXR_RELAY_PORT: '0',
     MUXR_MACHINE_ID: machineId,
     MUXR_DATA_DIR: dataDir,
     MUXR_RELAY_DATA_DIR: join(dataDir, 'relay'),
@@ -78,6 +79,7 @@ function start(name, args) {
     child.stdout.on('data', (d) => process.stdout.write(`      [${name}] ${d}`));
     child.stderr.on('data', (d) => process.stderr.write(`      [${name}] ${d}`));
     children.push(child);
+    return child;
 }
 
 let wireSeq = 0;
@@ -139,8 +141,10 @@ function herdrJson(args, timeout = 10_000) {
     return JSON.parse(runHerdr(args, timeout));
 }
 
-start('relay', ['apps/relay/dist/main.js']);
-await waitForRelay(PORT);
+const relayPort = await waitForRelay(start('relay', ['apps/relay/dist/main.js']))
+    .catch((error) => finish(1, `FAIL: ${error.message}\n`));
+relayUrl = `ws://127.0.0.1:${relayPort}`;
+env.MUXR_RELAY_URL = relayUrl;
 start('host', ['apps/host/dist/main.js']);
 await new Promise((resolve) => setTimeout(resolve, 1500));
 

@@ -15,8 +15,7 @@ import { decodePayload, encodePayload, newTerminalChannel, nextRequestId, termin
 import { waitForRelay } from '../../scripts/diagnostics/application/waitForRelay.mjs';
 import { startFakeHerdr } from './server.mjs';
 
-const PORT = String(8940 + Math.floor(Math.random() * 40));
-const relayUrl = `ws://127.0.0.1:${PORT}`;
+let relayUrl;
 const machineId = `fake-herdr-smoke-${process.pid}`;
 const dataDir = mkdtempSync(join(tmpdir(), 'fake-herdr-smoke-'));
 const TIMEOUT_MS = 120_000;
@@ -28,8 +27,8 @@ for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_AUTH', 'MUXR_RELAY_URL', 'MUX
 Object.assign(env, {
     MUXR_MODE: 'local',
     MUXR_RELAY_DEVELOPMENT_API: '1',
-    MUXR_RELAY_PORT: PORT,
-    MUXR_RELAY_URL: relayUrl,
+    // Kernel-picked, read back from the relay's own announcement.
+    MUXR_RELAY_PORT: '0',
     MUXR_MACHINE_ID: machineId,
     MUXR_DATA_DIR: dataDir,
     MUXR_RELAY_DATA_DIR: join(dataDir, 'relay'),
@@ -65,6 +64,7 @@ function start(name, args) {
     child.stdout.on('data', (chunk) => process.stdout.write(`      [${name}] ${chunk}`));
     child.stderr.on('data', (chunk) => process.stderr.write(`      [${name}] ${chunk}`));
     children.push(child);
+    return child;
 }
 
 function send(socket, frame, sessionId) {
@@ -92,8 +92,10 @@ async function waitFor(predicate, what, timeoutMs = 20_000) {
     fail(`${what} never happened`);
 }
 
-start('relay', ['apps/relay/dist/main.js']);
-await waitForRelay(Number(PORT));
+const relayPort = await waitForRelay(start('relay', ['apps/relay/dist/main.js']))
+    .catch((error) => fail(error.message));
+relayUrl = `ws://127.0.0.1:${relayPort}`;
+env.MUXR_RELAY_URL = relayUrl;
 start('host', ['apps/host/dist/main.js']);
 await new Promise((resolve) => setTimeout(resolve, 2000));
 

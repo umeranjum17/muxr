@@ -13,6 +13,7 @@
         "typecheck": "tsc --build --force",
     "perf": "node perf/releaseGate.mjs",
     "check": "node scripts/diagnostics/application/runSuite.mjs",
+    "check:fast": "node scripts/diagnostics/application/runSuite.mjs --fast",
         "check:architecture": "npx vitest run apps/mobile/sources/architecture.spec.ts --config apps/mobile/vitest.config.ts && npx vitest run apps/host/src/architecture.test.ts apps/relay/src/architecture.test.ts && node packages/checkArchitecture.mjs && node scripts/diagnostics/application/checkArchitecture.mjs",
         "up": "node scripts/setup/presentation/up.mjs",
         "dev": "node scripts/development/presentation/dev.mjs",
