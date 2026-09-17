@@ -20,7 +20,7 @@ import { documentContract, documentPayload, scenarioDescriptor } from './scenari
 const root = new URL('../..', import.meta.url).pathname;
 const crop = (value) => ({ width: 4, height: 4, bytes: Buffer.from(Array.from({ length: 16 }, (_, index) => [value + index % 2 * 20, 255 - value, 80, 255]).flat()) });
 const digest = (text) => createHash('sha256').update(text).digest('hex');
-const baseline = (path) => execFileSync('git', ['show', `16e17c88dd1f798dbb835afe82b211d12d0090dc:${path}`], { encoding: 'utf8' });
+const baseline = (path) => execFileSync('git', ['show', `16262f4b6f215335d55cea4a87c13edeadca0668:${path}`], { encoding: 'utf8' });
 const block = (source, marker, end = '\n}') => { const start = source.indexOf(marker); assert.notEqual(start, -1, `${marker} missing`); const stop = source.indexOf(end, start) + end.length; assert.ok(stop > start, `${marker} end missing`); return source.slice(start, stop); };
 const started = processStartIdentity(process.pid);
 const session = (overrides = {}) => {
