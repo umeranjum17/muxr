@@ -66,9 +66,10 @@ const slotStyle = (theme: Theme, pressed: boolean, { disabled = false, grow = tr
  * Drag it anywhere on the terminal; where it rests is remembered across
  * sessions. Tapping it expands the command panel beside it.
  */
-function CommandPuck({ open, onPress, dragHandlers, style }: {
+function CommandPuck({ open, onPress, onResetPosition, dragHandlers, style }: {
     open: boolean;
     onPress: () => void;
+    onResetPosition: () => void;
     dragHandlers: DragHandlers;
     style: ReturnType<typeof useAnimatedStyle>;
 }) {
@@ -84,6 +85,8 @@ function CommandPuck({ open, onPress, dragHandlers, style }: {
                 accessibilityLabel={open ? 'Close terminal quick actions' : 'Terminal quick actions'}
                 accessibilityHint="Quick terminal actions and view controls. Drag to move; tap to open."
                 accessibilityState={{ expanded: open }}
+                accessibilityActions={[{ name: 'reset', label: 'Reset position' }]}
+                onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'reset') onResetPosition(); }}
                 onPress={() => { hapticsLight(); onPress(); }}
                 hitSlop={6}
                 style={({ pressed }) => ({
@@ -162,13 +165,22 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, co
     const actionsMaxHeight = Math.max(0, available - headerHeight);
 
     // Puck position in terminal coordinates, plus its start for the drag.
-    const keyX = useSharedValue(0), keyY = useSharedValue(0);
-    const keyStartX = useSharedValue(0), keyStartY = useSharedValue(0);
-    const panelX = useSharedValue(0), panelY = useSharedValue(0);
-    const panelStartX = useSharedValue(0), panelStartY = useSharedValue(0);
     // The fraction form is what survives app restarts and terminal resizes.
     const keyFrac = React.useRef<Dock>(keyDock ?? { fx: 1, fy: 1 });
     const keyDefaulted = React.useRef(keyDock === null);
+    const initialKeyRx = Math.max(0, width - KEY - KEY_EDGE * 2);
+    const initialKeyRy = Math.max(0, height - KEY - KEY_EDGE * 2);
+    const initialKeyX = KEY_EDGE + clamp01(keyFrac.current.fx) * initialKeyRx;
+    const initialKeyY = KEY_EDGE + clamp01(keyFrac.current.fy) * initialKeyRy
+        - (keyDefaulted.current ? Math.min(KEY_DEFAULT_BOTTOM_PAD, Math.max(0, initialKeyRy)) : 0);
+    const initialPanelRx = Math.max(0, width - panelWidth - OPEN_MARGIN * 2);
+    const initialPanelRy = Math.max(0, height - panelHeight - OPEN_MARGIN * 2);
+    const initialPanelX = panelDock ? OPEN_MARGIN + clamp01(panelDock.fx) * initialPanelRx : OPEN_MARGIN;
+    const initialPanelY = panelDock ? OPEN_MARGIN + clamp01(panelDock.fy) * initialPanelRy : OPEN_MARGIN;
+    const keyX = useSharedValue(initialKeyX), keyY = useSharedValue(initialKeyY);
+    const keyStartX = useSharedValue(0), keyStartY = useSharedValue(0);
+    const panelX = useSharedValue(initialPanelX), panelY = useSharedValue(initialPanelY);
+    const panelStartX = useSharedValue(0), panelStartY = useSharedValue(0);
     const panelPlaced = React.useRef(false);
 
     const keyRange = React.useCallback(() => ({
@@ -185,6 +197,12 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, co
         const { rx, ry } = keyRange();
         return { fx: clamp01(rx === 0 ? 1 : (keyX.value - KEY_EDGE) / rx), fy: clamp01(ry === 0 ? 1 : (keyY.value - KEY_EDGE) / ry) };
     };
+    const resetKeyPosition = React.useCallback(() => {
+        keyFrac.current = { fx: 1, fy: 1 };
+        keyDefaulted.current = true;
+        setKeyDock(null);
+        placeKey();
+    }, [placeKey, setKeyDock]);
     const keyRangeRef = React.useRef(keyRange);
     keyRangeRef.current = keyRange;
     const keyToFracRef = React.useRef(keyToFrac);
@@ -208,7 +226,7 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, co
         }
     }, [placeKey, width, height, open, panelX, panelY, panelWidth, panelHeight, panelDock]);
 
-    React.useEffect(() => { if (!open) panelPlaced.current = false; }, [open]);
+    React.useEffect(() => { if (!open) { panelPlaced.current = false; setContentHeight(undefined); } }, [open]);
 
     // Open: the panel grows out of the puck -- centred above it, falling
     // below when there is no headroom -- unless the person put it somewhere
@@ -346,7 +364,7 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, co
                     </AnimatedPopup>
                 </Animated.View>
             )}
-            <CommandPuck open={open} onPress={() => onOpenChange(!open)} dragHandlers={keyDrag.panHandlers} style={keyPosition} />
+            <CommandPuck open={open} onPress={() => onOpenChange(!open)} onResetPosition={resetKeyPosition} dragHandlers={keyDrag.panHandlers} style={keyPosition} />
         </View>
     );
 }
