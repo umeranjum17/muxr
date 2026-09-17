@@ -240,7 +240,7 @@ function AddPanel({ onAppend, onDone }: {
     const [sendText, setSendText] = React.useState('');
     const [repeat, setRepeat] = React.useState(false);
     const bytes = escapeToBytes(sendText.trim());
-    const canAdd = label.trim() !== '' && bytes !== null;
+    const canAdd = label.trim() !== '' && bytes !== null && bytes.length <= 512;
     return (
         <View style={styles.addPanel}>
             {CATALOG_GROUPS.map((group) => (
