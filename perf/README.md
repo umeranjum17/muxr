@@ -13,7 +13,7 @@ Relay, host and app are the builds we ship. Herdr is third party, so the gate
 brings its own: `perf/fake-herdr` speaks Herdr's three wire seams (the JSON-RPC
 control socket, the `HERDR_BIN` CLI, the protocol-20 graphics socket), which
 makes the load identical run to run and means the gate never touches the desk
-you work on. Conformance against the real Herdr belongs to `yarn check`
+you work on. Conformance against the real Herdr belongs to `yarn run check`
 (`scripts/diagnostics/application/checkHerdrE2E.mjs`), which runs when a Herdr
 socket exists.
 
