@@ -147,7 +147,7 @@ function requestedContexts(manifest: PluginManifestV1 | undefined): string | und
 
 const SLOT_LABELS: Record<string, string> = {
     'host.rpc': '',
-    'navigation.primary': 'a tab',
+    'navigation.primary': 'a home chip or sidebar tool',
     'navigation.content': 'a screen',
     'home.cards': 'a home card',
     'session.header.trailing': 'a header control',

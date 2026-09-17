@@ -12,14 +12,6 @@
       "mode": "read"
     },
     {
-      "slot": "navigation.primary",
-      "id": "usage.nav",
-      "type": "navigation-item",
-      "label": "Usage",
-      "icon": "speedometer-outline",
-      "contentContributionId": "usage.details"
-    },
-    {
       "slot": "session.header.trailing",
       "id": "usage.open",
       "type": "screen-button",
@@ -123,23 +115,35 @@
     },
     {
       "slot": "host.rpc",
-      "id": "vitals",
+      "id": "now",
       "type": "rpc",
-      "method": "vitals",
-      "entry": "vitals.mjs",
+      "method": "now",
+      "entry": "now.mjs",
       "mode": "read"
     },
     {
       "slot": "home.cards",
-      "id": "vitals.card",
+      "id": "now.card",
       "type": "data-card",
-      "title": "Machine",
-      "presentation": "sheet",
+      "title": "Right now",
+      "presentation": "card",
       "source": {
         "type": "plugin.call",
-        "contributionId": "vitals"
+        "contributionId": "now"
       },
-      "emptyText": "Vitals unavailable"
+      "contentContributionId": "usage.details",
+      "emptyText": "Usage unavailable"
+    },
+    {
+      "slot": "settings.items",
+      "id": "usage.settings",
+      "type": "settings-item",
+      "label": "Usage",
+      "icon": "speedometer-outline",
+      "action": {
+        "type": "screen",
+        "contributionId": "usage.details"
+      }
     }
   ]
 }

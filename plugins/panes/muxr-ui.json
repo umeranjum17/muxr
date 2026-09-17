@@ -5,14 +5,6 @@
   "contributions": [
     {
       "slot": "host.rpc",
-      "id": "list",
-      "type": "rpc",
-      "method": "list",
-      "entry": "panes.mjs",
-      "mode": "read"
-    },
-    {
-      "slot": "host.rpc",
       "id": "tools",
       "type": "rpc",
       "method": "tools",
@@ -41,29 +33,6 @@
           "type": "plugin.call",
           "contributionId": "tools"
         }
-      }
-    },
-    {
-      "slot": "navigation.primary",
-      "id": "nav",
-      "type": "navigation-item",
-      "label": "Panes",
-      "icon": "terminal-outline",
-      "contentContributionId": "browse"
-    },
-    {
-      "slot": "navigation.content",
-      "id": "browse",
-      "type": "native",
-      "primitive": "item-list",
-      "params": {
-        "title": "Panes",
-        "icon": "terminal-outline",
-        "source": {
-          "type": "plugin.call",
-          "contributionId": "list"
-        },
-        "refreshIntervalMs": 15000
       }
     }
   ]

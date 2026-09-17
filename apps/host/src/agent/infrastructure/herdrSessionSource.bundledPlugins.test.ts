@@ -133,10 +133,13 @@ describe('bundled plugins resolve to the host package', () => {
             // The catalog projects the packaged manifest (normalized by the
             // real parser), never the stale registry copy.
             expect(panesManifest).toEqual(parseManifest(packagedManifest('muxr.panes')));
+            // No bundled plugin contributes top-level navigation anymore: the
+            // home is the screen and destinations live in cards, settings
+            // rows, and sheets, never as tabs.
             const nav = panesManifest.contributions.find((contribution) => contribution.slot === 'navigation.primary');
-            expect(nav).toMatchObject({ label: 'Panes' });
+            expect(nav).toBeUndefined();
             // RPC wiring resolves to the packaged script, not the stale entry.
-            const rpc = panesManifest.contributions.find((contribution) => contribution.slot === 'host.rpc' && contribution.id === 'list');
+            const rpc = panesManifest.contributions.find((contribution) => contribution.slot === 'host.rpc' && contribution.id === 'tools');
             expect(rpc).toMatchObject({ entry: 'panes.mjs' });
             for (const contribution of panesManifest.contributions) {
                 if (contribution.slot !== 'host.rpc' && contribution.slot !== 'host.stream') continue;

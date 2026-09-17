@@ -7,13 +7,6 @@ import { t } from '@/text';
 import type { Theme } from '@/theme';
 import { ConnectionStatus } from '../domain/ConnectionStatus';
 
-export type HomeTab = 'sessions' | 'settings' | 'plugin';
-
-const TAB_TITLES = {
-    sessions: 'tabs.sessions',
-    settings: 'tabs.settings',
-} as const;
-
 export function connectionStatusPresentation(
     socketStatus: { status: string; error?: string | null },
     theme: Theme,
@@ -41,14 +34,9 @@ export function connectionStatusPresentation(
     return { color: colors[copy.kind], isPulsing: copy.pulsing, text: texts[copy.textKey] };
 }
 
-export function homeHeaderTitle(
-    activeTab: HomeTab,
-    pluginTitle: string | undefined,
-    pairedMachineTitle: string | undefined,
-): string {
-    if (activeTab === 'plugin') return pluginTitle ?? '';
-    if (activeTab === 'sessions' && pairedMachineTitle !== undefined) return pairedMachineTitle;
-    return t(TAB_TITLES[activeTab]);
+export function homeHeaderTitle(pairedMachineTitle: string | undefined): string {
+    if (pairedMachineTitle !== undefined) return pairedMachineTitle;
+    return t('tabs.sessions');
 }
 
 export function pairedMachineTitle(machineName: string | undefined): string {

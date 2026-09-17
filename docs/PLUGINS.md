@@ -148,9 +148,9 @@ Every slot below is shipped. **JSON** means you edit `muxr-ui.json` and the chan
 | `shortcuts` | an Android launcher shortcut | JSON; bundled entries require an app rebuild |
 | `host.rpc` | a bounded one-shot backend entrypoint | JSON + `.mjs` |
 | `host.stream` | a persistent provider adapter over bounded NDJSON frames | `.mjs` |
-| `navigation.primary` | a top-level destination | JSON (`navigation-item`) |
+| `navigation.primary` | a navigation destination; product chrome decides where it renders (home chips, sidebar tools) and in what order | JSON (`navigation-item`) |
 | `navigation.content` | the screen that destination opens | JSON (`screen`) or primitive |
-| `home.cards` | a Home card, or `"presentation": "sheet"` for a pill that opens a bottom sheet | JSON (`data-card`) |
+| `home.cards` | a Home card, or `"presentation": "sheet"` for a pill that opens a bottom sheet; a card may set `contentContributionId` to open a declared `navigation.content` screen | JSON (`data-card`) |
 | `session.header.trailing` | a session action; compatible buttons can opt into terminal quick controls | JSON (`data-card` or `screen-button`) or primitive |
 | `session.pills` | a session action; compatible primitives can opt into terminal quick controls | JSON (`data-card`) or primitive |
 | `session.toolbar` | a pane-menu command that runs a declared Herdr action | JSON (`button`) |
@@ -446,7 +446,7 @@ Enabling or linking a Herdr plugin is the user's trust decision. Every enabled p
 
 The Plugins screen shows the trusted Herdr name, source, requested contribution surfaces, warnings, and whether the package has executable backend hooks. Declarative screens render host-owned attribution above plugin content; the manifest cannot override it. The manifest hash still binds the complete parsed manifest, source identity, and Herdr authority so calls target one stable snapshot even though hash changes do not change the default-on policy.
 
-Navigation content is scoped by plugin id and contribution id. `/plugin` renders that pair only. On the phone, enabled `navigation.primary` destinations appear as a destination row and route into `/plugin` with those ids. A navigation item may declare `"badge": { "type": "plugin.call", "contributionId": "count" }`; the referenced read RPC returns `{ "count": 0 }`, the phone bounds it to 0–999, and the plugin—not the kernel—owns the badge policy.
+Navigation content is scoped by plugin id and contribution id. `/plugin` renders that pair only. On the phone, enabled `navigation.primary` destinations render where the product puts them (home destination chips, sidebar tools) and route into `/plugin` with those ids; the declaration never positions product navigation. A `home.cards` data card may likewise set `contentContributionId` to open a declared `navigation.content` screen when tapped. A navigation item may declare `"badge": { "type": "plugin.call", "contributionId": "count" }`; the referenced read RPC returns `{ "count": 0 }`, the phone bounds it to 0–999, and the plugin—not the kernel—owns the badge policy.
 ## Compatibility and limits
 
 - `schemaVersion` is a major version. Unknown majors do not render.

@@ -172,7 +172,7 @@ function NavigationItemButton({ contribution, pluginId, manifestHash, active, on
 }
 
 function DataCard({ contribution, pluginId, manifestHash, pluginName }: { contribution: PluginDataCard; pluginId: string; manifestHash: string; pluginName: string }) {
-    const { theme } = useUnistyles(); const data = useDataValue(pluginId, manifestHash, contribution.source.contributionId); const [open, setOpen] = React.useState(false);
+    const { theme } = useUnistyles(); const router = useRouter(); const data = useDataValue(pluginId, manifestHash, contribution.source.contributionId); const [open, setOpen] = React.useState(false);
     if (!data.value && contribution.emptyText === undefined && !data.failed) return null;
     let shown: string | undefined = data.value;
     if (data.failed && data.value === undefined) shown = `${t('plugins.dataUnavailable')} ${t('plugins.retry')}`;
@@ -195,7 +195,10 @@ function DataCard({ contribution, pluginId, manifestHash, pluginName }: { contri
     if (data.failed) {
         return <Pressable onPress={data.retry} accessibilityRole="button" accessibilityLabel={failureLabel} style={cardStyle}>{card}</Pressable>;
     }
-    return <View style={cardStyle}>{card}</View>;
+    if (contribution.contentContributionId === undefined) {
+        return <View style={cardStyle}>{card}</View>;
+    }
+    return <Pressable onPress={() => router.push(pluginHref(pluginId, contribution.contentContributionId!) as never)} accessibilityRole="button" accessibilityLabel={resolvePluginText(contribution.title)} style={cardStyle}>{card}</Pressable>;
 }
 
 export function DeclarativeTerminalKeySlot({ channel }: { channel?: PluginTerminalChannel }) {
@@ -363,6 +366,7 @@ export function DeclarativePhoneNavRow({ onSelect }: { onSelect: (pluginId: stri
         manifestHash: summary.manifestHash,
         contentId: contribution.contentContributionId,
     }] : [])).sort((left, right) => Number(chipPluginIds.has(right.pluginId)) - Number(chipPluginIds.has(left.pluginId)));
+    if (chips.length === 0 && items.length === 0) return null;
     const content = <>
         {chips}
         {items.map((item) => (
