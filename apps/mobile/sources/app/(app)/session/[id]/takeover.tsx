@@ -222,14 +222,14 @@ export default function TakeoverScreen() {
     }, [commitDrag, display, frame, send]);
 
     const typedRef = React.useRef('');
-    const lastDeleteRef = React.useRef(0);
+    const suppressBackspaceRef = React.useRef(false);
     const pushText = React.useCallback((value: string) => {
         const previous = [...typedRef.current];
         const current = [...value];
         let common = 0;
         while (common < previous.length && common < current.length && previous[common] === current[common]) common += 1;
         typedRef.current = value;
-        if (previous.length - common > 0) lastDeleteRef.current = Date.now();
+        suppressBackspaceRef.current = previous.length - common > 0 && value.length === 0;
         for (let index = 0; index < previous.length - common; index += 1) {
             send(keyMessage('keyDown', 'Backspace', 'Backspace'));
             send(keyMessage('keyUp', 'Backspace', 'Backspace'));
@@ -269,13 +269,13 @@ export default function TakeoverScreen() {
     const toggleKeyboard = React.useCallback(() => {
         if (keyboardOpen) {
             typedRef.current = '';
-            lastDeleteRef.current = 0;
+            suppressBackspaceRef.current = false;
             inputRef.current?.clear();
             Keyboard.dismiss();
             setKeyboardOpen(false);
         } else {
             typedRef.current = '';
-            lastDeleteRef.current = 0;
+            suppressBackspaceRef.current = false;
             inputRef.current?.focus();
             setKeyboardOpen(true);
         }
@@ -309,9 +309,12 @@ export default function TakeoverScreen() {
             ref={inputRef}
             onChangeText={pushText}
             onKeyPress={({ nativeEvent }) => {
-                if (nativeEvent.key === 'Backspace' && typedRef.current === '' && Date.now() - lastDeleteRef.current > 200) {
-                    send(keyMessage('keyDown', 'Backspace', 'Backspace'));
-                    send(keyMessage('keyUp', 'Backspace', 'Backspace'));
+                if (nativeEvent.key === 'Backspace' && typedRef.current === '') {
+                    if (suppressBackspaceRef.current) suppressBackspaceRef.current = false;
+                    else {
+                        send(keyMessage('keyDown', 'Backspace', 'Backspace'));
+                        send(keyMessage('keyUp', 'Backspace', 'Backspace'));
+                    }
                 }
             }}
             onSubmitEditing={() => {
@@ -320,7 +323,7 @@ export default function TakeoverScreen() {
             }}
             onBlur={() => {
                 typedRef.current = '';
-                lastDeleteRef.current = 0;
+                suppressBackspaceRef.current = false;
                 inputRef.current?.clear();
                 setKeyboardOpen(false);
             }}

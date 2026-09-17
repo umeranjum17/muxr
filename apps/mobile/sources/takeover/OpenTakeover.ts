@@ -73,7 +73,7 @@ export function mouseMessage(eventType: 'mousePressed' | 'mouseReleased', point:
  * the `ws://127.0.0.1:<port>` URL printed into its conversation.
  */
 export function advertisedStreamPort(text: string): number | undefined {
-    const match = /ws:\/\/127\.0\.0\.1:(\d{1,5})/.exec(text);
+    const match = /ws:\/\/127\.0\.0\.1:(\d{1,5})(?!\d)/.exec(text);
     if (match === null) return undefined;
     const port = Number(match[1]);
     return Number.isSafeInteger(port) && port >= 1 && port <= 65_535 ? port : undefined;
