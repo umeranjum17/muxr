@@ -185,6 +185,10 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, co
         const { rx, ry } = keyRange();
         return { fx: clamp01(rx === 0 ? 1 : (keyX.value - KEY_EDGE) / rx), fy: clamp01(ry === 0 ? 1 : (keyY.value - KEY_EDGE) / ry) };
     };
+    const keyRangeRef = React.useRef(keyRange);
+    keyRangeRef.current = keyRange;
+    const keyToFracRef = React.useRef(keyToFrac);
+    keyToFracRef.current = keyToFrac;
 
     // Every terminal resize (rotation, keyboard, split) re-clamps both into
     // the surface they live on, so neither can strand off-screen or under
@@ -192,8 +196,15 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, co
     React.useEffect(() => {
         placeKey();
         if (open && panelPlaced.current) {
-            panelX.value = OPEN_MARGIN + clamp01(panelDock?.fx ?? 0) * Math.max(0, width - panelWidth - OPEN_MARGIN * 2);
-            panelY.value = OPEN_MARGIN + clamp01(panelDock?.fy ?? 0) * Math.max(0, height - panelHeight - OPEN_MARGIN * 2);
+            if (panelDock) {
+                panelX.value = OPEN_MARGIN + clamp01(panelDock.fx) * Math.max(0, width - panelWidth - OPEN_MARGIN * 2);
+                panelY.value = OPEN_MARGIN + clamp01(panelDock.fy) * Math.max(0, height - panelHeight - OPEN_MARGIN * 2);
+            } else {
+                const rx = Math.max(0, width - panelWidth - OPEN_MARGIN * 2);
+                const ry = Math.max(0, height - panelHeight - OPEN_MARGIN * 2);
+                panelX.value = Math.max(OPEN_MARGIN, Math.min(OPEN_MARGIN + rx, panelX.value));
+                panelY.value = Math.max(OPEN_MARGIN, Math.min(OPEN_MARGIN + ry, panelY.value));
+            }
         }
     }, [placeKey, width, height, open, panelX, panelY, panelWidth, panelHeight, panelDock]);
 
@@ -254,11 +265,11 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, co
         onMoveShouldSetPanResponderCapture: (_event, gesture) => gesture.numberActiveTouches === 1 && Math.hypot(gesture.dx, gesture.dy) >= 8,
         onPanResponderGrant: () => { keyStartX.value = keyX.value; keyStartY.value = keyY.value; },
         onPanResponderMove: (_event, gesture) => {
-            const { rx, ry } = keyRange();
+            const { rx, ry } = keyRangeRef.current();
             keyX.value = KEY_EDGE + Math.max(0, Math.min(rx, keyStartX.value - KEY_EDGE + gesture.dx));
             keyY.value = KEY_EDGE + Math.max(0, Math.min(ry, keyStartY.value - KEY_EDGE + gesture.dy));
         },
-        onPanResponderRelease: () => { keyFrac.current = keyToFrac(); keyDefaulted.current = false; setKeyDock(keyFrac.current); },
+        onPanResponderRelease: () => { keyFrac.current = keyToFracRef.current(); keyDefaulted.current = false; setKeyDock(keyFrac.current); },
         onPanResponderTerminationRequest: () => false,
     })).current;
     // The panel yields its vertical scroll to the action list and takes the
@@ -267,16 +278,18 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, co
         rx: Math.max(0, width - panelWidth - OPEN_MARGIN * 2),
         ry: Math.max(0, height - panelHeight - OPEN_MARGIN * 2),
     }), [width, height, panelWidth, panelHeight]);
+    const panelRangeRef = React.useRef(panelRange);
+    panelRangeRef.current = panelRange;
     const panelDrag = React.useRef(PanResponder.create({
         onMoveShouldSetPanResponder: (_event, gesture) => gesture.numberActiveTouches === 1 && (Math.abs(gesture.dx) >= 8 || Math.abs(gesture.dy) >= 8),
         onPanResponderGrant: () => { panelStartX.value = panelX.value; panelStartY.value = panelY.value; },
         onPanResponderMove: (_event, gesture) => {
-            const { rx, ry } = panelRange();
+            const { rx, ry } = panelRangeRef.current();
             panelX.value = OPEN_MARGIN + Math.max(0, Math.min(rx, panelStartX.value - OPEN_MARGIN + gesture.dx));
             panelY.value = OPEN_MARGIN + Math.max(0, Math.min(ry, panelStartY.value - OPEN_MARGIN + gesture.dy));
         },
         onPanResponderRelease: () => {
-            const { rx, ry } = panelRange();
+            const { rx, ry } = panelRangeRef.current();
             setPanelDock({ fx: clamp01(rx === 0 ? 0 : (panelX.value - OPEN_MARGIN) / rx), fy: clamp01(ry === 0 ? 0 : (panelY.value - OPEN_MARGIN) / ry) });
         },
         onPanResponderTerminationRequest: () => false,
