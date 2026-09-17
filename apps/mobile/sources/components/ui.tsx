@@ -52,7 +52,7 @@ export function withAlpha(color: string, alpha: number): string {
 export function SectionLabel({ children, style, numberOfLines }: { children: React.ReactNode; style?: StyleProp<TextStyle>; numberOfLines?: number }) {
     const { theme } = useUnistyles();
     return (
-        <Text {...(numberOfLines === undefined ? {} : { numberOfLines })} style={[{ color: withAlpha(theme.colors.textSecondary, 0.85), fontSize: 12, lineHeight: 16, fontWeight: '600', ...Typography.default('semiBold') }, style]}>
+        <Text accessibilityRole="header" {...(numberOfLines === undefined ? {} : { numberOfLines })} style={[{ color: withAlpha(theme.colors.textSecondary, 0.85), fontSize: 12, lineHeight: 16, fontWeight: '600', ...Typography.default('semiBold') }, style]}>
             {children}
         </Text>
     );

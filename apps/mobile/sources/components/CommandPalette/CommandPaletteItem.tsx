@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import type { Command } from '@/components/CommandPalette/types';
+import { CUSTOM_CATEGORY } from '@/components/CommandPalette/types';
 import { Typography } from '@/constants/Typography';
 import { darkTheme } from '@/theme';
 
@@ -31,7 +32,9 @@ export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPr
             accessibilityRole="button"
             accessibilityLabel={command.destructive === true
                 ? `${command.title}, destructive, ${command.subtitle ?? ''}. Asks before sending.`
-                : `${command.title}, ${command.subtitle ?? ''}. Sends now.`}
+                : command.category === CUSTOM_CATEGORY
+                    ? `${command.title}, ${command.subtitle ?? ''}. Inserts a draft and closes.`
+                    : `${command.title}, ${command.subtitle ?? ''}. Sends now.`}
             style={({ pressed }) => [styles.row, (active || pressed) && { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHighest }]}>
             <View style={styles.rowCopy}>
                 <View style={styles.commandLine}>
