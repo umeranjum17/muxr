@@ -51,7 +51,7 @@ import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
-import { TerminalToolsPanel, TerminalToolsTrigger, TOOLS_FOOTER_WIDTH, type ToolsSide } from './FloatingTerminalControls';
+import { FloatingTerminalControls } from './FloatingTerminalControls';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins';
@@ -139,10 +139,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // cover the accessory key row while leaving the composer alone.
     const [viewControls, setViewControls] = React.useState<TerminalViewControls>({ commands: [], dismissKeyboard: () => {} });
     const [terminalBox, setTerminalBox] = React.useState<{ top: number; width: number; height: number }>();
-    // The way to this terminal's quick actions: a labelled Tools control in
-    // the footer, never a disc over the output. It docks on either footer
-    // edge; the open card anchors above that slot.
-    const [toolsSide, setToolsSide] = React.useState<ToolsSide>('right');
+    // The command puck and its panel live over the terminal surface, so
+    // they can cover the accessory key row while leaving the composer alone.
     const [toolsOpen, setToolsOpen] = React.useState(false);
     const [attachedImages, setAttachedImages] = React.useState<ComposerAttachment[]>([]);
     const attachedPaths = attachedImages.flatMap((image) => image.path === undefined ? [] : [image.path]);
@@ -623,22 +621,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     }, [props.id, siblings, shell]);
 
     const canSend = !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
-    // The Tools card needs a view row or the key strip to be worth opening;
+    // The Tools palette needs a view row or the key strip to be worth opening;
     // view-only keeps it too, so nothing that was reachable is lost.
     const hasTools = viewControls.commands.length > 0 || canControl;
-    const closeTools = React.useCallback(() => setToolsOpen(false), []);
     const toolsRows = canControl && (Platform.OS !== 'web' || quickActions.length > 0 || quickReplies.length > 0) ? renderQuickActions : undefined;
-    // Tools is a layout sibling of the key ScrollView, never an overlay over
-    // the terminal output.
-    const renderFooterDock = (dockSide: ToolsSide): React.JSX.Element | null => {
-        if (!hasTools || dockSide !== toolsSide) return null;
-        return (
-            <View style={{ width: TOOLS_FOOTER_WIDTH, height: '100%', flexShrink: 0 }}>
-                <TerminalToolsTrigger side={toolsSide} onSideChange={setToolsSide}
-                    onPress={() => setToolsOpen((open) => !open)} expanded={toolsOpen} />
-            </View>
-        );
-    };
+    const closeTools = React.useCallback(() => setToolsOpen(false), []);
 
     // Where this session sits and how it is allowed to act, in one quiet row.
     // Connection stays out of it: subtitle/send color and the reconnect pill
@@ -978,7 +965,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
 
                     {canControl && <View style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
                     <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center' }}>
-                        {renderFooterDock('left')}
                         <ScrollView
                             horizontal
                             showsHorizontalScrollIndicator={false}
@@ -988,7 +974,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         >
                             <DeclarativeTerminalKeySlot channel={channel} />
                         </ScrollView>
-                        {renderFooterDock('right')}
                     </View>
 
                     <ComposerAttachments
@@ -1018,22 +1003,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     </View>
                     </View>}
 
-                    {/* View-only has no key strip, but Tools still belongs in the
-                        footer instead of floating over terminal output. */}
-                    {!canControl && hasTools && (
-                        <View style={{ height: 52, flexDirection: 'row', justifyContent: toolsSide === 'left' ? 'flex-start' : 'flex-end' }}>
-                            {renderFooterDock(toolsSide)}
-                        </View>
-                    )}
-
-                    {/* The open card floats over the terminal, anchored above the
-                        Tools footer slot; a tap on the terminal closes it too. */}
-                    {toolsOpen && terminalBox !== undefined && hasTools && (
+                    {/* The one way into the terminal's quick actions: the floating
+                        command puck, always on the terminal surface; the palette
+                        it opens covers the key row, never the composer. */}
+                    {hasTools && terminalBox !== undefined && (
                         <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: terminalBox.top, height: terminalBox.height }}>
-                            <Pressable style={StyleSheet.absoluteFill} accessible={false} onPress={closeTools} />
-                            <TerminalToolsPanel commands={viewControls.commands} renderQuickActions={toolsRows}
-                                dismissKeyboard={viewControls.dismissKeyboard} side={toolsSide}
-                                width={terminalBox.width} maxHeight={terminalBox.height} onClose={closeTools} />
+                            <FloatingTerminalControls open={toolsOpen} onOpenChange={setToolsOpen}
+                                width={terminalBox.width} height={terminalBox.height}
+                                commands={viewControls.commands} renderQuickActions={toolsRows}
+                                dismissKeyboard={viewControls.dismissKeyboard} />
                         </View>
                     )}
 
