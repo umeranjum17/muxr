@@ -30,7 +30,8 @@ export function refreshOperatorTerminalKeys(): Promise<void> {
             snapshot = await sync.request('terminal.keys', {}) as OperatorTerminalKeys;
             emit();
         } catch {
-            // An older host without the request keeps the built-in row.
+            snapshot = undefined;
+            emit();
         } finally {
             inflight = undefined;
         }
