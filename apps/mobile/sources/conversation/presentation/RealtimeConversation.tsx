@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { BackHandler, Pressable, ScrollView, View } from 'react-native';
+import { BackHandler, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -20,6 +20,7 @@ import {
     useRealtimeWatching,
 } from '../application/realtimeSessionState';
 import { realtimeCallLabel } from '../domain/micOwnership';
+import { voiceFailure } from '../domain/voiceFailure';
 
 export const RealtimeConversation = React.memo(function RealtimeConversation({
     visible,
@@ -29,11 +30,13 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     onClose: () => void;
 }) {
     const insets = useSafeAreaInsets();
+    const { height } = useWindowDimensions();
     const { state, detail } = useRealtimeSessionState();
     const turns = useRealtimeTurns();
     const muted = useRealtimeMuted();
     const watching = useRealtimeWatching();
     const previousState = React.useRef(state);
+    const [detailOpen, setDetailOpen] = React.useState(false);
     const transcript = React.useRef<ScrollView>(null);
     // The voice is attached to a working session; what that session is doing is
     // the other half of "what is happening right now".
@@ -49,6 +52,10 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
             .map((item) => `${item.count}${item.queued === undefined || item.queued === 0 ? '' : `+${item.queued}`} ${item.key}`);
         return [identity?.modelName, ...indicators].filter((part) => part !== undefined && part !== null && part !== '').join(' · ') || undefined;
     }, [session?.metadata]);
+
+    // Collapsed every time this opens, and never yanked shut while it is open:
+    // a watched agent retries voice on its own, reporting between each attempt.
+    React.useEffect(() => { if (!visible) setDetailOpen(false); }, [visible]);
 
     React.useEffect(() => {
         if (!visible || previousState.current === state) return;
@@ -69,7 +76,22 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
 
     const speaking = state === 'speaking';
     const status = realtimeCallLabel(state, watching, muted, speaking);
-    const failure = state === 'disconnected' || state === 'connecting' ? detail : undefined;
+    // Only a stopped call is a failure. While connecting, a detail is progress
+    // -- "Connecting secure voice media", "Reconnecting voice stream" -- and
+    // reading it as a failure would put a red "Voice couldn't start." on every
+    // successful call.
+    const failure = state === 'disconnected' && detail !== undefined
+        ? voiceFailure(detail, (session?.metadata?.host ?? '').trim() || 'your computer')
+        : undefined;
+    const progress = state === 'connecting' ? detail : undefined;
+    // The cloud is decoration and the failure is the point. At a large display
+    // scale the viewport is short enough that the cloud, the label and the talk
+    // buttons already leave nothing over, so when there is something to say the
+    // cloud gives back exactly what the message needs -- and stands down
+    // entirely rather than push the talk buttons off a screen this short.
+    const room = height - insets.top - insets.bottom - AROUND_THE_CLOUD
+        - (detailOpen ? DETAIL_HEIGHT + 10 : 0);
+    const orbSize = failure === undefined ? 240 : Math.min(240, room);
 
     return (
         <Animated.View
@@ -98,7 +120,7 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
             </View>
 
             <View style={{ flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 8, gap: 18 }}>
-                <RealtimeSessionVisual size={240} state={state} muted={muted} />
+                {orbSize >= 120 && <RealtimeSessionVisual size={orbSize} state={state} muted={muted} />}
                 <Text style={{ color: '#f7f8fb', fontSize: 22, lineHeight: 28, textAlign: 'center', ...Typography.default('semiBold') }}>
                     {status}
                 </Text>
@@ -107,12 +129,47 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
                         {activity}
                     </Text>
                 )}
+                {progress !== undefined && (
+                    <Text style={{ color: '#8f96a3', fontSize: 13, lineHeight: 18, textAlign: 'center', ...Typography.default() }}>
+                        {progress}
+                    </Text>
+                )}
                 {failure !== undefined && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: '100%', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(255,69,58,0.12)' }}>
-                        <Ionicons name="alert-circle-outline" size={14} color="#ff6a5e" />
-                        <ScrollView style={{ flexShrink: 1, maxHeight: 112 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                            <Text style={{ color: '#ff9e96', fontSize: 12, lineHeight: 16, ...Typography.mono('regular') }}>{failure}</Text>
-                        </ScrollView>
+                    <View style={{ alignSelf: 'stretch', gap: 10, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12, backgroundColor: 'rgba(255,69,58,0.12)' }}>
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                            <Ionicons name="alert-circle-outline" size={16} color="#ff6a5e" style={{ marginTop: 2 }} />
+                            <View style={{ flex: 1, gap: 3 }}>
+                                <Text style={{ color: '#ffdad5', fontSize: 14, lineHeight: 19, ...Typography.default('semiBold') }}>
+                                    {failure.headline}
+                                </Text>
+                                {failure.remedy !== undefined && (
+                                    <Text style={{ color: '#ff9e96', fontSize: 13, lineHeight: 18, ...Typography.default() }}>
+                                        {failure.remedy}
+                                    </Text>
+                                )}
+                            </View>
+                        </View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+                            <Pressable
+                                onPress={() => setDetailOpen(!detailOpen)}
+                                hitSlop={6}
+                                accessibilityRole="button"
+                                accessibilityLabel={detailOpen ? 'Hide details' : 'Show details'}
+                                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                            >
+                                <Ionicons name={detailOpen ? 'chevron-down' : 'chevron-forward'} size={13} color="#ff9e96" />
+                                <Text style={{ color: '#ff9e96', fontSize: 13, lineHeight: 18, ...Typography.default() }}>Details</Text>
+                            </Pressable>
+                        </View>
+                        {detailOpen && (
+                            // A column child, so the provider's words wrap to the
+                            // banner and scroll: whole text, never an ellipsis.
+                            <ScrollView style={{ maxHeight: DETAIL_HEIGHT }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                                <Text selectable style={{ color: '#ff9e96', fontSize: 12, lineHeight: 16, ...Typography.mono('regular') }}>
+                                    {failure.detail}
+                                </Text>
+                            </ScrollView>
+                        )}
                     </View>
                 )}
                 {/* What it heard and what it said, in order: a single latest line
@@ -166,6 +223,11 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
         </Animated.View>
     );
 });
+
+/** The provider's words get a readable window and scroll past it. */
+const DETAIL_HEIGHT = 132;
+/** Everything on this screen but the cloud: header, label, gaps, talk buttons, message. */
+const AROUND_THE_CLOUD = 400;
 
 const smallCircle = {
     width: 44,

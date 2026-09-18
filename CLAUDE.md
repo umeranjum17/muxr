@@ -34,6 +34,10 @@ behaviour it claims to cover and watch it go red.
 
 - Herdr owns a pane's scrollback and its viewport. The phone must never infer how far back it is by counting the scrolls it sent: that count is of requests, and a harness on the alternate screen (Claude Code, opencode) has no scrollback ring behind it at all, so the scroll goes to the program as wheel reports it may ignore. Read `terminal.scroll-state` instead — see the frame's own comment in `packages/contract/src/control-plane/infrastructure/terminal.ts`.
 
+## Screens
+
+- The reference phone runs a large display scale: 1080x2376 at density 640 is a **270 x 594 dp** viewport. A fixed-height block that fits a 393 dp phone can still push the controls under it off the screen, and RN does not clip the overflow — it overlaps. Check any new fixed-height UI against a short viewport, not just a roomy one.
+
 ## Builds
 
 - Long builds/servers run in their own shell pane, never inline inside an agent.
