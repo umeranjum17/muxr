@@ -256,6 +256,7 @@ export {
     PLUGIN_CONTEXT_REQUESTS,
     capUtf8Bytes,
     boundRpcDisplay,
+    rightNowCard,
     pluginCompatibilityError,
     pluginIsCompatible,
     sanitizeDisplayText,

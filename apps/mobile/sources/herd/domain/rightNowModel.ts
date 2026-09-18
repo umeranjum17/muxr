@@ -1,4 +1,4 @@
-import { RIGHT_NOW_CARD_MIN_UI_VERSION, type PluginDataCard, type PluginManifestV1 } from '@muxr/contract';
+import { RIGHT_NOW_CARD_MIN_UI_VERSION, rightNowCard, type PluginManifestV1 } from '@muxr/contract';
 import { asLimitsPayload, type PluginLimitsPayload } from '@/plugins/limits';
 import { compactAge } from './agentPresentation';
 
@@ -119,24 +119,15 @@ export function rightNowBinding(
 ): RightNowBinding | undefined {
     for (const { summary, manifest } of plugins) {
         if ((manifest.minMuxrVersion ?? 1) < RIGHT_NOW_CARD_MIN_UI_VERSION) continue;
-        for (const contribution of manifest.contributions) {
-            if (!('type' in contribution) || contribution.type !== 'data-card') continue;
-            if (contribution.slot !== 'home.cards' || contribution.presentation === 'sheet') continue;
-            if (!sourcedFromNow(manifest, contribution)) continue;
-            return {
-                pluginId: summary.pluginId,
-                manifestHash: summary.manifestHash,
-                cardId: contribution.id,
-                contributionId: contribution.source.contributionId,
-                ...(contribution.contentContributionId === undefined ? {} : { contentContributionId: contribution.contentContributionId }),
-            };
-        }
+        const contribution = rightNowCard(manifest.contributions);
+        if (contribution === undefined) continue;
+        return {
+            pluginId: summary.pluginId,
+            manifestHash: summary.manifestHash,
+            cardId: contribution.id,
+            contributionId: contribution.source.contributionId,
+            ...(contribution.contentContributionId === undefined ? {} : { contentContributionId: contribution.contentContributionId }),
+        };
     }
     return undefined;
-}
-
-function sourcedFromNow(manifest: PluginManifestV1, contribution: PluginDataCard): boolean {
-    return manifest.contributions.some((candidate) =>
-        candidate.slot === 'host.rpc' && candidate.mode === 'read'
-        && candidate.method === 'now' && candidate.id === contribution.source.contributionId);
 }

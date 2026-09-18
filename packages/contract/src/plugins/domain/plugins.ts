@@ -771,6 +771,20 @@ export interface PluginManifestV1 {
     contributions: PluginContribution[];
 }
 
+/**
+ * The `home.cards` data-card the product's Right now card draws: an inline
+ * card sourced from a `now` read rpc. One rule, so the manifest parser's
+ * version gate and the app that draws the card cannot select different cards.
+ */
+export function rightNowCard(contributions: readonly PluginContribution[]): PluginDataCard | undefined {
+    return contributions.find((contribution): contribution is PluginDataCard =>
+        'type' in contribution && contribution.type === 'data-card'
+        && contribution.slot === 'home.cards' && contribution.presentation !== 'sheet'
+        && contributions.some((candidate) =>
+            candidate.slot === 'host.rpc' && candidate.mode === 'read'
+            && candidate.method === 'now' && candidate.id === contribution.source.contributionId));
+}
+
 /** A host may forward a newer manifest; the rendering phone is authoritative. */
 export function pluginCompatibilityError(manifest: PluginManifestV1, supportedVersion = MUXR_UI_VERSION): string | undefined {
     const required = manifest.minMuxrVersion ?? 1;
