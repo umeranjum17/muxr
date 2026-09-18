@@ -40,6 +40,7 @@ const checks = [
     ['policy: mobile architecture', 'npx', ['vitest', 'run', 'apps/mobile/sources/architecture.spec.ts', '--config', 'apps/mobile/vitest.config.ts']],
     ['policy: store/direct mobile commerce builds', 'node', ['scripts/diagnostics/application/checkMobileCommerceBuilds.mjs']],
     ['e2e: device pairing through relay', 'node', ['scripts/diagnostics/application/checkPairing.mjs']],
+    ['e2e: pair QR onboarding journey', 'node', ['scripts/diagnostics/application/checkPairingQr.mjs']],
     ['e2e: durable self-host device revocation', 'node', ['scripts/diagnostics/application/checkSelfhostRevocation.mjs']],
     ['e2e: self-host web push (device auth, levels, revoke)', 'node', ['scripts/diagnostics/application/checkWebPush.mjs']],
     ['e2e: shared remote relay isolation', 'node', ['scripts/diagnostics/application/checkRemoteRelay.mjs']],

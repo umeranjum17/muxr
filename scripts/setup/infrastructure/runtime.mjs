@@ -54,7 +54,12 @@ export async function printTerminalQr(value) {
         print(`QR omitted because this terminal is ${process.stdout.columns ?? 'too few'} columns × ${process.stdout.rows ?? 'too few'} rows; use the exact pairing string below.`);
         return;
     }
-    print(qr.split('\n').map((line) => `\x1b[47m\x1b[30m${line}\x1b[0m`).join('\n'));
+    // Centered in the terminal: a scannable code reads as the primary content
+    // of the screen, not a left-edge decoration.
+    const indent = process.stdout.columns !== undefined
+        ? Math.max(0, Math.floor((process.stdout.columns - width) / 2))
+        : 0;
+    print(qr.split('\n').map((line) => `${' '.repeat(indent)}\x1b[47m\x1b[30m${line}\x1b[0m`).join('\n'));
 }
 export function env(name) {
     return process.env[name]?.trim() || undefined;
