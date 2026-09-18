@@ -22,9 +22,10 @@ export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPr
     const [isHovered, setIsHovered] = React.useState(false);
     const active = isSelected || isHovered;
 
-    // Terminal command row: tap sends, the pencil edits, destructive is said by
-    // its section, a dot and the colour — never by a second button. The tap
-    // target and the pencil are siblings, not button-in-button: react-native-web
+    // Terminal command row: tap sends (the Custom row inserts a draft instead,
+    // and its label says so), the pencil edits, destructive is said by its
+    // section, a dot and the colour — never by a second button. The tap target
+    // and the pencil are siblings, not button-in-button: react-native-web
     // refuses to nest them (validateDOMNesting) and the a11y tree follows suit.
     const hoverIn = () => { setIsHovered(true); onHover?.(); };
     const hoverOut = () => setIsHovered(false);

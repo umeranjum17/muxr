@@ -21,5 +21,10 @@ export interface CommandCategory {
     commands: Command[];
 }
 
-/** The one "type a command" row's category; the palette keeps it visible when a search matches nothing. */
+/**
+ * The one "type a command" row's category; the palette keeps it visible when a
+ * search matches nothing. It is a marker, never display copy: the section
+ * header it produces is swapped for `t('commandPalette.custom')` before it is
+ * drawn, so translating this constant would only break the match.
+ */
 export const CUSTOM_CATEGORY = 'Custom';

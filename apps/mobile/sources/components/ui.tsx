@@ -48,6 +48,9 @@ export function withAlpha(color: string, alpha: number): string {
 /**
  * Sentence case, not uppercase: a screen with six tracked-out capital labels
  * shouts six times before it says anything.
+ *
+ * Every label is a heading to a screen reader, so the headings rotor walks a
+ * screen's sections. Use it for section titles only, not for stray small copy.
  */
 export function SectionLabel({ children, style, numberOfLines }: { children: React.ReactNode; style?: StyleProp<TextStyle>; numberOfLines?: number }) {
     const { theme } = useUnistyles();
