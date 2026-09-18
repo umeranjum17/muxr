@@ -3,13 +3,11 @@ import { Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
-import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@muxr/contract';
 import { cardStyle, Meter, SectionLabel, withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
-import { sync } from '@/catalog/sync';
-import { pluginSnapshot, subscribePluginDataInvalidation, pluginHref, toneColor, useSlotContributions } from '@/plugins';
+import { pluginSnapshot, pluginHref, toneColor, useSlotContributions } from '@/plugins';
 import type { PluginLimitsWindow } from '@/plugins/limits';
-import { VERDICT_KEYS, verdictTone } from '@/plugins/ui';
+import { VERDICT_KEYS, usePluginCall, verdictTone } from '@/plugins/ui';
 import { t } from '@/text';
 import { asRightNowPayload, rightNowBinding, vitalsFacts, type RightNowPayload } from '../domain/rightNowModel';
 
@@ -25,45 +23,11 @@ export function RightNowCard() {
     useSlotContributions('home.cards');
     const plugins = pluginSnapshot();
     const binding = React.useMemo(() => rightNowBinding(plugins), [plugins]);
-    const [state, setState] = React.useState<{ payload?: RightNowPayload; failed: boolean }>({ failed: false });
-    const pluginId = binding?.pluginId;
-    const manifestHash = binding?.manifestHash;
-    const contributionId = binding?.contributionId;
-    const version = React.useRef(0);
-    const loading = React.useRef(false);
-    const queued = React.useRef(false);
-    const latestLoad = React.useRef<() => void>(() => {});
-    const load = React.useCallback(() => {
-        if (pluginId === undefined || manifestHash === undefined || contributionId === undefined) return;
-        if (loading.current) { queued.current = true; return; }
-        loading.current = true;
-        const request = ++version.current;
-        void sync.request('plugin.call', { pluginId, manifestHash, contributionId }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
-            .then((result) => {
-                if (request !== version.current) return;
-                setState({ payload: asRightNowPayload(result), failed: false });
-            })
-            .catch(() => {
-                // Keep the last-known card through transient failures; only a
-                // load with nothing to show becomes the retry card.
-                if (request === version.current) setState((current) => ({ ...current, failed: true }));
-            })
-            .finally(() => {
-                if (request !== version.current) return;
-                loading.current = false;
-                if (queued.current) { queued.current = false; setTimeout(() => { if (request === version.current) latestLoad.current(); }, 0); }
-            });
-    }, [contributionId, manifestHash, pluginId]);
-    latestLoad.current = load;
-    React.useEffect(() => {
-        if (pluginId === undefined) return;
-        load();
-        const unsubscribe = subscribePluginDataInvalidation(pluginId, load);
-        return () => { version.current += 1; loading.current = false; queued.current = false; unsubscribe(); };
-    }, [load, pluginId]);
+    // The last-known card survives a transient failure; only a load with
+    // nothing to show becomes the retry card.
+    const { value: payload, failed, retry } = usePluginCall(binding, asRightNowPayload);
 
     if (binding === undefined) return null;
-    const { payload, failed } = state;
     const open = binding.contentContributionId === undefined ? undefined : () =>
         router.push(pluginHref(binding.pluginId, binding.contentContributionId!) as never);
     const label = <SectionLabel style={{ marginTop: 20, marginBottom: 8, marginHorizontal: 16 }}>{t('plugins.rightNow.title')}</SectionLabel>;
@@ -84,7 +48,7 @@ export function RightNowCard() {
         </View>;
         return <View>
             {label}
-            <Pressable onPress={load} accessibilityRole="button" accessibilityLabel={t('plugins.rightNow.unavailable')}
+            <Pressable onPress={retry} accessibilityRole="button" accessibilityLabel={t('plugins.rightNow.unavailable')}
                 style={[cardStyle(theme), { marginHorizontal: 16, padding: 14 }]}>
                 {line}
             </Pressable>
@@ -112,7 +76,7 @@ export function RightNowCard() {
         : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {failed && staleMark}
             <Text style={{ flexShrink: 1, color: failed ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
-                {payload.collecting === true ? t('plugins.rightNow.collecting') : t('plugins.rightNow.notConnected')}
+                {payload.collecting === true ? t('plugins.rightNow.collecting') : emptyLine(payload)}
             </Text>
         </View>;
     return <View>
@@ -157,6 +121,12 @@ function vitalsFigures(vitals: NonNullable<RightNowPayload['vitals']>, percent =
     ];
 }
 
+/** With no window to show: the host's own reason when it has one -- an expired
+ *  token is not a plan that was never connected -- otherwise the phone's word. */
+function emptyLine(payload: RightNowPayload): string {
+    return payload.limits.message ?? t('plugins.rightNow.notConnected');
+}
+
 /** One sentence for the reader; the dots are decorative. */
 function cardAccessibilityLabel(payload: RightNowPayload, stale: boolean): string {
     const parts: string[] = [t('plugins.rightNow.title')];
@@ -170,7 +140,7 @@ function cardAccessibilityLabel(payload: RightNowPayload, stale: boolean): strin
     } else if (payload.collecting === true) {
         parts.push(t('plugins.rightNow.collecting'));
     } else {
-        parts.push(t('plugins.rightNow.notConnected'));
+        parts.push(emptyLine(payload));
     }
     if (payload.vitals !== undefined) {
         parts.push(vitalsFigures(payload.vitals, (percent) => t('plugins.limits.percentUsed', { percent })).join(', '));

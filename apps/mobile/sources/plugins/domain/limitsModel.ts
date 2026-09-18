@@ -22,6 +22,9 @@ export interface PluginLimitsPayload {
     /** Host message shown as one quiet line when there is nothing to card. */
     message?: string;
     windows: PluginLimitsWindow[];
+    /** Index into `windows` of the one window the verdict is about, when the
+     *  host published which window it decided from. */
+    verdictWindow?: number;
 }
 
 const VERDICTS = new Set<PluginLimitsVerdict>(['go', 'ahead', 'watch', 'low', 'limited']);
@@ -41,7 +44,9 @@ export function asLimitsPayload(value: unknown): PluginLimitsPayload {
         : 'unknown';
     const plan = bounded(raw.plan, 40);
     const message = bounded(raw.message, 160);
-    const windows = (Array.isArray(raw.windows) ? raw.windows : []).flatMap((entry): PluginLimitsWindow[] => {
+    // Kept beside its source index: dropped and sliced-off entries move every
+    // later window, so the host's index has to be mapped, never passed through.
+    const parsed = (Array.isArray(raw.windows) ? raw.windows : []).flatMap((entry, source): { source: number; window: PluginLimitsWindow }[] => {
         if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return [];
         const window = entry as Record<string, unknown>;
         const label = bounded(window.label, MAX_CHART_LABEL_BYTES);
@@ -51,17 +56,22 @@ export function asLimitsPayload(value: unknown): PluginLimitsPayload {
         const name = bounded(window.window, 8);
         const elapsed = finiteIn(window.elapsed, 0, 1) ? window.elapsed : undefined;
         return [{
-            label,
-            used: window.used,
-            ...(name === '' ? {} : { window: name }),
-            ...(resetsIn === '' ? {} : { resetsIn }),
-            ...(elapsed === undefined ? {} : { elapsed }),
+            source,
+            window: {
+                label,
+                used: window.used,
+                ...(name === '' ? {} : { window: name }),
+                ...(resetsIn === '' ? {} : { resetsIn }),
+                ...(elapsed === undefined ? {} : { elapsed }),
+            },
         }];
     }).slice(0, MAX_CHART_SERIES);
+    const verdictWindow = parsed.findIndex((entry) => entry.source === raw.verdictWindow);
     return {
         verdict,
         ...(plan === '' ? {} : { plan }),
         ...(message === '' ? {} : { message }),
-        windows,
+        windows: parsed.map((entry) => entry.window),
+        ...(verdictWindow < 0 ? {} : { verdictWindow }),
     };
 }

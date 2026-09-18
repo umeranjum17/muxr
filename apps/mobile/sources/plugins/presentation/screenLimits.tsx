@@ -37,16 +37,18 @@ export const VERDICT_KEYS: Record<Exclude<PluginLimitsPayload['verdict'], 'unkno
     go: 'plugins.limits.go',
 };
 
-/** The tightest window leads the card: highest share used; on ties, the first
- *  published window wins (the host keeps provider order, so ties fall to the
- *  window the provider named first). */
-function bindingWindow(windows: PluginLimitsWindow[]): PluginLimitsWindow | undefined {
-    return windows.reduce<PluginLimitsWindow | undefined>((worst, window) =>
+/** The window the verdict is about leads the card. A host that says which one
+ *  it decided from is believed, so this screen and the Home card can never
+ *  head the same payload with different windows; a payload that does not say
+ *  falls back to the highest share used, ties to the first published. */
+function bindingWindow(payload: PluginLimitsPayload): PluginLimitsWindow | undefined {
+    if (payload.verdictWindow !== undefined) return payload.windows[payload.verdictWindow];
+    return payload.windows.reduce<PluginLimitsWindow | undefined>((worst, window) =>
         worst === undefined || window.used > worst.used ? window : worst, undefined);
 }
 
 function limitsSummary(payload: PluginLimitsPayload): string {
-    const tightest = bindingWindow(payload.windows);
+    const tightest = bindingWindow(payload);
     const verdict = payload.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.verdict]);
     const head = [verdict, tightest === undefined ? undefined : t('plugins.limits.percentLeft', { percent: 100 - Math.round(tightest.used) })]
         .filter((part) => part !== undefined).join(', ');
@@ -82,7 +84,7 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
             </View>
         );
     }
-    const tightest = bindingWindow(payload.windows);
+    const tightest = bindingWindow(payload);
     const verdictWord = payload.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.verdict]);
     const tone = verdictTone(payload.verdict);
     const headlineTone: PluginScreenTone = payload.verdict === 'go' ? 'secondary' : tone;

@@ -7,15 +7,14 @@ import { OptionSheet } from '@/components/OptionSheet';
 import { ActionShortcut } from '@/components/ActionShortcut';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import type { PluginDataCard, PluginNativeContribution, PluginNavigationItem, PluginTerminalKeyRow } from '@muxr/contract';
-import { MAX_RPC_DISPLAY_BYTES, PLUGIN_CALL_CLIENT_TIMEOUT_MS, capUtf8Bytes, sanitizeDisplayText } from '@muxr/contract';
+import { MAX_RPC_DISPLAY_BYTES, capUtf8Bytes, sanitizeDisplayText } from '@muxr/contract';
 import type { PluginTerminalChannel } from '../domain/slotTypes';
-import { sync } from '@/catalog/sync';
 import { useSlotContributions } from '../application/useSlotContributions';
 import { pluginSnapshot } from '../application/pluginStore';
 import { pluginHref } from '../domain/pluginHref';
 import { dispatchPluginAction } from '../application/pluginActions';
 import { Modal } from '@/modal';
-import { subscribePluginDataInvalidation } from '../application/pluginDataInvalidation';
+import { usePluginCall } from './usePluginCall';
 import { resolvePluginText } from '../domain/pluginText';
 import { t } from '@/text';
 import { ItemList } from './primitives/ItemList';
@@ -83,68 +82,22 @@ function KeyRow({ contribution, channel }: { contribution: PluginTerminalKeyRow;
 }
 
 function useDataValue(pluginId: string, manifestHash: string, contributionId: string): { value?: string; failed: boolean; retry: () => void } {
-    const [value, setValue] = React.useState<string>();
-    const [failed, setFailed] = React.useState(false);
-    const loading = React.useRef(false);
-    const queued = React.useRef(false);
-    const requestVersion = React.useRef(0);
-    const latestLoad = React.useRef<() => void>(() => {});
-    const load = React.useCallback(() => {
-        if (loading.current) { queued.current = true; return; }
-        loading.current = true;
-        const version = ++requestVersion.current;
-        void sync.request('plugin.call', { pluginId, manifestHash, contributionId }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
-            .then((result) => {
-                if (version === requestVersion.current) {
-                    setValue(capUtf8Bytes(sanitizeDisplayText(typeof result === 'string' ? result : JSON.stringify(result)), MAX_RPC_DISPLAY_BYTES));
-                    setFailed(false);
-                }
-            })
-            .catch(() => { if (version === requestVersion.current) setFailed(true); })
-            .finally(() => {
-                if (version !== requestVersion.current) return;
-                loading.current = false;
-                if (queued.current) { queued.current = false; setTimeout(() => { if (version === requestVersion.current) latestLoad.current(); }, 0); }
-            });
-    }, [contributionId, manifestHash, pluginId]);
-    latestLoad.current = load;
-    React.useEffect(() => {
-        load();
-        return () => { requestVersion.current += 1; loading.current = false; queued.current = false; };
-    }, [load]);
-    React.useEffect(() => subscribePluginDataInvalidation(pluginId, load), [load, pluginId]);
-    return { value, failed, retry: load };
+    return usePluginCall({ pluginId, manifestHash, contributionId }, (result) =>
+        capUtf8Bytes(sanitizeDisplayText(typeof result === 'string' ? result : JSON.stringify(result)), MAX_RPC_DISPLAY_BYTES));
 }
 
 function useBadgeCount(pluginId: string, manifestHash: string, source: PluginNavigationItem['badge']): number {
-    const [count, setCount] = React.useState(0);
-    const version = React.useRef(0);
-    const loading = React.useRef(false);
-    const queued = React.useRef(false);
-    const latestLoad = React.useRef<() => void>(() => {});
-    const load = React.useCallback(() => {
-        if (source === undefined) { setCount(0); return; }
-        if (loading.current) { queued.current = true; return; }
-        loading.current = true;
-        const request = ++version.current;
-        void sync.request('plugin.call', { pluginId, manifestHash, contributionId: source.contributionId }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
-            .then((result) => {
-                if (request !== version.current) return;
-                if (typeof result !== 'object' || result === null) { setCount(0); return; }
-                const value = (result as Record<string, unknown>).count;
-                setCount(typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? Math.min(value, 999) : 0);
-            })
-            .catch(() => { /* retain the last-known badge through transient failures */ })
-            .finally(() => {
-                if (request !== version.current) return;
-                loading.current = false;
-                if (queued.current) { queued.current = false; setTimeout(() => { if (request === version.current) latestLoad.current(); }, 0); }
-            });
-    }, [manifestHash, pluginId, source]);
-    latestLoad.current = load;
-    React.useEffect(() => { load(); return () => { version.current += 1; loading.current = false; queued.current = false; }; }, [load]);
-    React.useEffect(() => subscribePluginDataInvalidation(pluginId, load), [load, pluginId]);
-    return count;
+    // A badge keeps its last-known count through a transient failure, so the
+    // shared `failed` flag is deliberately not read here.
+    const { value } = usePluginCall(
+        source === undefined ? undefined : { pluginId, manifestHash, contributionId: source.contributionId },
+        (result) => {
+            if (typeof result !== 'object' || result === null) return 0;
+            const count = (result as Record<string, unknown>).count;
+            return typeof count === 'number' && Number.isSafeInteger(count) && count > 0 ? Math.min(count, 999) : 0;
+        },
+    );
+    return value ?? 0;
 }
 
 function NavigationItemButton({ contribution, pluginId, manifestHash, active, onPress, compact = false }: {

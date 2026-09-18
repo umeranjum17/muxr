@@ -6,7 +6,7 @@ import { constants, accessSync, chmodSync, readFileSync, renameSync, statSync, w
 import { createRequire } from 'node:module';
 import {
   activityTotals, claudeWindows, codexWindows, goWindows, limitsPayload, localActivityForModels,
-  providerModelIds, windowRow, zaiWindows,
+  NOT_CONNECTED_MESSAGE, providerModelIds, windowRow, zaiWindows,
 } from './usageWindows.mjs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -362,7 +362,9 @@ function ccusageItems(agents) {
 }
 
 function cacheName() {
-  return `usage-v2-${selected === '' ? 'all' : selected}.json`;
+  // The version tracks the payload shape, not the plugin: a cache written by an
+  // older reader must never be replayed into a parser that expects new fields.
+  return `usage-v3-${selected === '' ? 'all' : selected}.json`;
 }
 
 function cachedOutput() {
@@ -606,7 +608,7 @@ if (cached !== undefined) {
     : provider === 'opencode' && (go.vms ?? []).length === 0 ? go.label
     : provider === 'zai' && (zaiPlan.vms ?? []).length === 0 ? zaiPlan.label
     : provider === 'codex' && codex.windows.length === 0 ? 'Codex plan limits unavailable'
-    : windows.length === 0 ? 'Plan limits aren\u2019t connected in muxr'
+    : windows.length === 0 ? NOT_CONNECTED_MESSAGE
     : undefined;
   const output = {
     items: ordered.slice(0, 50),
