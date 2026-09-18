@@ -505,7 +505,9 @@ const ChildRow = React.memo(({
                 ]}
                 android_ripple={interactive ? { color: theme.colors.surfaceRipple, foreground: true } : undefined}
                 accessibilityRole={interactive ? 'button' : 'text'}
-                accessibilityLabel={t('spacesTree.openLabel', { label, line2: parts.join(', ') })}
+                accessibilityLabel={onPress === undefined
+                    ? [label, ...parts].join(', ')
+                    : t('spacesTree.openLabel', { label, line2: parts.join(', ') })}
             >
                 <StatusDot color={dot.color} isPulsing={dot.pulsing} size={8} />
                 <View style={styles.childText}>

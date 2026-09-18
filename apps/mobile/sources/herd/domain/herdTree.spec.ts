@@ -105,6 +105,15 @@ describe('visible herd tree flow', () => {
         // The sheet seeds: a child opens its parent card and the group instead of itself.
         expect(spaceExpansionDefaults(workspaces, 'w2')).toEqual(['w1', 'group:w1', 'child:w2']);
         expect(spaceExpansionDefaults(workspaces, 'w5')).toEqual(['w5']);
+        // A one-agent child is its own row: the seed never unfolds that agent underneath it again.
+        const seeded = buildSpaceRows(workspaces.map((entry) => entry.workspaceId === 'w1' ? primaryWithWorktree : entry), new Set(spaceExpansionDefaults(workspaces, 'w2')), '');
+        const seededChild = seeded.find((row) => row.workspace.workspaceId === 'w1')!.children
+            .find((child) => child.workspace.workspaceId === 'w2')!;
+        expect(seededChild).toMatchObject({ expanded: false, panes: [] });
+        // A child with several agents still unfolds them in place.
+        const twoAgents = { ...byToken, tabs: [tab('t2', undefined, [pane('p2', 'opencode', { agentName: 'donkey' }), pane('p2b', 'pi', { agentName: 'lemur' })])] };
+        const unfolded = buildSpaceRows([mine, twoAgents], new Set(['w1', 'group:w1', 'child:w2']), '');
+        expect(unfolded[0]!.children[0]!.panes.map((entry) => entry.paneId)).toEqual(['p2', 'p2b']);
 
         // Depth-2 lineage flattens under the root ancestor, so no workspace renders nowhere.
         const grandchild = { ...ws('w6', 'deep-task1', [tab('t6', undefined, [pane('p6', 'pi', { agentStatus: 'working' })])]), tokens: { parent: 'w2', kind: 'task' }, order: 6 };

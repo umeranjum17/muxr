@@ -155,7 +155,9 @@ export function buildSpaceRows(
     const searching = query !== '';
     const toChild = (child: HerdrTreeWorkspace): HerdChildSpace => {
         const agentPanes = child.tabs.flatMap((tab) => tab.panes).filter((pane) => pane.agentKind !== undefined);
-        const childExpanded = expanded.has(`child:${child.workspaceId}`);
+        // Only a child with several agents expands in place; one agent is already
+        // its own row's line 2 and its tap target (spaces.md §4.1).
+        const childExpanded = agentPanes.length > 1 && expanded.has(`child:${child.workspaceId}`);
         return {
             workspace: child,
             panes: childExpanded ? agentPanes.filter(matches) : [],
