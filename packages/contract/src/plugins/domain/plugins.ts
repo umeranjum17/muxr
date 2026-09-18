@@ -682,7 +682,7 @@ export const MAX_SCREEN_PARAMS = 8;
  * says so instead of silently dropping contributions the app cannot render.
  * Bumped whenever a manifest can contain values an older phone cannot parse.
  */
-export const MUXR_UI_VERSION = 14;
+export const MUXR_UI_VERSION = 15;
 export const DYNAMIC_SCREEN_MIN_UI_VERSION = 13;
 /** Manifests using `limits`, bound tones, row identity fields or bound field values declare this. */
 export const SCREEN_IDENTITY_MIN_UI_VERSION = 14;

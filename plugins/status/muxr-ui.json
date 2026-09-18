@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "pluginId": "muxr.status",
-  "minMuxrVersion": 14,
+  "minMuxrVersion": 15,
   "contributions": [
     {
       "slot": "host.rpc",

@@ -96,10 +96,12 @@ export function RightNowCard() {
     const limit = payload.limits.windows[0];
     const verdictWord = verdict === 'unknown' ? undefined : t(VERDICT_KEYS[verdict]);
     const tone = verdict === 'unknown' ? undefined : verdictTone(verdict);
+    const dot = tone === undefined ? undefined : <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: toneColor(theme, tone) }} />;
+    const staleMark = <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />;
     const line = limit !== undefined
         ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {tone !== undefined && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: toneColor(theme, tone) }} />}
-            <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, lineHeight: 18 }}>
+            {failed ? staleMark : dot}
+            <Text numberOfLines={1} style={{ flexShrink: 1, color: failed ? theme.colors.textDestructive : theme.colors.text, fontSize: 13, lineHeight: 18 }}>
                 {[verdictWord, `${limit.label} ${Math.round(limit.used)}%`].filter((part) => part !== undefined).join(' · ')}
             </Text>
             {limit.resetsIn !== undefined && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{` · ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`}</Text>}
@@ -107,13 +109,16 @@ export function RightNowCard() {
                 <Ionicons name="chevron-forward" size={14} color={withAlpha(theme.colors.textSecondary, 0.6)} />
             </View>
         </View>
-        : <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
-            {payload.collecting === true ? t('plugins.rightNow.collecting') : t('plugins.rightNow.notConnected')}
-        </Text>;
+        : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {failed && staleMark}
+            <Text style={{ flexShrink: 1, color: failed ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
+                {payload.collecting === true ? t('plugins.rightNow.collecting') : t('plugins.rightNow.notConnected')}
+            </Text>
+        </View>;
     return <View>
         {label}
         {open !== undefined
-            ? <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(payload)}>
+            ? <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(payload, failed)}>
                 <CardBody limit={limit} line={line} vitals={payload.vitals} />
             </Pressable>
             : <CardBody limit={limit} line={line} vitals={payload.vitals} />}
@@ -153,8 +158,9 @@ function vitalsFigures(vitals: NonNullable<RightNowPayload['vitals']>, percent =
 }
 
 /** One sentence for the reader; the dots are decorative. */
-function cardAccessibilityLabel(payload: RightNowPayload): string {
+function cardAccessibilityLabel(payload: RightNowPayload, stale: boolean): string {
     const parts: string[] = [t('plugins.rightNow.title')];
+    if (stale) parts.push(t('plugins.showingStale'));
     const limit = payload.limits.windows[0];
     if (limit !== undefined) {
         const verdict = payload.limits.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.limits.verdict]);
