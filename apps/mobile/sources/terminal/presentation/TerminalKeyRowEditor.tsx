@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector, GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,10 +11,10 @@ import { ui } from '@/components/ui';
 import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, TERMINAL_KEY_ROW_LIMIT, bytesToEscape, escapeToBytes, type CustomKey, type RowEntry } from '../domain/keyRow';
 
 /**
- * Edit the key row at the point of use: a sheet over the terminal that shows
- * the live row, one editable line per key (hold the handle, drag to reorder,
- * minus to remove), the add-key grid, and a custom-key form speaking the
- * `\e` `\n` `\xHH` escape syntax.
+ * Edit the key row at the point of use: a sheet over the terminal with one
+ * editable line per key (hold the handle, drag to reorder, minus to remove),
+ * the add-key grid, and a custom-key form speaking the `\e` `\n` `\xHH`
+ * escape syntax.
  */
 
 // ponytail: rows live in one ScrollView; a drag cannot autoscroll the list,
@@ -23,13 +23,12 @@ import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, TERMINAL_KEY_ROW_LIMIT, bytesToEsc
 const STEP = 62;
 const CAP_NOTICE = `The row is full at ${TERMINAL_KEY_ROW_LIMIT} keys. Remove one to add another.`;
 
-export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, onClose }: {
+export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose }: {
     visible: boolean;
     /** The stored row, or null while it follows the built-in row. */
     entries: RowEntry[] | null;
     /** The row to start from when nothing is stored yet (the built-in row). */
     seed: RowEntry[];
-    keys: { label: string; accessibilityLabel: string; send: string }[];
     onChange: (entries: RowEntry[] | null) => void;
     onClose: () => void;
 }) {
@@ -135,11 +134,12 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
 
     return (
         <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-            <GestureHandlerRootView style={styles.backdrop}>
+            <GestureHandlerRootView style={styles.root}>
+            <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
                 <Pressable style={styles.dismiss} onPress={onClose} accessibilityLabel="Close key row editor" />
                 <View style={[styles.sheet, {
                     backgroundColor: theme.colors.surface,
-                    height: sheetHeight,
+                    maxHeight: sheetHeight,
                     paddingBottom: insets.bottom + 12,
                     borderColor: theme.colors.divider,
                 }]}>
@@ -151,16 +151,6 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
                     </View>
 
                     <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
-                    <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Live preview</Text>
-                    <View style={[styles.preview, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
-                        {keys.map((key, index) => (
-                            <View key={`${key.label}:${index}`} style={styles.previewChip}>
-                                <Text style={{ color: theme.colors.text, fontSize: 12, ...Typography.mono() }}>{key.label}</Text>
-                            </View>
-                        ))}
-                        {keys.length === 0 && <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Empty row</Text>}
-                    </View>
-
                     {(() => {
                         const occurrence = new Map<string, number>();
                         return working.map((entry, index) => {
@@ -217,6 +207,7 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
                     )}
                     </ScrollView>
                 </View>
+            </KeyboardAvoidingView>
             </GestureHandlerRootView>
         </Modal>
     );
@@ -354,6 +345,7 @@ function AddPanel({ atLimit, onAppend, onDone }: {
 }
 
 const styles = StyleSheet.create({
+    root: { flex: 1 },
     backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
     dismiss: { flex: 1 },
     sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingTop: 12 },
@@ -362,8 +354,6 @@ const styles = StyleSheet.create({
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
     title: { fontSize: 17, fontWeight: '600' },
     caption: { fontSize: 12, marginTop: 10, marginBottom: 6 },
-    preview: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, padding: 8, borderRadius: ui.radius.control, borderWidth: StyleSheet.hairlineWidth },
-    previewChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: ui.radius.control, backgroundColor: 'rgba(127,127,127,0.18)' },
     row: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 54, paddingHorizontal: 8, marginTop: 8, borderRadius: ui.radius.control, borderWidth: StyleSheet.hairlineWidth },
     handle: { paddingHorizontal: 6, paddingVertical: 12 },
     rowLabel: { fontSize: 14, width: 56, ...Typography.mono() },

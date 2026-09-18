@@ -138,7 +138,6 @@ export function TerminalKeyRow({ channel, children }: { channel?: { sendText: (t
                 visible={editing}
                 entries={rowEntries}
                 seed={seed}
-                keys={keys}
                 onChange={setRowEntries}
                 onClose={() => setEditing(false)}
             />
