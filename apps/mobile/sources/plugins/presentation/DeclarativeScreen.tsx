@@ -292,7 +292,9 @@ function ScreenNode(props: {
             // A missing figure is information, not a hole: an em dash.
             return (
                 <View style={{ paddingVertical: 10 }}>
-                    <SectionLabel>{bind(node.label)}</SectionLabel>
+                    {/* Caption for the value below, not a section heading:
+                        SectionLabel would put it in TalkBack's headings rotor. */}
+                    <Text style={{ color: withAlpha(theme.colors.textSecondary, 0.85), fontSize: 12, lineHeight: 16, fontWeight: '600', ...Typography.default('semiBold') }}>{bind(node.label)}</Text>
                     <Text style={{ color: blank ? theme.colors.textSecondary : theme.colors.text, fontSize: 30, letterSpacing: -0.5, marginTop: 2, ...Typography.mono('semiBold') }}>{blank ? '—' : value}</Text>
                 </View>
             );
