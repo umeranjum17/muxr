@@ -306,9 +306,15 @@ describe('AttachmentWatcher', () => {
             // file was sniffed out and discarded without a push.
             expect(pushed).toEqual([{ paneId: 'pane:x:1', mime: 'image/png', bytes: PIXEL_B64 }]);
             // Nothing persists on either side once forwarded: the show- file is
-            // gone (only the CLI-consumed dot-receipt may remain).
+            // gone (only the CLI-consumed dot-receipt may remain). The unlink
+            // lands a tick after the sink returns, so wait for it.
             const { readdirSync } = await import('node:fs');
-            const left = readdirSync(join(root, 'pane:x:1'));
+            let left: string[] = [];
+            for (let waited = 0; waited < 3000; waited += 10) {
+                left = readdirSync(join(root, 'pane:x:1'));
+                if (!left.some((name) => name.startsWith('show-'))) break;
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
             for (const name of left) expect(name.startsWith('show-')).toBe(false);
             // And the attachment listing never saw the show- files at all.
             for (const emit of emits) {
