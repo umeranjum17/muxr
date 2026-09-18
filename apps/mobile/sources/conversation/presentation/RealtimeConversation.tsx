@@ -36,7 +36,7 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     const watching = useRealtimeWatching();
     const previousState = React.useRef(state);
     const [detailOpen, setDetailOpen] = React.useState(false);
-    const [orbRoom, setOrbRoom] = React.useState(ORB_SIZE);
+    const [orbRoom, setOrbRoom] = React.useState(0);
     const transcript = React.useRef<ScrollView>(null);
     // The voice is attached to a working session; what that session is doing is
     // the other half of "what is happening right now".
@@ -60,7 +60,9 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
 
     // Collapsed every time this opens, and never yanked shut while it is open:
     // a watched agent retries voice on its own, reporting between each attempt.
-    React.useEffect(() => { if (!visible) setDetailOpen(false); }, [visible]);
+    // Unmeasured too -- a room measured against the last banner would be painted
+    // over the next one, and the cloud overflows its box rather than clip.
+    React.useEffect(() => { if (!visible) { setDetailOpen(false); setOrbRoom(0); } }, [visible]);
 
     React.useEffect(() => {
         if (!visible || previousState.current === state) return;
@@ -92,7 +94,8 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     // The cloud is decoration and the words are the point, so the cloud is what
     // yields: it asks for its full size and shrinks from there, and the layout
     // engine decides by how much. Below the size it was drawn for it stops being
-    // a cloud, so it leaves rather than smudge.
+    // a cloud, so it leaves rather than smudge -- including before the first
+    // measurement lands, since anything drawn on a guess is drawn over the words.
     const orbSize = Math.min(ORB_SIZE, orbRoom);
 
     return (
