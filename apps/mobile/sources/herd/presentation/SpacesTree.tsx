@@ -185,6 +185,10 @@ const stylesheet = StyleSheet.create((theme) => ({
     groupRowPressed: {
         backgroundColor: theme.colors.surfacePressedOverlay,
     },
+    groupTitleSlot: {
+        flex: 1,
+        minWidth: 0,
+    },
     groupTitle: {
         flexShrink: 1,
         fontSize: 14,
@@ -194,6 +198,12 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     groupSummary: {
         color: theme.colors.textSecondary,
+    },
+    groupSummaryProbe: {
+        position: 'absolute',
+        top: -1000,
+        left: 0,
+        opacity: 0,
     },
     childRow: {
         paddingLeft: 28,
@@ -345,16 +355,21 @@ const GroupRow = React.memo(({
     kind,
     groupChildren,
     expanded,
+    forced,
     onToggle,
 }: {
     count: number;
     kind?: string;
     groupChildren: HerdChildSpace[];
     expanded: boolean;
+    /** A search holds this group open: the row states it, it does not control it. */
+    forced: boolean;
     onToggle: () => void;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
+    const [slotWidth, setSlotWidth] = React.useState(0);
+    const [fullWidth, setFullWidth] = React.useState(0);
     const counts = groupSummaryCounts(groupChildren);
     const summary = [
         { count: counts.needsYou, word: t('spacesTree.needsYou'), error: true },
@@ -363,6 +378,68 @@ const GroupRow = React.memo(({
     ].filter((entry) => entry.count > 0).slice(0, 2);
     const noun = t('spacesTree.groupCount', { count, kind });
     const summaryWords = summary.map((entry) => `${entry.count} ${entry.word}`).join(' · ');
+    // Both counts only survive when the row measures wide enough for them.
+    const crowded = summary.length > 1 && slotWidth > 0 && fullWidth > slotWidth;
+    const shown = crowded ? summary.slice(0, 1) : summary;
+
+    const body = (
+        <>
+            <View style={styles.chevron}>
+                {!forced && (
+                    <Ionicons
+                        name={expanded ? 'chevron-down' : 'chevron-forward'}
+                        size={16}
+                        color={theme.colors.groupped.chevron}
+                    />
+                )}
+            </View>
+            <View
+                style={styles.groupTitleSlot}
+                onLayout={(event) => setSlotWidth(event.nativeEvent.layout.width)}
+            >
+                <Text numberOfLines={1} style={styles.groupTitle}>
+                    {noun}
+                    {shown.map((entry) => (
+                        <Text key={entry.word} style={styles.groupSummary}>
+                            {' · '}
+                            <Text style={entry.error ? { color: theme.colors.status.error } : undefined}>
+                                {entry.count} {entry.word}
+                            </Text>
+                        </Text>
+                    ))}
+                </Text>
+            </View>
+            {summary.length > 1 && (
+                <View
+                    accessible={false}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                    aria-hidden
+                    pointerEvents="none"
+                    style={styles.groupSummaryProbe}
+                >
+                    <Text
+                        numberOfLines={1}
+                        style={styles.groupTitle}
+                        onTextLayout={(event) => {
+                            const width = event.nativeEvent.lines[0]?.width;
+                            if (width !== undefined && width > 0) setFullWidth(width);
+                        }}
+                    >
+                        {`${noun} · ${summaryWords}`}
+                    </Text>
+                </View>
+            )}
+        </>
+    );
+
+    if (forced) {
+        return (
+            <View style={styles.groupRow} accessibilityLabel={`${noun}, ${summaryWords}`}>
+                {body}
+            </View>
+        );
+    }
 
     return (
         <Pressable
@@ -373,24 +450,7 @@ const GroupRow = React.memo(({
             accessibilityState={{ expanded }}
             accessibilityLabel={`${noun}, ${summaryWords}. ${expanded ? t('spacesTree.collapse') : t('spacesTree.expand')}`}
         >
-            <View style={styles.chevron}>
-                <Ionicons
-                    name={expanded ? 'chevron-down' : 'chevron-forward'}
-                    size={16}
-                    color={theme.colors.groupped.chevron}
-                />
-            </View>
-            <Text numberOfLines={1} style={styles.groupTitle}>
-                {noun}
-                {summary.map((entry) => (
-                    <Text key={entry.word} style={styles.groupSummary}>
-                        {' · '}
-                        <Text style={entry.error ? { color: theme.colors.status.error } : undefined}>
-                            {entry.count} {entry.word}
-                        </Text>
-                    </Text>
-                ))}
-            </Text>
+            {body}
         </Pressable>
     );
 });
@@ -473,6 +533,7 @@ const WorkspaceCard = React.memo(({
     panes,
     childSpaces,
     groupExpanded,
+    searchForced,
     onToggle,
     onToggleGroup,
     onToggleChild,
@@ -491,6 +552,8 @@ const WorkspaceCard = React.memo(({
     panes: HerdrTreePane[];
     childSpaces: HerdChildSpace[];
     groupExpanded: boolean;
+    /** A search holds this card open: its header states that, it does not control it. */
+    searchForced: boolean;
     onToggle: () => void;
     onToggleGroup: () => void;
     onToggleChild: (workspaceId: string) => void;
@@ -515,7 +578,7 @@ const WorkspaceCard = React.memo(({
     return (
         <View style={[styles.card, compact && styles.cardCompact]}>
             <Pressable
-                onPress={onToggle}
+                onPress={searchForced ? undefined : onToggle}
                 onLongPress={canClose ? onClose : undefined}
                 style={({ pressed }) => [
                     styles.cardHeader,
@@ -528,11 +591,13 @@ const WorkspaceCard = React.memo(({
                 accessibilityLabel={`${workspaceName(workspace)} workspace${countLabel === undefined ? '' : `, ${countLabel}`}`}
             >
                 <View style={styles.chevron}>
-                    <Ionicons
-                        name={expanded ? 'chevron-down' : 'chevron-forward'}
-                        size={16}
-                        color={theme.colors.groupped.chevron}
-                    />
+                    {!searchForced && (
+                        <Ionicons
+                            name={expanded ? 'chevron-down' : 'chevron-forward'}
+                            size={16}
+                            color={theme.colors.groupped.chevron}
+                        />
+                    )}
                 </View>
                 <StatusDot color={dot.color} isPulsing={dot.pulsing} size={8} />
                 <Text numberOfLines={1} style={[styles.cardTitle, compact && styles.cardTitleCompact]}>
@@ -564,6 +629,7 @@ const WorkspaceCard = React.memo(({
                     kind={groupKind(childSpaces)}
                     groupChildren={childSpaces}
                     expanded={groupExpanded}
+                    forced={searchForced}
                     onToggle={onToggleGroup}
                 />
             )}
@@ -692,6 +758,8 @@ export const SpacesTree = React.memo(({
         ]);
     }, [refresh]);
 
+    const searching = searchQuery.trim() !== '';
+
     const sections = React.useMemo(
         () => [{ key: 'spaces', title: t('spacesTree.title'), data: buildSpaceRows(workspaces, expanded, searchQuery) }],
         [expanded, searchQuery, workspaces],
@@ -705,6 +773,7 @@ export const SpacesTree = React.memo(({
             panes={item.panes}
             childSpaces={item.children}
             groupExpanded={item.groupExpanded}
+            searchForced={searching && item.groupExpanded}
             onToggle={() => toggleWorkspaceCard(item.workspace.workspaceId)}
             onToggleGroup={() => toggleWorkspace(`group:${item.workspace.workspaceId}`)}
             onToggleChild={toggleWorkspace}
@@ -717,7 +786,7 @@ export const SpacesTree = React.memo(({
             canClose={canClose}
             unseenDoneSessionIds={unseenDoneSessionIds}
         />
-    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, onNavigatePane, selectedSessionId, toggleWorkspace, toggleWorkspaceCard, unseenDoneSessionIds]);
+    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, onNavigatePane, searching, selectedSessionId, toggleWorkspace, toggleWorkspaceCard, unseenDoneSessionIds]);
 
     if (loading === true) {
         return (
@@ -742,7 +811,7 @@ export const SpacesTree = React.memo(({
                 ListHeaderComponent={listHeaderComponent === undefined ? undefined : <>{listHeaderComponent}</>}
                 ListFooterComponent={<>
                     {(sections[0]?.data.length ?? 0) === 0
-                        ? <Text style={styles.empty}>{searchQuery.trim() === '' ? (emptyText ?? t('spacesTree.empty')) : t('spacesTree.noMatches')}</Text>
+                        ? <Text style={styles.empty}>{searching ? t('spacesTree.noMatches') : (emptyText ?? t('spacesTree.empty'))}</Text>
                         : null}
                     {listFooterComponent === undefined ? undefined : <>{listFooterComponent}</>}
                 </>}
