@@ -37,8 +37,13 @@ export function CommandPaletteResults({
         return categories.flatMap(cat => cat.commands);
     }, [categories]);
 
-    // Scroll to selected item when index changes
+    // Scroll to the selected item when the index changes — but never on mount:
+    // during the sheet's open animation aligning row 0 auto-scrolls the list and
+    // hides the first section header, so the first index is the baseline.
+    const lastSelectedRef = useRef(selectedIndex);
     useEffect(() => {
+        if (lastSelectedRef.current === selectedIndex) return;
+        lastSelectedRef.current = selectedIndex;
         const selectedItem = itemRefs.current[selectedIndex];
         if (selectedItem && scrollViewRef.current) {
             // For web, we need to use the DOM API

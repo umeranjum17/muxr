@@ -6,8 +6,7 @@ import { Typography } from '@/constants/Typography';
 import { CommandPaletteInput } from '@/components/CommandPalette/CommandPaletteInput';
 import { CommandPaletteResults } from '@/components/CommandPalette/CommandPaletteResults';
 import { useCommandPalette } from '@/components/CommandPalette/useCommandPalette';
-import { Command, CUSTOM_CATEGORY } from '@/components/CommandPalette/types';
-import { t } from '@/text';
+import { Command } from '@/components/CommandPalette/types';
 import { darkTheme } from '@/theme';
 
 interface CommandPaletteProps {
@@ -31,28 +30,15 @@ export function CommandPalette({ commands, onClose, title, appearance, quietLine
     const {
         searchQuery,
         selectedIndex,
-        filteredCategories,
         inputRef,
         handleSearchChange,
         handleSelectCommand,
         handleSecondaryCommand,
         handleKeyPress,
         setSelectedIndex,
-    } = useCommandPalette(commands, onClose);
-
-    // With a query the sections collapse into one ranked list; when nothing
-    // matches, the quiet line stays and the Custom row keeps its place.
-    const { categories, quiet } = React.useMemo(() => {
-        if (searchQuery.trim() === '') {
-            return quietLine === undefined
-                ? { categories: filteredCategories, quiet: undefined }
-                : { categories: filteredCategories.map((category) => ({ ...category, title: '' })), quiet: quietLine };
-        }
-        const matches = filteredCategories.flatMap((category) => category.commands);
-        if (matches.length > 0) return { categories: [{ id: 'results', title: '', commands: matches }], quiet: undefined };
-        const custom = commands.filter((command) => command.category === CUSTOM_CATEGORY);
-        return { categories: custom.map((command) => ({ id: CUSTOM_CATEGORY, title: '', commands: [command] })), quiet: t('commandPalette.noMatch') };
-    }, [searchQuery, filteredCategories, commands, quietLine]);
+        categories,
+        quiet,
+    } = useCommandPalette(commands, onClose, quietLine);
 
     return (
         <View accessibilityViewIsModal={sheet} style={[styles.container, sheet && styles.sheet, {

@@ -12,7 +12,6 @@ interface CommandPaletteInputProps {
     onKeyPress?: (key: string) => void;
     inputRef?: React.RefObject<TextInput | null>;
     appearance?: 'terminal';
-    compact?: boolean;
     onFocusChange?: (focused: boolean) => void;
 }
 
