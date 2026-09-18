@@ -37,6 +37,7 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     const previousState = React.useRef(state);
     const [detailOpen, setDetailOpen] = React.useState(false);
     const [orbRoom, setOrbRoom] = React.useState(0);
+    const measuredAgainst = React.useRef('');
     const transcript = React.useRef<ScrollView>(null);
     // The voice is attached to a working session; what that session is doing is
     // the other half of "what is happening right now".
@@ -60,8 +61,8 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
 
     // Collapsed every time this opens, and never yanked shut while it is open:
     // a watched agent retries voice on its own, reporting between each attempt.
-    // Unmeasured too -- a room measured against the last banner would be painted
-    // over the next one, and the cloud overflows its box rather than clip.
+    // Unmeasured too: a screen that changed size while this was closed would
+    // reopen against a room measured on the old one.
     React.useEffect(() => { if (!visible) { setDetailOpen(false); setOrbRoom(0); } }, [visible]);
 
     React.useEffect(() => {
@@ -91,6 +92,18 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
         ? voiceFailure(detail, machineName, everConnected)
         : undefined;
     const progress = state === 'connecting' ? detail : undefined;
+    // A measured room only describes the words it was measured against. Once they
+    // change -- a 401 arrives mid-call, Details expands, the label rewraps -- the
+    // old number is a guess, and a guess too large paints the cloud straight over
+    // the banner, since the box is stretched to the column and cannot clip a cloud
+    // already wider than it. So the room is forgotten in the same render that
+    // changes the words, before anything is drawn, and stays forgotten until the
+    // box reports what it actually got.
+    const words = `${status}\u0000${activity ?? ''}\u0000${progress ?? ''}\u0000${failure?.headline ?? ''}\u0000${failure?.remedy ?? ''}\u0000${detailOpen ? failure?.detail ?? '' : ''}`;
+    if (measuredAgainst.current !== words) {
+        measuredAgainst.current = words;
+        if (orbRoom !== 0) setOrbRoom(0);
+    }
     // The cloud is decoration and the words are the point, so the cloud is what
     // yields: it asks for its full size and shrinks from there, and the layout
     // engine decides by how much. Below the size it was drawn for it stops being
