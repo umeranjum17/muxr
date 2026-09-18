@@ -41,7 +41,7 @@ muxr is the control surface built natively for the phone: the full agent lifecyc
 
 ### A real terminal, built for thumbs
 
-Open the same live terminal the agent owns on your computer — native Ghostty rendering, scrollback, modifier keys, attachments, dictation, and a prompt box designed for a phone.
+Open the same live terminal the agent owns on your computer — native Ghostty rendering, scrollback, sticky modifier keys, a key row you can reorder and extend with keys of your own, attachments, dictation, and a prompt box designed for a phone.
 
 </td>
 <td width="55%">

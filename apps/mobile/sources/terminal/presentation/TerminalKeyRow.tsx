@@ -1,32 +1,13 @@
 import * as React from 'react';
-import { Pressable, Text } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { hapticsSelection } from '@/components/haptics';
 import { ui } from '@/components/ui';
-
-export interface TerminalKey {
-    label: string;
-    accessibilityLabel: string;
-    send: string;
-    ctrl?: string;
-    shift?: string;
-    ctrlShift?: string;
-    repeat?: boolean;
-}
-
-/** The phone terminal's built-in key row. Furniture, not a feature pack. */
-export const TERMINAL_KEYS: readonly TerminalKey[] = [
-    { label: 'esc', accessibilityLabel: 'Escape', send: '\u001b' },
-    { label: 'tab', accessibilityLabel: 'Tab', send: '\t', shift: '\u001b[Z' },
-    { label: '^C', accessibilityLabel: 'Control C', send: '\u0003' },
-    { label: '^D', accessibilityLabel: 'Control D', send: '\u0004' },
-    { label: '\u23ce', accessibilityLabel: 'Enter', send: '\r' },
-    { label: '\u2190', accessibilityLabel: 'Left arrow', send: '\u001b[D', ctrl: '\u001b[1;5D', shift: '\u001b[1;2D', ctrlShift: '\u001b[1;6D', repeat: true },
-    { label: '\u2191', accessibilityLabel: 'Up arrow', send: '\u001b[A', ctrl: '\u001b[1;5A', shift: '\u001b[1;2A', ctrlShift: '\u001b[1;6A', repeat: true },
-    { label: '\u2193', accessibilityLabel: 'Down arrow', send: '\u001b[B', ctrl: '\u001b[1;5B', shift: '\u001b[1;2B', ctrlShift: '\u001b[1;6B', repeat: true },
-    { label: '\u2192', accessibilityLabel: 'Right arrow', send: '\u001b[C', ctrl: '\u001b[1;5C', shift: '\u001b[1;2C', ctrlShift: '\u001b[1;6C', repeat: true },
-];
+import { useLocalSettingMutable } from '@/catalog/store';
+import { DEFAULT_ROW_IDS, modifiedSend, resolveKeyRow, type RowEntry, type TerminalKey } from '../domain/keyRow';
+import { TerminalKeyRowEditor } from './TerminalKeyRowEditor';
 
 export const TERMINAL_QUICK_REPLIES: readonly { label: string; text: string }[] = [
     { label: 'Continue', text: 'Continue with the current task.' },
@@ -34,20 +15,23 @@ export const TERMINAL_QUICK_REPLIES: readonly { label: string; text: string }[] 
     { label: 'Summarize', text: 'Summarize what changed and what remains.' },
 ];
 
-function keyRowSend(key: TerminalKey, ctrl: boolean, shift: boolean): string {
-    if (ctrl && shift) return key.ctrlShift ?? key.ctrl ?? key.shift ?? key.send;
-    if (ctrl) return key.ctrl ?? key.send;
-    if (shift) return key.shift ?? key.send;
-    return key.send;
-}
+// Sticky modifiers a la Termux: tap = applies to the next key, tap again =
+// locked until tapped once more. A touchscreen makes hold-and-reach a
+// two-thumb dance; the lock covers a run of chords without re-arming between
+// them. Keys the armed modifier cannot encode go dim rather than send bare.
+type Modifier = 'off' | 'once' | 'lock';
 
-export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: string) => void } }) {
+const cycle = (state: Modifier): Modifier => (state === 'off' ? 'once' : state === 'once' ? 'lock' : 'off');
+
+export function TerminalKeyRow({ channel, children }: { channel?: { sendText: (text: string) => void }; children?: React.ReactNode }) {
     const { theme } = useUnistyles();
-    const [ctrl, setCtrl] = React.useState(false);
-    const [shift, setShift] = React.useState(false);
-    const ctrlRef = React.useRef(false);
-    const shiftRef = React.useRef(false);
-    const applyMods = (nextCtrl: boolean, nextShift: boolean) => {
+    const [rowEntries, setRowEntries] = useLocalSettingMutable('terminalKeyRow');
+    const [editing, setEditing] = React.useState(false);
+    const [ctrl, setCtrl] = React.useState<Modifier>('off');
+    const [shift, setShift] = React.useState<Modifier>('off');
+    const ctrlRef = React.useRef<Modifier>('off');
+    const shiftRef = React.useRef<Modifier>('off');
+    const applyMods = (nextCtrl: Modifier, nextShift: Modifier) => {
         ctrlRef.current = nextCtrl;
         shiftRef.current = nextShift;
         setCtrl(nextCtrl);
@@ -65,7 +49,7 @@ export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: strin
         channel?.sendText(text);
         hapticsSelection();
     }, [channel]);
-    const style = (selected = false) => ({
+    const style = (selected = false, locked = false) => ({
         minWidth: 44,
         minHeight: 40,
         justifyContent: 'center' as const,
@@ -73,53 +57,90 @@ export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: strin
         paddingHorizontal: 10,
         paddingVertical: 9,
         borderRadius: ui.radius.control,
-        backgroundColor: selected ? theme.colors.accent : theme.colors.surfaceHigh,
+        backgroundColor: selected || locked ? theme.colors.accent : theme.colors.surfaceHigh,
+        borderWidth: locked ? 2 : 0,
+        borderColor: locked ? theme.colors.button.primary.tint : 'transparent',
     });
     const labelStyle = (tint: string) => ({ color: tint, fontSize: 13, ...Typography.mono() });
-    const tap = (key: TerminalKey) => () => {
-        send(keyRowSend(key, ctrlRef.current, shiftRef.current));
-        applyMods(false, false);
+    const fire = (key: TerminalKey) => {
+        const bytes = modifiedSend(key, ctrlRef.current !== 'off', shiftRef.current !== 'off');
+        if (bytes === null) return;
+        send(bytes);
+        applyMods(ctrlRef.current === 'once' ? 'off' : ctrlRef.current, shiftRef.current === 'once' ? 'off' : shiftRef.current);
     };
+    const active = (state: Modifier) => state !== 'off';
+    const keys = resolveKeyRow(rowEntries);
+    // Editing starts from the row the person sees today: their own arrangement
+    // when they have one, else the built-in default as a local copy.
+    const seed = React.useMemo<RowEntry[]>(() => rowEntries ?? [...DEFAULT_ROW_IDS], [rowEntries]);
     return (
         <>
-            <Pressable
-                onPress={() => applyMods(!ctrlRef.current, shiftRef.current)}
-                accessibilityRole="button"
-                accessibilityLabel="Control"
-                accessibilityState={{ selected: ctrl }}
-                style={({ pressed }) => [style(ctrl), pressed && { opacity: 0.6 }]}
+            <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="always"
+                style={{ flex: 1, maxHeight: 52 }}
+                contentContainerStyle={{ alignItems: 'center', gap: 6, paddingLeft: 8, paddingRight: 6, paddingVertical: 6 }}
             >
-                <Text style={labelStyle(ctrl ? theme.colors.button.primary.tint : theme.colors.text)}>ctrl</Text>
+            <Pressable
+                onPress={() => { hapticsSelection(); applyMods(cycle(ctrlRef.current), shiftRef.current); }}
+                accessibilityRole="button"
+                accessibilityLabel={`Control${ctrl === 'lock' ? ', locked' : ''}`}
+                accessibilityState={{ selected: active(ctrl) }}
+                style={({ pressed }) => [style(active(ctrl), ctrl === 'lock'), pressed && { opacity: 0.6 }]}
+            >
+                <Text style={labelStyle(active(ctrl) ? theme.colors.button.primary.tint : theme.colors.text)}>ctrl</Text>
             </Pressable>
             <Pressable
-                onPress={() => applyMods(ctrlRef.current, !shiftRef.current)}
+                onPress={() => { hapticsSelection(); applyMods(ctrlRef.current, cycle(shiftRef.current)); }}
                 accessibilityRole="button"
-                accessibilityLabel="Shift"
-                accessibilityState={{ selected: shift }}
-                style={({ pressed }) => [style(shift), pressed && { opacity: 0.6 }]}
+                accessibilityLabel={`Shift${shift === 'lock' ? ', locked' : ''}`}
+                accessibilityState={{ selected: active(shift) }}
+                style={({ pressed }) => [style(active(shift), shift === 'lock'), pressed && { opacity: 0.6 }]}
             >
-                <Text style={labelStyle(shift ? theme.colors.button.primary.tint : theme.colors.text)}>shift</Text>
+                <Text style={labelStyle(active(shift) ? theme.colors.button.primary.tint : theme.colors.text)}>shift</Text>
             </Pressable>
-            {TERMINAL_KEYS.map((key) => (
+            {keys.map((key, index) => {
+                const unavailable = modifiedSend(key, active(ctrl), active(shift)) === null;
+                return (
+                    <Pressable
+                        key={`${key.label}:${key.send}:${index}`}
+                        accessibilityRole="button"
+                        accessibilityLabel={key.accessibilityLabel}
+                        accessibilityState={{ disabled: unavailable }}
+                        disabled={unavailable}
+                        onPress={() => fire(key)}
+                        onLongPress={key.repeat !== true ? undefined : () => {
+                            stopRepeat();
+                            repeatTimer.current = setInterval(() => fire(key), 80);
+                        }}
+                        delayLongPress={400}
+                        onPressOut={stopRepeat}
+                        style={({ pressed }) => [style(), unavailable && { opacity: 0.35 }, pressed && { opacity: 0.6 }]}
+                    >
+                        <Text style={labelStyle(theme.colors.text)}>{key.label}</Text>
+                    </Pressable>
+                );
+            })}
+            {children}
+            </ScrollView>
+            <View style={{ paddingLeft: 6, paddingRight: 8, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: theme.colors.divider }}>
                 <Pressable
-                    key={key.label}
+                    onPress={() => { stopRepeat(); setEditing(true); }}
                     accessibilityRole="button"
-                    accessibilityLabel={key.accessibilityLabel}
-                    onPress={tap(key)}
-                    onLongPress={key.repeat !== true ? undefined : () => {
-                        stopRepeat();
-                        repeatTimer.current = setInterval(() => {
-                            send(keyRowSend(key, ctrlRef.current, shiftRef.current));
-                            applyMods(false, false);
-                        }, 80);
-                    }}
-                    delayLongPress={400}
-                    onPressOut={stopRepeat}
+                    accessibilityLabel="Edit key row"
                     style={({ pressed }) => [style(), pressed && { opacity: 0.6 }]}
                 >
-                    <Text style={labelStyle(theme.colors.text)}>{key.label}</Text>
+                    <Ionicons name="pencil" size={15} color={theme.colors.text} />
                 </Pressable>
-            ))}
+            </View>
+            <TerminalKeyRowEditor
+                visible={editing}
+                entries={rowEntries}
+                seed={seed}
+                onChange={setRowEntries}
+                onClose={() => setEditing(false)}
+            />
         </>
     );
 }
