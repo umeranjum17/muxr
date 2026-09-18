@@ -62,7 +62,6 @@ export function RightNowCard() {
     }
 
     if (payload === undefined) return null;
-    const agedFor = disclosedAge(payload);
     const verdict = payload.limits.verdict;
     const limit = payload.limits.windows[0];
     const verdictWord = verdict === 'unknown' ? undefined : t(VERDICT_KEYS[verdict]);
@@ -72,11 +71,10 @@ export function RightNowCard() {
     const line = limit !== undefined
         ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {failed ? staleMark : dot}
-            <Text numberOfLines={1} style={{ flexShrink: 1, color: failed ? theme.colors.textDestructive : theme.colors.text, fontSize: 13, lineHeight: 18 }}>
+            <Text numberOfLines={1} style={{ color: failed ? theme.colors.textDestructive : theme.colors.text, fontSize: 13, lineHeight: 18 }}>
                 {[verdictWord, `${limit.label} ${Math.round(limit.used)}%`].filter((part) => part !== undefined).join(' · ')}
             </Text>
             {limit.resetsIn !== undefined && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{` · ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`}</Text>}
-            {agedFor !== undefined && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{` · ${t('components.sessionStatusBar.limitAsOf', { age: agedFor })}`}</Text>}
             {open !== undefined && <View style={{ marginLeft: 'auto' }}>
                 <Ionicons name="chevron-forward" size={14} color={withAlpha(theme.colors.textSecondary, 0.6)} />
             </View>}
@@ -91,30 +89,41 @@ export function RightNowCard() {
         {label}
         {open !== undefined
             ? <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(payload, failed)}>
-                <CardBody limit={limit} line={line} vitals={payload.vitals} />
+                <CardBody limit={limit} line={line} quiet={quietLine(payload)} />
             </Pressable>
-            : <CardBody limit={limit} line={line} vitals={payload.vitals} />}
+            : <CardBody limit={limit} line={line} quiet={quietLine(payload)} />}
     </View>;
 }
 
-function CardBody({ limit, line, vitals }: { limit?: PluginLimitsWindow; line: React.ReactNode; vitals: RightNowPayload['vitals'] }) {
+function CardBody({ limit, line, quiet }: { limit?: PluginLimitsWindow; line: React.ReactNode; quiet: string[] }) {
     const { theme } = useUnistyles();
     return <View style={[cardStyle(theme), { marginHorizontal: 16, padding: 14 }]}>
         {line}
         {limit !== undefined && <Meter ratio={limit.used / 100} emphasis={0.9} marker={limit.elapsed} style={{ marginTop: 8, marginBottom: 10 }} />}
-        {vitals !== undefined && <FactsLine vitals={vitals} style={limit === undefined ? { marginTop: 10 } : undefined} />}
+        {quiet.length > 0 && <FactsLine parts={quiet} style={limit === undefined ? { marginTop: 10 } : undefined} />}
     </View>;
 }
 
-/** One mono line of machine figures, in the card's quiet voice: a machine at
- *  80% memory is a machine at work, not a warning. */
-function FactsLine({ vitals, style }: { vitals: NonNullable<RightNowPayload['vitals']>; style?: object }) {
+/** One mono line in the card's quiet voice: a machine at 80% memory is a
+ *  machine at work, not a warning, and figures a few minutes old are still
+ *  the answer -- so how old they are belongs here, not beside the verdict. */
+function FactsLine({ parts, style }: { parts: string[]; style?: object }) {
     const { theme } = useUnistyles();
     return (
         <Text style={[{ color: theme.colors.textSecondary, fontSize: 11.5, lineHeight: 15, ...Typography.mono('regular') }, style]}>
-            {vitalsFigures(vitals).join(' · ')}
+            {parts.join(' · ')}
         </Text>
     );
+}
+
+/** The quiet line: the machine's figures, then the age of the limit figures
+ *  above once it is old enough to be worth saying. */
+function quietLine(payload: RightNowPayload, percent = (value: number) => `${value}%`): string[] {
+    const agedFor = disclosedAge(payload);
+    return [
+        ...(payload.vitals === undefined ? [] : vitalsFigures(payload.vitals, percent)),
+        ...(agedFor === undefined ? [] : [t('components.sessionStatusBar.limitAsOf', { age: agedFor })]),
+    ];
 }
 
 /** The figures the host could read, in order; a filesystem it could not stat
@@ -151,20 +160,14 @@ function cardAccessibilityLabel(payload: RightNowPayload, stale: boolean): strin
         const verdict = payload.limits.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.limits.verdict]);
         const line = [verdict, [limit.label, t('plugins.limits.percentUsed', { percent: Math.round(limit.used) })].join(' ')]
             .filter((part) => part !== undefined).join(', ');
-        const agedFor = disclosedAge(payload);
-        parts.push([
-            line,
-            ...(limit.resetsIn === undefined ? [] : [t('plugins.rightNow.resetsIn', { time: limit.resetsIn })]),
-            ...(agedFor === undefined ? [] : [t('components.sessionStatusBar.limitAsOf', { age: agedFor })]),
-        ].join(', '));
+        parts.push(limit.resetsIn === undefined ? line : `${line}, ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`);
     } else if (payload.collecting === true) {
         parts.push(t('plugins.rightNow.collecting'));
     } else {
         parts.push(emptyLine(payload));
     }
-    if (payload.vitals !== undefined) {
-        parts.push(vitalsFigures(payload.vitals, (percent) => t('plugins.limits.percentUsed', { percent })).join(', '));
-    }
+    const quiet = quietLine(payload, (percent) => t('plugins.limits.percentUsed', { percent }));
+    if (quiet.length > 0) parts.push(quiet.join(', '));
     parts.push(t('plugins.rightNow.opensUsage'));
     return parts.join('. ');
 }

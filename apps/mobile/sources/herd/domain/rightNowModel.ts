@@ -30,17 +30,26 @@ export interface RightNowPayload {
     vitals?: RightNowVitals;
 }
 
+/** No machine has been up a century: past this the host is publishing a bad
+ *  figure, not a fact, and an unbounded one renders in exponential notation. */
+const MAX_UPTIME_SECONDS = 100 * 365 * 86_400;
+
+/** A share of something cannot exceed it; a host that says otherwise is
+ *  bounded here rather than printed. */
+const share = (used: number, total: number): number =>
+    Math.min(100, Math.max(0, Math.round((used / total) * 100)));
+
 /** The vitals line's figures: rounded shares, a one-decimal load and an
  *  uptime in the same compactAge voice the activity rows speak. */
 export function vitalsFacts(vitals: RightNowVitals): { memoryPercent: number; diskPercent?: number; load: string; uptime: string } {
     const disk = vitals.diskUsed === undefined || vitals.diskTotal === undefined
         ? undefined
-        : Math.round((vitals.diskUsed / vitals.diskTotal) * 100);
+        : share(vitals.diskUsed, vitals.diskTotal);
     return {
-        memoryPercent: Math.round((vitals.memoryUsed / vitals.memoryTotal) * 100),
+        memoryPercent: share(vitals.memoryUsed, vitals.memoryTotal),
         ...(disk === undefined ? {} : { diskPercent: disk }),
         load: Number(vitals.load1.toFixed(1)).toString(),
-        uptime: compactAge(vitals.uptimeSeconds * 1_000),
+        uptime: compactAge(Math.min(vitals.uptimeSeconds, MAX_UPTIME_SECONDS) * 1_000),
     };
 }
 

@@ -11,7 +11,7 @@ import { asScreenTabs, bindText, bindTone, buttonInput, contentMountTitle, initi
 import { asScreenTree } from './screenTreeModel';
 import { asChartSeries } from './chartModel';
 import { asLimitsPayload } from './limitsModel';
-import { asRightNowPayload, vitalsFacts } from '@/herd';
+import { asRightNowPayload, vitalsFacts } from '@/herd/domain/rightNowModel';
 import { highlightCodeLines, syntaxLanguage } from '@/components/code/syntaxHighlighting';
 
 const manifest: PluginManifestV1 = {
