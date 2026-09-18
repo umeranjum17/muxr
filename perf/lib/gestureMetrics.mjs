@@ -331,6 +331,34 @@ export function creditLedger({ rows, counter } = {}) {
 }
 
 /**
+ * The zoom window's own accounting, on the window's own reads: the baseline's
+ * total is settled out of the records its read already held, and every
+ * increment after it is paid from the earliest records not yet spent. The gate
+ * calls this between the closing read and any further driving; the gate test
+ * calls this same function, so the accounting is the real boundary rather than
+ * a block a test has to find in the gate's file text.
+ */
+export function zoomWindowAccount({ vsyncBefore, vsyncAfter, zoomLedger, hz, t0Ns, unavailable }) {
+    const wasMissed = vsyncBefore.jank.missedVsync;
+    const nowMissed = vsyncAfter.jank.missedVsync;
+    if (wasMissed === undefined || nowMissed === undefined || nowMissed < wasMissed) {
+        return { unavailable: unavailable('the missed-vsync counter did not read across the zoom window') };
+    }
+    if (zoomLedger.why !== undefined) return { unavailable: unavailable(`${zoomLedger.why} (zoom)`) };
+    const ownedZoomRows = zoomLedger.owned;
+    return {
+        wasMissed,
+        nowMissed,
+        zoomFrames: reduceFrameStats(ownedZoomRows, { frameNs: 1e9 / hz, t0Ns }),
+        zoomCoverage: {
+            rendered: (vsyncAfter.jank.frames ?? NaN) - (vsyncBefore.jank.frames ?? NaN),
+            retained: ownedZoomRows.length,
+            uncredited: zoomLedger.uncredited,
+        },
+    };
+}
+
+/**
  * Do these counters continue the previous read? A value that vanished or went
  * backwards is a reset or a failed read, and an endpoint that recovers later
  * cannot vouch for the window that ran across it.
