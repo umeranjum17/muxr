@@ -31,12 +31,13 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
 }) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
-    const { state, detail } = useRealtimeSessionState();
+    const { state, detail, everConnected } = useRealtimeSessionState();
     const turns = useRealtimeTurns();
     const muted = useRealtimeMuted();
     const watching = useRealtimeWatching();
     const previousState = React.useRef(state);
     const [detailOpen, setDetailOpen] = React.useState(false);
+    const [messageHeight, setMessageHeight] = React.useState(0);
     const transcript = React.useRef<ScrollView>(null);
     // The voice is attached to a working session; what that session is doing is
     // the other half of "what is happening right now".
@@ -81,16 +82,17 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     // reading it as a failure would put a red "Voice couldn't start." on every
     // successful call.
     const failure = state === 'disconnected' && detail !== undefined
-        ? voiceFailure(detail, (session?.metadata?.host ?? '').trim() || 'your computer')
+        ? voiceFailure(detail, (session?.metadata?.host ?? '').trim() || 'your computer', everConnected)
         : undefined;
     const progress = state === 'connecting' ? detail : undefined;
     // The cloud is decoration and the failure is the point. At a large display
     // scale the viewport is short enough that the cloud, the label and the talk
     // buttons already leave nothing over, so when there is something to say the
     // cloud gives back exactly what the message needs -- and stands down
-    // entirely rather than push the talk buttons off a screen this short.
-    const room = height - insets.top - insets.bottom - AROUND_THE_CLOUD
-        - (detailOpen ? DETAIL_HEIGHT + 10 : 0);
+    // entirely rather than push the talk buttons off a screen this short. The
+    // message is measured, never assumed: a long machine name wraps the remedy
+    // and a guessed height would hand the surplus to the talk buttons.
+    const room = height - insets.top - insets.bottom - AROUND_THE_CLOUD - messageHeight;
     const orbSize = failure === undefined ? 240 : Math.min(240, room);
 
     return (
@@ -135,7 +137,10 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
                     </Text>
                 )}
                 {failure !== undefined && (
-                    <View style={{ alignSelf: 'stretch', gap: 10, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12, backgroundColor: 'rgba(255,69,58,0.12)' }}>
+                    <View
+                        onLayout={(event) => setMessageHeight(Math.ceil(event.nativeEvent.layout.height))}
+                        style={{ alignSelf: 'stretch', gap: 10, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12, backgroundColor: 'rgba(255,69,58,0.12)' }}
+                    >
                         <View style={{ flexDirection: 'row', gap: 8 }}>
                             <Ionicons name="alert-circle-outline" size={16} color="#ff6a5e" style={{ marginTop: 2 }} />
                             <View style={{ flex: 1, gap: 3 }}>
@@ -226,8 +231,8 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
 
 /** The provider's words get a readable window and scroll past it. */
 const DETAIL_HEIGHT = 132;
-/** Everything on this screen but the cloud: header, label, gaps, talk buttons, message. */
-const AROUND_THE_CLOUD = 400;
+/** The fixed furniture only: header, label, gaps, talk buttons. The message measures itself. */
+const AROUND_THE_CLOUD = 290;
 
 const smallCircle = {
     width: 44,

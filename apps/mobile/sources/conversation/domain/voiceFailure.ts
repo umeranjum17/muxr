@@ -17,21 +17,25 @@ export interface VoiceFailure {
 
 /**
  * Codex names itself on its credential failures: a "codex login" mention is
- * the explicit marker, and a "Codex ..." reason refused with 401/403 at
- * signaling is the same credential without the marker. Either way the sign-in
- * on the machine stopped working and cannot be repaired from the phone.
+ * the explicit marker, and a "Codex ..." reason refused with 401 at signaling
+ * is the same credential without the marker. Either way the sign-in on the
+ * machine stopped working and cannot be repaired from the phone.
  *
- * Only Codex earns a named remedy. A key-based provider's 401/403 is not
- * reliably a bad key -- an out-of-credits account refuses with 403 too (see
- * the "out-of-credits 403" note in providers/xai.mjs and gemini.mjs) -- so
- * telling that person to replace a working key would be confidently wrong.
- * Those fall through to the plain headline with the provider's own words
- * behind Details, which is honest about what we do and do not know.
+ * Only Codex earns a named remedy. A key-based provider's 401 is not reliably
+ * a bad key, so telling that person to replace a working key would be
+ * confidently wrong. Those fall through to the plain headline with the
+ * provider's own words behind Details, which is honest about what we do and
+ * do not know.
  */
 const CODEX_SIGN_IN = /\bcodex login\b/i;
-const REFUSED_CREDENTIAL = /\((?:401|403)\)|\bHTTP (?:401|403)\b/i;
+const REFUSED_CREDENTIAL = /\(401\)/;
 
-export function voiceFailure(reason: string, machineName: string): VoiceFailure {
+/**
+ * `started` is whether this call ever reached the provider. Without it a call
+ * that ran for two minutes and then dropped would be labelled as one that
+ * never began.
+ */
+export function voiceFailure(reason: string, machineName: string, started: boolean): VoiceFailure {
     const detail = reason.trim();
     if (CODEX_SIGN_IN.test(detail) || (detail.startsWith('Codex ') && REFUSED_CREDENTIAL.test(detail))) {
         return {
@@ -40,5 +44,5 @@ export function voiceFailure(reason: string, machineName: string): VoiceFailure 
             detail,
         };
     }
-    return { headline: 'Voice couldn’t start.', detail };
+    return { headline: started ? 'Voice disconnected.' : 'Voice couldn’t start.', detail };
 }

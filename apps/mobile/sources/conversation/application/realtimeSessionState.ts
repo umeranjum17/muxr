@@ -68,6 +68,9 @@ let session: RealtimeHandle | null = null;
 let starting = false;
 let state: RealtimeSessionState = 'disconnected';
 let detail: string | undefined;
+// Whether this call ever reached the provider, so a drop mid-call is not
+// reported as a call that never started. Survives the disconnect it explains.
+let everConnected = false;
 let turns: RealtimeTurn[] = [];
 let muted = false;
 let turnId = 0;
@@ -338,7 +341,10 @@ function applyTransportStatus(handle: RealtimeHandle, liveEpoch: number, next: R
         if (watching && !vadStandbyOwnsMicrophone()) void armVadStandby();
         return;
     }
-    if (next === 'connected' || next === 'thinking' || next === 'speaking') keepAwake(liveEpoch);
+    if (next === 'connected' || next === 'thinking' || next === 'speaking') {
+        everConnected = true;
+        keepAwake(liveEpoch);
+    }
     if ((next === 'thinking' || next === 'speaking') && reportSpeech?.sent === true) reportSpeech.responseStarted = true;
     if (next === 'connected' && reportSpeech?.responseStarted === true) resolveReportSpeech();
     if (next === 'connected' && pendingSpeech !== null) {
@@ -385,6 +391,7 @@ export function startRealtimeSession(input: RealtimeTarget | string): boolean {
     starting = true;
     state = 'connecting';
     detail = undefined;
+    everConnected = false;
     notify();
     if (pendingVad === null) startRealtimeAfterService(target, epoch);
     else void pendingVad.then(
@@ -546,9 +553,9 @@ function subscribe(listener: () => void) {
     return () => listeners.delete(listener);
 }
 
-export function useRealtimeSessionState(): { state: RealtimeSessionState; detail?: string } {
+export function useRealtimeSessionState(): { state: RealtimeSessionState; detail?: string; everConnected: boolean } {
     const current = React.useSyncExternalStore(subscribe, () => state);
-    return { state: current, detail };
+    return { state: current, detail, everConnected };
 }
 
 export function realtimeSessionSnapshot(): { state: RealtimeSessionState; detail?: string; starting: boolean } {
