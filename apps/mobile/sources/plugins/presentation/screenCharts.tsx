@@ -171,7 +171,9 @@ export function ScreenChart({ node, data, nested }: { node: PluginScreenChartNod
                             <GaugeArc ratio={ratio} size={84} color={theme.colors.accent} track={withAlpha(theme.colors.accent, 0.1)} />
                         </View>
                         <View style={{ flex: 1, minWidth: 0 }}>
-                            <SectionLabel numberOfLines={1}>{hero.label}</SectionLabel>
+                            {/* Caption for the value below, not a section heading:
+                                SectionLabel would put it in TalkBack's headings rotor. */}
+                            <Text numberOfLines={1} style={{ color: withAlpha(theme.colors.textSecondary, 0.85), fontSize: 12, lineHeight: 16, fontWeight: '600', ...Typography.default('semiBold') }}>{hero.label}</Text>
                             <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 28, letterSpacing: -0.8, marginTop: 2, ...Typography.mono('semiBold') }}>{chartValue(hero)}</Text>
                             {hero.detail !== undefined && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2, ...Typography.mono('regular') }}>{hero.detail}</Text>}
                         </View>
