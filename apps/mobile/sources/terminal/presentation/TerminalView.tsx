@@ -11,7 +11,9 @@
 
 import * as React from 'react';
 import type { TerminalCommand } from './FloatingTerminalControls';
-import { AppState, View } from 'react-native';
+import { AppState, Image, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import Animated, { Easing, FadeInDown, FadeOutDown, ReduceMotion } from 'react-native-reanimated';
 import { useFocusEffect } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
@@ -74,6 +76,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const { sessionId, onStatus, onChannel } = props;
     const focused = useIsFocused();
     const [viewport, setViewport] = React.useState({ width: 0, height: 0 });
+    // Inline image pushed by `muxr show-image` on this pane. Terminal-scoped:
+    // replaced by the next image, dropped on dismiss and on leaving the pane.
+    // Rendered as an overlay ABOVE the grid — the terminal never resizes and
+    // is exactly where the user left it once the card is dismissed.
+    const [inlineImage, setInlineImage] = React.useState<{ id: string; mime: string; bytes: string } | null>(null);
+    const [inlineImageAspect, setInlineImageAspect] = React.useState(4 / 3);
+    const [imageExpanded, setImageExpanded] = React.useState(false);
     const terminalKeyboardDisabled = useLocalSetting('terminalKeyboardDisabled');
     const termRef = React.useRef<TerminalViewRef>(null);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
@@ -225,6 +234,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         scrollGate.release();
                         writePumpRef.current?.push({ bytes: base64 });
                     });
+                    channel.onImage((image) => setInlineImage(image));
                     channel.onState((state) => onStatus?.(state));
                     channel.onClose((reason) => onStatus?.(reason ?? 'closed'));
                     onChannel?.(channel);
@@ -266,6 +276,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             openAbortRef.current = undefined;
             channelRef.current = undefined;
             openedRef.current = false;
+            // The image belongs to the live terminal view, not the pane.
+            setInlineImage(null);
         };
     }, [attach, onChannel]));
 
@@ -295,6 +307,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     }), [atDefaultZoom, atMaxZoom, atMinZoom, dismissKeyboard]);
     React.useEffect(() => { onViewControls?.(viewControls); }, [onViewControls, viewControls]);
     React.useEffect(() => () => onViewControls?.({ commands: [], dismissKeyboard: () => {} }), [onViewControls]);
+
+    // The floating card never takes layout from the terminal; it only sizes
+    // itself, honestly, for a short viewport and a portrait shot alike.
+    const imageCardHeight = Math.max(
+        120,
+        Math.min((viewport.width - 24) / inlineImageAspect, viewport.height * 0.42, 420),
+    );
 
     return (
         <View onLayout={(event) => setViewport({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
@@ -333,6 +352,85 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 onScroll={({ nativeEvent }) => scrollGate.queue(-nativeEvent.rows)}
             />
             </View>
+            {inlineImage !== null && (
+                <Animated.View
+                    entering={FadeInDown.duration(220).easing(Easing.out(Easing.cubic)).reduceMotion(ReduceMotion.System)}
+                    exiting={FadeOutDown.duration(150).easing(Easing.in(Easing.cubic)).reduceMotion(ReduceMotion.System)}
+                    style={styles.imageCard}
+                >
+                    <Pressable
+                        onPress={() => setImageExpanded(true)}
+                        accessibilityRole="imagebutton"
+                        accessibilityLabel="Image from agent, tap to expand"
+                    >
+                        <Image
+                            source={{ uri: `data:${inlineImage.mime};base64,${inlineImage.bytes}` }}
+                            style={{ width: viewport.width - 24, height: imageCardHeight }}
+                            resizeMode="contain"
+                            onLoad={({ nativeEvent }) => {
+                                const { width, height } = nativeEvent.source;
+                                if (width > 0 && height > 0) setInlineImageAspect(width / height);
+                            }}
+                        />
+                    </Pressable>
+                    <Pressable
+                        onPress={() => setInlineImage(null)}
+                        style={styles.imageDismiss}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Dismiss image"
+                    >
+                        <Ionicons name="close" size={14} color="rgba(255,255,255,0.9)" />
+                    </Pressable>
+                </Animated.View>
+            )}
+            {inlineImage !== null && (
+                <Modal transparent animationType="fade" onRequestClose={() => setImageExpanded(false)} visible={imageExpanded}>
+                    <Pressable style={styles.imageViewer} onPress={() => setImageExpanded(false)} accessibilityLabel="Close image viewer">
+                        <Image
+                            source={{ uri: `data:${inlineImage.mime};base64,${inlineImage.bytes}` }}
+                            style={{ flex: 1 }}
+                            resizeMode="contain"
+                        />
+                    </Pressable>
+                </Modal>
+            )}
         </View>
     );
+});
+
+const styles = StyleSheet.create({
+    imageCard: {
+        // Composites ABOVE the grid without ever taking layout from it: the
+        // terminal keeps every row it had, dismissed or not.
+        position: 'absolute',
+        bottom: 8,
+        alignSelf: 'center',
+        width: '94%',
+        borderRadius: 14,
+        overflow: 'hidden',
+        backgroundColor: '#0c0c0b',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: 'rgba(255,255,255,0.14)',
+        elevation: 12,
+        shadowColor: '#000',
+        shadowOpacity: 0.5,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 6 },
+    },
+    imageDismiss: {
+        position: 'absolute',
+        top: 8,
+        right: 10,
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(0,0,0,0.55)',
+    },
+    imageViewer: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.96)',
+    },
 });

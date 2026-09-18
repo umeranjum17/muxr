@@ -284,4 +284,44 @@ describe('AttachmentWatcher', () => {
             watcher.dispose();
         }
     });
+
+    it('muxr show-image flow: forwards a dropped show- image to the sink, deletes it, receipts the viewer count, and never lists it', async () => {
+        const root = paneRoot();
+        mkdirSync(join(root, 'pane:x:1'), { recursive: true });
+        writeFileSync(join(root, 'pane:x:1', 'show-test-1.png'), PIXEL);
+        // A garbage file pretending to be an image is discarded, not forwarded.
+        writeFileSync(join(root, 'pane:x:1', 'show-test-2.png'), 'definitely not a png');
+        const { watcher, emits } = collect(root, 15);
+        const pushed: Array<{ paneId: string; mime: string; bytes: string }> = [];
+        watcher.showImage = (paneId, image) => {
+            pushed.push({ paneId, ...image });
+            return pushed.length; // pretend one viewer saw the first push
+        };
+        watcher.start();
+        try {
+            for (let waited = 0; waited < 3000 && pushed.length < 1; waited += 10) {
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+            // The real pixel reached the sink addressed to the pane; the garbage
+            // file was sniffed out and discarded without a push.
+            expect(pushed).toEqual([{ paneId: 'pane:x:1', mime: 'image/png', bytes: PIXEL_B64 }]);
+            // Nothing persists on either side once forwarded: the show- file is
+            // gone (only the CLI-consumed dot-receipt may remain). The unlink
+            // lands a tick after the sink returns, so wait for it.
+            const { readdirSync } = await import('node:fs');
+            let left: string[] = [];
+            for (let waited = 0; waited < 3000; waited += 10) {
+                left = readdirSync(join(root, 'pane:x:1'));
+                if (!left.some((name) => name.startsWith('show-'))) break;
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+            for (const name of left) expect(name.startsWith('show-')).toBe(false);
+            // And the attachment listing never saw the show- files at all.
+            for (const emit of emits) {
+                for (const entry of emit.attachments) expect(entry.name.startsWith('show-')).toBe(false);
+            }
+        } finally {
+            watcher.dispose();
+        }
+    });
 });

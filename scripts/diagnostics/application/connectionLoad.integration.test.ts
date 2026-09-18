@@ -167,7 +167,9 @@ describe('connection stability under agent load', () => {
         await delay(30_500);
         await expect(client.request('session.list', {})).resolves.toHaveLength(5);
         expect(client.state).toBe('open');
-    }, 40_000);
+        // The keepalive wait above alone burns 30.5s of this test; 40s left no
+        // room for relay/host boot under a loaded CI runner.
+    }, 90_000);
 
     it('keeps explicit close final while ticket or grant acquisition is in flight', async () => {
         let socketCreations = 0;

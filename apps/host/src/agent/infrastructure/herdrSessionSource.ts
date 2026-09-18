@@ -31,7 +31,7 @@ import type {
 } from '@muxr/contract';
 import { ATTENTION_REASONS, capUtf8Bytes, realtimePluginPublicContext, relayControlUrl, sanitizeDisplayText } from '@muxr/contract';
 import { closeAgent } from './agentClose.js';
-import { AttachmentWatcher } from './attachmentWatcher.js';
+import { AttachmentWatcher, type ShowImageSink } from './attachmentWatcher.js';
 import { AttachmentDownloadServer } from './attachmentDownloads.js';
 import type { AgentWatchStores } from '../application/watchStores.js';
 import type {
@@ -283,6 +283,8 @@ export interface CreateHerdrSessionSourceOptions {
         outcome: 'ok' | 'rejected',
         detail?: { kind?: string; detected?: string; gate?: 'ready' | 'starting' | 'not-interactive' | 'unbound' | 'no-agent' | 'unnamed' | 'no-session' },
     ) => void;
+    /** `muxr show-image`: forward a dropped inline image to the pane's live terminal viewers. */
+    onShowImage?: ShowImageSink;
 }
 
 export interface AgentRecord {
@@ -986,6 +988,7 @@ export async function createHerdrSessionSource(
         const frame: PluginsInvalidatedFrame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: [] };
         for (const listener of machineListeners) listener(frame);
     });
+    if (options.onShowImage !== undefined) attachments.showImage = options.onShowImage;
     attachments.start();
 
     /** One-time tickets + byte streaming for downloads too big for the ws link. */

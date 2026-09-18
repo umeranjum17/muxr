@@ -83,6 +83,24 @@ Do not dump intermediates or logs; the dir is a user-facing surface with a
 save at full resolution. Write documents directly as `.md`/`.txt`/code files so
 they preview natively.
 
+## Show an image inline in the phone's terminal
+
+When the captain is watching this pane's terminal and an image says it better
+than text — a screenshot, a chart, a rendering — push it straight into the
+terminal view instead of filing an attachment:
+
+```bash
+muxr show-image shot.png          # uses $HERDR_PANE_ID
+muxr show-image shot.png --pane <pane-id>   # from outside the pane
+```
+
+The image renders inline below the terminal output on every phone currently
+viewing the pane, is ephemeral (scrolls away, gone on dismiss or when the pane
+is left), and nothing is stored on the phone. The command prints how many
+viewers saw it, and exits 1 with "no phone is viewing this pane" when nobody
+was watching — fall back to the attachments dir above in that case.
+png/jpeg/gif/webp up to 8MB.
+
 ## Global pitfalls
 
 - Pairing QRs and enrollment strings are single-use. Never reuse one; run

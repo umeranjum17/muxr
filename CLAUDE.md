@@ -45,3 +45,4 @@ behaviour it claims to cover and watch it go red.
 ## Attachments
 
 - Artifacts meant to appear in muxr must be written to `~/.muxr/attachments/pane/$HERDR_PANE_ID`.
+- Images the captain should see right now are not attachments: run `muxr show-image <path>` inside the pane — it renders inline in the phone's terminal view, ephemeral, and tells you how many viewers saw it.
