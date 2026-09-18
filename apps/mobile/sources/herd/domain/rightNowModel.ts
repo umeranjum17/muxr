@@ -1,5 +1,6 @@
 import type { PluginDataCard, PluginManifestV1 } from '@muxr/contract';
 import { asLimitsPayload, type PluginLimitsPayload } from '@/plugins/limits';
+import { compactAge } from './agentPresentation';
 
 /** What the host says about right now: the plan limits vocabulary the Usage
  *  screen already speaks, narrowed to the window its verdict describes, plus
@@ -23,9 +24,8 @@ export interface RightNowPayload {
 }
 
 /** The vitals line's figures: rounded shares, a one-decimal load and an
- *  uptime in the compactAge voice (under a day in hours, then days). */
+ *  uptime in the same compactAge voice the activity rows speak. */
 export function vitalsFacts(vitals: RightNowVitals): { memoryPercent: number; diskPercent?: number; load: string; uptime: string } {
-    const hours = Math.floor(vitals.uptimeSeconds / 3600);
     const disk = vitals.diskUsed === undefined || vitals.diskTotal === undefined
         ? undefined
         : Math.round((vitals.diskUsed / vitals.diskTotal) * 100);
@@ -33,7 +33,7 @@ export function vitalsFacts(vitals: RightNowVitals): { memoryPercent: number; di
         memoryPercent: Math.round((vitals.memoryUsed / vitals.memoryTotal) * 100),
         ...(disk === undefined ? {} : { diskPercent: disk }),
         load: Number(vitals.load1.toFixed(1)).toString(),
-        uptime: hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`,
+        uptime: compactAge(vitals.uptimeSeconds * 1_000),
     };
 }
 

@@ -26,15 +26,19 @@ export function RightNowCard() {
     const plugins = pluginSnapshot();
     const binding = React.useMemo(() => rightNowBinding(plugins), [plugins]);
     const [state, setState] = React.useState<{ payload?: RightNowPayload; failed: boolean }>({ failed: false });
+    const pluginId = binding?.pluginId;
+    const manifestHash = binding?.manifestHash;
+    const contributionId = binding?.contributionId;
     const version = React.useRef(0);
+    const loading = React.useRef(false);
+    const queued = React.useRef(false);
+    const latestLoad = React.useRef<() => void>(() => {});
     const load = React.useCallback(() => {
-        if (binding === undefined) return;
+        if (pluginId === undefined || manifestHash === undefined || contributionId === undefined) return;
+        if (loading.current) { queued.current = true; return; }
+        loading.current = true;
         const request = ++version.current;
-        void sync.request('plugin.call', {
-            pluginId: binding.pluginId,
-            manifestHash: binding.manifestHash,
-            contributionId: binding.contributionId,
-        }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
+        void sync.request('plugin.call', { pluginId, manifestHash, contributionId }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((result) => {
                 if (request !== version.current) return;
                 setState({ payload: asRightNowPayload(result), failed: false });
@@ -43,14 +47,20 @@ export function RightNowCard() {
                 // Keep the last-known card through transient failures; only a
                 // load with nothing to show becomes the retry card.
                 if (request === version.current) setState((current) => ({ ...current, failed: true }));
+            })
+            .finally(() => {
+                if (request !== version.current) return;
+                loading.current = false;
+                if (queued.current) { queued.current = false; setTimeout(() => { if (request === version.current) latestLoad.current(); }, 0); }
             });
-    }, [binding]);
+    }, [contributionId, manifestHash, pluginId]);
+    latestLoad.current = load;
     React.useEffect(() => {
-        if (binding === undefined) return;
+        if (pluginId === undefined) return;
         load();
-        const unsubscribe = subscribePluginDataInvalidation(binding.pluginId, load);
-        return () => { version.current += 1; unsubscribe(); };
-    }, [binding, load]);
+        const unsubscribe = subscribePluginDataInvalidation(pluginId, load);
+        return () => { version.current += 1; loading.current = false; queued.current = false; unsubscribe(); };
+    }, [load, pluginId]);
 
     if (binding === undefined) return null;
     const { payload, failed } = state;
@@ -115,9 +125,7 @@ function CardBody({ limit, line, vitals }: { limit?: PluginLimitsWindow; line: R
     return <View style={[cardStyle(theme), { marginHorizontal: 16, padding: 14 }]}>
         {line}
         {limit !== undefined && <Meter ratio={limit.used / 100} emphasis={0.9} marker={limit.elapsed} style={{ marginTop: 8, marginBottom: 10 }} />}
-        {vitals !== undefined && (limit !== undefined
-            ? <FactsLine vitals={vitals} />
-            : <FactsLine vitals={vitals} style={{ marginTop: 10 }} />)}
+        {vitals !== undefined && <FactsLine vitals={vitals} style={limit === undefined ? { marginTop: 10 } : undefined} />}
     </View>;
 }
 
