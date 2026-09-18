@@ -6,7 +6,7 @@ import { Typography } from '@/constants/Typography';
 import { hapticsSelection } from '@/components/haptics';
 import { ui } from '@/components/ui';
 import { useLocalSettingMutable } from '@/catalog/store';
-import { DEFAULT_ROW_IDS, resolveKeyRow, type RowEntry, type TerminalKey } from '../domain/keyRow';
+import { DEFAULT_ROW_IDS, modifiedSend, resolveKeyRow, type RowEntry, type TerminalKey } from '../domain/keyRow';
 import { TerminalKeyRowEditor } from './TerminalKeyRowEditor';
 
 export type { TerminalKey };
@@ -17,16 +17,10 @@ export const TERMINAL_QUICK_REPLIES: readonly { label: string; text: string }[] 
     { label: 'Summarize', text: 'Summarize what changed and what remains.' },
 ];
 
-function keyRowSend(key: TerminalKey, ctrl: boolean, shift: boolean): string {
-    if (ctrl && shift) return key.ctrlShift ?? key.ctrl ?? key.shift ?? key.send;
-    if (ctrl) return key.ctrl ?? key.send;
-    if (shift) return key.shift ?? key.send;
-    return key.send;
-}
-
 // Sticky modifiers a la Termux: tap = applies to the next key, tap again =
 // locked until tapped once more. A touchscreen makes hold-and-reach a
-// two-thumb dance; off-once-lock covers single chords and tmux prefixes alike.
+// two-thumb dance; the lock covers a run of chords without re-arming between
+// them. Keys the armed modifier cannot encode go dim rather than send bare.
 type Modifier = 'off' | 'once' | 'lock';
 
 const cycle = (state: Modifier): Modifier => (state === 'off' ? 'once' : state === 'once' ? 'lock' : 'off');
@@ -70,8 +64,10 @@ export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: strin
         borderColor: locked ? theme.colors.button.primary.tint : 'transparent',
     });
     const labelStyle = (tint: string) => ({ color: tint, fontSize: 13, ...Typography.mono() });
-    const tap = (key: TerminalKey) => () => {
-        send(keyRowSend(key, ctrlRef.current !== 'off', shiftRef.current !== 'off'));
+    const fire = (key: TerminalKey) => {
+        const bytes = modifiedSend(key, ctrlRef.current !== 'off', shiftRef.current !== 'off');
+        if (bytes === null) return;
+        send(bytes);
         applyMods(ctrlRef.current === 'once' ? 'off' : ctrlRef.current, shiftRef.current === 'once' ? 'off' : shiftRef.current);
     };
     const active = (state: Modifier) => state !== 'off';
@@ -99,26 +95,28 @@ export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: strin
             >
                 <Text style={labelStyle(active(shift) ? theme.colors.button.primary.tint : theme.colors.text)}>shift</Text>
             </Pressable>
-            {keys.map((key, index) => (
-                <Pressable
-                    key={`${key.label}:${key.send}:${index}`}
-                    accessibilityRole="button"
-                    accessibilityLabel={key.accessibilityLabel}
-                    onPress={tap(key)}
-                    onLongPress={key.repeat !== true ? undefined : () => {
-                        stopRepeat();
-                        repeatTimer.current = setInterval(() => {
-                            send(keyRowSend(key, ctrlRef.current !== 'off', shiftRef.current !== 'off'));
-                            applyMods(ctrlRef.current === 'once' ? 'off' : ctrlRef.current, shiftRef.current === 'once' ? 'off' : shiftRef.current);
-                        }, 80);
-                    }}
-                    delayLongPress={400}
-                    onPressOut={stopRepeat}
-                    style={({ pressed }) => [style(), pressed && { opacity: 0.6 }]}
-                >
-                    <Text style={labelStyle(theme.colors.text)}>{key.label}</Text>
-                </Pressable>
-            ))}
+            {keys.map((key, index) => {
+                const unavailable = modifiedSend(key, active(ctrl), active(shift)) === null;
+                return (
+                    <Pressable
+                        key={`${key.label}:${key.send}:${index}`}
+                        accessibilityRole="button"
+                        accessibilityLabel={key.accessibilityLabel}
+                        accessibilityState={{ disabled: unavailable }}
+                        disabled={unavailable}
+                        onPress={() => fire(key)}
+                        onLongPress={key.repeat !== true ? undefined : () => {
+                            stopRepeat();
+                            repeatTimer.current = setInterval(() => fire(key), 80);
+                        }}
+                        delayLongPress={400}
+                        onPressOut={stopRepeat}
+                        style={({ pressed }) => [style(), unavailable && { opacity: 0.35 }, pressed && { opacity: 0.6 }]}
+                    >
+                        <Text style={labelStyle(theme.colors.text)}>{key.label}</Text>
+                    </Pressable>
+                );
+            })}
             <Pressable
                 onPress={() => { stopRepeat(); setEditing(true); }}
                 accessibilityRole="button"

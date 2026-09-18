@@ -1,13 +1,11 @@
 import { LIFECYCLE_NOTIFICATION_LEVELS } from '@muxr/contract';
 import * as z from 'zod';
 import { DEFAULT_FONT_INDEX, FONT_STEPS } from '../../terminal/domain/fontSteps';
+import { TERMINAL_KEY_ROW_LIMIT } from '../../terminal/domain/keyRow';
 
 //
 // Schema
 //
-
-/** The stored row's entry cap; the key-row editor enforces the same limit where keys are added. */
-export const TERMINAL_KEY_ROW_LIMIT = 32;
 
 export const LocalSettingsSchema = z.object({
     // Developer settings (device-specific)

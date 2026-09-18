@@ -5,11 +5,10 @@ import { Gesture, GestureDetector, GestureHandlerRootView, ScrollView } from 're
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import { TERMINAL_KEY_ROW_LIMIT } from '@/catalog/application/localSettings';
 import { hapticsLight, hapticsSelection } from '@/components/haptics';
 import { Switch } from '@/components/Switch';
 import { ui } from '@/components/ui';
-import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, bytesToEscape, escapeToBytes, type CustomKey, type RowEntry } from '../domain/keyRow';
+import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, TERMINAL_KEY_ROW_LIMIT, bytesToEscape, escapeToBytes, type CustomKey, type RowEntry } from '../domain/keyRow';
 
 /**
  * Edit the key row at the point of use: a sheet over the terminal that shows
@@ -55,7 +54,7 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
     React.useEffect(() => {
         if (visible && !wasOpen.current) {
             wasOpen.current = true;
-            setWorking(openState.current.entries ?? [...openState.current.seed]);
+            setWorking([...openState.current.seed]);
             setAdding(false);
             setDrag(null);
             dragging.current = false;
@@ -75,7 +74,7 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
     };
 
     const appendEntry = (entry: RowEntry) => {
-        if (working.length >= TERMINAL_KEY_ROW_LIMIT) return;
+        if (dragging.current || working.length >= TERMINAL_KEY_ROW_LIMIT) return;
         hapticsSelection();
         commit([...working, entry]);
     };
@@ -194,7 +193,13 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
                         });
                     })()}
 
-                    {!adding && working.length < TERMINAL_KEY_ROW_LIMIT && (
+                    {working.length >= TERMINAL_KEY_ROW_LIMIT ? (
+                        <Text style={[styles.caption, { color: theme.colors.warningCritical }]}>
+                            {`The row is full at ${TERMINAL_KEY_ROW_LIMIT} keys. Remove one to add another.`}
+                        </Text>
+                    ) : adding ? (
+                        <AddPanel onAppend={appendEntry} onDone={() => setAdding(false)} />
+                    ) : (
                         <Pressable
                             onPress={() => setAdding(true)}
                             accessibilityRole="button"
@@ -205,8 +210,6 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
                             <Text style={{ color: theme.colors.accent, fontSize: 14 }}>Add a key</Text>
                         </Pressable>
                     )}
-
-                    {adding && working.length < TERMINAL_KEY_ROW_LIMIT && <AddPanel onAppend={appendEntry} onDone={() => setAdding(false)} />}
 
                     {entries !== null && (
                         <Pressable onPress={() => { hapticsSelection(); onChange(null); onClose(); }} accessibilityRole="button" accessibilityLabel="Reset key row to the default row" style={styles.resetRow}>
@@ -266,6 +269,10 @@ function AddPanel({ onAppend, onDone }: {
     const [repeat, setRepeat] = React.useState(false);
     const bytes = escapeToBytes(sendText.trim());
     const canAdd = label.trim() !== '' && bytes !== null && bytes.length <= 512;
+    const problem = sendText.trim() === '' ? null
+        : bytes === null ? 'That escape is unfinished, or names a byte above \\x7f. Use \\\\ for a literal backslash.'
+        : bytes.length > 512 ? `That sends ${bytes.length} characters; the limit is 512.`
+        : null;
     return (
         <View style={styles.addPanel}>
             {CATALOG_GROUPS.map((group) => (
@@ -309,6 +316,7 @@ function AddPanel({ onAppend, onDone }: {
             <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>
                 {'Escapes: \\e Esc · \\n Enter · \\t Tab · \\x03 Ctrl+C · \\\\ backslash. Anything else sends as typed.'}
             </Text>
+            {problem !== null && <Text style={[styles.caption, { color: theme.colors.warningCritical }]}>{problem}</Text>}
             <View style={styles.repeatRow}>
                 <Text style={{ color: theme.colors.text, fontSize: 13 }}>Repeat while held</Text>
                 <Switch value={repeat} onValueChange={setRepeat} />

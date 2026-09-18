@@ -5,13 +5,15 @@
  * absent, the built-in default stands.
  */
 
+/** The stored row's entry cap; the key-row editor enforces it where keys are added. */
+export const TERMINAL_KEY_ROW_LIMIT = 32;
+
 export interface TerminalKey {
     label: string;
     accessibilityLabel: string;
     send: string;
-    ctrl?: string;
+    /** Only for keys whose shifted form is not derivable, like tab's backtab. */
     shift?: string;
-    ctrlShift?: string;
     repeat?: boolean;
 }
 
@@ -45,10 +47,10 @@ export const BUILTIN_KEY_CATALOG: Record<string, TerminalKey> = {
     'ctrl-w': { label: '^W', accessibilityLabel: 'Control W', send: '\u0017' },
     'ctrl-z': { label: '^Z', accessibilityLabel: 'Control Z', send: '\u001a' },
     enter: { label: '\u23ce', accessibilityLabel: 'Enter', send: '\r' },
-    left: { label: '\u2190', accessibilityLabel: 'Left arrow', send: '\u001b[D', ctrl: '\u001b[1;5D', shift: '\u001b[1;2D', ctrlShift: '\u001b[1;6D', repeat: true },
-    up: { label: '\u2191', accessibilityLabel: 'Up arrow', send: '\u001b[A', ctrl: '\u001b[1;5A', shift: '\u001b[1;2A', ctrlShift: '\u001b[1;6A', repeat: true },
-    down: { label: '\u2193', accessibilityLabel: 'Down arrow', send: '\u001b[B', ctrl: '\u001b[1;5B', shift: '\u001b[1;2B', ctrlShift: '\u001b[1;6B', repeat: true },
-    right: { label: '\u2192', accessibilityLabel: 'Right arrow', send: '\u001b[C', ctrl: '\u001b[1;5C', shift: '\u001b[1;2C', ctrlShift: '\u001b[1;6C', repeat: true },
+    left: { label: '\u2190', accessibilityLabel: 'Left arrow', send: '\u001b[D', repeat: true },
+    up: { label: '\u2191', accessibilityLabel: 'Up arrow', send: '\u001b[A', repeat: true },
+    down: { label: '\u2193', accessibilityLabel: 'Down arrow', send: '\u001b[B', repeat: true },
+    right: { label: '\u2192', accessibilityLabel: 'Right arrow', send: '\u001b[C', repeat: true },
     home: { label: 'home', accessibilityLabel: 'Home', send: '\u001b[H' },
     end: { label: 'end', accessibilityLabel: 'End', send: '\u001b[F' },
     pgup: { label: 'pgup', accessibilityLabel: 'Page up', send: '\u001b[5~', repeat: true },
@@ -86,9 +88,33 @@ export function resolveKeyRow(entries: readonly RowEntry[] | null | undefined): 
 }
 
 /**
+ * What a key sends with modifiers armed, or null when the modifier has no
+ * encoding for it - a terminal cannot express ctrl+enter or shift+^C, and a
+ * key that silently sent its unmodified bytes would lie about the chord.
+ * Parameterised keys (CSI and SS3) take the xterm modifier parameter, ctrl
+ * plus a letter folds to its control byte.
+ */
+export function modifiedSend(key: TerminalKey, ctrl: boolean, shift: boolean): string | null {
+    if (!ctrl && !shift) return key.send;
+    if (shift && !ctrl && key.shift !== undefined) return key.shift;
+    const param = 1 + Number(shift) + 4 * Number(ctrl);
+    const ss3 = /^\u001bO([A-Z])$/.exec(key.send);
+    if (ss3 !== null) return `\u001b[1;${param}${ss3[1]}`;
+    const csi = /^\u001b\[([0-9]*)([A-Z~])$/.exec(key.send);
+    if (csi !== null) return `\u001b[${csi[1] === '' ? '1' : csi[1]};${param}${csi[2]}`;
+    if (ctrl && !shift && key.send.length === 1) {
+        const code = key.send.charCodeAt(0);
+        if ((code >= 0x40 && code <= 0x5f) || (code >= 0x61 && code <= 0x7a)) return String.fromCharCode(code & 0x1f);
+    }
+    return null;
+}
+
+/**
  * Escape syntax for a custom key's bytes: `\e` escape, `\n` newline, `\r`
- * carriage return, `\t` tab, `\xHH` any byte, `\\` literal backslash. Null on
- * an incomplete escape so a typo never sends a wrong key.
+ * carriage return, `\t` tab, `\xHH` a byte from `\x00` to `\x7f`, `\\` literal
+ * backslash. Null on an incomplete escape, or on a byte above `\x7f` that the
+ * text transport would deliver as two UTF-8 bytes, so a typo never sends a
+ * wrong key.
  */
 export function escapeToBytes(text: string): string | null {
     if (text === '') return null;
@@ -106,7 +132,7 @@ export function escapeToBytes(text: string): string | null {
         else if (next === 't') out += '\t';
         else if (next === 'x') {
             const hex = text.slice(i + 2, i + 4);
-            if (!/^[0-9a-fA-F]{2}$/.test(hex)) return null;
+            if (!/^[0-7][0-9a-fA-F]$/.test(hex)) return null;
             out += String.fromCharCode(parseInt(hex, 16));
             i += 2;
         } else if (next === '\\') out += '\\';
