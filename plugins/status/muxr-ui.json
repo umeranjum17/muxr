@@ -127,6 +127,7 @@
       "type": "data-card",
       "title": "Right now",
       "presentation": "card",
+      "product": "right-now",
       "source": {
         "type": "plugin.call",
         "contributionId": "now"
