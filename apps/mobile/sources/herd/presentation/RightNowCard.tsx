@@ -23,7 +23,8 @@ export function RightNowCard() {
     const router = useRouter();
     // Subscribes this component to manifest changes and keeps them loading.
     useSlotContributions('home.cards');
-    const binding = rightNowBinding(pluginSnapshot());
+    const plugins = pluginSnapshot();
+    const binding = React.useMemo(() => rightNowBinding(plugins), [plugins]);
     const [state, setState] = React.useState<{ payload?: RightNowPayload; failed: boolean }>({ failed: false });
     const version = React.useRef(0);
     const load = React.useCallback(() => {

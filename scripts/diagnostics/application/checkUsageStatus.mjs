@@ -686,8 +686,15 @@ try {
     assert.ok(Number.isFinite(nowPayload.vitals.memoryTotal) && nowPayload.vitals.memoryTotal > 0);
     assert.ok(Number.isFinite(nowPayload.vitals.diskTotal) && nowPayload.vitals.diskTotal > 0);
     assert.ok(Number.isFinite(nowPayload.vitals.load1) && Number.isFinite(nowPayload.vitals.uptimeSeconds));
-    // The cold-cache fallback never withholds the vitals line.
-    const coldNow = JSON.parse(runPlugin('plugins/status/now.mjs', {}, { MUXR_PLUGIN_STATE_DIR: '' }).stdout);
+    // The cold-cache fallback, driven: a usage read that cannot answer at all
+    // still leaves the vitals line standing, and says it is collecting rather
+    // than reporting a limit it never read.
+    const coldStatus = join(scratch, 'now-cold');
+    cpSync(resolve('plugins/status'), coldStatus, { recursive: true });
+    writeFileSync(join(coldStatus, 'usage.mjs'), 'process.exit(1);\n');
+    const coldNow = JSON.parse(runPlugin(join(coldStatus, 'now.mjs'), {}).stdout);
+    assert.equal(coldNow.collecting, true, 'a usage read that cannot answer must report collecting');
+    assert.deepEqual(coldNow.limits, { verdict: 'unknown', windows: [] });
     assert.ok(Number.isFinite(coldNow.vitals.memoryTotal) && coldNow.vitals.memoryTotal > 0);
     process.stdout.write('PASS now: the home card leads with the window its verdict describes\n');
 } finally {
