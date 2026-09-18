@@ -68,9 +68,6 @@ let session: RealtimeHandle | null = null;
 let starting = false;
 let state: RealtimeSessionState = 'disconnected';
 let detail: string | undefined;
-// Whether this call ever reached the provider, so a drop mid-call is not
-// reported as a call that never started. Survives the disconnect it explains.
-let everConnected = false;
 let turns: RealtimeTurn[] = [];
 let muted = false;
 let turnId = 0;
@@ -341,10 +338,7 @@ function applyTransportStatus(handle: RealtimeHandle, liveEpoch: number, next: R
         if (watching && !vadStandbyOwnsMicrophone()) void armVadStandby();
         return;
     }
-    if (next === 'connected' || next === 'thinking' || next === 'speaking') {
-        everConnected = true;
-        keepAwake(liveEpoch);
-    }
+    if (next === 'connected' || next === 'thinking' || next === 'speaking') keepAwake(liveEpoch);
     if ((next === 'thinking' || next === 'speaking') && reportSpeech?.sent === true) reportSpeech.responseStarted = true;
     if (next === 'connected' && reportSpeech?.responseStarted === true) resolveReportSpeech();
     if (next === 'connected' && pendingSpeech !== null) {
@@ -391,7 +385,6 @@ export function startRealtimeSession(input: RealtimeTarget | string): boolean {
     starting = true;
     state = 'connecting';
     detail = undefined;
-    everConnected = false;
     notify();
     if (pendingVad === null) startRealtimeAfterService(target, epoch);
     else void pendingVad.then(
@@ -556,9 +549,9 @@ function subscribe(listener: () => void) {
 // The snapshot has to carry everything this hook returns. A detail that arrives
 // without a state change -- "Connecting secure voice media", every time -- is
 // otherwise bailed out by React as an unchanged snapshot and never rendered.
-export function useRealtimeSessionState(): { state: RealtimeSessionState; detail?: string; everConnected: boolean } {
-    React.useSyncExternalStore(subscribe, () => `${state}\u0000${everConnected}\u0000${detail ?? ''}`);
-    return { state, detail, everConnected };
+export function useRealtimeSessionState(): { state: RealtimeSessionState; detail?: string } {
+    React.useSyncExternalStore(subscribe, () => `${state}\u0000${detail ?? ''}`);
+    return { state, detail };
 }
 
 export function realtimeSessionSnapshot(): { state: RealtimeSessionState; detail?: string; starting: boolean } {

@@ -39,12 +39,7 @@ const CODEX_SIGN_IN = /\bcodex login\b/i;
 const REFUSED_CREDENTIAL_ON_THE_MACHINE = /\(401\)/;
 const REFUSED_KEY_FROM_THE_PHONE = /\(HTTP 401\)/;
 
-/**
- * `started` is whether this call ever reached the provider. Without it a call
- * that ran for two minutes and then dropped would be labelled as one that
- * never began.
- */
-export function voiceFailure(reason: string, machineName: string, started: boolean): VoiceFailure {
+export function voiceFailure(reason: string, machineName: string): VoiceFailure {
     const detail = reason.trim();
     if (CODEX_SIGN_IN.test(detail) || (detail.startsWith('Codex ') && REFUSED_CREDENTIAL_ON_THE_MACHINE.test(detail))) {
         return {
@@ -60,5 +55,5 @@ export function voiceFailure(reason: string, machineName: string, started: boole
             detail,
         };
     }
-    return { headline: started ? 'Voice disconnected.' : 'Voice couldn’t start.', detail };
+    return { headline: 'Voice stopped.', detail };
 }

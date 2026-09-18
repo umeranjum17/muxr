@@ -37,7 +37,7 @@ vi.mock('../application/realtimeSessionState', () => ({
     stopRealtimeSession: vi.fn(),
     toggleRealtimeMuted: vi.fn(),
     useRealtimeMuted: () => false,
-    useRealtimeSessionState: () => ({ state: transport.state, detail: transport.detail, everConnected: false }),
+    useRealtimeSessionState: () => ({ state: transport.state, detail: transport.detail }),
     useRealtimeTurns: () => [],
     useRealtimeWatching: () => true,
 }));
@@ -91,7 +91,7 @@ describe('realtime failure banner', () => {
         // person of a failure that has not happened.
         const texts = visibleTexts(renderer!.root);
         expect(texts).toContain('Connecting secure voice media');
-        expect(texts.join(' ')).not.toContain('Voice couldn’t start.');
+        expect(texts.join(' ')).not.toContain('Voice stopped.');
         expect(renderer!.root.findAllByProps({ accessibilityLabel: 'Show details' })).toHaveLength(0);
     });
 });
