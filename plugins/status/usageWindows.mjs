@@ -160,9 +160,8 @@ export function providerModelIds(modelsRaw, providerId) {
     }));
 }
 
-/** The tightest window decides the verdict: highest share used; on ties the
- *  first published window wins. */
-export function tightestWindow(vms) {
+/** Highest share used; on ties the first published window wins. */
+function tightestWindow(vms) {
     return vms.reduce((worst, vm) => (worst === undefined || vm.percentUsed > worst.percentUsed ? vm : worst), undefined);
 }
 
@@ -197,9 +196,12 @@ function windowName(minutes) {
 
 /**
  * The rendering payload for the declarative `limits` node, built from the
- * same view models every other surface reads. Verdict rules: limited beats
- * everything, then the tightest window's share (90 -> low, 75 -> watch), then
- * pace (20 points over the elapsed fraction -> ahead), otherwise go.
+ * same view models every other surface reads. One window decides the verdict
+ * and is published as `verdictWindow`: a rate-limited or exhausted window
+ * blocks the caller right now even when another window has spent more of its
+ * share, so it leads; otherwise the tightest window does. Its share then
+ * picks the word (90 -> low, 75 -> watch), then pace (20 points over the
+ * elapsed fraction -> ahead), otherwise go.
  */
 export function limitsPayload(vms, { plan, message, nowMs = Date.now() }) {
     if (!Array.isArray(vms) || vms.length === 0) {
@@ -218,17 +220,19 @@ export function limitsPayload(vms, { plan, message, nowMs = Date.now() }) {
             ...(elapsed === undefined || !Number.isFinite(elapsed) ? {} : { elapsed }),
         };
     });
-    const tightest = tightestWindow(vms);
-    const limited = vms.some((vm) => vm.pace.verdict === 'limited' || vm.percentUsed >= 100);
-    const verdict = limited ? 'limited'
-        : tightest.percentUsed >= VERDICT_LOW ? 'low'
-        : tightest.percentUsed >= VERDICT_WATCH ? 'watch'
+    const blocked = vms.find((vm) => vm.pace.verdict === 'limited' || vm.percentUsed >= 100);
+    const source = blocked ?? tightestWindow(vms);
+    const verdict = blocked !== undefined ? 'limited'
+        : source.percentUsed >= VERDICT_LOW ? 'low'
+        : source.percentUsed >= VERDICT_WATCH ? 'watch'
         : (() => {
-            const elapsed = windows[vms.indexOf(tightest)]?.elapsed;
-            return elapsed !== undefined && tightest.percentUsed - elapsed * 100 >= AHEAD_MARGIN ? 'ahead' : 'go';
+            const elapsed = windows[vms.indexOf(source)]?.elapsed;
+            return elapsed !== undefined && source.percentUsed - elapsed * 100 >= AHEAD_MARGIN ? 'ahead' : 'go';
         })();
     return {
         verdict,
+        // Index into `windows` of the one window this verdict is about.
+        verdictWindow: vms.indexOf(source),
         ...(plan === undefined ? {} : { plan }),
         ...(message === undefined ? {} : { message }),
         windows,

@@ -8,7 +8,6 @@
 // never withheld. The phone formats; this only decides facts.
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { tightestWindow } from './usageWindows.mjs';
 import { vitalsFigures } from './vitals.mjs';
 
 const usage = fileURLToPath(new URL('./usage.mjs', import.meta.url));
@@ -22,14 +21,12 @@ try {
     });
     if (collected.error === undefined && collected.status === 0) output = JSON.parse(collected.stdout);
 } catch {}
-// `windows` is the unrounded view-model list `limitsPayload` chose the
-// verdict from, parallel to the rendered `limits.windows`; reading that one
-// decision is what keeps the window the card labels and the window the
-// verdict describes the same window.
-const vms = Array.isArray(output?.windows) ? output.windows : [];
-const tightest = tightestWindow(vms);
+// `limitsPayload` publishes which window it derived the verdict from; reading
+// that one decision is what keeps the window the card labels and the window
+// the verdict describes the same window.
 const published = Array.isArray(output?.limits?.windows) ? output.limits.windows : [];
-const window = tightest === undefined ? undefined : published[vms.indexOf(tightest)];
+const chosen = output?.limits?.verdictWindow;
+const window = Number.isInteger(chosen) ? published[chosen] : undefined;
 const payload = {
     limits: {
         verdict: typeof output?.limits?.verdict === 'string' ? output.limits.verdict : 'unknown',

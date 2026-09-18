@@ -80,6 +80,11 @@ export interface RightNowBinding {
     contentContributionId?: string;
 }
 
+/** The UI version a manifest must declare before this slot's structured `now`
+ *  payload is expected of it (docs/PLUGINS.md). A plugin written against the
+ *  older display-string shape keeps its generic data card. */
+const RIGHT_NOW_MIN_VERSION = 15;
+
 /** The inline `home.cards` data-card sourced from a plugin's `now` read rpc
  *  is the product's Right now card: the declarative placement decides both
  *  that the product component draws it and that the generic DataCard skips
@@ -88,6 +93,7 @@ export function rightNowBinding(
     plugins: readonly { summary: { pluginId: string; manifestHash: string }; manifest: PluginManifestV1 }[],
 ): RightNowBinding | undefined {
     for (const { summary, manifest } of plugins) {
+        if ((manifest.minMuxrVersion ?? 1) < RIGHT_NOW_MIN_VERSION) continue;
         for (const contribution of manifest.contributions) {
             if (!('type' in contribution) || contribution.type !== 'data-card') continue;
             if (contribution.slot !== 'home.cards' || contribution.presentation === 'sheet') continue;

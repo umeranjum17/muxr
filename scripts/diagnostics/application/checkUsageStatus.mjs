@@ -676,13 +676,26 @@ try {
     const nowPayload = JSON.parse(runPlugin('plugins/status/now.mjs', {}).stdout);
     const nowUsage = JSON.parse(runPlugin('plugins/status/usage.mjs', {}).stdout);
     assert.ok(nowUsage.windows.length > 1, 'fixtures must publish competing windows for the selection to mean anything');
-    const tightest = nowUsage.windows.reduce((worst, vm) => (vm.percentUsed > worst.percentUsed ? vm : worst), nowUsage.windows[0]);
     assert.equal(nowPayload.limits.verdict, nowUsage.limits.verdict);
+    assert.ok(Number.isInteger(nowUsage.limits.verdictWindow), 'the usage payload must say which window its verdict describes');
     assert.deepEqual(
         nowPayload.limits.windows,
-        [nowUsage.limits.windows[nowUsage.windows.indexOf(tightest)]],
+        [nowUsage.limits.windows[nowUsage.limits.verdictWindow]],
         'the card must lead with the window the verdict describes',
     );
+    // A window the provider reports rate-limited blocks the caller right now
+    // even when another window has spent more of its share, so the verdict and
+    // the window it describes must still be one window: rolling 85% and rate
+    // limited beside weekly 92% must lead with rolling, not weekly.
+    const { goWindows, limitsPayload } = await import('../../../plugins/status/usageWindows.mjs');
+    const blockedAt = Date.parse('2026-09-07T20:00:00Z');
+    const blocked = limitsPayload(goWindows({
+        rolling: { percent: 85, status: 'rate-limited', resetsAt: '2026-09-07T20:30:00Z' },
+        weekly: { percent: 92, status: 'ok', resetsAt: '2026-09-14T00:00:00Z' },
+    }, { nowMs: blockedAt }), { nowMs: blockedAt });
+    assert.equal(blocked.verdict, 'limited');
+    assert.equal(blocked.windows[blocked.verdictWindow].label, 'Rolling',
+        'a limited verdict must describe the window that is rate limited');
     assert.ok(Number.isFinite(nowPayload.vitals.memoryTotal) && nowPayload.vitals.memoryTotal > 0);
     assert.ok(Number.isFinite(nowPayload.vitals.diskTotal) && nowPayload.vitals.diskTotal > 0);
     assert.ok(Number.isFinite(nowPayload.vitals.load1) && Number.isFinite(nowPayload.vitals.uptimeSeconds));

@@ -105,9 +105,9 @@ export function RightNowCard() {
                 {[verdictWord, `${limit.label} ${Math.round(limit.used)}%`].filter((part) => part !== undefined).join(' · ')}
             </Text>
             {limit.resetsIn !== undefined && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{` · ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`}</Text>}
-            <View style={{ marginLeft: 'auto' }}>
+            {open !== undefined && <View style={{ marginLeft: 'auto' }}>
                 <Ionicons name="chevron-forward" size={14} color={withAlpha(theme.colors.textSecondary, 0.6)} />
-            </View>
+            </View>}
         </View>
         : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {failed && staleMark}
