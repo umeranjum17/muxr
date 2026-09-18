@@ -5342,6 +5342,10 @@ hast-util-whitespace@^3.0.0:
   dependencies:
     "@types/hast" "^3.0.0"
 
+herdr-files@umeranjum17/herdr-files#e9612cabfa5b722020148b579dbe1a12b5f5f00f:
+  version "0.1.0"
+  resolved "https://codeload.github.com/umeranjum17/herdr-files/tar.gz/e9612cabfa5b722020148b579dbe1a12b5f5f00f"
+
 hermes-compiler@0.14.0:
   version "0.14.0"
   resolved "https://registry.yarnpkg.com/hermes-compiler/-/hermes-compiler-0.14.0.tgz#ec0ec83132ab5954e7bd2c74e6331752742f188f"
