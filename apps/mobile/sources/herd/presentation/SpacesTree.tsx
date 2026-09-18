@@ -188,6 +188,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     groupTitleSlot: {
         flex: 1,
         minWidth: 0,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
     },
     groupTitle: {
         flexShrink: 1,
@@ -196,15 +199,63 @@ const stylesheet = StyleSheet.create((theme) => ({
         color: theme.colors.text,
         ...Typography.default(),
     },
-    groupSummary: {
-        color: theme.colors.textSecondary,
-    },
     groupSummaryProbe: {
         position: 'absolute',
         top: -1000,
         left: 0,
         alignSelf: 'flex-start',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
         opacity: 0,
+    },
+    chipRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        flexShrink: 0,
+    },
+    chip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: theme.colors.surface,
+        borderRadius: 999,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+        paddingHorizontal: 7,
+        paddingVertical: 2,
+    },
+    chipText: {
+        fontSize: 10,
+        lineHeight: 13,
+        ...Typography.mono(),
+    },
+    railOverlay: {
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: 28,
+    },
+    railLine: {
+        position: 'absolute',
+        left: 17,
+        top: 0,
+        bottom: 0,
+        width: 2,
+        backgroundColor: theme.colors.groupped.rail,
+    },
+    railElbow: {
+        position: 'absolute',
+        left: 17,
+        top: 0,
+        width: 15,
+        height: '50%',
+        borderLeftWidth: 2,
+        borderBottomWidth: 2,
+        borderBottomLeftRadius: 10,
+        borderColor: theme.colors.groupped.rail,
     },
     childRow: {
         paddingLeft: 28,
@@ -354,6 +405,33 @@ function childLine2Parts(child: HerdChildSpace): string[] {
     return [agentNameLine(agentLabels(agent)), agentStateLabel(agent.agentStatus)];
 }
 
+/** A group-row status pill: colored dot + mono count, visual only (row label speaks it). */
+const Chip = React.memo(({ count, word, color }: { count: number; word?: string; color: string }) => (
+    <View style={stylesheet.chip} pointerEvents="none">
+        <StatusDot color={color} size={6} />
+        <Text numberOfLines={1} style={[stylesheet.chipText, { color }]}>{word === undefined ? count : `${count} ${word}`}</Text>
+    </View>
+));
+
+/**
+ * Decorative connector rail (approach A): descends from the group row, elbows
+ * into this child's status dot, and — unless this is the last child — carries
+ * on to the next one. Grandchildren just sit one stop deeper on the same rail.
+ */
+const ChildRail = React.memo(({ last }: { last: boolean }) => (
+    <View
+        style={stylesheet.railOverlay}
+        accessible={false}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        aria-hidden
+        pointerEvents="none"
+    >
+        {!last && <View style={stylesheet.railLine} />}
+        <View style={stylesheet.railElbow} />
+    </View>
+));
+
 const GroupRow = React.memo(({
     count,
     kind,
@@ -376,16 +454,21 @@ const GroupRow = React.memo(({
     const [fullWidth, setFullWidth] = React.useState(0);
     const counts = groupSummaryCounts(groupChildren);
     const summary = [
-        { count: counts.needsYou, word: t('spacesTree.needsYou'), error: true },
-        { count: counts.working, word: t('spacesTree.working'), error: false },
-        { count: counts.done, word: t('spacesTree.done'), error: false },
-    ].filter((entry) => entry.count > 0).slice(0, 2);
+        { count: counts.needsYou, word: t('spacesTree.needsYou'), tone: 'error' },
+        { count: counts.working, word: t('spacesTree.working'), tone: 'working' },
+        { count: counts.done, word: t('spacesTree.done'), tone: 'done' },
+    ].filter((entry) => entry.count > 0).slice(0, 2) as Array<{ count: number; word: string; tone: 'error' | 'working' | 'done' }>;
     const noun = t('spacesTree.groupCount', { count, kind });
     const summaryWords = summary.map((entry) => `${entry.count} ${entry.word}`).join(' · ');
     const spokenLabel = [noun, summaryWords].filter(Boolean).join(', ');
-    // Both counts only survive when the row measures wide enough for them.
+    // Chips drop before the child count does: two chips shrink to one (done
+    // already dropped by the slice above) while the noun stays whole.
     const crowded = summary.length > 1 && slotWidth > 0 && fullWidth > slotWidth;
     const shown = crowded ? summary.slice(0, 1) : summary;
+    const chipColor = (tone: 'error' | 'working' | 'done') => theme.colors.status[tone];
+    const chips = (entries: typeof summary) => entries.map((entry) => (
+        <Chip key={entry.word} count={entry.count} word={entry.word} color={chipColor(entry.tone)} />
+    ));
 
     const body = (
         <>
@@ -402,17 +485,8 @@ const GroupRow = React.memo(({
                 style={styles.groupTitleSlot}
                 onLayout={(event) => setSlotWidth(event.nativeEvent.layout.width)}
             >
-                <Text numberOfLines={1} style={styles.groupTitle}>
-                    {noun}
-                    {shown.map((entry) => (
-                        <Text key={entry.word} style={styles.groupSummary}>
-                            {' · '}
-                            <Text style={entry.error ? { color: theme.colors.status.error } : undefined}>
-                                {entry.count} {entry.word}
-                            </Text>
-                        </Text>
-                    ))}
-                </Text>
+                <Text numberOfLines={1} style={styles.groupTitle}>{noun}</Text>
+                <View style={styles.chipRow}>{chips(shown)}</View>
             </View>
             {summary.length > 1 && (
                 <View
@@ -427,9 +501,8 @@ const GroupRow = React.memo(({
                         if (width > 0) setFullWidth(width);
                     }}
                 >
-                    <Text numberOfLines={1} style={styles.groupTitle}>
-                        {`${noun} · ${summaryWords}`}
-                    </Text>
+                    <Text numberOfLines={1} style={styles.groupTitle}>{noun}</Text>
+                    <View style={styles.chipRow}>{chips(summary)}</View>
                 </View>
             )}
         </>
@@ -459,6 +532,7 @@ const GroupRow = React.memo(({
 
 const ChildRow = React.memo(({
     child,
+    last,
     onToggle,
     onClose,
     onClosePane,
@@ -468,6 +542,8 @@ const ChildRow = React.memo(({
     unseenDoneSessionIds,
 }: {
     child: HerdChildSpace;
+    /** The rail stops at the last child. */
+    last: boolean;
     onToggle: () => void;
     onClose: () => void;
     onClosePane: (pane: HerdrTreePane) => void;
@@ -493,6 +569,7 @@ const ChildRow = React.memo(({
 
     return (
         <View style={styles.childRow}>
+            <ChildRail last={last} />
             <View style={styles.childSeparator} />
             <Pressable
                 onPress={onPress}
@@ -581,7 +658,16 @@ const WorkspaceCard = React.memo(({
     const countLabel = agentCount > 0
         ? t('spacesTree.childAgents', { count: agentCount })
         : paneCount > 0 ? t('spacesTree.shell') : undefined;
+    // Approach D: a collapsed card keeps its needs-you count on the header,
+    // so attention shows before anything is expanded (chips in the group row
+    // carry the rest).
+    const needsYou = expanded ? 0 : groupSummaryCounts(childSpaces).needsYou;
     const headerInteractive = !searchForced || canClose;
+    const headerLabel = [
+        `${workspaceName(workspace)} workspace`,
+        countLabel,
+        needsYou > 0 ? `${needsYou} ${t('spacesTree.needsYou')}` : undefined,
+    ].filter((part) => part !== undefined).join(', ');
 
     return (
         <View style={[styles.card, compact && styles.cardCompact]}>
@@ -596,7 +682,7 @@ const WorkspaceCard = React.memo(({
                 ]}
                 android_ripple={headerInteractive ? { color: theme.colors.surfaceRipple, foreground: true } : undefined}
                 accessibilityRole={headerInteractive ? 'button' : undefined}
-                accessibilityLabel={`${workspaceName(workspace)} workspace${countLabel === undefined ? '' : `, ${countLabel}`}`}
+                accessibilityLabel={headerLabel}
             >
                 <View style={styles.chevron}>
                     {!searchForced && (
@@ -615,6 +701,9 @@ const WorkspaceCard = React.memo(({
                     <View style={styles.branchPill}>
                         <Text numberOfLines={1} style={styles.branchPillText}>{branch}</Text>
                     </View>
+                )}
+                {needsYou > 0 && (
+                    <Chip count={needsYou} color={theme.colors.status.error} />
                 )}
                 {countLabel !== undefined && <Text style={styles.agentCount}>{countLabel}</Text>}
             </Pressable>
@@ -641,10 +730,11 @@ const WorkspaceCard = React.memo(({
                     onToggle={onToggleGroup}
                 />
             )}
-            {groupExpanded && childSpaces.map((child) => (
+            {groupExpanded && childSpaces.map((child, index) => (
                 <ChildRow
                     key={child.workspace.workspaceId}
                     child={child}
+                    last={index === childSpaces.length - 1}
                     onToggle={() => onToggleChild(child.workspace.workspaceId)}
                     onClose={() => onCloseChild(child.workspace)}
                     onClosePane={onClosePane}
