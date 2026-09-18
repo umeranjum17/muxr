@@ -106,13 +106,14 @@ const claudeLimits = {
     },
 };
 
-const run = (input, environment = {}) => { const r = spawnSync(process.execPath, ['plugins/status/usage.mjs'], {
+const runPlugin = (entry, input, environment = {}) => { const r = spawnSync(process.execPath, [entry], {
     cwd: process.cwd(),
     encoding: 'utf8',
     input: JSON.stringify(input),
     env: { ...process.env, HOME: scratch, XDG_DATA_HOME: join(scratch, '.local/share'), PI_CONFIG_DIR: '.omp', OMP_PROFILE: '', PI_PROFILE: '', OPENCODE_AUTH_CONTENT: '', CLAUDE_CONFIG_DIR: join(scratch, '.claude'), TZ: 'UTC', MUXR_USAGE_NOW: today.toISOString(), PATH: `${scratch}:${process.env.PATH}`, MUXR_CCUSAGE_BIN: ccusage, MUXR_PLUGIN_STATE_DIR: scratch, ...environment },
     timeout: 20_000,
-}); if (r.status !== 0 || r.stdout === '') console.error('RUN-DEBUG', JSON.stringify(input), 'status=', r.status, 'stderr=', (r.stderr||'')); return r; }
+}); if (r.status !== 0 || r.stdout === '') console.error('RUN-DEBUG', JSON.stringify(input), 'status=', r.status, 'stderr=', (r.stderr||'')); return r; };
+const run = (input, environment = {}) => runPlugin('plugins/status/usage.mjs', input, environment);
 
 try {
     writeTranscript(join(scratch, '.omp/agent/sessions/proj/session.jsonl'), [
@@ -665,6 +666,61 @@ try {
         rmSync(flow, { recursive: true, force: true });
     }
     process.stdout.write('PASS e2e: per-provider ccusage tabs + safe live limits + deduped local accounting\n');
+
+    // The Right now card leads with the window the verdict describes: the
+    // highest share used, ties to the first published. Compared against the
+    // same Usage answer now.mjs read, so a selection that picked another
+    // window -- or none -- fails here. Runs after the scan-counting
+    // assertions: now.mjs invokes usage.mjs, and a warm-cache answer still
+    // counts as one ccusage scan.
+    // now.mjs never names a provider -- it always spawns usage.mjs with '{}'
+    // -- so the default selection decides the payload, and in this fixture
+    // that is `omp`, which publishes no plan windows at all. Seed the `all`
+    // cache both readers below will hit with the Claude answer, whose fixture
+    // publishes a competing 5-hour and 7-day window, so there is something to
+    // select between. MUXR_USAGE_NOW pins NOW, so the seeded entry is age 0
+    // and is served fresh rather than flagged stale.
+    const claudeRun = run({ provider: 'claude' });
+    assert.equal(claudeRun.status, 0, claudeRun.stderr);
+    cpSync(join(scratch, 'usage-v2-claude.json'), join(scratch, 'usage-v2-all.json'));
+    const nowPayload = JSON.parse(runPlugin('plugins/status/now.mjs', {}).stdout);
+    const nowUsage = JSON.parse(runPlugin('plugins/status/usage.mjs', {}).stdout);
+    assert.equal(nowUsage.provider, 'claude', 'the seeded cache must be what both readers answered from');
+    assert.ok(!('stale' in nowUsage), 'a cache seeded at the pinned NOW must be served fresh');
+    assert.ok(nowUsage.windows.length > 1, 'fixtures must publish competing windows for the selection to mean anything');
+    assert.equal(nowPayload.limits.verdict, nowUsage.limits.verdict);
+    // The card must lead with the same window `limitsPayload` derived the
+    // verdict from -- run that one selection over the same view models the
+    // usage payload published. Which window was selected, not object
+    // identity: both runs rebuild from their own `Date.now()`, so `elapsed` is
+    // a live float that only a cache-served second run would match whole.
+    const { tightestWindow } = await import('../../../plugins/status/usageWindows.mjs');
+    const led = nowPayload.limits.windows[0];
+    const describes = nowUsage.limits.windows[nowUsage.windows.indexOf(tightestWindow(nowUsage.windows))];
+    assert.ok(led !== undefined && describes !== undefined, 'the card must lead with a window');
+    assert.deepEqual(
+        { label: led.label, used: led.used, window: led.window },
+        { label: describes.label, used: describes.used, window: describes.window },
+        'the card must lead with the window the verdict describes',
+    );
+    assert.ok(Number.isFinite(nowPayload.vitals.memoryTotal) && nowPayload.vitals.memoryTotal > 0);
+    assert.ok(Number.isFinite(nowPayload.vitals.load1) && Number.isFinite(nowPayload.vitals.uptimeSeconds));
+    // The disk pair is the one figure a host may not be able to read: a denied
+    // statfs drops it and leaves the rest of the line standing. Absent is the
+    // contract; present-but-zero would divide the share by zero.
+    assert.ok(nowPayload.vitals.diskTotal === undefined
+        || (Number.isFinite(nowPayload.vitals.diskTotal) && nowPayload.vitals.diskTotal > 0));
+    // The cold-cache fallback, driven: a usage read that cannot answer at all
+    // still leaves the vitals line standing, and says it is collecting rather
+    // than reporting a limit it never read.
+    const coldStatus = join(scratch, 'now-cold');
+    cpSync(resolve('plugins/status'), coldStatus, { recursive: true });
+    writeFileSync(join(coldStatus, 'usage.mjs'), 'process.exit(1);\n');
+    const coldNow = JSON.parse(runPlugin(join(coldStatus, 'now.mjs'), {}).stdout);
+    assert.equal(coldNow.collecting, true, 'a usage read that cannot answer must report collecting');
+    assert.deepEqual(coldNow.limits, { verdict: 'unknown', windows: [] });
+    assert.ok(Number.isFinite(coldNow.vitals.memoryTotal) && coldNow.vitals.memoryTotal > 0);
+    process.stdout.write('PASS now: the home card leads with the window its verdict describes\n');
 } finally {
     rmSync(scratch, { recursive: true, force: true });
 }

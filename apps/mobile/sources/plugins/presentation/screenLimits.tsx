@@ -8,6 +8,7 @@ import { resolvePluginText } from '../domain/pluginText';
 import { toneColor } from '../domain/pluginTone';
 import { cardStyle, SectionLabel, Meter } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
+import { t } from '@/text';
 
 /** Share of a window used at which the row turns warning, then danger. The
  *  host decided the verdict; these only colour the evidence rows. */
@@ -20,12 +21,20 @@ const rowTone = (used: number): PluginScreenTone => {
     return 'positive';
 };
 
-const VERDICT_WORDS: Record<Exclude<PluginLimitsPayload['verdict'], 'unknown'>, string> = {
-    limited: 'Rate limited',
-    low: 'Nearly out',
-    watch: 'Pace yourself',
-    ahead: 'Ahead of pace',
-    go: 'Go ahead',
+/** One verdict vocabulary for every limit surface; the Right now card reads
+ *  the same five words and the same five colours. */
+export const verdictTone = (verdict: PluginLimitsPayload['verdict']): PluginScreenTone =>
+    verdict === 'go' ? 'positive'
+        : verdict === 'unknown' ? 'secondary'
+            : verdict === 'watch' || verdict === 'ahead' ? 'warning'
+                : 'danger';
+
+export const VERDICT_KEYS: Record<Exclude<PluginLimitsPayload['verdict'], 'unknown'>, Parameters<typeof t>[0]> = {
+    limited: 'plugins.limits.limited',
+    low: 'plugins.limits.low',
+    watch: 'plugins.limits.watch',
+    ahead: 'plugins.limits.ahead',
+    go: 'plugins.limits.go',
 };
 
 /** The tightest window leads the card: highest share used; on ties, the first
@@ -38,15 +47,15 @@ function bindingWindow(windows: PluginLimitsWindow[]): PluginLimitsWindow | unde
 
 function limitsSummary(payload: PluginLimitsPayload): string {
     const tightest = bindingWindow(payload.windows);
-    const verdict = payload.verdict === 'unknown' ? undefined : VERDICT_WORDS[payload.verdict];
-    const head = [verdict, tightest === undefined ? undefined : `${100 - Math.round(tightest.used)} percent left`]
+    const verdict = payload.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.verdict]);
+    const head = [verdict, tightest === undefined ? undefined : t('plugins.limits.percentLeft', { percent: 100 - Math.round(tightest.used) })]
         .filter((part) => part !== undefined).join(', ');
     const rows = payload.windows.map((window) => {
-        const parts = [`${window.label} ${Math.round(window.used)} percent used`];
-        if (window.resetsIn !== undefined) parts.push(`resets in ${window.resetsIn}`);
+        const parts = [[window.label, t('plugins.limits.percentUsed', { percent: Math.round(window.used) })].join(' ')];
+        if (window.resetsIn !== undefined) parts.push(t('plugins.rightNow.resetsIn', { time: window.resetsIn }));
         return parts.join(', ');
     });
-    return [`${payload.plan ?? 'Right now'}: ${head}`, ...rows].join('. ');
+    return [`${payload.plan ?? t('plugins.rightNow.title')}: ${head}`, ...rows].join('. ');
 }
 
 /**
@@ -74,9 +83,9 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
         );
     }
     const tightest = bindingWindow(payload.windows);
-    const verdictWord = payload.verdict === 'unknown' ? undefined : VERDICT_WORDS[payload.verdict];
-    const verdictTone: PluginScreenTone = payload.verdict === 'go' ? 'positive' : payload.verdict === 'unknown' ? 'secondary' : payload.verdict === 'watch' || payload.verdict === 'ahead' ? 'warning' : 'danger';
-    const headlineTone: PluginScreenTone = payload.verdict === 'go' ? 'secondary' : verdictTone;
+    const verdictWord = payload.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.verdict]);
+    const tone = verdictTone(payload.verdict);
+    const headlineTone: PluginScreenTone = payload.verdict === 'go' ? 'secondary' : tone;
     return (
         <View
             accessible
@@ -91,17 +100,17 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
             </View>
             {verdictWord !== undefined && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: toneColor(theme, verdictTone) }} />
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: toneColor(theme, tone) }} />
                     <Text style={{ color: theme.colors.text, fontSize: 17, lineHeight: 22, fontWeight: '600', flex: 1, ...Typography.default('semiBold') }}>{verdictWord}</Text>
                 </View>
             )}
             {tightest !== undefined && (
                 <>
                     <Text style={{ color: headlineTone === 'secondary' ? theme.colors.text : toneColor(theme, headlineTone), fontSize: 30, lineHeight: 36, letterSpacing: -0.5, ...Typography.mono('semiBold') }}>
-                        {`${100 - Math.round(tightest.used)}% left`}
+                        {t('plugins.limits.percentLeft', { percent: 100 - Math.round(tightest.used) })}
                     </Text>
                     <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 2 }}>
-                        {[tightest.label, tightest.resetsIn === undefined ? undefined : `resets in ${tightest.resetsIn}`].filter((part) => part !== undefined).join(' · ')}
+                        {[tightest.label, tightest.resetsIn === undefined ? undefined : t('plugins.rightNow.resetsIn', { time: tightest.resetsIn })].filter((part) => part !== undefined).join(' · ')}
                     </Text>
                 </>
             )}
@@ -114,9 +123,9 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
                             <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, flex: 1, marginRight: 12 }}>
                                 {window.window === undefined ? window.label : `${window.label} · ${window.window}`}
                             </Text>
-                            <Text style={{ color: toneColor(theme, tone), fontSize: 12.5, ...Typography.mono('semiBold') }}>{`${Math.round(window.used)}% used`}</Text>
+                            <Text style={{ color: toneColor(theme, tone), fontSize: 12.5, ...Typography.mono('semiBold') }}>{t('plugins.limits.percentUsed', { percent: Math.round(window.used) })}</Text>
                             {window.resetsIn !== undefined && (
-                                <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, marginLeft: 8, ...Typography.mono('regular') }}>{`resets in ${window.resetsIn}`}</Text>
+                                <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, marginLeft: 8, ...Typography.mono('regular') }}>{t('plugins.rightNow.resetsIn', { time: window.resetsIn })}</Text>
                             )}
                         </View>
                         {/* Every window draws against the same 100 ceiling; the

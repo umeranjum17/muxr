@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "pluginId": "muxr.status",
-  "minMuxrVersion": 14,
+  "minMuxrVersion": 15,
   "contributions": [
     {
       "slot": "host.rpc",
@@ -131,8 +131,7 @@
         "type": "plugin.call",
         "contributionId": "now"
       },
-      "contentContributionId": "usage.details",
-      "emptyText": "Usage unavailable"
+      "contentContributionId": "usage.details"
     },
     {
       "slot": "settings.items",

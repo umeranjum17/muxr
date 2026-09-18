@@ -160,9 +160,15 @@ export function providerModelIds(modelsRaw, providerId) {
     }));
 }
 
+/** The host's own line when muxr has no plan integration for the provider at
+ *  all. A surface that owns a localized empty state shows that instead, so it
+ *  is named here rather than spelled out at each reader. */
+export const NOT_CONNECTED_MESSAGE = 'Plan limits aren\u2019t connected in muxr';
+
 /** The tightest window decides the verdict: highest share used; on ties the
- *  first published window wins. */
-function tightestWindow(vms) {
+ *  first published window wins. Every surface that heads a payload with one
+ *  window reads this, so none of them can pick a different one. */
+export function tightestWindow(vms) {
     return vms.reduce((worst, vm) => (worst === undefined || vm.percentUsed > worst.percentUsed ? vm : worst), undefined);
 }
 

@@ -80,6 +80,28 @@ export const ca: TranslationStructure = {
         realtimeOff: 'Sessió de veu desactivada',
         openConversation: 'Obre la conversa de veu',
         realtime: 'Veu',
+
+        limits: {
+            go: 'Endavant',
+            ahead: 'Al davant',
+            watch: 'Modera el ritme',
+            low: 'Gairebé esgotat',
+            limited: 'Limitat',
+            percentLeft: ({ percent }: { percent: number }) => `${percent}% restant`,
+            percentUsed: ({ percent }: { percent: number }) => `${percent}% usat`,
+        },
+        rightNow: {
+            title: 'Ara mateix',
+            collecting: 'Recollint l’ús…',
+            unavailable: 'Ús no disponible · toca per reintentar',
+            notConnected: 'Límits del pla no connectats',
+            resetsIn: ({ time }: { time: string }) => `es renova en ${time}`,
+            opensUsage: 'Obre Ús',
+            memory: 'Memòria',
+            disk: 'Disc',
+            load: 'càrrega',
+            up: 'actiu',
+        },
     },
 
     common: {

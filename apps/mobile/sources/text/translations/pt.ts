@@ -80,6 +80,28 @@ export const pt: TranslationStructure = {
         realtimeOff: 'Sessão de voz desligada',
         openConversation: 'Abrir conversa por voz',
         realtime: 'Voz',
+
+        limits: {
+            go: 'Pode ir',
+            ahead: 'À frente do ritmo',
+            watch: 'Modere o ritmo',
+            low: 'Quase esgotado',
+            limited: 'Limitado',
+            percentLeft: ({ percent }: { percent: number }) => `${percent}% restante`,
+            percentUsed: ({ percent }: { percent: number }) => `${percent}% usado`,
+        },
+        rightNow: {
+            title: 'Agora',
+            collecting: 'Coletando uso…',
+            unavailable: 'Uso indisponível · toque para tentar de novo',
+            notConnected: 'Limites do plano não conectados',
+            resetsIn: ({ time }: { time: string }) => `renova em ${time}`,
+            opensUsage: 'Abre Uso',
+            memory: 'Memória',
+            disk: 'Disco',
+            load: 'carga',
+            up: 'ativo',
+        },
     },
 
     common: {

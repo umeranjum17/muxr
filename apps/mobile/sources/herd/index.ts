@@ -16,6 +16,7 @@ export * from './domain/agentPresentation';
 export * from './domain/herd';
 export * from './domain/herdTree';
 export * from './domain/recentActivity';
+export * from './domain/rightNowModel';
 export * from './domain/sessionDisplayOrder';
 export * from './domain/sessionIdentity';
 export * from './domain/sessionRowPresentation';

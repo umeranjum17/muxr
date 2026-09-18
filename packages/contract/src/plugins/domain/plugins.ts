@@ -682,10 +682,14 @@ export const MAX_SCREEN_PARAMS = 8;
  * says so instead of silently dropping contributions the app cannot render.
  * Bumped whenever a manifest can contain values an older phone cannot parse.
  */
-export const MUXR_UI_VERSION = 14;
+export const MUXR_UI_VERSION = 15;
 export const DYNAMIC_SCREEN_MIN_UI_VERSION = 13;
 /** Manifests using `limits`, bound tones, row identity fields or bound field values declare this. */
 export const SCREEN_IDENTITY_MIN_UI_VERSION = 14;
+/** A `home.cards` data-card sourced from a `now` read rpc answers with the
+ *  structured right-now payload, so the product card draws it instead of the
+ *  generic data card. A manifest below this keeps the generic card. */
+export const RIGHT_NOW_CARD_MIN_UI_VERSION = 15;
 export const MAX_CHART_SERIES = 8;
 export const MAX_CHART_LABEL_BYTES = 24;
 /** Static list rows, and the render cap for a repeat expansion. */
@@ -765,6 +769,20 @@ export interface PluginManifestV1 {
      * trusted kernel adapters may additionally pin a packaged plugin identity and root. */
     capabilities?: Record<string, string>;
     contributions: PluginContribution[];
+}
+
+/**
+ * The `home.cards` data-card the product's Right now card draws: an inline
+ * card sourced from a `now` read rpc. One rule, so the product card and the
+ * generic Home row cannot select different cards.
+ */
+export function rightNowCard(contributions: readonly PluginContribution[]): PluginDataCard | undefined {
+    return contributions.find((contribution): contribution is PluginDataCard =>
+        'type' in contribution && contribution.type === 'data-card'
+        && contribution.slot === 'home.cards' && contribution.presentation !== 'sheet'
+        && contributions.some((candidate) =>
+            candidate.slot === 'host.rpc' && candidate.mode === 'read'
+            && candidate.method === 'now' && candidate.id === contribution.source.contributionId));
 }
 
 /** A host may forward a newer manifest; the rendering phone is authoritative. */

@@ -82,6 +82,28 @@ export const zhHans: TranslationStructure = {
         realtimeOff: '语音会话已关闭',
         openConversation: '打开语音对话',
         realtime: '语音',
+
+        limits: {
+            go: '可以继续',
+            ahead: '进度超前',
+            watch: '注意节奏',
+            low: '即将用尽',
+            limited: '已限速',
+            percentLeft: ({ percent }: { percent: number }) => `剩余 ${percent}%`,
+            percentUsed: ({ percent }: { percent: number }) => `已使用 ${percent}%`,
+        },
+        rightNow: {
+            title: '当前状态',
+            collecting: '正在收集用量…',
+            unavailable: '用量不可用 · 点按重试',
+            notConnected: '未连接套餐限额',
+            resetsIn: ({ time }: { time: string }) => `${time}后重置`,
+            opensUsage: '打开用量',
+            memory: '内存',
+            disk: '磁盘',
+            load: '负载',
+            up: '已运行',
+        },
     },
 
     common: {

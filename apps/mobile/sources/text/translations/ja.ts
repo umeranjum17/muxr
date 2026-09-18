@@ -83,6 +83,28 @@ export const ja: TranslationStructure = {
         realtimeOff: '音声セッションはオフです',
         openConversation: '音声会話を開く',
         realtime: '音声',
+
+        limits: {
+            go: 'そのまま進めて',
+            ahead: 'ペース超前',
+            watch: 'ペース注意',
+            low: 'まもなく上限',
+            limited: 'レート制限中',
+            percentLeft: ({ percent }: { percent: number }) => `残り ${percent}%`,
+            percentUsed: ({ percent }: { percent: number }) => `${percent}% 使用済み`,
+        },
+        rightNow: {
+            title: '現在の状態',
+            collecting: '使用量を収集中…',
+            unavailable: '使用量を取得できません · タップで再試行',
+            notConnected: 'プラン制限に未接続',
+            resetsIn: ({ time }: { time: string }) => `リセットまで ${time}`,
+            opensUsage: '使用量を開く',
+            memory: 'メモリ',
+            disk: 'ディスク',
+            load: '負荷',
+            up: '稼働',
+        },
     },
 
     common: {

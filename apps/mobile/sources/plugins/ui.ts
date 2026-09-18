@@ -5,4 +5,6 @@ export * from './presentation/PluginSlot';
 export * from './presentation/pluginScreenLayout';
 export * from './presentation/primitiveRegistry';
 export * from './presentation/screenCharts';
+export * from './presentation/screenLimits';
 export * from './presentation/screenTree';
+export * from './presentation/usePluginCall';
