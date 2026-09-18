@@ -11,11 +11,17 @@ describe('terminal key row resolution', () => {
 
         // Their own row mixes catalog ids with a custom key whose bytes came in
         // through the editor's escape syntax.
-        const custom: RowEntry[] = ['ctrl-c', { label: 'pwd', send: 'pwd\n' }];
+        const custom: RowEntry[] = ['ctrl-c', { label: 'pwd', send: 'pwd\n' }, { label: 'x', send: 'x', repeat: true }];
         const resolved = resolveKeyRow(custom);
-        expect(resolved.map((key) => key.label)).toEqual(['^C', 'pwd']);
+        expect(resolved.map((key) => key.label)).toEqual(['^C', 'pwd', 'x']);
         expect(resolved[1].send).toBe(escapeToBytes('pwd\n'));
         expect(resolved[1].accessibilityLabel).toBe('pwd');
+
+        // `repeat` is what gates the row's hold-to-repeat handler, so a custom
+        // key that asked for it must carry it through and one that did not must not.
+        expect(resolved[2].repeat).toBe(true);
+        expect(resolved[1].repeat).toBeUndefined();
+        expect(BUILTIN_KEY_CATALOG.left.repeat).toBe(true);
     });
 
     it('drops unknown catalog ids instead of breaking the row, and refuses incomplete escapes', () => {
