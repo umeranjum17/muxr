@@ -90,15 +90,15 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
         ? voiceFailure(detail, machineName, everConnected)
         : undefined;
     const progress = state === 'connecting' ? detail : undefined;
-    // The cloud is decoration and the failure is the point. At a large display
+    // The cloud is decoration and the words are the point. At a large display
     // scale the viewport is short enough that the cloud, the label and the talk
-    // buttons already leave nothing over, so when there is something to say the
-    // cloud gives back exactly what the message needs. Everything the cloud
-    // yields to is measured as one column, never assumed: the label wraps to two
-    // lines at this width, and every word here grows with the OS font size, so
-    // any guessed height hands the surplus to the talk buttons.
+    // buttons already leave nothing over, so the cloud gives back exactly what
+    // the words need. What it yields to is measured as one column, never
+    // assumed: the label alone wraps to two lines at this width, and every word
+    // here grows with the OS font size, so any guessed height hands the surplus
+    // to the talk buttons.
     const room = height - insets.top - insets.bottom - AROUND_THE_CLOUD - columnHeight;
-    const orbSize = failure === undefined ? 240 : Math.max(0, Math.min(240, room));
+    const orbSize = Math.max(0, Math.min(240, room));
 
     return (
         <Animated.View
