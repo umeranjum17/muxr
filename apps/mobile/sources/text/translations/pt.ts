@@ -276,6 +276,19 @@ export const pt: TranslationStructure = {
         // Spaces section on Home
         title: 'Espaços',
         empty: 'Nenhum espaço aberto',
+        groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
+            ? `${count} ${plural({ count, singular: 'espaço de trabalho', plural: 'espaços de trabalho' })}`
+            : `${count} ${plural({ count, singular: 'espaço de trabalho', plural: 'espaços de trabalho' })} (${kind})`,
+        needsYou: 'precisa de você',
+        working: 'em execução',
+        done: 'concluída',
+        shell: 'terminal',
+        childEmpty: 'vazio',
+        childAgents: ({ count }: { count: number }) => `${count} ${plural({ count, singular: 'agente', plural: 'agentes' })}`,
+        noMatches: 'Nenhum espaço corresponde',
+        expand: 'Mostrar mais',
+        collapse: 'Mostrar menos',
+        openLabel: ({ label, line2 }: { label: string; line2: string }) => `Abrir ${label}, ${line2}`,
     },
 
     homeNotices: {

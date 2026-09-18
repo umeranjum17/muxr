@@ -16,8 +16,8 @@ import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
-import { buildSpaceRows, workspaceName, type HerdRow } from '../domain/herdTree';
-import { agentIdentityLine, agentLabels, isShellLabels } from '../domain/agentPresentation';
+import { buildSpaceRows, groupKind, groupSummaryCounts, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
+import { agentIdentityLine, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
 import { SectionLabel } from '@/components/ui';
@@ -172,6 +172,90 @@ const stylesheet = StyleSheet.create((theme) => ({
         lineHeight: 18,
         ...Typography.default(),
     },
+    groupRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        minHeight: 48,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: theme.colors.divider,
+    },
+    groupRowPressed: {
+        backgroundColor: theme.colors.surfacePressedOverlay,
+    },
+    groupTitleSlot: {
+        flex: 1,
+        minWidth: 0,
+    },
+    groupTitle: {
+        flexShrink: 1,
+        fontSize: 14,
+        lineHeight: 18,
+        color: theme.colors.text,
+        ...Typography.default(),
+    },
+    groupSummary: {
+        color: theme.colors.textSecondary,
+    },
+    groupSummaryProbe: {
+        position: 'absolute',
+        top: -1000,
+        left: 0,
+        alignSelf: 'flex-start',
+        opacity: 0,
+    },
+    childRow: {
+        paddingLeft: 28,
+        paddingRight: 16,
+    },
+    childAgentInset: {
+        paddingLeft: 28,
+    },
+    childSeparator: {
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: theme.colors.divider,
+        marginLeft: 48,
+    },
+    childPressable: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        minHeight: 52,
+        paddingVertical: 8,
+    },
+    childPressablePressed: {
+        backgroundColor: theme.colors.surfacePressedOverlay,
+    },
+    childPressableSelected: {
+        backgroundColor: theme.colors.surfaceSelected,
+    },
+    childText: {
+        flex: 1,
+        minWidth: 0,
+    },
+    childLabel: {
+        fontSize: 14,
+        lineHeight: 18,
+        color: theme.colors.text,
+        ...Typography.default(),
+    },
+    childLine2: {
+        fontSize: 12,
+        lineHeight: 16,
+        color: theme.colors.textSecondary,
+        marginTop: 2,
+        ...Typography.default(),
+    },
+    skeleton: {
+        height: 120,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surfaceHigh,
+        opacity: 0.6,
+        marginHorizontal: 16,
+        marginTop: 10,
+    },
 }));
 
 interface SpacesTreeProps {
@@ -180,6 +264,8 @@ interface SpacesTreeProps {
     refresh: () => Promise<void>;
     density?: 'comfortable' | 'compact';
     selectedSessionId?: string;
+    /** First tree not answered yet: one skeleton card, no spinner. */
+    loading?: boolean;
     /** Override pane navigation (a sheet closes itself, then navigates). */
     onNavigatePane?: (sessionId: string) => void;
     searchQuery?: string;
@@ -253,13 +339,213 @@ const AgentRow = React.memo(({
     );
 });
 
+/**
+ * A child's second line, in parts: its one agent's identity and state, else a
+ * count, else what it is. Rendered with ' · ', spoken with ', '.
+ */
+function childLine2Parts(child: HerdChildSpace): string[] {
+    const panes = child.workspace.tabs.flatMap((tab) => tab.panes);
+    const agentPanes = panes.filter((pane) => pane.agentKind !== undefined);
+    if (panes.length === 0) return [t('spacesTree.childEmpty')];
+    if (agentPanes.length === 0) return [t('spacesTree.shell')];
+    if (agentPanes.length > 1) return [t('spacesTree.childAgents', { count: agentPanes.length })];
+    const agent = agentPanes[0];
+    if (agent === undefined) return [t('spacesTree.childEmpty')];
+    return [agentNameLine(agentLabels(agent)), agentStateLabel(agent.agentStatus)];
+}
+
+const GroupRow = React.memo(({
+    count,
+    kind,
+    groupChildren,
+    expanded,
+    forced,
+    onToggle,
+}: {
+    count: number;
+    kind?: string;
+    groupChildren: HerdChildSpace[];
+    expanded: boolean;
+    /** A search holds this group open: the row states it, it does not control it. */
+    forced: boolean;
+    onToggle: () => void;
+}) => {
+    const { theme } = useUnistyles();
+    const styles = stylesheet;
+    const [slotWidth, setSlotWidth] = React.useState(0);
+    const [fullWidth, setFullWidth] = React.useState(0);
+    const counts = groupSummaryCounts(groupChildren);
+    const summary = [
+        { count: counts.needsYou, word: t('spacesTree.needsYou'), error: true },
+        { count: counts.working, word: t('spacesTree.working'), error: false },
+        { count: counts.done, word: t('spacesTree.done'), error: false },
+    ].filter((entry) => entry.count > 0).slice(0, 2);
+    const noun = t('spacesTree.groupCount', { count, kind });
+    const summaryWords = summary.map((entry) => `${entry.count} ${entry.word}`).join(' · ');
+    const spokenLabel = [noun, summaryWords].filter(Boolean).join(', ');
+    // Both counts only survive when the row measures wide enough for them.
+    const crowded = summary.length > 1 && slotWidth > 0 && fullWidth > slotWidth;
+    const shown = crowded ? summary.slice(0, 1) : summary;
+
+    const body = (
+        <>
+            <View style={styles.chevron}>
+                {!forced && (
+                    <Ionicons
+                        name={expanded ? 'chevron-down' : 'chevron-forward'}
+                        size={16}
+                        color={theme.colors.groupped.chevron}
+                    />
+                )}
+            </View>
+            <View
+                style={styles.groupTitleSlot}
+                onLayout={(event) => setSlotWidth(event.nativeEvent.layout.width)}
+            >
+                <Text numberOfLines={1} style={styles.groupTitle}>
+                    {noun}
+                    {shown.map((entry) => (
+                        <Text key={entry.word} style={styles.groupSummary}>
+                            {' · '}
+                            <Text style={entry.error ? { color: theme.colors.status.error } : undefined}>
+                                {entry.count} {entry.word}
+                            </Text>
+                        </Text>
+                    ))}
+                </Text>
+            </View>
+            {summary.length > 1 && (
+                <View
+                    accessible={false}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                    aria-hidden
+                    pointerEvents="none"
+                    style={styles.groupSummaryProbe}
+                    onLayout={(event) => {
+                        const width = event.nativeEvent.layout.width;
+                        if (width > 0) setFullWidth(width);
+                    }}
+                >
+                    <Text numberOfLines={1} style={styles.groupTitle}>
+                        {`${noun} · ${summaryWords}`}
+                    </Text>
+                </View>
+            )}
+        </>
+    );
+
+    if (forced) {
+        return (
+            <View style={styles.groupRow} accessible accessibilityRole="text" accessibilityLabel={spokenLabel}>
+                {body}
+            </View>
+        );
+    }
+
+    return (
+        <Pressable
+            onPress={onToggle}
+            style={({ pressed }) => [styles.groupRow, pressed && styles.groupRowPressed]}
+            android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
+            accessibilityRole="button"
+            accessibilityState={{ expanded }}
+            accessibilityLabel={`${spokenLabel}. ${expanded ? t('spacesTree.collapse') : t('spacesTree.expand')}`}
+        >
+            {body}
+        </Pressable>
+    );
+});
+
+const ChildRow = React.memo(({
+    child,
+    onToggle,
+    onClose,
+    onClosePane,
+    onNavigatePane,
+    selectedSessionId,
+    canClose,
+    unseenDoneSessionIds,
+}: {
+    child: HerdChildSpace;
+    onToggle: () => void;
+    onClose: () => void;
+    onClosePane: (pane: HerdrTreePane) => void;
+    onNavigatePane?: (sessionId: string) => void;
+    selectedSessionId?: string;
+    canClose: boolean;
+    unseenDoneSessionIds: ReadonlySet<string>;
+}) => {
+    const { theme } = useUnistyles();
+    const styles = stylesheet;
+    const navigateToSession = useNavigateToSession();
+    const dot = agentStatusColor(child.workspace.agentStatus, theme);
+    const agentPanes = child.workspace.tabs.flatMap((tab) => tab.panes).filter((pane) => pane.agentKind !== undefined);
+    const singleAgent = agentPanes.length === 1 ? agentPanes[0] : undefined;
+    const singleSessionId = singleAgent?.sessionId;
+    const label = workspaceName(child.workspace);
+    const parts = childLine2Parts(child);
+    const line2 = parts.join(' · ');
+    const onPress = singleSessionId !== undefined
+        ? () => (onNavigatePane ?? navigateToSession)(singleSessionId)
+        : agentPanes.length > 1 ? onToggle : undefined;
+    const interactive = onPress !== undefined || canClose;
+
+    return (
+        <View style={styles.childRow}>
+            <View style={styles.childSeparator} />
+            <Pressable
+                onPress={onPress}
+                onLongPress={canClose ? onClose : undefined}
+                style={({ pressed }) => [
+                    styles.childPressable,
+                    selectedSessionId !== undefined && child.workspace.tabs.some((tab) => tab.panes.some((pane) =>
+                        pane.sessionId === selectedSessionId)) && styles.childPressableSelected,
+                    pressed && interactive && styles.childPressablePressed,
+                ]}
+                android_ripple={interactive ? { color: theme.colors.surfaceRipple, foreground: true } : undefined}
+                accessibilityRole={interactive ? 'button' : 'text'}
+                accessibilityLabel={onPress === undefined
+                    ? [label, ...parts].join(', ')
+                    : t('spacesTree.openLabel', { label, line2: parts.join(', ') })}
+            >
+                <StatusDot color={dot.color} isPulsing={dot.pulsing} size={8} />
+                <View style={styles.childText}>
+                    <Text numberOfLines={1} style={styles.childLabel}>{label}</Text>
+                    <Text numberOfLines={1} style={styles.childLine2}>{line2}</Text>
+                </View>
+            </Pressable>
+            {child.expanded && child.panes.map((pane) => (
+                <View key={pane.paneId} style={styles.childAgentInset}>
+                    <AgentRow
+                        pane={pane}
+                        first
+                        onClose={() => onClosePane(pane)}
+                        onNavigatePane={onNavigatePane}
+                        compact={false}
+                        selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
+                        canClose={canClose}
+                        unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
+                    />
+                </View>
+            ))}
+        </View>
+    );
+});
+
 const WorkspaceCard = React.memo(({
     workspace,
     expanded,
     agentCount,
     panes,
+    childSpaces,
+    groupExpanded,
+    searchForced,
     onToggle,
+    onToggleGroup,
+    onToggleChild,
     onClose,
+    onCloseChild,
     onClosePane,
     onNavigatePane,
     compact,
@@ -271,8 +557,15 @@ const WorkspaceCard = React.memo(({
     expanded: boolean;
     agentCount: number;
     panes: HerdrTreePane[];
+    childSpaces: HerdChildSpace[];
+    groupExpanded: boolean;
+    /** A search holds this card open: its header states that, it does not control it. */
+    searchForced: boolean;
     onToggle: () => void;
+    onToggleGroup: () => void;
+    onToggleChild: (workspaceId: string) => void;
     onClose: () => void;
+    onCloseChild: (workspace: HerdrTreeWorkspace) => void;
     onClosePane: (pane: HerdrTreePane) => void;
     onNavigatePane?: (sessionId: string) => void;
     compact: boolean;
@@ -284,28 +577,35 @@ const WorkspaceCard = React.memo(({
     const styles = stylesheet;
     const dot = agentStatusColor(workspace.agentStatus, theme);
     const branch = workspace.worktree?.branch;
+    const paneCount = workspace.tabs.reduce((count, tab) => count + tab.panes.length, 0);
+    const countLabel = agentCount > 0
+        ? t('spacesTree.childAgents', { count: agentCount })
+        : paneCount > 0 ? t('spacesTree.shell') : undefined;
+    const headerInteractive = !searchForced || canClose;
 
     return (
         <View style={[styles.card, compact && styles.cardCompact]}>
             <Pressable
-                onPress={onToggle}
+                onPress={searchForced ? undefined : onToggle}
                 onLongPress={canClose ? onClose : undefined}
                 style={({ pressed }) => [
                     styles.cardHeader,
                     compact && styles.cardHeaderCompact,
                     expanded && styles.cardHeaderExpanded,
-                    pressed && styles.cardHeaderPressed,
+                    pressed && headerInteractive && styles.cardHeaderPressed,
                 ]}
-                android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
-                accessibilityRole="button"
-                accessibilityLabel={`${workspaceName(workspace)} workspace, ${agentCount} agent${agentCount === 1 ? '' : 's'}`}
+                android_ripple={headerInteractive ? { color: theme.colors.surfaceRipple, foreground: true } : undefined}
+                accessibilityRole={headerInteractive ? 'button' : undefined}
+                accessibilityLabel={`${workspaceName(workspace)} workspace${countLabel === undefined ? '' : `, ${countLabel}`}`}
             >
                 <View style={styles.chevron}>
-                    <Ionicons
-                        name={expanded ? 'chevron-down' : 'chevron-forward'}
-                        size={16}
-                        color={theme.colors.groupped.chevron}
-                    />
+                    {!searchForced && (
+                        <Ionicons
+                            name={expanded ? 'chevron-down' : 'chevron-forward'}
+                            size={16}
+                            color={theme.colors.groupped.chevron}
+                        />
+                    )}
                 </View>
                 <StatusDot color={dot.color} isPulsing={dot.pulsing} size={8} />
                 <Text numberOfLines={1} style={[styles.cardTitle, compact && styles.cardTitleCompact]}>
@@ -316,11 +616,7 @@ const WorkspaceCard = React.memo(({
                         <Text numberOfLines={1} style={styles.branchPillText}>{branch}</Text>
                     </View>
                 )}
-                {agentCount > 0 && (
-                    <Text style={styles.agentCount}>
-                        {agentCount} agent{agentCount === 1 ? '' : 's'}
-                    </Text>
-                )}
+                {countLabel !== undefined && <Text style={styles.agentCount}>{countLabel}</Text>}
             </Pressable>
             {expanded && panes.map((pane, index) => (
                 <AgentRow
@@ -335,6 +631,29 @@ const WorkspaceCard = React.memo(({
                     unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
                 />
             ))}
+            {childSpaces.length > 0 && (
+                <GroupRow
+                    count={childSpaces.length}
+                    kind={groupKind(childSpaces)}
+                    groupChildren={childSpaces}
+                    expanded={groupExpanded}
+                    forced={searchForced}
+                    onToggle={onToggleGroup}
+                />
+            )}
+            {groupExpanded && childSpaces.map((child) => (
+                <ChildRow
+                    key={child.workspace.workspaceId}
+                    child={child}
+                    onToggle={() => onToggleChild(child.workspace.workspaceId)}
+                    onClose={() => onCloseChild(child.workspace)}
+                    onClosePane={onClosePane}
+                    onNavigatePane={onNavigatePane}
+                    selectedSessionId={selectedSessionId}
+                    canClose={canClose}
+                    unseenDoneSessionIds={unseenDoneSessionIds}
+                />
+            ))}
         </View>
     );
 });
@@ -345,6 +664,7 @@ export const SpacesTree = React.memo(({
     refresh,
     density = 'comfortable',
     selectedSessionId,
+    loading,
     onNavigatePane,
     searchQuery = '',
     topContentInset = 0,
@@ -376,6 +696,21 @@ export const SpacesTree = React.memo(({
             const next = new Set(previous);
             if (next.has(workspaceId)) next.delete(workspaceId);
             else next.add(workspaceId);
+            return next;
+        });
+    }, []);
+
+    // The card cannot visually close while its group row is forced open, so
+    // collapsing the card closes the group with it.
+    const toggleWorkspaceCard = React.useCallback((workspaceId: string) => {
+        setExpanded((previous) => {
+            const next = new Set(previous);
+            if (next.has(workspaceId) || next.has(`group:${workspaceId}`)) {
+                next.delete(workspaceId);
+                next.delete(`group:${workspaceId}`);
+            } else {
+                next.add(workspaceId);
+            }
             return next;
         });
     }, []);
@@ -431,19 +766,27 @@ export const SpacesTree = React.memo(({
         ]);
     }, [refresh]);
 
+    const searching = searchQuery.trim() !== '';
+
     const sections = React.useMemo(
         () => [{ key: 'spaces', title: t('spacesTree.title'), data: buildSpaceRows(workspaces, expanded, searchQuery) }],
         [expanded, searchQuery, workspaces],
     );
 
-    const renderItem = React.useCallback(({ item }: { item: HerdRow }) => (
+    const renderItem = React.useCallback(({ item }: { item: HerdSpaceRow }) => (
         <WorkspaceCard
             workspace={item.workspace}
             expanded={item.expanded}
             agentCount={item.agentCount}
             panes={item.panes}
-            onToggle={() => toggleWorkspace(item.workspace.workspaceId)}
+            childSpaces={item.children}
+            groupExpanded={item.groupExpanded}
+            searchForced={searching && item.groupExpanded}
+            onToggle={() => toggleWorkspaceCard(item.workspace.workspaceId)}
+            onToggleGroup={() => toggleWorkspace(`group:${item.workspace.workspaceId}`)}
+            onToggleChild={(workspaceId) => toggleWorkspace(`child:${workspaceId}`)}
             onClose={() => confirmCloseWorkspace(item.workspace)}
+            onCloseChild={confirmCloseWorkspace}
             onClosePane={confirmClosePane}
             onNavigatePane={onNavigatePane}
             compact={compact}
@@ -451,7 +794,15 @@ export const SpacesTree = React.memo(({
             canClose={canClose}
             unseenDoneSessionIds={unseenDoneSessionIds}
         />
-    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, onNavigatePane, selectedSessionId, toggleWorkspace, unseenDoneSessionIds]);
+    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, onNavigatePane, searching, selectedSessionId, toggleWorkspace, toggleWorkspaceCard, unseenDoneSessionIds]);
+
+    if (loading === true) {
+        return (
+            <View style={[styles.contentContainer, { maxWidth: maxContentWidth }]}>
+                <View style={styles.skeleton} />
+            </View>
+        );
+    }
 
     return (
         <View style={[styles.contentContainer, { maxWidth: maxContentWidth }]}>
@@ -467,7 +818,9 @@ export const SpacesTree = React.memo(({
                 stickySectionHeadersEnabled={false}
                 ListHeaderComponent={listHeaderComponent === undefined ? undefined : <>{listHeaderComponent}</>}
                 ListFooterComponent={<>
-                    {(sections[0]?.data.length ?? 0) === 0 ? <Text style={styles.empty}>{emptyText ?? t('spacesTree.empty')}</Text> : null}
+                    {(sections[0]?.data.length ?? 0) === 0
+                        ? <Text style={styles.empty}>{searching ? t('spacesTree.noMatches') : (emptyText ?? t('spacesTree.empty'))}</Text>
+                        : null}
                     {listFooterComponent === undefined ? undefined : <>{listFooterComponent}</>}
                 </>}
                 onScroll={onScroll}

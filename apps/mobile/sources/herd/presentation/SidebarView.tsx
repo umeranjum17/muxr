@@ -133,11 +133,7 @@ export const SidebarView = React.memo(() => {
     useSlotContributions('navigation.primary');
     const navToolCount = pluginSnapshot().reduce((count, { manifest }) => count
         + manifest.contributions.filter((contribution) => 'type' in contribution && contribution.type === 'navigation-item').length, 0);
-    const emptyText = !loaded && !attempted
-        ? 'Loading spaces…'
-        : herdrConnected === false
-            ? 'Reconnecting…'
-            : 'No spaces open';
+    const emptyText = herdrConnected === false ? 'Reconnecting…' : undefined;
 
     const handleNewSession = React.useCallback(() => {
         router.navigate('/new-agent');
@@ -174,6 +170,7 @@ export const SidebarView = React.memo(() => {
                 refresh={refresh}
                 density="compact"
                 selectedSessionId={selectedSessionId}
+                loading={!loaded && !attempted}
                 emptyText={emptyText}
                 listHeaderComponent={error !== null || herdrConnected === false ? (
                     <Text style={styles.treeNotice}>

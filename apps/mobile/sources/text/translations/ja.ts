@@ -278,6 +278,19 @@ export const ja: TranslationStructure = {
         // Spaces section on Home
         title: 'スペース',
         empty: '開いているスペースはありません',
+        groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
+            ? `${count} ワークスペース`
+            : `${count} ワークスペース (${kind})`,
+        needsYou: '対応が必要',
+        working: '稼働中',
+        done: '完了',
+        shell: 'ターミナル',
+        childEmpty: '空',
+        childAgents: ({ count }: { count: number }) => `${count} エージェント`,
+        noMatches: '一致するスペースがありません',
+        expand: '開く',
+        collapse: '折りたたむ',
+        openLabel: ({ label, line2 }: { label: string; line2: string }) => `開く ${label}, ${line2}`,
     },
 
     homeNotices: {

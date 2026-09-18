@@ -9,6 +9,7 @@ import { OptionSheet } from '@/components/OptionSheet';
 import { sync } from '@/catalog/sync';
 import { useHerdrTree } from '@/catalog/store';
 import { herdrTabForSession } from '../domain/agentPresentation';
+import { spaceExpansionDefaults } from '../domain/herdTree';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { SpacesTree } from './SpacesTree';
 
@@ -38,7 +39,7 @@ export function WorkspaceTreeSheet(props: { visible: boolean; sessionId: string;
             body={(
                 <SpacesTree
                     workspaces={workspaces}
-                    defaultExpandedWorkspaceIds={located === undefined ? [] : [located.workspace.workspaceId]}
+                    defaultExpandedWorkspaceIds={located === undefined ? [] : spaceExpansionDefaults(workspaces, located.workspace.workspaceId)}
                     refresh={refresh}
                     density="compact"
                     selectedSessionId={props.sessionId}

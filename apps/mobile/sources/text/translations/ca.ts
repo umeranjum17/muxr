@@ -276,6 +276,19 @@ export const ca: TranslationStructure = {
         // Spaces section on Home
         title: 'Espais',
         empty: 'Cap espai obert',
+        groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
+            ? `${count} ${plural({ count, singular: 'espai de treball', plural: 'espais de treball' })}`
+            : `${count} ${plural({ count, singular: 'espai de treball', plural: 'espais de treball' })} (${kind})`,
+        needsYou: 'et cal',
+        working: 'en execució',
+        done: 'fet',
+        shell: 'terminal',
+        childEmpty: 'buit',
+        childAgents: ({ count }: { count: number }) => `${count} ${plural({ count, singular: 'agent', plural: 'agents' })}`,
+        noMatches: 'Cap espai coincideix',
+        expand: 'Mostra més',
+        collapse: 'Mostra menys',
+        openLabel: ({ label, line2 }: { label: string; line2: string }) => `Obre ${label}, ${line2}`,
     },
 
     homeNotices: {

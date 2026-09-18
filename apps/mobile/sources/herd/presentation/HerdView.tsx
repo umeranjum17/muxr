@@ -262,7 +262,7 @@ export const HerdView = React.memo(({
                 </View>
             ) : (
                 <Text style={styles.quietLine}>
-                    {searchQuery.trim() !== '' ? 'No matches' : t('spacesTree.empty')}
+                    {searchQuery.trim() !== '' ? t('spacesTree.noMatches') : t('spacesTree.empty')}
                 </Text>
             )}
             </ScrollView>
@@ -279,7 +279,6 @@ export const HerdView = React.memo(({
                 defaultExpandedWorkspaceIds={defaultExpandedWorkspaceIds}
                 refresh={refresh}
                 searchQuery={searchQuery}
-                emptyText={searchQuery.trim() === '' ? undefined : 'No matches'}
                 listHeaderComponent={<>
                     <HomeNotices runtimeOffline={herdrConnected === false && !needsRecovery} machineName={machineName} />
                     {header}

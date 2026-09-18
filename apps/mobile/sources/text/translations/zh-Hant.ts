@@ -277,6 +277,19 @@ export const zhHant: TranslationStructure = {
         // Spaces section on Home
         title: '空間',
         empty: '沒有開啟的空間',
+        groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
+            ? `${count} 個工作區`
+            : `${count} 個工作區（${kind}）`,
+        needsYou: '需要你處理',
+        working: '執行中',
+        done: '已完成',
+        shell: '終端',
+        childEmpty: '空',
+        childAgents: ({ count }: { count: number }) => `${count} 個代理`,
+        noMatches: '沒有符合的空間',
+        expand: '顯示更多',
+        collapse: '收合',
+        openLabel: ({ label, line2 }: { label: string; line2: string }) => `開啟 ${label}, ${line2}`,
     },
 
     homeNotices: {

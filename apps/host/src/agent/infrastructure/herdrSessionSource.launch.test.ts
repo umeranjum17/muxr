@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { HerdrTreeWorkspace } from '@muxr/contract';
-import { createHerdrSessionSource } from './herdrSessionSource.js';
+import { createHerdrSessionSource, boundedWorkspaceTokens } from './herdrSessionSource.js';
 
 /**
  * The slice of herdr a phone launch touches. `agent.start` answers the way
@@ -164,4 +164,19 @@ describe('phone launch before herdr detects the agent', () => {
             rmSync(dir, { recursive: true, force: true });
         }
     }, 20_000);
+});
+
+// Producer tokens cross from Herdr plugins to the phone, so the bound is a trust boundary.
+it('bounds workspace tokens: known keys only, capped count, sanitized capped values', () => {
+    expect(boundedWorkspaceTokens({ parent: 'w1R4', kind: 'task', projection: '8NwSBmQ5YerlAcFOBfSrqg' }))
+        .toEqual({ parent: 'w1R4', kind: 'task', projection: '8NwSBmQ5YerlAcFOBfSrqg' });
+    expect(boundedWorkspaceTokens({ Bad: 'x', '9lead': 'x', Upper: 'x', ok_key: 'kept' })).toEqual({ ok_key: 'kept' });
+    expect(boundedWorkspaceTokens(Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`k${i}`, 'v']))))
+        .toHaveProperty('k7');
+    expect(Object.keys(boundedWorkspaceTokens(Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`k${i}`, 'v'])))!)).toHaveLength(8);
+    const long = boundedWorkspaceTokens({ parent: 'w'.repeat(200) })!;
+    expect(long.parent!.length).toBeLessThanOrEqual(64);
+    expect(boundedWorkspaceTokens({ parent: 'a\u000Bb\uFEFFc' })).toEqual({ parent: 'abc' });
+    expect(boundedWorkspaceTokens(undefined)).toBeUndefined();
+    expect(boundedWorkspaceTokens(['not', 'an', 'object'])).toBeUndefined();
 });
