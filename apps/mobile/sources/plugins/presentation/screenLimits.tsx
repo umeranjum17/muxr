@@ -22,7 +22,13 @@ const rowTone = (used: number): PluginScreenTone => {
 };
 
 /** One verdict vocabulary for every limit surface; the Right now card reads
- *  the same five words. */
+ *  the same five words and the same five colours. */
+export const verdictTone = (verdict: PluginLimitsPayload['verdict']): PluginScreenTone =>
+    verdict === 'go' ? 'positive'
+        : verdict === 'unknown' ? 'secondary'
+            : verdict === 'watch' || verdict === 'ahead' ? 'warning'
+                : 'danger';
+
 export const VERDICT_KEYS: Record<Exclude<PluginLimitsPayload['verdict'], 'unknown'>, Parameters<typeof t>[0]> = {
     limited: 'plugins.limits.limited',
     low: 'plugins.limits.low',
@@ -78,8 +84,8 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
     }
     const tightest = bindingWindow(payload.windows);
     const verdictWord = payload.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.verdict]);
-    const verdictTone: PluginScreenTone = payload.verdict === 'go' ? 'positive' : payload.verdict === 'unknown' ? 'secondary' : payload.verdict === 'watch' || payload.verdict === 'ahead' ? 'warning' : 'danger';
-    const headlineTone: PluginScreenTone = payload.verdict === 'go' ? 'secondary' : verdictTone;
+    const tone = verdictTone(payload.verdict);
+    const headlineTone: PluginScreenTone = payload.verdict === 'go' ? 'secondary' : tone;
     return (
         <View
             accessible
@@ -94,7 +100,7 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
             </View>
             {verdictWord !== undefined && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: toneColor(theme, verdictTone) }} />
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: toneColor(theme, tone) }} />
                     <Text style={{ color: theme.colors.text, fontSize: 17, lineHeight: 22, fontWeight: '600', flex: 1, ...Typography.default('semiBold') }}>{verdictWord}</Text>
                 </View>
             )}

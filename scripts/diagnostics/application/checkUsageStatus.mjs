@@ -667,27 +667,29 @@ try {
     }
     process.stdout.write('PASS e2e: per-provider ccusage tabs + safe live limits + deduped local accounting\n');
 
-    // The Right now card renders a typed payload, not prose: whatever the
-    // fixtures feed Usage must also parse into the card's bounded shape.
-    // Runs after the scan-counting assertions: now.mjs invokes usage.mjs, and
-    // a warm-cache answer still counts as one ccusage scan.
+    // The Right now card leads with the window the verdict describes: the
+    // highest share used, ties to the first published. Compared against the
+    // same Usage answer now.mjs read, so a selection that picked another
+    // window -- or none -- fails here. Runs after the scan-counting
+    // assertions: now.mjs invokes usage.mjs, and a warm-cache answer still
+    // counts as one ccusage scan.
     const nowPayload = JSON.parse(runPlugin('plugins/status/now.mjs', {}).stdout);
-    if (nowPayload.limit !== undefined) {
-        assert.ok(['go', 'ahead', 'watch', 'low', 'limited', 'unknown'].includes(nowPayload.limit.verdict));
-        assert.ok(Number.isInteger(nowPayload.limit.used) && nowPayload.limit.used >= 0 && nowPayload.limit.used <= 100);
-        assert.ok(typeof nowPayload.limit.label === 'string' && nowPayload.limit.label !== '');
-        assert.ok(nowPayload.limit.resetsIn === undefined || typeof nowPayload.limit.resetsIn === 'string');
-        assert.ok(nowPayload.limit.elapsed === undefined || (Number.isFinite(nowPayload.limit.elapsed) && nowPayload.limit.elapsed >= 0 && nowPayload.limit.elapsed <= 1));
-    }
-    // Figures only: the host never ships prose for the card to read out.
-    assert.ok(nowPayload.message === undefined);
+    const nowUsage = JSON.parse(runPlugin('plugins/status/usage.mjs', {}).stdout);
+    assert.ok(nowUsage.windows.length > 1, 'fixtures must publish competing windows for the selection to mean anything');
+    const tightest = nowUsage.windows.reduce((worst, vm) => (vm.percentUsed > worst.percentUsed ? vm : worst), nowUsage.windows[0]);
+    assert.equal(nowPayload.limits.verdict, nowUsage.limits.verdict);
+    assert.deepEqual(
+        nowPayload.limits.windows,
+        [nowUsage.limits.windows[nowUsage.windows.indexOf(tightest)]],
+        'the card must lead with the window the verdict describes',
+    );
     assert.ok(Number.isFinite(nowPayload.vitals.memoryTotal) && nowPayload.vitals.memoryTotal > 0);
     assert.ok(Number.isFinite(nowPayload.vitals.diskTotal) && nowPayload.vitals.diskTotal > 0);
     assert.ok(Number.isFinite(nowPayload.vitals.load1) && Number.isFinite(nowPayload.vitals.uptimeSeconds));
     // The cold-cache fallback never withholds the vitals line.
     const coldNow = JSON.parse(runPlugin('plugins/status/now.mjs', {}, { MUXR_PLUGIN_STATE_DIR: '' }).stdout);
     assert.ok(Number.isFinite(coldNow.vitals.memoryTotal) && coldNow.vitals.memoryTotal > 0);
-    process.stdout.write('PASS now: the home card payload parses for the fixtures\n');
+    process.stdout.write('PASS now: the home card leads with the window its verdict describes\n');
 } finally {
     rmSync(scratch, { recursive: true, force: true });
 }

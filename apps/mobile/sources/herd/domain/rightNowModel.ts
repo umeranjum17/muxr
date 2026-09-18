@@ -1,84 +1,52 @@
-import { MAX_CHART_LABEL_BYTES, capUtf8Bytes, sanitizeDisplayText } from '@muxr/contract';
 import type { PluginDataCard, PluginManifestV1 } from '@muxr/contract';
+import { asLimitsPayload, type PluginLimitsPayload } from '@/plugins/limits';
 
-/** What the host says about right now: the tightest plan limit and machine
- *  vitals as figures. The phone owns units and every word. */
-export type RightNowVerdict = 'go' | 'ahead' | 'watch' | 'low' | 'limited' | 'unknown';
-
-export interface RightNowLimit {
-    verdict: RightNowVerdict;
-    label: string;
-    /** Percent of the window used, 0..100. */
-    used: number;
-    /** Duration until reset ("4d 17h"); omitted when the host has none. */
-    resetsIn?: string;
-    /** How much of the window has elapsed, 0..1, when the length is known. */
-    elapsed?: number;
-}
-
+/** What the host says about right now: the plan limits vocabulary the Usage
+ *  screen already speaks, narrowed to the window its verdict describes, plus
+ *  machine vitals as figures. The phone owns units and every word. */
 export interface RightNowVitals {
     memoryUsed: number;
     memoryTotal: number;
-    diskUsed: number;
-    diskTotal: number;
+    /** Omitted when the host could not read the filesystem; the other
+     *  figures still answer. */
+    diskUsed?: number;
+    diskTotal?: number;
     load1: number;
     uptimeSeconds: number;
 }
 
 export interface RightNowPayload {
-    limit?: RightNowLimit;
+    limits: PluginLimitsPayload;
     /** Cold usage cache; the host fell back so the vitals could answer. */
     collecting?: true;
     vitals?: RightNowVitals;
 }
 
-const VERDICTS = new Set<Exclude<RightNowVerdict, 'unknown'>>(['go', 'ahead', 'watch', 'low', 'limited']);
-
-const bounded = (value: unknown, bytes: number): string =>
-    typeof value === 'string' ? capUtf8Bytes(sanitizeDisplayText(value).trim(), bytes) : '';
-
-const finiteIn = (value: unknown, low: number, high: number): value is number =>
-    typeof value === 'number' && Number.isFinite(value) && value >= low && value <= high;
-
 /** The vitals line's figures: rounded shares, a one-decimal load and an
  *  uptime in the compactAge voice (under a day in hours, then days). */
-export function vitalsFacts(vitals: RightNowVitals): { memoryPercent: number; diskPercent: number; load: string; uptime: string } {
+export function vitalsFacts(vitals: RightNowVitals): { memoryPercent: number; diskPercent?: number; load: string; uptime: string } {
     const hours = Math.floor(vitals.uptimeSeconds / 3600);
+    const disk = vitals.diskUsed === undefined || vitals.diskTotal === undefined
+        ? undefined
+        : Math.round((vitals.diskUsed / vitals.diskTotal) * 100);
     return {
         memoryPercent: Math.round((vitals.memoryUsed / vitals.memoryTotal) * 100),
-        diskPercent: Math.round((vitals.diskUsed / vitals.diskTotal) * 100),
+        ...(disk === undefined ? {} : { diskPercent: disk }),
         load: Number(vitals.load1.toFixed(1)).toString(),
         uptime: hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`,
     };
 }
 
-/** Bound untrusted RPC data before it reaches the app-owned card. Any parse
- *  failure drops the piece it hit — never a crash, never raw JSON. */
+/** Bound untrusted RPC data before it reaches the app-owned card. The limit
+ *  half is the plugins context's own parser, so one bounding rule serves both
+ *  the Usage screen and this card. */
 export function asRightNowPayload(value: unknown): RightNowPayload {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
-    const raw = value as Record<string, unknown>;
-    let limit: RightNowLimit | undefined;
-    if (typeof raw.limit === 'object' && raw.limit !== null && !Array.isArray(raw.limit)) {
-        const window = raw.limit as Record<string, unknown>;
-        const verdict = typeof window.verdict === 'string' && VERDICTS.has(window.verdict as Exclude<RightNowVerdict, 'unknown'>)
-            ? window.verdict as RightNowVerdict
-            : 'unknown';
-        const label = bounded(window.label, MAX_CHART_LABEL_BYTES);
-        // A limit without a usable share of a named window is dropped, not guessed.
-        if (label !== '' && finiteIn(window.used, 0, 100)) {
-            const resetsIn = bounded(window.resetsIn, MAX_CHART_LABEL_BYTES);
-            limit = {
-                verdict,
-                label,
-                used: window.used,
-                ...(resetsIn === '' ? {} : { resetsIn }),
-                ...(finiteIn(window.elapsed, 0, 1) ? { elapsed: window.elapsed } : {}),
-            };
-        }
-    }
+    const raw = typeof value === 'object' && value !== null && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : {};
     const vitals = rightNowVitals(raw.vitals);
     return {
-        ...(limit === undefined ? {} : { limit }),
+        limits: asLimitsPayload(raw.limits),
         ...(raw.collecting === true ? { collecting: true as const } : {}),
         ...(vitals === undefined ? {} : { vitals }),
     };
@@ -87,20 +55,19 @@ export function asRightNowPayload(value: unknown): RightNowPayload {
 function rightNowVitals(value: unknown): RightNowVitals | undefined {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
     const raw = value as Record<string, unknown>;
-    const memoryUsed = raw.memoryUsed;
-    const memoryTotal = raw.memoryTotal;
-    const diskUsed = raw.diskUsed;
-    const diskTotal = raw.diskTotal;
-    const load1 = raw.load1;
-    const uptimeSeconds = raw.uptimeSeconds;
-    // Every figure finite and non-negative, and a zero ceiling would make the
-    // shares divide by zero — one bad number drops the whole line.
-    const usable = typeof memoryTotal === 'number' && memoryTotal > 0
-        && typeof diskTotal === 'number' && diskTotal > 0
-        && [memoryUsed, memoryTotal, diskUsed, diskTotal, load1, uptimeSeconds]
-            .every((figure) => typeof figure === 'number' && Number.isFinite(figure) && figure >= 0);
-    if (!usable) return undefined;
-    return { memoryUsed, memoryTotal, diskUsed, diskTotal, load1, uptimeSeconds } as RightNowVitals;
+    const figure = (candidate: unknown): number | undefined =>
+        typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0 ? candidate : undefined;
+    const memoryUsed = figure(raw.memoryUsed);
+    const memoryTotal = figure(raw.memoryTotal);
+    const load1 = figure(raw.load1);
+    const uptimeSeconds = figure(raw.uptimeSeconds);
+    // A zero ceiling would make the share divide by zero.
+    if (memoryUsed === undefined || memoryTotal === undefined || memoryTotal === 0) return undefined;
+    if (load1 === undefined || uptimeSeconds === undefined) return undefined;
+    const diskUsed = figure(raw.diskUsed);
+    const diskTotal = figure(raw.diskTotal);
+    const disk = diskUsed === undefined || diskTotal === undefined || diskTotal === 0 ? undefined : { diskUsed, diskTotal };
+    return { memoryUsed, memoryTotal, ...disk, load1, uptimeSeconds };
 }
 
 export interface RightNowBinding {
@@ -113,16 +80,17 @@ export interface RightNowBinding {
     contentContributionId?: string;
 }
 
-/** The `home.cards` data-card whose source is a plugin's `now` rpc is the
- *  product's Right now card: the declarative placement decides both that the
- *  product component draws it and that the generic DataCard skips it. One
- *  binding, read by both sides, so the two can never disagree. */
+/** The inline `home.cards` data-card sourced from a plugin's `now` read rpc
+ *  is the product's Right now card: the declarative placement decides both
+ *  that the product component draws it and that the generic DataCard skips
+ *  it. One binding, read by both sides, so the two can never disagree. */
 export function rightNowBinding(
     plugins: readonly { summary: { pluginId: string; manifestHash: string }; manifest: PluginManifestV1 }[],
 ): RightNowBinding | undefined {
     for (const { summary, manifest } of plugins) {
         for (const contribution of manifest.contributions) {
-            if (!('type' in contribution) || contribution.type !== 'data-card' || contribution.slot !== 'home.cards') continue;
+            if (!('type' in contribution) || contribution.type !== 'data-card') continue;
+            if (contribution.slot !== 'home.cards' || contribution.presentation === 'sheet') continue;
             if (!sourcedFromNow(manifest, contribution)) continue;
             return {
                 pluginId: summary.pluginId,
@@ -138,5 +106,6 @@ export function rightNowBinding(
 
 function sourcedFromNow(manifest: PluginManifestV1, contribution: PluginDataCard): boolean {
     return manifest.contributions.some((candidate) =>
-        candidate.slot === 'host.rpc' && candidate.method === 'now' && candidate.id === contribution.source.contributionId);
+        candidate.slot === 'host.rpc' && candidate.mode === 'read'
+        && candidate.method === 'now' && candidate.id === contribution.source.contributionId);
 }

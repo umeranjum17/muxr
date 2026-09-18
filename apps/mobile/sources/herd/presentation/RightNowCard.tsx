@@ -4,20 +4,14 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@muxr/contract';
-import type { PluginScreenTone } from '@muxr/contract';
 import { cardStyle, Meter, SectionLabel, withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { sync } from '@/catalog/sync';
 import { pluginSnapshot, subscribePluginDataInvalidation, pluginHref, toneColor, useSlotContributions } from '@/plugins';
-import { VERDICT_KEYS } from '@/plugins/ui';
+import type { PluginLimitsWindow } from '@/plugins/limits';
+import { VERDICT_KEYS, verdictTone } from '@/plugins/ui';
 import { t } from '@/text';
 import { asRightNowPayload, rightNowBinding, vitalsFacts, type RightNowPayload } from '../domain/rightNowModel';
-
-const limitTone = (verdict: NonNullable<RightNowPayload['limit']>['verdict']): PluginScreenTone | undefined =>
-    verdict === 'go' ? 'positive'
-        : verdict === 'watch' || verdict === 'ahead' ? 'warning'
-            : verdict === 'unknown' ? undefined
-                : 'danger';
 
 /**
  * The top of Home as figures: one verdict line, one neutral meter, one
@@ -87,9 +81,10 @@ export function RightNowCard() {
     }
 
     if (payload === undefined) return null;
-    const limit = payload.limit;
-    const verdictWord = limit === undefined || limit.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[limit.verdict]);
-    const tone = limit === undefined ? undefined : limitTone(limit.verdict);
+    const verdict = payload.limits.verdict;
+    const limit = payload.limits.windows[0];
+    const verdictWord = verdict === 'unknown' ? undefined : t(VERDICT_KEYS[verdict]);
+    const tone = verdict === 'unknown' ? undefined : verdictTone(verdict);
     const line = limit !== undefined
         ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {tone !== undefined && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: toneColor(theme, tone) }} />}
@@ -114,7 +109,7 @@ export function RightNowCard() {
     </View>;
 }
 
-function CardBody({ limit, line, vitals }: { limit: RightNowPayload['limit']; line: React.ReactNode; vitals: RightNowPayload['vitals'] }) {
+function CardBody({ limit, line, vitals }: { limit?: PluginLimitsWindow; line: React.ReactNode; vitals: RightNowPayload['vitals'] }) {
     const { theme } = useUnistyles();
     return <View style={[cardStyle(theme), { marginHorizontal: 16, padding: 14 }]}>
         {line}
@@ -129,20 +124,31 @@ function CardBody({ limit, line, vitals }: { limit: RightNowPayload['limit']; li
  *  80% memory is a machine at work, not a warning. */
 function FactsLine({ vitals, style }: { vitals: NonNullable<RightNowPayload['vitals']>; style?: object }) {
     const { theme } = useUnistyles();
-    const { memoryPercent, diskPercent, load, uptime } = vitalsFacts(vitals);
     return (
         <Text style={[{ color: theme.colors.textSecondary, fontSize: 11.5, lineHeight: 15, ...Typography.mono('regular') }, style]}>
-            {`${t('plugins.rightNow.memory')} ${memoryPercent}% · ${t('plugins.rightNow.disk')} ${diskPercent}% · ${t('plugins.rightNow.load')} ${load} · ${t('plugins.rightNow.up')} ${uptime}`}
+            {vitalsFigures(vitals).join(' · ')}
         </Text>
     );
+}
+
+/** The figures the host could read, in order; a filesystem it could not stat
+ *  drops its own figure and leaves the rest of the line standing. */
+function vitalsFigures(vitals: NonNullable<RightNowPayload['vitals']>, percent = (value: number) => `${value}%`): string[] {
+    const { memoryPercent, diskPercent, load, uptime } = vitalsFacts(vitals);
+    return [
+        `${t('plugins.rightNow.memory')} ${percent(memoryPercent)}`,
+        ...(diskPercent === undefined ? [] : [`${t('plugins.rightNow.disk')} ${percent(diskPercent)}`]),
+        `${t('plugins.rightNow.load')} ${load}`,
+        `${t('plugins.rightNow.up')} ${uptime}`,
+    ];
 }
 
 /** One sentence for the reader; the dots are decorative. */
 function cardAccessibilityLabel(payload: RightNowPayload): string {
     const parts: string[] = [t('plugins.rightNow.title')];
-    const limit = payload.limit;
+    const limit = payload.limits.windows[0];
     if (limit !== undefined) {
-        const verdict = limit.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[limit.verdict]);
+        const verdict = payload.limits.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.limits.verdict]);
         const line = [verdict, [limit.label, t('plugins.limits.percentUsed', { percent: Math.round(limit.used) })].join(' ')]
             .filter((part) => part !== undefined).join(', ');
         parts.push(limit.resetsIn === undefined ? line : `${line}, ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`);
@@ -152,13 +158,7 @@ function cardAccessibilityLabel(payload: RightNowPayload): string {
         parts.push(t('plugins.rightNow.notConnected'));
     }
     if (payload.vitals !== undefined) {
-        const { memoryPercent, diskPercent, load, uptime } = vitalsFacts(payload.vitals);
-        parts.push([
-            `${t('plugins.rightNow.memory')} ${t('plugins.limits.percentUsed', { percent: memoryPercent })}`,
-            `${t('plugins.rightNow.disk')} ${t('plugins.limits.percentUsed', { percent: diskPercent })}`,
-            `${t('plugins.rightNow.load')} ${load}`,
-            `${t('plugins.rightNow.up')} ${uptime}`,
-        ].join(', '));
+        parts.push(vitalsFigures(payload.vitals, (percent) => t('plugins.limits.percentUsed', { percent })).join(', '));
     }
     parts.push(t('plugins.rightNow.opensUsage'));
     return parts.join('. ');

@@ -162,7 +162,7 @@ export function providerModelIds(modelsRaw, providerId) {
 
 /** The tightest window decides the verdict: highest share used; on ties the
  *  first published window wins. */
-function tightestWindow(vms) {
+export function tightestWindow(vms) {
     return vms.reduce((worst, vm) => (worst === undefined || vm.percentUsed > worst.percentUsed ? vm : worst), undefined);
 }
 
