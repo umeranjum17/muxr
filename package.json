@@ -31,6 +31,7 @@
         "pack:smoke": "yarn build && yarn web:export && node scripts/diagnostics/application/checkPackageSmoke.mjs && node scripts/diagnostics/application/packageLifecycleSmoke.mjs"
     },
     "devDependencies": {
+        "herdr-files": "umeranjum17/herdr-files#e9612cabfa5b722020148b579dbe1a12b5f5f00f",
         "@types/node": "^22.10.0",
         "@types/web-push": "^3.6.4",
         "@types/ws": "^8.5.13",
