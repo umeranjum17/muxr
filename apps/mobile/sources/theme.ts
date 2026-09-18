@@ -56,6 +56,8 @@ export const lightTheme = {
             background: Platform.select({ ios: '#F2F2F7', default: '#F5F5F5' }),
             chevron: Platform.select({ ios: '#C7C7CC', default: '#49454F' }),
             sectionTitle: Platform.select({ ios: '#8E8E93', default: '#49454F' }),
+            // Tree connector rail in grouped lists (iOS separator family).
+            rail: '#D1D1D6',
         },
         header: {
             background: '#ffffff',
@@ -320,6 +322,7 @@ export const darkTheme = {
             background: Platform.select({ web: '#1e1e1e', default: '#000000' }),
             chevron: Platform.select({ ios: '#505050', default: '#CAC4D0' }),
             sectionTitle: Platform.select({ ios: '#8E8E93', default: '#CAC4D0' }),
+            rail: '#38383A',
         },
         fab: {
             background: '#FFFFFF',
