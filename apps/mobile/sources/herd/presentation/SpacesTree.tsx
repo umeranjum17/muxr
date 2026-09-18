@@ -16,7 +16,7 @@ import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
-import { buildSpaceRows, groupKind, groupSummaryCounts, workspaceName, HERD_EMPTY_ROW, type HerdChildSpace, type HerdRow } from '../domain/herdTree';
+import { buildSpaceRows, groupKind, groupSummaryCounts, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
 import { agentIdentityLine, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
@@ -382,7 +382,7 @@ const GroupRow = React.memo(({
             </View>
             <Text numberOfLines={1} style={styles.groupTitle}>
                 {noun}
-                {summary.map((entry, index) => (
+                {summary.map((entry) => (
                     <Text key={entry.word} style={styles.groupSummary}>
                         {' · '}
                         <Text style={entry.error ? { color: theme.colors.status.error } : undefined}>
@@ -403,6 +403,7 @@ const ChildRow = React.memo(({
     onNavigatePane,
     selectedSessionId,
     canClose,
+    unseenDoneSessionIds,
 }: {
     child: HerdChildSpace;
     onToggle: () => void;
@@ -411,6 +412,7 @@ const ChildRow = React.memo(({
     onNavigatePane?: (sessionId: string) => void;
     selectedSessionId?: string;
     canClose: boolean;
+    unseenDoneSessionIds: ReadonlySet<string>;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -419,7 +421,7 @@ const ChildRow = React.memo(({
     const agentPanes = child.workspace.tabs.flatMap((tab) => tab.panes).filter((pane) => pane.agentKind !== undefined);
     const singleAgent = agentPanes.length === 1 ? agentPanes[0] : undefined;
     const singleSessionId = singleAgent?.sessionId;
-    const label = child.workspace.label ?? workspaceName(child.workspace);
+    const label = workspaceName(child.workspace);
     const line2 = childLine2(child);
 
     return (
@@ -456,6 +458,7 @@ const ChildRow = React.memo(({
                         compact={false}
                         selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
                         canClose={canClose}
+                        unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
                     />
                 </View>
             ))}
@@ -574,6 +577,7 @@ const WorkspaceCard = React.memo(({
                     onNavigatePane={onNavigatePane}
                     selectedSessionId={selectedSessionId}
                     canClose={canClose}
+                    unseenDoneSessionIds={unseenDoneSessionIds}
                 />
             ))}
         </View>
@@ -688,18 +692,12 @@ export const SpacesTree = React.memo(({
         ]);
     }, [refresh]);
 
-    // A header-only section never renders ListEmptyComponent (the header counts
-    // as an item), so the quiet line rides as one pseudo-row instead.
-    const sections = React.useMemo(() => {
-        const rows = buildSpaceRows(workspaces, expanded, searchQuery);
-        return [{ key: 'spaces', title: t('spacesTree.title'), data: rows.length > 0 ? rows : [HERD_EMPTY_ROW] }];
-    }, [expanded, searchQuery, workspaces]);
+    const sections = React.useMemo(
+        () => [{ key: 'spaces', title: t('spacesTree.title'), data: buildSpaceRows(workspaces, expanded, searchQuery) }],
+        [expanded, searchQuery, workspaces],
+    );
 
-    const renderItem = React.useCallback(({ item }: { item: HerdRow }) => {
-        if (item.type === 'empty') {
-            return <Text style={styles.empty}>{searchQuery.trim() === '' ? (emptyText ?? t('spacesTree.empty')) : t('spacesTree.noMatches')}</Text>;
-        }
-        return (
+    const renderItem = React.useCallback(({ item }: { item: HerdSpaceRow }) => (
         <WorkspaceCard
             workspace={item.workspace}
             expanded={item.expanded}
@@ -719,8 +717,7 @@ export const SpacesTree = React.memo(({
             canClose={canClose}
             unseenDoneSessionIds={unseenDoneSessionIds}
         />
-        );
-    }, [canClose, compact, confirmClosePane, confirmCloseWorkspace, emptyText, onNavigatePane, searchQuery, selectedSessionId, toggleWorkspace, toggleWorkspaceCard, unseenDoneSessionIds]);
+    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, onNavigatePane, selectedSessionId, toggleWorkspace, toggleWorkspaceCard, unseenDoneSessionIds]);
 
     if (loading === true) {
         return (
@@ -734,7 +731,7 @@ export const SpacesTree = React.memo(({
         <View style={[styles.contentContainer, { maxWidth: maxContentWidth }]}>
             <SectionList
                 sections={sections}
-                keyExtractor={(item) => item.type === 'empty' ? 'spaces-empty' : `ws-${item.workspace.workspaceId}`}
+                keyExtractor={(item) => `ws-${item.workspace.workspaceId}`}
                 renderItem={renderItem}
                 renderSectionHeader={({ section }) => (
                     <View style={[styles.sectionHeader, compact && styles.sectionHeaderCompact]}>
@@ -743,7 +740,12 @@ export const SpacesTree = React.memo(({
                 )}
                 stickySectionHeadersEnabled={false}
                 ListHeaderComponent={listHeaderComponent === undefined ? undefined : <>{listHeaderComponent}</>}
-                ListFooterComponent={listFooterComponent === undefined ? undefined : <>{listFooterComponent}</>}
+                ListFooterComponent={<>
+                    {(sections[0]?.data.length ?? 0) === 0
+                        ? <Text style={styles.empty}>{searchQuery.trim() === '' ? (emptyText ?? t('spacesTree.empty')) : t('spacesTree.noMatches')}</Text>
+                        : null}
+                    {listFooterComponent === undefined ? undefined : <>{listFooterComponent}</>}
+                </>}
                 onScroll={onScroll}
                 scrollEventThrottle={100}
                 contentContainerStyle={{ paddingTop: topContentInset, paddingBottom: bottomContentInset }}

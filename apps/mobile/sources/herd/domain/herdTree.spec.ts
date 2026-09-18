@@ -107,8 +107,8 @@ describe('visible herd tree flow', () => {
         expect(spaceExpansionDefaults(workspaces, 'w5')).toEqual(['w5']);
     });
 
-    it('keeps workspace labels readable in the card and path UI', () => {
-        expect(workspaceName({ workspaceId: 'w1', label: '/home/umer/repo-a', focused: false, agentStatus: 'idle', tabs: [] } as ContractWorkspace)).toBe('repo-a');
+    it('shows herdr workspace labels verbatim and truncates long paths in the path UI', () => {
+        expect(workspaceName({ workspaceId: 'w1', label: '/home/umer/repo-a', focused: false, agentStatus: 'idle', tabs: [] } as ContractWorkspace)).toBe('/home/umer/repo-a');
         expect(workspaceName({ workspaceId: 'w2', label: undefined, focused: false, agentStatus: 'idle', tabs: [] } as ContractWorkspace)).toBe('w2');
         expect(middleTruncate('short')).toBe('short');
         expect(middleTruncate('abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz', 20)).toBe('abcdefghi…rstuvwxyz');

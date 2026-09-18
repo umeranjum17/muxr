@@ -4,11 +4,9 @@
 
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@muxr/contract';
 
-/** A path label becomes its folder; anything else is already a name. */
+/** Herdr's label, verbatim — never parsed, split or stripped (spaces.md §4.1). */
 export function workspaceName(ws: HerdrTreeWorkspace): string {
-    const label = ws.label ?? ws.workspaceId;
-    if (label.includes('/')) return label.split('/').filter(Boolean).pop() ?? label;
-    return label;
+    return ws.label ?? ws.workspaceId;
 }
 
 export function hasAgent(ws: HerdrTreeWorkspace): boolean {
@@ -64,7 +62,6 @@ export type HerdChildSpace = {
     workspace: HerdrTreeWorkspace;
     /** Agent panes, listed when the child expands in place. */
     panes: HerdrTreePane[];
-    agentCount: number;
     expanded: boolean;
 };
 
@@ -81,13 +78,6 @@ export type HerdSpaceRow = {
     children: HerdChildSpace[];
     groupExpanded: boolean;
 };
-
-/** The quiet line under the Spaces label when nothing matches (no fleets, or a search). */
-export type HerdEmptyRow = { type: 'empty' };
-
-export type HerdRow = HerdSpaceRow | HerdEmptyRow;
-
-export const HERD_EMPTY_ROW: HerdEmptyRow = { type: 'empty' };
 
 /** Counts behind a group row's summary: needs you, working, done. */
 export function groupSummaryCounts(children: readonly HerdChildSpace[]): { needsYou: number; working: number; done: number } {
@@ -162,7 +152,6 @@ export function buildSpaceRows(
         return {
             workspace: child,
             panes: childExpanded ? agentPanes.filter(matches) : [],
-            agentCount: new Set(agentPanes.flatMap((pane) => pane.sessionId === undefined ? [] : [pane.sessionId])).size,
             expanded: childExpanded,
         };
     };
