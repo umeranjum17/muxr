@@ -1049,6 +1049,11 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
 
     const wss = new WebSocketServer({ server: http, maxPayload: config.maxPayloadBytes });
 
+    // Terminal keystrokes are small writes; Nagle would let each one sit
+    // unacked for up to ~40ms per hop. Covers every socket this server
+    // upgrades, including the terminal, preview and stream transports.
+    http.on('connection', (socket) => { socket.setNoDelay(true); });
+
     wss.on('connection', (socket, req) => {
         const url = new URL(req.url ?? '/', 'http://localhost');
         const relayTransport = !url.pathname.endsWith('/preview')

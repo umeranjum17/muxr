@@ -186,6 +186,8 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
                 next.close();
                 return;
             }
+            // Keystroke-sized frames must not wait on Nagle/delayed-ACK stalls.
+            (next as unknown as { _socket?: { setNoDelay(on: boolean): void } })._socket?.setNoDelay(true);
             reconnectAttempt = 0;
             options.onStateChange?.('open');
             flush();
