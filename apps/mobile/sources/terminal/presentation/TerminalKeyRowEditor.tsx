@@ -44,6 +44,10 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
     const dragIndex = React.useRef(0);
     const accumulated = React.useRef(0);
     const dragging = React.useRef(false);
+    // Only the handle that started the drag may steer it: a second finger on
+    // another handle owns a separate recognizer whose updates would otherwise
+    // move the first handle's row.
+    const dragOwner = React.useRef<object | null>(null);
     workingRef.current = working;
 
     // Re-seed only on the closed→open transition: commits during an open edit
@@ -97,19 +101,21 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
         swap(index, target);
     };
 
-    const onDrag = (phase: 'start' | 'update' | 'end', index: number, translationY: number) => {
+    const onDrag = (phase: 'start' | 'update' | 'end', index: number, translationY: number, owner: object) => {
         if (phase === 'start') {
             if (dragging.current) return;
             dragging.current = true;
+            dragOwner.current = owner;
             hapticsLight();
             dragIndex.current = index;
             accumulated.current = 0;
             setDrag({ index, translate: 0 });
             return;
         }
-        if (!dragging.current) return;
+        if (!dragging.current || dragOwner.current !== owner) return;
         if (phase === 'end') {
             dragging.current = false;
+            dragOwner.current = null;
             setDrag(null);
             return;
         }
@@ -217,7 +223,7 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
 function Handle({ index, label, onDrag, onMove, tint }: {
     index: number;
     label: string;
-    onDrag: (phase: 'start' | 'update' | 'end', index: number, translationY: number) => void;
+    onDrag: (phase: 'start' | 'update' | 'end', index: number, translationY: number, owner: object) => void;
     onMove: (index: number, delta: number) => void;
     tint: string;
 }) {
@@ -228,10 +234,10 @@ function Handle({ index, label, onDrag, onMove, tint }: {
     const pan = React.useMemo(() => Gesture.Pan()
         .activateAfterLongPress(250)
         .runOnJS(true)
-        .onStart(() => live.current.onDrag('start', live.current.index, 0))
-        .onUpdate((event) => live.current.onDrag('update', live.current.index, event.translationY))
-        .onEnd(() => live.current.onDrag('end', live.current.index, 0))
-        .onFinalize(() => live.current.onDrag('end', live.current.index, 0)), []);
+        .onStart(() => live.current.onDrag('start', live.current.index, 0, live))
+        .onUpdate((event) => live.current.onDrag('update', live.current.index, event.translationY, live))
+        .onEnd(() => live.current.onDrag('end', live.current.index, 0, live))
+        .onFinalize(() => live.current.onDrag('end', live.current.index, 0, live)), []);
     return (
         <GestureDetector gesture={pan}>
             <Pressable
