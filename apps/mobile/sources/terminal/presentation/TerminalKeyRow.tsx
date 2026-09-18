@@ -9,8 +9,6 @@ import { useLocalSettingMutable } from '@/catalog/store';
 import { DEFAULT_ROW_IDS, modifiedSend, resolveKeyRow, type RowEntry, type TerminalKey } from '../domain/keyRow';
 import { TerminalKeyRowEditor } from './TerminalKeyRowEditor';
 
-export type { TerminalKey };
-
 export const TERMINAL_QUICK_REPLIES: readonly { label: string; text: string }[] = [
     { label: 'Continue', text: 'Continue with the current task.' },
     { label: 'Run tests', text: 'Run the relevant tests and report any failures.' },

@@ -150,7 +150,7 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
                         </Pressable>
                     </View>
 
-                    <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
+                    <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
                     <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Live preview</Text>
                     <View style={[styles.preview, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
                         {keys.map((key, index) => (
