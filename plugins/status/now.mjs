@@ -34,6 +34,8 @@ const window = tightest === undefined ? undefined : published[vms.indexOf(tighte
 // unavailable -- is the actionable word. Only the generic no-integration line
 // is withheld, because the card owns a localized one.
 const reason = output?.limits?.message;
+const capturedAt = Date.parse(output?.capturedAt ?? '');
+const ageSeconds = Number.isFinite(capturedAt) ? Math.max(0, Math.round((Date.now() - capturedAt) / 1000)) : undefined;
 const payload = {
     limits: {
         verdict: typeof output?.limits?.verdict === 'string' ? output.limits.verdict : 'unknown',
@@ -41,9 +43,11 @@ const payload = {
         ...(typeof reason === 'string' && reason !== '' && reason !== NOT_CONNECTED_MESSAGE ? { message: reason } : {}),
     },
     ...(output === undefined ? { collecting: true } : {}),
-    // The usage cache answers instantly past its fresh window rather than
-    // making the card wait; say so, so figures that old are not read as live.
-    ...(output?.stale === true ? { stale: true } : {}),
+    // How old the limit figures are, not whether some other surface would call
+    // them stale: the usage cache replays its original `capturedAt`, and both
+    // timestamps come from this host's clock. Each reader owns its own
+    // threshold for when age is worth mentioning.
+    ...(ageSeconds === undefined ? {} : { ageSeconds }),
     vitals: vitalsFigures(),
 };
 process.stdout.write(JSON.stringify(payload));

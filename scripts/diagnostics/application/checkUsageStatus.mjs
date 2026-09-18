@@ -673,8 +673,20 @@ try {
     // window -- or none -- fails here. Runs after the scan-counting
     // assertions: now.mjs invokes usage.mjs, and a warm-cache answer still
     // counts as one ccusage scan.
+    // now.mjs never names a provider -- it always spawns usage.mjs with '{}'
+    // -- so the default selection decides the payload, and in this fixture
+    // that is `omp`, which publishes no plan windows at all. Seed the `all`
+    // cache both readers below will hit with the Claude answer, whose fixture
+    // publishes a competing 5-hour and 7-day window, so there is something to
+    // select between. MUXR_USAGE_NOW pins NOW, so the seeded entry is age 0
+    // and is served fresh rather than flagged stale.
+    const claudeRun = run({ provider: 'claude' });
+    assert.equal(claudeRun.status, 0, claudeRun.stderr);
+    cpSync(join(scratch, 'usage-v2-claude.json'), join(scratch, 'usage-v2-all.json'));
     const nowPayload = JSON.parse(runPlugin('plugins/status/now.mjs', {}).stdout);
     const nowUsage = JSON.parse(runPlugin('plugins/status/usage.mjs', {}).stdout);
+    assert.equal(nowUsage.provider, 'claude', 'the seeded cache must be what both readers answered from');
+    assert.ok(!('stale' in nowUsage), 'a cache seeded at the pinned NOW must be served fresh');
     assert.ok(nowUsage.windows.length > 1, 'fixtures must publish competing windows for the selection to mean anything');
     assert.equal(nowPayload.limits.verdict, nowUsage.limits.verdict);
     // The card must lead with the same window `limitsPayload` derived the

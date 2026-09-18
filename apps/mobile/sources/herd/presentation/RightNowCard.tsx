@@ -9,7 +9,13 @@ import { pluginSnapshot, pluginHref, toneColor, useSlotContributions } from '@/p
 import type { PluginLimitsWindow } from '@/plugins/limits';
 import { VERDICT_KEYS, usePluginCall, verdictTone } from '@/plugins/ui';
 import { t } from '@/text';
+import { compactAge } from '../domain/agentPresentation';
 import { asRightNowPayload, rightNowBinding, vitalsFacts, type RightNowPayload } from '../domain/rightNowModel';
+
+/** The card has no refresh of its own and the Usage screen is where live
+ *  detail lives, so a few minutes behind is normal here and says nothing.
+ *  Past this the age is worth a quiet word -- never an alarm. */
+const AGE_WORTH_MENTIONING_SECONDS = 600;
 
 /**
  * The top of Home as figures: one verdict line, one neutral meter, one
@@ -56,9 +62,7 @@ export function RightNowCard() {
     }
 
     if (payload === undefined) return null;
-    // A refresh that failed and a cache past its fresh window are one state to
-    // the reader: these figures are last-known, not live.
-    const stale = failed || payload.stale === true;
+    const agedFor = disclosedAge(payload);
     const verdict = payload.limits.verdict;
     const limit = payload.limits.windows[0];
     const verdictWord = verdict === 'unknown' ? undefined : t(VERDICT_KEYS[verdict]);
@@ -67,25 +71,26 @@ export function RightNowCard() {
     const staleMark = <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />;
     const line = limit !== undefined
         ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {stale ? staleMark : dot}
-            <Text numberOfLines={1} style={{ flexShrink: 1, color: stale ? theme.colors.textDestructive : theme.colors.text, fontSize: 13, lineHeight: 18 }}>
+            {failed ? staleMark : dot}
+            <Text numberOfLines={1} style={{ flexShrink: 1, color: failed ? theme.colors.textDestructive : theme.colors.text, fontSize: 13, lineHeight: 18 }}>
                 {[verdictWord, `${limit.label} ${Math.round(limit.used)}%`].filter((part) => part !== undefined).join(' · ')}
             </Text>
             {limit.resetsIn !== undefined && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{` · ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`}</Text>}
+            {agedFor !== undefined && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{` · ${t('components.sessionStatusBar.limitAsOf', { age: agedFor })}`}</Text>}
             {open !== undefined && <View style={{ marginLeft: 'auto' }}>
                 <Ionicons name="chevron-forward" size={14} color={withAlpha(theme.colors.textSecondary, 0.6)} />
             </View>}
         </View>
         : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {stale && staleMark}
-            <Text style={{ flexShrink: 1, color: stale ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
+            {failed && staleMark}
+            <Text style={{ flexShrink: 1, color: failed ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
                 {payload.collecting === true ? t('plugins.rightNow.collecting') : emptyLine(payload)}
             </Text>
         </View>;
     return <View>
         {label}
         {open !== undefined
-            ? <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(payload, stale)}>
+            ? <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(payload, failed)}>
                 <CardBody limit={limit} line={line} vitals={payload.vitals} />
             </Pressable>
             : <CardBody limit={limit} line={line} vitals={payload.vitals} />}
@@ -124,6 +129,13 @@ function vitalsFigures(vitals: NonNullable<RightNowPayload['vitals']>, percent =
     ];
 }
 
+/** The age of the limit figures, once it is old enough to be worth saying. */
+function disclosedAge(payload: RightNowPayload): string | undefined {
+    return payload.ageSeconds === undefined || payload.ageSeconds < AGE_WORTH_MENTIONING_SECONDS
+        ? undefined
+        : compactAge(payload.ageSeconds * 1_000);
+}
+
 /** With no window to show: the host's own reason when it has one -- an expired
  *  token is not a plan that was never connected -- otherwise the phone's word. */
 function emptyLine(payload: RightNowPayload): string {
@@ -139,7 +151,12 @@ function cardAccessibilityLabel(payload: RightNowPayload, stale: boolean): strin
         const verdict = payload.limits.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.limits.verdict]);
         const line = [verdict, [limit.label, t('plugins.limits.percentUsed', { percent: Math.round(limit.used) })].join(' ')]
             .filter((part) => part !== undefined).join(', ');
-        parts.push(limit.resetsIn === undefined ? line : `${line}, ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`);
+        const agedFor = disclosedAge(payload);
+        parts.push([
+            line,
+            ...(limit.resetsIn === undefined ? [] : [t('plugins.rightNow.resetsIn', { time: limit.resetsIn })]),
+            ...(agedFor === undefined ? [] : [t('components.sessionStatusBar.limitAsOf', { age: agedFor })]),
+        ].join(', '));
     } else if (payload.collecting === true) {
         parts.push(t('plugins.rightNow.collecting'));
     } else {

@@ -9,7 +9,10 @@ export interface RightNowVitals {
     memoryUsed: number;
     memoryTotal: number;
     /** Omitted when the host could not read the filesystem; the other
-     *  figures still answer. */
+     *  figures still answer. `diskTotal` is used + available, which is what
+     *  df divides by for Use%, not the filesystem's raw capacity -- the
+     *  root-reserved blocks are excluded. Read the pair as a share, never as
+     *  "X of Y bytes". */
     diskUsed?: number;
     diskTotal?: number;
     load1: number;
@@ -20,9 +23,10 @@ export interface RightNowPayload {
     limits: PluginLimitsPayload;
     /** Cold usage cache; the host fell back so the vitals could answer. */
     collecting?: true;
-    /** The limit figures came from a cache past its fresh window, so they are
-     *  last-known rather than live. The vitals beside them are always live. */
-    stale?: true;
+    /** How old the limit figures are, by the host's clock. The vitals beside
+     *  them are always live. This surface decides for itself when an age is
+     *  worth mentioning. */
+    ageSeconds?: number;
     vitals?: RightNowVitals;
 }
 
@@ -48,19 +52,21 @@ export function asRightNowPayload(value: unknown): RightNowPayload {
         ? value as Record<string, unknown>
         : {};
     const vitals = rightNowVitals(raw.vitals);
+    const ageSeconds = figure(raw.ageSeconds);
     return {
         limits: asLimitsPayload(raw.limits),
         ...(raw.collecting === true ? { collecting: true as const } : {}),
-        ...(raw.stale === true ? { stale: true as const } : {}),
+        ...(ageSeconds === undefined ? {} : { ageSeconds }),
         ...(vitals === undefined ? {} : { vitals }),
     };
 }
 
+const figure = (candidate: unknown): number | undefined =>
+    typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0 ? candidate : undefined;
+
 function rightNowVitals(value: unknown): RightNowVitals | undefined {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
     const raw = value as Record<string, unknown>;
-    const figure = (candidate: unknown): number | undefined =>
-        typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0 ? candidate : undefined;
     const memoryUsed = figure(raw.memoryUsed);
     const memoryTotal = figure(raw.memoryTotal);
     const load1 = figure(raw.load1);
