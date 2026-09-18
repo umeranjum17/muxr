@@ -827,35 +827,26 @@ test('a failed dump is no observation, and the terminal names itself', () => {
     assert.equal(stripPosition(''), undefined);
 });
 
-// The zoom window's own accounting block, executed as the gate executes it. It
-// used to reference a name that no longer existed and threw before producing any
-// coverage at all, so nothing downstream was ever reached.
+// The zoom window's own accounting, executed as the gate executes it: the same
+// zoomWindowAccount function releaseGate calls. It used to reference a name that
+// no longer existed and threw before producing any coverage at all, so nothing
+// downstream was ever reached.
 test('the zoom window produces coverage from the rows it owns', () => {
-    const source = readFileSync(new URL('../releaseGate.mjs', import.meta.url), 'utf8');
-    const start = source.indexOf('        // The same ledger a bout keeps, on this window\'s own reads');
-    const end = source.indexOf('        // Only now may anything else be driven.');
-    assert.ok(start >= 0 && end > start, 'the zoom accounting block moved');
-    const block = source.slice(start, end);
-    // The window's own reads, fed to the real ledger in order, then the actual
-    // accounting block executed against it.
+    assert.equal(typeof metrics.zoomWindowAccount, 'function',
+        'the zoom accounting anchor zoomWindowAccount is missing from lib/gestureMetrics.mjs');
+    // The window's own reads, fed to the real ledger in order, then the real
+    // accounting function executed against it.
     const run = (baseline, reads, endpoint) => {
         const zoomLedger = metrics.creditLedger({ rows: baseline.rows, counter: baseline.jank.frames });
         for (const read of reads) zoomLedger.snapshot(read);
-        const context = vm.createContext({
-            ...metrics,
-            t0Ns: 1.01e9,
-            hz: 60,
-            zoomLedger,
+        return metrics.zoomWindowAccount({
             vsyncBefore: baseline,
             vsyncAfter: endpoint,
+            zoomLedger,
+            t0Ns: 1.01e9,
+            hz: 60,
             unavailable: (why) => ({ why }),
-            out: {},
         });
-        const stopped = vm.runInContext(
-            `(() => {\n${block}\nout.zoomCoverage = zoomCoverage; out.zoomFrames = zoomFrames;\n})()`,
-            context,
-        );
-        return { ...context.out, ...(stopped ?? {}) };
     };
     const row = (scheduled, completed) => ({
         Flags: 0, IntendedVsync: scheduled, FrameCompleted: completed, InputEventId: 1,
@@ -883,7 +874,7 @@ test('the zoom window produces coverage from the rows it owns', () => {
         [snapshot([row(1.02e9, 1.03e9)], 3), snapshot([row(1.04e9, 1.05e9)], 3)],
         snapshot([], 3),
     );
-    assert.match(short.why, /have no record/);
+    assert.match(short.unavailable.why, /have no record/);
     assert.equal(short.zoomCoverage, undefined, 'a short history still produced coverage');
     // The phase is unavailable rather than graded: the gate has no coverage to
     // read at all, which is the failure a missing account has to be.

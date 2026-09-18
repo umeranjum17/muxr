@@ -74,6 +74,7 @@ import {
     phaseMetrics,
     pixelsMoved,
     reduceFrameStats,
+    zoomWindowAccount,
     reduceGridTransitions,
     reduceJank,
     reduceMovement,
@@ -1137,19 +1138,11 @@ async function drivePhase(phase, screen, hz, ready) {
         // The same ledger a bout keeps, on this window's own reads: the baseline's
         // total is settled out of the records its read already held, and every
         // increment after it is paid from the earliest records not yet spent.
-        const wasMissed = vsyncBefore.jank.missedVsync;
-        const nowMissed = vsyncAfter.jank.missedVsync;
-        if (wasMissed === undefined || nowMissed === undefined || nowMissed < wasMissed) {
-            return unavailable('the missed-vsync counter did not read across the zoom window');
-        }
-        if (zoomLedger.why !== undefined) return unavailable(`${zoomLedger.why} (zoom)`);
-        const ownedZoomRows = zoomLedger.owned;
-        const zoomFrames = reduceFrameStats(ownedZoomRows, { frameNs: 1e9 / hz, t0Ns });
-        const zoomCoverage = {
-            rendered: (vsyncAfter.jank.frames ?? NaN) - (vsyncBefore.jank.frames ?? NaN),
-            retained: ownedZoomRows.length,
-            uncredited: zoomLedger.uncredited,
-        };
+        // The account itself is zoomWindowAccount in lib/gestureMetrics.mjs, the
+        // same function the gate test executes -- this comment is not load-bearing.
+        const account = zoomWindowAccount({ vsyncBefore, vsyncAfter, zoomLedger, hz, t0Ns, unavailable });
+        if (account.unavailable !== undefined) return account.unavailable;
+        const { wasMissed, nowMissed, zoomFrames, zoomCoverage } = account;
 
         // Only now may anything else be driven.
         await tapBounds('content-desc="Close terminal controls"');
