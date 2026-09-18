@@ -92,10 +92,8 @@ export function groupSummaryCounts(children: readonly HerdChildSpace[]): { needs
 
 /** The children's shared producer `kind` token ("task"), or none when they disagree. */
 export function groupKind(children: readonly HerdChildSpace[]): string | undefined {
-    const kinds = new Set(
-        children.flatMap(({ workspace }) => workspace.tokens?.kind).filter((kind): kind is string => kind !== undefined),
-    );
-    return kinds.size === 1 ? [...kinds][0] : undefined;
+    const kinds = new Set(children.map(({ workspace }) => workspace.tokens?.kind));
+    return kinds.size === 1 && !kinds.has(undefined) ? [...kinds][0] : undefined;
 }
 
 /** Sheet expansion seeds: the workspace itself; a child opens its parent card and the group instead. */
@@ -103,7 +101,7 @@ export function spaceExpansionDefaults(workspaces: HerdrTreeWorkspace[], workspa
     const byId = new Map(workspaces.map((ws) => [ws.workspaceId, ws] as const));
     const ws = byId.get(workspaceId);
     const parent = ws === undefined ? undefined : parentOf(ws, byId);
-    return parent === undefined ? [workspaceId] : [parent, `group:${parent}`];
+    return parent === undefined ? [workspaceId] : [parent, `group:${parent}`, `child:${workspaceId}`];
 }
 
 /**
@@ -129,9 +127,9 @@ export function buildSpaceRows(
         query !== '' && ws.label !== undefined && ws.label.toLocaleLowerCase().includes(query);
 
     const byId = new Map(workspaces.map((ws) => [ws.workspaceId, ws] as const));
-    // Herdr's creation order when numbers exist; the snapshot order otherwise.
+    // Herdr's creation order; a workspace Herdr did not number sorts last, in snapshot order.
     const order = [...workspaces].sort((a, b) =>
-        a.order !== undefined && b.order !== undefined ? a.order - b.order : 0);
+        (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER));
 
     const childrenOf = new Map<string, HerdrTreeWorkspace[]>();
     const topLevel: HerdrTreeWorkspace[] = [];

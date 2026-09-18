@@ -278,7 +278,7 @@ export const it: TranslationStructure = {
         groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
             ? `${count} ${plural({ count, singular: 'area di lavoro', plural: 'aree di lavoro' })}`
             : `${count} ${plural({ count, singular: 'area di lavoro', plural: 'aree di lavoro' })} (${kind})`,
-        needsYou: 'Richiede te',
+        needsYou: 'richiede te',
         working: 'in esecuzione',
         done: 'completato',
         shell: 'terminale',

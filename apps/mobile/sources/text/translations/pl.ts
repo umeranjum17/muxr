@@ -296,7 +296,7 @@ export const pl: TranslationStructure = {
         groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
             ? `${count} ${plural({ count, one: 'obszar roboczy', few: 'obszary robocze', many: 'obszarów roboczych' })}`
             : `${count} ${plural({ count, one: 'obszar roboczy', few: 'obszary robocze', many: 'obszarów roboczych' })} (${kind})`,
-        needsYou: 'Potrzebuje ciebie',
+        needsYou: 'potrzebuje ciebie',
         working: 'aktywne',
         done: 'gotowe',
         shell: 'terminal',

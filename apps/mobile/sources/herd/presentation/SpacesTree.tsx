@@ -203,6 +203,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         position: 'absolute',
         top: -1000,
         left: 0,
+        alignSelf: 'flex-start',
         opacity: 0,
     },
     childRow: {
@@ -378,6 +379,7 @@ const GroupRow = React.memo(({
     ].filter((entry) => entry.count > 0).slice(0, 2);
     const noun = t('spacesTree.groupCount', { count, kind });
     const summaryWords = summary.map((entry) => `${entry.count} ${entry.word}`).join(' · ');
+    const spokenLabel = [noun, summaryWords].filter(Boolean).join(', ');
     // Both counts only survive when the row measures wide enough for them.
     const crowded = summary.length > 1 && slotWidth > 0 && fullWidth > slotWidth;
     const shown = crowded ? summary.slice(0, 1) : summary;
@@ -417,15 +419,12 @@ const GroupRow = React.memo(({
                     aria-hidden
                     pointerEvents="none"
                     style={styles.groupSummaryProbe}
+                    onLayout={(event) => {
+                        const width = event.nativeEvent.layout.width;
+                        if (width > 0) setFullWidth(width);
+                    }}
                 >
-                    <Text
-                        numberOfLines={1}
-                        style={styles.groupTitle}
-                        onTextLayout={(event) => {
-                            const width = event.nativeEvent.lines[0]?.width;
-                            if (width !== undefined && width > 0) setFullWidth(width);
-                        }}
-                    >
+                    <Text numberOfLines={1} style={styles.groupTitle}>
                         {`${noun} · ${summaryWords}`}
                     </Text>
                 </View>
@@ -435,7 +434,7 @@ const GroupRow = React.memo(({
 
     if (forced) {
         return (
-            <View style={styles.groupRow} accessibilityLabel={`${noun}, ${summaryWords}`}>
+            <View style={styles.groupRow} accessible accessibilityRole="text" accessibilityLabel={spokenLabel}>
                 {body}
             </View>
         );
@@ -448,7 +447,7 @@ const GroupRow = React.memo(({
             android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
             accessibilityRole="button"
             accessibilityState={{ expanded }}
-            accessibilityLabel={`${noun}, ${summaryWords}. ${expanded ? t('spacesTree.collapse') : t('spacesTree.expand')}`}
+            accessibilityLabel={`${spokenLabel}. ${expanded ? t('spacesTree.collapse') : t('spacesTree.expand')}`}
         >
             {body}
         </Pressable>
@@ -572,8 +571,9 @@ const WorkspaceCard = React.memo(({
     const branch = workspace.worktree?.branch;
     const paneCount = workspace.tabs.reduce((count, tab) => count + tab.panes.length, 0);
     const countLabel = agentCount > 0
-        ? `${agentCount} agent${agentCount === 1 ? '' : 's'}`
+        ? t('spacesTree.childAgents', { count: agentCount })
         : paneCount > 0 ? t('spacesTree.shell') : undefined;
+    const headerInteractive = !searchForced || canClose;
 
     return (
         <View style={[styles.card, compact && styles.cardCompact]}>
@@ -584,10 +584,10 @@ const WorkspaceCard = React.memo(({
                     styles.cardHeader,
                     compact && styles.cardHeaderCompact,
                     expanded && styles.cardHeaderExpanded,
-                    pressed && styles.cardHeaderPressed,
+                    pressed && headerInteractive && styles.cardHeaderPressed,
                 ]}
-                android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
-                accessibilityRole="button"
+                android_ripple={headerInteractive ? { color: theme.colors.surfaceRipple, foreground: true } : undefined}
+                accessibilityRole={headerInteractive ? 'button' : undefined}
                 accessibilityLabel={`${workspaceName(workspace)} workspace${countLabel === undefined ? '' : `, ${countLabel}`}`}
             >
                 <View style={styles.chevron}>
@@ -776,7 +776,7 @@ export const SpacesTree = React.memo(({
             searchForced={searching && item.groupExpanded}
             onToggle={() => toggleWorkspaceCard(item.workspace.workspaceId)}
             onToggleGroup={() => toggleWorkspace(`group:${item.workspace.workspaceId}`)}
-            onToggleChild={toggleWorkspace}
+            onToggleChild={(workspaceId) => toggleWorkspace(`child:${workspaceId}`)}
             onClose={() => confirmCloseWorkspace(item.workspace)}
             onCloseChild={confirmCloseWorkspace}
             onClosePane={confirmClosePane}

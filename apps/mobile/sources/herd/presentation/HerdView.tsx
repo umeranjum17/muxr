@@ -279,7 +279,6 @@ export const HerdView = React.memo(({
                 defaultExpandedWorkspaceIds={defaultExpandedWorkspaceIds}
                 refresh={refresh}
                 searchQuery={searchQuery}
-                emptyText={searchQuery.trim() === '' ? undefined : 'No matches'}
                 listHeaderComponent={<>
                     <HomeNotices runtimeOffline={herdrConnected === false && !needsRecovery} machineName={machineName} />
                     {header}

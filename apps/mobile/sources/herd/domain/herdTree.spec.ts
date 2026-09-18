@@ -103,7 +103,7 @@ describe('visible herd tree flow', () => {
         expect(searched[0]!.panes).toEqual([]);
         expect(buildSpaceRows(workspaces, new Set(), 'nimbus')).toEqual([]);
         // The sheet seeds: a child opens its parent card and the group instead of itself.
-        expect(spaceExpansionDefaults(workspaces, 'w2')).toEqual(['w1', 'group:w1']);
+        expect(spaceExpansionDefaults(workspaces, 'w2')).toEqual(['w1', 'group:w1', 'child:w2']);
         expect(spaceExpansionDefaults(workspaces, 'w5')).toEqual(['w5']);
     });
 
