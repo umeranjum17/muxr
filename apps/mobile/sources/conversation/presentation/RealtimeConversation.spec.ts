@@ -79,7 +79,7 @@ describe('realtime failure banner', () => {
 
     });
 
-    it('reads a connecting progress detail as progress, not as a failure', () => {
+    it('says nothing at all while a call is still connecting', () => {
         transport.state = 'connecting';
         transport.detail = 'Connecting secure voice media';
         let renderer: any;
@@ -87,10 +87,11 @@ describe('realtime failure banner', () => {
             renderer = TestRenderer.create(React.createElement(RealtimeConversation, { visible: true, onClose: () => {} }));
         });
 
-        // Every successful call passes through here: it must not accuse the
-        // person of a failure that has not happened.
+        // Every successful call passes through here carrying a detail. It must
+        // neither accuse the person of a failure that has not happened nor
+        // narrate the provider's progress at them.
         const texts = visibleTexts(renderer!.root);
-        expect(texts).toContain('Connecting secure voice media');
+        expect(texts.join(' ')).not.toContain('Connecting secure voice media');
         expect(texts.join(' ')).not.toContain('Voice stopped.');
         expect(renderer!.root.findAllByProps({ accessibilityLabel: 'Show details' })).toHaveLength(0);
     });

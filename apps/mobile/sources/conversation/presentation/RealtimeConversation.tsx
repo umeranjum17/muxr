@@ -83,14 +83,13 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
 
     const speaking = state === 'speaking';
     const status = realtimeCallLabel(state, watching, muted, speaking);
-    // Only a stopped call is a failure. While connecting, a detail is progress
-    // -- "Connecting secure voice media", "Reconnecting voice stream" -- and
-    // reading it as a failure would put a red "Voice stopped." on every
+    // Only a stopped call is a failure. A detail arriving while connecting is
+    // progress -- "Connecting secure voice media", "Reconnecting voice stream"
+    // -- and reading it as a failure would put a red "Voice stopped." on every
     // successful call.
     const failure = state === 'disconnected' && detail !== undefined
         ? voiceFailure(detail, machineName)
         : undefined;
-    const progress = state === 'connecting' ? detail : undefined;
     // The cloud is decoration and the words are the point, so the cloud is what
     // yields: it asks for its full size and shrinks from there, and the layout
     // engine decides by how much. Below the size it was drawn for it stops being
@@ -137,7 +136,7 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
                     A sibling of the transcript, never nested in it -- a stopped
                     call has no turns, so the two are never on screen together. */}
                 <ScrollView
-                    style={{ alignSelf: 'stretch', flexShrink: 1, minHeight: 0 }}
+                    style={{ alignSelf: 'stretch', flexGrow: 0, flexShrink: 1, minHeight: 0 }}
                     contentContainerStyle={{ alignItems: 'center', gap: 18 }}
                 >
                     <Text style={{ color: '#f7f8fb', fontSize: 22, lineHeight: 28, textAlign: 'center', ...Typography.default('semiBold') }}>
@@ -146,11 +145,6 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
                     {activity !== undefined && (
                         <Text numberOfLines={1} style={{ color: '#8f96a3', fontSize: 12, lineHeight: 16, ...Typography.mono('regular') }}>
                             {activity}
-                        </Text>
-                    )}
-                    {progress !== undefined && (
-                        <Text style={{ color: '#8f96a3', fontSize: 13, lineHeight: 18, textAlign: 'center', ...Typography.default() }}>
-                            {progress}
                         </Text>
                     )}
                     {failure !== undefined && (
