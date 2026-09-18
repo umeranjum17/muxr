@@ -116,4 +116,4 @@ export {
 export { BACK, heading, prompt, select, status } from './presentation/ui.mjs';
 export { hostEntry, relayEntry } from './infrastructure/paths.mjs';
 
-export { stateDir } from './infrastructure/runtime.mjs';
+export { machineIdentity, pairingCodeHash, printTerminalQr, stateDir } from './infrastructure/runtime.mjs';
