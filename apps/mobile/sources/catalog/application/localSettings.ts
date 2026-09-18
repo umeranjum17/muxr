@@ -26,7 +26,6 @@ export const LocalSettingsSchema = z.object({
     // built-in default row.
     terminalKeyRow: z.array(z.union([z.string(), z.object({
         label: z.string().min(1).max(12),
-        accessibilityLabel: z.string().min(1).max(64).optional(),
         send: z.string().min(1).max(512),
         repeat: z.boolean().optional(),
     })])).max(TERMINAL_KEY_ROW_LIMIT).nullable().catch(null).describe('Customised terminal key row (null follows the built-in row)'),

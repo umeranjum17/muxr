@@ -21,6 +21,7 @@ import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, TERMINAL_KEY_ROW_LIMIT, bytesToEsc
 // so a drag that reaches the visible edge stops there. Wrap or autoscroll if
 // a longer row ever needs it.
 const STEP = 62;
+const CAP_NOTICE = `The row is full at ${TERMINAL_KEY_ROW_LIMIT} keys. Remove one to add another.`;
 
 export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, onClose }: {
     visible: boolean;
@@ -193,12 +194,10 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
                         });
                     })()}
 
-                    {working.length >= TERMINAL_KEY_ROW_LIMIT ? (
-                        <Text style={[styles.caption, { color: theme.colors.warningCritical }]}>
-                            {`The row is full at ${TERMINAL_KEY_ROW_LIMIT} keys. Remove one to add another.`}
-                        </Text>
-                    ) : adding ? (
-                        <AddPanel onAppend={appendEntry} onDone={() => setAdding(false)} />
+                    {adding ? (
+                        <AddPanel atLimit={working.length >= TERMINAL_KEY_ROW_LIMIT} onAppend={appendEntry} onDone={() => setAdding(false)} />
+                    ) : working.length >= TERMINAL_KEY_ROW_LIMIT ? (
+                        <Text style={[styles.caption, { color: theme.colors.warningCritical }]}>{CAP_NOTICE}</Text>
                     ) : (
                         <Pressable
                             onPress={() => setAdding(true)}
@@ -259,7 +258,8 @@ function Handle({ index, label, onDrag, onMove, tint }: {
     );
 }
 
-function AddPanel({ onAppend, onDone }: {
+function AddPanel({ atLimit, onAppend, onDone }: {
+    atLimit: boolean;
     onAppend: (entry: RowEntry) => void;
     onDone: () => void;
 }) {
@@ -267,14 +267,15 @@ function AddPanel({ onAppend, onDone }: {
     const [label, setLabel] = React.useState('');
     const [sendText, setSendText] = React.useState('');
     const [repeat, setRepeat] = React.useState(false);
-    const bytes = escapeToBytes(sendText.trim());
-    const canAdd = label.trim() !== '' && bytes !== null && bytes.length <= 512;
+    const bytes = escapeToBytes(sendText);
+    const canAdd = !atLimit && label.trim() !== '' && bytes !== null && bytes.length <= 512;
     const problem = sendText.trim() === '' ? null
         : bytes === null ? 'That escape is unfinished, or names a byte above \\x7f. Use \\\\ for a literal backslash.'
         : bytes.length > 512 ? `That sends ${bytes.length} characters; the limit is 512.`
         : null;
     return (
         <View style={styles.addPanel}>
+            {atLimit && <Text style={[styles.caption, { color: theme.colors.warningCritical }]}>{CAP_NOTICE}</Text>}
             {CATALOG_GROUPS.map((group) => (
                 <View key={group.title}>
                     <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>{group.title}</Text>
@@ -283,9 +284,11 @@ function AddPanel({ onAppend, onDone }: {
                             <Pressable
                                 key={id}
                                 onPress={() => onAppend(id)}
+                                disabled={atLimit}
                                 accessibilityRole="button"
+                                accessibilityState={{ disabled: atLimit }}
                                 accessibilityLabel={`Add ${BUILTIN_KEY_CATALOG[id].accessibilityLabel}`}
-                                style={({ pressed }) => [styles.gridChip, { backgroundColor: theme.colors.surfaceHigh }, pressed && { opacity: 0.6 }]}
+                                style={({ pressed }) => [styles.gridChip, { backgroundColor: theme.colors.surfaceHigh }, atLimit && { opacity: 0.4 }, pressed && { opacity: 0.6 }]}
                             >
                                 <Text style={{ color: theme.colors.text, fontSize: 12, ...Typography.mono() }}>{BUILTIN_KEY_CATALOG[id].label}</Text>
                             </Pressable>
@@ -324,7 +327,7 @@ function AddPanel({ onAppend, onDone }: {
             <View style={styles.addRow}>
                 <Pressable
                     onPress={() => {
-                        if (bytes === null) return;
+                        if (!canAdd || bytes === null) return;
                         const custom: CustomKey = {
                             label: label.trim(),
                             send: bytes,

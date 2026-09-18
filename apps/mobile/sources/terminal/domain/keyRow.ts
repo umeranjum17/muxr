@@ -20,7 +20,6 @@ export interface TerminalKey {
 /** A custom key as the editor stores it on this device. */
 export interface CustomKey {
     label: string;
-    accessibilityLabel?: string;
     send: string;
     repeat?: boolean;
 }
@@ -83,7 +82,7 @@ export function resolveKeyRow(entries: readonly RowEntry[] | null | undefined): 
     return entries
         .map((entry) => typeof entry === 'string'
             ? BUILTIN_KEY_CATALOG[entry]
-            : { label: entry.label, accessibilityLabel: entry.accessibilityLabel ?? entry.label, send: entry.send, ...(entry.repeat === true ? { repeat: true } : {}) })
+            : { label: entry.label, accessibilityLabel: entry.label, send: entry.send, ...(entry.repeat === true ? { repeat: true } : {}) })
         .filter((key): key is TerminalKey => key !== undefined);
 }
 
