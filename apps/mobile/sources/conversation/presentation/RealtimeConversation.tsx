@@ -36,7 +36,13 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     const watching = useRealtimeWatching();
     const previousState = React.useRef(state);
     const [detailOpen, setDetailOpen] = React.useState(false);
-    const [orbRoom, setOrbRoom] = React.useState(0);
+    // How much room the layout actually gave the cloud, reported by the
+    // measuring box below. Only ever written by onLayout: a measurement is
+    // kept until a newer one arrives and never reset, because onLayout only
+    // fires when the box's own metrics change -- a forgotten measurement can
+    // never come back. Unmeasured, the cloud draws at full size and the box
+    // clips it, so there is nothing to recover later.
+    const [orbRoom, setOrbRoom] = React.useState<number | undefined>(undefined);
     const transcript = React.useRef<ScrollView>(null);
     // The voice is attached to a working session; what that session is doing is
     // the other half of "what is happening right now".
@@ -60,9 +66,11 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
 
     // Collapsed every time this opens, and never yanked shut while it is open:
     // a watched agent retries voice on its own, reporting between each attempt.
-    // Unmeasured too -- a room measured against the last banner would be painted
-    // over the next one, and the cloud overflows its box rather than clip.
-    React.useEffect(() => { if (!visible) { setDetailOpen(false); setOrbRoom(0); } }, [visible]);
+    // The cloud's room is deliberately NOT reset here: onLayout only fires when
+    // the box's own metrics change, so a zeroed measurement could never come
+    // back. A stale one is harmless -- the box clips the cloud for the frame
+    // until a fresh report lands.
+    React.useEffect(() => { if (!visible) setDetailOpen(false); }, [visible]);
 
     React.useEffect(() => {
         if (!visible || previousState.current === state) return;
@@ -93,9 +101,9 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     // The cloud is decoration and the words are the point, so the cloud is what
     // yields: it asks for its full size and shrinks from there, and the layout
     // engine decides by how much. Below the size it was drawn for it stops being
-    // a cloud, so it leaves rather than smudge -- including before the first
-    // measurement lands, since anything drawn on a guess is drawn over the words.
-    const orbSize = Math.min(ORB_SIZE, orbRoom);
+    // a cloud, so it leaves rather than smudge. Unmeasured, full size -- the box
+    // clips it, and the first report trues it up.
+    const orbSize = Math.min(ORB_SIZE, orbRoom ?? ORB_SIZE);
 
     return (
         <Animated.View
@@ -124,9 +132,20 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
             </View>
 
             <View style={{ flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 8, gap: 18 }}>
+                {/* The measuring box. Base size is the cloud's full size; it
+                    shrinks against its siblings, so when the words grow, the
+                    box is what yields and its onLayout reports the real room.
+                    overflow hidden turns a stale-too-large cloud into a
+                    one-frame clip instead of a smear across the words, and the
+                    negative side margins cancel the column's padding so the
+                    box is wider than the cloud and the clip never shaves it
+                    in steady state. */}
                 <View
-                    onLayout={(event) => setOrbRoom(Math.floor(event.nativeEvent.layout.height))}
-                    style={{ flexBasis: ORB_SIZE, flexShrink: ORB_YIELDS_FIRST, minHeight: 0, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' }}
+                    onLayout={(event) => {
+                        const next = Math.floor(event.nativeEvent.layout.height);
+                        setOrbRoom((previous) => (previous === next ? previous : next));
+                    }}
+                    style={{ flexBasis: ORB_SIZE, flexShrink: ORB_YIELDS_FIRST, minHeight: 0, alignSelf: 'stretch', marginHorizontal: -24, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}
                 >
                     {orbSize >= ORB_SMALLEST && <RealtimeSessionVisual size={orbSize} state={state} muted={muted} />}
                 </View>
