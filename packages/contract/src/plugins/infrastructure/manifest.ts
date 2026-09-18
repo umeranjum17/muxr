@@ -37,8 +37,6 @@ import {
     PLUGIN_TEXT_MIN_UI_VERSION,
     DYNAMIC_SCREEN_MIN_UI_VERSION,
     SCREEN_IDENTITY_MIN_UI_VERSION,
-    RIGHT_NOW_CARD_MIN_UI_VERSION,
-    rightNowCard,
     sanitizeDisplayText,
     parsePluginId,
 } from '../domain/plugins.js';
@@ -871,9 +869,6 @@ function validateManifestGraph(
     if (contributions.some((contribution) => 'type' in contribution && contribution.type === 'screen' && usesScreenIdentityNodes(contribution.children))
         && declaredMinVersion < SCREEN_IDENTITY_MIN_UI_VERSION) {
         throw new Error(`plugin screen identity nodes require minMuxrVersion ${SCREEN_IDENTITY_MIN_UI_VERSION}`);
-    }
-    if (rightNowCard(contributions) !== undefined && declaredMinVersion < RIGHT_NOW_CARD_MIN_UI_VERSION) {
-        throw new Error(`the product Right now card requires minMuxrVersion ${RIGHT_NOW_CARD_MIN_UI_VERSION}`);
     }
 }
 
