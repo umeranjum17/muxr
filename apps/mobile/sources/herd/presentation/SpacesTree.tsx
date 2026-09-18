@@ -339,16 +339,19 @@ const AgentRow = React.memo(({
     );
 });
 
-/** A child's second line: its one agent's identity and state, else a count, else what it is. */
-function childLine2(child: HerdChildSpace): string {
+/**
+ * A child's second line, in parts: its one agent's identity and state, else a
+ * count, else what it is. Rendered with ' · ', spoken with ', '.
+ */
+function childLine2Parts(child: HerdChildSpace): string[] {
     const panes = child.workspace.tabs.flatMap((tab) => tab.panes);
     const agentPanes = panes.filter((pane) => pane.agentKind !== undefined);
-    if (panes.length === 0) return t('spacesTree.childEmpty');
-    if (agentPanes.length === 0) return t('spacesTree.shell');
-    if (agentPanes.length > 1) return t('spacesTree.childAgents', { count: agentPanes.length });
+    if (panes.length === 0) return [t('spacesTree.childEmpty')];
+    if (agentPanes.length === 0) return [t('spacesTree.shell')];
+    if (agentPanes.length > 1) return [t('spacesTree.childAgents', { count: agentPanes.length })];
     const agent = agentPanes[0];
-    if (agent === undefined) return t('spacesTree.childEmpty');
-    return `${agentNameLine(agentLabels(agent))} · ${agentStateLabel(agent.agentStatus)}`;
+    if (agent === undefined) return [t('spacesTree.childEmpty')];
+    return [agentNameLine(agentLabels(agent)), agentStateLabel(agent.agentStatus)];
 }
 
 const GroupRow = React.memo(({
@@ -481,25 +484,28 @@ const ChildRow = React.memo(({
     const singleAgent = agentPanes.length === 1 ? agentPanes[0] : undefined;
     const singleSessionId = singleAgent?.sessionId;
     const label = workspaceName(child.workspace);
-    const line2 = childLine2(child);
+    const parts = childLine2Parts(child);
+    const line2 = parts.join(' · ');
+    const onPress = singleSessionId !== undefined
+        ? () => (onNavigatePane ?? navigateToSession)(singleSessionId)
+        : agentPanes.length > 1 ? onToggle : undefined;
+    const interactive = onPress !== undefined || canClose;
 
     return (
         <View style={styles.childRow}>
             <View style={styles.childSeparator} />
             <Pressable
-                onPress={singleSessionId !== undefined
-                    ? () => (onNavigatePane ?? navigateToSession)(singleSessionId)
-                    : onToggle}
+                onPress={onPress}
                 onLongPress={canClose ? onClose : undefined}
                 style={({ pressed }) => [
                     styles.childPressable,
                     selectedSessionId !== undefined && child.workspace.tabs.some((tab) => tab.panes.some((pane) =>
                         pane.sessionId === selectedSessionId)) && styles.childPressableSelected,
-                    pressed && styles.childPressablePressed,
+                    pressed && interactive && styles.childPressablePressed,
                 ]}
-                android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
-                accessibilityRole="button"
-                accessibilityLabel={t('spacesTree.openLabel', { label, line2 })}
+                android_ripple={interactive ? { color: theme.colors.surfaceRipple, foreground: true } : undefined}
+                accessibilityRole={interactive ? 'button' : 'text'}
+                accessibilityLabel={t('spacesTree.openLabel', { label, line2: parts.join(', ') })}
             >
                 <StatusDot color={dot.color} isPulsing={dot.pulsing} size={8} />
                 <View style={styles.childText}>

@@ -262,7 +262,7 @@ export const HerdView = React.memo(({
                 </View>
             ) : (
                 <Text style={styles.quietLine}>
-                    {searchQuery.trim() !== '' ? 'No matches' : t('spacesTree.empty')}
+                    {searchQuery.trim() !== '' ? t('spacesTree.noMatches') : t('spacesTree.empty')}
                 </Text>
             )}
             </ScrollView>

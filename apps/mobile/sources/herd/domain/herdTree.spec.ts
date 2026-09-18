@@ -105,6 +105,23 @@ describe('visible herd tree flow', () => {
         // The sheet seeds: a child opens its parent card and the group instead of itself.
         expect(spaceExpansionDefaults(workspaces, 'w2')).toEqual(['w1', 'group:w1', 'child:w2']);
         expect(spaceExpansionDefaults(workspaces, 'w5')).toEqual(['w5']);
+
+        // Depth-2 lineage flattens under the root ancestor, so no workspace renders nowhere.
+        const grandchild = { ...ws('w6', 'deep-task1', [tab('t6', undefined, [pane('p6', 'pi', { agentStatus: 'working' })])]), tokens: { parent: 'w2', kind: 'task' }, order: 6 };
+        const deep = [mine, byToken, grandchild];
+        expect(parentOf(grandchild, new Map(deep.map((entry) => [entry.workspaceId, entry] as const)))).toBe('w1');
+        const deepRows = buildSpaceRows(deep, new Set(['w1', 'group:w1']), '');
+        expect(deepRows.map((row) => row.workspace.workspaceId)).toEqual(['w1']);
+        expect(deepRows[0]!.children.map((child) => child.workspace.workspaceId)).toEqual(['w2', 'w6']);
+        const rendered = new Set(deepRows.flatMap((row) => [row.workspace.workspaceId, ...row.children.map((child) => child.workspace.workspaceId)]));
+        expect([...rendered].sort()).toEqual(['w1', 'w2', 'w6']);
+
+        // Two unlinked checkouts share a repoKey: the lowest-order one takes the child, whatever the snapshot order.
+        const firstUnlinked = { ...primaryWithWorktree, order: 1 };
+        const secondUnlinked = { ...ws('w7', 'pockit-again', []), worktree: { repo: 'pockit', path: '/home/umer/pockit2', repoKey: 'pockit', linked: false }, order: 7 };
+        const pair = [secondUnlinked, byWorktree, firstUnlinked];
+        expect(parentOf(byWorktree, new Map(pair.map((entry) => [entry.workspaceId, entry] as const)))).toBe('w1');
+        expect(parentOf(byWorktree, new Map([...pair].reverse().map((entry) => [entry.workspaceId, entry] as const)))).toBe('w1');
     });
 
     it('shows herdr workspace labels verbatim and truncates long paths in the path UI', () => {

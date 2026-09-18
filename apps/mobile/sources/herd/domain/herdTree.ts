@@ -28,33 +28,42 @@ function declaredParent(ws: HerdrTreeWorkspace, byId: ReadonlyMap<string, HerdrT
     // checkout of the same repo. Both declarations are data Herdr or the
     // producer wrote down; the label is never parsed.
     if (ws.worktree?.linked === true && ws.worktree.repoKey !== undefined) {
+        // Several unlinked checkouts can share a repoKey; the lowest-order one
+        // wins so a resnapshot cannot move the child to another card.
+        let best: HerdrTreeWorkspace | undefined;
         for (const candidate of byId.values()) {
             if (candidate.workspaceId !== ws.workspaceId
                 && candidate.worktree?.linked === false
-                && candidate.worktree?.repoKey === ws.worktree.repoKey) return candidate.workspaceId;
+                && candidate.worktree?.repoKey === ws.worktree.repoKey
+                && (best === undefined
+                    || (candidate.order ?? Number.MAX_SAFE_INTEGER) < (best.order ?? Number.MAX_SAFE_INTEGER))) best = candidate;
         }
+        return best?.workspaceId;
     }
     return undefined;
 }
 
 /**
- * The workspace's declared parent — a producer `parent` token, else Herdr's
- * worktree group. Never derived from the label. A cycle or self-reference
- * anywhere up the chain resolves to none, so nothing is hidden.
+ * The workspace's ROOT ancestor — following a producer `parent` token, else
+ * Herdr's worktree group, up to the first workspace that declares no parent
+ * of its own. Never derived from the label. Every descendant therefore lands
+ * under a top-level card's group row, and a cycle or self-reference anywhere
+ * up the chain resolves to none, so nothing is hidden.
  */
 export function parentOf(ws: HerdrTreeWorkspace, byId: ReadonlyMap<string, HerdrTreeWorkspace>): string | undefined {
-    const first = declaredParent(ws, byId);
-    if (first === undefined) return undefined;
-    const seen = new Set([ws.workspaceId, first]);
-    let current = byId.get(first);
+    let root = declaredParent(ws, byId);
+    if (root === undefined) return undefined;
+    const seen = new Set([ws.workspaceId, root]);
+    let current = byId.get(root);
     while (current !== undefined) {
         const next = declaredParent(current, byId);
-        if (next === undefined) return first;
+        if (next === undefined) return root;
         if (seen.has(next)) return undefined;
         seen.add(next);
+        root = next;
         current = byId.get(next);
     }
-    return first;
+    return root;
 }
 
 /** One child workspace folded under its parent's group row (drawn by the card). */
