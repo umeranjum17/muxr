@@ -168,7 +168,13 @@ detects becomes a session row. That is the point of a multiplexer backend.
 Beyond the session basics, the host exposes herdr's topology to the app:
 
 - `herdr.tree` — workspaces → tabs → panes with agent kind/status/title and the
-  muxr session id for panes hosting agents. Powers the Herd screen's spaces cards.
+  muxr session id for panes hosting agents, plus each workspace's creation
+  `order`, its bounded display-only producer `tokens`, and its worktree
+  `repoKey`/`linked`. Powers the Herd screen's spaces cards: a workspace whose
+  lineage is declared — a `parent` token, or Herdr's worktree group (a linked
+  checkout under the unlinked workspace sharing its `repoKey`) — folds behind
+  that parent card's group row instead of getting a card of its own. Labels are
+  never parsed to guess lineage.
 - `herdr.layout` — a tab's split rects (terminal cells), still served for
   layout-aware callers; the tab grid and pane overview render uniform cards
   from `herdr.tree` with snapshot previews instead of the BSP geometry.
