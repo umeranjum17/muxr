@@ -22,10 +22,14 @@ export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPr
     const [isHovered, setIsHovered] = React.useState(false);
     const active = isSelected || isHovered;
 
-    // Terminal command row: tap sends, the pencil edits, destructive is said by
-    // its section, a dot and the colour — never by a second button. The tap
-    // target and the pencil are siblings, not button-in-button: react-native-web
+    // Terminal command row: tap sends (the Custom row inserts a draft instead,
+    // and its label says so), the pencil edits, destructive is said by its
+    // section, a dot and the colour — never by a second button. The tap target
+    // and the pencil are siblings, not button-in-button: react-native-web
     // refuses to nest them (validateDOMNesting) and the a11y tree follows suit.
+    // The row's padding therefore lives on the tap target, which stretches to
+    // the row's full height: put it back on the row and the tappable area
+    // shrinks to the text while the row still paints a full-width highlight.
     const hoverIn = () => { setIsHovered(true); onHover?.(); };
     const hoverOut = () => setIsHovered(false);
     if (appearance === 'terminal') return (
@@ -91,8 +95,8 @@ export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPr
 
 const styles = StyleSheet.create({
     container: { marginHorizontal: 8, marginVertical: 3, borderRadius: 12, borderWidth: 1, borderLeftWidth: 3 },
-    row: { minHeight: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10 },
-    rowTap: { flex: 1, minWidth: 0, borderRadius: 10 },
+    row: { minHeight: 48, flexDirection: 'row', alignItems: 'center', paddingRight: 16, borderRadius: 10 },
+    rowTap: { flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'center', paddingLeft: 16, paddingVertical: 8, borderRadius: 10 },
     rowCopy: { flex: 1, minWidth: 0 },
     commandLine: { flexDirection: 'row', alignItems: 'center' },
     destructiveDot: { width: 6, height: 6, borderRadius: 3, marginRight: 8 },
