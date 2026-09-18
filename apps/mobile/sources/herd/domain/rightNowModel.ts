@@ -31,8 +31,15 @@ export interface RightNowPayload {
 }
 
 /** No machine has been up a century: past this the host is publishing a bad
- *  figure, not a fact, and an unbounded one renders in exponential notation. */
+ *  figure, not a fact, and an unbounded one renders in exponential notation.
+ *  The age of the limit figures is spoken in the same voice, so it shares the
+ *  ceiling. */
 const MAX_UPTIME_SECONDS = 100 * 365 * 86_400;
+
+/** A load average is runnable threads; a machine reporting four figures of
+ *  them is reporting a bad figure, and `toFixed` would print it in
+ *  exponential notation. */
+const MAX_LOAD = 1024;
 
 /** A share of something cannot exceed it; a host that says otherwise is
  *  bounded here rather than printed. */
@@ -49,7 +56,7 @@ export function vitalsFacts(vitals: RightNowVitals): { memoryPercent: number; di
         memoryPercent: share(vitals.memoryUsed, vitals.memoryTotal),
         ...(disk === undefined ? {} : { diskPercent: disk }),
         load: Number(vitals.load1.toFixed(1)).toString(),
-        uptime: compactAge(Math.min(vitals.uptimeSeconds, MAX_UPTIME_SECONDS) * 1_000),
+        uptime: compactAge(vitals.uptimeSeconds * 1_000),
     };
 }
 
@@ -61,7 +68,7 @@ export function asRightNowPayload(value: unknown): RightNowPayload {
         ? value as Record<string, unknown>
         : {};
     const vitals = rightNowVitals(raw.vitals);
-    const ageSeconds = figure(raw.ageSeconds);
+    const ageSeconds = figure(raw.ageSeconds, MAX_UPTIME_SECONDS);
     return {
         limits: asLimitsPayload(raw.limits),
         ...(raw.collecting === true ? { collecting: true as const } : {}),
@@ -70,16 +77,20 @@ export function asRightNowPayload(value: unknown): RightNowPayload {
     };
 }
 
-const figure = (candidate: unknown): number | undefined =>
-    typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0 ? candidate : undefined;
+/** Every host figure this card renders is bounded here, at the one boundary
+ *  the module owns, so the formatters below stay pure formatting. */
+const figure = (candidate: unknown, max = Number.MAX_SAFE_INTEGER): number | undefined =>
+    typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0
+        ? Math.min(candidate, max)
+        : undefined;
 
 function rightNowVitals(value: unknown): RightNowVitals | undefined {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
     const raw = value as Record<string, unknown>;
     const memoryUsed = figure(raw.memoryUsed);
     const memoryTotal = figure(raw.memoryTotal);
-    const load1 = figure(raw.load1);
-    const uptimeSeconds = figure(raw.uptimeSeconds);
+    const load1 = figure(raw.load1, MAX_LOAD);
+    const uptimeSeconds = figure(raw.uptimeSeconds, MAX_UPTIME_SECONDS);
     // A zero ceiling would make the share divide by zero.
     if (memoryUsed === undefined || memoryTotal === undefined || memoryTotal === 0) return undefined;
     if (load1 === undefined || uptimeSeconds === undefined) return undefined;
