@@ -56,6 +56,9 @@ export function RightNowCard() {
     }
 
     if (payload === undefined) return null;
+    // A refresh that failed and a cache past its fresh window are one state to
+    // the reader: these figures are last-known, not live.
+    const stale = failed || payload.stale === true;
     const verdict = payload.limits.verdict;
     const limit = payload.limits.windows[0];
     const verdictWord = verdict === 'unknown' ? undefined : t(VERDICT_KEYS[verdict]);
@@ -64,8 +67,8 @@ export function RightNowCard() {
     const staleMark = <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />;
     const line = limit !== undefined
         ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {failed ? staleMark : dot}
-            <Text numberOfLines={1} style={{ flexShrink: 1, color: failed ? theme.colors.textDestructive : theme.colors.text, fontSize: 13, lineHeight: 18 }}>
+            {stale ? staleMark : dot}
+            <Text numberOfLines={1} style={{ flexShrink: 1, color: stale ? theme.colors.textDestructive : theme.colors.text, fontSize: 13, lineHeight: 18 }}>
                 {[verdictWord, `${limit.label} ${Math.round(limit.used)}%`].filter((part) => part !== undefined).join(' · ')}
             </Text>
             {limit.resetsIn !== undefined && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{` · ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`}</Text>}
@@ -74,15 +77,15 @@ export function RightNowCard() {
             </View>}
         </View>
         : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {failed && staleMark}
-            <Text style={{ flexShrink: 1, color: failed ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
+            {stale && staleMark}
+            <Text style={{ flexShrink: 1, color: stale ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
                 {payload.collecting === true ? t('plugins.rightNow.collecting') : emptyLine(payload)}
             </Text>
         </View>;
     return <View>
         {label}
         {open !== undefined
-            ? <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(payload, failed)}>
+            ? <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(payload, stale)}>
                 <CardBody limit={limit} line={line} vitals={payload.vitals} />
             </Pressable>
             : <CardBody limit={limit} line={line} vitals={payload.vitals} />}

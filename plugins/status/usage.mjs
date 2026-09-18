@@ -362,9 +362,7 @@ function ccusageItems(agents) {
 }
 
 function cacheName() {
-  // The version tracks the payload shape, not the plugin: a cache written by an
-  // older reader must never be replayed into a parser that expects new fields.
-  return `usage-v3-${selected === '' ? 'all' : selected}.json`;
+  return `usage-v2-${selected === '' ? 'all' : selected}.json`;
 }
 
 function cachedOutput() {

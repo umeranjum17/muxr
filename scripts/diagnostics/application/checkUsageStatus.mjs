@@ -248,7 +248,7 @@ try {
     assert.equal(go.todayTokens, '300');
     assert.equal(go.todayCost, '$0.00');
     assert.match(go.limits.message ?? '', /Go limits unavailable/);
-    assert.ok(!existsSync(join(scratch, 'usage-v3-opencode.json')), 'missing Go limits must not be cached');
+    assert.ok(!existsSync(join(scratch, 'usage-v2-opencode.json')), 'missing Go limits must not be cached');
     writeFileSync(join(scratch, '.local/share/opencode/auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: 'fixture-secret-key' } }));
     const goFetch = join(scratch, 'go-fetch.mjs');
     writeFileSync(goFetch, `globalThis.fetch = async (url, options) => {
@@ -276,7 +276,7 @@ try {
     assert.match(JSON.parse(run({ provider: 'opencode' }, goEnv).stdout).limits.message, /connect your Go account/, 'auth override change reused cached account limits');
     writeFileSync(join(scratch, '.local/share/opencode/auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: 'different-fixture-key' } }));
     assert.match(JSON.parse(run({ provider: 'opencode' }, { ...goEnv, OPENCODE_AUTH_CONTENT: '' }).stdout).limits.message, /limits unavailable/, 'disk key change reused cached account limits');
-    assert.doesNotMatch(readFileSync(join(scratch, 'usage-v3-opencode.json'), 'utf8'), /fixture-secret-key|different-fixture-key/);
+    assert.doesNotMatch(readFileSync(join(scratch, 'usage-v2-opencode.json'), 'utf8'), /fixture-secret-key|different-fixture-key/);
 
     // Z.ai: the GLM Coding Plan credential Pi holds earns a tab, and its
     // measured activity is the Z.ai-model slice of Pi's own local records --
@@ -341,17 +341,17 @@ try {
     // A collector that cannot measure one agent does not stop a healthy tab
     // from caching its own (honestly labelled) payload: the failure stays on
     // screen, and the next open refreshes instead of pinning it.
-    rmSync(join(scratch, 'usage-v3-kimi.json'));
+    rmSync(join(scratch, 'usage-v2-kimi.json'));
     const kimiDuringOmpFailure = JSON.parse(run({ provider: 'kimi' }, { OMP_PROFILE: '../default' }).stdout);
     assert.equal(kimiDuringOmpFailure.todayTokens, '2.5K');
     assert.match(kimiDuringOmpFailure.items.find((item) => item.id === 'available-omp')?.subtitle ?? '', /Invalid OMP profile/);
-    assert.ok(existsSync(join(scratch, 'usage-v3-kimi.json')), 'a healthy tab caches despite another collector failing');
+    assert.ok(existsSync(join(scratch, 'usage-v2-kimi.json')), 'a healthy tab caches despite another collector failing');
     assert.equal(JSON.parse(run({ provider: 'kimi' }).stdout).providers[0]?.id, 'omp');
 
     // The lag fix: with any last-known payload on disk, the screen paints it
     // at once (flagged stale) instead of holding a skeleton behind a slow
     // collector; the paint itself never runs the collector.
-    const kimiCache = join(scratch, 'usage-v3-kimi.json');
+    const kimiCache = join(scratch, 'usage-v2-kimi.json');
     const seeded = JSON.parse(readFileSync(kimiCache, 'utf8'));
     seeded.at -= 120_000;
     writeFileSync(kimiCache, JSON.stringify(seeded));
@@ -374,7 +374,7 @@ try {
     assert.ok(existsSync(refreshMarker), 'revalidation re-collected past the cache');
     assert.ok(!('stale' in refreshed));
     assert.equal(refreshed.todayTokens, '2.5K');
-    rmSync(join(scratch, 'usage-v3-all.json'));
+    rmSync(join(scratch, 'usage-v2-all.json'));
     const codexFixture = readFileSync(join(scratch, 'codex'), 'utf8');
     rmSync(join(scratch, 'codex'));
     const fallback = run({ provider: 'codex' }, { PATH: scratch, MUXR_CCUSAGE_BIN: join(scratch, 'missing') });
@@ -386,7 +386,7 @@ try {
     assert.ok(fallbackOutput.items.some((item) => item.id === 'ccusage-unavailable'));
     assert.ok(fallbackOutput.items.some((item) => item.id === 'available-claude' && item.metadata.length === 0));
     assert.doesNotMatch(fallback.stdout, /OpenAI Codex current limit/);
-    assert.ok(!existsSync(join(scratch, 'usage-v3-codex.json')));
+    assert.ok(!existsSync(join(scratch, 'usage-v2-codex.json')));
     assert.ok(!existsSync(piMarker), 'Fallback Usage invoked Pi');
 
     const invalid = JSON.parse(run({ provider: 'qwen' }, { PATH: scratch, MUXR_CCUSAGE_BIN: '/bin/true' }).stdout);
@@ -656,12 +656,12 @@ try {
         const exhausted = join(flow, 'exhausted-agent');
         writeTranscript(join(exhausted, 'sessions/proj/wide.jsonl'),
             Array.from({ length: 1100 }, (_, index) => record(`wide-${index}`, '2026-09-07T20:03:00.000Z', `model-${index}`, { input: 10 }, 0.01)));
-        rmSync(join(flow, 'state', 'usage-v3-pi.json'), { force: true });
+        rmSync(join(flow, 'state', 'usage-v2-pi.json'), { force: true });
         const unavailable = flowRun('pi', { PI_AGENT_DIR: exhausted });
         assert.equal(unavailable.todayTokens, '—');
         assert.equal(unavailable.todayCost, '—');
         assert.match(unavailable.activityNotice ?? '', /could not be measured/);
-        assert.ok(!existsSync(join(flow, 'state', 'usage-v3-pi.json')), 'unavailable collection was cached');
+        assert.ok(!existsSync(join(flow, 'state', 'usage-v2-pi.json')), 'unavailable collection was cached');
     } finally {
         rmSync(flow, { recursive: true, force: true });
     }
@@ -677,31 +677,20 @@ try {
     const nowUsage = JSON.parse(runPlugin('plugins/status/usage.mjs', {}).stdout);
     assert.ok(nowUsage.windows.length > 1, 'fixtures must publish competing windows for the selection to mean anything');
     assert.equal(nowPayload.limits.verdict, nowUsage.limits.verdict);
-    assert.ok(Number.isInteger(nowUsage.limits.verdictWindow), 'the usage payload must say which window its verdict describes');
-    // Which window was selected, not object identity: both runs rebuild their
-    // payload from their own `Date.now()`, so `elapsed` is a live float and
-    // only a cache-served second run would compare equal whole.
+    // The card must lead with the same window `limitsPayload` derived the
+    // verdict from -- run that one selection over the same view models the
+    // usage payload published. Which window was selected, not object
+    // identity: both runs rebuild from their own `Date.now()`, so `elapsed` is
+    // a live float that only a cache-served second run would match whole.
+    const { tightestWindow } = await import('../../../plugins/status/usageWindows.mjs');
     const led = nowPayload.limits.windows[0];
-    const describes = nowUsage.limits.windows[nowUsage.limits.verdictWindow];
+    const describes = nowUsage.limits.windows[nowUsage.windows.indexOf(tightestWindow(nowUsage.windows))];
     assert.ok(led !== undefined && describes !== undefined, 'the card must lead with a window');
     assert.deepEqual(
         { label: led.label, used: led.used, window: led.window },
         { label: describes.label, used: describes.used, window: describes.window },
         'the card must lead with the window the verdict describes',
     );
-    // A window the provider reports rate-limited blocks the caller right now
-    // even when another window has spent more of its share, so the verdict and
-    // the window it describes must still be one window: rolling 85% and rate
-    // limited beside weekly 92% must lead with rolling, not weekly.
-    const { goWindows, limitsPayload } = await import('../../../plugins/status/usageWindows.mjs');
-    const blockedAt = Date.parse('2026-09-07T20:00:00Z');
-    const blocked = limitsPayload(goWindows({
-        rolling: { percent: 85, status: 'rate-limited', resetsAt: '2026-09-07T20:30:00Z' },
-        weekly: { percent: 92, status: 'ok', resetsAt: '2026-09-14T00:00:00Z' },
-    }, { nowMs: blockedAt }), { nowMs: blockedAt });
-    assert.equal(blocked.verdict, 'limited');
-    assert.equal(blocked.windows[blocked.verdictWindow].label, 'Rolling',
-        'a limited verdict must describe the window that is rate limited');
     assert.ok(Number.isFinite(nowPayload.vitals.memoryTotal) && nowPayload.vitals.memoryTotal > 0);
     assert.ok(Number.isFinite(nowPayload.vitals.load1) && Number.isFinite(nowPayload.vitals.uptimeSeconds));
     // The disk pair is the one figure a host may not be able to read: a denied

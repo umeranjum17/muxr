@@ -20,6 +20,9 @@ export interface RightNowPayload {
     limits: PluginLimitsPayload;
     /** Cold usage cache; the host fell back so the vitals could answer. */
     collecting?: true;
+    /** The limit figures came from a cache past its fresh window, so they are
+     *  last-known rather than live. The vitals beside them are always live. */
+    stale?: true;
     vitals?: RightNowVitals;
 }
 
@@ -48,6 +51,7 @@ export function asRightNowPayload(value: unknown): RightNowPayload {
     return {
         limits: asLimitsPayload(raw.limits),
         ...(raw.collecting === true ? { collecting: true as const } : {}),
+        ...(raw.stale === true ? { stale: true as const } : {}),
         ...(vitals === undefined ? {} : { vitals }),
     };
 }
