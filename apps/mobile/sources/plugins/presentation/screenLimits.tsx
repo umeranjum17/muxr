@@ -109,10 +109,10 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
             {tightest !== undefined && (
                 <>
                     <Text style={{ color: headlineTone === 'secondary' ? theme.colors.text : toneColor(theme, headlineTone), fontSize: 30, lineHeight: 36, letterSpacing: -0.5, ...Typography.mono('semiBold') }}>
-                        {`${100 - Math.round(tightest.used)}% left`}
+                        {t('plugins.limits.percentLeft', { percent: 100 - Math.round(tightest.used) })}
                     </Text>
                     <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 2 }}>
-                        {[tightest.label, tightest.resetsIn === undefined ? undefined : `resets in ${tightest.resetsIn}`].filter((part) => part !== undefined).join(' · ')}
+                        {[tightest.label, tightest.resetsIn === undefined ? undefined : t('plugins.rightNow.resetsIn', { time: tightest.resetsIn })].filter((part) => part !== undefined).join(' · ')}
                     </Text>
                 </>
             )}
@@ -125,9 +125,9 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
                             <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, flex: 1, marginRight: 12 }}>
                                 {window.window === undefined ? window.label : `${window.label} · ${window.window}`}
                             </Text>
-                            <Text style={{ color: toneColor(theme, tone), fontSize: 12.5, ...Typography.mono('semiBold') }}>{`${Math.round(window.used)}% used`}</Text>
+                            <Text style={{ color: toneColor(theme, tone), fontSize: 12.5, ...Typography.mono('semiBold') }}>{t('plugins.limits.percentUsed', { percent: Math.round(window.used) })}</Text>
                             {window.resetsIn !== undefined && (
-                                <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, marginLeft: 8, ...Typography.mono('regular') }}>{`resets in ${window.resetsIn}`}</Text>
+                                <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, marginLeft: 8, ...Typography.mono('regular') }}>{t('plugins.rightNow.resetsIn', { time: window.resetsIn })}</Text>
                             )}
                         </View>
                         {/* Every window draws against the same 100 ceiling; the

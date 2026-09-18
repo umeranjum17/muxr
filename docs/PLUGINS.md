@@ -150,7 +150,7 @@ Every slot below is shipped. **JSON** means you edit `muxr-ui.json` and the chan
 | `host.stream` | a persistent provider adapter over bounded NDJSON frames | `.mjs` |
 | `navigation.primary` | a navigation destination; product chrome decides where it renders (home chips, sidebar tools) and in what order | JSON (`navigation-item`) |
 | `navigation.content` | the screen that destination opens | JSON (`screen`) or primitive |
-| `home.cards` | a Home card, or `"presentation": "sheet"` for a pill that opens a bottom sheet; a card may set `contentContributionId` to open a declared `navigation.content` screen; a card sourced from the plugin's `now` read RPC is drawn by the product's Right now card (bounded limit/verdict/vitals figures) instead of the generic data card, which requires `minMuxrVersion: 15` | JSON (`data-card`) |
+| `home.cards` | a Home card, or `"presentation": "sheet"` for a pill that opens a bottom sheet; a card may set `contentContributionId` to open a declared `navigation.content` screen; a card sourced from the plugin's `now` read RPC is drawn by the product's Right now card (bounded limit/verdict/vitals figures) instead of the generic data card, which requires `minMuxrVersion: 15`; that card's own `title` and `emptyText` go unread because the product card owns every string it shows | JSON (`data-card`) |
 | `session.header.trailing` | a session action; compatible buttons can opt into terminal quick controls | JSON (`data-card` or `screen-button`) or primitive |
 | `session.pills` | a session action; compatible primitives can opt into terminal quick controls | JSON (`data-card`) or primitive |
 | `session.toolbar` | a pane-menu command that runs a declared Herdr action | JSON (`button`) |

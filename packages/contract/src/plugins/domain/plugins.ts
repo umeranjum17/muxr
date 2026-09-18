@@ -686,6 +686,10 @@ export const MUXR_UI_VERSION = 15;
 export const DYNAMIC_SCREEN_MIN_UI_VERSION = 13;
 /** Manifests using `limits`, bound tones, row identity fields or bound field values declare this. */
 export const SCREEN_IDENTITY_MIN_UI_VERSION = 14;
+/** A `home.cards` data-card sourced from a `now` read rpc answers with the
+ *  structured right-now payload, so the product card draws it instead of the
+ *  generic data card. A manifest below this keeps the generic card. */
+export const RIGHT_NOW_CARD_MIN_UI_VERSION = 15;
 export const MAX_CHART_SERIES = 8;
 export const MAX_CHART_LABEL_BYTES = 24;
 /** Static list rows, and the render cap for a repeat expansion. */

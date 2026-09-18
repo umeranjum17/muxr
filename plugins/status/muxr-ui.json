@@ -131,8 +131,7 @@
         "type": "plugin.call",
         "contributionId": "now"
       },
-      "contentContributionId": "usage.details",
-      "emptyText": "Usage unavailable"
+      "contentContributionId": "usage.details"
     },
     {
       "slot": "settings.items",

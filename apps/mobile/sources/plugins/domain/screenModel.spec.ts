@@ -11,6 +11,7 @@ import { asScreenTabs, bindText, bindTone, buttonInput, contentMountTitle, initi
 import { asScreenTree } from './screenTreeModel';
 import { asChartSeries } from './chartModel';
 import { asLimitsPayload } from './limitsModel';
+import { asRightNowPayload, vitalsFacts } from '@/herd';
 import { highlightCodeLines, syntaxLanguage } from '@/components/code/syntaxHighlighting';
 
 const manifest: PluginManifestV1 = {
@@ -480,6 +481,23 @@ describe('usage tab marks and bounded limits payload', () => {
         ]);
         // Not an object at all: an unknown, windowless payload, never a throw.
         expect(asLimitsPayload('nope')).toEqual({ verdict: 'unknown', windows: [] });
+    });
+
+    it('bounds untrusted machine vitals and loses only the figure the host could not read', () => {
+        const vitals = asRightNowPayload({
+            vitals: {
+                memoryUsed: 56_375_000_000, memoryTotal: 98_784_000_000,
+                diskUsed: 431_600_000_000, diskTotal: 998_000_000_000,
+                load1: 5.27, uptimeSeconds: 425_000,
+            },
+        }).vitals;
+        expect(vitalsFacts(vitals!)).toEqual({ memoryPercent: 57, diskPercent: 43, load: '5.3', uptime: '4d' });
+        // A filesystem the host could not stat drops its own figure; memory,
+        // load and uptime still answer.
+        const statless = asRightNowPayload({ vitals: { memoryUsed: 1, memoryTotal: 4, load1: 2, uptimeSeconds: 7_200 } }).vitals;
+        expect(vitalsFacts(statless!)).toEqual({ memoryPercent: 25, load: '2', uptime: '2h' });
+        // A zero ceiling would divide the share by zero, so the whole object goes.
+        expect(asRightNowPayload({ vitals: { memoryUsed: 1, memoryTotal: 0, load1: 1, uptimeSeconds: 1 } }).vitals).toBeUndefined();
     });
 });
 

@@ -703,8 +703,12 @@ try {
     assert.equal(blocked.windows[blocked.verdictWindow].label, 'Rolling',
         'a limited verdict must describe the window that is rate limited');
     assert.ok(Number.isFinite(nowPayload.vitals.memoryTotal) && nowPayload.vitals.memoryTotal > 0);
-    assert.ok(Number.isFinite(nowPayload.vitals.diskTotal) && nowPayload.vitals.diskTotal > 0);
     assert.ok(Number.isFinite(nowPayload.vitals.load1) && Number.isFinite(nowPayload.vitals.uptimeSeconds));
+    // The disk pair is the one figure a host may not be able to read: a denied
+    // statfs drops it and leaves the rest of the line standing. Absent is the
+    // contract; present-but-zero would divide the share by zero.
+    assert.ok(nowPayload.vitals.diskTotal === undefined
+        || (Number.isFinite(nowPayload.vitals.diskTotal) && nowPayload.vitals.diskTotal > 0));
     // The cold-cache fallback, driven: a usage read that cannot answer at all
     // still leaves the vitals line standing, and says it is collecting rather
     // than reporting a limit it never read.
