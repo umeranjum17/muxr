@@ -152,12 +152,6 @@ interactive walkthrough (`muxr config check` validates a hand edit).
 | `machineName` | Friendly name shown for this computer. Unset means setup state, then hostname. |
 | `dataDir` | Absolute path to host data. Unset means `$MUXR_HOME/host`. |
 | `hostHttpPort` | Integer 1-65535. Unset means 8793. |
-| `terminalKeys` | Array of 1-24 `{ label, send }` keys replacing every phone's key row. `send` accepts `\e` `\n` `\r` `\t` `\xHH` `\\` escapes; add `repeat: true` for keys that repeat while held. Unset means the phone's built-in row. |
-| `quickReplies` | Array of 1-8 `{ label, text }` one-tap phrases replacing the built-in three. Unset means the built-ins. |
-
-A phone that has been customised locally keeps its own arrangement — the file
-sets the row for every un-customised device, and the phone's editor has a
-reset that returns the device to it.
 
 Absent or partial is normal: every missing key falls back. Malformed is
 fatal and loud: the host prints the file path and the offending key and

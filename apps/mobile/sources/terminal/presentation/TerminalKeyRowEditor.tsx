@@ -4,19 +4,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector, GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
-import { encodeKeyBytes } from '@muxr/contract';
 import { Typography } from '@/constants/Typography';
 import { TERMINAL_KEY_ROW_LIMIT } from '@/catalog/application/localSettings';
 import { hapticsLight, hapticsSelection } from '@/components/haptics';
 import { Switch } from '@/components/Switch';
 import { ui } from '@/components/ui';
-import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, escapeToBytes, type CustomKey, type RowEntry } from '../domain/keyRow';
+import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, bytesToEscape, escapeToBytes, type CustomKey, type RowEntry } from '../domain/keyRow';
 
 /**
  * Edit the key row at the point of use: a sheet over the terminal that shows
  * the live row, one editable line per key (hold the handle, drag to reorder,
- * minus to remove), the add-key grid, and a custom-key form speaking the same
- * `\e` `\n` `\xHH` escape syntax as the operator's config file.
+ * minus to remove), the add-key grid, and a custom-key form speaking the
+ * `\e` `\n` `\xHH` escape syntax.
  */
 
 // ponytail: rows live in one ScrollView; a drag cannot autoscroll the list,
@@ -26,9 +25,9 @@ const STEP = 62;
 
 export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, onClose }: {
     visible: boolean;
-    /** The stored row, or null while it follows the operator or built-in row. */
+    /** The stored row, or null while it follows the built-in row. */
     entries: RowEntry[] | null;
-    /** The row to start from when nothing is stored yet (the operator or built-in row). */
+    /** The row to start from when nothing is stored yet (the built-in row). */
     seed: RowEntry[];
     keys: { label: string; accessibilityLabel: string; send: string }[];
     onChange: (entries: RowEntry[] | null) => void;
@@ -87,6 +86,16 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
         workingRef.current = next;
         setWorking(next);
         onChange(next);
+    };
+
+    // Reordering without the drag gesture, for screen readers and anyone who
+    // cannot hold and pan: the same swap the drag performs, one slot at a time.
+    const moveBy = (index: number, delta: number) => {
+        if (dragging.current) return;
+        const target = index + delta;
+        if (target < 0 || target >= workingRef.current.length) return;
+        hapticsSelection();
+        swap(index, target);
     };
 
     const onDrag = (phase: 'start' | 'update' | 'end', index: number, translationY: number) => {
@@ -172,10 +181,10 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
                                         isDragging && { transform: [{ translateY: drag.translate }], zIndex: 10, borderColor: theme.colors.accent },
                                     ]}
                                 >
-                                    <Handle index={index} onDrag={onDrag} tint={theme.colors.textSecondary} />
+                                    <Handle index={index} label={label} onDrag={onDrag} onMove={moveBy} tint={theme.colors.textSecondary} />
                                     <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{label}</Text>
                                     <Text style={[styles.rowSend, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                                        sends {encodeKeyBytes(send)}
+                                        sends {bytesToEscape(send)}
                                     </Text>
                                     <Pressable onPress={() => removeAt(index)} accessibilityRole="button" accessibilityLabel={`Remove ${label}`} hitSlop={6}>
                                         <Ionicons name="remove-circle-outline" size={22} color={theme.colors.textSecondary} />
@@ -200,8 +209,8 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
                     {adding && working.length < TERMINAL_KEY_ROW_LIMIT && <AddPanel onAppend={appendEntry} onDone={() => setAdding(false)} />}
 
                     {entries !== null && (
-                        <Pressable onPress={() => { hapticsSelection(); onChange(null); onClose(); }} accessibilityRole="button" accessibilityLabel="Reset key row to the shared row" style={styles.resetRow}>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the shared row</Text>
+                        <Pressable onPress={() => { hapticsSelection(); onChange(null); onClose(); }} accessibilityRole="button" accessibilityLabel="Reset key row to the default row" style={styles.resetRow}>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the default row</Text>
                         </Pressable>
                     )}
                     </ScrollView>
@@ -212,11 +221,17 @@ export function TerminalKeyRowEditor({ visible, entries, seed, keys, onChange, o
 }
 
 /** Hold the handle to lift the row, then drag; the list swaps underneath. */
-function Handle({ index, onDrag, tint }: { index: number; onDrag: (phase: 'start' | 'update' | 'end', index: number, translationY: number) => void; tint: string }) {
+function Handle({ index, label, onDrag, onMove, tint }: {
+    index: number;
+    label: string;
+    onDrag: (phase: 'start' | 'update' | 'end', index: number, translationY: number) => void;
+    onMove: (index: number, delta: number) => void;
+    tint: string;
+}) {
     // Built once per row; callbacks read the row's live position through a ref
     // so a swap never rebuilds (and cancels) the pan mid-gesture.
-    const live = React.useRef({ index, onDrag });
-    live.current = { index, onDrag };
+    const live = React.useRef({ index, onDrag, onMove });
+    live.current = { index, onDrag, onMove };
     const pan = React.useMemo(() => Gesture.Pan()
         .activateAfterLongPress(250)
         .runOnJS(true)
@@ -226,7 +241,15 @@ function Handle({ index, onDrag, tint }: { index: number; onDrag: (phase: 'start
         .onFinalize(() => live.current.onDrag('end', live.current.index, 0)), []);
     return (
         <GestureDetector gesture={pan}>
-            <Pressable accessibilityLabel="Drag to reorder" hitSlop={8} style={styles.handle}>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Reorder ${label}`}
+                accessibilityHint="Hold and drag, or use the move up and move down actions"
+                accessibilityActions={[{ name: 'moveUp', label: 'Move up' }, { name: 'moveDown', label: 'Move down' }]}
+                onAccessibilityAction={(event) => live.current.onMove(live.current.index, event.nativeEvent.actionName === 'moveUp' ? -1 : 1)}
+                hitSlop={8}
+                style={styles.handle}
+            >
                 <Ionicons name="reorder-three-outline" size={22} color={tint} />
             </Pressable>
         </GestureDetector>

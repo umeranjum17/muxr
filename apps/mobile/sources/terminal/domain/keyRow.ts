@@ -1,10 +1,8 @@
-import { decodeKeyBytes } from '@muxr/contract';
-
 /**
  * The terminal key row's vocabulary: the built-in catalog a phone can want,
  * the default row (the first thing a new owner sees), and the resolution rule
- * that makes the phone editor and the host's operator config two views of one
- * row. Precedence: per-device customisation > operator row > built-in default.
+ * that turns a stored arrangement back into keys. The device's own row wins;
+ * absent, the built-in default stands.
  */
 
 export interface TerminalKey {
@@ -76,37 +74,60 @@ export const CATALOG_GROUPS: readonly { title: string; ids: readonly string[] }[
 /**
  * The row a person actually sees: their own arrangement when they have made
  * one (ids resolve through the catalog, unknown ids are skipped), else the
- * operator's declared row from the host config, else the built-in default.
+ * built-in default.
  */
-export function resolveKeyRow(entries: readonly RowEntry[] | null | undefined, operatorKeys: readonly TerminalKeyDefinitionLike[] | undefined): TerminalKey[] {
-    if (entries !== null && entries !== undefined) {
-        return entries
-            .map((entry) => typeof entry === 'string'
-                ? BUILTIN_KEY_CATALOG[entry]
-                : { label: entry.label, accessibilityLabel: entry.accessibilityLabel ?? entry.label, send: entry.send, ...(entry.repeat === true ? { repeat: true } : {}) })
-            .filter((key): key is TerminalKey => key !== undefined);
-    }
-    if (operatorKeys !== undefined && operatorKeys.length > 0) {
-        return operatorKeys.map((key) => ({
-            label: key.label,
-            accessibilityLabel: key.accessibilityLabel ?? key.label,
-            send: key.send,
-            ...(key.repeat === true ? { repeat: true } : {}),
-        }));
-    }
-    return DEFAULT_ROW_IDS.map((id) => BUILTIN_KEY_CATALOG[id]);
+export function resolveKeyRow(entries: readonly RowEntry[] | null | undefined): TerminalKey[] {
+    if (entries === null || entries === undefined) return DEFAULT_ROW_IDS.map((id) => BUILTIN_KEY_CATALOG[id]);
+    return entries
+        .map((entry) => typeof entry === 'string'
+            ? BUILTIN_KEY_CATALOG[entry]
+            : { label: entry.label, accessibilityLabel: entry.accessibilityLabel ?? entry.label, send: entry.send, ...(entry.repeat === true ? { repeat: true } : {}) })
+        .filter((key): key is TerminalKey => key !== undefined);
 }
 
-type TerminalKeyDefinitionLike = { label: string; accessibilityLabel?: string; send: string; repeat?: boolean };
-
 /**
- * Escape syntax for a custom key's bytes - the same syntax the operator config
- * file speaks, so a sequence copied between the file and the editor behaves
- * the same: `\e` escape, `\n` newline, `\t` tab, `\xHH` any byte, `\\` literal
- * backslash. Null on an incomplete escape so a typo never sends a wrong key.
+ * Escape syntax for a custom key's bytes: `\e` escape, `\n` newline, `\r`
+ * carriage return, `\t` tab, `\xHH` any byte, `\\` literal backslash. Null on
+ * an incomplete escape so a typo never sends a wrong key.
  */
 export function escapeToBytes(text: string): string | null {
     if (text === '') return null;
-    const bytes = decodeKeyBytes(text);
-    return bytes === null || bytes === '' ? null : bytes;
+    let out = '';
+    for (let i = 0; i < text.length; i += 1) {
+        const ch = text[i];
+        if (ch !== '\\') {
+            out += ch;
+            continue;
+        }
+        const next = text[i + 1];
+        if (next === 'e') out += '\u001b';
+        else if (next === 'n') out += '\n';
+        else if (next === 'r') out += '\r';
+        else if (next === 't') out += '\t';
+        else if (next === 'x') {
+            const hex = text.slice(i + 2, i + 4);
+            if (!/^[0-9a-fA-F]{2}$/.test(hex)) return null;
+            out += String.fromCharCode(parseInt(hex, 16));
+            i += 2;
+        } else if (next === '\\') out += '\\';
+        else return null;
+        i += 1;
+    }
+    return out === '' ? null : out;
+}
+
+/** The reverse of escapeToBytes, so the editor can show what a key sends. */
+export function bytesToEscape(bytes: string): string {
+    let out = '';
+    for (const ch of bytes) {
+        const code = ch.codePointAt(0) ?? 0;
+        if (ch === '\\') out += '\\\\';
+        else if (ch === '\u001b') out += '\\e';
+        else if (ch === '\n') out += '\\n';
+        else if (ch === '\r') out += '\\r';
+        else if (ch === '\t') out += '\\t';
+        else if (code < 0x20 || code === 0x7f) out += `\\x${code.toString(16).padStart(2, '0')}`;
+        else out += ch;
+    }
+    return out;
 }

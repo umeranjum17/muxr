@@ -54,7 +54,6 @@ import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
 import { FloatingTerminalControls } from './FloatingTerminalControls';
 import { TERMINAL_QUICK_REPLIES, TerminalKeyRow } from './TerminalKeyRow';
-import { useOperatorTerminalKeys } from '../application/operatorTerminalKeys';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins';
@@ -109,8 +108,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const quickActions = React.useMemo(() => declaredActions.filter((action) => action.quickAction), [declaredActions]);
     const paneActions = React.useMemo(() => declaredActions.filter((action) => !action.quickAction), [declaredActions]);
     const pluginQuickReplies = useTerminalQuickReplies();
-    const operatorReplies = useOperatorTerminalKeys()?.quickReplies;
-    const quickReplies = [...(operatorReplies ?? TERMINAL_QUICK_REPLIES), ...pluginQuickReplies];
+    const quickReplies = [...TERMINAL_QUICK_REPLIES, ...pluginQuickReplies];
     const [changesCount, setChangesCount] = React.useState<number | null>(null);
     useFocusEffect(React.useCallback(() => {
         let cancelled = false;

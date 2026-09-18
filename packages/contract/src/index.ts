@@ -95,7 +95,6 @@ export type {
     PreviewFrame,
     TerminalClientFrame,
     TerminalHostFrame,
-    TerminalKeyDefinition,
     TerminalScrollStateFrame,
     WsTransport,
 } from './control-plane/index.js';
@@ -103,8 +102,6 @@ export {
     MISSING_CWD_ERROR_PREFIX,
     normalizeRequestFailure,
     requestRequiresE2ee,
-    decodeKeyBytes,
-    encodeKeyBytes,
     decodePayload,
     encodePayload,
     envelopeIsHosted,

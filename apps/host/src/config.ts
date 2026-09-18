@@ -1,8 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
-import { decodeKeyBytes } from '@muxr/contract';
-import type { TerminalKeyDefinition } from '@muxr/contract';
 
 /**
  * Agent-editable host settings in `$MUXR_HOME/config.json` (beside
@@ -18,7 +16,7 @@ import type { TerminalKeyDefinition } from '@muxr/contract';
 
 export const MUXR_CONFIG_FILENAME = 'config.json';
 
-const CONFIG_KEYS = ['mode', 'relayUrl', 'machineId', 'machineName', 'dataDir', 'hostHttpPort', 'terminalKeys', 'quickReplies'] as const;
+const CONFIG_KEYS = ['mode', 'relayUrl', 'machineId', 'machineName', 'dataDir', 'hostHttpPort'] as const;
 type ConfigKey = (typeof CONFIG_KEYS)[number];
 
 export interface MuxrFileConfig {
@@ -28,10 +26,6 @@ export interface MuxrFileConfig {
     machineName?: string;
     dataDir?: string;
     hostHttpPort?: number;
-    /** Operator-declared terminal key row: replaces the built-in row on every phone. */
-    terminalKeys?: TerminalKeyDefinition[];
-    /** Operator-declared quick replies: replace the built-in three. */
-    quickReplies?: { label: string; text: string }[];
 }
 
 export interface ResolvedHostConfig {
@@ -131,47 +125,7 @@ export function parseMuxrConfigFile(path: string, text: string): MuxrFileConfig 
         }
         config.hostHttpPort = raw('hostHttpPort') as number;
     }
-    if (raw('terminalKeys') !== undefined) config.terminalKeys = parseTerminalKeys(path, raw('terminalKeys'));
-    if (raw('quickReplies') !== undefined) config.quickReplies = parseQuickReplies(path, raw('quickReplies'));
     return config;
-}
-
-const MAX_TERMINAL_KEYS = 24;
-const MAX_QUICK_REPLIES = 8;
-
-function parseTerminalKeys(path: string, value: unknown): TerminalKeyDefinition[] {
-    if (!Array.isArray(value) || value.length === 0 || value.length > MAX_TERMINAL_KEYS) {
-        fail(path, 'terminalKeys', `must be an array of 1 to ${MAX_TERMINAL_KEYS} keys`);
-    }
-    return value.map((entry) => {
-        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) fail(path, 'terminalKeys', 'each key must be an object');
-        const { label, accessibilityLabel, send, repeat } = entry as Record<string, unknown>;
-        if (typeof label !== 'string' || label.trim() === '' || label.length > 12) fail(path, 'terminalKeys', 'each key needs a label of 1 to 12 characters');
-        if (typeof send !== 'string' || send === '' || send.length > 512) fail(path, 'terminalKeys', 'each key needs a send of 1 to 512 characters (use \\e, \\n, \\t, \\xHH, \\\\ escapes)');
-        if (accessibilityLabel !== undefined && (typeof accessibilityLabel !== 'string' || accessibilityLabel === '' || accessibilityLabel.length > 64)) fail(path, 'terminalKeys', 'accessibilityLabel must be a non-empty string of 1 to 64 characters');
-        if (repeat !== undefined && typeof repeat !== 'boolean') fail(path, 'terminalKeys', 'repeat must be true or false');
-        const bytes = decodeKeyBytes(send);
-        if (bytes === null || bytes === '') fail(path, 'terminalKeys', `send "${send}" holds an incomplete escape (use \\\\ for a literal backslash)`);
-        return {
-            label: label.trim(),
-            ...(accessibilityLabel === undefined ? {} : { accessibilityLabel: accessibilityLabel as string }),
-            send: bytes,
-            ...(repeat === true ? { repeat: true } : {}),
-        };
-    });
-}
-
-function parseQuickReplies(path: string, value: unknown): NonNullable<MuxrFileConfig['quickReplies']> {
-    if (!Array.isArray(value) || value.length === 0 || value.length > MAX_QUICK_REPLIES) {
-        fail(path, 'quickReplies', `must be an array of 1 to ${MAX_QUICK_REPLIES} replies`);
-    }
-    return value.map((entry) => {
-        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) fail(path, 'quickReplies', 'each reply must be an object');
-        const { label, text } = entry as Record<string, unknown>;
-        if (typeof label !== 'string' || label.trim() === '' || label.length > 24) fail(path, 'quickReplies', 'each reply needs a label of 1 to 24 characters');
-        if (typeof text !== 'string' || text.trim() === '' || text.length > 500) fail(path, 'quickReplies', 'each reply needs text of 1 to 500 characters');
-        return { label: label.trim(), text };
-    });
 }
 
 /** Absent file is normal: every key falls back. Unreadable file is fatal. */

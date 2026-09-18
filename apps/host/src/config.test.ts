@@ -32,25 +32,6 @@ describe('muxr config file', () => {
         expect(resolved.relayUrl).toBe(DEFAULTS.relayUrl);
     });
 
-    it('decodes operator terminal key escapes and refuses broken ones', () => {
-        const file = parseMuxrConfigFile(PATH, JSON.stringify({
-            terminalKeys: [
-                { label: 'esc', send: '\\e' },
-                { label: 'left', send: '\\e[D', repeat: true },
-            ],
-            quickReplies: [{ label: 'Ship', text: 'Ship it.' }],
-        }));
-        expect(file.terminalKeys).toEqual([
-            { label: 'esc', send: '\u001b' },
-            { label: 'left', send: '\u001b[D', repeat: true },
-        ]);
-        expect(file.quickReplies).toEqual([{ label: 'Ship', text: 'Ship it.' }]);
-        expect(() => parseMuxrConfigFile(PATH, JSON.stringify({ terminalKeys: [{ label: 'bad', send: '\\q' }] })))
-            .toThrow(/incomplete escape/);
-        expect(() => parseMuxrConfigFile(PATH, JSON.stringify({ terminalKeys: [] }))).toThrow(MuxrConfigError);
-        expect(() => parseMuxrConfigFile(PATH, JSON.stringify({ quickReplies: [{ label: 'x' }] }))).toThrow(MuxrConfigError);
-    });
-
     it('prefers flag over environment over file over default per key', () => {
         const file = parseMuxrConfigFile(
             PATH,

@@ -6,7 +6,6 @@ import { Typography } from '@/constants/Typography';
 import { hapticsSelection } from '@/components/haptics';
 import { ui } from '@/components/ui';
 import { useLocalSettingMutable } from '@/catalog/store';
-import { useOperatorTerminalKeys } from '../application/operatorTerminalKeys';
 import { DEFAULT_ROW_IDS, resolveKeyRow, type RowEntry, type TerminalKey } from '../domain/keyRow';
 import { TerminalKeyRowEditor } from './TerminalKeyRowEditor';
 
@@ -35,7 +34,6 @@ const cycle = (state: Modifier): Modifier => (state === 'off' ? 'once' : state =
 export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: string) => void } }) {
     const { theme } = useUnistyles();
     const [rowEntries, setRowEntries] = useLocalSettingMutable('terminalKeyRow');
-    const operatorKeys = useOperatorTerminalKeys();
     const [editing, setEditing] = React.useState(false);
     const [ctrl, setCtrl] = React.useState<Modifier>('off');
     const [shift, setShift] = React.useState<Modifier>('off');
@@ -77,22 +75,10 @@ export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: strin
         applyMods(ctrlRef.current === 'once' ? 'off' : ctrlRef.current, shiftRef.current === 'once' ? 'off' : shiftRef.current);
     };
     const active = (state: Modifier) => state !== 'off';
-    const keys = resolveKeyRow(rowEntries, operatorKeys?.keys);
-    // Editing starts from the row the person sees today: their own arrangement,
-    // else the operator's row inline (so it diverges as a local copy), else default.
-    const seed = React.useMemo<RowEntry[]>(() => {
-        if (rowEntries !== null) return rowEntries;
-        const operator = operatorKeys?.keys;
-        if (operator !== undefined && operator.length > 0) {
-            return operator.map((key) => ({
-                label: key.label,
-                ...(key.accessibilityLabel === undefined ? {} : { accessibilityLabel: key.accessibilityLabel }),
-                send: key.send,
-                ...(key.repeat === true ? { repeat: true } : {}),
-            }));
-        }
-        return [...DEFAULT_ROW_IDS];
-    }, [rowEntries, operatorKeys]);
+    const keys = resolveKeyRow(rowEntries);
+    // Editing starts from the row the person sees today: their own arrangement
+    // when they have one, else the built-in default as a local copy.
+    const seed = React.useMemo<RowEntry[]>(() => rowEntries ?? [...DEFAULT_ROW_IDS], [rowEntries]);
     return (
         <>
             <Pressable
