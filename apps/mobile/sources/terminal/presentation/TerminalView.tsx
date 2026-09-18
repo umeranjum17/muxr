@@ -11,7 +11,8 @@
 
 import * as React from 'react';
 import type { TerminalCommand } from './FloatingTerminalControls';
-import { AppState, View } from 'react-native';
+import { AppState, Image, Pressable, StyleSheet, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
@@ -74,6 +75,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const { sessionId, onStatus, onChannel } = props;
     const focused = useIsFocused();
     const [viewport, setViewport] = React.useState({ width: 0, height: 0 });
+    // Inline image pushed by `muxr show-image` on this pane. Terminal-scoped:
+    // replaced by the next image, dropped on dismiss and on leaving the pane.
+    const [inlineImage, setInlineImage] = React.useState<{ id: string; mime: string; bytes: string } | null>(null);
+    const [inlineImageAspect, setInlineImageAspect] = React.useState(4 / 3);
     const terminalKeyboardDisabled = useLocalSetting('terminalKeyboardDisabled');
     const termRef = React.useRef<TerminalViewRef>(null);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
@@ -225,6 +230,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         scrollGate.release();
                         writePumpRef.current?.push({ bytes: base64 });
                     });
+                    channel.onImage((image) => setInlineImage(image));
                     channel.onState((state) => onStatus?.(state));
                     channel.onClose((reason) => onStatus?.(reason ?? 'closed'));
                     onChannel?.(channel);
@@ -266,6 +272,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             openAbortRef.current = undefined;
             channelRef.current = undefined;
             openedRef.current = false;
+            // The image belongs to the live terminal view, not the pane.
+            setInlineImage(null);
         };
     }, [attach, onChannel]));
 
@@ -295,6 +303,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     }), [atDefaultZoom, atMaxZoom, atMinZoom, dismissKeyboard]);
     React.useEffect(() => { onViewControls?.(viewControls); }, [onViewControls, viewControls]);
     React.useEffect(() => () => onViewControls?.({ commands: [], dismissKeyboard: () => {} }), [onViewControls]);
+
+    // Keep the strip honest on a short viewport: it never takes more than
+    // ~42% of the terminal, and never collapses on a not-yet-measured layout.
+    const imageStripHeight = Math.max(
+        120,
+        Math.min(viewport.width / inlineImageAspect, viewport.height * 0.42, 420),
+    );
 
     return (
         <View onLayout={(event) => setViewport({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
@@ -333,6 +348,49 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 onScroll={({ nativeEvent }) => scrollGate.queue(-nativeEvent.rows)}
             />
             </View>
+            {inlineImage !== null && (
+                <View style={styles.imageStrip}>
+                    <Image
+                        source={{ uri: `data:${inlineImage.mime};base64,${inlineImage.bytes}` }}
+                        style={{ width: '100%', height: imageStripHeight }}
+                        resizeMode="contain"
+                        onLoad={({ nativeEvent }) => {
+                            const { width, height } = nativeEvent.source;
+                            if (width > 0 && height > 0) setInlineImageAspect(width / height);
+                        }}
+                        accessibilityLabel="Image from agent"
+                    />
+                    <Pressable
+                        onPress={() => setInlineImage(null)}
+                        style={styles.imageDismiss}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Dismiss image"
+                    >
+                        <Ionicons name="close" size={14} color="rgba(255,255,255,0.9)" />
+                    </Pressable>
+                </View>
+            )}
         </View>
     );
+});
+
+const styles = StyleSheet.create({
+    imageStrip: {
+        // Blends with the terminal surface; the hairline is the only seam.
+        backgroundColor: '#0c0c0b',
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: 'rgba(255,255,255,0.10)',
+    },
+    imageDismiss: {
+        position: 'absolute',
+        top: 8,
+        right: 10,
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(0,0,0,0.55)',
+    },
 });

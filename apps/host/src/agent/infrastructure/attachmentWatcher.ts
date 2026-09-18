@@ -6,9 +6,14 @@
 
 import { createHash } from 'node:crypto';
 import { createReadStream, mkdirSync, readdirSync, watch, type FSWatcher } from 'node:fs';
-import { open as openAsync, readdir, readFile, stat } from 'node:fs/promises';
+import { open as openAsync, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import type { SessionAttachment } from '@muxr/contract';
+
+/** Files named `show-*` in a pane dir are not attachments: they are inline
+ *  images pushed by `muxr show-image`, forwarded to live terminal viewers and
+ *  deleted -- never listed, never stored. */
+export const SHOW_PREFIX = 'show-';
 
 export const MAX_ATTACHMENTS = 50;
 // Large images stay metadata-only instead of crossing the relay inline.
@@ -105,6 +110,20 @@ function mimeFor(name: string): string {
     return MIME_BY_EXT[ext] ?? 'application/octet-stream';
 }
 
+/** Magic-byte sniff for show-image pushes; the extension is untrusted. */
+function sniffImageMime(bytes: Uint8Array): string | undefined {
+    if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png';
+    if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+    if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'image/gif';
+    if (bytes.length >= 12
+        && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+        && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'image/webp';
+    return undefined;
+}
+
+/** The host side of `muxr show-image`: returns how many live viewers got the image. */
+export type ShowImageSink = (paneId: string, image: { mime: string; bytes: string }) => number | Promise<number>;
+
 /** Metadata-only view of an attachment (id + fields, no base64 data). */
 function metaOnly(entry: SessionAttachment): Omit<SessionAttachment, 'data'> {
     return { id: entry.id, name: entry.name, mimeType: entry.mimeType, size: entry.size, at: entry.at };
@@ -137,7 +156,7 @@ export async function scanPaneWithAttribution(rootDir: string, paneId: string, c
         return { attachments: [], total: 0, truncated: false };
     }
     const names = entries
-        .filter((entry) => entry.isFile() && !entry.name.startsWith('.'))
+        .filter((entry) => entry.isFile() && !entry.name.startsWith('.') && !entry.name.startsWith(SHOW_PREFIX))
         .map((entry) => entry.name)
         .sort(compareNames);
     const total = names.length;
@@ -219,6 +238,9 @@ export class AttachmentWatcher {
     private watcher: FSWatcher | undefined;
     private interval: ReturnType<typeof setInterval> | undefined;
 
+    /** Where `show-*` images go (TerminalManager). Set by the host after wiring; absent, files wait for the next scan. */
+    showImage?: ShowImageSink;
+
     constructor(
         private readonly rootDir: string,
         private readonly emit: (paneId: string, attachments: SessionAttachment[], total?: number, truncated?: boolean) => void,
@@ -293,6 +315,7 @@ export class AttachmentWatcher {
 
     private async scanAndEmit(paneId: string): Promise<void> {
         try {
+            await this.forwardShowImages(paneId);
             const cache = this.fileCache.get(paneId) ?? new Map<string, CachedAttachment>();
             this.fileCache.set(paneId, cache);
             const scan = await this.scan(paneId, cache);
@@ -328,6 +351,49 @@ export class AttachmentWatcher {
         const cache = this.fileCache.get(paneId) ?? new Map<string, CachedAttachment>();
         this.fileCache.set(paneId, cache);
         return cache;
+    }
+
+    /**
+     * Forward every `show-*` file in the pane dir to live terminal viewers,
+     * then delete it: the phone renders the bytes from the frame alone, so no
+     * copy survives on either side. A `.show-<name>.rc` receipt tells the CLI
+     * how many viewers saw it (dot-prefixed, so the listing filter never
+     * shows it).
+     */
+    private async forwardShowImages(paneId: string): Promise<void> {
+        if (this.showImage === undefined) return;
+        const dir = join(resolve(this.rootDir), paneId);
+        let names: string[];
+        try {
+            names = (await readdir(dir, { withFileTypes: true }))
+                .filter((entry) => entry.isFile() && entry.name.startsWith(SHOW_PREFIX))
+                .map((entry) => entry.name);
+        } catch {
+            return; // No pane dir (or unreadable): nothing to forward.
+        }
+        for (const name of names) {
+            const path = join(dir, name);
+            try {
+                const content = await readFile(path);
+                const mime = content.length > 0 && content.length <= MAX_INLINE_BYTES ? sniffImageMime(content) : undefined;
+                if (mime === undefined) {
+                    await unlink(path);
+                    process.stderr.write(`show-image: ${name} in pane ${paneId} is not a supported image (png, jpeg, gif, webp, <=8MB); discarded\n`);
+                    continue;
+                }
+                const viewers = await this.showImage(paneId, { mime, bytes: content.toString('base64') });
+                try {
+                    await writeFile(join(dir, `.${name}.rc`), JSON.stringify({ viewers }));
+                } catch {
+                    // A receipt the CLI never reads is a cosmetic loss, not a delivery one.
+                }
+                await unlink(path);
+            } catch (error) {
+                // Sink threw (e.g. mid-startup wiring): leave the file for the
+                // next scan instead of dropping the captain's image.
+                process.stderr.write(`show-image: could not forward ${name} for pane ${paneId}: ${error instanceof Error ? error.message : String(error)}\n`);
+            }
+        }
     }
 
     /** Clear per-pane state (debounce + last signature + emitted ids). Does NOT delete files. */

@@ -50,6 +50,7 @@ import {
 import { dumpDiagnostics, readDiagnostics } from './diagnostics/index.mjs';
 import { runMuxrConfig } from './setup/presentation/configInit.mjs';
 import { updateCli } from './release/index.mjs';
+import { showImage } from './terminal/showImage.mjs';
 
 const HELP = `muxr — every coding agent on your phone
 
@@ -81,6 +82,7 @@ Run and maintain
 Agent instructions
   muxr --skill | muxr skill       print the compact muxr agent skill
   muxr skill <topic>              load one reference only when needed
+  muxr show-image <path>          render an image inline in the phone's terminal view
 
 Build plugins
   muxr plugin docs|create|clone|check|dev|call|list|install|update|remove
@@ -97,6 +99,7 @@ const COMMAND_HELP = {
     integrations: `muxr integrations sync [--all] [--dry-run]\nmuxr integrations uninstall [--dry-run]\n\nSync Herdr lifecycle integrations only. Agent skills and prompt files are never changed.\n`,
     plugin: `muxr plugin docs\nmuxr plugin create <name>\nmuxr plugin clone <bundled-plugin-id> [destination]\nmuxr plugin check|dev <path> [--web]\nmuxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\nmuxr plugin list\nmuxr plugin install|update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\nmuxr plugin remove <plugin-id> [--yes]\n`,
     'plugin docs': `muxr plugin docs\n\nPrint absolute paths to the installed authoring guide and agent skill.\n`,
+    'show-image': `muxr show-image <path> [--pane <pane-id>]\n\nRender a local image inline in the phone's terminal view for the given pane.\nUses HERDR_PANE_ID when --pane is omitted. png, jpeg, gif, webp, up to 8MB.\nPrints how many viewers saw it; exits 1 when nobody was watching.\n`,
     'plugin create': `muxr plugin create <name>\n\nCreate a minimal three-file settings-screen plugin with a collision-resistant local id.\n`,
     'plugin clone': `muxr plugin clone <bundled-plugin-id> [destination]\n\nCopy a package-owned plugin to a user-owned folder, assign a new local id, and print the safe replace workflow.\n`,
     'plugin check': `muxr plugin check <path>\n\nValidate Herdr identity, muxr manifest, slots, primitives, actions, RPCs, and streams without linking.\n`,
@@ -485,6 +488,10 @@ async function dispatch(command, args = []) {
             process.stderr.write(`muxr plugin: ${error instanceof Error ? error.message : String(error)}\n`);
             return 1;
         }
+    }
+    if (command === 'show-image') {
+        try { showImage(args); return process.exitCode ?? 0; }
+        catch (error) { process.stderr.write(`muxr show-image: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
     }
     if (command === 'pair') return pairDevice(args);
     if (command === 'version' || command === '--version' || command === '-v') {

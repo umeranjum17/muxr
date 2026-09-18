@@ -7,7 +7,7 @@
  * Run: node perf/fake-herdr/stack.smoke.mjs
  */
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -30,7 +30,9 @@ Object.assign(env, {
     // Kernel-picked, read back from the relay's own announcement.
     MUXR_RELAY_PORT: '0',
     MUXR_MACHINE_ID: machineId,
-    MUXR_DATA_DIR: dataDir,
+    // Host state lives one level down so the state root (and with it the
+    // watched pane-attachment dir) stays inside this smoke's own tree.
+    MUXR_DATA_DIR: join(dataDir, 'host'),
     MUXR_RELAY_DATA_DIR: join(dataDir, 'relay'),
     HERDR_SOCKET_PATH: fake.socketPath,
     HERDR_CLIENT_SOCKET_PATH: fake.clientSocketPath,
@@ -167,6 +169,7 @@ async function run() {
     if (typeof attached?.paneId !== 'string') fail('terminal.attach returned no paneId');
 
     const frames = [];
+    const images = [];
     const terminal = new WebSocket(terminalSocketUrl(relayUrl, { machineId, channel, role: 'client' }));
     terminal.on('message', (raw) => {
         let frame;
@@ -176,6 +179,7 @@ async function run() {
             return;
         }
         if (frame.type === 'terminal.frame' && typeof frame.bytes === 'string') frames.push(frame);
+        if (frame.type === 'terminal.image' && typeof frame.bytes === 'string') images.push(frame);
     });
     terminal.on('error', (error) => fail(`terminal socket failed: ${error.message}`));
     await waitFor(() => frames.length > 2, 'the terminal stream');
@@ -189,6 +193,15 @@ async function run() {
     terminal.send(JSON.stringify({ type: 'terminal.scroll', delta: -10 }));
     await waitFor(() => frames.slice(before).some((frame) => frame.full === true), 'a full repaint after a scroll');
     console.log('ok: a scroll answered with a full repaint');
+
+    // `muxr show-image`: a show- file dropped into the pane's watched dir must
+    // reach this live channel as terminal.image and leave no trace behind.
+    const SHOT_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const attachDir = join(dataDir, 'attachments', 'pane', attached.paneId);
+    mkdirSync(attachDir, { recursive: true });
+    writeFileSync(join(attachDir, `show-e2e-${Date.now().toString(36)}.png`), Buffer.from(SHOT_B64, 'base64'));
+    await waitFor(() => images.some((frame) => frame.mime === 'image/png' && frame.bytes === SHOT_B64), 'the inline image frame');
+    console.log('ok: show-image reached the live terminal channel');
 
     // Title churn is a load generator, not news. Every pane renames itself
     // twice a second and the host deliberately keeps the terminal title out of

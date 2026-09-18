@@ -10,7 +10,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import WebSocket from 'ws';
-import { issueWsTicket, terminalSocketUrl, ticketSocketUrl, type Envelope, type TerminalScrollStateFrame } from '@muxr/contract';
+import { issueWsTicket, terminalSocketUrl, ticketSocketUrl, type Envelope, type TerminalImageFrame, type TerminalScrollStateFrame } from '@muxr/contract';
 import { v2EnvelopeSequence } from '@muxr/crypto';
 import { HostV2Crypto, type HostedMachineKeys, deviceTableIsObserve, ticketWsCredential } from '../../machine/index.js';
 
@@ -441,6 +441,26 @@ export class TerminalManager {
             attachment.scrollStateReading = false;
             if (attachment.scrollStateDirty) this.scheduleScrollState(attachment);
         }
+    }
+
+    /**
+     * Push an inline image to every live viewer of one pane. Returns how many
+     * viewers received it -- zero when no phone is watching, which the CLI
+     * reports back to the agent instead of letting it send into the void.
+     */
+    pushImage(paneId: string, image: { mime: string; bytes: string }): number {
+        let viewers = 0;
+        for (const attachment of this.attachments.values()) {
+            if (attachment.paneId !== paneId) continue;
+            this.sendToPhone(attachment, JSON.stringify({
+                type: 'terminal.image',
+                id: `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+                mime: image.mime,
+                bytes: image.bytes,
+            } satisfies TerminalImageFrame));
+            viewers += 1;
+        }
+        return viewers;
     }
 
     private sendToPhone(attachment: Attachment, plaintext: string): void {
