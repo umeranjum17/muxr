@@ -6,7 +6,7 @@ import * as Haptics from 'expo-haptics';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
-import { useSession } from '@/catalog/store';
+import { useMachine, useSession } from '@/catalog/store';
 import { getRigActivityIndicators, getRigIdentity } from '@/catalog';
 import { RealtimeSessionVisual } from './RealtimeSessionVisual';
 import {
@@ -37,12 +37,17 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     const watching = useRealtimeWatching();
     const previousState = React.useRef(state);
     const [detailOpen, setDetailOpen] = React.useState(false);
-    const [messageHeight, setMessageHeight] = React.useState(0);
+    const [columnHeight, setColumnHeight] = React.useState(0);
     const transcript = React.useRef<ScrollView>(null);
     // The voice is attached to a working session; what that session is doing is
     // the other half of "what is happening right now".
     const bound = rememberedRealtimeSession();
     const session = useSession(bound ?? '');
+    // `session.metadata.host` is the machine id, which is an opaque server id on
+    // a hosted pairing. The remedy names the computer the way every other screen
+    // names it.
+    const machine = useMachine(session?.metadata?.machineId ?? '');
+    const machineName = machine?.metadata?.displayName || machine?.metadata?.host || 'your computer';
     const micLabel = muted ? 'Unmute microphone' : 'Mute microphone';
     const micFill = muted ? '#f7f8fb' : '#23262c';
     const micIcon = muted ? 'mic-off' : 'mic';
@@ -82,18 +87,18 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     // reading it as a failure would put a red "Voice couldn't start." on every
     // successful call.
     const failure = state === 'disconnected' && detail !== undefined
-        ? voiceFailure(detail, (session?.metadata?.host ?? '').trim() || 'your computer', everConnected)
+        ? voiceFailure(detail, machineName, everConnected)
         : undefined;
     const progress = state === 'connecting' ? detail : undefined;
     // The cloud is decoration and the failure is the point. At a large display
     // scale the viewport is short enough that the cloud, the label and the talk
     // buttons already leave nothing over, so when there is something to say the
-    // cloud gives back exactly what the message needs -- and stands down
-    // entirely rather than push the talk buttons off a screen this short. The
-    // message is measured, never assumed: a long machine name wraps the remedy
-    // and a guessed height would hand the surplus to the talk buttons.
-    const room = height - insets.top - insets.bottom - AROUND_THE_CLOUD - messageHeight;
-    const orbSize = failure === undefined ? 240 : Math.min(240, room);
+    // cloud gives back exactly what the message needs. Everything the cloud
+    // yields to is measured as one column, never assumed: the label wraps to two
+    // lines at this width, and every word here grows with the OS font size, so
+    // any guessed height hands the surplus to the talk buttons.
+    const room = height - insets.top - insets.bottom - AROUND_THE_CLOUD - columnHeight;
+    const orbSize = failure === undefined ? 240 : Math.max(0, Math.min(240, room));
 
     return (
         <Animated.View
@@ -122,61 +127,63 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
             </View>
 
             <View style={{ flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 8, gap: 18 }}>
-                {orbSize >= 120 && <RealtimeSessionVisual size={orbSize} state={state} muted={muted} />}
-                <Text style={{ color: '#f7f8fb', fontSize: 22, lineHeight: 28, textAlign: 'center', ...Typography.default('semiBold') }}>
-                    {status}
-                </Text>
-                {activity !== undefined && (
-                    <Text numberOfLines={1} style={{ color: '#8f96a3', fontSize: 12, lineHeight: 16, ...Typography.mono('regular') }}>
-                        {activity}
+                {orbSize > 0 && <RealtimeSessionVisual size={orbSize} state={state} muted={muted} />}
+                <View
+                    onLayout={(event) => setColumnHeight(Math.ceil(event.nativeEvent.layout.height))}
+                    style={{ alignSelf: 'stretch', alignItems: 'center', gap: 18 }}
+                >
+                    <Text style={{ color: '#f7f8fb', fontSize: 22, lineHeight: 28, textAlign: 'center', ...Typography.default('semiBold') }}>
+                        {status}
                     </Text>
-                )}
-                {progress !== undefined && (
-                    <Text style={{ color: '#8f96a3', fontSize: 13, lineHeight: 18, textAlign: 'center', ...Typography.default() }}>
-                        {progress}
-                    </Text>
-                )}
-                {failure !== undefined && (
-                    <View
-                        onLayout={(event) => setMessageHeight(Math.ceil(event.nativeEvent.layout.height))}
-                        style={{ alignSelf: 'stretch', gap: 10, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12, backgroundColor: 'rgba(255,69,58,0.12)' }}
-                    >
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
-                            <Ionicons name="alert-circle-outline" size={16} color="#ff6a5e" style={{ marginTop: 2 }} />
-                            <View style={{ flex: 1, gap: 3 }}>
-                                <Text style={{ color: '#ffdad5', fontSize: 14, lineHeight: 19, ...Typography.default('semiBold') }}>
-                                    {failure.headline}
-                                </Text>
-                                {failure.remedy !== undefined && (
-                                    <Text style={{ color: '#ff9e96', fontSize: 13, lineHeight: 18, ...Typography.default() }}>
-                                        {failure.remedy}
+                    {activity !== undefined && (
+                        <Text numberOfLines={1} style={{ color: '#8f96a3', fontSize: 12, lineHeight: 16, ...Typography.mono('regular') }}>
+                            {activity}
+                        </Text>
+                    )}
+                    {progress !== undefined && (
+                        <Text style={{ color: '#8f96a3', fontSize: 13, lineHeight: 18, textAlign: 'center', ...Typography.default() }}>
+                            {progress}
+                        </Text>
+                    )}
+                    {failure !== undefined && (
+                        <View style={{ alignSelf: 'stretch', gap: 10, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12, backgroundColor: 'rgba(255,69,58,0.12)' }}>
+                            <View style={{ flexDirection: 'row', gap: 8 }}>
+                                <Ionicons name="alert-circle-outline" size={16} color="#ff6a5e" style={{ marginTop: 2 }} />
+                                <View style={{ flex: 1, gap: 3 }}>
+                                    <Text style={{ color: '#ffdad5', fontSize: 14, lineHeight: 19, ...Typography.default('semiBold') }}>
+                                        {failure.headline}
                                     </Text>
-                                )}
+                                    {failure.remedy !== undefined && (
+                                        <Text style={{ color: '#ff9e96', fontSize: 13, lineHeight: 18, ...Typography.default() }}>
+                                            {failure.remedy}
+                                        </Text>
+                                    )}
+                                </View>
                             </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+                                <Pressable
+                                    onPress={() => setDetailOpen(!detailOpen)}
+                                    hitSlop={6}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={detailOpen ? 'Hide details' : 'Show details'}
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                                >
+                                    <Ionicons name={detailOpen ? 'chevron-down' : 'chevron-forward'} size={13} color="#ff9e96" />
+                                    <Text style={{ color: '#ff9e96', fontSize: 13, lineHeight: 18, ...Typography.default() }}>Details</Text>
+                                </Pressable>
+                            </View>
+                            {detailOpen && (
+                                // A column child, so the provider's words wrap to the
+                                // banner and scroll: whole text, never an ellipsis.
+                                <ScrollView style={{ maxHeight: DETAIL_HEIGHT }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                                    <Text selectable style={{ color: '#ff9e96', fontSize: 12, lineHeight: 16, ...Typography.mono('regular') }}>
+                                        {failure.detail}
+                                    </Text>
+                                </ScrollView>
+                            )}
                         </View>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
-                            <Pressable
-                                onPress={() => setDetailOpen(!detailOpen)}
-                                hitSlop={6}
-                                accessibilityRole="button"
-                                accessibilityLabel={detailOpen ? 'Hide details' : 'Show details'}
-                                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                            >
-                                <Ionicons name={detailOpen ? 'chevron-down' : 'chevron-forward'} size={13} color="#ff9e96" />
-                                <Text style={{ color: '#ff9e96', fontSize: 13, lineHeight: 18, ...Typography.default() }}>Details</Text>
-                            </Pressable>
-                        </View>
-                        {detailOpen && (
-                            // A column child, so the provider's words wrap to the
-                            // banner and scroll: whole text, never an ellipsis.
-                            <ScrollView style={{ maxHeight: DETAIL_HEIGHT }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                                <Text selectable style={{ color: '#ff9e96', fontSize: 12, lineHeight: 16, ...Typography.mono('regular') }}>
-                                    {failure.detail}
-                                </Text>
-                            </ScrollView>
-                        )}
-                    </View>
-                )}
+                    )}
+                </View>
                 {/* What it heard and what it said, in order: a single latest line
                     hid the half of the conversation you wanted to check. */}
                 <ScrollView ref={transcript} style={{ flex: 1, alignSelf: 'stretch' }} contentContainerStyle={{ paddingVertical: 8, gap: 10 }}
@@ -231,8 +238,8 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
 
 /** The provider's words get a readable window and scroll past it. */
 const DETAIL_HEIGHT = 132;
-/** The fixed furniture only: header, label, gaps, talk buttons. The message measures itself. */
-const AROUND_THE_CLOUD = 290;
+/** The fixed furniture only: header, talk buttons, paddings and gaps. Everything with words in it measures itself. */
+const AROUND_THE_CLOUD = 198;
 
 const smallCircle = {
     width: 44,

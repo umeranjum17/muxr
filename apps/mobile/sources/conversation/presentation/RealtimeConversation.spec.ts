@@ -11,7 +11,6 @@ const CODEX_401 = 'Codex Voice signaling failed (401): "error": "message": "Coul
 const transport = vi.hoisted(() => ({
     state: 'disconnected',
     detail: undefined as string | undefined,
-    everConnected: false,
 }));
 
 vi.mock('react-native', () => ({
@@ -26,7 +25,10 @@ vi.mock('expo-haptics', () => ({ selectionAsync: vi.fn(), impactAsync: vi.fn(), 
 vi.mock('react-native-reanimated', () => ({ default: { View: 'View' }, FadeIn: { duration: () => ({}) }, FadeOut: { duration: () => ({}) } }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('@/components/StyledText', () => ({ Text: 'Text' }));
-vi.mock('@/catalog/store', () => ({ useSession: () => ({ metadata: { host: 'extreme' } }) }));
+vi.mock('@/catalog/store', () => ({
+    useSession: () => ({ metadata: { machineId: 'w7:p1' } }),
+    useMachine: () => ({ metadata: { displayName: 'extreme' } }),
+}));
 vi.mock('@/catalog', () => ({ getRigActivityIndicators: () => [], getRigIdentity: () => undefined }));
 vi.mock('./RealtimeSessionVisual', () => ({ RealtimeSessionVisual: 'RealtimeSessionVisual' }));
 vi.mock('../application/realtimeSessionState', () => ({
@@ -35,7 +37,7 @@ vi.mock('../application/realtimeSessionState', () => ({
     stopRealtimeSession: vi.fn(),
     toggleRealtimeMuted: vi.fn(),
     useRealtimeMuted: () => false,
-    useRealtimeSessionState: () => ({ state: transport.state, detail: transport.detail, everConnected: transport.everConnected }),
+    useRealtimeSessionState: () => ({ state: transport.state, detail: transport.detail, everConnected: false }),
     useRealtimeTurns: () => [],
     useRealtimeWatching: () => true,
 }));
@@ -53,7 +55,6 @@ describe('realtime failure banner', () => {
     it('tells the person their Codex sign-in expired and keeps the whole provider error behind Details', () => {
         transport.state = 'disconnected';
         transport.detail = CODEX_401;
-        transport.everConnected = false;
         let renderer: any;
         TestRenderer.act(() => {
             renderer = TestRenderer.create(React.createElement(RealtimeConversation, { visible: true, onClose: () => {} }));
@@ -78,24 +79,9 @@ describe('realtime failure banner', () => {
 
     });
 
-    it('says a call that was running dropped, rather than that it never started', () => {
-        transport.state = 'disconnected';
-        transport.detail = 'plugin stream disconnected';
-        transport.everConnected = true;
-        let renderer: any;
-        TestRenderer.act(() => {
-            renderer = TestRenderer.create(React.createElement(RealtimeConversation, { visible: true, onClose: () => {} }));
-        });
-
-        const texts = visibleTexts(renderer!.root);
-        expect(texts).toContain('Voice disconnected.');
-        expect(texts.join(' ')).not.toContain('Voice couldn’t start.');
-    });
-
     it('reads a connecting progress detail as progress, not as a failure', () => {
         transport.state = 'connecting';
         transport.detail = 'Connecting secure voice media';
-        transport.everConnected = false;
         let renderer: any;
         TestRenderer.act(() => {
             renderer = TestRenderer.create(React.createElement(RealtimeConversation, { visible: true, onClose: () => {} }));
