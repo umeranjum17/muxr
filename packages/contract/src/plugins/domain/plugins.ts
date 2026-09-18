@@ -773,8 +773,8 @@ export interface PluginManifestV1 {
 
 /**
  * The `home.cards` data-card the product's Right now card draws: an inline
- * card sourced from a `now` read rpc. One rule, so the manifest parser's
- * version gate and the app that draws the card cannot select different cards.
+ * card sourced from a `now` read rpc. One rule, so the product card and the
+ * generic Home row cannot select different cards.
  */
 export function rightNowCard(contributions: readonly PluginContribution[]): PluginDataCard | undefined {
     return contributions.find((contribution): contribution is PluginDataCard =>
