@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { BackHandler, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { BackHandler, Pressable, ScrollView, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -30,15 +30,13 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     onClose: () => void;
 }) {
     const insets = useSafeAreaInsets();
-    const { height } = useWindowDimensions();
     const { state, detail, everConnected } = useRealtimeSessionState();
     const turns = useRealtimeTurns();
     const muted = useRealtimeMuted();
     const watching = useRealtimeWatching();
     const previousState = React.useRef(state);
     const [detailOpen, setDetailOpen] = React.useState(false);
-    const [columnHeight, setColumnHeight] = React.useState(0);
-    const [detailBoxHeight, setDetailBoxHeight] = React.useState(0);
+    const [orbRoom, setOrbRoom] = React.useState(ORB_SIZE);
     const transcript = React.useRef<ScrollView>(null);
     // The voice is attached to a working session; what that session is doing is
     // the other half of "what is happening right now".
@@ -91,21 +89,11 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
         ? voiceFailure(detail, machineName, everConnected)
         : undefined;
     const progress = state === 'connecting' ? detail : undefined;
-    // The cloud is decoration and the words are the point. At a large display
-    // scale the viewport is short enough that the cloud, the label and the talk
-    // buttons already leave nothing over, so the cloud gives back exactly what
-    // the words need. What it yields to is measured, never assumed: the label
-    // alone wraps to two lines at this width, and every word here grows with the
-    // OS font size, so any guessed height hands the surplus to the talk buttons.
-    //
-    // The detail box is the one block that may be shortened rather than shown
-    // whole -- it scrolls -- so it is taken back out of the measurement and sized
-    // from what is left over. Measuring it instead of assuming what it was given
-    // keeps `words` a genuine invariant, so this settles rather than oscillates.
-    const words = columnHeight - (detailOpen ? detailBoxHeight : 0);
-    const spare = height - insets.top - insets.bottom - AROUND_THE_CLOUD - words;
-    const detailRoom = detailOpen ? Math.max(0, Math.min(DETAIL_HEIGHT, spare)) : 0;
-    const orbSize = Math.max(0, Math.min(240, spare - detailRoom));
+    // The cloud is decoration and the words are the point, so the cloud is what
+    // yields: it asks for its full size and shrinks from there, and the layout
+    // engine decides by how much. Below the size it was drawn for it stops being
+    // a cloud, so it leaves rather than smudge.
+    const orbSize = Math.min(ORB_SIZE, orbRoom);
 
     return (
         <Animated.View
@@ -134,10 +122,20 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
             </View>
 
             <View style={{ flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 8, gap: 18 }}>
-                {orbSize > 0 && <RealtimeSessionVisual size={orbSize} state={state} muted={muted} />}
                 <View
-                    onLayout={(event) => setColumnHeight(Math.ceil(event.nativeEvent.layout.height))}
-                    style={{ alignSelf: 'stretch', alignItems: 'center', gap: 18 }}
+                    onLayout={(event) => setOrbRoom(Math.floor(event.nativeEvent.layout.height))}
+                    style={{ flexBasis: ORB_SIZE, flexShrink: ORB_YIELDS_FIRST, minHeight: 0, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' }}
+                >
+                    {orbSize >= ORB_SMALLEST && <RealtimeSessionVisual size={orbSize} state={state} muted={muted} />}
+                </View>
+                {/* Scrolls rather than paints over the talk buttons: at a large
+                    OS font size the label and the banner outgrow any viewport,
+                    and there is nothing here that may be clipped to make it fit.
+                    A sibling of the transcript, never nested in it -- a stopped
+                    call has no turns, so the two are never on screen together. */}
+                <ScrollView
+                    style={{ alignSelf: 'stretch', flexShrink: 1, minHeight: 0 }}
+                    contentContainerStyle={{ alignItems: 'center', gap: 18 }}
                 >
                     <Text style={{ color: '#f7f8fb', fontSize: 22, lineHeight: 28, textAlign: 'center', ...Typography.default('semiBold') }}>
                         {status}
@@ -167,35 +165,26 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
                                     )}
                                 </View>
                             </View>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
-                                <Pressable
-                                    onPress={() => setDetailOpen(!detailOpen)}
-                                    hitSlop={6}
-                                    accessibilityRole="button"
-                                    accessibilityLabel={detailOpen ? 'Hide details' : 'Show details'}
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                                >
-                                    <Ionicons name={detailOpen ? 'chevron-down' : 'chevron-forward'} size={13} color="#ff9e96" />
-                                    <Text style={{ color: '#ff9e96', fontSize: 13, lineHeight: 18, ...Typography.default() }}>Details</Text>
-                                </Pressable>
-                            </View>
+                            <Pressable
+                                onPress={() => setDetailOpen(!detailOpen)}
+                                hitSlop={6}
+                                accessibilityRole="button"
+                                accessibilityLabel={detailOpen ? 'Hide details' : 'Show details'}
+                                style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 4 }}
+                            >
+                                <Ionicons name={detailOpen ? 'chevron-down' : 'chevron-forward'} size={13} color="#ff9e96" />
+                                <Text style={{ color: '#ff9e96', fontSize: 13, lineHeight: 18, ...Typography.default() }}>Details</Text>
+                            </Pressable>
                             {detailOpen && (
-                                // A column child, so the provider's words wrap to the
-                                // banner and scroll: whole text, never an ellipsis.
-                                <ScrollView
-                                    onLayout={(event) => setDetailBoxHeight(Math.ceil(event.nativeEvent.layout.height))}
-                                    style={{ maxHeight: detailRoom }}
-                                    nestedScrollEnabled
-                                    showsVerticalScrollIndicator={false}
-                                >
-                                    <Text selectable style={{ color: '#ff9e96', fontSize: 12, lineHeight: 16, ...Typography.mono('regular') }}>
-                                        {failure.detail}
-                                    </Text>
-                                </ScrollView>
+                                // Whole, at its natural height. The column above
+                                // scrolls it into reach; nothing here truncates.
+                                <Text selectable style={{ color: '#ff9e96', fontSize: 12, lineHeight: 16, ...Typography.mono('regular') }}>
+                                    {failure.detail}
+                                </Text>
                             )}
                         </View>
                     )}
-                </View>
+                </ScrollView>
                 {/* What it heard and what it said, in order: a single latest line
                     hid the half of the conversation you wanted to check. */}
                 <ScrollView ref={transcript} style={{ flex: 1, alignSelf: 'stretch' }} contentContainerStyle={{ paddingVertical: 8, gap: 10 }}
@@ -248,10 +237,19 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     );
 });
 
-/** How tall a reading window the provider's words get when the screen can spare it: a ceiling, not a reservation. */
-const DETAIL_HEIGHT = 132;
-/** The fixed furniture only: header 64, talk buttons 62, paddingBottom 28, paddingTop 8, two 18 gaps. Every block with words in it measures itself. */
-const AROUND_THE_CLOUD = 198;
+/** The size the dust cloud is drawn for; it shrinks from here when the words need the room. */
+const ORB_SIZE = 240;
+/**
+ * Shrink weight, not a size. Flex divides a shortfall across everything that can
+ * give, in proportion to what each is holding, so any finite weight still takes
+ * some off the words while the cloud has room left. The slice shrinks as the
+ * weight grows but never reaches zero, so this sits past where it rounds away:
+ * the cloud is spent first, and only then do the words begin to scroll.
+ */
+const ORB_YIELDS_FIRST = 1000;
+/** Below this the cloud has no stars and reads as a speck, so it is absent instead. The overlay pill's size, its smallest designed one. */
+const ORB_SMALLEST = 40;
+
 
 const smallCircle = {
     width: 44,
