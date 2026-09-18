@@ -668,7 +668,7 @@ The backend reads fresh Herdr topology before every mutation. Pane close needs n
 
 A stream process receives one private `realtime.open` line followed by bounded provider-neutral NDJSON frames. A PCM provider exchanges ready/audio/state/transcript/control frames and keeps its provider socket on the host. A WebRTC signaling provider exchanges bounded offer/answer SDP plus opaque data-channel control while the mobile kernel owns the peer and direct media. The host enforces approval revocation, admission, process cleanup, frame bounds, and encrypted relay transport.
 
-The package ships one voice plugin (`plugins/voice`) with four adapters under `plugins/voice/providers/`: xAI (default), Gemini Live, OpenAI Realtime, and experimental Codex Voice. Choose one under **Settings → Realtime voice**; the selection is the plugin's own state, read by its `voice.provider.list` and `voice.provider.set` capabilities. PCM providers keep their host-relayed stream; Codex adds only the generic WebRTC transport kind.
+The package ships one voice plugin (`plugins/voice`) with four adapters under `plugins/voice/providers/`: xAI (default), Gemini Live, OpenAI Realtime, and experimental Codex Voice. Choose one under **Settings → Voice & dictation**; the selection is the plugin's own state, read by its `voice.provider.list` and `voice.provider.set` capabilities. PCM providers keep their host-relayed stream; Codex adds only the generic WebRTC transport kind.
 
 Voice uses this without knowing any provider plugin id. Its one-shot semantic RPC aliases remain:
 
