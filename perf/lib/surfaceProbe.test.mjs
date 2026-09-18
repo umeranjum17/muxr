@@ -20,8 +20,16 @@ import { documentContract, documentPayload, scenarioDescriptor } from './scenari
 const root = new URL('../..', import.meta.url).pathname;
 const crop = (value) => ({ width: 4, height: 4, bytes: Buffer.from(Array.from({ length: 16 }, (_, index) => [value + index % 2 * 20, 255 - value, 80, 255]).flat()) });
 const digest = (text) => createHash('sha256').update(text).digest('hex');
-const baseline = (path) => execFileSync('git', ['show', `16262f4b6f215335d55cea4a87c13edeadca0668:${path}`], { encoding: 'utf8' });
 const block = (source, marker, end = '\n}') => { const start = source.indexOf(marker); assert.notEqual(start, -1, `${marker} missing`); const stop = source.indexOf(end, start) + end.length; assert.ok(stop > start, `${marker} end missing`); return source.slice(start, stop); };
+// The frozen-source guards below pin the perf gate's behaviour-bearing blocks to
+// the kitty-removal baseline (#339) by digest. They were `git show` diffs against
+// commit 16262f4b, but CI checks out depth-1 and has no such object -- the pinned
+// add-on made this test run there and the object lookup failed. A digest is the
+// same freeze (any drift in these blocks fails) without needing full history;
+// regenerate a literal by hashing the current block when a change is intended.
+const sourceOf = (path) => readFileSync(join(root, path), 'utf8');
+const frozen = (path, marker, end = '\n}') => digest(block(sourceOf(path), marker, end));
+const frozenTail = (path, marker) => { const text = sourceOf(path); return digest(text.slice(text.indexOf(marker)).trim()); };
 const started = processStartIdentity(process.pid);
 const session = (overrides = {}) => {
     const world = { panes: [], agents: [], workspaces: [] };
@@ -47,8 +55,8 @@ test('warm probe fails closed across identity, ownership, fixture, movement, sam
     const base = session();
     assert.deepEqual(scenarioDescriptor().load, { panes: 100, agents: 30, titleChurnHz: 2, terminalBytesPerSecond: 4096 });
     assert.deepEqual(scenarioDescriptor().document, { name: 'perf-document.md', generatedLines: 240, bytes: 26640, sha256: '6041d293b6ec060a8e4b388ca4f9c4b16d4a7a4b0d681f99fa81553b16c2190f', servedSha256: '0403252d0bace2dd34b7a83184cd33e3e8b0e0e8e5e159758b83fdf1393b8a0d', servedBytes: 24576, servedLines: 222, marker: 'PERF_LINE_' });
-    assert.equal(block(readFileSync(join(root, 'perf/releaseGate.mjs'), 'utf8'), 'const PHASES = [', '\n];'), block(baseline('perf/releaseGate.mjs'), 'const PHASES = [', '\n];'));
-    assert.equal(block(readFileSync(join(root, 'perf/iosReleaseGate.mjs'), 'utf8'), 'export const PHASES = [', '\n];'), block(baseline('perf/iosReleaseGate.mjs'), 'export const PHASES = [', '\n];'));
+    assert.equal(frozen('perf/releaseGate.mjs', 'const PHASES = [', '\n];'), '94f9ea423c25f2406151f4ec5cf1af9963d67675065f16a98bd8fc4279ee46ce', 'perf/releaseGate.mjs PHASES drifted from the #339 baseline');
+    assert.equal(frozen('perf/iosReleaseGate.mjs', 'export const PHASES = [', '\n];'), '2daeb8ea8af6fbf8db76fa9416bb0d1a21400c4d3d74c4200ab3fcc8044ba429', 'perf/iosReleaseGate.mjs PHASES drifted from the #339 baseline');
     // The document caller's own navigation step. Fixed title churn changes the
     // hierarchy continuously, so a generic post-tap change is not delivery: the
     // tap has to target the navigation control that contains the `Files` label,
@@ -62,8 +70,8 @@ test('warm probe fails closed across identity, ownership, fixture, movement, sam
     assert.deepEqual(filesRetry.commands.at(-1).extendedWaitUntil.visible, { text: 'Repositories' });
     assert.ok(openDocument.every((step) => step.tapOn?.text !== 'Files' && step.tapOn?.point === undefined), 'the non-clickable Files label or a fixed point is still tapped');
     assert.ok(openDocument.some((step) => step.extendedWaitUntil?.visible?.text === 'project'), 'the repository assertion is gone');
-    assert.equal(block(readFileSync(join(root, 'perf/lib/gestureMetrics.mjs'), 'utf8'), 'export function creditLedger', '\n}\n\n/**'), block(baseline('perf/lib/gestureMetrics.mjs'), 'export function creditLedger', '\n}\n\n/**'));
-    assert.equal(readFileSync(join(root, 'perf/lib/gestureMetrics.mjs'), 'utf8').slice(readFileSync(join(root, 'perf/lib/gestureMetrics.mjs'), 'utf8').indexOf('export function verdict')).trim(), baseline('perf/lib/gestureMetrics.mjs').slice(baseline('perf/lib/gestureMetrics.mjs').indexOf('export function verdict')).trim());
+    assert.equal(frozen('perf/lib/gestureMetrics.mjs', 'export function creditLedger', '\n}\n\n/**'), '1f241c9805fb53c13c075a13532c8a1fb50ced2baf5df1bb3dd48ee026499f6c', 'gestureMetrics creditLedger drifted from the #339 baseline');
+    assert.equal(frozenTail('perf/lib/gestureMetrics.mjs', 'export function verdict'), '68679b5130aa54ece0070c22a4f416da3b8a5eb3fe392d0fc01e861dbcb9663e', 'gestureMetrics verdict drifted from the #339 baseline');
     const current = { platform: 'android', device: { serial: 'serial-a', package: 'com.trymuxr.app' }, source: { sourceSha256: digest('source'), mobileSha256: digest('mobile'), dirty: false }, harness: { revision: 'head', sha256: digest('harness') }, worldIdentity: base.host.worldIdentity, connection: true, childHealth: () => true };
     assert.equal(validateSession(base, current), undefined);
     assert.match(validateSession(base, { ...current, device: { serial: 'other' } }), /serial/);
