@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, Text } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
@@ -25,7 +25,7 @@ type Modifier = 'off' | 'once' | 'lock';
 
 const cycle = (state: Modifier): Modifier => (state === 'off' ? 'once' : state === 'once' ? 'lock' : 'off');
 
-export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: string) => void } }) {
+export function TerminalKeyRow({ channel, children }: { channel?: { sendText: (text: string) => void }; children?: React.ReactNode }) {
     const { theme } = useUnistyles();
     const [rowEntries, setRowEntries] = useLocalSettingMutable('terminalKeyRow');
     const [editing, setEditing] = React.useState(false);
@@ -77,6 +77,13 @@ export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: strin
     const seed = React.useMemo<RowEntry[]>(() => rowEntries ?? [...DEFAULT_ROW_IDS], [rowEntries]);
     return (
         <>
+            <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="always"
+                style={{ flex: 1, maxHeight: 52 }}
+                contentContainerStyle={{ alignItems: 'center', gap: 6, paddingLeft: 8, paddingRight: 6, paddingVertical: 6 }}
+            >
             <Pressable
                 onPress={() => { hapticsSelection(); applyMods(cycle(ctrlRef.current), shiftRef.current); }}
                 accessibilityRole="button"
@@ -117,14 +124,18 @@ export function TerminalKeyRow({ channel }: { channel?: { sendText: (text: strin
                     </Pressable>
                 );
             })}
-            <Pressable
-                onPress={() => { stopRepeat(); setEditing(true); }}
-                accessibilityRole="button"
-                accessibilityLabel="Edit key row"
-                style={({ pressed }) => [style(), pressed && { opacity: 0.6 }]}
-            >
-                <Ionicons name="pencil" size={15} color={theme.colors.text} />
-            </Pressable>
+            {children}
+            </ScrollView>
+            <View style={{ paddingLeft: 6, paddingRight: 8, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: theme.colors.divider }}>
+                <Pressable
+                    onPress={() => { stopRepeat(); setEditing(true); }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Edit key row"
+                    style={({ pressed }) => [style(), pressed && { opacity: 0.6 }]}
+                >
+                    <Ionicons name="pencil" size={15} color={theme.colors.text} />
+                </Pressable>
+            </View>
             <TerminalKeyRowEditor
                 visible={editing}
                 entries={rowEntries}

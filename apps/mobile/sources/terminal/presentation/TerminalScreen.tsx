@@ -983,16 +983,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
 
                     {canControl && <View style={{ backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}>
                     <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center' }}>
-                        <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            keyboardShouldPersistTaps="always"
-                            style={{ flex: 1, maxHeight: 52 }}
-                            contentContainerStyle={{ alignItems: 'center', gap: 6, paddingLeft: 8, paddingRight: 6, paddingVertical: 6 }}
-                        >
-                            <TerminalKeyRow channel={channel} />
+                        <TerminalKeyRow channel={channel}>
                             <DeclarativeTerminalKeySlot channel={channel} />
-                        </ScrollView>
+                        </TerminalKeyRow>
                     </View>
 
                     <ComposerAttachments

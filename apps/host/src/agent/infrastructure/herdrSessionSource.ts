@@ -197,13 +197,12 @@ function packagedBundledRoots(): Map<string, string> {
 }
 const PACKAGED_BUNDLED_ROOTS = packagedBundledRoots();
 /**
- * Retired bundled plugins: dictation, terminal keys, and the workspace tree
- * are product code now. Their registrations survive in herdr (global to the
- * machine), so a host that still projected them would double every surface —
- * two key rows, two dictate buttons. Never serve these ids to clients; a
- * user-authored plugin under its own id is unaffected.
+ * The bundled terminal-keys plugin is product code now. Its registration
+ * survives in herdr (global to the machine), so a host that still projected it
+ * would draw two key rows. Never serve this id to clients; a user-authored
+ * plugin under its own id is unaffected.
  */
-const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys', 'muxr.dictation', 'muxr.workspace-hierarchy']);
+const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys']);
 function fromPackagedRoot(plugin: HerdrPlugin): HerdrPlugin {
     const root = PACKAGED_BUNDLED_ROOTS.get(plugin.plugin_id);
     return root === undefined ? plugin : { ...plugin, plugin_root: root };
