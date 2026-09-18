@@ -233,6 +233,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     }
     watchHost();
 
+    type QueuedInput = { kind: 'text'; text: string } | { kind: 'bytes'; bytes: Uint8Array };
+    let queuedInput: QueuedInput | undefined;
+    let inputFlushScheduled = false;
+
     function scheduleRetry(): void {
         if (closedByUser || retryTimer !== undefined) return;
         attempts += 1;
@@ -494,9 +498,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     // terminal.input frame -- one seal, one envelope, one wire frame instead
     // of N. The queue flushes on a microtask, so an isolated key still goes
     // out before the task ends: nothing waits artificially.
-    type QueuedInput = { kind: 'text'; text: string } | { kind: 'bytes'; bytes: Uint8Array };
-    let queuedInput: QueuedInput | undefined;
-    let inputFlushScheduled = false;
     const flushInput = (): void => {
         inputFlushScheduled = false;
         const item = queuedInput;
