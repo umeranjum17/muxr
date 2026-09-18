@@ -234,6 +234,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         scrollGate.release();
                         writePumpRef.current?.push({ bytes: base64 });
                     });
+                    // Predicted echo rides the same ordered pump but is not
+                    // host output: it never releases the scroll gate and is
+                    // never recorded as pane output.
+                    channel.onPredictedData((base64) => {
+                        writePumpRef.current?.push({ bytes: base64 });
+                    });
                     channel.onImage((image) => setInlineImage(image));
                     channel.onState((state) => onStatus?.(state));
                     channel.onClose((reason) => onStatus?.(reason ?? 'closed'));
