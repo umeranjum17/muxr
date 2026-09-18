@@ -38,6 +38,7 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     const previousState = React.useRef(state);
     const [detailOpen, setDetailOpen] = React.useState(false);
     const [columnHeight, setColumnHeight] = React.useState(0);
+    const [detailBoxHeight, setDetailBoxHeight] = React.useState(0);
     const transcript = React.useRef<ScrollView>(null);
     // The voice is attached to a working session; what that session is doing is
     // the other half of "what is happening right now".
@@ -93,12 +94,18 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     // The cloud is decoration and the words are the point. At a large display
     // scale the viewport is short enough that the cloud, the label and the talk
     // buttons already leave nothing over, so the cloud gives back exactly what
-    // the words need. What it yields to is measured as one column, never
-    // assumed: the label alone wraps to two lines at this width, and every word
-    // here grows with the OS font size, so any guessed height hands the surplus
-    // to the talk buttons.
-    const room = height - insets.top - insets.bottom - AROUND_THE_CLOUD - columnHeight;
-    const orbSize = Math.max(0, Math.min(240, room));
+    // the words need. What it yields to is measured, never assumed: the label
+    // alone wraps to two lines at this width, and every word here grows with the
+    // OS font size, so any guessed height hands the surplus to the talk buttons.
+    //
+    // The detail box is the one block that may be shortened rather than shown
+    // whole -- it scrolls -- so it is taken back out of the measurement and sized
+    // from what is left over. Measuring it instead of assuming what it was given
+    // keeps `words` a genuine invariant, so this settles rather than oscillates.
+    const words = columnHeight - (detailOpen ? detailBoxHeight : 0);
+    const spare = height - insets.top - insets.bottom - AROUND_THE_CLOUD - words;
+    const detailRoom = detailOpen ? Math.max(0, Math.min(DETAIL_HEIGHT, spare)) : 0;
+    const orbSize = Math.max(0, Math.min(240, spare - detailRoom));
 
     return (
         <Animated.View
@@ -175,7 +182,12 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
                             {detailOpen && (
                                 // A column child, so the provider's words wrap to the
                                 // banner and scroll: whole text, never an ellipsis.
-                                <ScrollView style={{ maxHeight: DETAIL_HEIGHT }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                                <ScrollView
+                                    onLayout={(event) => setDetailBoxHeight(Math.ceil(event.nativeEvent.layout.height))}
+                                    style={{ maxHeight: detailRoom }}
+                                    nestedScrollEnabled
+                                    showsVerticalScrollIndicator={false}
+                                >
                                     <Text selectable style={{ color: '#ff9e96', fontSize: 12, lineHeight: 16, ...Typography.mono('regular') }}>
                                         {failure.detail}
                                     </Text>
@@ -236,9 +248,9 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     );
 });
 
-/** The provider's words get a readable window and scroll past it. */
+/** How tall a reading window the provider's words get when the screen can spare it: a ceiling, not a reservation. */
 const DETAIL_HEIGHT = 132;
-/** The fixed furniture only: header, talk buttons, paddings and gaps. Everything with words in it measures itself. */
+/** The fixed furniture only: header 64, talk buttons 62, paddingBottom 28, paddingTop 8, two 18 gaps. Every block with words in it measures itself. */
 const AROUND_THE_CLOUD = 198;
 
 const smallCircle = {

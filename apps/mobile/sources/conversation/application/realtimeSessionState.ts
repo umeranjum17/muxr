@@ -553,9 +553,12 @@ function subscribe(listener: () => void) {
     return () => listeners.delete(listener);
 }
 
+// The snapshot has to carry everything this hook returns. A detail that arrives
+// without a state change -- "Connecting secure voice media", every time -- is
+// otherwise bailed out by React as an unchanged snapshot and never rendered.
 export function useRealtimeSessionState(): { state: RealtimeSessionState; detail?: string; everConnected: boolean } {
-    const current = React.useSyncExternalStore(subscribe, () => state);
-    return { state: current, detail, everConnected };
+    React.useSyncExternalStore(subscribe, () => `${state}\u0000${everConnected}\u0000${detail ?? ''}`);
+    return { state, detail, everConnected };
 }
 
 export function realtimeSessionSnapshot(): { state: RealtimeSessionState; detail?: string; starting: boolean } {
