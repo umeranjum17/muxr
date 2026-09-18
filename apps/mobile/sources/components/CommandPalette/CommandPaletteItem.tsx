@@ -27,6 +27,9 @@ export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPr
     // section, a dot and the colour — never by a second button. The tap target
     // and the pencil are siblings, not button-in-button: react-native-web
     // refuses to nest them (validateDOMNesting) and the a11y tree follows suit.
+    // The row's padding therefore lives on the tap target, which stretches to
+    // the row's full height: put it back on the row and the tappable area
+    // shrinks to the text while the row still paints a full-width highlight.
     const hoverIn = () => { setIsHovered(true); onHover?.(); };
     const hoverOut = () => setIsHovered(false);
     if (appearance === 'terminal') return (
