@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Home "Right now" card payload: the tightest plan limit, the host's
-// no-windows message, and machine vitals as figures. Reads the usage RPC's
+// Home "Right now" card payload: the tightest plan limit and machine vitals
+// as figures; the phone owns every word. Reads the usage RPC's
 // on-disk cache via usage.mjs itself, so the identity, TTL and provider
 // selection stay in one place: a warm cache returns instantly, a cold one
 // falls back after a bounded wait — `collecting` — so the vitals below are
@@ -9,20 +9,21 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { vitalsFigures } from './vitals.mjs';
 
-/** The tightest window: highest share used, ties by soonest reset. Reads the
- *  same `limits` payload the Usage screen shows; `vms` is its parallel
- *  window list and carries resetEpochSec, which the bounded payload drops. */
+/** The tightest window: highest share used, ties to the first published —
+ *  the rule `limitsPayload` used to pick the window its verdict describes.
+ *  Reads the same `limits` payload the Usage screen shows; `vms` is its
+ *  parallel window list and carries the unrounded share, so the window this
+ *  card labels is always the window the verdict is about. */
 function limitOf(limits, vms) {
     const windows = Array.isArray(limits?.windows) ? limits.windows : [];
     if (windows.length === 0) return undefined;
-    const resetOf = (index) => {
-        const vm = Array.isArray(vms) ? vms[index] : undefined;
-        return Number.isFinite(vm?.resetEpochSec) ? vm.resetEpochSec : Number.POSITIVE_INFINITY;
+    const shareOf = (index) => {
+        const exact = Array.isArray(vms) ? vms[index]?.percentUsed : undefined;
+        return Number.isFinite(exact) ? exact : windows[index].used;
     };
     let leading = 0;
     for (let index = 1; index < windows.length; index += 1) {
-        if (windows[index].used > windows[leading].used
-            || (windows[index].used === windows[leading].used && resetOf(index) < resetOf(leading))) leading = index;
+        if (shareOf(index) > shareOf(leading)) leading = index;
     }
     const window = windows[leading];
     if (!Number.isFinite(window?.used)) return undefined;
@@ -49,9 +50,6 @@ try {
 const limit = limitOf(output?.limits, output?.windows);
 const payload = {
     ...(limit === undefined ? {} : { limit }),
-    ...(limit === undefined && typeof output?.limits?.message === 'string'
-        ? { message: output.limits.message.slice(0, 160) }
-        : {}),
     ...(output === undefined ? { collecting: true } : {}),
     vitals: vitalsFigures(),
 };

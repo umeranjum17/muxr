@@ -678,9 +678,9 @@ try {
         assert.ok(typeof nowPayload.limit.label === 'string' && nowPayload.limit.label !== '');
         assert.ok(nowPayload.limit.resetsIn === undefined || typeof nowPayload.limit.resetsIn === 'string');
         assert.ok(nowPayload.limit.elapsed === undefined || (Number.isFinite(nowPayload.limit.elapsed) && nowPayload.limit.elapsed >= 0 && nowPayload.limit.elapsed <= 1));
-    } else {
-        assert.ok(typeof nowPayload.message === 'string' || nowPayload.collecting === true);
     }
+    // Figures only: the host never ships prose for the card to read out.
+    assert.ok(nowPayload.message === undefined);
     assert.ok(Number.isFinite(nowPayload.vitals.memoryTotal) && nowPayload.vitals.memoryTotal > 0);
     assert.ok(Number.isFinite(nowPayload.vitals.diskTotal) && nowPayload.vitals.diskTotal > 0);
     assert.ok(Number.isFinite(nowPayload.vitals.load1) && Number.isFinite(nowPayload.vitals.uptimeSeconds));

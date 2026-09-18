@@ -19,11 +19,10 @@ describe('right now payload', () => {
         expect(vitalsFacts(payload.vitals!)).toEqual({ memoryPercent: 57, diskPercent: 43, load: '5.3', uptime: '4d' });
     });
 
-    it('reads the collecting fallback and the host message', () => {
+    it('reads the collecting fallback', () => {
         const collecting = asRightNowPayload({ collecting: true, vitals: { memoryUsed: 1, memoryTotal: 2, diskUsed: 1, diskTotal: 2, load1: 0, uptimeSeconds: 0 } });
         expect(collecting.collecting).toBe(true);
         expect(collecting.limit).toBeUndefined();
-        expect(asRightNowPayload({ message: 'Plan limits aren’t connected in muxr' }).message).toBe('Plan limits aren’t connected in muxr');
     });
 
     it('drops out-of-bounds pieces and never guesses', () => {

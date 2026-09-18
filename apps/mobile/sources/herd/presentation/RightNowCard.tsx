@@ -8,23 +8,10 @@ import type { PluginScreenTone } from '@muxr/contract';
 import { cardStyle, Meter, SectionLabel, withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { sync } from '@/catalog/sync';
-import { useSocketStatus } from '@/catalog/store';
-import { pluginSnapshot } from '@/plugins/application/pluginStore';
-import { useSlotContributions } from '@/plugins/application/useSlotContributions';
-import { subscribePluginDataInvalidation } from '@/plugins/application/pluginDataInvalidation';
-import { pluginHref } from '@/plugins/domain/pluginHref';
-import { toneColor } from '@/plugins/domain/pluginTone';
-import { VERDICT_KEYS } from '@/plugins/presentation/screenLimits';
+import { pluginSnapshot, subscribePluginDataInvalidation, pluginHref, toneColor, useSlotContributions } from '@/plugins';
+import { VERDICT_KEYS } from '@/plugins/ui';
 import { t } from '@/text';
-import { asRightNowPayload, isRightNowCard, vitalsFacts, type RightNowPayload } from '../domain/rightNowModel';
-
-/** The share at which a figure turns warning, then danger: the limits card's
- *  own 75/90 rule, spent on the figure only. */
-const WATCH = 75;
-const LOW = 90;
-
-const figureTone = (percent: number): PluginScreenTone | undefined =>
-    percent >= LOW ? 'danger' : percent >= WATCH ? 'warning' : undefined;
+import { asRightNowPayload, rightNowBinding, vitalsFacts, type RightNowPayload } from '../domain/rightNowModel';
 
 const limitTone = (verdict: NonNullable<RightNowPayload['limit']>['verdict']): PluginScreenTone | undefined =>
     verdict === 'go' ? 'positive'
@@ -32,36 +19,17 @@ const limitTone = (verdict: NonNullable<RightNowPayload['limit']>['verdict']): P
             : verdict === 'unknown' ? undefined
                 : 'danger';
 
-/** Where the card binds: the approved plugin whose `home.cards` declaration
- *  sources the `now` rpc. Nothing is hardcoded; the declaration decides. */
-function rightNowBinding(): { pluginId: string; manifestHash: string; contributionId: string; contentContributionId?: string } | undefined {
-    for (const { summary, manifest } of pluginSnapshot()) {
-        for (const contribution of manifest.contributions) {
-            if ('type' in contribution && contribution.type === 'data-card' && isRightNowCard(manifest, contribution)) {
-                return {
-                    pluginId: summary.pluginId,
-                    manifestHash: summary.manifestHash,
-                    contributionId: contribution.source.contributionId,
-                    ...(contribution.contentContributionId === undefined ? {} : { contentContributionId: contribution.contentContributionId }),
-                };
-            }
-        }
-    }
-    return undefined;
-}
-
 /**
  * The top of Home as figures: one verdict line, one neutral meter, one
- * vitals line (`docs/specs/design-system/right-now.md`). The section label is
- * the title; the whole card opens the Usage screen.
+ * vitals line. The section label is the title; the whole card opens the
+ * Usage screen.
  */
 export function RightNowCard() {
     const { theme } = useUnistyles();
     const router = useRouter();
-    const socket = useSocketStatus();
     // Subscribes this component to manifest changes and keeps them loading.
     useSlotContributions('home.cards');
-    const binding = rightNowBinding();
+    const binding = rightNowBinding(pluginSnapshot());
     const [state, setState] = React.useState<{ payload?: RightNowPayload; failed: boolean }>({ failed: false });
     const version = React.useRef(0);
     const load = React.useCallback(() => {
@@ -104,7 +72,7 @@ export function RightNowCard() {
         </View>;
     }
 
-    if (failed && (payload === undefined || socket.status === 'connected')) {
+    if (failed && payload === undefined) {
         const line = <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: toneColor(theme, 'danger') }} />
             <Text style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, lineHeight: 18 }}>{t('plugins.rightNow.unavailable')}</Text>
@@ -114,7 +82,6 @@ export function RightNowCard() {
             <Pressable onPress={load} accessibilityRole="button" accessibilityLabel={t('plugins.rightNow.unavailable')}
                 style={[cardStyle(theme), { marginHorizontal: 16, padding: 14 }]}>
                 {line}
-                {payload?.vitals !== undefined && <FactsLine vitals={payload.vitals} style={{ marginTop: 10 }} />}
             </Pressable>
         </View>;
     }
@@ -135,9 +102,7 @@ export function RightNowCard() {
             </View>
         </View>
         : <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
-            {payload.collecting === true ? t('plugins.rightNow.collecting')
-                : payload.message !== undefined ? payload.message
-                    : t('plugins.rightNow.notConnected')}
+            {payload.collecting === true ? t('plugins.rightNow.collecting') : t('plugins.rightNow.notConnected')}
         </Text>;
     return <View>
         {label}
@@ -160,20 +125,14 @@ function CardBody({ limit, line, vitals }: { limit: RightNowPayload['limit']; li
     </View>;
 }
 
-/** One mono line of machine figures; a share at or past 75/90 colours itself. */
+/** One mono line of machine figures, in the card's quiet voice: a machine at
+ *  80% memory is a machine at work, not a warning. */
 function FactsLine({ vitals, style }: { vitals: NonNullable<RightNowPayload['vitals']>; style?: object }) {
     const { theme } = useUnistyles();
     const { memoryPercent, diskPercent, load, uptime } = vitalsFacts(vitals);
-    const figure = (name: string, percent: number) => {
-        const tone = figureTone(percent);
-        return <Text style={tone === undefined ? undefined : { color: toneColor(theme, tone) }}>{`${name} ${percent}%`}</Text>;
-    };
     return (
         <Text style={[{ color: theme.colors.textSecondary, fontSize: 11.5, lineHeight: 15, ...Typography.mono('regular') }, style]}>
-            {figure(t('plugins.rightNow.memory'), memoryPercent)}
-            {' · '}
-            {figure(t('plugins.rightNow.disk'), diskPercent)}
-            {` · ${t('plugins.rightNow.load')} ${load} · ${t('plugins.rightNow.up')} ${uptime}`}
+            {`${t('plugins.rightNow.memory')} ${memoryPercent}% · ${t('plugins.rightNow.disk')} ${diskPercent}% · ${t('plugins.rightNow.load')} ${load} · ${t('plugins.rightNow.up')} ${uptime}`}
         </Text>
     );
 }
@@ -189,8 +148,6 @@ function cardAccessibilityLabel(payload: RightNowPayload): string {
         parts.push(limit.resetsIn === undefined ? line : `${line}, ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`);
     } else if (payload.collecting === true) {
         parts.push(t('plugins.rightNow.collecting'));
-    } else if (payload.message !== undefined) {
-        parts.push(payload.message);
     } else {
         parts.push(t('plugins.rightNow.notConnected'));
     }

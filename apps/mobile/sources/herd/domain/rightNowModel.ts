@@ -1,8 +1,8 @@
 import { MAX_CHART_LABEL_BYTES, capUtf8Bytes, sanitizeDisplayText } from '@muxr/contract';
 import type { PluginDataCard, PluginManifestV1 } from '@muxr/contract';
 
-/** What the host says about right now: the tightest plan limit, the host's
- *  no-windows message, and machine vitals as figures. The phone owns units. */
+/** What the host says about right now: the tightest plan limit and machine
+ *  vitals as figures. The phone owns units and every word. */
 export type RightNowVerdict = 'go' | 'ahead' | 'watch' | 'low' | 'limited' | 'unknown';
 
 export interface RightNowLimit {
@@ -27,8 +27,6 @@ export interface RightNowVitals {
 
 export interface RightNowPayload {
     limit?: RightNowLimit;
-    /** Host message shown as one quiet line when there is nothing to card. */
-    message?: string;
     /** Cold usage cache; the host fell back so the vitals could answer. */
     collecting?: true;
     vitals?: RightNowVitals;
@@ -78,11 +76,9 @@ export function asRightNowPayload(value: unknown): RightNowPayload {
             };
         }
     }
-    const message = bounded(raw.message, 160);
     const vitals = rightNowVitals(raw.vitals);
     return {
         ...(limit === undefined ? {} : { limit }),
-        ...(message === '' ? {} : { message }),
         ...(raw.collecting === true ? { collecting: true as const } : {}),
         ...(vitals === undefined ? {} : { vitals }),
     };
@@ -107,10 +103,40 @@ function rightNowVitals(value: unknown): RightNowVitals | undefined {
     return { memoryUsed, memoryTotal, diskUsed, diskTotal, load1, uptimeSeconds } as RightNowVitals;
 }
 
-/** The home data-card whose source is a plugin's `now` rpc is the product's
- *  Right now card: the declarative placement decides both that the product
- *  component draws it and that the generic DataCard skips it. */
-export function isRightNowCard(manifest: PluginManifestV1, contribution: PluginDataCard): boolean {
+export interface RightNowBinding {
+    pluginId: string;
+    manifestHash: string;
+    /** The data-card's own id, so the generic Home row skips exactly this
+     *  card and still draws every other plugin's. */
+    cardId: string;
+    contributionId: string;
+    contentContributionId?: string;
+}
+
+/** The `home.cards` data-card whose source is a plugin's `now` rpc is the
+ *  product's Right now card: the declarative placement decides both that the
+ *  product component draws it and that the generic DataCard skips it. One
+ *  binding, read by both sides, so the two can never disagree. */
+export function rightNowBinding(
+    plugins: readonly { summary: { pluginId: string; manifestHash: string }; manifest: PluginManifestV1 }[],
+): RightNowBinding | undefined {
+    for (const { summary, manifest } of plugins) {
+        for (const contribution of manifest.contributions) {
+            if (!('type' in contribution) || contribution.type !== 'data-card' || contribution.slot !== 'home.cards') continue;
+            if (!sourcedFromNow(manifest, contribution)) continue;
+            return {
+                pluginId: summary.pluginId,
+                manifestHash: summary.manifestHash,
+                cardId: contribution.id,
+                contributionId: contribution.source.contributionId,
+                ...(contribution.contentContributionId === undefined ? {} : { contentContributionId: contribution.contentContributionId }),
+            };
+        }
+    }
+    return undefined;
+}
+
+function sourcedFromNow(manifest: PluginManifestV1, contribution: PluginDataCard): boolean {
     return manifest.contributions.some((candidate) =>
         candidate.slot === 'host.rpc' && candidate.method === 'now' && candidate.id === contribution.source.contributionId);
 }

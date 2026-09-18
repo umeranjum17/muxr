@@ -20,7 +20,7 @@ import { resolvePluginText } from '../domain/pluginText';
 import { t } from '@/text';
 import { ItemList } from './primitives/ItemList';
 import { CapabilityButton } from './primitives/CapabilityButton';
-import { isRightNowCard } from '@/herd/domain/rightNowModel';
+import { rightNowBinding } from '@/herd';
 
 function keyRowSend(key: PluginTerminalKeyRow['keys'][number], ctrl: boolean, shift: boolean): string {
     if (ctrl && shift) return key.ctrlShift ?? key.ctrl ?? key.shift ?? key.send;
@@ -219,7 +219,13 @@ export function useTerminalQuickReplies(): { label: string; text: string }[] {
 
 export function DeclarativeHomeCards() {
     useSlotContributions('home.cards');
-    return <>{pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'data-card' && contribution.slot === 'home.cards' && contribution.presentation !== 'sheet' && !isRightNowCard(manifest, contribution) ? [<DataCard key={`${summary.pluginId}:${contribution.id}`} contribution={contribution} pluginId={summary.pluginId} manifestHash={summary.manifestHash} pluginName={summary.name} />] : []))}</>;
+    const plugins = pluginSnapshot();
+    // Exactly the one card the product's Right now component already draws is
+    // skipped; any other plugin's home card keeps its own row.
+    const rightNow = rightNowBinding(plugins);
+    const drawnElsewhere = (pluginId: string, cardId: string) =>
+        rightNow !== undefined && rightNow.pluginId === pluginId && rightNow.cardId === cardId;
+    return <>{plugins.flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) => 'type' in contribution && contribution.type === 'data-card' && contribution.slot === 'home.cards' && contribution.presentation !== 'sheet' && !drawnElsewhere(summary.pluginId, contribution.id) ? [<DataCard key={`${summary.pluginId}:${contribution.id}`} contribution={contribution} pluginId={summary.pluginId} manifestHash={summary.manifestHash} pluginName={summary.name} />] : []))}</>;
 }
 
 function DataActionScope({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
