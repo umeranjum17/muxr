@@ -78,13 +78,18 @@ describe('visible herd tree flow', () => {
         const grouped = new Map([...byId, ['w1', primaryWithWorktree] as const]);
         expect(parentOf(byWorktree, grouped)).toBe('w1');
 
-        const rows = buildSpaceRows(workspaces.map((entry) => entry.workspaceId === 'w1' ? primaryWithWorktree : entry), new Set(['w1', 'group:w1']), '');
+        const rows = buildSpaceRows(workspaces.map((entry) => entry.workspaceId === 'w1' ? primaryWithWorktree : entry), new Set(['w1']), '');
         expect(rows).toHaveLength(3);
         const [orphanRow, shells, card] = rows;
         expect(card!.workspace.workspaceId).toBe('w1');
+        // The card header is the single disclosure: one key expands card,
+        // subheader and children together; no group key exists any more.
+        expect(card!.expanded).toBe(true);
         expect(card!.children.map((child) => child.workspace.workspaceId)).toEqual(['w2', 'w3']);
-        expect(card!.groupExpanded).toBe(true);
         expect(card!.agentCount).toBe(1);
+        // Collapsed: children stay folded, nothing but the card key opens them.
+        const collapsed = buildSpaceRows(workspaces.map((entry) => entry.workspaceId === 'w1' ? primaryWithWorktree : entry), new Set(), '');
+        expect(collapsed.find((row) => row.workspace.workspaceId === 'w1')).toMatchObject({ expanded: false, panes: [] });
         expect(shells!.children).toEqual([]);
         expect(shells!.workspace.workspaceId).toBe('w5');
         // The orphan's parent points outside the tree: it stays top-level.
@@ -94,16 +99,19 @@ describe('visible herd tree flow', () => {
         expect(flat).toHaveLength(2);
         expect(flat[1]!.children).toEqual([]);
 
-        // Search: a matching child keeps its parent, whose card opens with the group open.
+        // Search: a matching child keeps its parent, whose card opens.
         const searched = buildSpaceRows(workspaces.map((entry) => entry.workspaceId === 'w1' ? primaryWithWorktree : entry), new Set(), 'extdir');
         expect(searched).toHaveLength(1);
         expect(searched[0]!.workspace.workspaceId).toBe('w1');
-        expect(searched[0]!.groupExpanded).toBe(true);
+        expect(searched[0]!.expanded).toBe(true);
         expect(searched[0]!.children.map((child) => child.workspace.workspaceId)).toEqual(['w2']);
         expect(searched[0]!.panes).toEqual([]);
+        // A search matching only the parent itself does not force cards open.
+        const parentMatch = buildSpaceRows(workspaces.map((entry) => entry.workspaceId === 'w1' ? primaryWithWorktree : entry), new Set(), 'firstmate');
+        expect(parentMatch[0]!.expanded).toBe(false);
         expect(buildSpaceRows(workspaces, new Set(), 'nimbus')).toEqual([]);
-        // The sheet seeds: a child opens its parent card and the group instead of itself.
-        expect(spaceExpansionDefaults(workspaces, 'w2')).toEqual(['w1', 'group:w1', 'child:w2']);
+        // The sheet seeds: a child opens its parent card instead of itself.
+        expect(spaceExpansionDefaults(workspaces, 'w2')).toEqual(['w1', 'child:w2']);
         expect(spaceExpansionDefaults(workspaces, 'w5')).toEqual(['w5']);
         // A one-agent child is its own row: the seed never unfolds that agent underneath it again.
         const seeded = buildSpaceRows(workspaces.map((entry) => entry.workspaceId === 'w1' ? primaryWithWorktree : entry), new Set(spaceExpansionDefaults(workspaces, 'w2')), '');
@@ -112,14 +120,14 @@ describe('visible herd tree flow', () => {
         expect(seededChild).toMatchObject({ expanded: false, panes: [] });
         // A child with several agents still unfolds them in place.
         const twoAgents = { ...byToken, tabs: [tab('t2', undefined, [pane('p2', 'opencode', { agentName: 'donkey' }), pane('p2b', 'pi', { agentName: 'lemur' })])] };
-        const unfolded = buildSpaceRows([mine, twoAgents], new Set(['w1', 'group:w1', 'child:w2']), '');
+        const unfolded = buildSpaceRows([mine, twoAgents], new Set(['w1', 'child:w2']), '');
         expect(unfolded[0]!.children[0]!.panes.map((entry) => entry.paneId)).toEqual(['p2', 'p2b']);
 
         // Depth-2 lineage flattens under the root ancestor, so no workspace renders nowhere.
         const grandchild = { ...ws('w6', 'deep-task1', [tab('t6', undefined, [pane('p6', 'pi', { agentStatus: 'working' })])]), tokens: { parent: 'w2', kind: 'task' }, order: 6 };
         const deep = [mine, byToken, grandchild];
         expect(parentOf(grandchild, new Map(deep.map((entry) => [entry.workspaceId, entry] as const)))).toBe('w1');
-        const deepRows = buildSpaceRows(deep, new Set(['w1', 'group:w1']), '');
+        const deepRows = buildSpaceRows(deep, new Set(['w1']), '');
         expect(deepRows.map((row) => row.workspace.workspaceId)).toEqual(['w1']);
         expect(deepRows[0]!.children.map((child) => child.workspace.workspaceId)).toEqual(['w2', 'w6']);
         const rendered = new Set(deepRows.flatMap((row) => [row.workspace.workspaceId, ...row.children.map((child) => child.workspace.workspaceId)]));

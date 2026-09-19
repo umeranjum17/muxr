@@ -175,15 +175,15 @@ const stylesheet = StyleSheet.create((theme) => ({
     groupRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
-        paddingHorizontal: 16,
+        paddingLeft: 28,
+        paddingRight: 16,
         paddingVertical: 10,
-        minHeight: 48,
+        minHeight: 40,
         borderTopWidth: StyleSheet.hairlineWidth,
         borderTopColor: theme.colors.divider,
     },
-    groupRowPressed: {
-        backgroundColor: theme.colors.surfacePressedOverlay,
+    groupRowCompact: {
+        minHeight: 36,
     },
     groupTitleSlot: {
         flex: 1,
@@ -194,9 +194,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     groupTitle: {
         flexShrink: 1,
-        fontSize: 14,
-        lineHeight: 18,
-        color: theme.colors.text,
+        fontSize: 13,
+        lineHeight: 16,
+        color: theme.colors.textSecondary,
         ...Typography.default(),
     },
     groupSummaryProbe: {
@@ -432,21 +432,21 @@ const ChildRail = React.memo(({ last }: { last: boolean }) => (
     </View>
 ));
 
-const GroupRow = React.memo(({
+/**
+ * Quiet subheader naming the child group and its counts: it states the
+ * subtree, it does not control it — the card header is the single disclosure.
+ * Indented to the child status-dot column so it reads as the rail's label.
+ */
+const GroupSubheader = React.memo(({
     count,
     kind,
     groupChildren,
-    expanded,
-    forced,
-    onToggle,
+    compact,
 }: {
     count: number;
     kind?: string;
     groupChildren: HerdChildSpace[];
-    expanded: boolean;
-    /** A search holds this group open: the row states it, it does not control it. */
-    forced: boolean;
-    onToggle: () => void;
+    compact: boolean;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -470,17 +470,13 @@ const GroupRow = React.memo(({
         <Chip key={entry.word} count={entry.count} word={entry.word} color={chipColor(entry.tone)} />
     ));
 
-    const body = (
-        <>
-            <View style={styles.chevron}>
-                {!forced && (
-                    <Ionicons
-                        name={expanded ? 'chevron-down' : 'chevron-forward'}
-                        size={16}
-                        color={theme.colors.groupped.chevron}
-                    />
-                )}
-            </View>
+    return (
+        <View
+            style={[styles.groupRow, compact && styles.groupRowCompact]}
+            accessible
+            accessibilityRole="text"
+            accessibilityLabel={spokenLabel}
+        >
             <View
                 style={styles.groupTitleSlot}
                 onLayout={(event) => setSlotWidth(event.nativeEvent.layout.width)}
@@ -505,28 +501,7 @@ const GroupRow = React.memo(({
                     <View style={styles.chipRow}>{chips(summary)}</View>
                 </View>
             )}
-        </>
-    );
-
-    if (forced) {
-        return (
-            <View style={styles.groupRow} accessible accessibilityRole="text" accessibilityLabel={spokenLabel}>
-                {body}
-            </View>
-        );
-    }
-
-    return (
-        <Pressable
-            onPress={onToggle}
-            style={({ pressed }) => [styles.groupRow, pressed && styles.groupRowPressed]}
-            android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
-            accessibilityRole="button"
-            accessibilityState={{ expanded }}
-            accessibilityLabel={`${spokenLabel}. ${expanded ? t('spacesTree.collapse') : t('spacesTree.expand')}`}
-        >
-            {body}
-        </Pressable>
+        </View>
     );
 });
 
@@ -616,10 +591,8 @@ const WorkspaceCard = React.memo(({
     agentCount,
     panes,
     childSpaces,
-    groupExpanded,
     searchForced,
     onToggle,
-    onToggleGroup,
     onToggleChild,
     onClose,
     onCloseChild,
@@ -635,11 +608,9 @@ const WorkspaceCard = React.memo(({
     agentCount: number;
     panes: HerdrTreePane[];
     childSpaces: HerdChildSpace[];
-    groupExpanded: boolean;
     /** A search holds this card open: its header states that, it does not control it. */
     searchForced: boolean;
     onToggle: () => void;
-    onToggleGroup: () => void;
     onToggleChild: (workspaceId: string) => void;
     onClose: () => void;
     onCloseChild: (workspace: HerdrTreeWorkspace) => void;
@@ -659,8 +630,8 @@ const WorkspaceCard = React.memo(({
         ? t('spacesTree.childAgents', { count: agentCount })
         : paneCount > 0 ? t('spacesTree.shell') : undefined;
     // Approach D: a collapsed card keeps its needs-you count on the header,
-    // so attention shows before anything is expanded (chips in the group row
-    // carry the rest).
+    // so attention shows before anything is expanded (the group subheader
+    // carries the rest).
     const needsYou = expanded ? 0 : groupSummaryCounts(childSpaces).needsYou;
     const headerInteractive = !searchForced || canClose;
     const headerLabel = [
@@ -668,6 +639,11 @@ const WorkspaceCard = React.memo(({
         countLabel,
         needsYou > 0 ? `${needsYou} ${t('spacesTree.needsYou')}` : undefined,
     ].filter((part) => part !== undefined).join(', ');
+    // The header is the single disclosure control: its label speaks the verb
+    // and its state carries expanded, truthfully claiming the whole subtree.
+    const spokenHeaderLabel = searchForced
+        ? headerLabel
+        : `${headerLabel}, ${expanded ? t('spacesTree.collapse') : t('spacesTree.expand')}`;
 
     return (
         <View style={[styles.card, compact && styles.cardCompact]}>
@@ -682,7 +658,8 @@ const WorkspaceCard = React.memo(({
                 ]}
                 android_ripple={headerInteractive ? { color: theme.colors.surfaceRipple, foreground: true } : undefined}
                 accessibilityRole={headerInteractive ? 'button' : undefined}
-                accessibilityLabel={headerLabel}
+                accessibilityState={searchForced ? undefined : { expanded }}
+                accessibilityLabel={spokenHeaderLabel}
             >
                 <View style={styles.chevron}>
                     {!searchForced && (
@@ -720,17 +697,15 @@ const WorkspaceCard = React.memo(({
                     unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
                 />
             ))}
-            {childSpaces.length > 0 && (
-                <GroupRow
+            {expanded && childSpaces.length > 0 && (
+                <GroupSubheader
                     count={childSpaces.length}
                     kind={groupKind(childSpaces)}
                     groupChildren={childSpaces}
-                    expanded={groupExpanded}
-                    forced={searchForced}
-                    onToggle={onToggleGroup}
+                    compact={compact}
                 />
             )}
-            {groupExpanded && childSpaces.map((child, index) => (
+            {expanded && childSpaces.map((child, index) => (
                 <ChildRow
                     key={child.workspace.workspaceId}
                     child={child}
@@ -781,26 +756,12 @@ export const SpacesTree = React.memo(({
         setExpanded(new Set(defaultExpandedWorkspaceIds));
     }, [defaultExpandedWorkspaceIds]);
 
+    // The header is the only disclosure control; a plain toggle suffices.
     const toggleWorkspace = React.useCallback((workspaceId: string) => {
         setExpanded((previous) => {
             const next = new Set(previous);
             if (next.has(workspaceId)) next.delete(workspaceId);
             else next.add(workspaceId);
-            return next;
-        });
-    }, []);
-
-    // The card cannot visually close while its group row is forced open, so
-    // collapsing the card closes the group with it.
-    const toggleWorkspaceCard = React.useCallback((workspaceId: string) => {
-        setExpanded((previous) => {
-            const next = new Set(previous);
-            if (next.has(workspaceId) || next.has(`group:${workspaceId}`)) {
-                next.delete(workspaceId);
-                next.delete(`group:${workspaceId}`);
-            } else {
-                next.add(workspaceId);
-            }
             return next;
         });
     }, []);
@@ -870,10 +831,8 @@ export const SpacesTree = React.memo(({
             agentCount={item.agentCount}
             panes={item.panes}
             childSpaces={item.children}
-            groupExpanded={item.groupExpanded}
-            searchForced={searching && item.groupExpanded}
-            onToggle={() => toggleWorkspaceCard(item.workspace.workspaceId)}
-            onToggleGroup={() => toggleWorkspace(`group:${item.workspace.workspaceId}`)}
+            searchForced={searching && item.children.length > 0}
+            onToggle={() => toggleWorkspace(item.workspace.workspaceId)}
             onToggleChild={(workspaceId) => toggleWorkspace(`child:${workspaceId}`)}
             onClose={() => confirmCloseWorkspace(item.workspace)}
             onCloseChild={confirmCloseWorkspace}
@@ -884,7 +843,7 @@ export const SpacesTree = React.memo(({
             canClose={canClose}
             unseenDoneSessionIds={unseenDoneSessionIds}
         />
-    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, onNavigatePane, searching, selectedSessionId, toggleWorkspace, toggleWorkspaceCard, unseenDoneSessionIds]);
+    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, onNavigatePane, searching, selectedSessionId, toggleWorkspace, unseenDoneSessionIds]);
 
     if (loading === true) {
         return (
