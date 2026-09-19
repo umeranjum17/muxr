@@ -66,9 +66,27 @@ work.
 | Create panes/tabs/workspaces/worktrees, run and read agents, socket API | `muxr skill herdr` · [source](references/herdr.md) |
 | Connect computers; list, read, watch, or prompt a remote agent; voice | `muxr skill collaboration` · [source](references/collaboration.md) |
 | Hand a browser login, 2FA, or CAPTCHA to the phone | `muxr skill browser-takeover` · [source](references/browser-takeover.md) |
+| Name the current Herdr workspace/pane | `muxr name --workspace LABEL --pane TITLE --provider PROVIDER --model MODEL` |
 | Build, install, debug, or override a plugin | `muxr skill plugins` · [source](references/plugins.md) |
 | Troubleshoot, recover, or report a bug | run interactive `muxr doctor` for checked safe repairs, then `muxr diagnostics` locally or `muxr report` for a draft; show the complete draft and ask before any external action |
 | Full plugin manifest contract | run `muxr plugin docs` and read the printed PLUGINS.md |
+
+## Self-naming
+
+At task start, name the current Herdr workspace and pane through muxr's
+provider-neutral local facade. `HERDR_PANE_ID` is the existing Herdr pane
+identity; muxr supplies the local authorization and resolves workspace
+membership from Herdr. Names stay verbatim within bounded input limits.
+
+```sh
+muxr name --workspace 'short-task-slug' \
+  --pane 'Human-readable task title' \
+  --provider '<provider>' --model '<model>'
+```
+
+Absent self-names remain absent until the existing blank-name fallback applies.
+Do not guess names from prompts, cwd, provider-specific transcripts, or shell
+arguments. Provider and model are Herdr pane metadata, not a second JSON store.
 
 ## Pane attachments (always-on convention)
 

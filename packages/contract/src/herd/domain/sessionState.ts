@@ -17,6 +17,9 @@ export interface AgentInfo {
     agentName?: string;
     taskTitle?: string;
     agentKind?: string;
+    /** Provider/model reported by Herdr pane metadata, when self-named. */
+    provider?: string;
+    model?: string;
     displayAgent?: string;
     agentStatus: AgentLifecycle;
     promptable: boolean;

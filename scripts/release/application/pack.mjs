@@ -232,6 +232,7 @@ const pkg = {
         'release/',
         'diagnostics/',
         'terminal/',
+        'naming/',
         'host.js',
         'relay.js',
         'crypto.js',
