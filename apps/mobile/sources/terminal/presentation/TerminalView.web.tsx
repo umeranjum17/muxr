@@ -5,7 +5,7 @@
 
 import * as React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import type { IBufferLine, IDecoration } from '@xterm/xterm';
+import type { IBufferLine, IMarker } from '@xterm/xterm';
 import type { TerminalCommand } from './FloatingTerminalControls';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -36,10 +36,10 @@ function decodeBase64(value: string): Uint8Array {
 
 const LONG_PRESS_MS = 500;
 
-/** Cell ranges of plain http(s) URLs in one buffer line. The OSC 8 URI has
- *  no public per-cell API, so those links keep xterm's hover affordance and
- *  this only underlines plain text. */
-function plainUrlCellRanges(line: IBufferLine, cols: number): { start: number; length: number }[] {
+/** One buffer line as text plus, per UTF-16 unit, the cell it came from: cells
+ *  and string units diverge on wide glyphs, so hit-testing maps between them.
+ *  Matches translateToString cell for cell. */
+function lineCellMap(line: IBufferLine, cols: number): { text: string; cellOf: number[] } {
     let text = '';
     const cellOf: number[] = [];
     const scratch = line.getCell(0);
@@ -50,6 +50,14 @@ function plainUrlCellRanges(line: IBufferLine, cols: number): { start: number; l
         text += ch;
         for (let k = 0; k < ch.length; k++) cellOf.push(c);
     }
+    return { text, cellOf };
+}
+
+/** Cell ranges of plain http(s) URLs in one buffer line. The OSC 8 URI has
+ *  no public per-cell API, so those links keep xterm's hover affordance and
+ *  this only underlines plain text. */
+function plainUrlCellRanges(line: IBufferLine, cols: number): { start: number; length: number }[] {
+    const { text, cellOf } = lineCellMap(line, cols);
     const ranges: { start: number; length: number }[] = [];
     const pattern = new RegExp(TERMINAL_URL_PATTERN.source, 'g');
     for (let match = pattern.exec(text); match !== null; match = pattern.exec(text)) {
@@ -130,16 +138,24 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         // Quiet discoverability: underline plain URLs as they render, one
         // decoration per range anchored to its buffer line, so it scrolls and
         // trims with the content and hides itself outside the viewport.
-        // Keyed by buffer row: a render must not rescan every decoration on
-        // the buffer just to know a row is already underlined.
-        const linkDecorations = new Map<number, IDecoration>();
+        // Keyed by buffer row plus the row's text: rows are rewritten in place
+        // (progress lines), so an entry revalidates against the text instead of
+        // trusting row identity, while unchanged rows still skip the scan.
+        const linkDecorations = new Map<number, { text: string; markers: IMarker[] }>();
         term.onRender(({ start, end }) => {
             const buffer = term.buffer.active;
             for (let viewportRow = start; viewportRow <= end; viewportRow++) {
                 const line = buffer.getLine(buffer.viewportY + viewportRow);
                 if (!line) continue;
                 const row = buffer.viewportY + viewportRow;
-                if (linkDecorations.has(row)) continue;
+                const text = line.translateToString(true);
+                const cached = linkDecorations.get(row);
+                if (cached) {
+                    if (cached.text === text) continue;
+                    for (const marker of cached.markers) marker.dispose();
+                    linkDecorations.delete(row);
+                }
+                const markers: IMarker[] = [];
                 for (const range of plainUrlCellRanges(line, term.cols)) {
                     const marker = term.registerMarker(viewportRow - buffer.cursorY);
                     // A marker clamped off its row would re-register every
@@ -157,8 +173,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         el.style.borderBottom = '1px solid rgba(190,188,180,0.4)';
                     });
                     marker.onDispose(() => linkDecorations.delete(row));
-                    linkDecorations.set(row, decoration);
+                    markers.push(marker);
                 }
+                if (markers.length > 0) linkDecorations.set(row, { text, markers });
             }
         });
 
@@ -280,8 +297,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             }
             let anchor = 0;
             for (let i = 0; i < row - topRow; i++) anchor += lines[i].length;
-            const at = anchor + Math.min(col, lines[row - topRow].length);
-            return terminalUrlAt(lines.join(''), at);
+            // The tap lands on a cell, not a string index: map it through the
+            // row's cell walk so wide glyphs before the URL cannot skew it.
+            const tapped = buffer.getLine(row);
+            if (!tapped) return null;
+            const at = lineCellMap(tapped, term.cols).cellOf.indexOf(col);
+            if (at < 0) return null;
+            return terminalUrlAt(lines.join(''), anchor + at);
         };
         const plainTextLinkAt = (clientX: number, clientY: number): string | null => {
             const rect = element.getBoundingClientRect();
