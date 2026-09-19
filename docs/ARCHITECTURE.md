@@ -172,8 +172,9 @@ Beyond the session basics, the host exposes herdr's topology to the app:
   `order`, its bounded display-only producer `tokens`, and its worktree
   `repoKey`/`linked`. Powers the Herd screen's spaces cards: a workspace whose
   lineage is declared — a `parent` token, or Herdr's worktree group (a linked
-  checkout under the unlinked workspace sharing its `repoKey`) — folds behind
-  that parent card's group row instead of getting a card of its own. Labels are
+  checkout under the unlinked workspace sharing its `repoKey`) — folds inside
+  that parent card, under its quiet group subheader, instead of getting a card
+  of its own; the card header is the single disclosure control. Labels are
   never parsed to guess lineage.
 - `herdr.layout` — a tab's split rects (terminal cells), still served for
   layout-aware callers; the tab grid and pane overview render uniform cards

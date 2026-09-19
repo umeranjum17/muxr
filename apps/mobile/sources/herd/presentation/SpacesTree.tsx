@@ -405,7 +405,7 @@ function childLine2Parts(child: HerdChildSpace): string[] {
     return [agentNameLine(agentLabels(agent)), agentStateLabel(agent.agentStatus)];
 }
 
-/** A group-row status pill: colored dot + mono count, visual only (row label speaks it). */
+/** A group-subheader status pill: colored dot + mono count, visual only (subheader label speaks it). */
 const Chip = React.memo(({ count, word, color }: { count: number; word?: string; color: string }) => (
     <View style={stylesheet.chip} pointerEvents="none">
         <StatusDot color={color} size={6} />
@@ -414,7 +414,7 @@ const Chip = React.memo(({ count, word, color }: { count: number; word?: string;
 ));
 
 /**
- * Decorative connector rail (approach A): descends from the group row, elbows
+ * Decorative connector rail (approach A): descends from the group subheader, elbows
  * into this child's status dot, and — unless this is the last child — carries
  * on to the next one. Grandchildren just sit one stop deeper on the same rail.
  */

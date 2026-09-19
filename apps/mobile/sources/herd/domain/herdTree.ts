@@ -46,8 +46,8 @@ function declaredParent(ws: HerdrTreeWorkspace, byId: ReadonlyMap<string, HerdrT
 /**
  * The workspace's ROOT ancestor — following a producer `parent` token, else
  * Herdr's worktree group, up to the first workspace that declares no parent
- * of its own. Never derived from the label. Every descendant therefore lands
- * under a top-level card's group row, and a cycle or self-reference anywhere
+ * of its own. Never derived from the label. Every descendant therefore folds
+ * inside a top-level card, and a cycle or self-reference anywhere
  * up the chain resolves to none, so nothing is hidden.
  */
 export function parentOf(ws: HerdrTreeWorkspace, byId: ReadonlyMap<string, HerdrTreeWorkspace>): string | undefined {
@@ -87,7 +87,7 @@ export type HerdSpaceRow = {
     children: HerdChildSpace[];
 };
 
-/** Counts behind a group row's summary: needs you, working, done. */
+/** Counts behind a group subheader's summary: needs you, working, done. */
 export function groupSummaryCounts(children: readonly HerdChildSpace[]): { needsYou: number; working: number; done: number } {
     const counts = { needsYou: 0, working: 0, done: 0 };
     for (const { workspace } of children) {
@@ -116,7 +116,7 @@ export function spaceExpansionDefaults(workspaces: HerdrTreeWorkspace[], workspa
  * Flatten the workspace tree into the Herd tab's spaces section: one card per
  * top-level workspace; expanded cards list EVERY pane, shells included — a
  * shell you cannot see is a shell you cannot close. Workspaces with a declared
- * parent (spaces.md §4.2) fold behind their parent's group row and never
+ * parent (spaces.md §4.2) fold inside their parent's card and never
  * appear at the top level; with no lineage declared anywhere the list is flat,
  * in Herdr's creation order. A non-empty `searchQuery` filters cards to
  * workspaces with matching labels or panes; a matching child keeps its parent,
