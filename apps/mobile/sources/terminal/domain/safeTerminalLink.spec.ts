@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { joinedTerminalUrlAt, openTerminalLink, safeTerminalLinkUrl, terminalUrlAt, type TerminalLinkRow } from './safeTerminalLink';
+import xterm from '@xterm/xterm';
+import { joinedTerminalUrlAt, lineCellMap, openTerminalLink, plainLinkAtCell, safeTerminalLinkUrl, terminalUrlAt, type TerminalLinkRow } from './safeTerminalLink';
 
 /**
  * One flow: a link the terminal printed (plain text or OSC 8) travels through
@@ -74,5 +75,22 @@ describe('terminal printed links open only as safe web URLs', () => {
         // Soft-wrapped continuation: both rows resolve the same joined link.
         expect(joinedTerminalUrlAt(rows(true), 0, 10)).toBe(`${full}bbbb/ccc?d=1`);
         expect(joinedTerminalUrlAt(rows(true), 1, 0)).toBe(`${full}bbbb/ccc?d=1`);
+    });
+
+    it('maps long-press cells through the same string xterm renders, wide glyphs included', async () => {
+        const term = new xterm.Terminal({ cols: 20, rows: 2 });
+        await new Promise<void>((resolve) => term.write('中文 https://a.io', resolve));
+        const line = term.buffer.active.getLine(0)!;
+        const rowAt = (): TerminalLinkRow => ({ text: line.translateToString(true), isWrapped: false });
+
+        // The walk sees exactly the string xterm renders: the zero-width cell
+        // after each wide glyph contributes nothing, so cells and string units
+        // stay aligned and both surfaces resolve the same link.
+        expect(lineCellMap(line, 20).text).toBe(line.translateToString(false));
+        expect(plainLinkAtCell(line, 20, 16, 0, rowAt)).toBe('https://a.io');
+        expect(plainLinkAtCell(line, 20, 5, 0, rowAt)).toBe('https://a.io');
+        expect(plainLinkAtCell(line, 20, 4, 0, rowAt)).toBeNull();
+        expect(plainLinkAtCell(line, 20, 1, 0, rowAt)).toBeNull();
+        term.dispose();
     });
 });

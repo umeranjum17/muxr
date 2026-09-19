@@ -96,3 +96,52 @@ export function joinedTerminalUrlAt(
     for (let i = 0; i < rowIndex - top; i++) anchor += lines[i].length;
     return terminalUrlAt(lines.join(''), anchor + at);
 }
+
+/** One cell of an xterm buffer line, as the cell map walks it. */
+interface TerminalLineCell {
+    getChars(): string;
+    getWidth(): number;
+}
+
+/** The subset of an xterm buffer line the cell map walks. */
+interface TerminalLineCells {
+    getCell(col: number, scratch?: TerminalLineCell): TerminalLineCell | undefined;
+}
+
+/**
+ * One buffer line as text plus, per UTF-16 unit, the cell it came from: cells
+ * and string units diverge on wide glyphs, so hit-testing maps between them.
+ * Matches IBufferLine.translateToString(false) cell for cell, including its
+ * skip of the zero-width cell that follows each wide glyph.
+ */
+export function lineCellMap(line: TerminalLineCells, cols: number): { text: string; cellOf: number[] } {
+    let text = '';
+    const cellOf: number[] = [];
+    const scratch = line.getCell(0);
+    for (let c = 0; c < cols; c++) {
+        const filled = line.getCell(c, scratch);
+        if (!filled) break;
+        if (filled.getWidth() === 0) continue;
+        const ch = filled.getChars() || ' ';
+        text += ch;
+        for (let k = 0; k < ch.length; k++) cellOf.push(c);
+    }
+    return { text, cellOf };
+}
+
+/**
+ * The plain link under a tapped cell of one buffer line, joined across
+ * wrapped rows through rowAt. A cell outside the line's text (trailing
+ * whitespace, a wide glyph's spacer half) is not a link.
+ */
+export function plainLinkAtCell(
+    line: TerminalLineCells,
+    cols: number,
+    col: number,
+    row: number,
+    rowAt: (r: number) => TerminalLinkRow | undefined,
+): string | null {
+    const at = lineCellMap(line, cols).cellOf.indexOf(col);
+    if (at < 0 || at >= (rowAt(row)?.text.length ?? 0)) return null;
+    return joinedTerminalUrlAt(rowAt, row, at);
+}

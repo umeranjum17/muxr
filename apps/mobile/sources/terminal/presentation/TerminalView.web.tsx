@@ -13,7 +13,13 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
-import { joinedTerminalUrlAt, openTerminalLink, TERMINAL_URL_PATTERN, type TerminalLinkRow } from '../domain/safeTerminalLink';
+import {
+    lineCellMap,
+    openTerminalLink,
+    plainLinkAtCell,
+    TERMINAL_URL_PATTERN,
+    type TerminalLinkRow,
+} from '../domain/safeTerminalLink';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 
@@ -35,23 +41,6 @@ function decodeBase64(value: string): Uint8Array {
 }
 
 const LONG_PRESS_MS = 500;
-
-/** One buffer line as text plus, per UTF-16 unit, the cell it came from: cells
- *  and string units diverge on wide glyphs, so hit-testing maps between them.
- *  Matches translateToString cell for cell. */
-function lineCellMap(line: IBufferLine, cols: number): { text: string; cellOf: number[] } {
-    let text = '';
-    const cellOf: number[] = [];
-    const scratch = line.getCell(0);
-    for (let c = 0; c < cols; c++) {
-        const filled = line.getCell(c, scratch);
-        if (!filled) break;
-        const ch = filled.getChars() || ' ';
-        text += ch;
-        for (let k = 0; k < ch.length; k++) cellOf.push(c);
-    }
-    return { text, cellOf };
-}
 
 /** Cell ranges of plain http(s) URLs in one buffer line. The OSC 8 URI has
  *  no public per-cell API, so those links keep xterm's hover affordance and
@@ -281,13 +270,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             };
             const tapped = buffer.getLine(row);
             if (!tapped) return null;
-            // The tap lands on a cell, not a string index: map it through the
-            // row's cell walk so wide glyphs before the URL cannot skew it. A
-            // cell past the row's text (trailing whitespace) is not a link and
-            // must not bleed into the next row's.
-            const at = lineCellMap(tapped, term.cols).cellOf.indexOf(col);
-            if (at < 0 || at >= (lineRow(row)?.text.length ?? 0)) return null;
-            return joinedTerminalUrlAt(lineRow, row, at);
+            return plainLinkAtCell(tapped, term.cols, col, row, lineRow);
         };
         const plainTextLinkAt = (clientX: number, clientY: number): string | null => {
             const rect = element.getBoundingClientRect();
