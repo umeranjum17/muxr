@@ -32,7 +32,9 @@ const checks = [
     ['unit: layout snapshot round-trip', 'node', ['apps/host/dist/agent/infrastructure/layoutSelfCheck.js']],
     ['unit: setup domain (pairing/connection/crypto)', 'node', ['scripts/setup/domain/dist/selfCheck.js']],
     ['policy: host/relay architecture', 'npx', ['vitest', 'run', 'apps/host/src/architecture.test.ts', 'apps/relay/src/architecture.test.ts']],
-    ['unit: all vitest flows', 'npx', ['vitest', 'run', '--root', '.']],
+    // The load-test flows carry their own generous per-test budgets; the step
+    // kill must stay well above them or it SIGKILLs a healthy run first.
+    ['unit: all vitest flows', 'npx', ['vitest', 'run', '--root', '.'], undefined, 300000],
     // The perf/lib tests are node:test, not vitest (perf/** is excluded from
     // the sweep above), so only this step runs them. Without the muxr.code
     // add-on checkout the warm-probe flow skips loudly instead of passing.

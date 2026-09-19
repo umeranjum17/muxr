@@ -1,0 +1,91 @@
+muxr wave review — 2026-09-18 — full product walk + post-review proof
+Lab: isolated — repo-built relay (dev fixture + selfhost), fake fleet fixture (7 workspaces,
+agents of four kinds in every lifecycle status), Android emulator dev client on the same Metro bundle.
+Browser = local browser-automation CLI @ 390x844@2x dark. Every line: FILE | Surface | what it shows.
+Files live next to this INDEX. Post-review proof lanes (Lavish, Spaces rail, inline image,
+naming, mock) were captured on separate isolated labs and are marked PROOF.
+
+ACTIONS-01-pane-actions.png | Browser | Session pane-actions sheet: Inspect, Browser, Conversation history, Usage, Focus in Herdr, Stop agent.
+ANDROID-01-first-run.png | Android | First run: muxr wordmark, 'disconnected', Create account + Link or restore account (web's 'Login with mobile app' is web-only).
+ANDROID-02-pair-screen.png | Android | /pair: 'Securely pair this device — enter the short pairing string shown by muxr pair', manual-entry field with placeholder 'wss://your-relay?pair=7KDM4-QXP7N', helper for computers you are not standing at.
+ANDROID-03-pair-consent.png | Android | Pairing consent after the string: 'this machine wants to pair with this phone' — what the phone will be able to do (type into terminals, answer approval prompts) + HOW IT IS SECURED (one-time code claim, sealed key grant, machine-key verification). Pair/Cancel.
+ANDROID-04-background-prompt.png | Android | Post-pair: Android background-connection prompt 'Keep muxr connected in the background?'
+ANDROID-05-home-live.png | Android | Paired Home: 'App and host versions differ · review updates' banner (CLI/host build vs app build in this lab), Right-now vitals, Live row 'ready.', Needs-you rows.
+ANDROID-06-home-spaces.png | Android | Home scrolled: Spaces grouping — task children behind parents, Ready · unseen tier.
+ANDROID-07-home-bottom.png | Android | Home bottom: remaining Spaces rows.
+BROWSER-01-not-opened.png | Browser | Agent's Browser takeover, initial state: the agent 'hasn't opened a browser.' with primary 'Open one' and a Details disclosure.
+BROWSER-02-open-attempt.png | Browser | After tapping Open one the screen holds the same state in the lab (the open attempt runs agent-browser on the machine; the lab fixture answers a JSON error).
+BROWSER-03-details-expanded.png | Browser | Details expanded: selectable mono output — the failed machine-side command with its JSON error body; the designed failure disclosure with real output.
+BROWSER-04-native-takeover.png | Android | Native Browser takeover: not-opened state + Open one + Details.
+BROWSER-05-native-openone.png | Android | Open one tapped on the lab machine: state unchanged (fixture-answered JSON error, shown under Details).
+BROWSER-06-native-after-open.png | Android | Same settled state after the open attempt — honest failed-open journey natively.
+BROWSER-07-native-details.png | Android | Details disclosure expanded: mono failure output from the machine-side command (fixture-answered JSON error), selectable in a card.
+CLI-01-config-flow.png | CLI | The muxr CLI config flow, rendered: muxr --help (setup/pair/doctor/self-host/devices/plugin commands), muxr self-host --help flags, and the muxr pair ceremony output with its disclosure ('This one-time QR grants a phone control of agent sessions on this computer. Keep it private.') through '✓ paired and verified Android phone' — pairing string masked. The muxr doctor leg of the original composite is trimmed from this render.
+CONN-01-first-run-account-landing.png | Browser | First run: muxr wordmark, 'disconnected', hosted-account choice (Login with mobile app / Create account); E2EE-optional note.
+CONN-02-connection-settings-dev.png | Browser | Settings → Connection & updates (local dev): 'Development connection' audience label, installed versions (web+host 0.1.28, source sha), diagnostics with privacy note, DEVELOPMENT RELAY form (relay URL/machine/token) + 'Save and connect'.
+CONN-03-connection-settings-bottom.png | Browser | Connection scrolled: relay form in full with hint that values are 'Printed by muxr up on the machine running the agents'.
+CONN-04-native-mismatch.png | Android | Native Connection & updates: STATUS connected — 'Route from relay address', 'Transport & privacy: WS without TLS transport · end-to-end encrypted agent data', relay endpoint, 'Trust on this device', 'Paired phones & browsers: 1 paired at last check', NEARBY RECONNECTION discovery.
+CONN-05-native-versions.png | Android | Installed versions with the mismatch spelled out: app 0.1.12 build 12 (dev-client shell reused in this lab) vs host 0.1.28 @ 4783bf27 — the app flags the mismatch and offers 'Get mobile builds'; diagnostics row below.
+DICT-01-voice-settings.png | Browser | Voice & dictation settings, regrouped: PROVIDER (empty in browser), DICTATION (Spoken language Automatic; the bundled English model 'in use'; Multilingual disabled with 'Download from the Android or iOS app'), WORD REPLACEMENTS, HANDS-FREE wake-on-speech (off, needs computer).
+DICT-02-language-picker.png | Browser | Spoken language sheet: Automatic + 15 pinned languages incl. Arabic, Urdu, Hindi; 'Detect the spoken language for each recording'.
+DICT-03-language-pinned-urdu.png | Browser | After picking Urdu the row reads 'Spoken language | Urdu' (error banner above is the dev-relay reconnect during lab switchover, not the picker).
+DICT-04-word-replacement-form.png | Browser | Add replacement dialog: 'Word to fix — enter the word or phrase the engine hears wrong', with Cancel/OK.
+DICT-05-word-replacement-saved.png | Browser | Replacement saved; list hint: 'Tap a replacement to edit it, or hold it to delete it.'
+DICT-06-native-settings.png | Android | Native PROVIDER section: four voice providers listed — three key-based ('Needs an API key on this machine · Tap to use'), one login-based marked 'In use'; 'Voice engines — what each one is, and talk to hear it'; 'One provider runs on this machine at a time.'
+DICT-07-native-dictation.png | Android | DICTATION native: Spoken language Automatic; English — bundled model; Multilingual — 99-language model · 60 MB download; WORD REPLACEMENTS; HANDS-FREE wake-on-speech Off.
+DICT-08-model-download.png | Android | After tapping Multilingual: download completed and row now reads '99-language model · installed' — on-device model download flow works.
+DICT-09-native-language-picker.png | Android | Spoken language picker (Search 16): Automatic + pinned language list (English, Arabic, Urdu, Chinese, French, German, Hindi, Italian, Japanese, Korean…).
+HISTORY-01-pane-scrollback.png | Browser | Conversation history: agent pane scrollback — line count and most-recent-available ring, read from the lab pane.
+HOME-01-ready-unseen-right-now.png | Browser | Home on connection: Right-now button, Live row, 'Needs you' (failed + blocked), 'Ready · unseen' (done, unopened) above Spaces.
+HOME-02-spaces-bottom.png | Browser | Home scrolled to bottom: remaining Spaces rows incl. worktree-group child and the standalone shell workspace.
+HOME-03-disconnected.png | Browser | Home while the relay link is down: header flips to 'disconnected'; list keeps its last content (honest lab note: captured during the dev-relay restart mid-walk).
+HOME-04-right-now-card.png | Browser | Home connected: the Right-now card renders live machine vitals — 'Plan limits aren't connected in muxr', memory 49.0G/92.0G, load, up 136h, disk 402.2G/929.5G (45%).
+HOME-05-right-now-card-full.png | Browser | Home scrolled: rest of Right-now vitals card above Needs you / Ready · unseen / Spaces.
+KEYROW-01-editor.png | Browser | Edit key row sheet: every key with its escape shown ('esc sends \e', '^C sends \x03', arrows, ⏎), reorder handles, 'Add a key'.
+KEYROW-02-add-key-catalogue.png | Browser | Add-a-key catalogue grouped Control/Navigation/Shell/Function keys + 'Custom key' with escape-syntax hint and 'Repeat while held' toggle.
+KEYROW-03-custom-added.png | Browser | Key-row editor after adding a custom key: row now shows 'GST — sends git status' alongside defaults; catalogue sections and custom-key form below.
+KEYROW-04-row-with-custom.png | Browser | Live key row after Done: custom GST key sits at the end of the default row.
+KEYROW-05-native-editor.png | Android | Native Edit-key-row sheet: every key with its escape ('esc sends \e', '^C sends \x03'…) and 'Add a key'.
+LAVISH-01-web-pwa.png | Browser | PROOF — Lavish review board rendered live inside muxr's browser takeover view on the web PWA; the board's fresh 'Board served' host clock proves a live page, not a cached frame (board content below the clock card cropped from this render).
+LAVISH-02-native-android.png | Android | PROOF — the same Lavish board live in the takeover view on the native Android app; the fresh 'Board served' host clock (09:44:15) proves a live page rather than a cached frame (board content below the clock card cropped from this render).
+IMAGE-01-terminal-before.png | Android | PROOF — a real shell pane in the phone terminal view before the image command runs: empty terminal grid, pane tabs, key row, composer; prompt path label redacted.
+IMAGE-02-image-inline.png | Android | PROOF — after `muxr show-image`: the pushed test image (its lab-drawn title redacted) renders as an elevated card over the terminal grid (tap-to-expand, close button), terminal never resized; same pane, moments later; prompt path label redacted.
+NAMING-01-home-four-providers.png | Android | PROOF — Home listing live and ready-unseen agents from four providers (including a model-hosted one) under one uniform task-derived naming scheme; provider shown only as a small subtitle.
+NAMING-02-failing-agent-still-named.png | Android | PROOF — an agent whose credentials expired keeps its task-derived pane name; four provider tabs across the top of the same session view.
+NAMING-03-named-across-stacks.png | Android | PROOF — the same naming pipeline on the fourth provider: task-derived pane name in the header, that provider's model id in its own status line.
+MOCK-01-approved-surfaces.png | Mock | PROOF — the approved before-coding surface mock (full home + full terminal, light and dark): floating action control docked mid-right over the terminal, bottom shelf, Spaces grouping.
+NEWAGENT-01-native.png | Android | Home composer → spawn screen: PROJECT and WORKTREE selectors, agent-kind selector, Start/Ask actions, image attach and dictate.
+PAIR-01-browser-routes.png | Browser | /pair (from Settings): 'Securely pair this device' — paste-string flow naming the three audience-labeled routes muxr pair --browser / --browser-personal / --browser-view; Connect disabled until a string is pasted.
+PALETTE-01-panel-open.png | Android | Puck tapped: the terminal quick-actions panel open beside it (zoom/reset/keyboard commands — the movable command palette).
+PLUGINS-01-list.png | Browser | Plugins: 3/3 enabled — panes, status, voice ('Local plugin · Runs code as you'); Enable/Disable all.
+PUCK-01-docked.png | Android | Terminal with the floating command puck (sparkles mark) docked over the terminal, live output stream rendering; pane tabs, key row, composer.
+SESSION-01-terminal-ticket-required.png | Browser | Session on the dev fixture: terminal area shows the honest 'terminal: relay ticket required' state (legacy local tokens cannot mint terminal channels); key row, tabs and composer all render.
+SETTINGS-01-index.png | Browser | Settings index: Connection Health, Machines (fixture 'extreme Linux • online', Pair another machine via muxr pair, Computer collaboration), Plugins, Usage, Appearance, Preferences, Voice & dictation, notifications, About v0.1.28.
+SETTINGS-02-native-index.png | Android | Native Settings: Connection row flagged 'App and host versions differ — review updates / Mismatch', Machines (extreme Linux • online Active, Pair another machine, Computer collaboration), plugins, appearance, voice & dictation.
+SLASH-01-catalogue.png | Browser | Slash catalogue sheet for an agent ('commands'): Common (/compact, /model) then the full command list as rows — /resume, /session, /thinking, /settings, /hotkeys, /share, /export.
+SLASH-02-catalogue-destructive.png | Browser | Catalogue scrolled to the tail: 'Destructive · asks before sending' group with /new (start a new session) — destructive rows carry their own disclosure.
+SLASH-03-native-catalogue.png | Android | Native slash catalogue sheet: search, Common group (/compact, /model), all commands as rows.
+SLASH-04-native-destructive.png | Android | Catalogue scrolled: tail groups incl. 'Destructive · asks before sending'.
+SPACES-RAIL-01-web-360-collapsed.png | Browser | PROOF — 360 dp light, collapsed: header needs-you chip (●1) on collapsed cards; group row drops the working chip (crowd logic), keeps the noun.
+SPACES-RAIL-02-web-360-expanded.png | Browser | PROOF — 360 dp light, expanded: connector rail + elbows into child dots; rail stops at the last child.
+SPACES-RAIL-03-web-430-expanded.png | Browser | PROOF — 430 dp light, expanded: both chips fit (needs-you red, working blue); 6-child rail edge case.
+SPACES-RAIL-04-web-430-collapsed.png | Browser | PROOF — 430 dp light, collapsed.
+SPACES-RAIL-05-web-430-dark.png | Browser | PROOF — 430 dp dark: pill/divider/status dark tokens.
+SPACES-RAIL-06-device-360-collapsed.png | Android | PROOF — native 360 dp (720x1280 @320), collapsed.
+SPACES-RAIL-07-device-360-expanded.png | Android | PROOF — native 360 dp, expanded rail.
+SPACES-RAIL-08-device-432-mixed.png | Android | PROOF — native 432 dp (1080x2400 @400): expanded card + rail + both chips, collapsed card with header chip, in one frame.
+TERM-01-live-attach.png | Android | Live terminal on an agent pane: real streamed frames (OCR-verified '$ echo frame-932…'), control-mode attach at 56x42, pane tabs and key row.
+TERM-02-scrolled-jump-control.png | Android | Pane scrolled ~156 rows off the live edge: content renders fine; the jump pill had not appeared yet at capture time (scroll-state settle delay; see TERM-04).
+TERM-03-scrolled-no-pill.png | Android | Same scrolled state at offset 275/4000 before the pill appeared; timing evidence for the delayed render, not a broken feature.
+TERM-04-latest-pill.png | Android | The centred jump-to-bottom pill rendered: 'Latest' pill centred at x=540 (1080-wide screen), label 'Jump to latest output'. Tapping it reset the pane from 275 rows off the live edge to 0 (fixture-verified) and the pill disappeared.
+USAGE-01-right-now-empty.png | Browser | Home's Right-now opens Usage (muxr.status plugin). Initial state: 'Plan limits aren't connected in muxr' + 'Local activity could not be measured · reopen Usage in a minute'; tokens/cost em-dash.
+USAGE-02-provider-windows.png | Browser | A provider tab without a plan card — Right now falls straight to Today; usage empty in fresh lab.
+USAGE-03-plan-card-nearly-out.png | Browser | A plan-bearing provider: normalized plan card 'Nearly out, 1% left', 5-hour + 7-day windows with per-window % used and reset countdowns; Today/7-day token+cost totals with model and daily charts.
+USAGE-04-provider-windows-alt.png | Browser | Another provider with its own window set (Monthly, Rolling·5h, Weekly·7d) — provider-specific windows normalized into the same card layout.
+USAGE-05-provider-windows-2.png | Browser | A further provider: no plan-limits card; Today/7-day sections only (fresh lab = no measured activity).
+USAGE-06-today-and-week.png | Browser | Same no-limits shape — Today/7-day only.
+USAGE-07-today-and-week-2.png | Browser | Same no-limits shape; Today/7-day only. Selected tab jumps to front of the tab row.
+USAGE-08-native.png | Android | Native Usage: 'Plan limits aren't connected in muxr', Today totals with model chart — the dev-fixture account is the Active machine, so usage renders fixture data; provider tabs along the top.
+VOICE-02-mic-required-web.png | Browser | Talk-to-session on web without mic grant: 'Microphone Access Required — Please allow microphone access in your browser settings…' dialog (the designed web-unreachable voice state).
+VOICE-03-native-1.png | Android | Talk-to-session with no voice provider configured: 'Realtime conversation — Configure the provider plugin from Settings to continue.' (honest no-provider state; the dropped/unreachable-with-details chain needs a provider key, absent in the lab).
+WHATSNEW-01.png | Browser | What's New: 'App version 0.1.28 — iOS keyboard fixes and clearer peer messages' with per-release notes.
