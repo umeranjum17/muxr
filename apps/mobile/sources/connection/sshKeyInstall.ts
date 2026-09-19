@@ -3,7 +3,7 @@ import type { SshTarget } from './connectionSettings';
 import type { SshPublicKeyInfo } from './sshPublicKey';
 
 const RECEIPT_PREFIX = 'muxr.ssh.install.v1.';
-const ALLOWED_ALGORITHMS = new Set([
+export const ALLOWED_ALGORITHMS = new Set([
     'ssh-rsa',
     'ecdsa-sha2-nistp256',
     'ecdsa-sha2-nistp384',
@@ -233,6 +233,7 @@ export function buildSshInstallCommand(info: SshPublicKeyInfo, username: string)
         '    if [ "$had_file" -eq 1 ] && [ -n "$backup" ] && [ -f "$backup" ] && [ ! -L "$backup" ]; then',
         '      mv -f "$backup" "$authorized" 2>/dev/null || true',
         '      chmod "$before_mode" "$authorized" 2>/dev/null || true',
+        '      command -v restorecon >/dev/null 2>&1 && restorecon "$authorized" 2>/dev/null || true',
         '    elif [ "$had_file" -eq 0 ]; then',
         '      rm -f "$authorized" 2>/dev/null || true',
         '    fi',
@@ -289,6 +290,7 @@ export function buildSshInstallCommand(info: SshPublicKeyInfo, username: string)
         'mv -f "$tmp" "$authorized" || fail commit-failed',
         'tmp=""',
         'committed=1',
+        'command -v restorecon >/dev/null 2>&1 && restorecon "$authorized" 2>/dev/null || true',
         '[ -f "$authorized" ] && [ ! -L "$authorized" ] || fail verify-authorized-keys',
         '[ "$(stat -c "%u" "$authorized" 2>/dev/null)" = "$self_uid" ] || fail verify-authorized-keys-owner',
         'after_mode="$(stat -c "%a" "$authorized" 2>/dev/null)" || fail verify-authorized-keys',
@@ -353,6 +355,7 @@ export function buildSshRollbackCommand(receipt: SshInstallReceipt): string {
         '  [ "$(stat -c "%a" "$backup" 2>/dev/null)" = 600 ] || fail backup-unsafe',
         '  mv -f "$backup" "$authorized" || fail rollback-failed',
         '  chmod "$BEFORE_MODE" "$authorized" || fail rollback-failed',
+        '  command -v restorecon >/dev/null 2>&1 && restorecon "$authorized" 2>/dev/null || true',
         'else',
         '  rm -f "$authorized" || fail rollback-failed',
         '  if [ "$CREATED_DIR" = 1 ]; then',

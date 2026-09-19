@@ -39,6 +39,7 @@ import { SshHostScan } from '@/settings/SshHostScan';
 import { formatLatestConnectionFailure, latestFailureIsDeadGrant } from '@/catalog/diagnostics';
 import { sshPublicKeyFromPrivate, type SshPublicKeyInfo } from '@/connection/sshPublicKey';
 import {
+    ALLOWED_ALGORITHMS,
     buildSshInstallCommand,
     buildSshRollbackCommand,
     clearSshInstallReceipt,
@@ -401,7 +402,7 @@ export default function ConnectionSettingsScreen() {
     const installTarget = initial.ssh;
     const installTargetName = machine?.metadata?.displayName ?? machine?.metadata?.host ?? installTarget?.host ?? 'paired computer';
     const installKeySupported = publicKeyInfo !== undefined
-        && /^(ssh-rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)$/.test(publicKeyInfo.algorithm);
+        && ALLOWED_ALGORITHMS.has(publicKeyInfo.algorithm);
     const installReady = sshSupported
         && initial.selfhost === true
         && initial.machineId !== ''
@@ -445,7 +446,7 @@ export default function ConnectionSettingsScreen() {
             '',
             'Exact command:',
             command,
-        ].join('\\n');
+        ].join('\n');
         if (!await Modal.confirm('Install public key?', preview, { cancelText: 'Cancel', confirmText: 'Install key' })) return;
         setInstallBusy(true);
         setSshError(undefined);
@@ -508,7 +509,7 @@ export default function ConnectionSettingsScreen() {
             '',
             'Exact rollback command:',
             command,
-        ].join('\\n');
+        ].join('\n');
         if (!await Modal.confirm('Undo public-key install?', preview, { cancelText: 'Keep key', confirmText: 'Undo install', destructive: true })) return;
         setInstallBusy(true);
         try {
