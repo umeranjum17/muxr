@@ -48,8 +48,6 @@ export interface TerminalChannel {
      * report, or done nothing at all, and only the host can tell which.
      */
     onScrollState: (listener: (state: { offsetFromBottom: number; maxOffsetFromBottom: number }) => void) => () => void;
-    /** Inline images pushed by `muxr show-image`. Ephemeral: never replayed. */
-    onImage: (listener: (image: { id: string; mime: string; bytes: string }) => void) => () => void;
     /** Pane socket state; 'unconfirmed' while the host is silent — see TerminalChannelState. */
     onState: (listener: (state: TerminalChannelState) => void) => () => void;
     sendText: (text: string) => void;
@@ -166,7 +164,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     const closeListeners = new Set<(reason?: string) => void>();
     const stateListeners = new Set<(state: TerminalChannelState) => void>();
     const scrollStateListeners = new Set<(state: { offsetFromBottom: number; maxOffsetFromBottom: number }) => void>();
-    const imageListeners = new Set<(image: { id: string; mime: string; bytes: string }) => void>();
     // Until the host has answered for this pane, nothing is known about its
     // scrollback -- which is not the same as knowing it has none.
     let lastScrollState: { offsetFromBottom: number; maxOffsetFromBottom: number } | undefined;
@@ -403,12 +400,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                         maxOffsetFromBottom: Math.max(0, Math.trunc(frame.maxOffsetFromBottom)),
                     };
                     for (const listener of scrollStateListeners) listener(lastScrollState);
-                } else if (frame.type === 'terminal.image'
-                    && 'id' in frame && typeof frame.id === 'string'
-                    && 'mime' in frame && typeof frame.mime === 'string'
-                    && 'bytes' in frame && typeof frame.bytes === 'string') {
-                    hostAnswered();
-                    for (const listener of imageListeners) listener({ id: frame.id, mime: frame.mime, bytes: frame.bytes });
                 } else if (frame.type === 'terminal.closed') {
                     clearTimeout(openTimer);
                     const reason = 'reason' in frame && typeof frame.reason === 'string' ? frame.reason : undefined;
@@ -561,10 +552,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             scrollStateListeners.add(listener);
             if (lastScrollState !== undefined) listener(lastScrollState);
             return () => scrollStateListeners.delete(listener);
-        },
-        onImage: (listener) => {
-            imageListeners.add(listener);
-            return () => imageListeners.delete(listener);
         },
         onState: (listener) => {
             stateListeners.add(listener);

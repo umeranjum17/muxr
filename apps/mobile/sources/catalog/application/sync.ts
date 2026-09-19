@@ -189,6 +189,8 @@ const MAX_ATTACHMENT_BYTES = 1_000_000;
 let accountCredentialRejectedHandler: (() => void) | undefined;
 let pendingAccountCredentialRejection = false;
 const pluginInvalidationHandlers = new Set<(frame: PluginsInvalidatedFrame) => void>();
+type AttachmentsUpdate = Extract<SessionEvent, { type: 'attachments.update' }>;
+const attachmentUpdateHandlers = new Set<(sessionId: string, event: AttachmentsUpdate) => void>();
 
 function reconcilePluginCaches(frame: PluginsInvalidatedFrame): void {
     for (const handler of pluginInvalidationHandlers) {
@@ -199,6 +201,11 @@ function reconcilePluginCaches(frame: PluginsInvalidatedFrame): void {
 export function registerPluginInvalidationHandler(handler: (frame: PluginsInvalidatedFrame) => void): () => void {
     pluginInvalidationHandlers.add(handler);
     return () => pluginInvalidationHandlers.delete(handler);
+}
+
+export function registerAttachmentUpdateHandler(handler: (sessionId: string, event: AttachmentsUpdate) => void): () => void {
+    attachmentUpdateHandlers.add(handler);
+    return () => attachmentUpdateHandlers.delete(handler);
 }
 
 export function setAccountCredentialRejectedHandler(handler: (() => void) | undefined): void {
@@ -351,6 +358,12 @@ class MuxrSync {
                 isError: event.isError === true,
             });
             this.pendingShell.delete(sessionId);
+        }
+
+        if (event.type === 'attachments.update') {
+            for (const handler of attachmentUpdateHandlers) {
+                try { handler(sessionId, event); } catch { /* one screen must not block session sync */ }
+            }
         }
 
         if (event.type === 'status.update') {

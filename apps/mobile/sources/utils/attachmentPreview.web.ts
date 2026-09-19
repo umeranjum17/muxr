@@ -2,32 +2,27 @@ import type { PluginAction } from '@muxr/contract';
 import { decodeBase64 } from '@/encryption/base64';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
-import { attachmentDownloadUrl } from '@/utils/attachmentDownloadUrl';
 
 export type AttachmentAction = Extract<PluginAction, { type: 'attachment' }>;
 export type AttachmentPreviewSource = { uri: string; dispose?: () => void };
 
 const CHUNK_BYTES = 512 * 1024;
-const MAX_HOSTED_PREVIEW_BYTES = 8 * 1024 * 1024;
-const hostedPreviewInflight = new Map<string, Promise<Blob>>();
+const MAX_PREVIEW_BYTES = 8 * 1024 * 1024;
+const previewInflight = new Map<string, Promise<Blob>>();
 
-/** Web uses the relay directly when local and a bounded object URL when hosted. */
+/** Web materializes one bounded, visible preview through authenticated chunks. */
 export async function attachmentPreview(sessionId: string, attachment: AttachmentAction): Promise<AttachmentPreviewSource> {
     const settings = getCachedConnectionSettings();
-    if (settings.mode === 'local') {
-        return { uri: attachmentDownloadUrl(sessionId, { ...attachment, mimeType: attachment.mimeType ?? 'application/octet-stream', at: 0 }) };
-    }
-
-    if (attachment.size > MAX_HOSTED_PREVIEW_BYTES) throw new Error('Image is too large to preview in the browser');
+    if (attachment.size > MAX_PREVIEW_BYTES) throw new Error('Image is too large to preview in the browser');
     const key = `${settings.machineId}\u0000${sessionId}\u0000${attachment.id}\u0000${attachment.size}`;
-    let pending = hostedPreviewInflight.get(key);
+    let pending = previewInflight.get(key);
     if (pending === undefined) {
-        pending = downloadHostedBlob(sessionId, attachment);
-        hostedPreviewInflight.set(key, pending);
+        pending = downloadPreviewBlob(sessionId, attachment);
+        previewInflight.set(key, pending);
         const owner = pending;
         void owner.then(
-            () => { if (hostedPreviewInflight.get(key) === owner) hostedPreviewInflight.delete(key); },
-            () => { if (hostedPreviewInflight.get(key) === owner) hostedPreviewInflight.delete(key); },
+            () => { if (previewInflight.get(key) === owner) previewInflight.delete(key); },
+            () => { if (previewInflight.get(key) === owner) previewInflight.delete(key); },
         );
     }
     const blob = await pending;
@@ -35,7 +30,7 @@ export async function attachmentPreview(sessionId: string, attachment: Attachmen
     return { uri, dispose: () => URL.revokeObjectURL(uri) };
 }
 
-async function downloadHostedBlob(sessionId: string, attachment: AttachmentAction): Promise<Blob> {
+async function downloadPreviewBlob(sessionId: string, attachment: AttachmentAction): Promise<Blob> {
     const chunks: Uint8Array[] = [];
     let offset = 0;
     let attachmentId = attachment.id;

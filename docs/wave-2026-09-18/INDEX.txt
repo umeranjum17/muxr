@@ -2,8 +2,8 @@ muxr wave review — 2026-09-18 — full product walk + post-review proof
 Lab: isolated — repo-built relay (dev fixture + selfhost), fake fleet fixture (7 workspaces,
 agents of four kinds in every lifecycle status), Android emulator dev client on the same Metro bundle.
 Browser = local browser-automation CLI @ 390x844@2x dark. Every line: FILE | Surface | what it shows.
-Files live next to this INDEX. Post-review proof lanes (Lavish, Spaces rail, inline image,
-naming, mock) were captured on separate isolated labs and are marked PROOF.
+Files live next to this INDEX. Post-review proof lanes (Lavish, Spaces rail, the retired
+inline-image experiment, naming, mock) were captured on separate isolated labs and are marked PROOF.
 
 ACTIONS-01-pane-actions.png | Browser | Session pane-actions sheet: Inspect, Browser, Conversation history, Usage, Focus in Herdr, Stop agent.
 ANDROID-01-first-run.png | Android | First run: muxr wordmark, 'disconnected', Create account + Link or restore account (web's 'Login with mobile app' is web-only).
@@ -49,7 +49,7 @@ KEYROW-05-native-editor.png | Android | Native Edit-key-row sheet: every key wit
 LAVISH-01-web-pwa.png | Browser | PROOF — Lavish review board rendered live inside muxr's browser takeover view on the web PWA; the board's fresh 'Board served' host clock proves a live page, not a cached frame (board content below the clock card cropped from this render).
 LAVISH-02-native-android.png | Android | PROOF — the same Lavish board live in the takeover view on the native Android app; the fresh 'Board served' host clock (09:44:15) proves a live page rather than a cached frame (board content below the clock card cropped from this render).
 IMAGE-01-terminal-before.png | Android | PROOF — a real shell pane in the phone terminal view before the image command runs: empty terminal grid, pane tabs, key row, composer; prompt path label redacted.
-IMAGE-02-image-inline.png | Android | PROOF — after `muxr show-image`: the pushed test image (its lab-drawn title redacted) renders as an elevated card over the terminal grid (tap-to-expand, close button), terminal never resized; same pane, moments later; prompt path label redacted.
+IMAGE-02-image-inline.png | Android | HISTORICAL PROOF — the retired transient image overlay rendered above the terminal grid; current releases use durable Shared Artifacts instead.
 NAMING-01-home-four-providers.png | Android | PROOF — Home listing live and ready-unseen agents from four providers (including a model-hosted one) under one uniform task-derived naming scheme; provider shown only as a small subtitle.
 NAMING-02-failing-agent-still-named.png | Android | PROOF — an agent whose credentials expired keeps its task-derived pane name; four provider tabs across the top of the same session view.
 NAMING-03-named-across-stacks.png | Android | PROOF — the same naming pipeline on the fourth provider: task-derived pane name in the header, that provider's model id in its own status line.

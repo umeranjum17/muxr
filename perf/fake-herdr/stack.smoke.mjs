@@ -1,13 +1,13 @@
 /**
  * One flow: our real relay and host, a faked Herdr underneath, a real client on
- * top. It proves the three things the release gate depends on, without a phone:
- * the herd is discoverable, a terminal attach streams frames, and title churn
- * arrives as coalesced session updates.
+ * top. It proves the release-gate spine without a phone: the herd is
+ * discoverable, a terminal attach streams frames, Shared Artifacts are durable,
+ * and title churn arrives as coalesced session updates.
  *
  * Run: node perf/fake-herdr/stack.smoke.mjs
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -169,7 +169,7 @@ async function run() {
     if (typeof attached?.paneId !== 'string') fail('terminal.attach returned no paneId');
 
     const frames = [];
-    const images = [];
+    const legacyImages = [];
     const terminal = new WebSocket(terminalSocketUrl(relayUrl, { machineId, channel, role: 'client' }));
     terminal.on('message', (raw) => {
         let frame;
@@ -179,7 +179,7 @@ async function run() {
             return;
         }
         if (frame.type === 'terminal.frame' && typeof frame.bytes === 'string') frames.push(frame);
-        if (frame.type === 'terminal.image' && typeof frame.bytes === 'string') images.push(frame);
+        if (frame.type === 'terminal.image') legacyImages.push(frame);
     });
     terminal.on('error', (error) => fail(`terminal socket failed: ${error.message}`));
     await waitFor(() => frames.length > 2, 'the terminal stream');
@@ -194,14 +194,22 @@ async function run() {
     await waitFor(() => frames.slice(before).some((frame) => frame.full === true), 'a full repaint after a scroll');
     console.log('ok: a scroll answered with a full repaint');
 
-    // `muxr show-image`: a show- file dropped into the pane's watched dir must
-    // reach this live channel as terminal.image and leave no trace behind.
+    // An ordinary pane drop becomes metadata-only session history and remains
+    // on disk. It must never reappear as the rejected terminal image channel.
     const SHOT_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const artifactName = `shared-e2e-${Date.now().toString(36)}.png`;
     const attachDir = join(dataDir, 'attachments', 'pane', attached.paneId);
     mkdirSync(attachDir, { recursive: true });
-    writeFileSync(join(attachDir, `show-e2e-${Date.now().toString(36)}.png`), Buffer.from(SHOT_B64, 'base64'));
-    await waitFor(() => images.some((frame) => frame.mime === 'image/png' && frame.bytes === SHOT_B64), 'the inline image frame');
-    console.log('ok: show-image reached the live terminal channel');
+    writeFileSync(join(attachDir, artifactName), Buffer.from(SHOT_B64, 'base64'));
+    await waitFor(() => events.some((entry) => entry.sessionId === shell.id
+        && entry.event?.type === 'attachments.update'
+        && entry.event.attachments.some((attachment) => attachment.name === artifactName)), 'the Shared Artifacts update');
+    const artifacts = await request(socket, 'attachment.list', { sessionId: shell.id });
+    const listed = artifacts.attachments.find((attachment) => attachment.name === artifactName);
+    if (listed === undefined || 'data' in listed) fail('attachment.list did not return metadata-only Shared Artifacts');
+    if (!existsSync(join(attachDir, artifactName))) fail('Shared Artifact disappeared from durable storage');
+    if (legacyImages.length > 0) fail('Shared Artifact leaked onto the removed terminal.image channel');
+    console.log('ok: pane drop reached durable metadata-only Shared Artifacts history');
 
     // Title churn is a load generator, not news. Every pane renames itself
     // twice a second and the host deliberately keeps the terminal title out of

@@ -4,7 +4,7 @@
  */
 
 import * as React from 'react';
-import { Image, Pressable, Text, View } from 'react-native';
+import { View } from 'react-native';
 import type { TerminalCommand } from './FloatingTerminalControls';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -35,11 +35,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const hostRef = React.useRef<View | null>(null);
     const { sessionId, onStatus, onChannel } = props;
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
-    const [inlineImage, setInlineImage] = React.useState<{ sessionId: string; id: string; mime: string; bytes: string } | null>(null);
-    const visibleImage = inlineImage?.sessionId === sessionId ? inlineImage : null;
 
     React.useEffect(() => {
-        setInlineImage(null);
         const element = hostRef.current as unknown as HTMLElement | null;
         if (element === null) return;
         element.style.position = 'relative';
@@ -137,7 +134,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         requestAnimationFrame(flushFrames);
                     }
                 });
-                opened.onImage((image) => setInlineImage({ sessionId, ...image }));
                 opened.onState((state) => onStatus?.(state));
                 opened.onClose((reason) => onStatus?.(reason ?? 'closed'));
                 term.onData((data) => opened.sendText(data));
@@ -291,26 +287,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     }, [sessionId, onStatus, onChannel]);
 
     return (
-        <View style={{ flex: 1, position: 'relative', backgroundColor: '#0c0c0b' }}>
+        <View style={{ flex: 1, backgroundColor: '#0c0c0b' }}>
             <View ref={hostRef} style={{ flex: 1, backgroundColor: '#0c0c0b' }} />
-            {visibleImage !== null && (
-                <View style={{ position: 'absolute', left: 12, right: 12, bottom: 8, zIndex: 30, minHeight: 120, height: '42%', maxHeight: 420, overflow: 'hidden', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', backgroundColor: '#0c0c0b', boxShadow: '0 6px 16px rgba(0,0,0,0.5)' }}>
-                    <Image
-                        source={{ uri: `data:${visibleImage.mime};base64,${visibleImage.bytes}` }}
-                        style={{ width: '100%', height: '100%' }}
-                        resizeMode="contain"
-                        accessibilityLabel="Image from agent"
-                    />
-                    <Pressable
-                        onPress={() => setInlineImage(null)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Dismiss image"
-                        style={{ position: 'absolute', top: 0, left: 0, width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22, backgroundColor: 'rgba(0,0,0,0.55)' }}
-                    >
-                        <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 20 }}>×</Text>
-                    </Pressable>
-                </View>
-            )}
         </View>
     );
 });

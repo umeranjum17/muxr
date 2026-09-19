@@ -11,7 +11,7 @@ vi.mock('@/connection', () => ({
 vi.mock('@/catalog/sync', () => ({
     sync: { request: previewMocks.request },
 }));
-import { estimateBase64Bytes, planAttachmentHeal } from '@/catalog/infrastructure/attachmentSupport';
+import { buildSharedArtifactTimeline, estimateBase64Bytes, planAttachmentHeal, sharedArtifactDisplayName } from '@/catalog/infrastructure/attachmentSupport';
 import { boundText } from '@/utils/boundedText';
 import { estimateStoredBlobBytes, blobUri, readBlobText, pruneBlobs, saveBlob } from './attachmentBlobs.web';
 import { boundSessionFileCache } from '@/catalog/application/sessionFileCache';
@@ -21,6 +21,20 @@ import { richPreviewHtml } from './richPreviewHtml';
 import { svgTextLabels } from '@/components/attachment/mermaidLabels';
 
 describe('attachment/file guardrail helpers', () => {
+    it('builds newest-first Shared Artifacts history without exposing a path', () => {
+        const now = new Date(2026, 8, 19, 12).getTime();
+        const yesterday = new Date(2026, 8, 18, 15).getTime();
+        const rows = buildSharedArtifactTimeline([
+            { id: 'old', name: 'notes.md', at: yesterday },
+            { id: 'new', name: 'login-fixed.png', at: now - 1000 },
+            { id: 'newest', name: 'capture.png', at: now },
+        ], now);
+        expect(rows.map((row) => row.type === 'day' ? row.label : row.artifact.name)).toEqual([
+            'Today', 'capture.png', 'login-fixed.png', 'Yesterday', 'notes.md',
+        ]);
+        expect(sharedArtifactDisplayName('/private/build/login-fixed.png')).toBe('login-fixed');
+    });
+
     it('bounds heal payload accounting and source lines/chars before rendering', () => {
         expect(estimateBase64Bytes('aGVsbG8=')).toBe(5);
         expect(estimateBase64Bytes('not base64')).toBeNull();
@@ -66,7 +80,7 @@ describe('attachment/file guardrail helpers', () => {
         }
     });
 
-    it('coalesces one hosted image read while keeping object URL ownership independent', async () => {
+    it('coalesces one authenticated image read while keeping object URL ownership independent', async () => {
         previewMocks.request.mockReset();
         let objectUrls = 0;
         const createObjectURL = vi.fn(() => `blob:preview-${++objectUrls}`);

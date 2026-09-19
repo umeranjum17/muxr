@@ -625,8 +625,6 @@ async function main(): Promise<void> {
             machineId,
             attachmentsDir: join(stateRoot, 'attachments', 'pane'),
             hostHttpPort: hostConfig.hostHttpPort,
-            // Lazy on purpose: the watcher may only fire once `terminals` below exists.
-            onShowImage: (paneId, image) => terminals.pushImage(paneId, image),
             ...(token === undefined ? {} : { token }),
             ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
             ...(peerBroker === undefined ? {} : { peerBroker }),

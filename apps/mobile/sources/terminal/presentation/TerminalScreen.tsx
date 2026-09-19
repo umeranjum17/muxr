@@ -19,7 +19,7 @@ import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
 import { storage, useHerdrTree, useLocalSettingMutable, useSession, useSessionGitStatus, useSessions, useSocketStatus } from '@/catalog/store';
 import { sessionStop } from '@/catalog/ops';
-import { sync } from '@/catalog/sync';
+import { registerAttachmentUpdateHandler, sync } from '@/catalog/sync';
 import { resolveMessageModeMeta } from '@/catalog';
 import { recordAgentGate, recordTrackedRpc } from '@/catalog/diagnostics';
 import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/sessionStatusBar';
@@ -114,12 +114,19 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const pluginQuickReplies = useTerminalQuickReplies();
     const quickReplies = [...TERMINAL_QUICK_REPLIES, ...pluginQuickReplies];
     const [changesCount, setChangesCount] = React.useState<number | null>(null);
+    const [artifactsCount, setArtifactsCount] = React.useState<number | null>(null);
     useFocusEffect(React.useCallback(() => {
         let cancelled = false;
         changesList(props.id)
             .then((badge) => { if (!cancelled) setChangesCount(badge.count); })
             .catch(() => { if (!cancelled) setChangesCount(null); });
-        return () => { cancelled = true; };
+        sync.request('attachment.list', { sessionId: props.id })
+            .then((result) => { if (!cancelled) setArtifactsCount(result.total); })
+            .catch(() => { if (!cancelled) setArtifactsCount(null); });
+        const unsubscribe = registerAttachmentUpdateHandler((sessionId, event) => {
+            if (!cancelled && sessionId === props.id) setArtifactsCount(event.total);
+        });
+        return () => { cancelled = true; unsubscribe(); };
     }, [props.id]));
     const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
     const [pluginActionBusy, setExtensionActionBusy] = React.useState<string>();
@@ -764,9 +771,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
                             <Ionicons name="search" size={19} color={theme.colors.textSecondary} />
                         </Pressable>}
-                        {!authorityLoading && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel="Pane actions"
+                        {!authorityLoading && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel={`Pane actions${artifactsCount !== null && artifactsCount > 0 ? `, ${t('sessionAttachments.title', { count: artifactsCount })}` : ''}`}
                             accessibilityState={{ expanded: actionsOpen }} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
                             <Ionicons name="ellipsis-vertical" size={20} color={theme.colors.textSecondary} />
+                            {artifactsCount !== null && artifactsCount > 0 && <View style={{ position: 'absolute', top: 2, right: 0, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accent }}>
+                                <Text style={{ color: theme.colors.surface, fontSize: 9, fontWeight: '700' }}>{artifactsCount > 99 ? '99+' : artifactsCount}</Text>
+                            </View>}
                         </Pressable>}
                     </View>
 
@@ -1100,6 +1110,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="document-text-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Conversation history</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>
+                                    <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/artifacts`); }} accessibilityRole="button" accessibilityLabel={`Shared Artifacts${artifactsCount === null ? '' : `, ${t('sessionAttachments.title', { count: artifactsCount })}`}`}
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="albums-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Shared Artifacts</Text>
+                                        {artifactsCount !== null && <View style={{ minWidth: 24, height: 22, paddingHorizontal: 7, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceHighest }}>
+                                            <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '600' }}>{artifactsCount}</Text>
+                                        </View>}
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
                                     {canControl && <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />}

@@ -60,9 +60,9 @@ Connector rail with elbows into child dots, needs-you / working chips, collapsed
 ![Device 360 expanded](screenshots/SPACES-RAIL-07-device-360-expanded.png)
 ![Device 432 mixed](screenshots/SPACES-RAIL-08-device-432-mixed.png)
 
-### Inline terminal image rendering
+### Retired inline terminal image rendering (historical)
 
-`muxr show-image` pushes an image to the phone, where it renders as an elevated card over the terminal — before and after in one real pane.
+This proof records the former transient terminal overlay. Current releases use the durable Shared Artifacts timeline and `muxr share` instead.
 
 ![Terminal before the image arrives](screenshots/IMAGE-01-terminal-before.png)
 ![Image rendered inline over the terminal](screenshots/IMAGE-02-image-inline.png)

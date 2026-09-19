@@ -89,12 +89,15 @@ export interface SessionAttachment {
     /** mtime ms, for ordering. */
     at: number;
     /**
-     * base64 data, inlined by the host for images up to 1 MiB. Sent only on the
-     * first emit of this id per host run; later cumulative lists carry the
-     * entry metadata-only. Clients merge by id and keep already-received data.
+     * Optional bounded base64 held by the host watcher for small-file healing.
+     * `attachment.list` and `attachments.update` always strip it; previews and
+     * downloads use the existing authenticated attachment transports.
      */
     data?: string;
 }
+
+/** Public list/event shape: metadata only, never attachment bytes. */
+export type SessionAttachmentMetadata = Omit<SessionAttachment, 'data'>;
 
 /** Attribution for bounded cumulative attachment lists. */
 export interface SessionAttachmentAttribution {

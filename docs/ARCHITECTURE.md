@@ -187,14 +187,25 @@ Beyond the session basics, the host exposes herdr's topology to the app:
   (OSC title breadcrumb), and worktree provenance; `session.updated` events push
   changes so cards and rows refresh live.
 
-## Attachments and changes
+## Shared Artifacts and changes
 
-Lists are plugin RPC, not session events. The attachments plugin reads the pane
-dump dir; the changes plugin runs `git status` in the session cwd. The phone
-`item-list` primitive shows names only. Tap uses kernel download tickets or the
-file viewer. Large bytes never enter the JS thread. The host still watches
-`~/.muxr/attachments/pane/<HERDR_PANE_ID>/` so `attachment.prepare` / fetch / read
-can serve a file the plugin listed.
+Shared Artifacts is product-owned per-session history over the pane's watched
+dump directory. `attachment.list` returns a bounded metadata-only snapshot and
+`attachments.update` publishes that same newest-first view when the watcher
+changes; bytes still travel only through `attachment.fetch`, bounded encrypted
+`attachment.read` chunks, or one-time local download tickets. The phone groups
+entries chronologically and reuses the image gallery, rich document previews,
+and download paths. Neither filesystem paths nor pane/session ids are rendered.
+
+The extracted attachments plugin remains wire-compatible during migration. The
+changes surface separately runs host-owned git requests in the session cwd.
+
+Retention is intentionally unchanged: closing a pane clears watcher memory but
+does not delete its files, and the newest-50 listing cap is not a disk cap. The
+captain's attachment tree was already measured at **39 GB / 21,410 files / 249
+pane directories**, so unbounded disk growth is a known operational risk. Any
+retention sweep or cleanup of existing data requires an explicit product
+decision; this timeline performs neither.
 
 ## Push notifications
 

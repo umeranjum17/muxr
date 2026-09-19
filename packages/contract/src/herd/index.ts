@@ -10,6 +10,7 @@ export type {
     LifecycleNotificationLevel,
     SessionActivity,
     SessionAttachment,
+    SessionAttachmentMetadata,
     SessionChangeFile,
     SessionContextUsage,
     SessionInfo,

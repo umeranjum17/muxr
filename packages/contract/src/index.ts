@@ -13,6 +13,7 @@ export type {
     LifecycleNotificationLevel,
     SessionActivity,
     SessionAttachment,
+    SessionAttachmentMetadata,
     SessionChangeFile,
     SessionContextUsage,
     SessionInfo,
@@ -96,7 +97,6 @@ export type {
     TerminalClientFrame,
     TerminalHostFrame,
     TerminalScrollStateFrame,
-    TerminalImageFrame,
     WsTransport,
 } from './control-plane/index.js';
 export {

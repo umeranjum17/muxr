@@ -3,13 +3,12 @@ import type { PluginAction } from '@muxr/contract';
 import { decodeBase64 } from '@/encryption/base64';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
-import { attachmentDownloadUrl } from '@/utils/attachmentDownloadUrl';
 
 export type AttachmentAction = Extract<PluginAction, { type: 'attachment' }>;
 export type AttachmentPreviewSource = { uri: string; dispose?: () => void };
 
 const CHUNK_BYTES = 512 * 1024;
-const hostedPreviewInflight = new Map<string, Promise<AttachmentPreviewSource>>();
+const previewInflight = new Map<string, Promise<AttachmentPreviewSource>>();
 
 function safeName(name: string): string {
     return (name.replace(/[^A-Za-z0-9._-]/g, '_') || 'image').slice(0, 64);
@@ -18,25 +17,19 @@ function safeName(name: string): string {
 /** Materialize an image only when its thumbnail or gallery page mounts. */
 export async function attachmentPreview(sessionId: string, attachment: AttachmentAction): Promise<AttachmentPreviewSource> {
     const settings = getCachedConnectionSettings();
-    if (settings.mode === 'local') {
-        // The image GET performs the one authoritative prepare. Preflighting it
-        // here doubled host work for every thumbnail in the sheet.
-        return { uri: attachmentDownloadUrl(sessionId, { ...attachment, mimeType: attachment.mimeType ?? 'application/octet-stream', at: 0 }) };
-    }
-
     const key = `${settings.machineId}\u0000${sessionId}\u0000${attachment.id}\u0000${attachment.size}`;
-    const current = hostedPreviewInflight.get(key);
+    const current = previewInflight.get(key);
     if (current !== undefined) return current;
-    const pending = materializeHostedPreview(settings.machineId, sessionId, attachment);
-    hostedPreviewInflight.set(key, pending);
+    const pending = materializePreview(settings.machineId, sessionId, attachment);
+    previewInflight.set(key, pending);
     void pending.then(
-        () => { if (hostedPreviewInflight.get(key) === pending) hostedPreviewInflight.delete(key); },
-        () => { if (hostedPreviewInflight.get(key) === pending) hostedPreviewInflight.delete(key); },
+        () => { if (previewInflight.get(key) === pending) previewInflight.delete(key); },
+        () => { if (previewInflight.get(key) === pending) previewInflight.delete(key); },
     );
     return pending;
 }
 
-async function materializeHostedPreview(
+async function materializePreview(
     machineId: string,
     sessionId: string,
     attachment: AttachmentAction,
