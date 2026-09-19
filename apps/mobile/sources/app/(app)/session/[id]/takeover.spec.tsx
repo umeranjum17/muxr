@@ -104,8 +104,8 @@ const enableOk = (port: number) => ({
 
 const disableCalls = () => shell.mock.calls.filter(([, command]) => String(command).includes('stream disable'));
 
-async function mountAndAttach(): Promise<TestRenderer.ReactTestRenderer> {
-    let renderer!: TestRenderer.ReactTestRenderer;
+async function mountAndAttach(): Promise<ReturnType<typeof TestRenderer.create>> {
+    let renderer!: ReturnType<typeof TestRenderer.create>;
     await TestRenderer.act(async () => {
         renderer = TestRenderer.create(React.createElement(TakeoverScreen));
     });
