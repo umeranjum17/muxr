@@ -187,7 +187,7 @@ async function handleNaming(req, res) {
 
 const server = createServer((req, res) => {
     const path = (req.url ?? '/').split('?')[0];
-    if (req.method === 'GET' && (path === '/health' || path === '/ready')) {
+    if (req.method === 'GET' && path === '/health') {
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
         return;
