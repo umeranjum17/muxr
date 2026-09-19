@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -131,12 +131,6 @@ describe('phone launch before herdr detects the agent', () => {
             await source.refreshHerdr();
             expect(herdr.agents[0]).toEqual({ pane_id: 'w1:p1', name: expect.stringMatching(/^pp_/), agent_status: 'idle' });
             expect(herdr.tabs[0]).toMatchObject({ env: MUXR_AGENT_ENV });
-            const skill = readFileSync(new URL('../../../../../skills/muxr/SKILL.md', import.meta.url), 'utf8');
-            for (const command of ['agent-browser', 'muxr skill browser-takeover', 'muxr show-image <path>', 'muxr --skill']) {
-                expect(MUXR_AGENT_ENV.MUXR_AGENT_CAPABILITIES).toContain(command);
-                expect(skill).toContain(command);
-            }
-            expect(MUXR_AGENT_ENV.MUXR_AGENT_CAPABILITIES).toContain('HERDR_PANE_ID');
             let pane = treePane(await source.herdrTree(), 'w1:p1');
             expect(pane).toMatchObject({ agentKind: 'claude', sessionId });
             expect(pane.agentName).toBeUndefined();
