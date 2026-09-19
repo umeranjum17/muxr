@@ -27,10 +27,17 @@ export interface SshTunnelHandle {
     hostKey: string;
 }
 
-export type SshTunnelErrorCode = 'ssh-unreachable' | 'ssh-auth' | 'ssh-host-key' | 'ssh-local-port' | 'ssh-configuration' | 'ssh-unsupported';
+export interface SshCommandResult {
+    stdout: string;
+    stderr: string;
+    exitCode: number;
+}
+
+export type SshTunnelErrorCode = 'ssh-unreachable' | 'ssh-auth' | 'ssh-host-key' | 'ssh-local-port' | 'ssh-configuration' | 'ssh-exec-timeout' | 'ssh-unsupported';
 
 interface SshTunnelNative {
     openTunnel: (config: SshTunnelConfig) => Promise<SshTunnelHandle>;
+    execCommand: (config: SshTunnelConfig, command: string) => Promise<SshCommandResult>;
     closeTunnel: () => Promise<void>;
     tunnelPort: () => number;
 }
@@ -70,6 +77,17 @@ export async function openSshTunnel(config: SshTunnelConfig): Promise<SshTunnelH
     }
 }
 
+/** Run one already-reviewed command on the authenticated SSH account. */
+export async function execSshCommand(config: SshTunnelConfig, command: string): Promise<SshCommandResult> {
+    const module = nativeModule();
+    if (module === null) throw new SshTunnelError('ssh-unsupported', 'this build has no SSH support');
+    try {
+        return await module.execCommand(config, command);
+    } catch (error) {
+        throw SshTunnelError.from(error);
+    }
+}
+
 export async function closeSshTunnel(): Promise<void> {
     const module = nativeModule();
     if (module === null) return;
@@ -90,7 +108,7 @@ export class SshTunnelError extends Error {
 
     static from(error: unknown): SshTunnelError {
         const code = (error as { code?: unknown } | null)?.code;
-        const known: SshTunnelErrorCode[] = ['ssh-unreachable', 'ssh-auth', 'ssh-host-key', 'ssh-local-port', 'ssh-configuration', 'ssh-unsupported'];
+        const known: SshTunnelErrorCode[] = ['ssh-unreachable', 'ssh-auth', 'ssh-host-key', 'ssh-local-port', 'ssh-configuration', 'ssh-exec-timeout', 'ssh-unsupported'];
         const message = error instanceof Error ? error.message : String(error);
         return new SshTunnelError(
             known.find((candidate) => candidate === code) ?? 'ssh-unreachable',

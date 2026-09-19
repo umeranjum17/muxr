@@ -47,7 +47,9 @@ silent outbound dependency, and leave the remaining connection steps explicit.
 - SSH host unreachable or `sshd` unavailable: retry and check the configured
   host, port, network, and that the machine is awake.
 - Credentials rejected: check the SSH username and password/key, or install the
-  public key in the SSH user's `~/.ssh/authorized_keys`.
+  login key's public half from **Settings → Connection & updates** (Android,
+  consent-gated; see SELF-HOSTING.md). Editing the SSH user's
+  `~/.ssh/authorized_keys` by hand remains the fallback.
 - Ed25519 host or login key: this build negotiates RSA/ECDSA only (see
   Algorithm scope below) and says so instead of failing as unreachable.
 - Host key changed: stop and review the machine; muxr does not reconnect around
