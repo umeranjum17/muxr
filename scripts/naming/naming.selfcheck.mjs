@@ -19,10 +19,12 @@ const root = await mkdtemp(join(tmpdir(), 'muxr-naming-check-'));
 const fakeHerdr = join(root, 'herdr');
 const callsFile = join(root, 'calls.log');
 const failFile = join(root, 'fail-operation');
+const slowFile = join(root, 'slow-operation');
 const authFile = join(root, 'token');
 await writeFile(authFile, 'check-token\n', { mode: 0o600 });
 await writeFile(fakeHerdr, `#!/bin/sh
 printf '%s\\n' "$*" >> '${callsFile}'
+if [ -f '${slowFile}' ]; then sleep 3; fi
 if [ -f '${failFile}' ] && grep -Fxq pane-get '${failFile}' && printf '%s' "$*" | grep -q 'pane get'; then
   printf '%s\\n' '{"error":{"code":"server_not_running","message":"connect ECONNREFUSED 127.0.0.1:7333"}}'
   exit 0
@@ -162,6 +164,16 @@ try {
     const partialClientOutput = `${partialClient.stdout ?? ''}${partialClient.stderr ?? ''}`;
     check('CLI preserves partial status and operation detail', partialClient.status === 1 && partialClientOutput.includes('partial') && partialClientOutput.includes('workspace'), partialClientOutput);
     await rm(failFile, { force: true });
+
+    await writeFile(slowFile, 'slow\n');
+    const slowClient = spawnSync(process.execPath, [join(import.meta.dirname, '..', 'cli.mjs'), 'name', '--pane', 'CLI slow', '--workspace', 'CLI slow workspace', '--provider', 'pi', '--model', 'model-slow'], {
+        encoding: 'utf8',
+        timeout: 30_000,
+        env: { ...process.env, HERDR_PANE_ID: 'w2:p5', HERDR_SESSION: 'lab', MUXR_NAMING_PORT: String(port), MUXR_NAMING_AUTH_FILE: authFile },
+    });
+    const slowClientOutput = `${slowClient.stdout ?? ''}${slowClient.stderr ?? ''}`;
+    check('CLI waits out a slow Herdr sequence and reports success', slowClient.status === 0 && slowClientOutput.includes('"ok":true'), slowClientOutput);
+    await rm(slowFile, { force: true });
 
     const duplicate = await post(port, namedBody);
     check('duplicate naming remains idempotent', duplicate.status === 200 && duplicate.body.ok === true, JSON.stringify(duplicate.body));

@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const fields = new Set(['workspace', 'pane', 'provider', 'model']);
+const CLIENT_TIMEOUT_MS = 45_000;
 
 function authFile() {
     const home = process.env.MUXR_HOME?.trim() || join(process.env.HOME?.trim() || homedir(), '.muxr');
@@ -48,7 +49,7 @@ export async function nameAgent(args) {
             ...(process.env.HERDR_SESSION?.trim() ? { 'x-herdr-session': process.env.HERDR_SESSION.trim() } : {}),
         },
         body: JSON.stringify({ pane_id: paneId, ...body }),
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(CLIENT_TIMEOUT_MS),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || result.ok !== true) {
