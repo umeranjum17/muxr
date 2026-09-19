@@ -111,7 +111,7 @@ Onboarding is: reach the computer over SSH (or sit at it), run `muxr pair`, scan
 
 ### Spaces — grouped
 
-![Spaces grouped](screenshots/HOME-06-home-spaces.png)
+![Spaces grouped](screenshots/ANDROID-06-home-spaces.png)
 ![Spaces bottom](screenshots/HOME-02-spaces-bottom.png)
 
 ### Browser — real states
