@@ -28,7 +28,9 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
     const now = Date.now();
     const busy = agentIsBusy(status);
     const machineId = getCachedConnectionSettings().machineId;
-    const provider = providerKindFromHost(info.agentKind);
+    const hostProvider = providerKindFromHost(info.agentKind);
+    const providerId = info.provider?.trim() || hostProvider.kind;
+    const providerName = info.provider?.trim() || hostProvider.name;
     const listed = agentStillListed(busy, updatedAt, now);
     const blocked = agentNeedsApproval(status);
     return {
@@ -40,13 +42,13 @@ export function sessionInfoToSession(info: SessionInfo, status?: SessionStatus):
         activeAt: updatedAt,
         metadata: sessionMetadataFromInfo(info, {
             machineId,
-            kind: provider.kind,
-            kindName: provider.name,
+            kind: providerId,
+            kindName: providerName,
             status,
             updatedAt,
         }),
         metadataVersion: 1,
-        agentState: blocked ? approvalAgentState(provider.name) : null,
+        agentState: blocked ? approvalAgentState(providerName) : null,
         agentStateVersion: 0,
         thinking: busy,
         thinkingAt: busy ? now : 0,
@@ -73,6 +75,13 @@ function sessionMetadataFromInfo(
         flavor: 'pi',
         client: { id: 'herdr', name: fields.kindName, version: 'muxr' },
         provider: { id: fields.kind, kind: fields.kind, name: fields.kindName },
+        ...(info.model === undefined || info.model === ''
+            ? {}
+            : {
+                  model: { providerId: fields.kind, id: info.model },
+                  currentModelProviderId: fields.kind,
+                  currentModelCode: info.model,
+              }),
         ...(fields.status?.agentStatus === undefined
             ? {}
             : { agentStatus: fields.status.agentStatus, lifecycleStateSince: fields.updatedAt }),

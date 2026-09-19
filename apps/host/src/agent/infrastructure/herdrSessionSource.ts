@@ -511,6 +511,7 @@ interface PaneRecord {
     terminal_title?: string | null;
     terminal_title_stripped?: string | null;
     label?: string | null;
+    display_agent?: string | null;
     focused?: boolean;
     /** herdr display tokens; muxr stores lineage in `spawned_by`. */
     tokens?: Record<string, string>;
@@ -570,6 +571,19 @@ export function boundedWorkspaceTokens(tokens: unknown): Record<string, string> 
         if (clean !== '') out[key] = clean;
     }
     return Object.keys(out).length === 0 ? undefined : out;
+}
+
+/** Only self-naming attribution crosses from pane metadata to user surfaces. */
+export function boundedPaneNamingMetadata(tokens: unknown): { provider?: string; model?: string } | undefined {
+    if (tokens === null || typeof tokens !== 'object' || Array.isArray(tokens)) return undefined;
+    const out: { provider?: string; model?: string } = {};
+    for (const key of ['provider', 'model'] as const) {
+        const value = (tokens as Record<string, unknown>)[key];
+        if (typeof value !== 'string') continue;
+        const clean = capUtf8Bytes(sanitizeDisplayText(value), MAX_WORKSPACE_TOKEN_BYTES);
+        if (clean !== '') out[key] = clean;
+    }
+    return out.provider === undefined && out.model === undefined ? undefined : out;
 }
 
 const EVENT_KINDS = [
@@ -943,9 +957,9 @@ export async function createHerdrSessionSource(
         };
     }
 
-    /** Herdr boundary adapter: Task Title comes only from current AgentInfo.title. */
+    /** Herdr boundary adapter: self-named pane labels are the title fallback. */
     function taskTitleForSession(session: CurrentSession): string | undefined {
-        return session.agent?.title ?? undefined;
+        return session.agent?.title ?? session.pane.label ?? undefined;
     }
 
     function setLifecycle(paneId: string, agentStatus: string): void {
@@ -1062,7 +1076,8 @@ export async function createHerdrSessionSource(
         const worktree = workspace?.worktree;
         const taskTitle = taskTitleForSession(session);
         const agentKind = agentKindFor(session);
-        const displayAgent = session.agent?.display_agent ?? undefined;
+        const displayAgent = session.agent?.display_agent ?? session.pane.display_agent ?? undefined;
+        const naming = boundedPaneNamingMetadata(session.pane.tokens);
         // The terminal title is deliberately absent: a working agent animates it
         // several times a second, and every client reads placement and identity
         // from the fields above. It still travels on `herdr.tree`, at the tree's
@@ -1079,6 +1094,8 @@ export async function createHerdrSessionSource(
             ...(listedName === undefined ? {} : { agentName: listedName }),
             ...(taskTitle === undefined ? {} : { taskTitle }),
             ...(agentKind === undefined ? {} : { agentKind }),
+            ...(naming?.provider === undefined ? {} : { provider: naming.provider }),
+            ...(naming?.model === undefined ? {} : { model: naming.model }),
             ...(displayAgent === undefined ? {} : { displayAgent }),
             paneId: session.paneId,
             ...(workspaceId === undefined ? {} : { workspaceId }),
@@ -2480,20 +2497,22 @@ export async function createHerdrSessionSource(
                         const session = currentSessionByPane(pane.pane_id);
                         const taskTitle = session === undefined ? undefined : taskTitleForSession(session);
                         const agentKind = agentKindFor(session);
+                        const naming = boundedPaneNamingMetadata(pane.tokens);
                         const cwd = pane.foreground_cwd ?? pane.cwd ?? undefined;
                         const listedName = publicListedName(session?.agent);
+                        const displayAgent = session?.agent?.display_agent ?? pane.display_agent ?? undefined;
                         return {
                             paneId: pane.pane_id,
                             tabId,
                             ...(pane.label === undefined || pane.label === null ? {} : { label: pane.label }),
                             ...(cwd === undefined ? {} : { cwd }),
                             ...(agentKind === undefined ? {} : { agentKind }),
+                            ...(naming?.provider === undefined ? {} : { provider: naming.provider }),
+                            ...(naming?.model === undefined ? {} : { model: naming.model }),
                             ...(listedName === undefined
                                 ? {}
                                 : { agentName: listedName }),
-                            ...(session?.agent?.display_agent === undefined || session.agent.display_agent === null
-                                ? {}
-                                : { displayAgent: session.agent.display_agent }),
+                            ...(displayAgent === undefined ? {} : { displayAgent }),
                             ...(taskTitle === undefined ? {} : { taskTitle }),
                             agentStatus: lifecycleForPane(pane.pane_id),
                             promptable: agentPromptable(session),

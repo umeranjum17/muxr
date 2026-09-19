@@ -18,8 +18,9 @@ If that section is missing, run `herdr --skill` and follow its output.
   id contains a colon. Skip attachment publication when the variable is unset.
 - Use persistent, phone-visible Herdr work for long builds and servers rather
   than blocking the current agent session.
-- Name your own workspace and pane at task start — see Self-naming in the repo
-  `AGENTS.md` (`POST http://127.0.0.1:8797/api/naming`).
+- Name your own workspace and pane at task start — use the canonical
+  `muxr name --workspace LABEL --pane TITLE --provider PROVIDER --model MODEL`
+  facade from the muxr skill. It binds to the current Herdr pane.
 
 ## Packaged-reference behavior
 

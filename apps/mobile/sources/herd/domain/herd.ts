@@ -121,6 +121,8 @@ export function herdPanes(sessions: Session[], workspaces: readonly HerdrTreeWor
                 ...(pane.agentName === undefined ? {} : { agentName: pane.agentName }),
                 taskTitle: agentLabels(pane).taskTitle,
                 ...(pane.agentKind === undefined ? {} : { agentKind: pane.agentKind }),
+                ...(pane.provider === undefined ? {} : { provider: pane.provider }),
+                ...(pane.model === undefined ? {} : { model: pane.model }),
                 ...(pane.displayAgent === undefined ? {} : { displayAgent: pane.displayAgent }),
                 agentStatus: pane.agentStatus,
                 promptable: pane.promptable,

@@ -49,19 +49,19 @@ behaviour it claims to cover and watch it go red.
 
 ## Self-naming
 
-At the START of a task, name your own workspace and pane — you know what you are
-working on; no plugin should guess it from your command line:
+At the START of a task, name the current Herdr workspace and pane through the
+canonical provider-neutral facade:
 
 ```sh
-curl -s -X POST http://127.0.0.1:8797/api/naming -H 'content-type: application/json' \
-  -d '{"pane_id":"'"$HERDR_PANE_ID"'","workspace":"short-task-slug","pane":"Human-readable task title","provider":"<your-provider>","model":"<your-model>"}'
+muxr name --workspace 'short-task-slug' \
+  --pane 'Human-readable task title' \
+  --provider '<your-provider>' --model '<your-model>'
 ```
 
-- One call, plain HTTP, works from every provider. Only inside Herdr (`HERDR_ENV=1`).
-- `workspace` is a short slug for the workspace name; `pane` is the descriptive
-  title shown on the phone. Names are used verbatim — no re-parsing downstream.
-- `provider`/`model` (e.g. `pi`/`gemini-3-flash`, `claude`/`opus-4.6`) are stored
-  as Herdr pane metadata tokens and in `~/.muxr/naming/state.json` for quota tooling.
-- Port override: `MUXR_NAMING_PORT`. Server details: `scripts/naming/`.
-- If the endpoint is down, fall back to `herdr pane rename` / `herdr workspace rename`
-  directly; animal-namer still names blank agents as a last resort.
+- `HERDR_PANE_ID` binds the request to the current pane; muxr authenticates the
+  loopback request and resolves workspace membership from Herdr.
+- Names are used verbatim within bounded limits. Provider/model attribution is
+  read from Herdr pane metadata; there is no competing JSON state file.
+- `MUXR_NAMING_PORT` overrides the local endpoint port. See `scripts/naming/`.
+- If no self-name arrives, the existing blank-name fallback may fill an absent
+  name. Do not guess a title from command lines or provider-specific output.

@@ -3,115 +3,203 @@
  * muxr self-naming endpoint. Agents name their own workspace and pane.
  *
  * The agent knows what it is working on; no watcher or plugin should guess it
- * from the command line. Any provider (Pi, Claude, Codex, Z.ai, ...) calls:
- *
- *   curl -s -X POST http://127.0.0.1:8797/api/naming \
- *     -H 'content-type: application/json' \
- *     -d '{"pane_id":"'"$HERDR_PANE_ID"'","workspace":"auth-rework","pane":"Fix login validation","provider":"pi","model":"gemini-3-flash"}'
- *
- * `workspace` renames the caller's Herdr workspace, `pane` renames the pane
- * (the title muxr shows on the phone), and `provider`/`model` are recorded
- * verbatim for quota tooling (herdr pane metadata tokens + the state file).
- * Names pass through exactly as sent: no re-parsing, no stripping.
- *
- * Loopback only. One wired place owns lifecycle: `muxr up` (scripts/setup)
- * spawns this beside the relay and host, so the daemon supervises it.
+ * from the command line. The endpoint is a thin, authenticated facade over
+ * Herdr's current pane/workspace and metadata operations.
  */
 
 import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { homedir, tmpdir } from 'node:os';
+import { homedir } from 'node:os';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_NAME_LENGTH = 512;
+const MAX_TOKEN_LENGTH = 256;
+const MAX_ERROR_LENGTH = 512;
 const HERDR_TIMEOUT_MS = 10_000;
-// Bounded history: one record per pane, oldest dropped. quota tooling reads
-// current truth per pane; it never needs an unbounded audit log.
-const STATE_RECORD_LIMIT = 256;
+const PANE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}:[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+const HERDR_TARGET = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+const ALLOWED_FIELDS = new Set(['workspace', 'pane', 'pane_id', 'provider', 'model']);
 
 const port = Number(process.env.MUXR_NAMING_PORT ?? 8797);
 const herdrBin = process.env.HERDR_BIN?.trim() || 'herdr';
-// Lab isolation: when set, EVERY herdr call gets a trailing `--session <name>`
-// so the server can never touch another session's workspaces.
+// Lab isolation: when set, every Herdr call gets a trailing --session <name>.
 const herdrSession = process.env.MUXR_NAMING_SESSION?.trim() || undefined;
-const stateFile = process.env.MUXR_NAMING_STATE_FILE?.trim()
-    || join(homedir(), '.muxr', 'naming', 'state.json');
+const muxrHome = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
+const authFile = process.env.MUXR_NAMING_AUTH_FILE?.trim() || join(muxrHome, 'naming', 'token');
+const configuredToken = process.env.MUXR_NAMING_AUTH_TOKEN?.trim() || undefined;
+let boundPort = port;
 
 function log(message) {
     process.stderr.write(`[naming] ${message}\n`);
 }
 
-function badRequest(res, why) {
-    res.writeHead(400, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ ok: false, error: why }));
+function json(res, status, body, headers = {}) {
+    res.writeHead(status, { 'content-type': 'application/json', ...headers });
+    res.end(JSON.stringify(body));
 }
 
-/** A verbatim name: present, a non-empty string, within bounds. Never mutated. */
+function badRequest(res, why) {
+    json(res, 400, { ok: false, error: why });
+}
+
+function unauthorized(res, why = 'naming authorization required') {
+    json(res, 401, { ok: false, error: why }, { 'www-authenticate': 'Bearer' });
+}
+
+/** A bounded display value. It is never trimmed or otherwise mutated. */
 function isName(value) {
-    return typeof value === 'string' && value.length > 0 && value.length <= MAX_NAME_LENGTH;
+    return typeof value === 'string'
+        && value.length > 0
+        && value.length <= MAX_NAME_LENGTH
+        && !/[\0-\x1F\x7F]/.test(value);
+}
+
+function isPaneId(value) {
+    return typeof value === 'string' && PANE_ID.test(value);
+}
+
+function boundedError(value) {
+    const text = String(value ?? '').replace(/[\0-\x1F\x7F]/g, ' ').trim();
+    return text.slice(0, MAX_ERROR_LENGTH) || 'Herdr rejected the operation';
 }
 
 function herdrArgs(...command) {
-    // The session flag goes BEFORE the subcommand (canonical global-option
-    // position) and never after a `--` separator, where it would be eaten as
-    // part of a verbatim label.
-    return herdrSession === undefined ? [...command] : ['--session', herdrSession, ...command];
+    // The lab helper and the installed Herdr CLI use the trailing global
+    // session flag. Keeping it outside the label preserves spaces/punctuation.
+    return herdrSession === undefined ? [...command] : [...command, '--session', herdrSession];
 }
 
-function herdr(args) {
+function parseHerdr(stdout, stderr, error) {
+    const text = String(stdout ?? '').trim();
+    if (text === '') {
+        return error === undefined || error === null
+            ? { ok: true, data: undefined }
+            : { ok: false, error: boundedError(stderr || error.message) };
+    }
+    let payload;
+    try {
+        payload = JSON.parse(text);
+    } catch {
+        return {
+            ok: false,
+            error: error === undefined || error === null ? 'Herdr returned an invalid response' : boundedError(stderr || error.message),
+        };
+    }
+    if (payload?.error !== undefined && payload.error !== null) {
+        const detail = payload.error;
+        return {
+            ok: false,
+            error: boundedError(typeof detail === 'string' ? detail : `${detail.code ?? 'herdr_error'}: ${detail.message ?? 'Herdr rejected the operation'}`),
+        };
+    }
+    if (error !== undefined && error !== null) return { ok: false, error: boundedError(stderr || error.message) };
+    return { ok: true, data: payload?.result };
+}
+
+function herdr(...command) {
     return new Promise((resolve) => {
-        // Session-scoped spawns carry HERDR_SESSION too: that is how the herdr
-        // CLI finds a named session's own server socket (same contract the
-        // firstmate lab helper uses).
         const env = herdrSession === undefined
             ? process.env
             : { ...process.env, HERDR_SESSION: herdrSession };
-        execFile(herdrBin, args, { timeout: HERDR_TIMEOUT_MS, env }, (error, stdout, stderr) => {
-            resolve({ ok: !error, error: error ? String(stderr || error.message).trim() : undefined });
-        });
+        execFile(herdrBin, herdrArgs(...command), {
+            timeout: HERDR_TIMEOUT_MS,
+            maxBuffer: 1_048_576,
+            env,
+        }, (error, stdout, stderr) => resolve(parseHerdr(stdout, stderr, error)));
     });
 }
 
-async function readState() {
-    try {
-        const parsed = JSON.parse(await readFile(stateFile, 'utf8'));
-        return parsed && typeof parsed === 'object' && parsed.panes ? parsed : { panes: {} };
-    } catch {
-        return { panes: {} };
+async function loadAuthToken() {
+    if (configuredToken !== undefined) {
+        if (configuredToken.length > MAX_TOKEN_LENGTH) throw new Error('MUXR_NAMING_AUTH_TOKEN is too long');
+        return configuredToken;
     }
+    await mkdir(dirname(authFile), { recursive: true, mode: 0o700 });
+    try {
+        const existing = (await readFile(authFile, 'utf8')).trim();
+        if (existing.length > 0 && existing.length <= MAX_TOKEN_LENGTH) {
+            await chmod(authFile, 0o600);
+            return existing;
+        }
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+    }
+    const generated = randomBytes(32).toString('base64url');
+    await writeFile(authFile, `${generated}\n`, { mode: 0o600 });
+    await chmod(authFile, 0o600);
+    return generated;
 }
 
-async function writeState(state) {
-    const entries = Object.entries(state.panes)
-        .sort((a, b) => (b[1].at ?? 0) - (a[1].at ?? 0))
-        .slice(0, STATE_RECORD_LIMIT);
-    const bounded = { panes: Object.fromEntries(entries) };
-    await mkdir(dirname(stateFile), { recursive: true });
-    const staged = join(tmpdir(), `muxr-naming-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
-    await writeFile(staged, `${JSON.stringify(bounded, null, 2)}\n`);
-    await rename(staged, stateFile);
+function sameSecret(left, right) {
+    if (typeof left !== 'string' || typeof right !== 'string') return false;
+    const a = Buffer.from(left);
+    const b = Buffer.from(right);
+    return a.length === b.length && timingSafeEqual(a, b);
 }
 
-async function handleNaming(req, res) {
-    const raw = await new Promise((resolve) => {
-        const chunks = [];
-        let size = 0;
+function localRequest(req) {
+    const address = req.socket.remoteAddress;
+    if (address !== '127.0.0.1' && address !== '::1' && address !== '::ffff:127.0.0.1') return false;
+    const host = String(req.headers.host ?? '').replace(/^\[|\]$/g, '');
+    const [hostname, rawPort] = host.split(':');
+    if (!['127.0.0.1', 'localhost'].includes(hostname)) return false;
+    return rawPort === undefined || Number(rawPort) === boundPort;
+}
+
+function authorized(req, paneId) {
+    if (!localRequest(req)) return false;
+    if (req.headers.origin !== 'muxr://agent') return false;
+    const authorization = req.headers.authorization;
+    if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')
+        || !sameSecret(authorization.slice('Bearer '.length), authToken)) return false;
+    if (paneId !== undefined && req.headers['x-muxr-pane-id'] !== paneId) return false;
+    if (herdrSession !== undefined && req.headers['x-herdr-session'] !== herdrSession) return false;
+    return true;
+}
+
+async function readBody(req) {
+    const chunks = [];
+    let size = 0;
+    let tooLarge = false;
+    return await new Promise((resolve) => {
         req.on('data', (chunk) => {
             size += chunk.length;
             if (size > MAX_BODY_BYTES) {
-                // Over the limit: stop buffering and let the rest drain. Never
-                // destroy() here — a reset socket is how the client LOSES the
-                // 400 that the guard is meant to send it.
-                resolve(undefined);
+                tooLarge = true;
                 return;
             }
-            chunks.push(chunk);
+            if (!tooLarge) chunks.push(chunk);
         });
-        req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+        req.on('end', () => resolve(tooLarge ? undefined : Buffer.concat(chunks).toString('utf8')));
         req.on('error', () => resolve(undefined));
     });
+}
+
+function responseForOperations(res, results, errors) {
+    const keys = Object.keys(results);
+    const failed = keys.filter((key) => results[key] !== true);
+    const status = failed.length === 0 ? 'ok' : failed.length === keys.length ? 'failed' : 'partial';
+    json(res, status === 'ok' ? 200 : 502, {
+        ok: status === 'ok',
+        status,
+        ...(herdrSession === undefined ? {} : { session: herdrSession }),
+        results,
+        ...(Object.keys(errors).length === 0 ? {} : { errors }),
+    });
+}
+
+async function handleNaming(req, res) {
+    if (!authorized(req)) {
+        req.resume();
+        return unauthorized(res);
+    }
+    if (!/^application\/json(?:\s*;|$)/i.test(String(req.headers['content-type'] ?? ''))) {
+        return badRequest(res, 'content-type must be application/json');
+    }
+    const raw = await readBody(req);
     if (raw === undefined) return badRequest(res, 'body too large or unreadable');
 
     let body;
@@ -120,98 +208,78 @@ async function handleNaming(req, res) {
     } catch {
         return badRequest(res, 'body must be JSON');
     }
-    if (typeof body !== 'object' || body === null) return badRequest(res, 'body must be a JSON object');
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+        return badRequest(res, 'body must be a JSON object');
+    }
+    if (Object.keys(body).some((field) => !ALLOWED_FIELDS.has(field))) {
+        return badRequest(res, 'body contains an unsupported field');
+    }
 
     const { workspace, pane, pane_id: paneId, provider, model } = body;
     for (const [field, value] of Object.entries({ workspace, pane, pane_id: paneId, provider, model })) {
         if (value !== undefined && !isName(value)) {
-            return badRequest(res, `${field} must be a non-empty string of at most ${MAX_NAME_LENGTH} characters`);
+            return badRequest(res, `${field} must be a non-empty string of at most ${MAX_NAME_LENGTH} characters without control characters`);
         }
     }
+    if (paneId !== undefined && !isPaneId(paneId)) return badRequest(res, 'pane_id is not a supported Herdr pane target');
+    // ponytail: Herdr's positional rename parser has no safe `--` escape;
+    // reject only leading-dash labels rather than letting a name become a flag.
+    if (pane?.startsWith('-') || workspace?.startsWith('-')) return badRequest(res, 'pane and workspace names must not start with "-"');
+    if (paneId === undefined) return badRequest(res, 'pane_id is required: muxr binds naming to the calling pane');
     if (workspace === undefined && pane === undefined && provider === undefined && model === undefined) {
         return badRequest(res, 'nothing to name: send workspace, pane, provider or model');
     }
-    if ((pane !== undefined || provider !== undefined || model !== undefined) && paneId === undefined) {
-        return badRequest(res, 'pane_id is required (the calling pane knows it as $HERDR_PANE_ID)');
+    if (!authorized(req, paneId)) return json(res, 403, { ok: false, error: 'request is not authorized for this pane' });
+
+    // Resolve membership from Herdr before the first mutation. The pane id is
+    // not allowed to imply a workspace by string convention.
+    const current = await herdr('pane', 'get', paneId);
+    const currentPane = current.ok ? current.data?.pane : undefined;
+    const workspaceId = currentPane?.workspace_id;
+    if (!current.ok || typeof workspaceId !== 'string' || !HERDR_TARGET.test(workspaceId)) {
+        return json(res, 404, { ok: false, error: 'target pane is not available in the authorized Herdr session' });
     }
-    // A workspace is the part of the pane id before the colon (w1:p2 -> w1).
-    const workspaceId = paneId === undefined ? undefined : paneId.split(':', 1)[0];
 
     const results = {};
-    if (pane !== undefined) {
-        // The label is ONE argv element (execFile, no shell), so herdr receives
-        // it verbatim. ponytail: a label starting with "-" would be misparsed
-        // as a flag; herdr's CLI has no `--` escape (it eats it into the label),
-        // so reject that one pathological shape instead of corrupting it.
-        if (pane.startsWith('-')) return badRequest(res, 'pane name must not start with "-"');
-        results.pane = await herdr(herdrArgs('pane', 'rename', paneId, pane));
-    }
-    if (workspace !== undefined && workspaceId !== undefined) {
-        if (workspace.startsWith('-')) return badRequest(res, 'workspace name must not start with "-"');
-        results.workspace = await herdr(herdrArgs('workspace', 'rename', workspaceId, workspace));
-    }
-    // Pane-scoped bookkeeping: metadata tokens (when provider/model given) and
-    // the quota-tooling state file (also for plain pane renames).
-    if (paneId !== undefined && (pane !== undefined || provider !== undefined || model !== undefined)) {
-        if (provider !== undefined || model !== undefined) {
-            const tokenArgs = [];
-            if (provider !== undefined) tokenArgs.push('--token', `provider=${provider}`);
-            if (model !== undefined) tokenArgs.push('--token', `model=${model}`);
-            results.metadata = await herdr(herdrArgs('pane', 'report-metadata', paneId, '--source', 'muxr.naming', ...tokenArgs));
-        }
+    const errors = {};
+    const apply = async (key, ...command) => {
+        const result = await herdr(...command);
+        results[key] = result.ok;
+        if (!result.ok) errors[key] = result.error ?? 'Herdr rejected the operation';
+    };
 
-        const state = await readState();
-        const previous = state.panes[paneId] ?? {};
-        // New value wins; an absent field keeps what a previous call recorded.
-        const record = { at: Date.now() };
-        for (const [field, value] of Object.entries({ workspace, pane, provider, model })) {
-            const effective = value !== undefined ? value : previous[field];
-            if (effective !== undefined) record[field] = effective;
-        }
-        state.panes[paneId] = record;
-        try {
-            await writeState(state);
-        } catch (error) {
-            log(`state write failed: ${error instanceof Error ? error.message : String(error)}`);
-        }
+    if (pane !== undefined) await apply('pane', 'pane', 'rename', paneId, pane);
+    if (workspace !== undefined) await apply('workspace', 'workspace', 'rename', workspaceId, workspace);
+    if (provider !== undefined || model !== undefined) {
+        const tokenArgs = [];
+        if (provider !== undefined) tokenArgs.push('--token', `provider=${provider}`);
+        if (model !== undefined) tokenArgs.push('--token', `model=${model}`);
+        await apply('metadata', 'pane', 'report-metadata', paneId, '--source', 'muxr.naming', ...tokenArgs);
     }
-
-    const attempted = Object.values(results);
-    const failed = attempted.filter((entry) => !entry.ok);
-    for (const entry of failed) log(`herdr call failed: ${entry.error}`);
-    res.writeHead(attempted.length > 0 && failed.length === attempted.length ? 502 : 200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({
-        ok: failed.length < attempted.length,
-        ...(herdrSession === undefined ? {} : { session: herdrSession }),
-        results: Object.fromEntries(Object.entries(results).map(([key, entry]) => [key, entry.ok])),
-    }));
+    responseForOperations(res, results, errors);
 }
 
+const authToken = await loadAuthToken();
 const server = createServer((req, res) => {
     const path = (req.url ?? '/').split('?')[0];
     if (req.method === 'GET' && path === '/health') {
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ ok: true }));
+        json(res, 200, { ok: true });
         return;
     }
     if (req.method === 'POST' && path === '/api/naming') {
         void handleNaming(req, res).catch((error) => {
             log(`request failed: ${error instanceof Error ? error.message : String(error)}`);
-            res.writeHead(500, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ ok: false, error: 'internal error' }));
+            if (!res.headersSent) json(res, 500, { ok: false, error: 'internal error' });
         });
         return;
     }
-    res.writeHead(404, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ ok: false, error: 'not found' }));
+    json(res, 404, { ok: false, error: 'not found' });
 });
 
 server.listen(port, '127.0.0.1', () => {
     const bound = server.address();
-    const actual = typeof bound === 'object' && bound !== null ? bound.port : port;
-    // The bound port on stdout is the supervision contract: harnesses start
-    // this server with MUXR_NAMING_PORT=0 and read the real port here.
-    process.stdout.write(`naming: listening on 127.0.0.1:${actual}${herdrSession === undefined ? '' : ` (session ${herdrSession})`}\n`);
+    boundPort = typeof bound === 'object' && bound !== null ? bound.port : port;
+    process.stdout.write(`naming: listening on 127.0.0.1:${boundPort}${herdrSession === undefined ? '' : ` (session ${herdrSession})`}\n`);
 });
 
 server.on('error', (error) => {

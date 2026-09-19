@@ -4,6 +4,8 @@ export interface AgentLabels {
     taskTitle: string;
     agentName: string;
     agentKind?: string;
+    provider?: string;
+    model?: string;
     displayAgent?: string;
 }
 
@@ -77,9 +79,11 @@ export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'labe
     const shellTitle = pane?.label?.trim() || pane?.terminalTitle?.trim() || pane?.taskTitle?.trim()
         || pane?.cwd?.replace(/\/+$/, '').split('/').pop() || 'Shell';
     return {
-        taskTitle: hasAgent ? pane?.taskTitle?.trim() || agentName : shellTitle,
+        taskTitle: hasAgent ? pane?.taskTitle?.trim() || pane?.label?.trim() || agentName : shellTitle,
         agentName,
         ...(pane?.agentKind === undefined ? {} : { agentKind: pane.agentKind }),
+        ...(pane?.provider === undefined ? {} : { provider: pane.provider }),
+        ...(pane?.model === undefined ? {} : { model: pane.model }),
         ...(pane?.displayAgent === undefined ? {} : { displayAgent: pane.displayAgent }),
     };
 }
@@ -119,7 +123,7 @@ export function agentNameLine(labels: AgentLabels): string {
     const kind = agentKindSlug(labels.agentKind);
     const name = distinctAgentName(labels);
     const identity = kind !== undefined && name !== undefined ? `${kind}/${name}` : kind ?? name;
-    return uniqueLabels([identity, labels.displayAgent]).join(' · ');
+    return uniqueLabels([identity, labels.displayAgent ?? labels.provider, labels.model]).join(' · ');
 }
 
 export function agentIdentityLine(labels: AgentLabels): string {
