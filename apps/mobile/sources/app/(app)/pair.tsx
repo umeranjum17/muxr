@@ -12,6 +12,7 @@ import { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingI
 import { pairMachine, usePairQrScanner } from '@/pairing';
 import { applySshAfterPairing, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
+import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 
@@ -272,6 +273,13 @@ export default function PairScreen() {
         else router.replace('/');
     }, [openedFromSettings, router]);
 
+    // The switcher's Fast pairing segment: from first-run, pop back to the
+    // chooser; from a settings entry, the fast route lives on Home.
+    const switchToFast = React.useCallback(() => {
+        if (!openedFromSettings) router.back();
+        else router.replace('/');
+    }, [openedFromSettings, router]);
+
     return (
         <PairScrollView style={styles.scroll} contentContainerStyle={[styles.screen, { paddingBottom: insets.bottom + 24 }]}
             keyboardShouldPersistTaps="handled" {...(browser ? {} : { bottomOffset: 120 })}>
@@ -354,6 +362,7 @@ export default function PairScreen() {
                         )}
                         {sshRoute && (
                             <>
+                                <RouteSwitcher onFastPairing={switchToFast} />
                                 <View style={styles.sshSteps}>
                                     {SSH_PAIRING_STEPS.map((step, index) => (
                                         <View key={step} style={styles.stepRow}>
@@ -388,7 +397,6 @@ export default function PairScreen() {
                                 <SshField label="SSH password (optional)" value={sshPassword} onChange={setSshPassword} placeholder="Password or private key" secure />
                                 <SshField label="Private key (optional)" value={sshPrivateKey} onChange={setSshPrivateKey} placeholder="Paste an OpenSSH private key" secure multiline />
                                 <SshField label="Private key passphrase" value={sshPassphrase} onChange={setSshPassphrase} placeholder="Only if the key is encrypted" secure />
-                                {sshError !== undefined && <Text accessibilityRole="alert" style={styles.errorText}>{sshError}</Text>}
                             </>
                         )}
                         {!browser && openedFromSettings && !sshRoute && (
@@ -396,6 +404,13 @@ export default function PairScreen() {
                                 <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
                                 <Text style={styles.routeHint}>Recommended · ~1 min · for the computer in front of you.</Text>
                             </>
+                        )}
+                        {state?.phase === 'error' && state.url === undefined && !sshRoute && (
+                            <View style={styles.explainer}>
+                                <Text style={styles.explainerText}>The pairing string is single-use and expires after a few minutes.</Text>
+                                <Text style={styles.explainerText}>Run `muxr pair` again for a fresh string, then retry.</Text>
+                                <ActionButton variant="secondary" title="Connect over SSH instead" icon="terminal-outline" onPress={() => router.push('/pair?route=ssh')} />
+                            </View>
                         )}
                         <Text style={styles.inputLabel}>{browser ? 'Paste browser pairing string' : openedFromSettings ? 'Or paste the pairing string' : sshRoute ? 'Pairing string from `muxr pair`' : 'Enter pairing string manually'}</Text>
                         <TextInput
@@ -416,8 +431,14 @@ export default function PairScreen() {
                             : sshRoute
                                 ? 'The string proves the machine consented; the SSH details decide how this phone reaches it.'
                                 : 'For a computer you are not standing at — copy the string from its terminal.'}</Text>
-                        <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
+                        {!sshRoute && <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />}
                         <ActionButton title="Back" variant="quiet" onPress={cancel} />
+                        {sshRoute && (
+                            <View style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]}>
+                                {sshError !== undefined && <Text accessibilityRole="alert" style={styles.errorText}>{sshError}</Text>}
+                                <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
+                            </View>
+                        )}
                     </>
                 )}
             </View>
@@ -589,6 +610,29 @@ const styles = StyleSheet.create((theme) => ({
         alignSelf: 'stretch',
         gap: 8,
         paddingBottom: 4,
+    },
+    ctaBar: {
+        alignSelf: 'stretch',
+        borderTopWidth: 1,
+        borderColor: theme.colors.divider,
+        paddingTop: 10,
+        marginTop: 4,
+        gap: 8,
+    },
+    explainer: {
+        alignSelf: 'stretch',
+        gap: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        borderRadius: 14,
+        backgroundColor: theme.colors.surfaceHigh,
+        padding: 14,
+    },
+    explainerText: {
+        ...Typography.default(),
+        fontSize: 13,
+        lineHeight: 18,
+        color: theme.colors.textSecondary,
     },
     commandRow: {
         flexDirection: 'row',

@@ -1,11 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
 
 /*
- * Flow tests for the first-connection route chooser: the chooser precedes any
- * QR action, the SSH-fluent route is directly reachable, back returns to the
- * chooser, and the recommended route still feeds the existing QR claim path.
+ * Flow tests for the guided first-connection chooser: the chooser precedes any
+ * QR action and previews both route shapes, the recommended route walks
+ * Run → Scan one step at a time with back returning to the chooser, the QR
+ * claim wiring stays intact, and the SSH-fluent route is directly reachable.
  * The pairing and scanner hooks are mocked at their module seam — the claim
  * journey itself is proven end to end against a real relay elsewhere — so
  * these tests pin exactly the wiring this screen owns.
@@ -78,8 +79,15 @@ function press(root: any, label: string): void {
     TestRenderer.act(() => { target.props.onPress(); });
 }
 
-describe('first-connection route chooser', () => {
-    it('shows both routes before any QR action, with the recommended one badged', () => {
+describe('guided first-connection chooser', () => {
+    beforeEach(() => {
+        platformOs = 'android';
+        routerPush.mockClear();
+        hostedPair.mockClear();
+        scanQr.mockClear();
+    });
+
+    it('shows both route shapes before any QR action, each previewing its steps', () => {
         platformOs = 'android';
         let renderer: any;
         TestRenderer.act(() => {
@@ -89,40 +97,54 @@ describe('first-connection route chooser', () => {
         expect(visible).toContain('Pair with a QR code');
         expect(visible).toContain('Recommended · ~1 min');
         expect(visible).toContain('Connect over SSH');
+        // The previews teach the shape of each path before committing.
+        expect(visible.some((text) => text.includes('Run one command') && text.includes('Scan the QR'))).toBe(true);
+        expect(visible.some((text) => text.includes('Host') && text.includes('no QR'))).toBe(true);
         expect(visible.some((text) => text.includes('Other ways to connect'))).toBe(true);
-        // The scan action only exists after entering the recommended route.
-        expect(buttons(renderer.root).some((node) => node.props.accessibilityLabel === 'Scan QR to pair')).toBe(false);
+        // No scan action and no SSH form before a route is chosen.
+        expect(buttons(renderer.root).some((node) => node.props.accessibilityLabel === 'I ran it — scan the QR')).toBe(false);
+        expect(texts(renderer.root)).not.toContain('SSH host');
     });
 
-    it('enters the recommended route, then back returns to the chooser', () => {
-        platformOs = 'android';
+    it('walks Run → Scan with the QR in its own state, and back returns toward the chooser', () => {
         let renderer: any;
         TestRenderer.act(() => {
             renderer = TestRenderer.create(React.createElement(FirstRunConnection));
         });
-        press(renderer.root, 'Pair with a QR code. Recommended · ~1 min');
+        press(renderer.root, 'Pair with a QR code. Recommended · ~1 min. Steps: 1 Run one command  →  2 Scan the QR  →  3 Done');
 
-        // Recommended route: the exact host command, the three What-happens
-        // steps, and the QR action. No SSH route content here.
-        const recommended = texts(renderer.root);
-        expect(recommended).toContain('muxr');
-        expect(recommended).toContain('On your computer');
-        expect(recommended).toContain('Connect this device');
-        expect(recommended).toContain('Review access');
-        expect(recommended).not.toContain('SSH host');
+        // Run step: the exact host command under the progress rail, no scan yet.
+        const run = texts(renderer.root);
+        expect(run).toContain('muxr');
+        expect(run).toContain('Step 1 · On your computer');
+        expect(run).toContain('Run');
+        expect(run).toContain('Scan');
+        expect(run).toContain('Review');
 
-        press(renderer.root, 'Back to connection choices');
+        // Advance to the scan step: the scanner opens on arrival.
+        TestRenderer.act(() => {
+            press(renderer.root, 'I ran it — scan the QR');
+        });
+        expect(scanQr).toHaveBeenCalledTimes(1);
+        const scan = texts(renderer.root);
+        expect(scan.some((text) => text.includes('Point this phone at the QR'))).toBe(true);
+
+        // "Different route" from the scan step returns toward the run step.
+        press(renderer.root, '← Different route');
+        expect(texts(renderer.root)).toContain('Step 1 · On your computer');
+
+        // And from the run step, back lands on the chooser again.
+        press(renderer.root, '← Different route');
         expect(texts(renderer.root)).toContain('Connect over SSH');
     });
 
-    it('keeps the QR claim intact: scan action uses the scanner and the scanned link reaches pairing', () => {
-        platformOs = 'android';
+    it('keeps the QR claim intact: the scanner hands the scanned link to hosted pairing', () => {
         let renderer: any;
         TestRenderer.act(() => {
             renderer = TestRenderer.create(React.createElement(FirstRunConnection));
         });
-        press(renderer.root, 'Pair with a QR code. Recommended · ~1 min');
-        press(renderer.root, 'Scan QR to pair');
+        press(renderer.root, 'Pair with a QR code. Recommended · ~1 min. Steps: 1 Run one command  →  2 Scan the QR  →  3 Done');
+        press(renderer.root, 'I ran it — scan the QR');
         expect(scanQr).toHaveBeenCalledTimes(1);
 
         // The scanner delivers the short link into the existing hosted pairing
@@ -134,23 +156,22 @@ describe('first-connection route chooser', () => {
     });
 
     it('opens the SSH fields route directly from the chooser', () => {
-        platformOs = 'android';
         let renderer: any;
         TestRenderer.act(() => {
             renderer = TestRenderer.create(React.createElement(FirstRunConnection));
         });
-        press(renderer.root, 'Connect over SSH');
+        press(renderer.root, 'Connect over SSH. Steps: 1 Host  →  2 User  →  3 Key — no QR.');
         expect(routerPush).toHaveBeenCalledWith('/pair?route=ssh');
     });
 
-    it('offers no SSH card where the SSH transport does not exist', () => {
+    it('offers no SSH tile where the SSH transport does not exist', () => {
         platformOs = 'web';
         let renderer: any;
         TestRenderer.act(() => {
             renderer = TestRenderer.create(React.createElement(FirstRunConnection));
         });
         const visible = texts(renderer.root);
-        expect(visible).toContain('Pair from your computer');
+        expect(visible).toContain('Pair with a QR code');
         expect(visible).not.toContain('Connect over SSH');
     });
 });
