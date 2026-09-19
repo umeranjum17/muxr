@@ -83,6 +83,32 @@ export function advertisedStreamPort(text: string): number | undefined {
     return Number.isSafeInteger(port) && port >= 1 && port <= 65_535 ? port : undefined;
 }
 
+/** Reads the port out of `agent-browser stream enable --json` output. */
+function parseEnablePort(stdout: string): number | undefined {
+    try {
+        const parsed = JSON.parse(stdout) as { port?: unknown };
+        if (typeof parsed.port === 'number' && Number.isSafeInteger(parsed.port) && parsed.port >= 1 && parsed.port <= 65_535) return parsed.port;
+    } catch {
+        // Fall through to the regex for non-JSON output.
+    }
+    const port = Number(/"port"\s*:\s*(\d+)/.exec(stdout)?.[1]);
+    return Number.isSafeInteger(port) && port >= 1 && port <= 65_535 ? port : undefined;
+}
+
+/** The bound port in `stream status --json` output; only when a stream is live. */
+export function parseStatusPort(stdout: string): number | undefined {
+    try {
+        const parsed = JSON.parse(stdout) as { success?: unknown; data?: { enabled?: unknown; port?: unknown } | null };
+        if (parsed.success !== true) return undefined;
+        const data = parsed.data;
+        if (data === null || typeof data !== 'object' || data.enabled !== true) return undefined;
+        const port = data.port;
+        return typeof port === 'number' && Number.isSafeInteger(port) && port >= 1 && port <= 65_535 ? port : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 /** The stream's tabs message: muxr only wants the current page address. */
 export function parseStreamPage(raw: unknown): { url: string } | undefined {
     if (typeof raw !== 'string') return undefined;
@@ -105,6 +131,44 @@ export function codeForKey(key: string): string {
     if (key === 'Backspace') return 'Backspace';
     if (key === ' ') return 'Space';
     return key;
+}
+
+export type ResolvedStreamPort =
+    | { kind: 'ready'; port: number }
+    | { kind: 'noBrowser'; detail: string | null }
+    | { kind: 'unreachable' };
+
+/** The slice of machineBash the stream resolution needs. */
+type ShellResult = { success: boolean; stdout: string; stderr: string };
+
+/**
+ * The port the takeover watches: a fresh `stream enable`, or — when the daemon
+ * reports one already bound (an orphaned viewer, a returned deep link) — the
+ * bound port from `stream status`, so the screen reattaches to the live stream
+ * instead of dead-ending on the enable error. A machine with neither keeps the
+ * plain no-browser failure.
+ */
+export async function resolveStreamPort(
+    run: (command: string) => Promise<ShellResult>,
+    agentBrowser: string,
+    requestedPort?: number,
+): Promise<ResolvedStreamPort> {
+    const enabled = await run(requestedPort === undefined ? `${agentBrowser} stream enable --json` : `${agentBrowser} stream enable --port ${requestedPort}`);
+    if (enabled.success) {
+        if (requestedPort !== undefined) return { kind: 'ready', port: requestedPort };
+        const port = parseEnablePort(enabled.stdout);
+        if (port !== undefined) return { kind: 'ready', port };
+        void run(`${agentBrowser} stream disable`);
+        return { kind: 'unreachable' };
+    }
+    // The daemon refuses a second enable while a stream is already bound;
+    // that browser is perfectly streamable, so reattach to its bound port.
+    const output = [enabled.stderr, enabled.stdout].filter(Boolean).join('\n');
+    if (!/already enabled/i.test(output)) return { kind: 'noBrowser', detail: output || null };
+    const status = await run(`${agentBrowser} stream status --json`);
+    const bound = status.success ? parseStatusPort(status.stdout) : undefined;
+    if (bound !== undefined) return { kind: 'ready', port: bound };
+    return { kind: 'noBrowser', detail: output || null };
 }
 
 export interface OpenTakeover {

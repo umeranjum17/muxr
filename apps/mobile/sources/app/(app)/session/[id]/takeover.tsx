@@ -13,7 +13,7 @@ import { machineBash } from '@/catalog/ops';
 import { useHerdrTree, useSession, useSocketStatus } from '@/catalog/store';
 import { agentLabels, herdrPaneForSession, isShellLabels, middleTruncate } from '@/herd';
 import { t } from '@/text';
-import { mapDisplayToInput, type Point, type Size, type StreamFrameMetadata } from '@/takeover';
+import { mapDisplayToInput, resolveStreamPort, type Point, type Size, type StreamFrameMetadata } from '@/takeover';
 import { codeForKey, keyMessage, mouseMessage, openTakeover, parseStreamFrame, parseStreamPage, touchMessage } from '@/takeover';
 
 function selectedPort(value: string | undefined): number | undefined {
@@ -36,17 +36,6 @@ function openableAddress(value: string | undefined): string | undefined {
 /** Shell-safe agent-browser session names only; anything else is dropped. */
 function selectedSession(value: string | undefined): string | undefined {
     return value !== undefined && /^[a-zA-Z0-9_-]{1,64}$/.test(value) ? value : undefined;
-}
-
-/** Reads the port out of `agent-browser stream enable --json` output. */
-function parseEnablePort(stdout: string): number | undefined {
-    try {
-        const parsed = JSON.parse(stdout) as { port?: unknown };
-        if (typeof parsed.port === 'number') return selectedPort(String(parsed.port));
-    } catch {
-        // Fall through to the regex for non-JSON output.
-    }
-    return selectedPort(/"port"\s*:\s*(\d+)/.exec(stdout)?.[1]);
 }
 
 interface LiveFrame {
@@ -216,30 +205,20 @@ export default function TakeoverScreen() {
         gotFrameRef.current = false;
         setPhase('opening');
         try {
-            let resolvedPort = streamPort;
-            if (resolvedPort === undefined) {
-                const enabled = await machineBash('', `${agentBrowser} stream enable --json`, cwd);
-                if (!enabled.success) {
-                    // No live browser (or the stream would not start): the raw
-                    // output stays behind Details.
-                    setDetail([enabled.stderr, enabled.stdout].filter(Boolean).join('\n') || null);
-                    setPhase('noBrowser');
-                    return;
-                }
-                resolvedPort = parseEnablePort(enabled.stdout);
-                if (resolvedPort === undefined) {
-                    void machineBash('', `${agentBrowser} stream disable`, cwd);
-                    setPhase('unreachable');
-                    return;
-                }
-            } else {
-                const enabled = await machineBash('', `${agentBrowser} stream enable --port ${resolvedPort}`, cwd);
-                if (!enabled.success) {
-                    setDetail([enabled.stderr, enabled.stdout].filter(Boolean).join('\n') || null);
-                    setPhase('noBrowser');
-                    return;
-                }
+            const stream = await resolveStreamPort((command) => machineBash('', command, cwd), agentBrowser, streamPort);
+            if (stream.kind === 'noBrowser') {
+                // No live browser (or the stream would not start): the raw
+                // output stays behind Details.
+                setDetail(stream.detail);
+                setPhase('noBrowser');
+                return;
             }
+            if (stream.kind === 'unreachable') {
+                void machineBash('', `${agentBrowser} stream disable`, cwd);
+                setPhase('unreachable');
+                return;
+            }
+            const resolvedPort = stream.port;
             lastPortRef.current = resolvedPort;
             if (!mountedRef.current) {
                 await machineBash('', `${agentBrowser} stream disable`, cwd);
