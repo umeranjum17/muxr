@@ -13,7 +13,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
-import { openTerminalLink, TERMINAL_URL_PATTERN, terminalUrlAt } from '../domain/safeTerminalLink';
+import { joinedTerminalUrlAt, openTerminalLink, TERMINAL_URL_PATTERN, type TerminalLinkRow } from '../domain/safeTerminalLink';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 
@@ -268,42 +268,26 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             return css?.height !== undefined && css.height > 0 ? css.height : 18;
         };
         /** The exact plain URL under a cell, joined across wrapped rows (the OSC 8
-         *  URI is not exposed per cell, so long-press covers plain URLs only;
-         *  OSC 8 links still open on tap through the link handler). The row is
-         *  viewport-relative and shifted into buffer space here: getLine and
-         *  isWrapped speak absolute rows, and without the shift a scrolled-up
+         *  URI is not exposed per cell, so long-press covers plain URLs only).
+         *  The row is viewport-relative and shifted into buffer space here: getLine
+         *  and isWrapped speak absolute rows, and without the shift a scrolled-up
          *  pane would copy from the wrong line. */
         const findPlainTextLink = (viewportRow: number, col: number): string | null => {
             const buffer = term.buffer.active;
             const row = buffer.viewportY + viewportRow;
-            const lineText = (r: number) => buffer.getLine(r)?.translateToString(true) ?? '';
-            const lines: string[] = [lineText(row)];
-            let topRow = row;
-            for (;;) {
-                if (topRow <= 0 || !buffer.getLine(topRow)?.isWrapped) break;
-                const t = lineText(topRow - 1);
-                lines.unshift(t);
-                topRow--;
-                if (t.includes(' ')) break;
-            }
-            let bottomRow = row;
-            for (;;) {
-                const next = buffer.getLine(bottomRow + 1);
-                if (!next?.isWrapped) break;
-                const t = lineText(bottomRow + 1);
-                lines.push(t);
-                bottomRow++;
-                if (t.includes(' ')) break;
-            }
-            let anchor = 0;
-            for (let i = 0; i < row - topRow; i++) anchor += lines[i].length;
-            // The tap lands on a cell, not a string index: map it through the
-            // row's cell walk so wide glyphs before the URL cannot skew it.
+            const lineRow = (r: number): TerminalLinkRow | undefined => {
+                const line = buffer.getLine(r);
+                return line ? { text: line.translateToString(true), isWrapped: line.isWrapped } : undefined;
+            };
             const tapped = buffer.getLine(row);
             if (!tapped) return null;
+            // The tap lands on a cell, not a string index: map it through the
+            // row's cell walk so wide glyphs before the URL cannot skew it. A
+            // cell past the row's text (trailing whitespace) is not a link and
+            // must not bleed into the next row's.
             const at = lineCellMap(tapped, term.cols).cellOf.indexOf(col);
-            if (at < 0) return null;
-            return terminalUrlAt(lines.join(''), anchor + at);
+            if (at < 0 || at >= (lineRow(row)?.text.length ?? 0)) return null;
+            return joinedTerminalUrlAt(lineRow, row, at);
         };
         const plainTextLinkAt = (clientX: number, clientY: number): string | null => {
             const rect = element.getBoundingClientRect();

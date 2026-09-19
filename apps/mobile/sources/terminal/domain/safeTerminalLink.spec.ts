@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { openTerminalLink, safeTerminalLinkUrl, terminalUrlAt } from './safeTerminalLink';
+import { joinedTerminalUrlAt, openTerminalLink, safeTerminalLinkUrl, terminalUrlAt, type TerminalLinkRow } from './safeTerminalLink';
 
 /**
  * One flow: a link the terminal printed (plain text or OSC 8) travels through
@@ -52,5 +52,27 @@ describe('terminal printed links open only as safe web URLs', () => {
         expect(terminalUrlAt(' ' + wrapped + ' ', 4)).toBe(wrapped);
         expect(terminalUrlAt('plain terminal text', 5)).toBeNull();
         expect(terminalUrlAt('open ssh://git@host:22/repo.git now', 6)).toBeNull();
+    });
+
+    it('joins a URL across soft-wrapped rows and never across a hard new line', () => {
+        const rows = (wrap: boolean): ((row: number) => TerminalLinkRow | undefined) => {
+            const list: TerminalLinkRow[] = [
+                { text: 'https://example.com/very/long/path/that/fills/the/width/aaaa', isWrapped: false },
+                wrap
+                    ? { text: 'bbbb/ccc?d=1', isWrapped: true }
+                    : { text: 'Notes:', isWrapped: false },
+            ];
+            return (row) => list[row];
+        };
+        const full = 'https://example.com/very/long/path/that/fills/the/width/aaaa';
+
+        // Hard new line below a full-width URL: the URL stays whole and the
+        // word under the finger on the next line is not a link.
+        expect(joinedTerminalUrlAt(rows(false), 0, 10)).toBe(full);
+        expect(joinedTerminalUrlAt(rows(false), 1, 0)).toBeNull();
+
+        // Soft-wrapped continuation: both rows resolve the same joined link.
+        expect(joinedTerminalUrlAt(rows(true), 0, 10)).toBe(`${full}bbbb/ccc?d=1`);
+        expect(joinedTerminalUrlAt(rows(true), 1, 0)).toBe(`${full}bbbb/ccc?d=1`);
     });
 });

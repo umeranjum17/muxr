@@ -54,3 +54,45 @@ export function terminalUrlAt(text: string, at: number): string | null {
     }
     return null;
 }
+
+/** One terminal row as the long-press join rule sees it: printable text with
+ *  trailing whitespace trimmed, and whether the row continues the row above
+ *  (soft wrap). A hard new line is isWrapped: false. */
+export interface TerminalLinkRow {
+    text: string;
+    isWrapped: boolean;
+}
+
+/**
+ * The exact link text under (rowIndex, at) of terminal rows, joined across
+ * soft-wrapped rows only. A hard new line never inherits the row above: a
+ * full-width URL followed by a hard new line stops at that line. `at` is a
+ * string index inside row rowIndex's text.
+ */
+export function joinedTerminalUrlAt(
+    rowAt: (row: number) => TerminalLinkRow | undefined,
+    rowIndex: number,
+    at: number,
+): string | null {
+    const textOf = (row: number): string => rowAt(row)?.text ?? '';
+    const lines: string[] = [textOf(rowIndex)];
+    let top = rowIndex;
+    for (;;) {
+        if (top <= 0 || !rowAt(top)?.isWrapped) break;
+        const t = textOf(top - 1);
+        lines.unshift(t);
+        top--;
+        if (t.includes(' ')) break;
+    }
+    let bottom = rowIndex;
+    for (;;) {
+        if (!rowAt(bottom + 1)?.isWrapped) break;
+        const t = textOf(bottom + 1);
+        lines.push(t);
+        bottom++;
+        if (t.includes(' ')) break;
+    }
+    let anchor = 0;
+    for (let i = 0; i < rowIndex - top; i++) anchor += lines[i].length;
+    return terminalUrlAt(lines.join(''), anchor + at);
+}
