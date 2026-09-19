@@ -61,6 +61,14 @@ export function hostEntry() {
     return checkout;
 }
 
+export function namingEntry() {
+    const packed = walkFor('naming/server.mjs');
+    if (packed !== undefined) return packed;
+    const checkout = walkFor('scripts/naming/server.mjs');
+    if (checkout === undefined) throw new Error('muxr naming server not found');
+    return checkout;
+}
+
 export function webClientRoot() {
     const packed = walkFor('web/index.html');
     if (packed !== undefined) return dirname(packed);

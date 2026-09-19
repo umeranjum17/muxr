@@ -96,6 +96,8 @@ Muxr is presentation-only for Agent Name and Task Title. Those values come from 
 
 ## Revisions
 
+- 2026-09-19 — Self-naming replaces prompt-guessing plugins. Agents name their own workspace and pane at task start via the loopback `POST /api/naming` endpoint (`scripts/naming/`, muxr-up supervised); `herdr-plugin-renamer` is disabled and `auto-namer` stays disabled. `animal-namer` remains the blank-name fallback. Muxr still consumes Herdr `name`/`title` only.
+
 - 2026-09-17 — Dictation, the terminal key row, and the workspace tree are product code, no longer bundled plugins: there is nothing left to clone or override, and legacy clones keep rendering beside the product surfaces until disabled. Agent close is host code — `session.stop` runs the close ladder in `agentClose.ts` on the live Herdr socket — so the packaged capability pin is gone and no `agent.close` capability name is consumed.
 
 - 2026-09-15 — Usage paragraph now points to `plugins/status/README.md` (integrated-only tabs, Z.ai plan limits); the spec no longer carries a second copy of the Usage contract.

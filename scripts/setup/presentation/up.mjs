@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { networkInterfaces } from 'node:os';
 import { connect } from 'node:net';
 import { waitForRelay } from '../../diagnostics/index.mjs';
-import { hostEntry, relayEntry } from '../infrastructure/paths.mjs';
+import { hostEntry, namingEntry, relayEntry } from '../infrastructure/paths.mjs';
 
 function env(name) {
     return process.env[name]?.trim() || undefined;
@@ -194,6 +194,19 @@ const host = spawn('node', [hostEntry()], {
 children.push(host);
 prefixOutput(host, 'host', process.stdout);
 host.on('exit', (code, signal) => onChildExit('host', code, signal));
+
+// The agent self-naming endpoint: agents POST their own workspace/pane names.
+// Decoupled on purpose — a naming failure degrades to the fallback namers, it
+// must never take the relay or host down.
+const naming = spawn('node', [namingEntry()], {
+    env: process.env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+});
+children.push(naming);
+prefixOutput(naming, 'naming', process.stdout);
+naming.on('exit', (code, signal) => {
+    if (!shuttingDown) process.stderr.write(`[naming] exited (code ${code ?? ''}${signal ? ` ${signal}` : ''}); self-naming unavailable until restart\n`);
+});
 
 const lanIps = lanIpv4Addresses();
 const phoneRelay = lanIps.length > 0 ? `ws://${lanIps[0]}:${port}` : `ws://<lan-ip>:${port}`;

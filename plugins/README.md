@@ -9,7 +9,12 @@ These packages install into Herdr during muxr setup. Each can have an optional H
 | `panes` | Herdr pane/tool catalog + launch | Applications chip (Running / Terminal apps / Plugin tools / Plugin commands) and Panes destination |
 | `status` | pinned offline ccusage + bounded plan limits (see `status/README.md`); disk/memory/load/uptime | Usage rows + chart detail screen; Home machine card |
 
-Agent Names and Task Titles are Herdr fields. Muxr only displays them. Install a community Herdr plugin such as [`wyattjoh/herdr-plugin-renamer`](https://github.com/wyattjoh/herdr-plugin-renamer) (`herdr plugin install wyattjoh/herdr-plugin-renamer`) rather than bundling a title rewriter here. It writes pane `--title` from the first prompt for Claude, Codex, and Pi.
+Agent Names and Task Titles are Herdr fields. Muxr only displays them. Agents name
+their own workspace and pane through the self-naming endpoint (see the Self-naming
+section in the root `AGENTS.md` and `scripts/naming/README.md`); `animal-namer`
+fills blank agent names as a fallback. Do not bundle or install a title-guessing
+plugin such as `wyattjoh/herdr-plugin-renamer` — it was disabled on 2026-09-19
+because it duplicates the self-naming endpoint.
 
 Read [docs/PLUGINS.md](../docs/PLUGINS.md) before adding a package. Every plugin folder must contain a concise `README.md` covering its UI, backend execution, permissions, state/secrets, offline behavior, compatibility, and removal.
 
