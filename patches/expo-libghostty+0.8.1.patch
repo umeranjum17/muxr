@@ -1,5 +1,61 @@
+diff --git a/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp b/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
+index b9c118e..f03f366 100644
+--- a/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
++++ b/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
+@@ -52,6 +52,9 @@ constexpr uint16_t kFlagWide = 1 << 7;
+ constexpr uint16_t kFlagSpacer = 1 << 8;
+ constexpr uint16_t kFlagFgDefault = 1 << 9;
+ constexpr uint16_t kFlagBgNone = 1 << 10;
++// Cell carries an OSC 8 hyperlink; renderers underline it and resolve the
++// URI lazily via nativeHyperlinkUri (one grid-ref lookup per interaction).
++constexpr uint16_t kFlagHyperlink = 1 << 11;
+ 
+ constexpr size_t kHeaderBytes = 13 * sizeof(int32_t);
+ constexpr size_t kRowHeaderBytes = 4 * sizeof(int32_t);
+@@ -534,6 +537,10 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+         flags |= kFlagSpacer;
+       }
+ 
++      bool hasHyperlink = false;
++      ghostty_cell_get(raw, GHOSTTY_CELL_DATA_HAS_HYPERLINK, &hasHyperlink);
++      if (hasHyperlink) flags |= kFlagHyperlink;
++
+       bool hasStyling = false;
+       ghostty_render_state_row_cells_get(session->cells,
+                                          GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_HAS_STYLING,
+@@ -628,6 +635,30 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+   return rowCount;
+ }
+ 
++// Returns the OSC 8 hyperlink URI at a viewport cell, or null when the cell
++// has no hyperlink. One grid-ref snapshot per call; interaction-time only.
++JNIEXPORT jstring JNICALL
++Java_expo_modules_libghostty_GhosttyVt_nativeHyperlinkUri(
++    JNIEnv* env, jobject, jlong handle, jint col, jint row) {
++  auto* session = fromHandle(handle);
++  if (session == nullptr || session->term == nullptr) return nullptr;
++  GhosttyGridRef ref{};
++  ref.size = sizeof(ref);
++  if (!viewportGridRef(session, col, row, &ref)) return nullptr;
++  size_t needed = 0;
++  if (ghostty_grid_ref_hyperlink_uri(&ref, nullptr, 0, &needed) != GHOSTTY_OUT_OF_SPACE ||
++      needed == 0) {
++    return nullptr;
++  }
++  std::vector<uint8_t> uri(needed);
++  size_t written = 0;
++  if (ghostty_grid_ref_hyperlink_uri(&ref, uri.data(), uri.size(), &written) != GHOSTTY_SUCCESS ||
++      written == 0) {
++    return nullptr;
++  }
++  return env->NewStringUTF(reinterpret_cast<const char*>(uri.data()));
++}
++
+ JNIEXPORT jboolean JNICALL
+ Java_expo_modules_libghostty_GhosttyVt_nativeSelectWord(
+     JNIEnv*, jobject, jlong handle, jint col, jint row) {
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
-index 1516400..b4e790b 100644
+index 1516400..394d5a9 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
 @@ -12,13 +12,25 @@ class ExpoLibghosttyModule : Module() {
@@ -7,7 +63,7 @@ index 1516400..b4e790b 100644
  
      View(ExpoLibghosttyView::class) {
 -      Events("onInput", "onResize")
-+      Events("onInput", "onResize", "onScroll")
++      Events("onInput", "onResize", "onScroll", "onOpenLink")
  
        // Base font size in dp (default 14); applied live, the grid reflows.
        Prop("fontSize") { view: ExpoLibghosttyView, size: Float ->
@@ -30,28 +86,32 @@ index 1516400..b4e790b 100644
        Prop("theme") { view: ExpoLibghosttyView, theme: TerminalThemeRecord? ->
          view.setTheme(theme)
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
-index 2d3ed62..19d670b 100644
+index 2d3ed62..7817212 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
-@@ -19,6 +19,7 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+@@ -19,6 +19,8 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
  
    private val onInput by EventDispatcher<Map<String, Any>>()
    private val onResize by EventDispatcher<Map<String, Any>>()
 +  private val onScroll by EventDispatcher<Map<String, Any>>()
++  private val onOpenLink by EventDispatcher<Map<String, Any>>()
  
    private val terminal = GhosttyTerminalView(context).also { view ->
      view.onInputBytes = { bytes ->
-@@ -32,6 +33,9 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+@@ -32,6 +34,12 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
      view.onGridResize = { cols, rows ->
        onResize(mapOf("cols" to cols, "rows" to rows))
      }
 +    view.onScrollRows = { rows ->
 +      onScroll(mapOf("rows" to rows))
 +    }
++    view.onOpenLink = { url ->
++      onOpenLink(mapOf("url" to url))
++    }
    }
  
    private val accessoryBar = TerminalAccessoryBar(context).also { bar ->
-@@ -56,21 +60,12 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+@@ -56,21 +64,12 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
    }
  
    private fun syncAccessoryBar(insets: WindowInsetsCompat) {
@@ -79,7 +139,7 @@ index 2d3ed62..19d670b 100644
    }
  
    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-@@ -82,6 +77,10 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+@@ -82,6 +81,10 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
    /** Base font size in dp; applied live (the grid reflows in place). */
    fun setFontSize(dp: Float) = terminal.setFontSize(dp)
  
@@ -91,10 +151,10 @@ index 2d3ed62..19d670b 100644
    internal fun setTheme(theme: TerminalThemeRecord?) = terminal.setTheme(
      foreground = theme?.foreground,
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
-index 9d6ad16..9a11424 100644
+index 9d6ad16..4f10668 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
-@@ -48,6 +48,10 @@ import kotlin.math.roundToInt
+@@ -48,20 +48,52 @@ import kotlin.math.roundToInt
  internal class GhosttyTerminalView(context: Context) : View(context) {
    var onInputBytes: ((ByteArray) -> Unit)? = null
    var onGridResize: ((cols: Int, rows: Int) -> Unit)? = null
@@ -105,7 +165,13 @@ index 9d6ad16..9a11424 100644
  
    /** Sticky-modifier source for accessory-bar keys and IME text (optional). */
    var accessoryBar: TerminalAccessoryBar? = null
-@@ -57,11 +61,35 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+ 
++  /** A link the user tapped in the grid. The string is exact output text or
++   *  an OSC 8 URI; opening is validated and performed by the JS layer. */
++  var onOpenLink: ((url: String) -> Unit)? = null
++
+   private var handle: Long = GhosttyVt.nativeCreate(INITIAL_COLS, INITIAL_ROWS, MAX_SCROLLBACK)
+   private var finished = false
  
    // ── Cell metrics ──
    private var fontSizeDp = FONT_SIZE_DP
@@ -145,7 +211,7 @@ index 9d6ad16..9a11424 100644
  
    // Nerd Font private-use glyphs (powerline, devicons, …) are absent from the
    // system fallback chain; route those cells to the bundled symbols-only font.
-@@ -72,7 +100,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -72,7 +104,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    }
    private val fillPaint = Paint()
    private val cursorPaint = Paint()
@@ -154,7 +220,20 @@ index 9d6ad16..9a11424 100644
    private var cellHeight = ceil(
      textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
    ).toInt()
-@@ -166,7 +194,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -95,6 +127,12 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+   private var rowSelEnd = IntArray(0)
+   private var rowSelEndWide = BooleanArray(0)
+ 
++  /** Link ranges per viewport row, rebuilt each time the row is redrawn.
++   *  [LinkRange.segment] is empty for OSC 8 cells; their URI resolves at
++   *  hit-test time through [GhosttyVt.nativeHyperlinkUri]. */
++  private var rowLinks = arrayOfNulls<Array<LinkRange>>(0)
++  private var rowLinkMask = arrayOfNulls<BooleanArray>(0)
++
+   // ── Selection state ──
+   private var selectionMode = false
+   private var actionMode: ActionMode? = null
+@@ -166,7 +204,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        val deltaRows = (scrollAccum / cellHeight).toInt()
        if (deltaRows != 0) {
          scrollAccum -= deltaRows * cellHeight
@@ -163,9 +242,16 @@ index 9d6ad16..9a11424 100644
          markScrollActivity()
          scheduleFrame()
        }
-@@ -194,8 +222,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -193,9 +231,14 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+           clearSelection()
            return true
          }
++        // A tap on a link opens it; it must not raise the keyboard or focus
++        // the terminal, which would steal the window from the browser.
++        linkUriAt((e.x / cellWidth).toInt(), (e.y / cellHeight).toInt())?.let { url ->
++          onOpenLink?.invoke(url)
++          return true
++        }
          requestFocus()
 -        context.getSystemService(InputMethodManager::class.java)
 -          ?.showSoftInput(this@GhosttyTerminalView, 0)
@@ -173,7 +259,20 @@ index 9d6ad16..9a11424 100644
          return true
        }
  
-@@ -229,7 +256,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -204,6 +247,12 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+         lastPressCol = (e.x / cellWidth).toInt().coerceIn(0, cols - 1)
+         lastPressRow = (e.y / cellHeight).toInt().coerceIn(0, rows - 1)
+         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
++        // Long-press on a link copies the exact link instead of selecting the
++        // word under the finger.
++        linkUriAt(lastPressCol, lastPressRow)?.let { url ->
++          copyLink(url)
++          return
++        }
+         selectionMode = GhosttyVt.nativeSelectWord(handle, lastPressCol, lastPressRow)
+         scheduleFrame()
+         if (selectionMode) {
+@@ -229,7 +278,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          val deltaRows = (scrollAccum / cellHeight).toInt()
          if (deltaRows != 0) {
            scrollAccum -= deltaRows * cellHeight
@@ -182,7 +281,7 @@ index 9d6ad16..9a11424 100644
            markScrollActivity()
            scheduleFrame()
          }
-@@ -287,6 +314,25 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -287,6 +336,25 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      textSize = fontSizeDp * resources.displayMetrics.density
    }
  
@@ -208,7 +307,7 @@ index 9d6ad16..9a11424 100644
    /**
     * Base font size in dp (default 14, clamped to 4–64 like iOS); pinch-to-zoom
     * steps from the current value. Content reflows in place — libghostty-vt
-@@ -300,7 +346,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -300,7 +368,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      for (paint in arrayOf(textPaint, boldPaint, italicPaint, boldItalicPaint, symbolsPaint)) {
        paint?.textSize = px
      }
@@ -217,7 +316,7 @@ index 9d6ad16..9a11424 100644
      cellHeight = ceil(textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent).toInt()
      baseline = -textPaint.fontMetrics.ascent
      // Cell geometry moved under any active selection handles.
-@@ -465,9 +511,22 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -465,9 +533,22 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    private fun allocateGridBuffers() {
      val widthPx = max(1, ceil(cols * cellWidth).toInt())
      val heightPx = max(1, rows * cellHeight)
@@ -240,7 +339,176 @@ index 9d6ad16..9a11424 100644
      }
      val capacity = HEADER_BYTES +
        rows * (ROW_HEADER_BYTES + cols * CELL_RECORD_BYTES + cols * MAX_CELL_TEXT_UNITS * 2 + 4)
-@@ -970,6 +1029,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -481,6 +562,8 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+     rowSelStart = IntArray(rows) { -1 }
+     rowSelEnd = IntArray(rows) { -1 }
+     rowSelEndWide = BooleanArray(rows)
++    rowLinks = arrayOfNulls(rows)
++    rowLinkMask = arrayOfNulls(rows)
+   }
+ 
+   // ── Rendering ──
+@@ -526,6 +609,139 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+     invalidate()
+   }
+ 
++  // ── Links ──
++
++  /** One contiguous link run in a row. [segment] is the exact on-screen text;
++   *  empty for OSC 8 runs, whose URI resolves at hit-test time. */
++  private class LinkRange(val startCol: Int, val endCol: Int, val segment: String) {
++    val isOsc8: Boolean get() = segment.isEmpty()
++  }
++
++  /** Rebuild the link ranges for a redrawn row: OSC 8 runs from cell flags,
++   *  plain http(s) URLs from the row text, and one continuation run when the
++   *  previous row's URL reached the final column (a wrapped URL). */
++  private fun updateRowLinks(rowIndex: Int, textUnits: Int) {
++    if (rowIndex >= rowLinks.size) return
++    val mask = BooleanArray(cols)
++    val ranges = ArrayList<LinkRange>(2)
++
++    var col = 0
++    while (col < cols) {
++      if (cellFlags[col] and FLAG_HYPERLINK == 0) { col++; continue }
++      val start = col
++      while (col < cols && cellFlags[col] and FLAG_HYPERLINK != 0) col++
++      ranges.add(LinkRange(start, col - 1, ""))
++      for (c in start until col) mask[c] = true
++    }
++
++    if (textUnits > 0) {
++      val colOf = IntArray(textUnits) { -1 }
++      for (c in 0 until minOf(cols, cellTextLen.size)) {
++        for (i in 0 until cellTextLen[c]) {
++          val idx = cellTextOff[c] + i
++          if (idx < textUnits) colOf[idx] = c
++        }
++      }
++
++      var i = 0
++      while (i < textUnits) {
++        val authorityStart = urlAuthorityStartAt(i, textUnits)
++        if (authorityStart < 0) { i++; continue }
++        var end = authorityStart
++        while (end < textUnits && !isUrlBreak(rowChars[end])) end++
++        val startCol = colOf[i]
++        val endCol = colOf[end - 1]
++        if (startCol >= 0 && endCol >= startCol) {
++          ranges.add(LinkRange(startCol, endCol, String(rowChars, i, end - i)))
++          for (c in startCol..endCol) mask[c] = true
++        }
++        i = end.coerceAtLeast(i + 1)
++      }
++
++      // A wrapped URL continues onto this row when the row above ended with a
++      // plain URL run at the final column and this row opens with a word.
++      if (rowIndex > 0 && ranges.none { it.startCol == 0 && !it.isOsc8 }) {
++        val parent = rowLinks.getOrNull(rowIndex - 1)
++          ?.lastOrNull { !it.isOsc8 && it.endCol >= cols - 1 }
++        if (parent != null) {
++          var end = 0
++          while (end < textUnits && !isUrlBreak(rowChars[end])) end++
++          val endCol = if (end > 0) colOf[end - 1] else -1
++          if (endCol >= 0) {
++            ranges.add(LinkRange(0, endCol, String(rowChars, 0, end)))
++            for (c in 0..endCol) mask[c] = true
++          }
++        }
++      }
++    }
++
++    ranges.sortBy { it.startCol }
++    rowLinks[rowIndex] = if (ranges.isEmpty()) null else ranges.toTypedArray()
++    rowLinkMask[rowIndex] = mask
++  }
++
++  /** Index just past the "scheme://" of an http(s) URL at [i], or -1. */
++  private fun urlAuthorityStartAt(i: Int, textUnits: Int): Int {
++    if (i + 7 > textUnits) return -1
++    if (rowChars[i] != 'h' && rowChars[i] != 'H') return -1
++    val slice = String(rowChars, i, minOf(8, textUnits - i))
++    val offset = when {
++      slice.startsWith("http://") -> 7
++      slice.startsWith("https://") -> 8
++      else -> -1
++    }
++    return if (offset < 0) -1 else i + offset
++  }
++
++  private fun isUrlBreak(c: Char): Boolean =
++    c.isWhitespace() || c == '<' || c == '>' || c == '"' || c == '\'' || c == '`' || c == '|'
++
++  /**
++   * The exact link string at a viewport cell: the OSC 8 URI when the cell is
++   * part of a hyperlink run, otherwise the plain URL joined across wrapped
++   * rows. Returns the printed text as-is apart from trailing URL delimiters.
++   */
++  private fun linkUriAt(col: Int, row: Int): String? {
++    if (handle == 0L || finished) return null
++    val c = col.coerceIn(0, cols - 1)
++    val r = row.coerceIn(0, rows - 1)
++    GhosttyVt.nativeHyperlinkUri(handle, c, r)?.takeIf { it.isNotEmpty() }?.let { return it }
++    val tapped = rowLinks.getOrNull(r)
++      ?.firstOrNull { !it.isOsc8 && c in it.startCol..it.endCol } ?: return null
++    var text = tapped.segment
++    var topRow = r
++    var topRange = tapped
++    while (topRow > 0 && topRange.startCol == 0 && text.length < LINK_MAX_CHARS) {
++      val prev = rowLinks.getOrNull(topRow - 1)
++        ?.lastOrNull { !it.isOsc8 && it.endCol >= cols - 1 } ?: break
++      text = prev.segment + text
++      topRow--
++      topRange = prev
++    }
++    var bottomRow = r
++    var bottomRange = tapped
++    while (bottomRange.endCol >= cols - 1 && text.length < LINK_MAX_CHARS) {
++      val next = rowLinks.getOrNull(bottomRow + 1)
++        ?.firstOrNull { !it.isOsc8 && it.startCol == 0 && !looksLikeFreshUrl(it.segment) } ?: break
++      text += next.segment
++      bottomRow++
++      bottomRange = next
++    }
++    while (text.isNotEmpty() && text.last() in URL_TRAILING_TRIM) text = text.dropLast(1)
++    return text.takeIf { it.isNotEmpty() }
++  }
++
++  private fun looksLikeFreshUrl(segment: String): Boolean {
++    val lower = segment.lowercase()
++    return lower.startsWith("http://") || lower.startsWith("https://")
++  }
++
++  private fun copyLink(url: String) {
++    val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
++    clipboard.setPrimaryClip(ClipData.newPlainText("terminal link", url))
++    android.widget.Toast.makeText(context, "Link copied", android.widget.Toast.LENGTH_SHORT).show()
++  }
++
+   // ── Selection ──
+ 
+   /** Top-left / bottom-right cells of the rendered selection, or null. */
+@@ -836,6 +1052,8 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+     }
+     buf.position(nextRecord)
+ 
++    updateRowLinks(rowIndex, textUnits)
++
+     val top = (rowIndex * cellHeight).toFloat()
+     val bottom = top + cellHeight
+ 
+@@ -871,7 +1089,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+       val x = col * cellWidth
+       canvas.drawText(rowChars, cellTextOff[col], len, x, top + baseline, paint)
+       val runWidth = if (flags and FLAG_WIDE != 0) cellWidth * 2 else cellWidth
+-      if (flags and FLAG_UNDERLINE != 0) {
++      if (flags and FLAG_UNDERLINE != 0 || flags and FLAG_HYPERLINK != 0 ||
++        rowLinkMask.getOrNull(rowIndex)?.getOrNull(col) == true
++      ) {
+         canvas.drawRect(x, bottom - underlineThickness, x + runWidth, bottom, paint)
+       }
+       if (flags and FLAG_STRIKETHROUGH != 0) {
+@@ -970,6 +1190,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
    }
  
@@ -261,7 +529,7 @@ index 9d6ad16..9a11424 100644
    // ── Input ──
  
    override fun onTouchEvent(event: MotionEvent): Boolean {
-@@ -1105,6 +1178,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1105,6 +1339,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val MAX_SCROLLBACK = 10_000L
      const val BLINK_INTERVAL_MS = 600L
      const val SYMBOLS_FONT_ASSET = "SymbolsNerdFontMono-Regular.ttf"
@@ -273,8 +541,34 @@ index 9d6ad16..9a11424 100644
  
      // Nerd Font glyph ranges: BMP private-use area plus the supplementary
      // private-use planes (material icons live at U+F0000+ since v3).
+@@ -1153,5 +1392,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+     const val FLAG_SPACER = 1 shl 8
+     const val FLAG_FG_DEFAULT = 1 shl 9
+     const val FLAG_BG_NONE = 1 shl 10
++    const val FLAG_HYPERLINK = 1 shl 11
++
++    /** Plain URLs join at most this many characters across wrapped rows. */
++    const val LINK_MAX_CHARS = 4096
++    /** URL delimiters trimmed off a joined link's tail, xterm-style. */
++    const val URL_TRAILING_TRIM = ".,;:!?\"')]}>|"
+   }
+ }
+diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyVt.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyVt.kt
+index 8cfe86e..5c39915 100644
+--- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyVt.kt
++++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyVt.kt
+@@ -75,6 +75,9 @@ internal object GhosttyVt {
+   /** Select the word at a viewport cell; false when there is nothing there. */
+   external fun nativeSelectWord(handle: Long, col: Int, row: Int): Boolean
+ 
++  /** OSC 8 hyperlink URI at a viewport cell, or null when the cell has none. */
++  external fun nativeHyperlinkUri(handle: Long, col: Int, row: Int): String?
++
+   external fun nativeSelectAll(handle: Long): Boolean
+ 
+   /** Install a linear selection between two viewport cells (inclusive). */
 diff --git a/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts b/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
-index 0969f13..2394f0a 100644
+index 0969f13..038837f 100644
 --- a/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
 +++ b/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
 @@ -18,6 +18,10 @@ export type TerminalViewRef = {
@@ -297,13 +591,20 @@ index 0969f13..2394f0a 100644
      /** User keyboard/IME input to forward to the PTY. */
      onInput?: (event: {
          nativeEvent: TerminalInputEvent;
-@@ -60,6 +66,11 @@ export type TerminalViewProps = {
+@@ -60,6 +66,18 @@ export type TerminalViewProps = {
      onResize?: (event: {
          nativeEvent: TerminalResizeEvent;
      }) => void;
 +    onScroll?: (event: {
 +        nativeEvent: {
 +            rows: number;
++        };
++    }) => void;
++    /** The user activated a link printed in the grid (plain URL or OSC 8).
++     *  The URL is exact terminal output; validate schemes before opening. */
++    onOpenLink?: (event: {
++        nativeEvent: {
++            url: string;
 +        };
 +    }) => void;
      ref?: Ref<TerminalViewRef>;
@@ -588,7 +889,7 @@ index 7bb1e98..b7d4dce 100644
              super.init(frame: frame)
              commonInit()
 diff --git a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts b/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
-index cbd0ab4..9c868ef 100644
+index cbd0ab4..7123031 100644
 --- a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
 +++ b/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
 @@ -21,6 +21,10 @@ export type TerminalViewRef = {
@@ -602,7 +903,7 @@ index cbd0ab4..9c868ef 100644
  };
  
  export type TerminalTheme = {
-@@ -57,10 +61,14 @@ export type TerminalViewProps = {
+@@ -57,10 +61,17 @@ export type TerminalViewProps = {
     * pass undefined fields to keep ghostty's defaults.
     */
    theme?: TerminalTheme;
@@ -614,6 +915,9 @@ index cbd0ab4..9c868ef 100644
    onResize?: (event: { nativeEvent: TerminalResizeEvent }) => void;
 +  /** Scroll gesture in rows, when the host owns scrollback. */
 +  onScroll?: (event: { nativeEvent: { rows: number } }) => void;
++  /** The user activated a link printed in the grid (plain URL or OSC 8).
++   *  The URL is exact terminal output; validate schemes before opening. */
++  onOpenLink?: (event: { nativeEvent: { url: string } }) => void;
    ref?: Ref<TerminalViewRef>;
    style?: StyleProp<ViewStyle>;
  };

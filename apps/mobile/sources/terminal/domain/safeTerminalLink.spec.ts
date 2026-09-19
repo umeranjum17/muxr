@@ -1,0 +1,56 @@
+import { describe, expect, it, vi } from 'vitest';
+import { openTerminalLink, safeTerminalLinkUrl, terminalUrlAt } from './safeTerminalLink';
+
+/**
+ * One flow: a link the terminal printed (plain text or OSC 8) travels through
+ * the safe-open boundary to the browser. Everything a user actually taps or
+ * copies rides this single function, so the flow test drives it with real
+ * printed output shapes and asserts what reaches the open boundary.
+ */
+describe('terminal printed links open only as safe web URLs', () => {
+    it('opens plain and OSC 8 web links through the boundary, drops every other scheme, and never mutates the exact URL', () => {
+        const open = vi.fn<(url: string) => Promise<void>>().mockResolvedValue(undefined);
+        const tap = (raw: string) => {
+            openTerminalLink(raw, open);
+        };
+
+        // Plain http/https printed in output — forwarded byte-exact.
+        tap('https://example.com/docs/r/1?a=b#section');
+        tap('https://example.test/osc8'); // OSC 8 carries its own URI — same boundary, same verdict.
+        expect(open.mock.calls.map(([url]) => url)).toEqual([
+            'https://example.com/docs/r/1?a=b#section',
+            'https://example.test/osc8',
+        ]);
+
+        // Executable, file, javascript, data and unknown schemes never reach a
+        // handler; terminal output is untrusted.
+        open.mockClear();
+        for (const raw of [
+            'file:///etc/passwd',
+            'javascript:alert(document.cookie)',
+            'data:text/html,<script>fetch("/")</script>',
+            'ssh://host.example.internal',
+            'market://details?id=com.example',
+            'http://', // no host
+            'not a url',
+            '',
+        ]) {
+            tap(raw);
+        }
+        expect(open).not.toHaveBeenCalled();
+
+        // A session may print enormous junk; the boundary caps what it will open.
+        expect(safeTerminalLinkUrl(`https://example.com/${'x'.repeat(4000)}`)).toBeNull();
+
+        // Long-press copy extracts the exact link the finger is on: full
+        // query/fragment kept, trailing punctuation never joins it, a wrapped
+        // URL joined into one string copies as one link, and text that is not
+        // a link (including non-web schemes) copies nothing.
+        expect(terminalUrlAt('see https://example.com/a?b=c#d.', 5)).toBe('https://example.com/a?b=c#d');
+        expect(terminalUrlAt('https://example.com/a, then https://other.test/x', 0)).toBe('https://example.com/a');
+        const wrapped = 'https://example.com/very/long' + '/path/with/query?x=1';
+        expect(terminalUrlAt(' ' + wrapped + ' ', 4)).toBe(wrapped);
+        expect(terminalUrlAt('plain terminal text', 5)).toBeNull();
+        expect(terminalUrlAt('open ssh://git@host:22/repo.git now', 6)).toBeNull();
+    });
+});
