@@ -23,6 +23,7 @@ interface TestRendererInstance {
  */
 
 const previewProps: any[] = [];
+const listProps: any[] = [];
 const treeState = vi.hoisted(() => ({ sessions: {} as Record<string, unknown> }));
 vi.hoisted(() => { (globalThis as any).__DEV__ = true; });
 vi.mock('@/terminal/ui', () => ({
@@ -39,11 +40,25 @@ vi.mock('react-native', async () => {
         Text: 'Text',
         Pressable: 'Pressable',
         FlatList: 'FlatList',
-        // Minimal section container: rows render through the real renderItem.
-        SectionList: (props: any) => React.createElement('View', {}, props.sections.flatMap((section: any) => [
-            props.renderSectionHeader?.({ section }),
-            ...section.data.map((item: any) => props.renderItem({ item })),
-        ])),
+        // Minimal section container: rows render through the real renderItem,
+        // and the list reports its rows viewable once after mount, as the real
+        // one does after layout.
+        SectionList: (props: any) => {
+            const reported = React.useRef(false);
+            React.useEffect(() => {
+                if (reported.current) return;
+                reported.current = true;
+                listProps.push(props);
+                props.onViewableItemsChanged?.({
+                    viewableItems: props.sections.flatMap((section: any) =>
+                        section.data.map((item: any) => ({ item }))),
+                });
+            });
+            return React.createElement('View', {}, props.sections.flatMap((section: any) => [
+                props.renderSectionHeader?.({ section }),
+                ...section.data.map((item: any) => props.renderItem({ item })),
+            ]));
+        },
         AppState: { currentState: 'active' },
         Dimensions: { get: () => ({ width: 390, height: 844 }) },
         Platform: {
@@ -110,7 +125,7 @@ vi.mock('@/modal', () => ({ Modal: () => null }));
 vi.mock('@/components/ui', () => ({ SectionLabel: () => null }));
 vi.mock('@/catalog/store', () => ({
     storage: { getState: () => ({ applyHerdrTree: () => undefined, herdrWorkspaces: [] }) },
-    useSessions: () => Object.values(treeState.sessions),
+    useSession: (id: string) => (treeState.sessions as Record<string, unknown>)[id] ?? null,
 }));
 vi.mock('@/catalog/sync', () => ({ sync: { request: async () => ({}) } }));
 vi.mock('../application/useActivityAcknowledgements', () => ({
@@ -208,7 +223,7 @@ describe('session card flow', () => {
         expect(preview.sessionId).toBe('s1');
         expect(preview.live).toBe(true);
         expect(preview.paused).toBe(false);
-        expect(cardLabel(renderer)).toBe('Fix auth bug, Working');
+        expect(cardLabel(renderer)).toBe('Fix auth bug, status.working');
         expect(textNodes(renderer)).toContain('4m');
         // The mono machine/path caption sits under the name.
         expect(textNodes(renderer)).toContain('extreme · pockit');
@@ -218,7 +233,7 @@ describe('session card flow', () => {
         const renderer = renderSession(baseSession({}), { visible: false });
         const preview = previewProps[previewProps.length - 1];
         expect(preview.paused).toBe(true);
-        expect(cardLabel(renderer)).toBe('Fix auth bug, Working');
+        expect(cardLabel(renderer)).toBe('Fix auth bug, status.working');
     });
 
     it('an offline session does not poll and says when it was last seen', () => {
@@ -230,25 +245,26 @@ describe('session card flow', () => {
         }));
         expect(previewProps[previewProps.length - 1].live).toBe(false);
         expect(textNodes(renderer).join(' ')).toContain('status.lastSeen');
+        expect(textNodes(renderer).join(' ')).toContain('status.offlineSeen');
         expect(cardLabel(renderer)).toBe('Fix auth bug, status.lastSeen time.hoursAgo 2');
     });
 
     it('a session waiting for approval names the ask', () => {
         const renderer = renderSession(baseSession({ state: 'permission_required' }));
-        expect(cardLabel(renderer)).toBe('Fix auth bug, Waiting for your approval');
-        expect(textNodes(renderer)).toContain('Waiting for your approval');
+        expect(cardLabel(renderer)).toBe('Fix auth bug, status.waitingApproval');
+        expect(textNodes(renderer)).toContain('status.waitingApproval');
     });
 
     it('finished results read as done and drop the working poll', () => {
         const renderer = renderSession(baseSession({ state: 'waiting', hasUnread: true }));
         expect(previewProps[previewProps.length - 1].live).toBe(false);
-        expect(cardLabel(renderer)).toBe('Fix auth bug, Done · new results to read');
+        expect(cardLabel(renderer)).toBe('Fix auth bug, status.doneUnread');
     });
 
     it('an idle session stays quiet', () => {
         const renderer = renderSession(baseSession({ state: 'waiting', lifecycleSince: NOW - 75 * 60_000 }));
         expect(previewProps[previewProps.length - 1].live).toBe(false);
-        expect(cardLabel(renderer)).toBe('Fix auth bug, Idle');
+        expect(cardLabel(renderer)).toBe('Fix auth bug, status.idle');
         expect(textNodes(renderer)).toContain('1h');
     });
 
@@ -267,7 +283,7 @@ describe('session card flow', () => {
     it('a draft rides the avatar badge without touching the label', () => {
         const renderer = renderSession(baseSession({ hasDraft: true }));
         expect(renderer.root.findAll((node: any) => node.type === 'Ionicons').length).toBeGreaterThan(0);
-        expect(cardLabel(renderer)).toBe('Fix auth bug, Working');
+        expect(cardLabel(renderer)).toBe('Fix auth bug, status.working');
     });
 });
 
@@ -295,6 +311,7 @@ describe('spaces tree row flow', () => {
             tabs: [{ tabId: 'w1:t1', label: '1', panes: [pane] }],
         } as unknown as HerdrTreeWorkspace;
         previewProps.length = 0;
+        listProps.length = 0;
         if (session === undefined) delete treeState.sessions.s1;
         else treeState.sessions.s1 = { id: 's1', ...session };
         let renderer: unknown;
@@ -347,7 +364,17 @@ describe('spaces tree row flow', () => {
         const preview = previewProps[previewProps.length - 1];
         expect(preview.sessionId).toBe('s1');
         expect(preview.live).toBe(false);
-        expect(textNodes(renderer)).toContain('Idle');
+        expect(textNodes(renderer)).toContain('status.idle');
         expect(textNodes(renderer)).not.toContain('Offline');
+    });
+
+    it('a scrolled-away card pauses its previews without changing what it says', () => {
+        const renderer = renderTree(treePane);
+        expect(previewProps[previewProps.length - 1].paused).toBe(false);
+        TestRenderer.act(() => {
+            listProps[0].onViewableItemsChanged({ viewableItems: [] });
+        });
+        expect(previewProps[previewProps.length - 1].paused).toBe(true);
+        expect(agentRowLabel(renderer)).toContain('Open Fix auth bug');
     });
 });

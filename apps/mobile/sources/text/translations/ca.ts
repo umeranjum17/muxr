@@ -151,6 +151,11 @@ export const ca: TranslationStructure = {
         activeNow: 'Actiu ara',
         unknown: 'desconegut',
         unread: 'nous resultats',
+        doneUnread: 'Fet · nous resultats per llegir',
+        offlineSeen: ({ seen }: { seen: string }) => `Fora de línia · ${seen}`,
+        waitingApproval: 'Esperant la teva aprovació',
+        working: 'Treballant',
+        idle: 'Inactiu',
     },
 
     time: {

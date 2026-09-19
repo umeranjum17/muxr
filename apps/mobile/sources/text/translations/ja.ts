@@ -153,6 +153,11 @@ export const ja: TranslationStructure = {
         activeNow: 'アクティブ',
         unknown: '不明',
         unread: '新しい結果',
+        doneUnread: '完了 · 読むべき新しい結果があります',
+        offlineSeen: ({ seen }: { seen: string }) => `オフライン · ${seen}`,
+        waitingApproval: '承認待ちです',
+        working: '作業中',
+        idle: 'アイドル',
     },
 
     time: {

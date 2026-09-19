@@ -430,6 +430,11 @@ export const ru: TranslationStructure = {
         activeNow: 'Активен сейчас',
         unknown: 'неизвестно',
         unread: 'новые результаты',
+        doneUnread: 'Готово · есть новые результаты',
+        offlineSeen: ({ seen }: { seen: string }) => `Offline · ${seen}`,
+        waitingApproval: 'Ожидает вашего одобрения',
+        working: 'Работает',
+        idle: 'Простаивает',
     },
 
     time: {

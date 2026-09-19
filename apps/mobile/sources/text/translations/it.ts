@@ -150,6 +150,11 @@ export const it: TranslationStructure = {
         activeNow: 'Attivo ora',
         unknown: 'sconosciuto',
         unread: 'nuovi risultati',
+        doneUnread: 'Fatto · nuovi risultati da leggere',
+        offlineSeen: ({ seen }: { seen: string }) => `Offline · ${seen}`,
+        waitingApproval: 'In attesa della tua approvazione',
+        working: 'Al lavoro',
+        idle: 'Inattivo',
     },
 
     time: {

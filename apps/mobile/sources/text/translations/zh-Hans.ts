@@ -153,6 +153,11 @@ export const zhHans: TranslationStructure = {
         activeNow: '当前活跃',
         unknown: '未知',
         unread: '新结果',
+        doneUnread: '已完成 · 有新结果可读',
+        offlineSeen: ({ seen }: { seen: string }) => `离线 · ${seen}`,
+        waitingApproval: '等待你的批准',
+        working: '工作中',
+        idle: '空闲',
     },
 
     time: {

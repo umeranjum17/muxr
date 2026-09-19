@@ -5,13 +5,14 @@ import {
     Pressable,
     SectionList,
     View,
+    ViewToken,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@muxr/contract';
 import { Text } from '@/components/StyledText';
 import { Modal } from '@/modal';
-import { storage, useSessions } from '@/catalog/store';
+import { storage, useSession } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
@@ -354,6 +355,7 @@ const AgentRow = React.memo(({
     selected,
     canClose,
     unseenDone,
+    visible = true,
 }: {
     pane: HerdrTreePane;
     first?: boolean;
@@ -363,6 +365,8 @@ const AgentRow = React.memo(({
     selected: boolean;
     canClose: boolean;
     unseenDone: boolean;
+    /** False when the list scrolled the row out of view: pauses its snapshot. */
+    visible?: boolean;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -375,11 +379,8 @@ const AgentRow = React.memo(({
     const subtitle = agentIdentityLine(labels);
     // A shell at a prompt is idle; only herdr's unknown-for-agents keeps the
     // established 'Offline' vocabulary from the grid.
-    const sessions = useSessions();
-    const changedAt = sessionId !== undefined
-        ? sessions.find((session) => session.id === sessionId)?.metadata?.lifecycleStateSince
-        : undefined;
-    const stateLabel = shell ? 'Idle' : agentStateLabel(pane.agentStatus, changedAt);
+    const changedAt = useSession(sessionId ?? '')?.metadata?.lifecycleStateSince;
+    const stateLabel = shell ? t('status.idle') : agentStateLabel(pane.agentStatus, changedAt);
     const cwdLeaf = pane.cwd !== undefined && pane.cwd !== '' ? sessionPathLeaf(pane.cwd) : null;
     const live = pane.agentStatus === 'working' || pane.agentStatus === 'starting';
     // One weight rule: bright means "has something for you". A finished
@@ -394,8 +395,9 @@ const AgentRow = React.memo(({
             importantForAccessibility="no-hide-descendants"
         >
             {/* Working panes poll the visible screen; the rest take one
-                snapshot per mount. The app-background pause is built in. */}
-            <TerminalPreview sessionId={sessionId} live={live} maxLines={4} nonEmpty />
+                snapshot per mount. Paused with the app or the scrolled-away
+                card. */}
+            <TerminalPreview sessionId={sessionId} live={live} paused={!visible} maxLines={4} nonEmpty />
             <View style={styles.agentPreviewGlyph} pointerEvents="none">{glyph}</View>
         </View>
     );
@@ -560,6 +562,7 @@ const ChildRow = React.memo(({
     selectedSessionId,
     canClose,
     unseenDoneSessionIds,
+    visible,
 }: {
     child: HerdChildSpace;
     /** The rail stops at the last child. */
@@ -571,6 +574,7 @@ const ChildRow = React.memo(({
     selectedSessionId?: string;
     canClose: boolean;
     unseenDoneSessionIds: ReadonlySet<string>;
+    visible: boolean;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -623,6 +627,7 @@ const ChildRow = React.memo(({
                         selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
                         canClose={canClose}
                         unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
+                        visible={visible}
                     />
                 </View>
             ))}
@@ -647,6 +652,7 @@ const WorkspaceCard = React.memo(({
     selectedSessionId,
     canClose,
     unseenDoneSessionIds,
+    visible,
 }: {
     workspace: HerdrTreeWorkspace;
     expanded: boolean;
@@ -665,6 +671,8 @@ const WorkspaceCard = React.memo(({
     selectedSessionId?: string;
     canClose: boolean;
     unseenDoneSessionIds: ReadonlySet<string>;
+    /** False when the list scrolled this card out of view: pauses its previews. */
+    visible: boolean;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -740,6 +748,7 @@ const WorkspaceCard = React.memo(({
                     selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
                     canClose={canClose}
                     unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
+                    visible={visible}
                 />
             ))}
             {expanded && childSpaces.length > 0 && (
@@ -762,6 +771,7 @@ const WorkspaceCard = React.memo(({
                     selectedSessionId={selectedSessionId}
                     canClose={canClose}
                     unseenDoneSessionIds={unseenDoneSessionIds}
+                    visible={visible}
                 />
             ))}
         </View>
@@ -862,6 +872,22 @@ export const SpacesTree = React.memo(({
         ]);
     }, [refresh]);
 
+    // Cards hand their snapshots' cost to this set: a mounted-but-scrolled-away
+    // card pauses its TerminalPreviews, the same cadence the sessions list uses.
+    const [visibleWorkspaceIds, setVisibleWorkspaceIds] = React.useState<ReadonlySet<string>>(() => new Set());
+    const visibleKeyRef = React.useRef('');
+    const onViewableItemsChanged = React.useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+        const ids: string[] = [];
+        for (const token of viewableItems) {
+            ids.push((token.item as HerdSpaceRow).workspace.workspaceId);
+        }
+        const key = ids.join('|');
+        if (key === visibleKeyRef.current) return;
+        visibleKeyRef.current = key;
+        setVisibleWorkspaceIds(new Set(ids));
+    }).current;
+    const viewabilityConfig = React.useRef({ itemVisiblePercentThreshold: 20 }).current;
+
     const searching = searchQuery.trim() !== '';
 
     const sections = React.useMemo(
@@ -887,8 +913,9 @@ export const SpacesTree = React.memo(({
             selectedSessionId={selectedSessionId}
             canClose={canClose}
             unseenDoneSessionIds={unseenDoneSessionIds}
+            visible={visibleWorkspaceIds.has(item.workspace.workspaceId)}
         />
-    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, onNavigatePane, searching, selectedSessionId, toggleWorkspace, unseenDoneSessionIds]);
+    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, onNavigatePane, searching, selectedSessionId, toggleWorkspace, unseenDoneSessionIds, visibleWorkspaceIds]);
 
     if (loading === true) {
         return (
@@ -919,6 +946,9 @@ export const SpacesTree = React.memo(({
                 </>}
                 onScroll={onScroll}
                 scrollEventThrottle={100}
+                extraData={[selectedSessionId, visibleWorkspaceIds]}
+                onViewableItemsChanged={onViewableItemsChanged}
+                viewabilityConfig={viewabilityConfig}
                 contentContainerStyle={{ paddingTop: topContentInset, paddingBottom: bottomContentInset }}
             />
         </View>

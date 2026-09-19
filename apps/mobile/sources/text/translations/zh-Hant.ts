@@ -152,6 +152,11 @@ export const zhHant: TranslationStructure = {
         activeNow: '目前活躍',
         unknown: '未知',
         unread: '新結果',
+        doneUnread: '已完成 · 有新結果可讀',
+        offlineSeen: ({ seen }: { seen: string }) => `離線 · ${seen}`,
+        waitingApproval: '等待你的核準',
+        working: '工作中',
+        idle: '閒置',
     },
 
     time: {

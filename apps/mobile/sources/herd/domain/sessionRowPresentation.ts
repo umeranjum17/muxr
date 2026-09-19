@@ -39,21 +39,22 @@ export function sessionStateSentence(
     now: number = Date.now(),
 ): SessionStateCopy {
     if (session.hasUnread) {
-        const done = 'Done · new results to read';
+        const done = t('status.doneUnread');
         return { sentence: done, factual: done, elapsed: null };
     }
     if (session.state === 'disconnected') {
         const seen = t('status.lastSeen', { time: formatLastSeen(session.activeAt!, false) });
-        return { sentence: `Offline · ${seen}`, factual: seen, elapsed: null };
+        return { sentence: t('status.offlineSeen', { seen }), factual: seen, elapsed: null };
     }
     if (session.state === 'permission_required') {
-        const waiting = 'Waiting for your approval';
+        const waiting = t('status.waitingApproval');
         return { sentence: waiting, factual: waiting, elapsed: stateAge(session, now) };
     }
     if (session.state === 'thinking') {
-        return { sentence: vibingMessage, factual: 'Working', elapsed: stateAge(session, now) };
+        return { sentence: vibingMessage, factual: t('status.working'), elapsed: stateAge(session, now) };
     }
-    return { sentence: 'Idle', factual: 'Idle', elapsed: stateAge(session, now) };
+    const idle = t('status.idle');
+    return { sentence: idle, factual: idle, elapsed: stateAge(session, now) };
 }
 
 /** The quiet mono caption: machine and path leaf, only from what exists. */

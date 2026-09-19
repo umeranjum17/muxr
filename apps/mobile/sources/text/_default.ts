@@ -149,6 +149,11 @@ export const en = {
         activeNow: 'Active now',
         unknown: 'unknown',
         unread: 'new results',
+        doneUnread: 'Done · new results to read',
+        offlineSeen: ({ seen }: { seen: string }) => `Offline · ${seen}`,
+        waitingApproval: 'Waiting for your approval',
+        working: 'Working',
+        idle: 'Idle',
     },
 
     time: {
