@@ -32,6 +32,22 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
 }));
 
+// Real display-mode signals only: an installed PWA runs standalone (iOS Safari
+// only reports navigator.standalone), a browser tab never does, and a narrow
+// window proves nothing about installation.
+function detectInstallContext(): 'native' | 'standalone' | 'browser' {
+    if (Platform.OS !== 'web') return 'native';
+    if (typeof navigator !== 'undefined' && (navigator as { standalone?: boolean }).standalone === true) return 'standalone';
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches) return 'standalone';
+    return 'browser';
+}
+
+const installContextTitles: Record<ReturnType<typeof detectInstallContext>, string> = {
+    native: 'Installed app',
+    standalone: 'Installed web app',
+    browser: 'Web app',
+};
+
 /** One destination for installed versions, update guidance and connection evidence. */
 export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?: string }) {
     const { theme } = useUnistyles();
@@ -91,7 +107,7 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
                 onPress={installBlocked === undefined ? () => void update.check() : undefined}
             />
             {!update.message && <Text style={stylesheet.guidance}>{guidance}</Text>}
-            <Item title={Platform.OS === 'web' ? 'Web app' : 'Installed app'} subtitle={`Version ${exactRelease ?? appVersion}${build ? ` · build ${build}` : ''}`}
+            <Item title={installContextTitles[detectInstallContext()]} subtitle={`Version ${exactRelease ?? appVersion}${build ? ` · build ${build}` : ''}`}
                 subtitleLines={0} onPress={versionClick} showChevron={false} />
             <Item title="Source" subtitle={sourceLine} subtitleLines={0} />
             <Item title="Connected host" subtitle={hostVersion ? `Version ${hostVersion}` : 'Unavailable until the host reports it'} subtitleLines={0} />
