@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Pressable, FlatList, NativeScrollEvent, NativeSyntheticEvent, Platform } from 'react-native';
+import { View, Pressable, FlatList, NativeScrollEvent, NativeSyntheticEvent, Platform, ViewToken } from 'react-native';
 import { Text } from '@/components/StyledText';
 import { usePathname } from 'expo-router';
 import { SessionListViewItem, SessionRowData } from '@/catalog/store';
@@ -23,11 +23,12 @@ import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPop
 import { t } from '@/text';
 import { SessionShortcutHintBadge } from '@/components/ShortcutHints';
 import { ProviderIcon } from '@/components/ProviderIcon';
+import { TerminalPreview } from '@/terminal/ui';
 import {
     filterSessionList,
     sessionCardPlacement,
-    sessionPathLeaf,
-    sessionRowStatusCopy,
+    sessionMachineCaption,
+    sessionStateSentence,
     sessionSubtitleKind,
 } from '../domain/sessionRowPresentation';
 
@@ -57,7 +58,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         ...Typography.default('semiBold'),
     },
     sessionItem: {
-        height: 88,
+        height: 100,
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 16,
@@ -102,7 +103,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     sessionContent: {
         flex: 1,
-        marginLeft: 16,
+        marginLeft: 12,
         justifyContent: 'center',
     },
     sessionTitleRow: {
@@ -150,17 +151,46 @@ const stylesheet = StyleSheet.create((theme) => ({
         marginRight: 4,
     },
 
+    // The card's live thumbnail: a real read of the pane's visible screen in
+    // the slot the avatar used to own, with the avatar as a small badge so the
+    // agent stays recognizable when the terminal is blank.
+    previewBlock: {
+        width: 80,
+        height: 56,
+        borderRadius: 10,
+        overflow: 'hidden',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    previewAvatarFallback: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surfaceHigh,
+    },
+    previewAvatarBadge: {
+        position: 'absolute',
+        left: 4,
+        bottom: 4,
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        borderWidth: 1.5,
+        borderColor: theme.colors.surface,
+        backgroundColor: theme.colors.surface,
+    },
+
     avatarContainer: {
         position: 'relative',
-        width: 48,
-        height: 48,
+        width: 20,
+        height: 20,
     },
     draftIconContainer: {
         position: 'absolute',
-        bottom: -2,
-        right: -2,
-        width: 18,
-        height: 18,
+        bottom: -3,
+        right: -3,
+        width: 12,
+        height: 12,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -211,6 +241,23 @@ export function SessionsList({
         () => filterSessionList(sourceData, searchQuery),
         [searchQuery, sourceData],
     );
+
+    // Rows hand their snapshot cost to this set: a mounted-but-scrolled-away
+    // card pauses its TerminalPreview, the same cadence the pane grid uses.
+    const [visibleSessionIds, setVisibleSessionIds] = React.useState<ReadonlySet<string>>(() => new Set());
+    const visibleKeyRef = React.useRef('');
+    const onViewableItemsChanged = React.useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+        const ids: string[] = [];
+        for (const token of viewableItems) {
+            const item = token.item as SessionListViewItem;
+            if (item.type === 'session') ids.push(item.session.id);
+        }
+        const key = ids.join('|');
+        if (key === visibleKeyRef.current) return;
+        visibleKeyRef.current = key;
+        setVisibleSessionIds(new Set(ids));
+    }).current;
+    const viewabilityConfig = React.useRef({ itemVisiblePercentThreshold: 20 }).current;
 
     // Early return if no data yet
     if (!data) {
@@ -264,10 +311,11 @@ export function SessionsList({
                         isFirst={isFirst}
                         isLast={isLast}
                         isSingle={isSingle}
+                        visible={visibleSessionIds.has(item.session.id)}
                     />
                 );
         }
-    }, [selectedSessionId, data]);
+    }, [selectedSessionId, data, visibleSessionIds]);
 
     const HeaderComponent = React.useCallback(() => {
         return (
@@ -285,7 +333,9 @@ export function SessionsList({
                     data={data}
                     renderItem={renderItem}
                     keyExtractor={keyExtractor}
-                    extraData={selectedSessionId}
+                    extraData={[selectedSessionId, visibleSessionIds]}
+                    onViewableItemsChanged={onViewableItemsChanged}
+                    viewabilityConfig={viewabilityConfig}
                     contentContainerStyle={{
                         paddingTop: topContentInset,
                         paddingBottom: safeArea.bottom + bottomContentInset,
@@ -308,12 +358,14 @@ export function SessionsList({
     );
 }
 
-export const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }: {
+export const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle, visible = true }: {
     session: SessionRowData;
     selected?: boolean;
     isFirst?: boolean;
     isLast?: boolean;
     isSingle?: boolean;
+    /** False when the list scrolled the row out of view: pauses its snapshot. */
+    visible?: boolean;
 }) => {
     const styles = stylesheet;
     const { theme } = useUnistyles();
@@ -329,7 +381,7 @@ export const SessionItem = React.memo(({ session, selected, isFirst, isLast, isS
         return vibingMessages[Math.floor(Math.random() * vibingMessages.length)].toLowerCase() + '…';
     }, [session.state]);
 
-    const { visible: statusText, factual: factualStatus } = sessionRowStatusCopy(session, vibingMessage);
+    const { sentence, factual: factualStatus, elapsed } = sessionStateSentence(session, vibingMessage);
 
     const handlePress = React.useCallback(() => {
         navigateToSession(session.id);
@@ -363,6 +415,10 @@ export const SessionItem = React.memo(({ session, selected, isFirst, isLast, isS
         middle: {},
     }[placement];
     const subtitleKind = sessionSubtitleKind(session);
+    const herdrBacked = session.clientId === 'herdr';
+    const avatar = (
+        <Avatar id={session.avatarId} size={herdrBacked ? 20 : 40} monochrome={!status.isConnected} flavor={session.flavor} clientId={session.clientId} />
+    );
     const rowOpacity = settled ? 0.75 : 1;
 
     const row = (
@@ -379,15 +435,49 @@ export const SessionItem = React.memo(({ session, selected, isFirst, isLast, isS
             accessibilityLabel={`${session.name}, ${factualStatus}`}
             {...menuProps}
         >
-            <View style={styles.avatarContainer}>
-                <Avatar id={session.avatarId} size={48} monochrome={!status.isConnected} flavor={session.flavor} clientId={session.clientId} />
-                {session.hasDraft && (
-                    <View style={styles.draftIconContainer}>
-                        <Ionicons
-                            name="create-outline"
-                            size={12}
-                            style={styles.draftIconOverlay}
-                        />
+            <View
+                style={styles.previewBlock}
+                accessible={false}
+                importantForAccessibility="no-hide-descendants"
+            >
+                {herdrBacked ? (
+                    // Working panes poll the visible screen; the rest take one
+                    // snapshot per look. Paused with the app or the row.
+                    <TerminalPreview
+                        sessionId={session.id}
+                        live={session.state === 'thinking'}
+                        paused={!visible}
+                        maxLines={6}
+                        nonEmpty
+                    />
+                ) : (
+                    <View style={styles.previewAvatarFallback} pointerEvents="none">
+                        <View style={styles.avatarContainer}>
+                            {avatar}
+                            {session.hasDraft && (
+                                <View style={styles.draftIconContainer}>
+                                    <Ionicons
+                                        name="create-outline"
+                                        size={12}
+                                        style={styles.draftIconOverlay}
+                                    />
+                                </View>
+                            )}
+                        </View>
+                    </View>
+                )}
+                {herdrBacked && (
+                    <View style={styles.previewAvatarBadge} pointerEvents="none">
+                        {avatar}
+                        {session.hasDraft && (
+                            <View style={styles.draftIconContainer}>
+                                <Ionicons
+                                    name="create-outline"
+                                    size={12}
+                                    style={styles.draftIconOverlay}
+                                />
+                            </View>
+                        )}
                     </View>
                 )}
             </View>
@@ -413,12 +503,8 @@ export const SessionItem = React.memo(({ session, selected, isFirst, isLast, isS
                         </Text>
                     </View>
                 )}
-                {subtitleKind === 'path' && (
-                    <View style={styles.sessionSubtitleRow}>
-                        <Text style={styles.sessionSubtitle} numberOfLines={1}>
-                            {sessionPathLeaf(session.path!)}
-                        </Text>
-                    </View>
+                {subtitleKind === 'machine-path' && (
+                    <SessionMetaLine segments={[{ text: sessionMachineCaption(session) }]} />
                 )}
                 {subtitleKind === 'subtitle' && (
                     <Text style={styles.sessionSubtitle} numberOfLines={1}>
@@ -430,12 +516,13 @@ export const SessionItem = React.memo(({ session, selected, isFirst, isLast, isS
                     <View style={styles.statusDotContainer}>
                         <StatusDot color={status.dotColor} isPulsing={status.isPulsing} />
                     </View>
-                    {/* Verb first, then context. Settled rows spend no colour,
-                        so the eye lands on the one still working. */}
+                    {/* One dot, one sentence, quiet duration. Settled rows spend
+                        no colour, so the eye lands on the one still working. */}
                     <SessionMetaLine
                         style={{ flex: 1 }}
                         segments={[
-                            { text: statusText, color: settled ? theme.colors.textSecondary : status.color },
+                            { text: sentence, color: settled ? theme.colors.textSecondary : status.color },
+                            { text: elapsed },
                             { text: session.modelName },
                             { text: session.activitySummary },
                         ]}

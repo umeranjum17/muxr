@@ -61,6 +61,7 @@ export interface SessionRowData {
     hasDraft: boolean;
     active: boolean;
     machineId: string | null;
+    host: string | null;
     path: string | null;
     homeDir: string | null;
     /** herdr workspace the session's pane lives in (label or cwd). */
@@ -73,6 +74,8 @@ export interface SessionRowData {
     worktreeRepo: string | null;
     worktreeBranch: string | null;
     hasUnread: boolean;
+    /** When the herdr agent lifecycle last changed; drives elapsed copy. */
+    lifecycleSince?: number;
 }
 
 export type SessionListViewItem =
@@ -106,6 +109,7 @@ function buildSessionRowData(session: Session, workspaces: readonly HerdrTreeWor
         hasDraft: !!session.draft,
         active: session.active,
         machineId: session.metadata?.machineId ?? null,
+        host: session.metadata?.host ?? null,
         path: session.metadata?.path ?? null,
         homeDir: session.metadata?.homeDir ?? null,
         workspaceLabel: session.metadata?.workspaceLabel ?? null,
@@ -116,6 +120,7 @@ function buildSessionRowData(session: Session, workspaces: readonly HerdrTreeWor
         worktreeRepo: session.metadata?.worktree?.repo ?? null,
         worktreeBranch: session.metadata?.worktree?.branch ?? null,
         hasUnread: false,
+        lifecycleSince: session.metadata?.lifecycleStateSince,
     };
 }
 
