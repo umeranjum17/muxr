@@ -153,6 +153,8 @@ export class TerminalManager {
             }, ATTACH_TIMEOUT_MS);
             socket.once('open', () => {
                 clearTimeout(timer);
+                // Small input frames must not wait on Nagle/delayed-ACK stalls.
+                (socket as unknown as { _socket?: { setNoDelay(on: boolean): void } })._socket?.setNoDelay(true);
                 resolve();
             });
             socket.once('error', (error: Error) => {

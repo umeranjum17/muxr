@@ -9,9 +9,16 @@
  * restart) used to be terminal -- the screen stayed 'disconnected' until
  * re-opened. Now the channel re-attaches itself with backoff and only reports
  * closed when the host says the stream ended or retries run out.
+ *
+ * Input path: keystrokes that arrive in the same JS task join into one
+ * terminal.input frame, and printable keys are echoed locally as dimmed
+ * (SGR faint) predictions that herdr's next frame paints over with the real
+ * bytes. Predictions are display-only: they ride a separate listener so they
+ * never masquerade as host output.
  */
 
 import { issueWsTicket, newTerminalChannel, ticketSocketUrl, type Envelope } from '@muxr/contract';
+import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 import { storage } from '@/catalog/store';
@@ -31,6 +38,8 @@ export interface TerminalChannel {
     recordFrameWritten: () => void;
     /** base64 ANSI chunks from the pane. */
     onData: (listener: (base64: string) => void) => () => void;
+    /** Locally predicted echo (dimmed). Display-only: never host output. */
+    onPredictedData: (listener: (base64: string) => void) => () => void;
     onClose: (listener: (reason?: string) => void) => () => void;
     /**
      * Where herdr's viewport sits in this pane, as herdr reports it. Nothing
@@ -153,6 +162,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
 
     const dataListeners = new Set<(base64: string) => void>();
     const pendingData: string[] = [];
+    const predictedDataListeners = new Set<(base64: string) => void>();
     const closeListeners = new Set<(reason?: string) => void>();
     const stateListeners = new Set<(state: TerminalChannelState) => void>();
     const scrollStateListeners = new Set<(state: { offsetFromBottom: number; maxOffsetFromBottom: number }) => void>();
@@ -223,6 +233,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     }
     watchHost();
 
+    type QueuedInput = { kind: 'text'; text: string } | { kind: 'bytes'; bytes: Uint8Array };
+    let queuedInput: QueuedInput | undefined;
+    let inputFlushScheduled = false;
+
     function scheduleRetry(): void {
         if (closedByUser || retryTimer !== undefined) return;
         attempts += 1;
@@ -236,6 +250,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         // Drop queued input: keystrokes buffered across a long disconnect are
         // stale the moment the user sees the dead screen.
         outbox.length = 0;
+        queuedInput = undefined;
         retryTimer = setTimeout(() => {
             retryTimer = undefined;
             requestAttach(false);
@@ -457,6 +472,9 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     }
 
     const send = (frame: Record<string, unknown>): void => {
+        // A resize/scroll/close must not overtake keystrokes already waiting
+        // in the microbatch.
+        if (frame.type !== 'terminal.input') flushInput();
         const plaintext = JSON.stringify(frame);
         const sealed = hosted?.seal('terminal', channel, plaintext);
         const line = sealed === undefined ? plaintext : JSON.stringify({
@@ -474,6 +492,59 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         } satisfies Envelope);
         if (socket !== undefined && socket.readyState === 1) socket.send(line);
         else outbox.push(line);
+    };
+
+    // Keystroke microbatch: keys landing in the same JS task join into one
+    // terminal.input frame -- one seal, one envelope, one wire frame instead
+    // of N. The queue flushes on a microtask, so an isolated key still goes
+    // out before the task ends: nothing waits artificially.
+    const flushInput = (): void => {
+        inputFlushScheduled = false;
+        const item = queuedInput;
+        queuedInput = undefined;
+        if (item === undefined) return;
+        if (item.kind === 'text') send({ type: 'terminal.input', text: item.text });
+        else send({ type: 'terminal.input', bytes: encodeBase64(item.bytes) });
+    };
+    const queueInput = (item: QueuedInput): void => {
+        const held = queuedInput;
+        if (held === undefined) {
+            queuedInput = item;
+        } else if (held.kind === 'text' && item.kind === 'text') {
+            held.text += item.text;
+        } else if (held.kind === 'bytes' && item.kind === 'bytes') {
+            const joined = new Uint8Array(held.bytes.length + item.bytes.length);
+            joined.set(held.bytes, 0);
+            joined.set(item.bytes, held.bytes.length);
+            queuedInput = { kind: 'bytes', bytes: joined };
+        } else {
+            // Mixed kinds keep wire order: flush the old kind first.
+            flushInput();
+            queuedInput = item;
+        }
+        if (!inputFlushScheduled) {
+            inputFlushScheduled = true;
+            queueMicrotask(flushInput);
+        }
+    };
+
+    // Local echo prediction: paint printable input immediately, dimmed (SGR
+    // faint). herdr's next frame redraws those cells with real attributes,
+    // which replaces a confirmed prediction for free; a wrong one (password
+    // prompt, silent program) stays faint until the program repaints those
+    // cells. No active erasure: we own no cursor position, and a backward
+    // erase that cannot see line wraps would corrupt real cells.
+    // ponytail: character-level only; a line-aware predictor is the upgrade
+    // path if silent programs ever make the faint ghosts annoying.
+    const encoder = new TextEncoder();
+    const predictEcho = (text: string): void => {
+        if (closedByUser || state !== 'live') return;
+        for (const char of text) {
+            const code = char.codePointAt(0)!;
+            if (code < 0x20 || code === 0x7f) return;
+        }
+        const predicted = encodeBase64(encoder.encode(`\x1b[2m${text}\x1b[22m`));
+        for (const listener of predictedDataListeners) listener(predicted);
     };
 
     return {
@@ -500,9 +571,20 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             listener(state);
             return () => stateListeners.delete(listener);
         },
-        sendText: (text) => send({ type: 'terminal.input', text }),
+        onPredictedData: (listener) => {
+            predictedDataListeners.add(listener);
+            return () => predictedDataListeners.delete(listener);
+        },
+        sendText: (text) => {
+            predictEcho(text);
+            queueInput({ kind: 'text', text });
+        },
         reconnect: reconnectNow,
-        sendBytes: (base64) => send({ type: 'terminal.input', bytes: base64 }),
+        sendBytes: (base64) => {
+            const bytes = decodeBase64(base64);
+            predictEcho(new TextDecoder().decode(bytes));
+            queueInput({ kind: 'bytes', bytes });
+        },
         resize: (cols, rows) => {
             current = { cols, rows };
             send({ type: 'terminal.resize', cols, rows });

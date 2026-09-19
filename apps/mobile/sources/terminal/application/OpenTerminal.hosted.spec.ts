@@ -171,6 +171,7 @@ describe('openTerminal hosted transport', () => {
 
         // Phone -> host: input leaves sealed on the same channel.
         channel.sendText('ls');
+        await Promise.resolve(); // input flushes on a microtask
         expect(mocks.seal).toHaveBeenCalledWith('terminal', streamId, JSON.stringify({ type: 'terminal.input', text: 'ls' }));
         expect(socket.send).toHaveBeenCalledTimes(1);
         const sent = JSON.parse(socket.send.mock.calls[0]![0] as string) as { header: Record<string, unknown>; payload: string };

@@ -404,6 +404,7 @@ describe('openTerminal reconnect ownership', () => {
             const shell = FakeWebSocket.instances.at(-1)!;
             shell.open();
             mocks.terminalChannels.get('shell:work-pane')!.sendText('pwd\n');
+            await TestRenderer.act(async () => {}); // input flushes on a microtask
             expect(JSON.parse(shell.send.mock.calls.at(-1)![0] as string)).toEqual({ type: 'terminal.input', text: 'pwd\n' });
             await TestRenderer.act(async () => { rendered!.update(React.createElement(TerminalRoute, { id: 'shell:work-pane' })); });
             await TestRenderer.act(async () => {
@@ -416,6 +417,7 @@ describe('openTerminal reconnect ownership', () => {
             const second = FakeWebSocket.instances.at(-1)!;
             second.open();
             mocks.terminalChannels.get('second-agent')!.sendText('Continue');
+            await TestRenderer.act(async () => {}); // input flushes on a microtask
             expect(JSON.parse(second.send.mock.calls.at(-1)![0] as string).text).toBe('Continue');
             expect(mocks.terminalMounts).toEqual(['first-agent', 'shell:work-pane', 'second-agent']);
             await TestRenderer.act(async () => { rendered!.update(React.createElement(TerminalRoute, { id: 'second-agent' })); });
@@ -464,6 +466,59 @@ describe('openTerminal reconnect ownership', () => {
         expect(report).not.toMatch(/full-frame|second|pp_|pwt-|devtok_|machine-|session-/);
         channel.recordFrameWritten();
         expect(readConnectionDiagnostics().filter((event) => event.event === 'terminal.frames')).toHaveLength(1);
+    });
+
+    it('joins same-task keystrokes into one input frame and still flushes each kind in order', async () => {
+        mocks.request.mockResolvedValue({});
+        const channel = await openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } });
+        await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
+        const socket = FakeWebSocket.instances[0]!;
+        socket.open();
+
+        // Two keystrokes in one task: one frame, joined bytes. The bytes key
+        // that follows is a different wire kind, so it goes after, not inside.
+        channel.sendText('a');
+        channel.sendText('b');
+        channel.sendBytes(encodeBase64(new TextEncoder().encode('c')));
+        await vi.waitFor(() => expect(socket.send).toHaveBeenCalledTimes(2));
+        expect(JSON.parse(socket.send.mock.calls[0]![0] as string)).toEqual({ type: 'terminal.input', text: 'ab' });
+        expect(JSON.parse(socket.send.mock.calls[1]![0] as string)).toEqual({
+            type: 'terminal.input',
+            bytes: encodeBase64(new TextEncoder().encode('c')),
+        });
+
+        // An isolated key still flushes within the same task: no artificial
+        // delay on the common single-keystroke path.
+        channel.sendText('x');
+        await vi.waitFor(() => expect(socket.send).toHaveBeenCalledTimes(3));
+        expect(JSON.parse(socket.send.mock.calls[2]![0] as string)).toEqual({ type: 'terminal.input', text: 'x' });
+        channel.close();
+    });
+
+    it('echoes printable input locally as dimmed predictions that never masquerade as host output', async () => {
+        mocks.request.mockResolvedValue({});
+        const channel = await openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } });
+        await vi.waitFor(() => expect(FakeWebSocket.instances[0]).toBeDefined());
+        const socket = FakeWebSocket.instances[0]!;
+        socket.open();
+        // The host must answer before the pane counts as live.
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'paint' }) });
+        const predicted: string[] = [];
+        const host: string[] = [];
+        channel.onPredictedData((bytes) => predicted.push(bytes));
+        channel.onData((bytes) => host.push(bytes));
+
+        // Printable text (including multibyte) predicts once, SGR-faint.
+        channel.sendText('héllo');
+        expect(predicted).toEqual([encodeBase64(new TextEncoder().encode('\x1b[2mhéllo\x1b[22m'))]);
+        expect(host).toEqual(['paint']);
+
+        // Control characters are never predicted: the real output is the truth.
+        channel.sendText('pwd\n');
+        channel.sendBytes(encodeBase64(new TextEncoder().encode('\x1b[A')));
+        expect(predicted).toHaveLength(1);
+        expect(host).toEqual(['paint']);
+        channel.close();
     });
 });
 

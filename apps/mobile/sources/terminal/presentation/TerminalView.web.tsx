@@ -125,6 +125,15 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         requestAnimationFrame(flushFrames);
                     }
                 });
+                // Predicted echo joins the same ordered frame queue; it is not
+                // host output, so it is never recorded as pane output.
+                opened.onPredictedData((base64) => {
+                    pending.push(base64);
+                    if (!frameScheduled) {
+                        frameScheduled = true;
+                        requestAnimationFrame(flushFrames);
+                    }
+                });
                 opened.onState((state) => onStatus?.(state));
                 opened.onClose((reason) => onStatus?.(reason ?? 'closed'));
                 term.onData((data) => opened.sendText(data));
