@@ -11,13 +11,16 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@muxr/contract';
 import { Text } from '@/components/StyledText';
 import { Modal } from '@/modal';
-import { storage } from '@/catalog/store';
+import { storage, useSessions } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
 import { buildSpaceRows, groupKind, groupSummaryCounts, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
 import { agentIdentityLine, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
+import { sessionPathLeaf } from '../domain/sessionRowPresentation';
+import { SessionMetaLine } from './SessionRowParts';
+import { TerminalPreview } from '@/terminal/ui';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
 import { SectionLabel } from '@/components/ui';
@@ -124,6 +127,24 @@ const stylesheet = StyleSheet.create((theme) => ({
         minHeight: 56,
         paddingVertical: 8,
     },
+    agentPreview: {
+        width: 48,
+        height: 36,
+        borderRadius: 8,
+        overflow: 'hidden',
+        backgroundColor: '#0c0c0b',
+    },
+    agentPreviewGlyph: {
+        position: 'absolute',
+        left: 2,
+        bottom: 2,
+        width: 16,
+        height: 16,
+        borderRadius: 8,
+        backgroundColor: theme.colors.surface,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     agentPressableCompact: {
         minHeight: 48,
         paddingVertical: 6,
@@ -150,14 +171,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     agentNameQuiet: {
         color: theme.colors.textSecondary,
     },
-    agentSubtitle: {
-        fontSize: 12,
-        color: theme.colors.textSecondary,
-        marginTop: 2,
-        ...Typography.default(),
-    },
-    agentSubtitleCompact: {
+    agentCaptionCompact: {
         fontSize: 11,
+        lineHeight: 14,
     },
     separator: {
         height: StyleSheet.hairlineWidth,
@@ -357,9 +373,32 @@ const AgentRow = React.memo(({
     const shell = isShellLabels(labels);
     const title = labels.taskTitle;
     const subtitle = agentIdentityLine(labels);
+    // A shell at a prompt is idle; only herdr's unknown-for-agents keeps the
+    // established 'Offline' vocabulary from the grid.
+    const sessions = useSessions();
+    const changedAt = sessionId !== undefined
+        ? sessions.find((session) => session.id === sessionId)?.metadata?.lifecycleStateSince
+        : undefined;
+    const stateLabel = shell ? 'Idle' : agentStateLabel(pane.agentStatus, changedAt);
+    const cwdLeaf = pane.cwd !== undefined && pane.cwd !== '' ? sessionPathLeaf(pane.cwd) : null;
+    const live = pane.agentStatus === 'working' || pane.agentStatus === 'starting';
     // One weight rule: bright means "has something for you". A finished
     // outcome you have not opened stays loud; settled-and-seen goes quiet.
     const quiet = (pane.agentStatus === 'done' || pane.agentStatus === 'idle') && !unseenDone;
+
+    const glyph = <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={12} />;
+    const preview = sessionId === undefined ? glyph : (
+        <View
+            style={styles.agentPreview}
+            accessible={false}
+            importantForAccessibility="no-hide-descendants"
+        >
+            {/* Working panes poll the visible screen; the rest take one
+                snapshot per mount. The app-background pause is built in. */}
+            <TerminalPreview sessionId={sessionId} live={live} maxLines={4} nonEmpty />
+            <View style={styles.agentPreviewGlyph} pointerEvents="none">{glyph}</View>
+        </View>
+    );
 
     return (
         <View style={[styles.agentRow, compact && styles.agentRowCompact]}>
@@ -379,10 +418,16 @@ const AgentRow = React.memo(({
                 accessibilityState={{ selected }}
                 accessibilityLabel={[`Open ${title}`, unseenDone ? 'new result' : undefined, subtitle].filter(Boolean).join(', ')}
             >
-                <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
+                {preview}
                 <View style={styles.agentText}>
                     <Text numberOfLines={1} style={[styles.agentName, compact && styles.agentNameCompact, quiet && styles.agentNameQuiet]}>{title}</Text>
-                    <Text numberOfLines={1} style={[styles.agentSubtitle, compact && styles.agentSubtitleCompact]}>{subtitle}</Text>
+                    {/* Quiet mono caption: machine path where the pane has one,
+                        then the state sentence with its elapsed age. Colour
+                        stays on the trailing dot. */}
+                    <SessionMetaLine
+                        style={compact && styles.agentCaptionCompact}
+                        segments={[{ text: cwdLeaf }, { text: stateLabel }]}
+                    />
                 </View>
                 <StatusDot color={quiet ? theme.colors.status.disconnected : dot.color} isPulsing={dot.pulsing} size={7} />
             </Pressable>
