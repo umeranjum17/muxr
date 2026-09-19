@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { Platform, Text, TextInput, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import { isAvailableAsync as sharingAvailable, shareAsync } from 'expo-sharing';
+import { File, Paths } from 'expo-file-system';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
@@ -9,6 +11,7 @@ import { Typography } from '@/constants/Typography';
 import { useMachine, useSocketStatus } from '@/catalog/store';
 import { sync, syncReconnect } from '@/catalog/sync';
 import {
+    executeSshCommand,
     getCachedConnectionSettings,
     loadConnectionSettingsAsync,
     pairingTransport,
@@ -21,6 +24,7 @@ import {
     forgetSshCredential,
     hasSshCredential,
     saveSshCredential,
+    savedSshPublicKey,
     sshTunnelAvailable,
     stopSshTunnel,
 } from '@/connection';
@@ -34,6 +38,17 @@ import { ConnectionSupport } from '@/settings';
 import { SshHostScan } from '@/settings/SshHostScan';
 import { formatLatestConnectionFailure, latestFailureIsDeadGrant } from '@/catalog/diagnostics';
 import { sshPublicKeyFromPrivate, type SshPublicKeyInfo } from '@/connection/sshPublicKey';
+import {
+    buildSshInstallCommand,
+    buildSshRollbackCommand,
+    clearSshInstallReceipt,
+    loadSshInstallReceipt,
+    parseSshInstallResult,
+    parseSshRollbackResult,
+    sameSshTarget,
+    saveSshInstallReceipt,
+    type SshInstallReceipt,
+} from '@/connection/sshKeyInstall';
 
 const stylesheet = StyleSheet.create((theme) => ({
     label: {
@@ -129,6 +144,42 @@ function Field(props: {
     );
 }
 
+async function sharePublicKeyFile(info: SshPublicKeyInfo, title: string): Promise<void> {
+    let canShare = false;
+    try {
+        canShare = await sharingAvailable();
+    } catch {
+        // Treat a missing native share provider like any other unavailable sheet.
+    }
+    if (!canShare) {
+        Modal.alert('Sharing unavailable', 'Copy the public key instead. The private key stays on this device.');
+        return;
+    }
+    const file = new File(Paths.cache, 'muxr-public-key.pub');
+    try {
+        if (file.exists) file.delete();
+        file.create();
+        const handle = file.open();
+        try {
+            handle.writeBytes(new TextEncoder().encode(`${info.publicKey}\n`));
+        } finally {
+            handle.close();
+        }
+    } catch {
+        Modal.alert('Could not prepare public key', 'Copy the public key instead.');
+        return;
+    }
+    try {
+        // The native share sheet includes Files on supported Android builds;
+        // cancellation is intentionally silent and never changes SSH state.
+        await shareAsync(file.uri, { mimeType: 'text/plain', dialogTitle: title, UTI: 'public.plain-text' });
+    } catch {
+        // A dismissed share/save sheet is a normal cancellation.
+    } finally {
+        if (file.exists) file.delete();
+    }
+}
+
 export default function ConnectionSettingsScreen() {
     const styles = stylesheet;
     const [initial, setInitial] = React.useState(() => getCachedConnectionSettings());
@@ -180,6 +231,10 @@ export default function ConnectionSettingsScreen() {
     const [saving, setSaving] = React.useState(false);
     const [publicKeyCopied, setPublicKeyCopied] = React.useState(false);
     const [publicKeyInfo, setPublicKeyInfo] = React.useState<SshPublicKeyInfo>();
+    const [publicKeySource, setPublicKeySource] = React.useState<'pasted' | 'saved'>();
+    const [installReceipt, setInstallReceipt] = React.useState<SshInstallReceipt>();
+    const [installBusy, setInstallBusy] = React.useState(false);
+    const [installStatus, setInstallStatus] = React.useState<'installed' | 'duplicate' | undefined>();
     const machine = useMachine(initial.machineId);
 
     // getCachedConnectionSettings returns build-time defaults until storage has
@@ -204,21 +259,40 @@ export default function ConnectionSettingsScreen() {
 
     React.useEffect(() => {
         setPublicKeyCopied(false);
+        setPublicKeyInfo(undefined);
+        setPublicKeySource(undefined);
+        setInstallStatus(undefined);
         let cancelled = false;
-        void sshPublicKeyFromPrivate(sshPrivateKey).then((info) => {
-            if (!cancelled) setPublicKeyInfo(info);
-        });
+        const typedKey = sshPrivateKey.trim();
+        const pending = typedKey.length > 0
+            ? sshPublicKeyFromPrivate(typedKey).then((info) => {
+                if (!cancelled) {
+                    setPublicKeyInfo(info);
+                    if (info !== undefined) setPublicKeySource('pasted');
+                }
+            })
+            : savedSshPublicKey(initial.machineId).then((info) => {
+                if (!cancelled) {
+                    setPublicKeyInfo(info);
+                    if (info !== undefined) setPublicKeySource('saved');
+                }
+            });
+        void pending;
         return () => { cancelled = true; };
-    }, [sshPrivateKey]);
+    }, [initial.machineId, sshPrivateKey]);
 
     React.useEffect(() => {
         if (Platform.OS !== 'android' || initial.machineId === '') {
             setSshCredentialPresent(false);
+            setInstallReceipt(undefined);
             return undefined;
         }
         let cancelled = false;
         void hasSshCredential(initial.machineId).then((present) => {
             if (!cancelled) setSshCredentialPresent(present);
+        });
+        void loadSshInstallReceipt(initial.machineId).then((receipt) => {
+            if (!cancelled) setInstallReceipt(receipt);
         });
         return () => { cancelled = true; };
     }, [initial.machineId]);
@@ -287,6 +361,7 @@ export default function ConnectionSettingsScreen() {
             const next = { ...initial, ssh: target };
             await saveConnectionSettings(next);
             setInitial(next);
+            setInstallStatus(undefined);
             setSshHost(parsed.target.host);
             setSshUsername(parsed.target.username);
             setSshPort(String(parsed.target.port));
@@ -305,6 +380,7 @@ export default function ConnectionSettingsScreen() {
 
     const disableSsh = async () => {
         setSshError(undefined);
+        setInstallStatus(undefined);
         await stopSshTunnel();
         const next = { ...initial, ssh: undefined };
         await saveConnectionSettings(next);
@@ -318,6 +394,134 @@ export default function ConnectionSettingsScreen() {
         setSshPassword('');
         setSshPrivateKey('');
         setSshPassphrase('');
+        setPublicKeyInfo(undefined);
+        setPublicKeySource(undefined);
+    };
+
+    const installTarget = initial.ssh;
+    const installTargetName = machine?.metadata?.displayName ?? machine?.metadata?.host ?? installTarget?.host ?? 'paired computer';
+    const installKeySupported = publicKeyInfo !== undefined
+        && /^(ssh-rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)$/.test(publicKeyInfo.algorithm);
+    const installReady = sshSupported
+        && initial.selfhost === true
+        && initial.machineId !== ''
+        && installTarget !== undefined
+        && installTarget.hostKey !== undefined
+        && status === 'connected'
+        && sshCredentialPresent
+        && machine?.metadata?.username === installTarget.username
+        && installKeySupported;
+    const receiptTarget = installReceipt === undefined ? undefined : {
+        host: installReceipt.host,
+        port: installReceipt.port,
+        username: installReceipt.username,
+        relayPort: installReceipt.relayPort,
+        hostKey: installReceipt.hostKey,
+    } satisfies SshTarget;
+    const receiptMatchesTarget = installReceipt !== undefined
+        && installTarget !== undefined
+        && sameSshTarget(receiptTarget, installTarget)
+        && installReceipt.machineId === initial.machineId;
+
+    const installPublicKey = async () => {
+        if (!installReady || installTarget === undefined || publicKeyInfo === undefined) {
+            setSshError('Install is available only for the paired computer, its confirmed SSH account, and an RSA or ECDSA key. Copy the public key instead.');
+            return;
+        }
+        let command: string;
+        try {
+            command = buildSshInstallCommand(publicKeyInfo, installTarget.username);
+        } catch (cause) {
+            setSshError(cause instanceof Error ? cause.message : String(cause));
+            return;
+        }
+        const preview = [
+            `Target: ${installTargetName}`,
+            `Account: ${installTarget.username}@${installTarget.host}:${installTarget.port}`,
+            `Public key: ${publicKeyInfo.algorithm} · ${publicKeyInfo.fingerprint}`,
+            '',
+            'Nothing runs until you choose Install key.',
+            'The command preserves unrelated authorized_keys lines, refuses unsafe paths, and keeps a guarded undo receipt.',
+            '',
+            'Exact command:',
+            command,
+        ].join('\\n');
+        if (!await Modal.confirm('Install public key?', preview, { cancelText: 'Cancel', confirmText: 'Install key' })) return;
+        setInstallBusy(true);
+        setSshError(undefined);
+        try {
+            const current = getCachedConnectionSettings();
+            if (current.machineId !== initial.machineId || !sameSshTarget(current.ssh, installTarget)) {
+                throw new Error('The Direct SSH target changed. Review the target and command before trying again.');
+            }
+            const result = parseSshInstallResult(
+                await executeSshCommand(initial.machineId, installTarget, command),
+                installTarget,
+                initial.machineId,
+                publicKeyInfo.fingerprint,
+            );
+            if (result.status === 'duplicate') {
+                setInstallStatus('duplicate');
+                Modal.alert('Public key already installed', 'The matching key is already present. Existing options and unrelated authorized_keys entries were left unchanged.');
+                return;
+            }
+            setInstallReceipt(result.receipt);
+            setInstallStatus('installed');
+            let receiptSaved = true;
+            try {
+                await saveSshInstallReceipt(result.receipt);
+            } catch {
+                receiptSaved = false;
+            }
+            Modal.alert(
+                'Public key installed',
+                receiptSaved
+                    ? `Installed for ${installTarget.username} on ${installTargetName}. Existing authorized_keys entries were preserved. Undo remains guarded against later edits.`
+                    : 'The key was installed, but this device could not save the undo receipt. Do not retry blindly; inspect authorized_keys on the host first.',
+            );
+        } catch (cause) {
+            Modal.alert('Public-key install failed', cause instanceof Error ? cause.message : 'Nothing was reported as successfully installed. Copy the public key instead.');
+        } finally {
+            setInstallBusy(false);
+        }
+    };
+
+    const rollbackPublicKey = async () => {
+        if (!receiptMatchesTarget || installReceipt === undefined || installTarget === undefined) {
+            setSshError('Undo is available only for the same pinned SSH target. Copy the public key instead.');
+            return;
+        }
+        let command: string;
+        try {
+            command = buildSshRollbackCommand(installReceipt);
+        } catch (cause) {
+            setSshError(cause instanceof Error ? cause.message : String(cause));
+            return;
+        }
+        const preview = [
+            `Target: ${installTargetName}`,
+            `Account: ${installTarget.username}@${installTarget.host}:${installTarget.port}`,
+            `Public key: ${installReceipt.fingerprint}`,
+            '',
+            'Undo runs only if authorized_keys still matches the post-install bytes and permissions.',
+            'If another administrator changed it, rollback refuses instead of overwriting their edits.',
+            '',
+            'Exact rollback command:',
+            command,
+        ].join('\\n');
+        if (!await Modal.confirm('Undo public-key install?', preview, { cancelText: 'Keep key', confirmText: 'Undo install', destructive: true })) return;
+        setInstallBusy(true);
+        try {
+            parseSshRollbackResult(await executeSshCommand(initial.machineId, installTarget, command));
+            await clearSshInstallReceipt(initial.machineId);
+            setInstallReceipt(undefined);
+            setInstallStatus(undefined);
+            Modal.alert('Public key removed', 'The installed key was removed. Later authorized_keys edits were not overwritten.');
+        } catch (cause) {
+            Modal.alert('Rollback refused', cause instanceof Error ? cause.message : 'Rollback was not confirmed. Inspect authorized_keys on the host.');
+        } finally {
+            setInstallBusy(false);
+        }
     };
 
     if (initial.mode === 'hosted') {
@@ -438,13 +642,11 @@ export default function ConnectionSettingsScreen() {
                     <Field label="SSH port" value={sshPort} onChange={setSshPort} placeholder="22" />
                     <Field label="Relay port on the host" value={sshRelayPort} onChange={setSshRelayPort} placeholder="8792" />
                     <Field label="SSH password (optional)" value={sshPassword} onChange={setSshPassword} placeholder={sshCredentialPresent ? 'Saved credential remains unchanged' : 'Password or private key'} secure />
-                    <Field label="Private key (optional)" value={sshPrivateKey} onChange={(next) => { setSshPrivateKey(next); setPublicKeyCopied(false); }} placeholder={sshCredentialPresent ? 'Paste a new key to replace the saved credential' : 'Paste an OpenSSH private key'} secure multiline />
+                    <Field label="Private key (optional)" value={sshPrivateKey} onChange={(next) => { setSshPrivateKey(next); setPublicKeyCopied(false); setPublicKeyInfo(undefined); setPublicKeySource(undefined); setInstallStatus(undefined); }} placeholder={sshCredentialPresent ? 'Paste a new key to replace the saved credential' : 'Paste an OpenSSH private key'} secure multiline />
                     {publicKeyInfo !== undefined && <>
                         <Item
                             title="Key fingerprint"
-                            subtitle={publicKeyInfo.algorithm === 'ssh-ed25519'
-                                ? `${publicKeyInfo.algorithm} · ${publicKeyInfo.fingerprint} · this route needs RSA or ECDSA`
-                                : `${publicKeyInfo.algorithm} · ${publicKeyInfo.fingerprint}`}
+                            subtitle={`${publicKeySource === 'saved' ? 'Saved private key on this device' : 'Private key pasted on this screen'} · ${publicKeyInfo.algorithm} · ${publicKeyInfo.fingerprint}${publicKeyInfo.algorithm === 'ssh-ed25519' ? ' · this route needs RSA or ECDSA' : ''}`}
                             subtitleLines={0}
                             showChevron={false}
                         />
@@ -452,12 +654,40 @@ export default function ConnectionSettingsScreen() {
                             title="Copy public key"
                             subtitle={publicKeyCopied
                                 ? 'Copied. Add it to ~/.ssh/authorized_keys on the machine.'
-                                : 'The line to add to ~/.ssh/authorized_keys on the machine'}
+                                : 'Permanent fallback: copies only the public authorized_keys line.'}
                             onPress={() => {
                                 void Clipboard.setStringAsync(publicKeyInfo.publicKey).then(() => setPublicKeyCopied(true)).catch(() => Modal.alert('Copy failed', 'Please try again.'));
                             }}
                             accessibilityLabel={publicKeyCopied ? 'Copy public key, copied' : 'Copy public key'}
                         />
+                        <Item
+                            title="Share public key"
+                            subtitle="Opens the native share sheet; choose Files to save a .pub copy."
+                            onPress={() => { void sharePublicKeyFile(publicKeyInfo, 'Share public key'); }}
+                        />
+                        <Item
+                            title="Save public key (.pub)"
+                            subtitle="Opens the native save/share sheet. Cancellation makes no SSH change."
+                            onPress={() => { void sharePublicKeyFile(publicKeyInfo, 'Save public key'); }}
+                        />
+                        <Item
+                            title={installBusy ? 'Installing public key…' : installStatus === 'duplicate' ? 'Public key already installed' : 'Install public key on this computer'}
+                            subtitle={installReady
+                                ? `Shows the exact command for ${installTarget?.username}@${installTarget?.host} before consent.`
+                                : publicKeyInfo.algorithm === 'ssh-ed25519'
+                                    ? 'This SSH build cannot use Ed25519 login keys. Copy the public key instead.'
+                                    : 'Available after this paired machine and its confirmed SSH account are connected over pinned Direct SSH. Copy remains available.'}
+                            onPress={() => { void installPublicKey(); }}
+                            disabled={!installReady || installBusy}
+                            accessibilityLabel="Install public key"
+                        />
+                        {receiptMatchesTarget && installReceipt !== undefined && <Item
+                            title="Undo last public-key install"
+                            subtitle={`Guarded undo for ${installReceipt.fingerprint}; refuses if authorized_keys changed.`}
+                            onPress={() => { void rollbackPublicKey(); }}
+                            disabled={installBusy}
+                            destructive
+                        />}
                     </>}
                     <Field label="Private key passphrase" value={sshPassphrase} onChange={setSshPassphrase} placeholder="Only if the key is encrypted" secure />
                     <Item
@@ -476,6 +706,17 @@ export default function ConnectionSettingsScreen() {
                     </View>
                     {initial.ssh !== undefined && <Item title="Use current relay route instead" subtitle="Stops the SSH tunnel and returns to the paired relay URL" onPress={() => void disableSsh()} />}
                     {sshCredentialPresent && <Item title="Forget saved SSH credentials" subtitle="Removes the password or private key from this device" destructive onPress={() => void forgetSsh()} />}
+                </ItemGroup>}
+                {Platform.OS === 'web' && initial.selfhost === true && <ItemGroup
+                    title="Direct SSH"
+                    footer="The browser cannot open SSH or private-key storage. Use the native Android app for public-key export, or copy the public key manually on the computer. No private-key field is shown here."
+                >
+                    <Item
+                        title="Direct SSH is unavailable in the browser"
+                        subtitle="Pairing and relay access continue to work here. Public-key installation is not offered; use Copy from the native app or add the public line manually."
+                        subtitleLines={0}
+                        showChevron={false}
+                    />
                 </ItemGroup>}
             </ItemList>
         );

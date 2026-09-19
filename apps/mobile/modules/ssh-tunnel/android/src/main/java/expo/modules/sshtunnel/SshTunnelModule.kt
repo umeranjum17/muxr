@@ -26,13 +26,16 @@ import net.schmizz.sshj.userauth.keyprovider.OpenSSHKeyFile
 import net.schmizz.sshj.userauth.keyprovider.PKCS8KeyFile
 import net.schmizz.sshj.userauth.keyprovider.PuTTYKeyFile
 import net.schmizz.sshj.userauth.password.PasswordUtils
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.net.BindException
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.security.MessageDigest
 import java.security.PublicKey
+import java.util.concurrent.TimeUnit
 
 /**
  * SSH is transport only: it carries the ordinary muxr relay socket to a relay
@@ -43,6 +46,8 @@ import java.security.PublicKey
  */
 
 private const val LOOPBACK = "127.0.0.1"
+private const val MAX_EXEC_COMMAND_CHARS = 131_072
+private const val MAX_EXEC_OUTPUT_BYTES = 256 * 1024
 
 class SshUnreachableException(message: String, cause: Throwable?) :
     CodedException("ssh-unreachable", message, cause)
@@ -57,6 +62,9 @@ class SshLocalPortException(message: String, cause: Throwable?) :
 
 class SshConfigurationException(message: String) :
     CodedException("ssh-configuration", message, null)
+
+class SshExecTimeoutException(message: String) :
+    CodedException("ssh-exec-timeout", message, null)
 
 class SshTunnelConfig : Record {
     @Field var host: String = ""
@@ -144,6 +152,8 @@ class SshTunnelModule : Module() {
 
         AsyncFunction("openTunnel") { config: SshTunnelConfig -> open(config) }
 
+        AsyncFunction("execCommand") { config: SshTunnelConfig, command: String -> exec(config, command) }
+
         AsyncFunction("closeTunnel") { closeCurrent() }
 
         Function("tunnelPort") {
@@ -200,6 +210,54 @@ class SshTunnelModule : Module() {
         if (config.remoteHost != LOOPBACK) {
             throw SshConfigurationException("SSH forwarding is limited to the host loopback")
         }
+    }
+
+    private fun exec(config: SshTunnelConfig, command: String): Map<String, Any> {
+        validate(config)
+        if (command.isBlank() || command.length > MAX_EXEC_COMMAND_CHARS || command.contains('\u0000')) {
+            throw SshConfigurationException("SSH command is empty or too large")
+        }
+        open(config)
+        val active = synchronized(lock) { tunnel?.takeIf { it.alive() } }
+            ?: throw SshUnreachableException("the SSH connection closed before the command ran", null)
+        val session = try {
+            active.client.startSession()
+        } catch (cause: Exception) {
+            throw SshUnreachableException("could not open an SSH command session", cause)
+        }
+        try {
+            val channel = try {
+                session.exec(command)
+            } catch (cause: Exception) {
+                throw SshUnreachableException("could not start the SSH command", cause)
+            }
+            channel.join(config.connectTimeoutMs.toLong().coerceIn(1_000L, 120_000L), TimeUnit.MILLISECONDS)
+            if (channel.exitStatus == null) {
+                try { channel.close() } catch (_: Exception) {}
+                throw SshExecTimeoutException("the SSH command did not finish in time; its outcome is unknown")
+            }
+            return mapOf(
+                "stdout" to readBounded(channel.inputStream),
+                "stderr" to readBounded(channel.errorStream),
+                "exitCode" to (channel.exitStatus ?: 255),
+            )
+        } finally {
+            try { session.close() } catch (_: Exception) {}
+        }
+    }
+
+    private fun readBounded(input: InputStream): String {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8 * 1024)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            if (total > MAX_EXEC_OUTPUT_BYTES) throw SshConfigurationException("SSH command output is too large")
+            output.write(buffer, 0, count)
+        }
+        return output.toString(Charsets.UTF_8.name())
     }
 
     private fun connect(config: SshTunnelConfig): Tunnel {

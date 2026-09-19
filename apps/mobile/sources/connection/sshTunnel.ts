@@ -1,11 +1,15 @@
 import {
     closeSshTunnel,
+    execSshCommand,
     isSshTunnelSupported,
     openSshTunnel,
     SshTunnelError,
+    type SshCommandResult,
     type SshTunnelErrorCode,
 } from '../../modules/ssh-tunnel';
 import type { SshTarget } from './connectionSettings';
+import { sameSshTarget } from './sshKeyInstall';
+import type { SshPublicKeyInfo } from './sshPublicKey';
 
 /**
  * Direct SSH reachability for a relay that stays on the host's loopback.
@@ -55,6 +59,15 @@ async function readCredential(machineId: string): Promise<SshCredential | undefi
     } catch {
         return undefined;
     }
+}
+
+/** Derive public metadata from the saved private key without exposing the private bytes. */
+export async function savedSshPublicKey(machineId: string): Promise<SshPublicKeyInfo | undefined> {
+    if (!isSshTunnelSupported() || machineId === '') return undefined;
+    const credential = await readCredential(machineId);
+    if (credential?.privateKey === undefined) return undefined;
+    const { sshPublicKeyFromPrivate } = await import('./sshPublicKey');
+    return sshPublicKeyFromPrivate(credential.privateKey);
 }
 
 /** Actionable failure for a tunnel that could not carry the session. */
@@ -261,6 +274,43 @@ export async function applySshAfterPairing(input: SshFieldInput, options?: { hos
 
 export async function stopSshTunnel(): Promise<void> {
     await closeSshTunnel();
+}
+
+/** Execute a reviewed command on the pinned, saved Direct SSH target. */
+export async function executeSshCommand(machineId: string, target: SshTarget, command: string): Promise<SshCommandResult> {
+    if (!isSshTunnelSupported()) throw new SshConnectionError('ssh-unsupported', 'this build has no SSH support', true);
+    const { getCachedConnectionSettings } = await import('./connectionSettings');
+    const settings = getCachedConnectionSettings();
+    if (settings.selfhost !== true || settings.machineId !== machineId || !sameSshTarget(settings.ssh, target) || target.hostKey === undefined) {
+        throw new SshConnectionError('ssh-configuration', 'The Direct SSH target changed. Review the target and command before trying again.', true);
+    }
+    const credential = await readCredential(machineId);
+    if (credential === undefined) {
+        throw new SshConnectionError('ssh-auth', `muxr has no saved SSH credential for ${target.username}@${target.host}. Add it in Connection settings.`, true);
+    }
+    try {
+        const result = await execSshCommand({
+            host: target.host,
+            port: target.port,
+            username: target.username,
+            ...(credential.privateKey ? { privateKey: credential.privateKey } : {}),
+            ...(credential.passphrase ? { passphrase: credential.passphrase } : {}),
+            ...(credential.password ? { password: credential.password } : {}),
+            knownHostKey: target.hostKey,
+            remoteHost: '127.0.0.1',
+            remotePort: target.relayPort,
+            localPort: target.relayPort,
+        }, command);
+        return result;
+    } catch (error) {
+        if (error instanceof SshTunnelError) {
+            if (error.code === 'ssh-exec-timeout') {
+                throw new SshConnectionError(error.code, 'The SSH command did not finish; its outcome is unknown. Inspect authorized_keys before trying again.', true);
+            }
+            throw describe(error, target);
+        }
+        throw describe(SshTunnelError.from(error), target);
+    }
 }
 
 /**
