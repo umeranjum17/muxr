@@ -2,9 +2,10 @@ import * as React from 'react';
 import { Platform, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { useUnistyles } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
+import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { useMultiClick } from '@/hooks/useMultiClick';
 import { useLocalSettingMutable } from '@/catalog/store';
@@ -16,6 +17,20 @@ import { openExternalUrl } from '@/utils/openExternalUrl';
 import { t } from '@/text';
 import { useHostUpdate } from './useHostUpdate';
 import { useDeviceAuthority } from '@/pairing';
+
+// Explanation prose drops below its action row at full card width (same tokens
+// as the connection screen's hint), so the row keeps icon, status line and
+// chevron aligned instead of wrapping a paragraph in the inset text column.
+const stylesheet = StyleSheet.create((theme) => ({
+    guidance: {
+        paddingHorizontal: 16,
+        paddingBottom: 12,
+        fontSize: 13,
+        lineHeight: 19,
+        color: theme.colors.textSecondary,
+        ...Typography.default(),
+    },
+}));
 
 /** One destination for installed versions, update guidance and connection evidence. */
 export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?: string }) {
@@ -52,11 +67,12 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
     const sourceLine = sourceCommit === undefined && sourceDate === undefined
         ? 'Source unavailable'
         : `${sourceCommit ?? 'commit unavailable'} · source date ${sourceDate ?? 'unavailable'}`;
-    const updateSubtitle = update.message
+    const guidance = mismatch
+        ? 'This does not by itself mean the connection is broken. If features behave differently, update the older component using the same release channel. Installing restarts the host; the connection pauses while it does.'
+        : 'Keep this app and check for a compatible host release. Any installation requires confirmation; installing restarts the host.';
+    const statusSubtitle = update.message
         ? `${update.message}${installBlocked === undefined ? '' : ` · ${installBlocked}`}`
-        : mismatch
-            ? `App ${appVersion} · host ${hostVersion}. This does not by itself mean the connection is broken. If features behave differently, update the older component using the same release channel. Installing restarts the host; the connection pauses while it does.${installBlocked === undefined ? '' : ` ${installBlocked}`}`
-            : `Keep this app and check for a compatible host release. Any installation requires confirmation; installing restarts the host.${installBlocked === undefined ? '' : ` ${installBlocked}`}`;
+        : `App ${appVersion}${hostVersion === undefined ? '' : ` · host ${hostVersion}`}${installBlocked === undefined ? '' : ` · ${installBlocked}`}`;
     const diagnosticText = () => [
         `App ${appVersion}${build ? ` / build ${build}` : ''}; host ${hostVersion ?? 'unknown'}`,
         `App source ${sourceLine}`,
@@ -67,12 +83,13 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
             <Item
                 title={mismatch ? 'App and host versions differ' : 'Check compatibility / align host'}
                 icon={mismatch ? <Ionicons name="warning-outline" size={24} color={theme.colors.box.warning.border} /> : undefined}
-                subtitle={updateSubtitle}
+                subtitle={statusSubtitle}
                 subtitleLines={0}
                 loading={update.busy}
                 disabled={installBlocked !== undefined}
                 onPress={installBlocked === undefined ? () => void update.check() : undefined}
             />
+            {!update.message && <Text style={stylesheet.guidance}>{guidance}</Text>}
             <Item title={Platform.OS === 'web' ? 'Web app' : 'Installed app'} subtitle={`Version ${exactRelease ?? appVersion}${build ? ` · build ${build}` : ''}`}
                 subtitleLines={0} onPress={versionClick} showChevron={false} />
             <Item title="Source" subtitle={sourceLine} subtitleLines={0} />
