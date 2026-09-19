@@ -65,7 +65,7 @@ vi.mock('@/preview', () => ({
     attachPreviewTunnel: vi.fn(async () => ({ hostname: 'tunnel.test', port: 1234, close: vi.fn() })),
 }));
 
-import TakeoverScreen from './takeover';
+import TakeoverScreen from '../app/(app)/session/[id]/takeover';
 
 class FakeSocket {
     static instances: FakeSocket[] = [];
