@@ -29,7 +29,6 @@ const herdrBin = process.env.HERDR_BIN?.trim() || 'herdr';
 const herdrSession = process.env.MUXR_NAMING_SESSION?.trim() || undefined;
 const muxrHome = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
 const authFile = process.env.MUXR_NAMING_AUTH_FILE?.trim() || join(muxrHome, 'naming', 'token');
-const configuredToken = process.env.MUXR_NAMING_AUTH_TOKEN?.trim() || undefined;
 let boundPort = port;
 
 function log(message) {
@@ -113,10 +112,6 @@ function herdr(...command) {
 }
 
 async function loadAuthToken() {
-    if (configuredToken !== undefined) {
-        if (configuredToken.length > MAX_TOKEN_LENGTH) throw new Error('MUXR_NAMING_AUTH_TOKEN is too long');
-        return configuredToken;
-    }
     await mkdir(dirname(authFile), { recursive: true, mode: 0o700 });
     try {
         const existing = (await readFile(authFile, 'utf8')).trim();
@@ -237,7 +232,10 @@ async function handleNaming(req, res) {
     const current = await herdr('pane', 'get', paneId);
     const currentPane = current.ok ? current.data?.pane : undefined;
     const workspaceId = currentPane?.workspace_id;
-    if (!current.ok || typeof workspaceId !== 'string' || !HERDR_TARGET.test(workspaceId)) {
+    if (!current.ok) {
+        return json(res, 404, { ok: false, error: `target pane is not available in the authorized Herdr session: ${current.error}` });
+    }
+    if (typeof workspaceId !== 'string' || !HERDR_TARGET.test(workspaceId)) {
         return json(res, 404, { ok: false, error: 'target pane is not available in the authorized Herdr session' });
     }
 

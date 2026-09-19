@@ -23,6 +23,10 @@ const authFile = join(root, 'token');
 await writeFile(authFile, 'check-token\n', { mode: 0o600 });
 await writeFile(fakeHerdr, `#!/bin/sh
 printf '%s\\n' "$*" >> '${callsFile}'
+if [ -f '${failFile}' ] && grep -Fxq pane-get '${failFile}' && printf '%s' "$*" | grep -q 'pane get'; then
+  printf '%s\\n' '{"error":{"code":"server_not_running","message":"connect ECONNREFUSED 127.0.0.1:7333"}}'
+  exit 0
+fi
 if [ -f '${failFile}' ] && grep -Fxq workspace '${failFile}' && printf '%s' "$*" | grep -q 'workspace rename'; then
   printf '%s\\n' '{"error":{"code":"workspace_unavailable","message":"workspace failed"}}'
   exit 0
@@ -141,6 +145,11 @@ try {
 
     const oversized = await rawPost(port, `{"pane":"${'x'.repeat(64 * 1024)}"}`);
     check('oversized body answers 400 to the client', oversized.status === 400, `client saw ${oversized.status}`);
+
+    await writeFile(failFile, 'pane-get\n');
+    const preflightDown = await post(port, { pane_id: 'w2:p5', pane: 'Preflight down' });
+    check('preflight Herdr failure surfaces its concrete cause', preflightDown.status === 404 && String(preflightDown.body.error).includes('server_not_running') && String(preflightDown.body.error).includes('ECONNREFUSED'), JSON.stringify(preflightDown.body));
+    await rm(failFile, { force: true });
 
     await writeFile(failFile, 'workspace\n');
     const partial = await post(port, { pane_id: 'w2:p5', workspace: 'partial', pane: 'Pane survives', provider: 'pi', model: 'model-partial' });

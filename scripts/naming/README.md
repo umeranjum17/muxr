@@ -27,8 +27,7 @@ without the authorization capability are rejected.
 - `MUXR_NAMING_SESSION` scopes every Herdr call to a named lab session and is
   useful only for isolated validation.
 - `MUXR_NAMING_AUTH_FILE` overrides the 0600 token file; the server creates it
-  below `$MUXR_HOME/naming/token` by default. `MUXR_NAMING_AUTH_TOKEN` is an
-  explicit test/service override.
+  below `$MUXR_HOME/naming/token` by default.
 
 Responses include `status: ok|partial|failed`, per-operation booleans, and
 bounded error text. A partial Herdr result is never reported as overall
