@@ -228,7 +228,7 @@ async function goPlanLimits() {
     }
     const usage = JSON.parse(body)?.usage;
     const vms = goWindows(usage, { nowMs: Date.now() });
-    if (vms.length !== 3) return { label: 'OpenCode Go limits unavailable · incomplete response' };
+    if (vms.length === 0) return { label: 'OpenCode Go limits unavailable · incomplete response' };
     return { vms, label: 'OpenCode Go plan usage' };
   } catch { return { label: 'OpenCode Go limits unavailable · try again shortly' }; }
   finally { clearTimeout(timer); }
@@ -602,12 +602,14 @@ if (cached !== undefined) {
   const totalTokens = tokens(activity.totalTokens);
   // One quiet line when the plan has nothing to card; the message is the
   // provider-specific truth (not connected, reconnect, unavailable).
-  const limitsMessage = provider === 'claude' && claudeVMs.length === 0 ? 'Claude plan limits unavailable'
+  const noProviders = providerIds.length === 0 ? 'Run a coding agent on this computer or connect a plan.' : undefined;
+  const noProvidersTitle = noProviders === undefined ? undefined : 'No supported providers detected';
+  const limitsMessage = noProviders === undefined && (provider === 'claude' && claudeVMs.length === 0 ? 'Claude plan limits unavailable'
     : provider === 'opencode' && (go.vms ?? []).length === 0 ? go.label
     : provider === 'zai' && (zaiPlan.vms ?? []).length === 0 ? zaiPlan.label
     : provider === 'codex' && codex.windows.length === 0 ? 'Codex plan limits unavailable'
     : windows.length === 0 ? NOT_CONNECTED_MESSAGE
-    : undefined;
+    : undefined);
   const output = {
     items: ordered.slice(0, 50),
     actions: [{ id: 'details', label: 'Open full usage', icon: 'stats-chart-outline', action: { type: 'screen', contributionId: 'usage.details' } }],
@@ -625,6 +627,7 @@ if (cached !== undefined) {
     providers: providerIds.map((agent) => ({ id: agent, label: TAB_LABELS[agent] ?? AGENTS[agent], glyph: agent })),
     provider,
     providerName: AGENTS[provider] ?? 'Usage',
+    ...(noProviders === undefined ? {} : { noProviders, noProvidersTitle }),
     ...(activityFailure === undefined ? {} : { activityNotice: activityFailure }),
     todayTokens: activityAvailable ? tokens(tokensToday) ?? '—' : '—',
     // A measured day with no activity cost nothing; a measured row whose cost

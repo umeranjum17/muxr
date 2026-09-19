@@ -111,11 +111,11 @@ export function Notice({ tone, text, style }: { tone: 'positive' | 'warning' | '
  * Row identity in a 30pt tile: one Ionicon at 16 in secondary on the accent
  * wash. Screens, ItemList and the Plugins list draw this one tile.
  */
-export function IconTile({ name, style }: { name: string; style?: StyleProp<ViewStyle> }) {
+export function IconTile({ name, color, backgroundColor, style }: { name: string; color?: string; backgroundColor?: string; style?: StyleProp<ViewStyle> }) {
     const { theme } = useUnistyles();
     return (
-        <View style={[{ width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accentSubtle }, style]}>
-            <Ionicons name={name as never} size={16} color={theme.colors.textSecondary} />
+        <View style={[{ width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: backgroundColor ?? theme.colors.accentSubtle }, style]}>
+            <Ionicons name={name as never} size={16} color={color ?? theme.colors.textSecondary} />
         </View>
     );
 }

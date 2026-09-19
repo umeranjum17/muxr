@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { ActivityIndicator } from 'react-native';
+import { useUnistyles } from 'react-native-unistyles';
 import { MUXR_UI_VERSION, pluginCompatibilityError, type PluginManifestV1, type PluginSummary } from '@muxr/contract';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -15,8 +16,10 @@ import { resolvePluginText } from '@/plugins';
 import { pluginCatalogLoaded, pluginCatalogSnapshot, refreshPlugins, subscribePlugins } from '@/plugins';
 import { sourceLabel } from '@/plugins';
 import { t } from '@/text';
+import { IconTile } from '@/components/ui';
 
 export default function PluginsScreen() {
+    const { theme } = useUnistyles();
     const { status } = useSocketStatus();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const changeBlocked = status !== 'connected'
@@ -98,13 +101,29 @@ export default function PluginsScreen() {
                             ? undefined
                             : pluginCompatibilityError(manifests[plugin.pluginId], MUXR_UI_VERSION);
                         const warning = plugin.warnings[0];
-                        const trust = `${sourceLabel(plugin.source)} · ${plugin.hasBackend ? t('plugins.runsCode') : t('plugins.uiOnly')}`;
+                        const manifest = manifests[plugin.pluginId];
                         const blocked = incompatibility ?? warning;
+                        const description = blocked === undefined
+                            ? plugin.description ?? describe(manifest)
+                            : `${t('plugins.unavailableLabel')} · ${blocked}`;
+                        const facts = [
+                            `${sourceLabel(plugin.source)} · ${plugin.hasBackend ? t('plugins.runsCode') : t('plugins.uiOnly')}`,
+                            requestedContexts(manifest),
+                            changeBlocked,
+                        ].filter(Boolean).join(' · ');
+                        const unavailable = blocked !== undefined;
                         return <Item
                             key={plugin.pluginId}
                             title={plugin.name}
-                            subtitle={[...(blocked === undefined ? [] : [t('plugins.unavailableLabel')]), blocked ?? plugin.description ?? describe(manifests[plugin.pluginId]), trust, requestedContexts(manifests[plugin.pluginId]), changeBlocked].filter(Boolean).join(' · ')}
-                            subtitleLines={2}
+                            subtitle={description}
+                            subtitleStyle={unavailable ? { color: theme.colors.box.error.text } : undefined}
+                            meta={facts}
+                            leftElement={<IconTile
+                                name={unavailable ? 'warning-outline' : pluginIcon(manifest)}
+                                color={unavailable ? theme.colors.box.warning.text : undefined}
+                                backgroundColor={unavailable ? theme.colors.box.warning.background : undefined}
+                                style={{ width: 32, height: 32 }}
+                            />}
                             showChevron={false}
                             rightElement={<Switch value={plugin.approved} disabled={changeBlocked !== undefined} accessibilityLabel={plugin.name} onValueChange={changeBlocked === undefined ? (next) => void setApproved([plugin], next) : undefined} />}
                         />;
@@ -130,6 +149,22 @@ export default function PluginsScreen() {
                 : [])}
         </ItemList>
     );
+}
+
+/** Pick the first declared mark in the Settings grammar; unknown manifests get a stable tile. */
+function pluginIcon(manifest: PluginManifestV1 | undefined): string {
+    if (manifest === undefined) return 'extension-puzzle-outline';
+    const candidates = [
+        manifest.contributions.find((item) => item.slot === 'navigation.primary'),
+        manifest.contributions.find((item) => 'type' in item && item.type === 'screen-button'),
+        manifest.contributions.find((item) => item.slot === 'settings.items'),
+        manifest.contributions.find((item) => 'type' in item && item.type === 'native'),
+        manifest.contributions.find((item) => 'type' in item && item.type === 'data-card'),
+    ];
+    for (const candidate of candidates) {
+        if (candidate !== undefined && 'icon' in candidate && typeof candidate.icon === 'string' && candidate.icon !== '') return candidate.icon;
+    }
+    return 'extension-puzzle-outline';
 }
 
 /** Fall back to what the plugin actually adds when it ships no description. */

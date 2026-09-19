@@ -74,7 +74,9 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
         const message = payload.message ?? '';
         const empty = node.emptyText === undefined ? '' : bindText(resolvePluginText(node.emptyText), data);
         const line = message !== '' ? message : empty;
-        if (line === '' && title === undefined) return null;
+        // An absent provider is represented by the screen's empty node; do not
+        // leave a lone "Right now" heading behind when there is no limit copy.
+        if (line === '') return null;
         return (
             <View style={{ marginBottom: 12 }}>
                 {title !== undefined && <SectionLabel>{title}</SectionLabel>}
