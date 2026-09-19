@@ -409,7 +409,9 @@ export default function PairScreen() {
                             <View style={styles.explainer}>
                                 <Text style={styles.explainerText}>The pairing string is single-use and expires after a few minutes.</Text>
                                 <Text style={styles.explainerText}>Run `muxr pair` again for a fresh string, then retry.</Text>
-                                <ActionButton variant="secondary" title="Connect over SSH instead" icon="terminal-outline" onPress={() => router.push('/pair?route=ssh')} />
+                                {!browser && sshTunnelAvailable() && (
+                                    <ActionButton variant="secondary" title="Connect over SSH instead" icon="terminal-outline" onPress={() => router.push('/pair?route=ssh')} />
+                                )}
                             </View>
                         )}
                         <Text style={styles.inputLabel}>{browser ? 'Paste browser pairing string' : openedFromSettings ? 'Or paste the pairing string' : sshRoute ? 'Pairing string from `muxr pair`' : 'Enter pairing string manually'}</Text>

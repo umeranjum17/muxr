@@ -9,4 +9,4 @@ export {
     type ConnectionSettings,
     type SshTarget,
 } from './connectionSettings';
-export { forgetSshCredential, hasSshCredential, parseSshFields, saveSshCredential, sshRelayUrl, sshTunnelAvailable, stopSshTunnel, applySshAfterPairing, SshConnectionError, type SshCredential, type SshFieldInput } from './sshTunnel';
+export { forgetSshCredential, hasSshCredential, parseSshFields, pinSshHostKey, saveSshCredential, sshRelayUrl, sshTunnelAvailable, stopSshTunnel, applySshAfterPairing, SshConnectionError, type SshCredential, type SshFieldInput } from './sshTunnel';

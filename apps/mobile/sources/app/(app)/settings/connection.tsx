@@ -13,6 +13,7 @@ import {
     loadConnectionSettingsAsync,
     pairingTransport,
     parseSshFields,
+    pinSshHostKey,
     saveConnectionSettings,
     type SshTarget,
 } from '@/connection';
@@ -126,10 +127,6 @@ function Field(props: {
             />
         </View>
     );
-}
-
-function sameSshEndpoint(left: SshTarget | undefined, right: SshTarget): boolean {
-    return left?.host === right.host && left.port === right.port && left.username === right.username && left.relayPort === right.relayPort;
 }
 
 export default function ConnectionSettingsScreen() {
@@ -280,11 +277,7 @@ export default function ConnectionSettingsScreen() {
             setSshError(parsed.error);
             return;
         }
-        // A key already pinned by a successful connection stays pinned while
-        // only unrelated fields change; a new endpoint pairs fresh (TOFU).
-        const target: SshTarget = sameSshEndpoint(initial.ssh, parsed.target) && initial.ssh?.hostKey !== undefined
-            ? { ...parsed.target, hostKey: initial.ssh.hostKey }
-            : parsed.target;
+        const target: SshTarget = pinSshHostKey(initial.ssh, parsed.target);
         setSshError(undefined);
         setSshSaving(true);
         try {

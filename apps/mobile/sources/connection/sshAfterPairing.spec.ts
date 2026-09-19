@@ -71,6 +71,20 @@ describe('SSH route applied after pairing', () => {
         expect(getCachedConnectionSettings().ssh).toEqual({ host: 'box.lan', username: 'ume', port: 22, relayPort: 8792 });
     });
 
+    it('keeps a pinned host key for the same endpoint and pairs fresh for a new one', async () => {
+        await pairAs(true, 'm2');
+        await saveConnectionSettings({
+            ...getCachedConnectionSettings(),
+            ssh: { host: 'box.lan', username: 'ume', port: 22, relayPort: 8792, hostKey: 'SHA256:pinned' },
+        });
+
+        await applySshAfterPairing(FIELDS);
+        expect(getCachedConnectionSettings().ssh).toEqual({ host: 'box.lan', username: 'ume', port: 22, relayPort: 8792, hostKey: 'SHA256:pinned' });
+
+        await applySshAfterPairing({ ...FIELDS, host: 'elsewhere.lan' });
+        expect(getCachedConnectionSettings().ssh).toEqual({ host: 'elsewhere.lan', username: 'ume', port: 22, relayPort: 8792 });
+    });
+
     it('refuses to apply SSH when the pairing is not a self-host', async () => {
         await pairAs(undefined, '');
         const result = await applySshAfterPairing(FIELDS);

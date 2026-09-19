@@ -167,6 +167,19 @@ export function parseSshFields(input: SshFieldInput): { target: SshTarget; crede
 }
 
 /**
+ * Keep a host key already pinned for the same endpoint; a new endpoint pairs
+ * fresh and pins on first successful connect.
+ */
+export function pinSshHostKey(previous: SshTarget | undefined, next: SshTarget): SshTarget {
+    return previous !== undefined
+        && previous.host === next.host && previous.port === next.port
+        && previous.username === next.username && previous.relayPort === next.relayPort
+        && previous.hostKey !== undefined
+        ? { ...next, hostKey: previous.hostKey }
+        : next;
+}
+
+/**
  * Persist the SSH route a user filled in before pairing, once the pairing
  * grant has landed and the machine id exists. Pairing itself is unchanged:
  * this only decides which route the bytes take afterwards.
@@ -184,7 +197,7 @@ export async function applySshAfterPairing(input: SshFieldInput): Promise<{ ok: 
     }
     try {
         await saveSshCredential(settings.machineId, parsed.credential);
-        await saveConnectionSettings({ ...settings, ssh: parsed.target });
+        await saveConnectionSettings({ ...settings, ssh: pinSshHostKey(settings.ssh, parsed.target) });
         return { ok: true };
     } catch (cause) {
         return { ok: false, message: cause instanceof Error ? cause.message : String(cause) };
