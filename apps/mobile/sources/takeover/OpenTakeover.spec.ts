@@ -30,9 +30,19 @@ describe('resolveStreamPort', () => {
                 stderr: '',
             });
         const result = await resolveStreamPort(run, 'agent-browser');
-        expect(result).toEqual({ kind: 'ready', port: 42249 });
+        expect(result).toEqual({ kind: 'ready', port: 42249, owned: false });
         expect(run).toHaveBeenNthCalledWith(1, 'agent-browser stream enable --json');
         expect(run).toHaveBeenNthCalledWith(2, 'agent-browser stream status --json');
+    });
+
+    it('a fresh enable is owned by the watcher that made it', async () => {
+        const run = vi.fn().mockResolvedValue({
+            success: true,
+            stdout: JSON.stringify({ success: true, data: { port: 41111 } }),
+            stderr: '',
+        });
+        const result = await resolveStreamPort(run, 'agent-browser');
+        expect(result).toEqual({ kind: 'ready', port: 41111, owned: true });
     });
 
     it('a different enable failure stays noBrowser and never queries status', async () => {

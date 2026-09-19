@@ -185,8 +185,8 @@ export default function TakeoverScreen() {
         deadlineRef.current = null;
     }, []);
 
-    // Refcounted stream lifecycle: the screen enables on mount and disables on
-    // unmount, so the screencast never outlives its last watcher.
+    // The screen disables on unmount only a stream it enabled itself; a
+    // reattached one belongs to its other watchers and stays up.
     const connect = React.useCallback(async (streamPort: number | undefined) => {
         if (connectBusyRef.current) return;
         connectBusyRef.current = true;
@@ -221,10 +221,10 @@ export default function TakeoverScreen() {
             const resolvedPort = stream.port;
             lastPortRef.current = resolvedPort;
             if (!mountedRef.current) {
-                await machineBash('', `${agentBrowser} stream disable`, cwd);
+                if (stream.owned) await machineBash('', `${agentBrowser} stream disable`, cwd);
                 return;
             }
-            streamRef.current = { command: agentBrowser, cwd };
+            if (stream.owned) streamRef.current = { command: agentBrowser, cwd };
             // Size the watched browser to this phone so frames arrive readable
             // instead of a desktop viewport letterboxed into a hand-sized pane.
             const viewportWidth = Math.max(320, Math.min(768, Math.round(window.width)));

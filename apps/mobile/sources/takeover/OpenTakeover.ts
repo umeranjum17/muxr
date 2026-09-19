@@ -133,8 +133,9 @@ export function codeForKey(key: string): string {
     return key;
 }
 
+/** `owned` marks a stream this watcher enabled itself, and so may disable. */
 export type ResolvedStreamPort =
-    | { kind: 'ready'; port: number }
+    | { kind: 'ready'; port: number; owned: boolean }
     | { kind: 'noBrowser'; detail: string | null }
     | { kind: 'unreachable' };
 
@@ -146,7 +147,8 @@ type ShellResult = { success: boolean; stdout: string; stderr: string };
  * reports one already bound (an orphaned viewer, a returned deep link) — the
  * bound port from `stream status`, so the screen reattaches to the live stream
  * instead of dead-ending on the enable error. A machine with neither keeps the
- * plain no-browser failure.
+ * plain no-browser failure. Only a fresh enable is `owned`: a reattached port
+ * belongs to whoever enabled it, and its watchers must leave it running.
  */
 export async function resolveStreamPort(
     run: (command: string) => Promise<ShellResult>,
@@ -155,9 +157,9 @@ export async function resolveStreamPort(
 ): Promise<ResolvedStreamPort> {
     const enabled = await run(requestedPort === undefined ? `${agentBrowser} stream enable --json` : `${agentBrowser} stream enable --port ${requestedPort}`);
     if (enabled.success) {
-        if (requestedPort !== undefined) return { kind: 'ready', port: requestedPort };
+        if (requestedPort !== undefined) return { kind: 'ready', port: requestedPort, owned: true };
         const port = parseEnablePort(enabled.stdout);
-        if (port !== undefined) return { kind: 'ready', port };
+        if (port !== undefined) return { kind: 'ready', port, owned: true };
         return { kind: 'unreachable' };
     }
     // The daemon refuses a second enable while a stream is already bound;
@@ -166,7 +168,7 @@ export async function resolveStreamPort(
     if (!/already enabled/i.test(output)) return { kind: 'noBrowser', detail: output || null };
     const status = await run(`${agentBrowser} stream status --json`);
     const bound = status.success ? parseStatusPort(status.stdout) : undefined;
-    if (bound !== undefined) return { kind: 'ready', port: bound };
+    if (bound !== undefined) return { kind: 'ready', port: bound, owned: false };
     return { kind: 'noBrowser', detail: output || null };
 }
 
