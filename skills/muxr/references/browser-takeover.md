@@ -1,35 +1,70 @@
-# Browser takeover for login, 2FA, and CAPTCHA
+# Shared browser and human takeover
 
 ## When to use
-Use the moment browser automation (agent-browser) hits a wall only a human can clear: a login form, a 2FA/OTP prompt, a CAPTCHA, an SSO redirect, a "verify it's you" interstitial. You know you are stuck — announce it; do not wait for anyone to notice, and do not try to detect the wall with heuristics. Not for ordinary errors you can retry your way out of.
 
-## Procedure
-1. Enable the live stream so the phone can see the page. The phone finds the running stream itself — never put the port in the blocked message:
-   `agent-browser stream enable --json`.
-   If you run agent-browser with `--session <name>`, pass `--session <name>` here too and name the session in the message.
-2. Report blocked through herdr (muxr reads this and pushes a notification to the phone):
+Use `agent-browser` for browser work in a muxr-launched Herdr pane. It owns the
+same browser session that muxr's Browser view displays, so the user can watch or
+take over without a second browser, copied state, or a port in chat.
+
+A visible browser is not extra authorization. Keep the requested view/control
+boundary, and stop for the human at a password, 2FA/OTP, CAPTCHA, SSO, purchase,
+publish, destructive, account, security, or privacy boundary that requires
+their action or approval.
+
+## Drive the shared browser
+
+1. Open or reuse the page with `agent-browser open <url>` (include the same
+   `--session <name>` on every command when using a named session).
+2. Drive that session normally with `agent-browser snapshot -i`, then its
+   current refs for click/fill/type. Re-snapshot after navigation. Do not launch
+   a parallel browser: muxr's Browser entry attaches to this session.
+3. The Browser screen enables the loopback stream itself. If an explicit
+   `agent-browser stream enable --json` says the stream is already enabled,
+   query `agent-browser stream status --json` and reuse it. Never replace,
+   expose, or disable a stream another viewer enabled.
+
+## Hand control to the human
+
+1. When a human-only wall appears, enable the live stream if this session does
+   not already have one: `agent-browser stream enable --json`.
+2. Report blocked through Herdr; muxr reads this and notifies the phone:
    ```
    herdr pane report-agent "$HERDR_PANE_ID" --source "$HERDR_PANE_ID" --agent <your-label> --state blocked \
-     --message "Sign in needed on appstoreconnect.apple.com"
+     --message "Sign in needed on example.com"
    ```
-   Name the SITE and the WALL ("Sign in needed on …", "CAPTCHA on …"). Never include page contents, URLs with tokens, credentials, ports, or internal terms in the message.
-3. **STOP. Do not click, type, refresh, or navigate while the human may be typing a code.** One extra click can destroy an half-entered 2FA or trip a rate limit that locks the account. Wait: poll the page state no more than every 30–60s, or simply wait for the user to message you.
-4. When the wall is cleared (the page advanced past it), hand the stream back and resume:
-   `agent-browser stream disable`, then
-   `herdr pane report-agent "$HERDR_PANE_ID" --source "$HERDR_PANE_ID" --agent <your-label> --state working --message "Signed in, continuing"`
-   Continue the original task.
-5. Make it the last time: if the user logged in manually, persist the auth so the wall never appears again —
-   `agent-browser state save <site>.json` (lands in `~/.agent-browser/sessions/`; `chmod 600` it, it holds plaintext session tokens), and on future runs start with `--restore` / `--session <name> --restore` or `AGENT_BROWSER_RESTORE`. The phone app also offers this after a takeover; don't duplicate it if the user already saved.
+   Name the site and wall. Never include page contents, token-bearing URLs,
+   credentials, ports, or internal ids.
+3. **Stop browser input while the human may be typing.** Do not click, type,
+   refresh, or navigate. Poll no more than every 30–60 seconds, or wait for the
+   user's message.
+4. After the page advances, disable the stream only if your successful enable
+   created it. Then report working with the same source and agent values:
+   ```
+   herdr pane report-agent "$HERDR_PANE_ID" --source "$HERDR_PANE_ID" --agent <your-label> --state working \
+     --message "Signed in, continuing"
+   ```
+5. If the user logged in manually, persist the session once with
+   `agent-browser state save <site>.json`, then `chmod 600` the file under
+   `~/.agent-browser/sessions/`. Use `--restore` on later runs. Do not duplicate
+   this if the Browser view already saved it.
 
 ## Pitfalls
-- The phone opens the browser screen, which enables the stream itself; the blocked message never carries the port. If the phone cannot find the stream, the stream is not up — re-run `agent-browser stream enable --json`.
-- `report-agent` needs `--source` and `--agent` every time; reuse the same values for the working/blocked pair so the phone can correlate them.
-- Do NOT keep automating while blocked. Waiting is the protocol; the human is typing credentials into the very page you would be clicking on.
-- The stream port is loopback-only and reached from the phone through the muxr relay tunnel. Never bind it wider, never print cookies/page content into logs, and never type the user's password or 2FA code yourself — that is the human's job, that is the whole point.
-- State files are plaintext session tokens: `chmod 600`, never commit them, never paste their contents.
-- If HERDR_PANE_ID is unset you are not in a herdr pane — there is no phone to take over; say out loud that you are blocked instead.
+
+- `HERDR_PANE_ID` must be present. Without a Herdr pane there is no muxr
+  terminal/browser context; say that plainly instead of guessing an id.
+- The stream is loopback-only and reaches the user through muxr's existing
+  tunnel. Never widen the bind or paste its port into a message.
+- Saved state contains plaintext session tokens. Keep it mode 600, never commit
+  it, and never print it.
+- `report-agent` needs `--source` and `--agent` on every update; reuse the same
+  values for the blocked/working pair.
 
 ## Verification
-1. `agent-browser stream status` shows the stream server enabled (and disabled after you resume).
-2. The phone shows the pane blocked with your message; the user opens the browser screen, sees the live page, and clears the wall by touch.
-3. `agent-browser state list` shows the saved state file after step 5; a fresh `--restore` run does not hit the wall again.
+
+1. `agent-browser stream status --json` reports the existing stream when one is
+   enabled; a repeated enable does not create another.
+2. muxr's Browser view shows the page from the same session and accepts touch
+   input without copying cookies or opening another browser.
+3. After takeover, the page has advanced and the agent resumes only then.
+4. A saved-state flow restores without exposing the state file or repeating the
+   human-only wall.

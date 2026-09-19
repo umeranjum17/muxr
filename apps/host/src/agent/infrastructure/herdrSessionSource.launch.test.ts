@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { HerdrTreeWorkspace } from '@muxr/contract';
-import { createHerdrSessionSource, boundedWorkspaceTokens } from './herdrSessionSource.js';
+import { createHerdrSessionSource, boundedWorkspaceTokens, MUXR_AGENT_ENV } from './herdrSessionSource.js';
 
 /**
  * The slice of herdr a phone launch touches. `agent.start` answers the way
@@ -24,7 +24,7 @@ function fakeHerdr(dir: string, cwd: string) {
     const handleTabCreate = (params: Record<string, unknown>) => {
         const tab_id = `t${next}`;
         const pane_id = `w1:p${next++}`;
-        tabs.push({ tab_id, workspace_id: 'w1', label: params.label ?? cwd });
+        tabs.push({ tab_id, workspace_id: 'w1', label: params.label ?? cwd, env: params.env });
         panes.push({ pane_id, tab_id, workspace_id: 'w1', cwd });
         return { tab: { tab_id }, root_pane: { pane_id } };
     };
@@ -90,6 +90,7 @@ function fakeHerdr(dir: string, cwd: string) {
     return {
         socketPath,
         agents,
+        tabs,
         emit(type: string, data: Record<string, unknown>): void {
             for (const socket of subscribers) socket.write(`${JSON.stringify({ event: type, data })}\n`);
         },
@@ -129,6 +130,7 @@ describe('phone launch before herdr detects the agent', () => {
             // Herdr's own snapshot has replaced the seeded record: launch name, no kind yet.
             await source.refreshHerdr();
             expect(herdr.agents[0]).toEqual({ pane_id: 'w1:p1', name: expect.stringMatching(/^pp_/), agent_status: 'idle' });
+            expect(herdr.tabs[0]).toMatchObject({ env: MUXR_AGENT_ENV });
             let pane = treePane(await source.herdrTree(), 'w1:p1');
             expect(pane).toMatchObject({ agentKind: 'claude', sessionId });
             expect(pane.agentName).toBeUndefined();

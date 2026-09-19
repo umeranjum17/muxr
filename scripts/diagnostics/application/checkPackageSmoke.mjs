@@ -94,6 +94,10 @@ function assertCompactSkillOutput(output) {
     assert.match(output, /## Task router/);
     assert.match(output, /checked safe repairs/);
     assert.match(output, /muxr skill collaboration/);
+    assert.match(output, /\$MUXR_AGENT_CAPABILITIES/);
+    assert.match(output, /agent-browser/);
+    assert.match(output, /muxr skill browser-takeover/);
+    assert.match(output, /muxr show-image <path>/);
     assert.doesNotMatch(output, /muxr-skill-reference|# Cross-machine agent collaboration|## Installed Herdr CLI reference/);
 }
 
@@ -111,7 +115,7 @@ function assertUnifiedSkillOutput(output, { liveHerdr = true } = {}) {
         '# Onboarding: install, pair, self-host, maintain',
         '# Herdr orchestration',
         '# Cross-machine agent collaboration',
-        '# Browser takeover for login, 2FA, and CAPTCHA',
+        '# Shared browser and human takeover',
         '# muxr plugins: author, install, debug, override',
     ]) assert.match(output, new RegExp(`^${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
     assert.match(output, /installed binary is the only command\s+contract/);
