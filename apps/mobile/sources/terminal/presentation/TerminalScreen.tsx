@@ -736,7 +736,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     {agentNameLine(labels)}
                                 </Text>
                             </View>
-                            {<Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />}
+                            {/* No trailing chevron here: the 1/1 pager to the right is the
+                                single pane control — a second chevron read as a duplicate. */}
                         </Pressable>
                         {/* Position in the tab and the way into the pane overview: its own
                             44dp target, present even for a one-pane tab so a new pane
