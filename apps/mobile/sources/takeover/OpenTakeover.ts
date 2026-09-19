@@ -158,7 +158,6 @@ export async function resolveStreamPort(
         if (requestedPort !== undefined) return { kind: 'ready', port: requestedPort };
         const port = parseEnablePort(enabled.stdout);
         if (port !== undefined) return { kind: 'ready', port };
-        void run(`${agentBrowser} stream disable`);
         return { kind: 'unreachable' };
     }
     // The daemon refuses a second enable while a stream is already bound;
