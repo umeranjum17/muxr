@@ -3,7 +3,7 @@ title: Plugins on primitives
 slug: plugin-primitives
 status: tested
 created: 2026-08-15
-updated: 2026-08-29
+updated: 2026-09-19
 owner: umer
 links:
   - ../decisions/0005-pi-like-extension-runtime.md
@@ -54,7 +54,7 @@ UI version 14 is covered in `../PLUGINS.md`: rows gain `icon`/`meta` identity, `
 
 UI version 12 allows generic `item-list` rows to omit actions for read-only status/metric presentation while preserving closed validation for actionable rows. UI version 11 adds a bounded declarative `code` node with app-owned Prism tokenization, line numbers, selection, shared theme tokens, and plain-text fallback. The same tokenizer now powers native/web file views, Markdown code fences, and native diff lines, replacing the duplicate hand-rolled regex highlighter. File previews read at most 24 KiB / 240 lines and report truncation; ordinary text remains capped at 4 KiB while a sanitized RPC result string may use the existing 64 KiB total transport budget. UI version 7 adds plugin-owned navigation badge read sources and singleton tree-sheet cardinality. UI version 6 makes user-visible manifest strings bounded localized values with exact-locale, base-locale, then default fallback on the phone. The same public `shortcuts` contribution drives build-time localized launcher resources and the live Android launcher projection. Optional Assistant capability metadata is intentionally absent from every build.
 
-Muxr is presentation-only for Agent Name and Task Title. Those values come from Herdr `AgentInfo.name` and `AgentInfo.title`; a community Herdr plugin such as `wyattjoh/herdr-plugin-renamer` writes the pane title from the first prompt for Claude, Codex, and Pi. The host boundary performs one one-to-one map into the stable `AgentInfo` contract: `{ agentName, taskTitle, agentKind, displayAgent, agentStatus, promptable }`. Lifecycle Events retain the same Agent Kind beside their captured Agent Name and Task Title. Mobile, plugin public context, and realtime tools consume those canonical fields without alternate identity or routing sources; when a Task Title has not arrived yet, cards use the real Agent Name as their presentation fallback instead of showing “Untitled task.”
+Muxr is presentation-only for Agent Name and Task Title. Those values come from Herdr `AgentInfo.name` and `AgentInfo.title`; the agent itself names its workspace and pane at task start through the self-naming endpoint (`scripts/naming/README.md`), so no title-guessing plugin is installed. The host boundary performs one one-to-one map into the stable `AgentInfo` contract: `{ agentName, taskTitle, agentKind, displayAgent, agentStatus, promptable }`. Lifecycle Events retain the same Agent Kind beside their captured Agent Name and Task Title. Mobile, plugin public context, and realtime tools consume those canonical fields without alternate identity or routing sources; when a Task Title has not arrived yet, cards use the real Agent Name as their presentation fallback instead of showing “Untitled task.”
 
 ## Files
 
