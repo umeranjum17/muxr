@@ -111,6 +111,86 @@ export function sshTunnelAvailable(): boolean {
     return isSshTunnelSupported();
 }
 
+/** Raw Direct SSH form input, as typed: ports are strings until validated. */
+export interface SshFieldInput {
+    host: string;
+    username: string;
+    port: string;
+    relayPort: string;
+    password: string;
+    privateKey: string;
+    passphrase: string;
+    /** A saved credential already in the secure store counts as auth material. */
+    credentialPresent?: boolean;
+}
+
+function portFromField(raw: string, fallback: number): number | undefined {
+    const value = raw.trim();
+    if (value === '') return fallback;
+    if (!/^\d{1,5}$/.test(value)) return undefined;
+    const port = Number(value);
+    return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : undefined;
+}
+
+/**
+ * The one validator for every Direct SSH form. Returns user-readable error
+ * copy or the parsed target and credential, so the settings screen and the
+ * first-run SSH route cannot drift apart.
+ */
+export function parseSshFields(input: SshFieldInput): { target: SshTarget; credential: SshCredential } | { error: string } {
+    const host = input.host.trim();
+    const username = input.username.trim();
+    const port = portFromField(input.port, 22);
+    const relayPort = portFromField(input.relayPort, 8792);
+    if (host === '' || username === '') {
+        return { error: 'Enter the SSH host and username from the machine you want to reach.' };
+    }
+    if (port === undefined || relayPort === undefined) {
+        return { error: 'SSH and relay ports must be numbers from 1 to 65535.' };
+    }
+    if (input.password !== '' && input.privateKey !== '') {
+        return { error: 'Choose one SSH login method: password or private key.' };
+    }
+    if (input.passphrase !== '' && input.privateKey === '') {
+        return { error: 'Paste the private key before entering its passphrase.' };
+    }
+    if (input.password === '' && input.privateKey === '' && input.credentialPresent !== true) {
+        return { error: 'Enter an SSH password or private key. It is stored only in this device’s secure store.' };
+    }
+    const target: SshTarget = { host, username, port, relayPort };
+    const credential: SshCredential = {
+        ...(input.privateKey === '' ? {} : { privateKey: input.privateKey }),
+        ...(input.passphrase === '' ? {} : { passphrase: input.passphrase }),
+        ...(input.password === '' ? {} : { password: input.password }),
+    };
+    return { target, credential };
+}
+
+/**
+ * Persist the SSH route a user filled in before pairing, once the pairing
+ * grant has landed and the machine id exists. Pairing itself is unchanged:
+ * this only decides which route the bytes take afterwards.
+ */
+export async function applySshAfterPairing(input: SshFieldInput): Promise<{ ok: true } | { ok: false; message: string }> {
+    if (!isSshTunnelSupported()) {
+        return { ok: false, message: 'This build of muxr cannot open SSH connections, so the Direct SSH route was not applied.' };
+    }
+    const parsed = parseSshFields(input);
+    if ('error' in parsed) return { ok: false, message: parsed.error };
+    const { getCachedConnectionSettings, saveConnectionSettings } = await import('./connectionSettings');
+    const settings = getCachedConnectionSettings();
+    if (settings.selfhost !== true || settings.machineId === '') {
+        return { ok: false, message: 'This pairing is not self-hosted, so the Direct SSH route was not applied. The connection uses the paired relay route.' };
+    }
+    try {
+        await saveSshCredential(settings.machineId, parsed.credential);
+        await saveConnectionSettings({ ...settings, ssh: parsed.target });
+        return { ok: true };
+    } catch (cause) {
+        return { ok: false, message: cause instanceof Error ? cause.message : String(cause) };
+    }
+}
+
 export async function stopSshTunnel(): Promise<void> {
     await closeSshTunnel();
 }

@@ -12,6 +12,7 @@ import {
     getCachedConnectionSettings,
     loadConnectionSettingsAsync,
     pairingTransport,
+    parseSshFields,
     saveConnectionSettings,
     type SshTarget,
 } from '@/connection';
@@ -21,7 +22,6 @@ import {
     saveSshCredential,
     sshTunnelAvailable,
     stopSshTunnel,
-    type SshCredential,
 } from '@/connection';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
@@ -126,14 +126,6 @@ function Field(props: {
             />
         </View>
     );
-}
-
-function portValue(raw: string, fallback: number): number | undefined {
-    const value = raw.trim();
-    if (value === '') return fallback;
-    if (!/^\d{1,5}$/.test(value)) return undefined;
-    const port = Number(value);
-    return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : undefined;
 }
 
 function sameSshEndpoint(left: SshTarget | undefined, right: SshTarget): boolean {
@@ -270,64 +262,42 @@ export default function ConnectionSettingsScreen() {
     const sshSupported = Platform.OS === 'android' && initial.selfhost === true && sshTunnelAvailable();
 
     const saveSsh = async () => {
-        const host = sshHost.trim();
-        const username = sshUsername.trim();
-        const port = portValue(sshPort, 22);
-        const relayPort = portValue(sshRelayPort, 8792);
-        const password = sshPassword;
-        const privateKey = sshPrivateKey;
-        const passphrase = sshPassphrase;
         if (initial.selfhost !== true || initial.machineId === '') {
             setSshError('Pair this phone with a self-hosted machine before configuring Direct SSH.');
             return;
         }
-        if (host === '' || username === '') {
-            setSshError('Enter the SSH host and username from the machine you want to reach.');
+        const parsed = parseSshFields({
+            host: sshHost,
+            username: sshUsername,
+            port: sshPort,
+            relayPort: sshRelayPort,
+            password: sshPassword,
+            privateKey: sshPrivateKey,
+            passphrase: sshPassphrase,
+            credentialPresent: sshCredentialPresent,
+        });
+        if ('error' in parsed) {
+            setSshError(parsed.error);
             return;
         }
-        if (port === undefined || relayPort === undefined) {
-            setSshError('SSH and relay ports must be numbers from 1 to 65535.');
-            return;
-        }
-        if (password !== '' && privateKey !== '') {
-            setSshError('Choose one SSH login method: password or private key.');
-            return;
-        }
-        if (passphrase !== '' && privateKey === '') {
-            setSshError('Paste the private key before entering its passphrase.');
-            return;
-        }
-        if (password === '' && privateKey === '' && !sshCredentialPresent) {
-            setSshError('Enter an SSH password or private key. It is stored only in this device’s secure store.');
-            return;
-        }
+        // A key already pinned by a successful connection stays pinned while
+        // only unrelated fields change; a new endpoint pairs fresh (TOFU).
+        const target: SshTarget = sameSshEndpoint(initial.ssh, parsed.target) && initial.ssh?.hostKey !== undefined
+            ? { ...parsed.target, hostKey: initial.ssh.hostKey }
+            : parsed.target;
         setSshError(undefined);
         setSshSaving(true);
         try {
-            const nextTarget: SshTarget = {
-                host,
-                username,
-                port,
-                relayPort,
-                ...(sameSshEndpoint(initial.ssh, { host, username, port, relayPort }) && initial.ssh?.hostKey !== undefined
-                    ? { hostKey: initial.ssh.hostKey }
-                    : {}),
-            };
-            const credential: SshCredential = {
-                ...(privateKey === '' ? {} : { privateKey }),
-                ...(passphrase === '' ? {} : { passphrase }),
-                ...(password === '' ? {} : { password }),
-            };
-            if (Object.keys(credential).length > 0) {
-                await saveSshCredential(initial.machineId, credential);
+            if (Object.keys(parsed.credential).length > 0) {
+                await saveSshCredential(initial.machineId, parsed.credential);
             }
-            const next = { ...initial, ssh: nextTarget };
+            const next = { ...initial, ssh: target };
             await saveConnectionSettings(next);
             setInitial(next);
-            setSshHost(host);
-            setSshUsername(username);
-            setSshPort(String(port));
-            setSshRelayPort(String(relayPort));
+            setSshHost(parsed.target.host);
+            setSshUsername(parsed.target.username);
+            setSshPort(String(parsed.target.port));
+            setSshRelayPort(String(parsed.target.relayPort));
             setSshPassword('');
             setSshPrivateKey('');
             setSshPassphrase('');
