@@ -1,6 +1,7 @@
 import * as React from 'react';
 import * as Linking from 'expo-linking';
-import { ActivityIndicator, Platform, ScrollView, Text, TextInput, View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -9,8 +10,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
 import { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '@/pairing/e2ee';
 import { pairMachine, usePairQrScanner } from '@/pairing';
-import { getCachedConnectionSettings } from '@/connection';
+import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, tunnelPairingUrl, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
+import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 
@@ -54,18 +56,69 @@ type PairState =
     | { phase: 'working'; url: string; machineName: string }
     | { phase: 'error'; message: string; url?: string; machineName?: string };
 
+const SSH_PAIRING_STEPS = [
+    'On the computer, run `muxr pair` — it prints a one-time pairing string.',
+    'Fill in the SSH details; muxr opens the tunnel to that machine.',
+    'Paste the pairing string below — pairing runs through the tunnel.',
+] as const;
+
+function SshField(props: {
+    label: string;
+    value: string;
+    onChange: (next: string) => void;
+    placeholder: string;
+    secure?: boolean;
+    multiline?: boolean;
+    flex?: boolean;
+    keyboardType?: 'default' | 'number-pad';
+}) {
+    return (
+        <View style={[props.flex === true && styles.sshRowField, props.multiline === true && styles.sshFieldWide]}>
+            <Text style={styles.inputLabel}>{props.label}</Text>
+            <TextInput
+                accessibilityLabel={props.label}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType={props.keyboardType ?? 'default'}
+                multiline={props.multiline}
+                numberOfLines={props.multiline ? 4 : 1}
+                textAlignVertical={props.multiline ? 'top' : 'center'}
+                secureTextEntry={props.secure === true && props.multiline !== true}
+                placeholder={props.placeholder}
+                placeholderTextColor={styles.inputPlaceholder.color}
+                style={[styles.input, props.multiline === true && styles.inputMultiline]}
+                value={props.value}
+                onChangeText={props.onChange}
+            />
+        </View>
+    );
+}
+
 export default function PairScreen() {
     const auth = useAuth();
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const [state, setState] = React.useState<PairState | undefined>(undefined);
     const [pairingValue, setPairingValue] = React.useState('');
+    // The SSH-fluent route from the first-run chooser: the existing Direct SSH
+    // fields open immediately, before any QR. Pairing itself is unchanged —
+    // these details only decide which route the bytes take afterwards.
+    const [sshHost, setSshHost] = React.useState('');
+    const [sshUsername, setSshUsername] = React.useState('');
+    const [sshPort, setSshPort] = React.useState('22');
+    const [sshRelayPort, setSshRelayPort] = React.useState('8792');
+    const [sshPassword, setSshPassword] = React.useState('');
+    const [sshPrivateKey, setSshPrivateKey] = React.useState('');
+    const [sshPassphrase, setSshPassphrase] = React.useState('');
+    const [sshError, setSshError] = React.useState<string | undefined>(undefined);
+    const [commandCopied, setCommandCopied] = React.useState(false);
     // Deep links arrive as route params (expo-router drops unknown query keys
     // from getInitialURL, so the raw URL is only a fallback).
     const routeParams = useLocalSearchParams();
     const browser = Platform.OS === 'web';
     const PairScrollView = browser ? ScrollView : KeyboardAwareScrollView;
     const openedFromSettings = routeParams.source === 'settings';
+    const sshRoute = !browser && routeParams.route === 'ssh' && Platform.OS === 'android' && sshTunnelAvailable();
     const reviewPairing = React.useCallback((raw: string) => {
         try {
             const url = prepareHostedPairingInput(raw);
@@ -86,7 +139,7 @@ export default function PairScreen() {
         if (typeof v !== 'string' || v === '') return undefined;
         const query = new URLSearchParams();
         for (const [key, value] of Object.entries(routeParams)) {
-            if (key === 'source' || typeof value !== 'string') continue;
+            if (key === 'source' || key === 'route' || typeof value !== 'string') continue;
             // Expo's deep-link parser form-decodes, so the `%2B` in a
             // standard-base64 machinePk arrives as a space and the rebuilt
             // mailbox no longer matches the machine's signing key. base64
@@ -117,7 +170,7 @@ export default function PairScreen() {
         }
         void Linking.getInitialURL().then((url) => {
             if (cancelled) return;
-            if (!receive(url)) {
+            if (!receive(url) && !sshRoute) {
                 setState({ phase: 'error', message: browser
                     ? 'Paste a fresh browser pairing string from `muxr pair --browser`, `muxr pair --browser-personal`, or `muxr pair --browser-view`.'
                     : 'Enter the short pairing string shown by `muxr pair`.' });
@@ -128,10 +181,21 @@ export default function PairScreen() {
         // Warm start: the app was already open when the link arrived.
         const subscription = Linking.addEventListener('url', (event) => receive(event.url));
         return () => { cancelled = true; subscription.remove(); };
-    }, [routePairUrl, browser]);
+    }, [routePairUrl, browser, sshRoute]);
 
-    const pair = React.useCallback(async (url: string) => {
-        const paired = await pairMachine({ url });
+    const pair = React.useCallback(async (url: string, sshInput?: SshFieldInput) => {
+        // The SSH route pairs through its own tunnel: establish it first, claim
+        // over the loopback it opens, and only report success with the tunnel
+        // proven. The tunnel stays open; the next sync dial reuses or rebuilds it.
+        let claimUrl = url;
+        let tunnelHostKey: string | undefined;
+        if (sshInput !== undefined) {
+            const tunnel = await establishSshTunnel(sshInput);
+            if (!tunnel.ok) throw new Error(tunnel.message);
+            tunnelHostKey = tunnel.hostKey;
+            claimUrl = tunnelPairingUrl(url, tunnel.localPort);
+        }
+        const paired = await pairMachine({ url: claimUrl });
         if (!paired.ok && paired.reason === 'voice-pinned') {
             const switchApproved = await Modal.confirm(
                 'End voice and switch?',
@@ -146,6 +210,10 @@ export default function PairScreen() {
             if (!retried.ok) {
                 throw new Error(retried.reason === 'failed' ? retried.message ?? 'Pairing failed' : 'Pairing failed');
             }
+            if (sshInput !== undefined) {
+                const applied = await applySshAfterPairing(sshInput, { hostKey: tunnelHostKey, relayUrl: url });
+                if (!applied.ok) Modal.alert('Paired — SSH route not applied', applied.message);
+            }
             await auth.login(retried.credential, retried.secretKey);
             router.replace('/');
             return;
@@ -153,15 +221,45 @@ export default function PairScreen() {
         if (!paired.ok) {
             throw new Error(paired.message ?? 'Pairing failed');
         }
+        if (sshInput !== undefined) {
+            const applied = await applySshAfterPairing(sshInput, { hostKey: tunnelHostKey, relayUrl: url });
+            if (!applied.ok) Modal.alert('Paired — SSH route not applied', applied.message);
+        }
         await auth.login(paired.credential, paired.secretKey);
         router.replace('/');
     }, [auth, router]);
 
+    const sshInput = React.useCallback((): { ok: true; input?: SshFieldInput } | { ok: false; error: string } => {
+        if (!sshRoute) return { ok: true };
+        const input: SshFieldInput = {
+            host: sshHost,
+            username: sshUsername,
+            port: sshPort,
+            relayPort: sshRelayPort,
+            password: sshPassword,
+            privateKey: sshPrivateKey,
+            passphrase: sshPassphrase,
+        };
+        // Fields left completely empty mean the user only wants the plain
+        // pairing; anything filled must parse before a claim is attempted.
+        const filled = [input.host, input.username, input.password, input.privateKey, input.passphrase].some((v) => v.trim() !== '');
+        if (!filled) return { ok: true };
+        const parsed = parseSshFields(input);
+        if ('error' in parsed) return { ok: false, error: parsed.error };
+        return { ok: true, input };
+    }, [sshRoute, sshHost, sshUsername, sshPort, sshRelayPort, sshPassword, sshPrivateKey, sshPassphrase]);
+
     const confirm = React.useCallback(() => {
         if (state === undefined || (state.phase !== 'confirm' && state.phase !== 'error') || state.url === undefined) return;
+        const parsedInput = sshInput();
+        if (!parsedInput.ok) {
+            setSshError(parsedInput.error);
+            setState(undefined);
+            return;
+        }
         const { url, machineName } = state;
         setState({ phase: 'working', url, machineName: machineName ?? 'this machine' });
-        void pair(url).catch((cause) => {
+        void pair(url, parsedInput.input).catch((cause) => {
             setState({
                 phase: 'error',
                 message: cause instanceof Error ? cause.message : String(cause),
@@ -169,16 +267,33 @@ export default function PairScreen() {
                 machineName,
             });
         });
-    }, [state, pair]);
+    }, [state, pair, sshInput]);
 
-    const connectManual = React.useCallback(() => reviewPairing(pairingValue), [pairingValue, reviewPairing]);
+    const connectManual = React.useCallback(() => {
+        setSshError(undefined);
+        const parsedInput = sshInput();
+        if (!parsedInput.ok) {
+            setSshError(parsedInput.error);
+            return;
+        }
+        reviewPairing(pairingValue);
+    }, [pairingValue, sshInput, reviewPairing]);
 
     const cancel = React.useCallback(() => {
         if (openedFromSettings) router.back();
         else router.replace('/');
     }, [openedFromSettings, router]);
 
+    // The switcher's Fast pairing segment: from first-run, pop back to the
+    // chooser; from a settings entry, the fast route lives on Home.
+    const switchToFast = React.useCallback(() => {
+        if (!openedFromSettings) router.back();
+        else router.replace('/');
+    }, [openedFromSettings, router]);
+
+    const manualForm = state === undefined || state.phase === 'error' && state.url === undefined;
     return (
+        <View style={styles.screenWrap}>
         <PairScrollView style={styles.scroll} contentContainerStyle={[styles.screen, { paddingBottom: insets.bottom + 24 }]}
             keyboardShouldPersistTaps="handled" {...(browser ? {} : { bottomOffset: 120 })}>
             <View style={styles.hero}>
@@ -258,13 +373,61 @@ export default function PairScreen() {
                         {state?.phase === 'error' && (
                             <Text accessibilityRole="alert" style={styles.errorText}>{state.message}</Text>
                         )}
-                        {!browser && openedFromSettings && (
+                        {sshRoute && (
+                            <>
+                                <RouteSwitcher onFastPairing={switchToFast} />
+                                <View style={styles.sshSteps}>
+                                    {SSH_PAIRING_STEPS.map((step, index) => (
+                                        <View key={step} style={styles.stepRow}>
+                                            <Text style={styles.stepIndex}>{index + 1}</Text>
+                                            <Text style={styles.stepText}>{step}</Text>
+                                        </View>
+                                    ))}
+                                </View>
+                                <View style={styles.commandRow}>
+                                    <Text style={styles.command} selectable>muxr pair</Text>
+                                    <Pressable
+                                        accessibilityRole="button"
+                                        accessibilityLabel={commandCopied ? 'Copied' : 'Copy muxr pair'}
+                                        hitSlop={10}
+                                        style={styles.copyButton}
+                                        onPress={() => {
+                                            void Clipboard.setStringAsync('muxr pair').then(() => {
+                                                setCommandCopied(true);
+                                                setTimeout(() => setCommandCopied(false), 2000);
+                                            }).catch(() => Modal.alert('Copy failed', 'Please try again.'));
+                                        }}
+                                    >
+                                        <Ionicons name={commandCopied ? 'checkmark-outline' : 'copy-outline'} size={20} color={styles.inputPlaceholder.color} />
+                                    </Pressable>
+                                </View>
+                                <SshField label="SSH host" value={sshHost} onChange={setSshHost} placeholder="server.example.com or 192.168.1.20" />
+                                <SshField label="SSH username" value={sshUsername} onChange={setSshUsername} placeholder="your login on the machine" />
+                                <View style={styles.sshRow}>
+                                    <SshField flex label="SSH port" value={sshPort} onChange={setSshPort} placeholder="22" keyboardType="number-pad" />
+                                    <SshField flex label="Relay port" value={sshRelayPort} onChange={setSshRelayPort} placeholder="8792" keyboardType="number-pad" />
+                                </View>
+                                <SshField label="SSH password (optional)" value={sshPassword} onChange={setSshPassword} placeholder="Password or private key" secure />
+                                <SshField label="Private key (optional)" value={sshPrivateKey} onChange={setSshPrivateKey} placeholder="Paste an OpenSSH private key" secure multiline />
+                                <SshField label="Private key passphrase" value={sshPassphrase} onChange={setSshPassphrase} placeholder="Only if the key is encrypted" secure />
+                            </>
+                        )}
+                        {!browser && openedFromSettings && !sshRoute && (
                             <>
                                 <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
                                 <Text style={styles.routeHint}>Recommended · ~1 min · for the computer in front of you.</Text>
                             </>
                         )}
-                        <Text style={styles.inputLabel}>{browser ? 'Paste browser pairing string' : openedFromSettings ? 'Or paste the pairing string' : 'Enter pairing string manually'}</Text>
+                        {state?.phase === 'error' && state.url === undefined && !sshRoute && (
+                            <View style={styles.explainer}>
+                                <Text style={styles.explainerText}>The pairing string is single-use and expires after a few minutes.</Text>
+                                <Text style={styles.explainerText}>Run `muxr pair` again for a fresh string, then retry.</Text>
+                                {!browser && sshTunnelAvailable() && (
+                                    <ActionButton variant="secondary" title="Connect over SSH instead" icon="terminal-outline" onPress={() => router.push('/pair?route=ssh')} />
+                                )}
+                            </View>
+                        )}
+                        <Text style={styles.inputLabel}>{browser ? 'Paste browser pairing string' : openedFromSettings ? 'Or paste the pairing string' : sshRoute ? 'Pairing string from `muxr pair`' : 'Enter pairing string manually'}</Text>
                         <TextInput
                             accessibilityLabel="Pairing string"
                             autoCapitalize="none"
@@ -280,18 +443,32 @@ export default function PairScreen() {
                         />
                         <Text style={styles.routeHint}>{browser
                             ? 'Shown by `muxr pair --browser` on that computer.'
-                            : 'For a computer you are not standing at — copy the string from its terminal.'}</Text>
-                        <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
+                            : sshRoute
+                                ? 'The string proves the machine consented; the SSH details decide how this phone reaches it.'
+                                : 'For a computer you are not standing at — copy the string from its terminal.'}</Text>
+                        {!sshRoute && <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />}
                         <ActionButton title="Back" variant="quiet" onPress={cancel} />
                     </>
                 )}
             </View>
         </PairScrollView>
+        {sshRoute && manualForm && (
+            // Anchored below the scroll, outside it: with the keyboard open the
+            // window resizes and the Connect CTA stays visible at any field.
+            <View style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]}>
+                {sshError !== undefined && <Text accessibilityRole="alert" style={styles.errorText}>{sshError}</Text>}
+                <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
+            </View>
+        )}
+        </View>
     );
 }
 
 const styles = StyleSheet.create((theme) => ({
     scroll: {
+        flex: 1,
+    },
+    screenWrap: {
         flex: 1,
     },
     screen: {
@@ -433,6 +610,75 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.text,
         paddingHorizontal: 14,
         fontSize: 16,
+    },
+    inputMultiline: {
+        height: 'auto',
+        minHeight: 90,
+        paddingTop: 12,
+    },
+    sshFieldWide: {
+        alignSelf: 'stretch',
+    },
+    sshRow: {
+        flexDirection: 'row',
+        alignSelf: 'stretch',
+        gap: 10,
+    },
+    sshRowField: {
+        flex: 1,
+    },
+    sshSteps: {
+        alignSelf: 'stretch',
+        gap: 8,
+        paddingBottom: 4,
+    },
+    ctaBar: {
+        alignSelf: 'stretch',
+        borderTopWidth: 1,
+        borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.surface,
+        paddingHorizontal: 24,
+        paddingTop: 10,
+        gap: 8,
+    },
+    explainer: {
+        alignSelf: 'stretch',
+        gap: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        borderRadius: 14,
+        backgroundColor: theme.colors.surfaceHigh,
+        padding: 14,
+    },
+    explainerText: {
+        ...Typography.default(),
+        fontSize: 13,
+        lineHeight: 18,
+        color: theme.colors.textSecondary,
+    },
+    commandRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'stretch',
+        gap: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surfaceHighest,
+        paddingHorizontal: 14,
+        height: 50,
+    },
+    command: {
+        ...Typography.mono(),
+        flex: 1,
+        fontSize: 14,
+        color: theme.colors.text,
+    },
+    copyButton: {
+        minWidth: 44,
+        minHeight: 44,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     inputPlaceholder: {
         color: theme.colors.textSecondary,

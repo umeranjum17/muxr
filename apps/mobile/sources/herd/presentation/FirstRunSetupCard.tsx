@@ -24,8 +24,14 @@ const SETUP_EFFECTS = [
  * Herd: run muxr on the computer, connect this device, review access. Numbered
  * steps, no leading action glyphs; the only compact control is Copy. It carries
  * no pairing buttons (the screen keeps its own) and no progress state.
+ *
+ * `variant="command"` renders only step 1's command row + effects disclosure,
+ * for the guided run step where the surrounding screen owns the progression.
  */
-export function FirstRunSetupCard() {
+export function FirstRunSetupCard(props: {
+    variant?: 'full' | 'command';
+}) {
+    const commandOnly = props.variant === 'command';
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const setup = setupEmptyState(loadAppConfig().publicBaseUrl);
@@ -75,9 +81,9 @@ export function FirstRunSetupCard() {
                     </Pressable>
                     {effectsOpen && (
                         <View style={styles.effectsBody}>
-                            {SETUP_EFFECTS.map((line, index) => (
-                                <View key={line} style={styles.step}>
-                                    <View style={styles.badge}><Text style={styles.badgeNumber}>{index + 1}</Text></View>
+                            {SETUP_EFFECTS.map((line) => (
+                                <View key={line} style={styles.effectRow}>
+                                    <Text style={styles.effectDash}>{'–'}</Text>
                                     <Text style={styles.effectsText}>{line}</Text>
                                 </View>
                             ))}
@@ -90,6 +96,7 @@ export function FirstRunSetupCard() {
                     )}
                 </View>
             </View>
+            {!commandOnly && <>
             <View style={styles.step}>
                 <View style={styles.badge}><Text style={styles.badgeNumber}>2</Text></View>
                 <View style={styles.body}>
@@ -104,6 +111,7 @@ export function FirstRunSetupCard() {
                     <Text style={styles.stepHint}>Check the computer and access shown, then choose Pair</Text>
                 </View>
             </View>
+            </>}
         </View>
     );
 }
@@ -198,6 +206,18 @@ const stylesheet = StyleSheet.create((theme) => ({
     effectsBody: {
         gap: 10,
         paddingTop: 2,
+    },
+    effectRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 8,
+    },
+    effectDash: {
+        ...Typography.default('semiBold'),
+        fontSize: 13,
+        lineHeight: 18,
+        color: theme.colors.textSecondary,
+        width: 10,
     },
     effectsText: {
         ...Typography.default(),

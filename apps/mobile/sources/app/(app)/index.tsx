@@ -12,13 +12,12 @@ import { useIsLandscape } from "@/utils/responsive";
 import { Typography } from "@/constants/Typography";
 import { HomeHeaderNotAuth } from "@/herd/ui";
 import { MainView } from "@/herd/ui";
-import { FirstRunSetupCard } from "@/herd/ui";
+import { FirstRunConnection } from "@/herd/ui";
 import { Wordmark } from "@/components/Wordmark";
 import { t } from '@/text';
 import { Modal } from '@/modal';
 import { resumePendingHostedPairing } from '@/pairing/e2ee';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
-import { useHostedPairing, usePairQrScanner } from '@/pairing';
 
 export default function Home() {
     const auth = useAuth();
@@ -55,9 +54,6 @@ function NotAuthenticated() {
         }).finally(() => { pairing.current = false; });
     }, [auth, hosted]);
 
-    const processPairLink = useHostedPairing();
-    const scanHostedQr = usePairQrScanner((url) => void processPairLink(url), hosted);
-
     // One mark, in a soft halo. The hero previously stacked glyph.png (upscaled
     // from a small source, hence the blur) above the wordmark saying the same
     // thing. Wordmark is downscaled from 300x36 here, so it stays sharp; a true
@@ -70,21 +66,10 @@ function NotAuthenticated() {
         </View>
     );
 
-    const promptForPairingString = async (title: string) => {
-        const pasted = await Modal.prompt(
-            title,
-            Platform.OS === 'web'
-                ? 'Paste the short link shown by `muxr pair --browser` for eight hours of control, `muxr pair --browser-personal` for 30 days of control on a browser only you use, or `muxr pair --browser-view` for view-only access.'
-                : 'Paste the pairing string shown by `muxr pair` on that machine. It pairs this phone end-to-end encrypted.',
-            { placeholder: Platform.OS === 'web' ? 'https://your-relay/pair?pair=…' : 'wss://your-relay?pair=7KDM4-QXP7N' },
-        );
-        if (!pasted?.trim()) return;
-        await processPairLink(pasted.trim());
-    };
     if (hosted) {
         return (
-            // Scrollable so the three-step card and the primary action both fit
-            // at 390-wide portrait and at larger text sizes; the hero is
+            // Scrollable so the route chooser and the recommended route both fit
+            // at 270-wide portrait and at larger text sizes; the hero is
             // compact rather than a full-height decorative void.
             <ScrollView
                 style={styles.screen}
@@ -96,23 +81,7 @@ function NotAuthenticated() {
                     <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : 'Run your agents from your phone.'}</Text>
                     <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
                 </View>
-                <FirstRunSetupCard />
-                <View style={styles.actions}>
-                    {Platform.OS === 'web' ? (
-                        <>
-                            <ActionButton title="Enter pairing string" icon="keypad-outline" action={() => promptForPairingString('Enter pairing string')} />
-                            <Text style={styles.routeHint}>Browsers pair by string: paste the link shown by `muxr pair --browser` on that computer.</Text>
-                        </>
-                    ) : (
-                        <>
-                            <ActionButton title="Scan QR to pair" icon="qr-code-outline" action={scanHostedQr} />
-                            <Text style={styles.routeHint}>Recommended · ~1 min · for the computer in front of you.</Text>
-                            <ActionButton variant="secondary" title="Enter pairing string" icon="keypad-outline" onPress={() => router.push('/pair')} />
-                            <Text style={styles.routeHint}>For a computer you are not standing at.</Text>
-                        </>
-                    )}
-                    <Text style={styles.footer}>End-to-end encrypted · machine keys never leave your devices</Text>
-                </View>
+                <FirstRunConnection />
             </ScrollView>
         );
     }
@@ -268,21 +237,6 @@ const styles = StyleSheet.create((theme) => ({
         maxWidth: 340,
         paddingHorizontal: 24,
         gap: 10,
-    },
-    routeHint: {
-        ...Typography.default(),
-        fontSize: 13,
-        lineHeight: 18,
-        color: theme.colors.textSecondary,
-        textAlign: 'center',
-    },
-    footer: {
-        ...Typography.default(),
-        fontSize: 13,
-        lineHeight: 18,
-        color: theme.colors.textSecondary,
-        textAlign: 'center',
-        marginTop: 8,
     },
     // Landscape styles
     landscapeContainer: {

@@ -1,4 +1,3 @@
-export const MOBILE_ONBOARDING_CHOICES = ['Scan to connect'] as const;
 export const SETUP_COMMAND = 'muxr';
 
 export function setupEmptyState(publicBaseUrl?: string): {

@@ -12,14 +12,11 @@ vi.mock('react-native-mmkv', () => ({
 import {
     directBillingUrl,
     firstRestorableMachine,
-    MOBILE_ONBOARDING_CHOICES,
     setupEmptyState,
 } from '@/commercialization';
 
 describe('open-source mobile onboarding flow', () => {
     it('keeps pairing semantics, the no-machine handoff, and every commerce surface absent', () => {
-        expect(MOBILE_ONBOARDING_CHOICES).toEqual(['Scan to connect']);
-
         expect(firstRestorableMachine([
             { id: 'new-machine', paired: false },
             { id: 'existing-grant', paired: true },
