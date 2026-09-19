@@ -101,8 +101,10 @@ async function handleNaming(req, res) {
         req.on('data', (chunk) => {
             size += chunk.length;
             if (size > MAX_BODY_BYTES) {
+                // Over the limit: stop buffering and let the rest drain. Never
+                // destroy() here — a reset socket is how the client LOSES the
+                // 400 that the guard is meant to send it.
                 resolve(undefined);
-                req.destroy();
                 return;
             }
             chunks.push(chunk);

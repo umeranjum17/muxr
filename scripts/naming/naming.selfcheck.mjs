@@ -11,6 +11,7 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
+import http from 'node:http';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -98,6 +99,23 @@ try {
     check('nothing-to-name is rejected', empty.status === 400, JSON.stringify(empty));
     const junk = await fetch(`http://127.0.0.1:${port}/api/naming`, { method: 'POST', body: 'not json' });
     check('non-JSON body is rejected', junk.status === 400);
+
+    // Raw request (not fetch): the point is that the oversized CLIENT actually
+    // receives the 400 instead of a reset connection.
+    const oversized = await new Promise((resolve, reject) => {
+        let answered = false;
+        const request = http.request(
+            { host: '127.0.0.1', port, method: 'POST', path: '/api/naming', headers: { 'content-type': 'application/json' } },
+            (res) => {
+                answered = true;
+                res.resume();
+                res.on('end', () => resolve(res.statusCode));
+            },
+        );
+        request.on('error', (error) => { if (!answered) reject(error); });
+        request.end(`{"pane":"${'x'.repeat(64 * 1024)}"}`);
+    });
+    check('oversized body (>64 KiB) answers 400 to the client', oversized === 400, `client saw ${oversized}`);
 
     const health = await fetch(`http://127.0.0.1:${port}/health`);
     check('health endpoint answers', health.status === 200);
