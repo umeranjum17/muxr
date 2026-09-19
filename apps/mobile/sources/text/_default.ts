@@ -311,7 +311,7 @@ export const en = {
         // Spaces section on Home
         title: 'Spaces',
         empty: 'No spaces open',
-        // Group row: child workspaces folded behind a parent card
+        // Group subheader: child workspaces folded inside a parent card
         groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
             ? `${count} ${plural({ count, singular: 'workspace', plural: 'workspaces' })}`
             : `${count} ${kind} ${plural({ count, singular: 'workspace', plural: 'workspaces' })}`,
