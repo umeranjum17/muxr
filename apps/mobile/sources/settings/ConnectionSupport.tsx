@@ -19,8 +19,8 @@ import { useHostUpdate } from './useHostUpdate';
 import { useDeviceAuthority } from '@/pairing';
 
 // Explanation prose drops below its action row at full card width (same tokens
-// as the connection screen's hint), so the row keeps icon, status line and
-// chevron aligned instead of wrapping a paragraph in the inset text column.
+// as the connection screen's hint), so the row keeps icon and status line
+// aligned instead of wrapping a paragraph in the inset text column.
 const stylesheet = StyleSheet.create((theme) => ({
     guidance: {
         paddingHorizontal: 16,
@@ -31,6 +31,22 @@ const stylesheet = StyleSheet.create((theme) => ({
         ...Typography.default(),
     },
 }));
+
+// Real display-mode signals only: an installed PWA runs standalone (iOS Safari
+// only reports navigator.standalone), a browser tab never does, and a narrow
+// window proves nothing about installation.
+function detectInstallContext(): 'native' | 'standalone' | 'browser' {
+    if (Platform.OS !== 'web') return 'native';
+    if (typeof navigator !== 'undefined' && (navigator as { standalone?: boolean }).standalone === true) return 'standalone';
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches) return 'standalone';
+    return 'browser';
+}
+
+const installContextTitles: Record<ReturnType<typeof detectInstallContext>, string> = {
+    native: 'Installed app',
+    standalone: 'Installed web app',
+    browser: 'Web app',
+};
 
 /** One destination for installed versions, update guidance and connection evidence. */
 export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?: string }) {
@@ -85,15 +101,16 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
                 icon={mismatch ? <Ionicons name="warning-outline" size={24} color={theme.colors.box.warning.border} /> : undefined}
                 subtitle={statusSubtitle}
                 subtitleLines={0}
+                showChevron={false}
                 loading={update.busy}
                 disabled={installBlocked !== undefined}
                 onPress={installBlocked === undefined ? () => void update.check() : undefined}
             />
             {!update.message && <Text style={stylesheet.guidance}>{guidance}</Text>}
-            <Item title={Platform.OS === 'web' ? 'Web app' : 'Installed app'} subtitle={`Version ${exactRelease ?? appVersion}${build ? ` · build ${build}` : ''}`}
+            <Item title={installContextTitles[detectInstallContext()]} subtitle={`Version ${exactRelease ?? appVersion}${build ? ` · build ${build}` : ''}`}
                 subtitleLines={0} onPress={versionClick} showChevron={false} />
             <Item title="Source" subtitle={sourceLine} subtitleLines={0} />
-            <Item title="Connected host" subtitle={hostVersion ? `Version ${hostVersion} · last reported` : 'Unavailable until the host reports it'} subtitleLines={0} />
+            <Item title="Connected host" subtitle={hostVersion ? `Version ${hostVersion}` : 'Unavailable until the host reports it'} subtitleLines={0} />
             <Item title="Get mobile builds" subtitle="Choose the stable or nightly release you want to test" subtitleLines={0}
                 onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/releases')} />
         </ItemGroup>
