@@ -1,7 +1,7 @@
 muxr wave review — 2026-09-18 — full product walk + post-review proof
 Lab: isolated — repo-built relay (dev fixture + selfhost), fake fleet fixture (7 workspaces,
 agents of four kinds in every lifecycle status), Android emulator dev client on the same Metro bundle.
-Browser = chrome-devtools-axi @ 390x844@2x dark. Every line: FILE | Surface | what it shows.
+Browser = local browser-automation CLI @ 390x844@2x dark. Every line: FILE | Surface | what it shows.
 Files live next to this INDEX. Post-review proof lanes (Lavish, Spaces rail, inline image,
 naming, mock) were captured on separate isolated labs and are marked PROOF.
 
@@ -26,14 +26,14 @@ CONN-02-connection-settings-dev.png | Browser | Settings → Connection & update
 CONN-03-connection-settings-bottom.png | Browser | Connection scrolled: relay form in full with hint that values are 'Printed by muxr up on the machine running the agents'.
 CONN-04-native-mismatch.png | Android | Native Connection & updates: STATUS connected — 'Route from relay address', 'Transport & privacy: WS without TLS transport · end-to-end encrypted agent data', relay endpoint, 'Trust on this device', 'Paired phones & browsers: 1 paired at last check', NEARBY RECONNECTION discovery.
 CONN-05-native-versions.png | Android | Installed versions with the mismatch spelled out: app 0.1.12 build 12 (dev-client shell reused in this lab) vs host 0.1.28 @ 4783bf27 — the app flags the mismatch and offers 'Get mobile builds'; diagnostics row below.
-DICT-01-voice-settings.png | Browser | Voice & dictation settings, regrouped: PROVIDER (empty in browser), DICTATION (Spoken language Automatic; English Whisper Base bundled 'in use'; Multilingual disabled with 'Download from the Android or iOS app'), WORD REPLACEMENTS, HANDS-FREE wake-on-speech (off, needs computer).
+DICT-01-voice-settings.png | Browser | Voice & dictation settings, regrouped: PROVIDER (empty in browser), DICTATION (Spoken language Automatic; the bundled English model 'in use'; Multilingual disabled with 'Download from the Android or iOS app'), WORD REPLACEMENTS, HANDS-FREE wake-on-speech (off, needs computer).
 DICT-02-language-picker.png | Browser | Spoken language sheet: Automatic + 15 pinned languages incl. Arabic, Urdu, Hindi; 'Detect the spoken language for each recording'.
 DICT-03-language-pinned-urdu.png | Browser | After picking Urdu the row reads 'Spoken language | Urdu' (error banner above is the dev-relay reconnect during lab switchover, not the picker).
 DICT-04-word-replacement-form.png | Browser | Add replacement dialog: 'Word to fix — enter the word or phrase the engine hears wrong', with Cancel/OK.
 DICT-05-word-replacement-saved.png | Browser | Replacement saved; list hint: 'Tap a replacement to edit it, or hold it to delete it.'
 DICT-06-native-settings.png | Android | Native PROVIDER section: four voice providers listed — three key-based ('Needs an API key on this machine · Tap to use'), one login-based marked 'In use'; 'Voice engines — what each one is, and talk to hear it'; 'One provider runs on this machine at a time.'
-DICT-07-native-dictation.png | Android | DICTATION native: Spoken language Automatic; English — Whisper Base · bundled; Multilingual — Whisper Base · 99 languages · 60 MB download; WORD REPLACEMENTS; HANDS-FREE wake-on-speech Off.
-DICT-08-model-download.png | Android | After tapping Multilingual: download completed and row now reads 'Whisper Base · 99 languages · installed' — on-device model download flow works.
+DICT-07-native-dictation.png | Android | DICTATION native: Spoken language Automatic; English — bundled model; Multilingual — 99-language model · 60 MB download; WORD REPLACEMENTS; HANDS-FREE wake-on-speech Off.
+DICT-08-model-download.png | Android | After tapping Multilingual: download completed and row now reads '99-language model · installed' — on-device model download flow works.
 DICT-09-native-language-picker.png | Android | Spoken language picker (Search 16): Automatic + pinned language list (English, Arabic, Urdu, Chinese, French, German, Hindi, Italian, Japanese, Korean…).
 HISTORY-01-pane-scrollback.png | Browser | Conversation history: agent pane scrollback — line count and most-recent-available ring, read from the lab pane.
 HOME-01-ready-unseen-right-now.png | Browser | Home on connection: Right-now button, Live row, 'Needs you' (failed + blocked), 'Ready · unseen' (done, unopened) above Spaces.
