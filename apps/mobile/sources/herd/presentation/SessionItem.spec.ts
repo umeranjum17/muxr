@@ -41,8 +41,11 @@ vi.mock('react-native', async () => {
         Pressable: 'Pressable',
         FlatList: 'FlatList',
         // Minimal section container: rows render through the real renderItem,
-        // and the list reports its rows viewable once after mount, as the real
-        // one does after layout.
+        // and the list reports viewability once after mount, as the real one
+        // does after layout. Like the real VirtualizedSectionList, header
+        // cells carry the section itself as their item and every token is
+        // routed through the list's keyExtractor (_convertViewable) before
+        // the callback sees it.
         SectionList: (props: any) => {
             const reported = React.useRef(false);
             React.useEffect(() => {
@@ -50,8 +53,13 @@ vi.mock('react-native', async () => {
                 reported.current = true;
                 listProps.push(props);
                 props.onViewableItemsChanged?.({
-                    viewableItems: props.sections.flatMap((section: any) =>
-                        section.data.map((item: any) => ({ item }))),
+                    viewableItems: props.sections.flatMap((section: any) => [
+                        { item: section, key: props.keyExtractor(section, 0) },
+                        ...section.data.map((item: any, index: number) => ({
+                            item,
+                            key: props.keyExtractor(item, index),
+                        })),
+                    ]),
                 });
             });
             return React.createElement('View', {}, props.sections.flatMap((section: any) => [

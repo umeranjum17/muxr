@@ -778,6 +778,10 @@ const WorkspaceCard = React.memo(({
     );
 });
 
+/** Viewability tokens also cover header/footer cells, whose item is the
+ * section itself, not a row (VirtualizedSectionList._getItem). */
+type HerdSpaceSection = { key: string; title: string; data: HerdSpaceRow[] };
+
 export const SpacesTree = React.memo(({
     workspaces,
     defaultExpandedWorkspaceIds = [],
@@ -879,7 +883,8 @@ export const SpacesTree = React.memo(({
     const onViewableItemsChanged = React.useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
         const ids: string[] = [];
         for (const token of viewableItems) {
-            ids.push((token.item as HerdSpaceRow).workspace.workspaceId);
+            const item = token.item as HerdSpaceRow | HerdSpaceSection;
+            if ('workspace' in item) ids.push(item.workspace.workspaceId);
         }
         const key = ids.join('|');
         if (key === visibleKeyRef.current) return;
@@ -929,7 +934,8 @@ export const SpacesTree = React.memo(({
         <View style={[styles.contentContainer, { maxWidth: maxContentWidth }]}>
             <SectionList
                 sections={sections}
-                keyExtractor={(item) => `ws-${item.workspace.workspaceId}`}
+                keyExtractor={(item: HerdSpaceRow | HerdSpaceSection) =>
+                    'workspace' in item ? `ws-${item.workspace.workspaceId}` : `section-${item.key}`}
                 renderItem={renderItem}
                 renderSectionHeader={({ section }) => (
                     <View style={[styles.sectionHeader, compact && styles.sectionHeaderCompact]}>
