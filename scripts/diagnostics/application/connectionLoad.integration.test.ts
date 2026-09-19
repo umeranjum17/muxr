@@ -169,7 +169,10 @@ describe('connection stability under agent load', () => {
         expect(client.state).toBe('open');
         // The keepalive wait above alone burns 30.5s of this test; 40s left no
         // room for relay/host boot under a loaded CI runner.
-    }, 90_000);
+    // Shared CI runners slowed measurably (ubuntu-latest image migration); the
+    // same flow passed the suite lane minutes after timing out here at 90s.
+    // This test measures reconnect truth, not speed -- give it headroom.
+    }, 120_000);
 
     it('keeps explicit close final while ticket or grant acquisition is in flight', async () => {
         let socketCreations = 0;
