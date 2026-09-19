@@ -6,7 +6,7 @@
 import type { LayoutSnapshot } from '@muxr/contract';
 
 export type HerdrLayoutNode =
-    | { type: 'pane'; pane_id?: string; cwd?: string }
+    | { type: 'pane'; pane_id?: string; cwd?: string; env?: Record<string, string> }
     | { type: 'split'; direction: 'right' | 'down'; ratio: number; first: HerdrLayoutNode; second: HerdrLayoutNode };
 
 export function toSnapshot(node: HerdrLayoutNode, kindForPane: (paneId: string) => string | undefined): LayoutSnapshot {
@@ -28,17 +28,17 @@ export function toSnapshot(node: HerdrLayoutNode, kindForPane: (paneId: string) 
 }
 
 /** Panes restore as plain shells; agents are started afterwards by pane id. */
-export function toHerdrRoot(node: LayoutSnapshot): HerdrLayoutNode {
+export function toHerdrRoot(node: LayoutSnapshot, env?: Record<string, string>): HerdrLayoutNode {
     if (node.type === 'split') {
         return {
             type: 'split',
             direction: node.direction,
             ratio: node.ratio,
-            first: toHerdrRoot(node.first),
-            second: toHerdrRoot(node.second),
+            first: toHerdrRoot(node.first, env),
+            second: toHerdrRoot(node.second, env),
         };
     }
-    return { type: 'pane', ...(node.cwd === undefined ? {} : { cwd: node.cwd }) };
+    return { type: 'pane', ...(node.cwd === undefined ? {} : { cwd: node.cwd }), ...(env === undefined ? {} : { env }) };
 }
 
 export function collectKinds(node: LayoutSnapshot, out: (string | undefined)[] = []): (string | undefined)[] {

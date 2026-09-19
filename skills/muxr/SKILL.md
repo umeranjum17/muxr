@@ -1,6 +1,6 @@
 ---
 name: muxr
-description: Set up and operate muxr (control coding agents from your phone) — install/pair/self-host, drive Herdr workspaces/panes/agents/worktrees, share pane attachments, hand browser login/2FA/CAPTCHA to the phone, connect computers for cross-machine collaboration and voice, and author/install muxr plugins. Use for any muxr or Herdr setup, orchestration, collaboration, plugin, or troubleshooting task.
+description: Set up and operate muxr (control coding agents from your phone) — use the shared browser and inline terminal images, install/pair/self-host, drive Herdr workspaces/panes/agents/worktrees, share pane attachments, hand browser login/2FA/CAPTCHA to the phone, connect computers for cross-machine collaboration and voice, and author/install muxr plugins. Use for any muxr or Herdr setup, orchestration, collaboration, plugin, or troubleshooting task.
 license: Apache-2.0
 compatibility: Requires the muxr and Herdr CLIs on a paired macOS or Linux host, with shell access for commands.
 ---
@@ -40,6 +40,18 @@ renders state the host reports.
   takeover, destructive pane/workspace actions, or arbitrary plugin calls.
 - Machine, pane, session, device, and grant ids are internal. Never display or
   speak them; use machine names, Agent Names, and Task Titles. Route only by stable Agent Routes.
+
+## Live capabilities in a Herdr pane
+
+A muxr-launched pane advertises `$MUXR_AGENT_CAPABILITIES`. Run `muxr --skill`
+for this compact reference. Use the existing owners it names rather than opening
+a second browser or turning an image into a file-path message:
+
+- Drive the browser with `agent-browser`; muxr's Browser view watches and can
+  take over that same session. Load `muxr skill browser-takeover` for the
+  shared-session and authorization rules.
+- Render a conversational image where the user is following the terminal with
+  `muxr show-image <path>`. It resolves the current pane from `$HERDR_PANE_ID`.
 
 ## Task router
 

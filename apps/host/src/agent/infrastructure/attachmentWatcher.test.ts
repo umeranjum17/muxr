@@ -1,7 +1,9 @@
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { SessionAttachment } from '@muxr/contract';
 import { AttachmentWatcher, MAX_INITIAL_INLINE_BYTES, MAX_INLINE_BYTES, scanPane, scanPaneWithAttribution } from './attachmentWatcher.js';
@@ -285,43 +287,55 @@ describe('AttachmentWatcher', () => {
         }
     });
 
-    it('muxr show-image flow: forwards a dropped show- image to the sink, deletes it, receipts the viewer count, and never lists it', async () => {
-        const root = paneRoot();
-        mkdirSync(join(root, 'pane:x:1'), { recursive: true });
-        writeFileSync(join(root, 'pane:x:1', 'show-test-1.png'), PIXEL);
-        // A garbage file pretending to be an image is discarded, not forwarded.
-        writeFileSync(join(root, 'pane:x:1', 'show-test-2.png'), 'definitely not a png');
+    it('muxr show-image uses the current pane, reports no viewer, then forwards ephemerally to a live viewer', async () => {
+        const muxrHome = paneRoot();
+        const root = join(muxrHome, 'attachments', 'pane');
+        const paneId = 'pane:x:1';
+        const source = join(muxrHome, 'pixel.png');
+        writeFileSync(source, PIXEL);
         const { watcher, emits } = collect(root, 15);
         const pushed: Array<{ paneId: string; mime: string; bytes: string }> = [];
-        watcher.showImage = (paneId, image) => {
-            pushed.push({ paneId, ...image });
-            return pushed.length; // pretend one viewer saw the first push
+        watcher.showImage = (target, image) => {
+            pushed.push({ paneId: target, ...image });
+            return pushed.length === 1 ? 0 : 1;
         };
         watcher.start();
+        const run = () => new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
+            const child = spawn(process.execPath, [
+                fileURLToPath(new URL('../../../../../scripts/cli.mjs', import.meta.url)),
+                'show-image',
+                source,
+            ], {
+                env: { ...process.env, MUXR_HOME: muxrHome, HERDR_PANE_ID: paneId },
+                stdio: ['ignore', 'pipe', 'pipe'],
+            });
+            let stdout = '';
+            let stderr = '';
+            child.stdout.on('data', (chunk) => { stdout += String(chunk); });
+            child.stderr.on('data', (chunk) => { stderr += String(chunk); });
+            child.on('close', (code) => resolve({ code, stdout, stderr }));
+        });
         try {
-            for (let waited = 0; waited < 3000 && pushed.length < 1; waited += 10) {
+            await expect(run()).resolves.toMatchObject({ code: 1, stderr: expect.stringContaining('no phone is viewing this pane') });
+            await expect(run()).resolves.toMatchObject({ code: 0, stdout: 'shown to 1 viewer\n' });
+
+            // A garbage file with a trusted extension is discarded by magic
+            // bytes and never reaches the live channel.
+            writeFileSync(join(root, paneId, 'show-garbage.png'), 'definitely not a png');
+            for (let waited = 0; waited < 3000 && readdirSync(join(root, paneId)).some((name) => name.startsWith('show-')); waited += 10) {
                 await new Promise((resolve) => setTimeout(resolve, 10));
             }
-            // The real pixel reached the sink addressed to the pane; the garbage
-            // file was sniffed out and discarded without a push.
-            expect(pushed).toEqual([{ paneId: 'pane:x:1', mime: 'image/png', bytes: PIXEL_B64 }]);
-            // Nothing persists on either side once forwarded: the show- file is
-            // gone (only the CLI-consumed dot-receipt may remain). The unlink
-            // lands a tick after the sink returns, so wait for it.
-            const { readdirSync } = await import('node:fs');
-            let left: string[] = [];
-            for (let waited = 0; waited < 3000; waited += 10) {
-                left = readdirSync(join(root, 'pane:x:1'));
-                if (!left.some((name) => name.startsWith('show-'))) break;
-                await new Promise((resolve) => setTimeout(resolve, 10));
-            }
-            for (const name of left) expect(name.startsWith('show-')).toBe(false);
-            // And the attachment listing never saw the show- files at all.
+
+            expect(pushed).toEqual([
+                { paneId, mime: 'image/png', bytes: PIXEL_B64 },
+                { paneId, mime: 'image/png', bytes: PIXEL_B64 },
+            ]);
+            expect(readdirSync(join(root, paneId)).filter((name) => name.startsWith('show-') || name.endsWith('.rc'))).toEqual([]);
             for (const emit of emits) {
                 for (const entry of emit.attachments) expect(entry.name.startsWith('show-')).toBe(false);
             }
         } finally {
             watcher.dispose();
         }
-    });
+    }, 15_000);
 });

@@ -82,6 +82,12 @@ import { agentKindsFromManifests } from '../domain/agentKinds.js';
 const PROMPT_READY_TIMEOUT_MS = 30_000;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
+
+/** Provider-neutral hint inherited by every pane muxr creates through Herdr. */
+export const MUXR_AGENT_ENV = {
+    MUXR_AGENT_CAPABILITIES: 'Shared browser: use agent-browser; muxr Browser watches and can take over the same session (details: muxr skill browser-takeover). Inline image: muxr show-image <path> uses HERDR_PANE_ID. Full reference: muxr --skill.',
+} as const;
+
 /** How long to watch a started Herdr action before reporting it as merely started. */
 const HERDR_ACTION_REPORT_MS = 5_000;
 
@@ -1778,6 +1784,7 @@ export async function createHerdrSessionSource(
                     const created = await client.call<{ workspace?: { workspace_id: string } }>('workspace.create', {
                         cwd,
                         label: cwd,
+                        env: MUXR_AGENT_ENV,
                         focus: false,
                     });
                     workspaceId = created.workspace?.workspace_id;
@@ -1793,6 +1800,7 @@ export async function createHerdrSessionSource(
             tab = await client.call('tab.create', {
                 workspace_id: workspaceId,
                 cwd,
+                env: MUXR_AGENT_ENV,
                 ...(requestedLabel === undefined ? {} : { label: requestedLabel }),
                 focus: false,
             });
@@ -2537,6 +2545,7 @@ export async function createHerdrSessionSource(
             const result = await client.call<{ pane?: { pane_id?: string } }>('pane.split', {
                 direction: splitOptions.direction,
                 target_pane_id: record.paneId,
+                env: MUXR_AGENT_ENV,
                 focus: false,
             });
             const newPaneId = result.pane?.pane_id;
@@ -2698,7 +2707,7 @@ export async function createHerdrSessionSource(
             const applied = await client.call<{ layout?: { tab_id?: string; root?: HerdrLayoutNode } }>(
                 'layout.apply',
                 {
-                    root: toHerdrRoot(applyOptions.snapshot),
+                    root: toHerdrRoot(applyOptions.snapshot, MUXR_AGENT_ENV),
                     ...(pane.pane?.workspace_id === undefined ? {} : { workspace_id: pane.pane.workspace_id }),
                     ...(applyOptions.label === undefined ? {} : { tab_label: applyOptions.label }),
                     focus: false,
@@ -2793,7 +2802,7 @@ export async function createHerdrSessionSource(
             const requestedLabel = options.label?.trim();
             const tab = await client.call<{ tab?: { tab_id: string }; root_pane?: { pane_id: string } }>(
                 'tab.create',
-                { workspace_id: workspaceId, cwd, ...(requestedLabel === undefined ? {} : { label: requestedLabel }), focus: false },
+                { workspace_id: workspaceId, cwd, env: MUXR_AGENT_ENV, ...(requestedLabel === undefined ? {} : { label: requestedLabel }), focus: false },
             );
             const paneId = tab.root_pane?.pane_id;
             if (paneId === undefined || tab.tab?.tab_id === undefined) throw new Error('herdr: tab.create returned no root pane');
