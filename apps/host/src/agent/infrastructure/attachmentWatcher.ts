@@ -8,17 +8,13 @@ import { createHash } from 'node:crypto';
 import { createReadStream, mkdirSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { open as openAsync, readdir, readFile, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
-import type { SessionAttachment } from '@muxr/contract';
+import type { SessionAttachment, SessionAttachmentMetadata } from '@muxr/contract';
 
 export const MAX_ATTACHMENTS = 50;
 // Large images stay metadata-only instead of crossing the relay inline.
 export const MAX_INLINE_BYTES = 8 * 1024 * 1024;
 /** Whole-file fetch is only the small healing path; larger files use chunks/download. */
 export const MAX_FETCH_BYTES = 2 * 1024 * 1024;
-// One pane may contain dozens of individually valid previews. Bound every
-// event so attachment discovery never starves session/terminal traffic;
-// metadata-only entries heal lazily through attachment.fetch when opened.
-export const MAX_INITIAL_INLINE_BYTES = 2 * 1024 * 1024;
 const DEBOUNCE_MS = 300;
 /** Backstop for missed fs.watch events: rescan every pane dir this often. */
 const RESCAN_MS = 30_000;
@@ -211,8 +207,6 @@ export async function scanPane(rootDir: string, paneId: string, cache?: Map<stri
  */
 export class AttachmentWatcher {
     private readonly lastSignature = new Map<string, string>();
-    /** Attachment ids already announced per pane; later lists carry them metadata-only. */
-    private readonly emittedIds = new Map<string, Set<string>>();
     private readonly fileCache = new Map<string, Map<string, CachedAttachment>>();
     private readonly scans = new Map<string, Promise<AttachmentScan>>();
     private readonly debounces = new Map<string, ReturnType<typeof setTimeout>>();
@@ -221,7 +215,7 @@ export class AttachmentWatcher {
 
     constructor(
         private readonly rootDir: string,
-        private readonly emit: (paneId: string, attachments: SessionAttachment[], total?: number, truncated?: boolean) => void,
+        private readonly emit: (paneId: string, attachments: SessionAttachmentMetadata[], total?: number, truncated?: boolean) => void,
         private readonly rescanMs: number = RESCAN_MS,
     ) {}
 
@@ -299,25 +293,13 @@ export class AttachmentWatcher {
             const attachments = scan.attachments;
             const names = new Set(attachments.map((entry) => entry.name));
             for (const name of cache.keys()) if (!names.has(name)) cache.delete(name);
-            // Signature over the METADATA-ONLY view: stripping data on the
-            // second emit must not look like a change.
+            // Session events are metadata-only: entries heal lazily through
+            // attachment.fetch when opened, so the signature below never has
+            // to reason about data.
             const signature = JSON.stringify({ attachments: attachments.map(metaOnly), total: scan.total, truncated: scan.truncated });
             if (this.lastSignature.get(paneId) === signature) return;
             this.lastSignature.set(paneId, signature);
-            const known = this.emittedIds.get(paneId);
-            let inlineBytes = 0;
-            const wireView = attachments.map((entry) => {
-                if (known?.has(entry.id) || entry.data === undefined) return metaOnly(entry);
-                const bytes = Buffer.byteLength(entry.data);
-                if (inlineBytes + bytes > MAX_INITIAL_INLINE_BYTES) return metaOnly(entry);
-                inlineBytes += bytes;
-                return entry;
-            });
-            this.emittedIds.set(
-                paneId,
-                new Set(attachments.map((entry) => entry.id)),
-            );
-            this.emit(paneId, wireView, scan.total, scan.truncated);
+            this.emit(paneId, attachments.map(metaOnly), scan.total, scan.truncated);
         } catch {
             // Never throw into the watch callback.
         }
@@ -336,7 +318,6 @@ export class AttachmentWatcher {
         if (pending !== undefined) clearTimeout(pending);
         this.debounces.delete(paneId);
         this.lastSignature.delete(paneId);
-        this.emittedIds.delete(paneId);
         this.fileCache.delete(paneId);
         this.scans.delete(paneId);
     }
@@ -419,7 +400,6 @@ export class AttachmentWatcher {
         for (const pending of this.debounces.values()) clearTimeout(pending);
         this.debounces.clear();
         this.lastSignature.clear();
-        this.emittedIds.clear();
         this.fileCache.clear();
         this.scans.clear();
         this.watcher?.close();

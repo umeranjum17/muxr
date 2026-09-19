@@ -32,10 +32,29 @@ function safeName(name: string): string {
     return cleaned.length > 0 ? cleaned : 'attachment';
 }
 
+/**
+ * The bare display name when free, otherwise numbered suffixes (report-2.md).
+ * create() refuses to overwrite, so a concurrent same-name download can never
+ * replace bytes a pending share target may not have read yet.
+ */
+function reserveCacheFile(name: string): File {
+    const dot = name.lastIndexOf('.');
+    const stem = dot > 0 ? name.slice(0, dot) : name;
+    const ext = dot > 0 ? name.slice(dot) : '';
+    for (let suffix = 1; ; suffix += 1) {
+        const candidate = suffix === 1 ? name : `${stem}-${suffix}${ext}`;
+        const file = new File(Paths.cache, candidate);
+        try {
+            file.create();
+            return file;
+        } catch (error) {
+            if (suffix === 100) throw error;
+        }
+    }
+}
+
 async function writeAttachmentFile(sessionId: string, attachment: StoredSessionAttachment): Promise<string> {
-    const file = new File(Paths.cache, safeName(attachment.name));
-    if (file.exists) file.delete();
-    file.create();
+    const file = reserveCacheFile(safeName(attachment.name));
     const handle = file.open();
     try {
         let offset = 0;

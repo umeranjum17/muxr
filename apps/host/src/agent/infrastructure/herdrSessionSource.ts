@@ -1009,12 +1009,7 @@ export async function createHerdrSessionSource(
         for (const listener of machineListeners) listener(frame);
         const session = currentSessionByPane(paneId);
         if (session === undefined) return;
-        publish(session.sessionId, {
-            type: 'attachments.update',
-            attachments: entries.map(({ data: _data, ...entry }) => entry),
-            total,
-            truncated,
-        });
+        publish(session.sessionId, { type: 'attachments.update', attachments: entries, total, truncated });
     });
     attachments.start();
 
