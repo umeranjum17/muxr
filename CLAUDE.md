@@ -46,3 +46,22 @@ behaviour it claims to cover and watch it go red.
 
 - Artifacts meant to appear in muxr must be written to `~/.muxr/attachments/pane/$HERDR_PANE_ID`.
 - Images the captain should see right now are not attachments: run `muxr show-image <path>` inside the pane — it renders inline in the phone's terminal view, ephemeral, and tells you how many viewers saw it.
+
+## Self-naming
+
+At the START of a task, name your own workspace and pane — you know what you are
+working on; no plugin should guess it from your command line:
+
+```sh
+curl -s -X POST http://127.0.0.1:8797/api/naming -H 'content-type: application/json' \
+  -d '{"pane_id":"'"$HERDR_PANE_ID"'","workspace":"short-task-slug","pane":"Human-readable task title","provider":"<your-provider>","model":"<your-model>"}'
+```
+
+- One call, plain HTTP, works from every provider. Only inside Herdr (`HERDR_ENV=1`).
+- `workspace` is a short slug for the workspace name; `pane` is the descriptive
+  title shown on the phone. Names are used verbatim — no re-parsing downstream.
+- `provider`/`model` (e.g. `pi`/`gemini-3-flash`, `claude`/`opus-4.6`) are stored
+  as Herdr pane metadata tokens and in `~/.muxr/naming/state.json` for quota tooling.
+- Port override: `MUXR_NAMING_PORT`. Server details: `scripts/naming/`.
+- If the endpoint is down, fall back to `herdr pane rename` / `herdr workspace rename`
+  directly; animal-namer still names blank agents as a last resort.

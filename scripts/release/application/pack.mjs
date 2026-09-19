@@ -161,7 +161,7 @@ const copyContext = (name) => {
 };
 copyFileSync(join(root, 'scripts', 'cli.mjs'), join(out, 'cli.mjs'));
 copyFileSync(join(root, 'muxr.config.example.json'), join(out, 'muxr.config.example.json'));
-for (const context of ['setup', 'plugin', 'release', 'diagnostics', 'terminal']) copyContext(context);
+for (const context of ['setup', 'plugin', 'release', 'diagnostics', 'terminal', 'naming']) copyContext(context);
 if (!existsSync(join(out, 'setup', 'domain', 'dist', 'index.js'))) {
     throw new Error('setup domain was not compiled; run yarn build before packing');
 }

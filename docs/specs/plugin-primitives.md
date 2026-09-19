@@ -3,7 +3,7 @@ title: Plugins on primitives
 slug: plugin-primitives
 status: tested
 created: 2026-08-15
-updated: 2026-08-29
+updated: 2026-09-19
 owner: umer
 links:
   - ../decisions/0005-pi-like-extension-runtime.md
@@ -54,7 +54,7 @@ UI version 14 is covered in `../PLUGINS.md`: rows gain `icon`/`meta` identity, `
 
 UI version 12 allows generic `item-list` rows to omit actions for read-only status/metric presentation while preserving closed validation for actionable rows. UI version 11 adds a bounded declarative `code` node with app-owned Prism tokenization, line numbers, selection, shared theme tokens, and plain-text fallback. The same tokenizer now powers native/web file views, Markdown code fences, and native diff lines, replacing the duplicate hand-rolled regex highlighter. File previews read at most 24 KiB / 240 lines and report truncation; ordinary text remains capped at 4 KiB while a sanitized RPC result string may use the existing 64 KiB total transport budget. UI version 7 adds plugin-owned navigation badge read sources and singleton tree-sheet cardinality. UI version 6 makes user-visible manifest strings bounded localized values with exact-locale, base-locale, then default fallback on the phone. The same public `shortcuts` contribution drives build-time localized launcher resources and the live Android launcher projection. Optional Assistant capability metadata is intentionally absent from every build.
 
-Muxr is presentation-only for Agent Name and Task Title. Those values come from Herdr `AgentInfo.name` and `AgentInfo.title`; a community Herdr plugin such as `wyattjoh/herdr-plugin-renamer` writes the pane title from the first prompt for Claude, Codex, and Pi. The host boundary performs one one-to-one map into the stable `AgentInfo` contract: `{ agentName, taskTitle, agentKind, displayAgent, agentStatus, promptable }`. Lifecycle Events retain the same Agent Kind beside their captured Agent Name and Task Title. Mobile, plugin public context, and realtime tools consume those canonical fields without alternate identity or routing sources; when a Task Title has not arrived yet, cards use the real Agent Name as their presentation fallback instead of showing “Untitled task.”
+Muxr is presentation-only for Agent Name and Task Title. Those values come from Herdr `AgentInfo.name` and `AgentInfo.title`; the agent itself names its workspace and pane at task start through the self-naming endpoint (`scripts/naming/README.md`), so no title-guessing plugin is installed. The host boundary performs one one-to-one map into the stable `AgentInfo` contract: `{ agentName, taskTitle, agentKind, displayAgent, agentStatus, promptable }`. Lifecycle Events retain the same Agent Kind beside their captured Agent Name and Task Title. Mobile, plugin public context, and realtime tools consume those canonical fields without alternate identity or routing sources; when a Task Title has not arrived yet, cards use the real Agent Name as their presentation fallback instead of showing “Untitled task.”
 
 ## Files
 
@@ -95,6 +95,8 @@ Muxr is presentation-only for Agent Name and Task Title. Those values come from 
 - Naming proof exercises the packaged Agent Name RPC against a live Claude session, preserves its generated Task Title and Agent Kind through rename-and-restore, and verifies Claude/Codex/Cursor/OpenCode ACP routing, Cursor Auto, Pi-only Pi routing, and the offline fallback. Live terminal, terminal header, pane-grid, workspace, and recent-activity cards render Agent Kind beside the Task Title; historical activity without a title falls back to Agent Name. The final API 36 x86_64 naming APK was rebuilt from the completed runtime source and installed byte-for-byte identically: 178,294,807 bytes, SHA-256 `75a9274aeb699d5d9d94ed9bc0c67b3b52065539316d1c9cef085f5acf6b2d9e`.
 
 ## Revisions
+
+- 2026-09-19 — Self-naming replaces prompt-guessing plugins. Agents name their own workspace and pane at task start via the loopback `POST /api/naming` endpoint (`scripts/naming/`, muxr-up supervised); `herdr-plugin-renamer` is disabled and `auto-namer` stays disabled. `animal-namer` remains the blank-name fallback. Muxr still consumes Herdr `name`/`title` only.
 
 - 2026-09-17 — Dictation, the terminal key row, and the workspace tree are product code, no longer bundled plugins: there is nothing left to clone or override, and legacy clones keep rendering beside the product surfaces until disabled. Agent close is host code — `session.stop` runs the close ladder in `agentClose.ts` on the live Herdr socket — so the packaged capability pin is gone and no `agent.close` capability name is consumed.
 
