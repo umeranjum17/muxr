@@ -197,6 +197,7 @@ async function handleNaming(req, res) {
         return unauthorized(res);
     }
     if (!/^application\/json(?:\s*;|$)/i.test(String(req.headers['content-type'] ?? ''))) {
+        req.resume();
         return badRequest(res, 'content-type must be application/json');
     }
     const raw = await readBody(req);

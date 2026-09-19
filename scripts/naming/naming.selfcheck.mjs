@@ -9,7 +9,7 @@
  * deterministic check.
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import { access, chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -146,6 +146,12 @@ try {
     const partial = await post(port, { pane_id: 'w2:p5', workspace: 'partial', pane: 'Pane survives', provider: 'pi', model: 'model-partial' });
     check('partial Herdr failure is not overall success', partial.status === 502 && partial.body.ok === false && partial.body.status === 'partial', JSON.stringify(partial.body));
     check('partial result identifies the failed operation', partial.body.results?.pane === true && partial.body.results?.workspace === false && partial.body.results?.metadata === true, JSON.stringify(partial.body));
+    const partialClient = spawnSync(process.execPath, [join(import.meta.dirname, '..', 'cli.mjs'), 'name', '--pane', 'CLI partial', '--workspace', 'CLI partial workspace'], {
+        encoding: 'utf8',
+        env: { ...process.env, HERDR_PANE_ID: 'w2:p5', HERDR_SESSION: 'lab', MUXR_NAMING_PORT: String(port), MUXR_NAMING_AUTH_FILE: authFile },
+    });
+    const partialClientOutput = `${partialClient.stdout ?? ''}${partialClient.stderr ?? ''}`;
+    check('CLI preserves partial status and operation detail', partialClient.status === 1 && partialClientOutput.includes('partial') && partialClientOutput.includes('workspace'), partialClientOutput);
     await rm(failFile, { force: true });
 
     const duplicate = await post(port, namedBody);

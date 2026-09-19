@@ -52,7 +52,11 @@ export async function nameAgent(args) {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || result.ok !== true) {
-        throw new Error(result.error || `naming request failed (${response.status})`);
+        const operationErrors = Object.entries(result.errors ?? {})
+            .map(([operation, error]) => `${operation}: ${String(error)}`)
+            .join('; ');
+        const detail = [result.error, result.status, operationErrors].filter(Boolean).join(' — ');
+        throw new Error(detail || `naming request failed (${response.status})`);
     }
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return 0;
