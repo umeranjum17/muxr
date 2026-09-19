@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
+import TestRenderer from 'react-test-renderer';
 import { ConnectionSupport } from './ConnectionSupport';
 
 /*
@@ -47,17 +47,17 @@ vi.mock('@/components/ItemGroup', () => ({
     ItemGroup: ({ children, title }: { children: React.ReactNode; title?: string }) => React.createElement('ItemGroup', { title }, children),
 }));
 
-let rendered: TestRenderer.ReactTestRenderer;
+let rendered: any;
 
 const renderCard = () => {
-    act(() => {
+    TestRenderer.act(() => {
         rendered = TestRenderer.create(React.createElement(ConnectionSupport, { hostVersion: undefined }));
     });
 };
 
 const installRow = () => rendered.root
-    .findAll((node) => node.type === 'Item')
-    .find((node) => ['Installed app', 'Installed web app', 'Web app'].includes(node.props.title as string));
+    .findAll((node: any) => node.type === 'Item')
+    .find((node: any) => ['Installed app', 'Installed web app', 'Web app'].includes(node.props.title as string));
 
 const setNavigator = (value: unknown) => {
     Object.defineProperty(globalThis, 'navigator', { value, configurable: true, writable: true });
@@ -66,7 +66,7 @@ const setNavigator = (value: unknown) => {
 const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
 
 afterEach(() => {
-    if (rendered) act(() => rendered.unmount());
+    if (rendered) TestRenderer.act(() => rendered.unmount());
     delete (globalThis as { window?: unknown }).window;
     if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
 });
