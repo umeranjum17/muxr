@@ -543,12 +543,13 @@ if (cached !== undefined) {
   // A tab means real integration: measured activity this week, or a connected
   // plan/account. Installed-but-idle CLIs are neither, so they earn no tab;
   // a deep link to one falls back to the default tab. A failed collection is
-  // not a detection and earns no tab; a provider that other signals still
-  // surface keeps its honest unavailable message.
+  // not a detection: an uninstalled provider's placeholder earns no tab (so a
+  // machine with nothing measured or connected reaches the no-provider state),
+  // while an installed one keeps its tab and honest unavailable message.
   const planConnected = [
     ['claude', claudeCredentials() !== undefined], ['opencode', goConnected()], ['zai', zaiToken() !== undefined],
   ].flatMap(([agent, connected]) => (connected ? [agent] : []));
-  const providerIds = [...new Set([...agents.keys(), ...latest.keys(), ...Object.keys(reports).filter((agent) => reports[agent]?.unavailable !== true), ...planConnected, ...(codex.items.length ? ['codex'] : [])])]
+  const providerIds = [...new Set([...agents.keys(), ...latest.keys(), ...Object.keys(reports).filter((agent) => reports[agent]?.unavailable !== true || installed.some(([name]) => name === agent)), ...planConnected, ...(codex.items.length ? ['codex'] : [])])]
     .sort((a, b) => (latest.get(b) ?? 0) - (latest.get(a) ?? 0) || AGENTS[a].localeCompare(AGENTS[b]));
   const provider = providerIds.includes(selected) ? selected : providerIds[0] ?? '';
   const activitySupported = CCUSAGE_AGENTS.has(provider) || provider === 'omp' || provider === 'zai';
