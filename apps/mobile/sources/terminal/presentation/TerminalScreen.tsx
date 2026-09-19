@@ -86,7 +86,11 @@ function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnis
 }
 
 export const TerminalScreen = React.memo((props: { id: string }) => {
-    const compactComposer = useWindowDimensions().width < 380;
+    const { width: windowWidth } = useWindowDimensions();
+    // Below 340dp the header title starves (~5 characters at 15px): the search
+    // button's 50dp goes back to the title and Find moves into the pane-actions
+    // popup, which is the overflow this header already owns.
+    const foldedSearch = windowWidth < 340;
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const isFocused = useIsFocused();
     const socketStatus = useSocketStatus();
@@ -683,13 +687,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 submitBehavior="blurAndSubmit"
                 placeholder="Type a prompt…"
                 placeholderTextColor={theme.colors.textSecondary}
-                style={{ flex: 1, color: theme.colors.text, backgroundColor: theme.colors.surfaceHigh, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 16 }}
+                style={{ flex: 1, color: theme.colors.text, paddingVertical: 8, fontSize: 16 }}
             />;
             const composerPlugins = <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <DictateButton context={{ getText: () => draftRef.current, setText: setDraft }} />
                 <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
             </View>;
-            const sendAction = <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }} style={{ opacity: canSend ? 1 : 0.4 }}>
+            const sendAction = <Pressable onPress={sendPrompt} hitSlop={8} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }}
+                style={({ pressed }) => ({ opacity: canSend ? 1 : 0.4, transform: [{ scale: pressed ? 0.96 : 1 }] })}>
                 <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
             </Pressable>;
             // Only what the channel can vouch for: 'live' means frames flow with
@@ -729,7 +734,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         <Pressable onPress={() => setTreeOpen(true)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`${contextTitle}. ${agentNameLine(labels)}. ${overlayLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 44, paddingVertical: 4 }}>
                             <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={18} />
                             <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
-                                <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
+                                <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 15, fontWeight: '600' }}>
                                     {contextTitle}
                                 </Text>
                                 <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11 }}>
@@ -755,10 +760,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 : <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
                             <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />
                         </Pressable>
-                        <Pressable onPress={() => setFindOpen(true)} accessibilityRole="button" accessibilityLabel="Find in output" hitSlop={4}
+                        {!foldedSearch && <Pressable onPress={() => setFindOpen(true)} accessibilityRole="button" accessibilityLabel="Find in output" hitSlop={4}
                             style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
                             <Ionicons name="search" size={19} color={theme.colors.textSecondary} />
-                        </Pressable>
+                        </Pressable>}
                         {!authorityLoading && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel="Pane actions"
                             accessibilityState={{ expanded: actionsOpen }} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
                             <Ionicons name="ellipsis-vertical" size={20} color={theme.colors.textSecondary} />
@@ -994,10 +999,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         onRemove={(id) => setAttachedImages((previous) => previous.filter((image) => image.id !== id))}
                     />
 
+                    {/* One deck for every phone width: the prompt pill keeps the
+                        whole line and carries the send inside its right edge, and
+                        the accessory keys sit in their own row below. The old
+                        <380dp fork made the wide single row starve both input and
+                        keys, so the narrow shape won — it is now the only shape. */}
                     <View
                         style={{
-                            flexDirection: compactComposer ? 'column' : 'row',
-                            alignItems: compactComposer ? 'stretch' : 'center',
                             gap: 8,
                             paddingHorizontal: 12,
                             paddingVertical: 8,
@@ -1007,12 +1015,25 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             borderTopColor: theme.colors.divider,
                         }}
                     >
-                        {compactComposer ? <>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>{composerInput}{sendAction}</View>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, paddingTop: 4 }}>
-                                {attachmentAction}{commandAction}<View style={{ flex: 1 }} />{composerPlugins}
-                            </View>
-                        </> : <>{attachmentAction}{commandAction}{composerInput}{composerPlugins}{sendAction}</>}
+                        <View style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 8,
+                            minHeight: 52,
+                            backgroundColor: theme.colors.surfaceHigh,
+                            borderWidth: StyleSheet.hairlineWidth,
+                            borderColor: theme.colors.divider,
+                            borderRadius: 26,
+                            paddingLeft: 14,
+                            paddingRight: 5,
+                            paddingVertical: 5,
+                        }}>
+                            {composerInput}
+                            {sendAction}
+                        </View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                            {attachmentAction}{commandAction}<View style={{ flex: 1 }} />{composerPlugins}
+                        </View>
                     </View>
                     </View>}
 
@@ -1064,6 +1085,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             }}>
                                 <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
                                     <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>
+                                    {foldedSearch && <Pressable onPress={() => { setActionsOpen(false); setFindOpen(true); }} accessibilityRole="button" accessibilityLabel="Find in output"
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Find in output</Text>
+                                    </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/takeover`); }} accessibilityRole="button" accessibilityLabel="Browser"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="globe-outline" size={18} color={theme.colors.textSecondary} />
