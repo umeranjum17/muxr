@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
 import { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '@/pairing/e2ee';
 import { pairMachine, usePairQrScanner } from '@/pairing';
-import { applySshAfterPairing, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, type SshFieldInput } from '@/connection';
+import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, tunnelPairingUrl, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
 import { Typography } from '@/constants/Typography';
@@ -58,8 +58,8 @@ type PairState =
 
 const SSH_PAIRING_STEPS = [
     'On the computer, run `muxr pair` — it prints a one-time pairing string.',
-    'Fill in the SSH details; after pairing, muxr dials that machine over SSH.',
-    'Paste the pairing string below to finish the end-to-end encrypted pairing.',
+    'Fill in the SSH details; muxr opens the tunnel to that machine.',
+    'Paste the pairing string below — pairing runs through the tunnel.',
 ] as const;
 
 function SshField(props: {
@@ -184,7 +184,18 @@ export default function PairScreen() {
     }, [routePairUrl, browser, sshRoute]);
 
     const pair = React.useCallback(async (url: string, sshInput?: SshFieldInput) => {
-        const paired = await pairMachine({ url });
+        // The SSH route pairs through its own tunnel: establish it first, claim
+        // over the loopback it opens, and only report success with the tunnel
+        // proven. The tunnel stays open; the next sync dial reuses or rebuilds it.
+        let claimUrl = url;
+        let tunnelHostKey: string | undefined;
+        if (sshInput !== undefined) {
+            const tunnel = await establishSshTunnel(sshInput);
+            if (!tunnel.ok) throw new Error(tunnel.message);
+            tunnelHostKey = tunnel.hostKey;
+            claimUrl = tunnelPairingUrl(url, tunnel.localPort);
+        }
+        const paired = await pairMachine({ url: claimUrl });
         if (!paired.ok && paired.reason === 'voice-pinned') {
             const switchApproved = await Modal.confirm(
                 'End voice and switch?',
@@ -200,7 +211,7 @@ export default function PairScreen() {
                 throw new Error(retried.reason === 'failed' ? retried.message ?? 'Pairing failed' : 'Pairing failed');
             }
             if (sshInput !== undefined) {
-                const applied = await applySshAfterPairing(sshInput);
+                const applied = await applySshAfterPairing(sshInput, { hostKey: tunnelHostKey, relayUrl: url });
                 if (!applied.ok) Modal.alert('Paired — SSH route not applied', applied.message);
             }
             await auth.login(retried.credential, retried.secretKey);
@@ -211,7 +222,7 @@ export default function PairScreen() {
             throw new Error(paired.message ?? 'Pairing failed');
         }
         if (sshInput !== undefined) {
-            const applied = await applySshAfterPairing(sshInput);
+            const applied = await applySshAfterPairing(sshInput, { hostKey: tunnelHostKey, relayUrl: url });
             if (!applied.ok) Modal.alert('Paired — SSH route not applied', applied.message);
         }
         await auth.login(paired.credential, paired.secretKey);
@@ -280,7 +291,9 @@ export default function PairScreen() {
         else router.replace('/');
     }, [openedFromSettings, router]);
 
+    const manualForm = state === undefined || state.phase === 'error' && state.url === undefined;
     return (
+        <View style={styles.screenWrap}>
         <PairScrollView style={styles.scroll} contentContainerStyle={[styles.screen, { paddingBottom: insets.bottom + 24 }]}
             keyboardShouldPersistTaps="handled" {...(browser ? {} : { bottomOffset: 120 })}>
             <View style={styles.hero}>
@@ -435,21 +448,27 @@ export default function PairScreen() {
                                 : 'For a computer you are not standing at — copy the string from its terminal.'}</Text>
                         {!sshRoute && <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />}
                         <ActionButton title="Back" variant="quiet" onPress={cancel} />
-                        {sshRoute && (
-                            <View style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]}>
-                                {sshError !== undefined && <Text accessibilityRole="alert" style={styles.errorText}>{sshError}</Text>}
-                                <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
-                            </View>
-                        )}
                     </>
                 )}
             </View>
         </PairScrollView>
+        {sshRoute && manualForm && (
+            // Anchored below the scroll, outside it: with the keyboard open the
+            // window resizes and the Connect CTA stays visible at any field.
+            <View style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]}>
+                {sshError !== undefined && <Text accessibilityRole="alert" style={styles.errorText}>{sshError}</Text>}
+                <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
+            </View>
+        )}
+        </View>
     );
 }
 
 const styles = StyleSheet.create((theme) => ({
     scroll: {
+        flex: 1,
+    },
+    screenWrap: {
         flex: 1,
     },
     screen: {
@@ -617,8 +636,9 @@ const styles = StyleSheet.create((theme) => ({
         alignSelf: 'stretch',
         borderTopWidth: 1,
         borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.surface,
+        paddingHorizontal: 24,
         paddingTop: 10,
-        marginTop: 4,
         gap: 8,
     },
     explainer: {

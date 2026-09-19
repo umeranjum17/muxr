@@ -126,12 +126,6 @@ export function FirstRunConnection() {
         await processPairLink(pasted.trim());
     }, [browser, processPairLink]);
 
-    // The scanner state primes and opens the camera once, on arrival.
-    React.useEffect(() => {
-        if (route !== 'scan') return;
-        void scanPairQr();
-    }, [route, scanPairQr]);
-
     if (route === 'run' || route === 'scan') {
         if (browser) {
             // Browsers have no camera QR path: the run step pairs by string.
@@ -171,6 +165,7 @@ export function FirstRunConnection() {
                     <Text style={styles.viewfinderCaption}>Point this phone at the QR shown on your computer.</Text>
                 </View>
                 <View style={styles.actions}>
+                    <ActionButton title="Open the scanner" icon="qr-code-outline" action={scanPairQr} />
                     <ActionButton variant="secondary" title="Paste a pairing string instead" icon="keypad-outline" action={promptForPairingString} />
                     <ActionButton variant="quiet" title="← Different route" onPress={() => setRoute('run')} />
                 </View>

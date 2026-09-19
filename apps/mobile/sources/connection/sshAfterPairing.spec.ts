@@ -29,9 +29,24 @@ vi.mock('../../modules/ssh-tunnel', () => ({
 }));
 vi.mock('@/pairing/secrets', () => secrets);
 
+const tunnel = vi.hoisted(() => ({
+    openSshTunnel: vi.fn(),
+}));
+vi.mock('../../modules/ssh-tunnel', () => ({
+    isSshTunnelSupported: () => true,
+    openSshTunnel: tunnel.openSshTunnel,
+    closeSshTunnel: vi.fn(),
+    SshTunnelError: class extends Error {
+        constructor(readonly code: string, message: string) { super(message); }
+        static from(error: unknown) { return error as any; }
+    },
+}));
+
 import {
     applySshAfterPairing,
+    establishSshTunnel,
     parseSshFields,
+    tunnelPairingUrl,
 } from './sshTunnel';
 import {
     DEFAULT_CONNECTION,
@@ -59,8 +74,7 @@ const FIELDS = {
     passphrase: '',
 };
 
-describe('SSH route applied after pairing', () => {
-    it('saves the credential and switches the transport to SSH once paired', async () => {
+describe('SSH route applied after pairing', () => {    it('saves the credential and switches the transport to SSH once paired', async () => {
         await pairAs(true, 'm1');
         secrets.setNativeSecret.mockClear();
 
@@ -101,5 +115,46 @@ describe('SSH route applied after pairing', () => {
 
         expect(parseSshFields({ ...FIELDS, port: 'nope' })).toMatchObject({ error: expect.stringContaining('1 to 65535') });
         expect(parseSshFields({ ...FIELDS, password: 'a', privateKey: 'b' })).toMatchObject({ error: expect.stringContaining('one SSH login method') });
+    });
+});
+
+describe('SSH tunnel established before pairing', () => {
+    it('opens the tunnel for the parsed fields and reports its loopback port and host key', async () => {
+        tunnel.openSshTunnel.mockResolvedValueOnce({ localPort: 8792, hostKey: 'SHA256:abc' });
+
+        const result = await establishSshTunnel(FIELDS);
+
+        expect(result).toEqual({ ok: true, localPort: 8792, hostKey: 'SHA256:abc' });
+        expect(tunnel.openSshTunnel).toHaveBeenCalledWith(expect.objectContaining({
+            host: 'box.lan',
+            port: 22,
+            username: 'ume',
+            remoteHost: '127.0.0.1',
+            remotePort: 8792,
+        }));
+    });
+
+    it('carries the actionable SSH failure copy instead of claiming', async () => {
+        tunnel.openSshTunnel.mockRejectedValueOnce(Object.assign(new Error('auth failed'), { code: 'ssh-auth' }));
+        const result = await establishSshTunnel(FIELDS);
+        expect(result.ok).toBe(false);
+        expect(result.ok === false && result.message).toContain('refused these credentials');
+    });
+
+    it('rewrites the pairing URL through the tunnel and leaves other URLs untouched', () => {
+        expect(tunnelPairingUrl('wss://box.lan:8792/pair?pair=AB12', 8792)).toBe('ws://127.0.0.1:8792/pair?pair=AB12');
+        expect(tunnelPairingUrl('wss://box.lan:8792?pair=AB12&x=1', 9000)).toBe('ws://127.0.0.1:9000?pair=AB12&x=1');
+        expect(tunnelPairingUrl('https://box.lan/pair?pair=AB12', 9000)).toBe('https://box.lan/pair?pair=AB12');
+    });
+
+    it('pins the tunnel-seen host key and restores the real relay address when applying after a tunnel claim', async () => {
+        await pairAs(true, 'm1');
+        secrets.setNativeSecret.mockClear();
+
+        const result = await applySshAfterPairing(FIELDS, { hostKey: 'SHA256:tunnel', relayUrl: 'wss://box.lan:8792' });
+
+        expect(result).toEqual({ ok: true });
+        expect(getCachedConnectionSettings().ssh).toEqual({ host: 'box.lan', username: 'ume', port: 22, relayPort: 8792, hostKey: 'SHA256:tunnel' });
+        expect(getCachedConnectionSettings().relayUrl).toBe('wss://box.lan:8792');
     });
 });

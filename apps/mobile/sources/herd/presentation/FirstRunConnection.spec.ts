@@ -121,13 +121,16 @@ describe('guided first-connection chooser', () => {
         expect(run).toContain('Scan');
         expect(run).toContain('Review');
 
-        // Advance to the scan step: the scanner opens on arrival.
+        // Advance to the scan step: the bounded viewfinder is the resting
+        // state; the camera opens only from its explicit action.
         TestRenderer.act(() => {
             press(renderer.root, 'I ran it — scan the QR');
         });
-        expect(scanQr).toHaveBeenCalledTimes(1);
+        expect(scanQr).not.toHaveBeenCalled();
         const scan = texts(renderer.root);
         expect(scan.some((text) => text.includes('Point this phone at the QR'))).toBe(true);
+        press(renderer.root, 'Open the scanner');
+        expect(scanQr).toHaveBeenCalledTimes(1);
 
         // "Different route" from the scan step returns toward the run step.
         press(renderer.root, '← Different route');
@@ -145,6 +148,7 @@ describe('guided first-connection chooser', () => {
         });
         press(renderer.root, 'Pair with a QR code. Recommended · ~1 min. Steps: 1 Run one command  →  2 Scan the QR  →  3 Done');
         press(renderer.root, 'I ran it — scan the QR');
+        press(renderer.root, 'Open the scanner');
         expect(scanQr).toHaveBeenCalledTimes(1);
 
         // The scanner delivers the short link into the existing hosted pairing
