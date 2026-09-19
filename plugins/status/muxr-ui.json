@@ -35,6 +35,11 @@
           "param": "provider"
         },
         {
+          "type": "empty",
+          "title": "{{data.noProvidersTitle}}",
+          "message": "{{data.noProviders}}"
+        },
+        {
           "type": "limits",
           "path": "data.limits",
           "title": "Right now"

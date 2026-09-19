@@ -21,6 +21,8 @@ export interface ItemProps {
     title: string | React.ReactNode;
     subtitle?: string;
     subtitleLines?: number; // set 0 or undefined for auto/multiline
+    /** Facts line beneath the prose subtitle. */
+    meta?: string;
     detail?: string;
     icon?: React.ReactNode;
     leftElement?: React.ReactNode;
@@ -92,6 +94,13 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         letterSpacing: Platform.select({ ios: -0.24, default: 0.1 }),
         marginTop: Platform.select({ ios: 2, default: 0 }),
     },
+    meta: {
+        ...Typography.mono('regular'),
+        color: theme.colors.textSecondary,
+        fontSize: 12,
+        lineHeight: 16,
+        marginTop: 3,
+    },
     rightSection: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -125,6 +134,7 @@ export const Item = React.memo<ItemProps>((props) => {
         title,
         subtitle,
         subtitleLines,
+        meta,
         detail,
         icon,
         leftElement,
@@ -185,7 +195,7 @@ export const Item = React.memo<ItemProps>((props) => {
     const chevronSize = (isIOS && !isWeb) ? 17 : 24;
 
     const titleColor = destructive ? styles.titleDestructive : (selected ? styles.titleSelected : styles.titleNormal);
-    const containerPadding = subtitle ? styles.containerWithSubtitle : styles.containerWithoutSubtitle;
+    const containerPadding = subtitle || meta ? styles.containerWithSubtitle : styles.containerWithoutSubtitle;
     
     const content = (
         <>
@@ -219,6 +229,7 @@ export const Item = React.memo<ItemProps>((props) => {
                             </Text>
                         );
                     })()}
+                    {meta && <Text style={styles.meta} numberOfLines={1}>{meta}</Text>}
                     {progress !== undefined && subtitle !== undefined && (
                         <Meter ratio={progress} style={{ marginTop: 6 }} />
                     )}

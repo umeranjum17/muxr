@@ -18,15 +18,6 @@ vi.mock('react-native', () => ({ Platform: { OS: 'android' } }));
 vi.mock('@react-native-async-storage/async-storage', () => ({
     default: { getItem: async () => null, setItem: async () => undefined },
 }));
-vi.mock('../../modules/ssh-tunnel', () => ({
-    isSshTunnelSupported: () => true,
-    openSshTunnel: vi.fn(),
-    closeSshTunnel: vi.fn(),
-    SshTunnelError: class extends Error {
-        constructor(readonly code: string, message: string) { super(message); }
-        static from(error: unknown) { return error as any; }
-    },
-}));
 vi.mock('@/pairing/secrets', () => secrets);
 
 const tunnel = vi.hoisted(() => ({

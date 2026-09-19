@@ -45,6 +45,10 @@ describe('one usage view model behind every provider dialect', () => {
         expect(groups.claude[0].windowKind).toBe('session');
         expect(groups.zai[0].provider).toBe('zai');
         expect(groups.codex[0].windowMinutes).toBe(300);
+        // A provider may add or omit a bucket; show the real bucket that
+        // survived validation instead of hiding every available limit.
+        expect(goWindows({ weekly: { status: 'ok', percent: 62, resetsAt: new Date(resetIn(200) * 1000).toISOString() } }, { nowMs: NOW })
+            .map((vm) => [vm.windowKind, vm.percentUsed])).toEqual([['weekly', 62]]);
     });
 
     it('derives remaining from used and used from remaining, never trusting a pair', () => {

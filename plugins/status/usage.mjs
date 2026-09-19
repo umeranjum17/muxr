@@ -228,7 +228,7 @@ async function goPlanLimits() {
     }
     const usage = JSON.parse(body)?.usage;
     const vms = goWindows(usage, { nowMs: Date.now() });
-    if (vms.length !== 3) return { label: 'OpenCode Go limits unavailable · incomplete response' };
+    if (vms.length === 0) return { label: 'OpenCode Go limits unavailable · incomplete response' };
     return { vms, label: 'OpenCode Go plan usage' };
   } catch { return { label: 'OpenCode Go limits unavailable · try again shortly' }; }
   finally { clearTimeout(timer); }
@@ -542,15 +542,20 @@ if (cached !== undefined) {
   const installed = Object.entries(AGENT_COMMANDS).filter(([agent, command]) => installedAgent(agent, command));
   // A tab means real integration: measured activity this week, or a connected
   // plan/account. Installed-but-idle CLIs are neither, so they earn no tab;
-  // a deep link to one falls back to the default tab. OMP and Pi are measured
-  // by muxr's own collector, so their tabs (and a failed collection's honest
-  // message) always stay.
+  // a deep link to one falls back to the default tab. A failed collection is
+  // not a detection: an uninstalled provider's placeholder earns no tab (so a
+  // machine with nothing measured or connected reaches the no-provider state).
+  // An explicit selection still resolves to its own collector report, so a
+  // chosen provider whose collection just failed shows its honest unavailable
+  // notice instead of quietly borrowing another provider's numbers.
   const planConnected = [
     ['claude', claudeCredentials() !== undefined], ['opencode', goConnected()], ['zai', zaiToken() !== undefined],
   ].flatMap(([agent, connected]) => (connected ? [agent] : []));
-  const providerIds = [...new Set([...agents.keys(), ...latest.keys(), ...Object.keys(reports), ...planConnected, ...(codex.items.length ? ['codex'] : [])])]
+  const providerIds = [...new Set([...agents.keys(), ...latest.keys(), ...Object.keys(reports).filter((agent) => reports[agent]?.unavailable !== true || installed.some(([name]) => name === agent)), ...planConnected, ...(codex.items.length ? ['codex'] : [])])]
     .sort((a, b) => (latest.get(b) ?? 0) - (latest.get(a) ?? 0) || AGENTS[a].localeCompare(AGENTS[b]));
-  const provider = providerIds.includes(selected) ? selected : providerIds[0] ?? '';
+  const provider = selected !== '' && (providerIds.includes(selected) || reports[selected] !== undefined)
+    ? selected
+    : providerIds[0] ?? '';
   const activitySupported = CCUSAGE_AGENTS.has(provider) || provider === 'omp' || provider === 'zai';
   const localReport = reports[provider];
   let activityFailure = ccusageFailure;
@@ -602,12 +607,14 @@ if (cached !== undefined) {
   const totalTokens = tokens(activity.totalTokens);
   // One quiet line when the plan has nothing to card; the message is the
   // provider-specific truth (not connected, reconnect, unavailable).
-  const limitsMessage = provider === 'claude' && claudeVMs.length === 0 ? 'Claude plan limits unavailable'
+  const noProviders = providerIds.length === 0 ? 'Run a coding agent on this computer or connect a plan.' : undefined;
+  const noProvidersTitle = noProviders === undefined ? undefined : 'No supported providers detected';
+  const limitsMessage = noProviders === undefined && (provider === 'claude' && claudeVMs.length === 0 ? 'Claude plan limits unavailable'
     : provider === 'opencode' && (go.vms ?? []).length === 0 ? go.label
     : provider === 'zai' && (zaiPlan.vms ?? []).length === 0 ? zaiPlan.label
     : provider === 'codex' && codex.windows.length === 0 ? 'Codex plan limits unavailable'
     : windows.length === 0 ? NOT_CONNECTED_MESSAGE
-    : undefined;
+    : undefined);
   const output = {
     items: ordered.slice(0, 50),
     actions: [{ id: 'details', label: 'Open full usage', icon: 'stats-chart-outline', action: { type: 'screen', contributionId: 'usage.details' } }],
@@ -625,6 +632,7 @@ if (cached !== undefined) {
     providers: providerIds.map((agent) => ({ id: agent, label: TAB_LABELS[agent] ?? AGENTS[agent], glyph: agent })),
     provider,
     providerName: AGENTS[provider] ?? 'Usage',
+    ...(noProviders === undefined ? {} : { noProviders, noProvidersTitle }),
     ...(activityFailure === undefined ? {} : { activityNotice: activityFailure }),
     todayTokens: activityAvailable ? tokens(tokensToday) ?? '—' : '—',
     // A measured day with no activity cost nothing; a measured row whose cost
