@@ -435,6 +435,11 @@ export const ru: TranslationStructure = {
         waitingApproval: 'Ожидает вашего одобрения',
         working: 'Работает',
         idle: 'Простаивает',
+        starting: 'Запуск',
+        failed: 'Ошибка',
+        done: 'Готово',
+        needsYou: 'Требует вас',
+        agentOffline: 'Offline',
     },
 
     time: {

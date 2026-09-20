@@ -14,6 +14,13 @@ import { asLimitsPayload } from './limitsModel';
 import { asRightNowPayload, vitalsFacts } from '@/herd/domain/rightNowModel';
 import { highlightCodeLines, syntaxLanguage } from '@/components/code/syntaxHighlighting';
 
+// rightNowModel pulls agentPresentation, which speaks through the real
+// English catalog under test.
+vi.mock('@/text', async () => {
+    const { en } = await import('@/text/_default');
+    return { t: (key: string) => key.split('.').reduce<any>((value, part) => value?.[part], en) ?? key };
+});
+
 const manifest: PluginManifestV1 = {
     schemaVersion: 1,
     pluginId: 'example.muxr-ui',

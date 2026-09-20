@@ -157,6 +157,11 @@ export const zhHant: TranslationStructure = {
         waitingApproval: '等待你的核準',
         working: '工作中',
         idle: '閒置',
+        starting: '啟動中',
+        failed: '失敗',
+        done: '已完成',
+        needsYou: '需要你處理',
+        agentOffline: '離線',
     },
 
     time: {

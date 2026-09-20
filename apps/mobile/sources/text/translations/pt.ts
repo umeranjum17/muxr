@@ -156,6 +156,11 @@ export const pt: TranslationStructure = {
         waitingApproval: 'Aguardando sua aprovação',
         working: 'Trabalhando',
         idle: 'Ocioso',
+        starting: 'Iniciando',
+        failed: 'Falha',
+        done: 'Concluído',
+        needsYou: 'Precisa de você',
+        agentOffline: 'Offline',
     },
 
     time: {

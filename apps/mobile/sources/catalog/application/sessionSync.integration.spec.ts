@@ -70,6 +70,8 @@ vi.mock('react-native-mmkv', () => ({
     },
 }));
 vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
+// The real text catalog reads the device locale at import; node tests have none.
+vi.mock('expo-localization', () => ({ getLocales: () => [] }));
 const installedVersion = vi.hoisted(() => ({ value: '0.1.27' }));
 vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => installedVersion.value }));
 vi.mock('@/herd', async () => {

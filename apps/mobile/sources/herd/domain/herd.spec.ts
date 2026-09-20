@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { HerdrTreeWorkspace } from '@muxr/contract';
 import { herdDigest, herdNotificationState, paneStatus, sortHerd } from './herd';
 import type { Session } from '@/catalog';
+
+// The herd digest speaks through the real English catalog under test.
+vi.mock('@/text', async () => {
+    const { en } = await import('@/text/_default');
+    return { t: (key: string) => key.split('.').reduce<any>((value, part) => value?.[part], en) ?? key };
+});
 
 const pane = (id: string, overrides: Partial<Session> = {}): Session => ({
     id,

@@ -341,7 +341,8 @@ describe('spaces tree row flow', () => {
         expect(preview.paused).toBeFalsy();
         const texts = textNodes(renderer);
         expect(texts).toContain('pockit');
-        expect(texts.join(' ')).toContain('Working');
+        // The caption state word rides the localization catalog.
+        expect(texts.join(' ')).toContain('status.working');
         // The identity line stays spoken even though the caption now carries
         // path and state.
         const rowLabel = agentRowLabel(renderer);
@@ -356,7 +357,7 @@ describe('spaces tree row flow', () => {
         );
         expect(previewProps[previewProps.length - 1].live).toBe(false);
         const texts = textNodes(done);
-        expect(texts.join(' ')).toContain('Done');
+        expect(texts.join(' ')).toContain('status.done');
         expect(texts.join(' ')).toContain('1h');
     });
 

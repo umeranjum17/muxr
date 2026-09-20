@@ -1,4 +1,5 @@
 import { type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace } from '@muxr/contract';
+import { t } from '@/text';
 
 export interface AgentLabels {
     taskTitle: string;
@@ -44,14 +45,19 @@ export function tabLabel(tab: HerdrTreeTab, index: number): string {
     return /^\d+$/.test(label) ? `Tab ${label}` : label;
 }
 
+/**
+ * Lifecycle words for captions and accessibility, spoken in the app language.
+ * The app restarts on language change, so resolving these once at import is
+ * consistent with every other surface.
+ */
 export const HERD_STATUS_LABELS: Record<AgentLifecycle, string> = {
-    working: 'Working',
-    starting: 'Starting',
-    blocked: 'Needs you',
-    done: 'Done',
-    failed: 'Failed',
-    idle: 'Idle',
-    unknown: 'Offline',
+    working: t('status.working'),
+    starting: t('status.starting'),
+    blocked: t('status.needsYou'),
+    done: t('status.done'),
+    failed: t('status.failed'),
+    idle: t('status.idle'),
+    unknown: t('status.agentOffline'),
 };
 
 const AGENT_KIND_LABELS: Readonly<Record<string, string>> = {
@@ -133,7 +139,9 @@ export function agentIdentityLine(labels: AgentLabels): string {
 export function agentStateLabel(status: AgentLifecycle, changedAt?: number, now = Date.now()): string {
     const label = HERD_STATUS_LABELS[status];
     if (status === 'working' || status === 'starting' || changedAt === undefined) return label;
-    return `${label} · ${compactAge(now - changedAt)}`;
+    const age = compactAge(now - changedAt);
+    // 'now' reads wrong as a duration suffix; the minute arrives soon enough.
+    return age === 'now' ? label : `${label} · ${age}`;
 }
 
 export function agentAccessibilityLabel(labels: AgentLabels, status: AgentLifecycle, changedAt?: number): string {

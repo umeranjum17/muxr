@@ -5,6 +5,12 @@ import { buildSpaceRows, middleTruncate, parentOf, spaceExpansionDefaults, works
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
 import { agentIdentityLine, agentKindLabel, agentLabels, agentNameLine, isShellLabels } from './agentPresentation';
 
+// agentPresentation speaks through the real English catalog under test.
+vi.mock('@/text', async () => {
+    const { en } = await import('@/text/_default');
+    return { t: (key: string) => key.split('.').reduce<any>((value, part) => value?.[part], en) ?? key };
+});
+
 const pane = (id: string, agentKind?: string, extra: Partial<ContractPane> = {}): ContractPane => ({ paneId: id, tabId: 't1', agentStatus: 'idle', promptable: false, focused: false, agentKind, ...extra });
 const ws = (id: string, label: string | undefined, tabs: HerdrTreeTab[]): ContractWorkspace => ({ workspaceId: id, label, focused: false, agentStatus: 'idle', tabs });
 const tab = (tabId: string, label: string | undefined, panes: ContractPane[]): HerdrTreeTab => ({ tabId, label, focused: false, agentStatus: 'idle', panes });

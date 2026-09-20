@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { LifecycleEvent } from '@muxr/contract';
 import type { Session } from '@/catalog';
 import type { HerdPane } from '../domain/herd';
+
+// agentPresentation speaks through the real English catalog under test.
+vi.mock('@/text', async () => {
+    const { en } = await import('@/text/_default');
+    return { t: (key: string) => key.split('.').reduce<any>((value, part) => value?.[part], en) ?? key };
+});
 import { agentAccessibilityLabel, agentLabels, agentStateLabel } from '../domain/agentPresentation';
 import { unseenActivityRows, unseenDoneSessionIds, type RecentActivityRow } from '../domain/recentActivity';
 import {

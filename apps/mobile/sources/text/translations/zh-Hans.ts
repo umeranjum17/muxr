@@ -158,6 +158,11 @@ export const zhHans: TranslationStructure = {
         waitingApproval: '等待你的批准',
         working: '工作中',
         idle: '空闲',
+        starting: '启动中',
+        failed: '失败',
+        done: '已完成',
+        needsYou: '需要你处理',
+        agentOffline: '离线',
     },
 
     time: {

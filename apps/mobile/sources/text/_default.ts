@@ -154,6 +154,11 @@ export const en = {
         waitingApproval: 'Waiting for your approval',
         working: 'Working',
         idle: 'Idle',
+        starting: 'Starting',
+        failed: 'Failed',
+        done: 'Done',
+        needsYou: 'Needs you',
+        agentOffline: 'Offline',
     },
 
     time: {

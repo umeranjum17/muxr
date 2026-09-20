@@ -1,8 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { parseManifest, type PluginManifestV1 } from '@muxr/contract';
 import { rightNowBinding } from './rightNowModel';
+
+// rightNowModel pulls agentPresentation, which speaks through the real
+// English catalog under test.
+vi.mock('@/text', async () => {
+    const { en } = await import('@/text/_default');
+    return { t: (key: string) => key.split('.').reduce<any>((value, part) => value?.[part], en) ?? key };
+});
 
 /** The plugin record the Home renderers actually pass in. */
 const installed = (manifest: PluginManifestV1) => [{ summary: { pluginId: manifest.pluginId, manifestHash: 'hash' }, manifest }];

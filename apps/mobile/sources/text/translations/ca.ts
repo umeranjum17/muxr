@@ -156,6 +156,11 @@ export const ca: TranslationStructure = {
         waitingApproval: 'Esperant la teva aprovació',
         working: 'Treballant',
         idle: 'Inactiu',
+        starting: 'Iniciant',
+        failed: 'Fallit',
+        done: 'Fet',
+        needsYou: 'Et cal',
+        agentOffline: 'Fora de línia',
     },
 
     time: {

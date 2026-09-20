@@ -158,6 +158,11 @@ export const ja: TranslationStructure = {
         waitingApproval: '承認待ちです',
         working: '作業中',
         idle: 'アイドル',
+        starting: '起動中',
+        failed: '失敗',
+        done: '完了',
+        needsYou: '対応が必要',
+        agentOffline: 'オフライン',
     },
 
     time: {
