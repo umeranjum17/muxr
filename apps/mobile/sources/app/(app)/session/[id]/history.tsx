@@ -59,6 +59,7 @@ export default React.memo(() => {
     const [selectedMatch, setSelectedMatch] = React.useState(0);
     const requestGeneration = React.useRef(0);
     const listRef = React.useRef<FlatList<string>>(null);
+    const pickedRef = React.useRef(false);
 
     const load = React.useCallback(() => {
         if (sessionId === undefined || identity === null) return;
@@ -144,7 +145,9 @@ export default React.memo(() => {
     // stale or gone target drops it instead of landing somewhere else. It
     // never runs anything; explicit Send is the only PTY boundary.
     const insertLine = (line: string) => {
+        if (pickedRef.current) return;
         if (sessionId === undefined || paneId === undefined) return;
+        pickedRef.current = true;
         requestDraftInsertion({ sessionId, paneId, text: line });
         router.back();
     };
