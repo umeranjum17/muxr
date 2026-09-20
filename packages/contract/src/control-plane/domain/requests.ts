@@ -32,7 +32,7 @@ import type {
 } from '../../herd/index.js';
 import type { PluginManifestV1, PluginSource, PluginSummary } from '../../plugins/index.js';
 import type { LandWorktreeResult } from '../../worktree/index.js';
-import type { AttentionCatalog, CloseResult, CloseScope, HerdrTreeWorkspace, LifecycleCatalog, SessionInfo, SessionShellOutcome, SessionStatus } from '../../herd/index.js';
+import type { AttentionCatalog, CloseResult, CloseScope, HerdrTreeWorkspace, LifecycleCatalog, SessionAttachmentMetadata, SessionInfo, SessionShellOutcome, SessionStatus } from '../../herd/index.js';
 import type {
     PeerAuthorityMetadata,
     PeerCapability,
@@ -395,11 +395,14 @@ export interface RequestMap extends PeerRequestMap {
         params: { sessionId: string; attachments: PromptAttachment[]; folder?: string };
         result: { savedPaths: string[] };
     };
+    /** Metadata-only newest-first artifact history for one session's pane. */
+    'attachment.list': {
+        params: { sessionId: string };
+        result: { attachments: SessionAttachmentMetadata[]; total: number; truncated: boolean };
+    };
     /**
-     * Re-fetch one pane attachment's blob. Blob data rides the attachments
-     * event only on an id's first emit, so a client that was offline then
-     * holds metadata forever; this is the heal path. null when the id is
-     * unknown or the file has no inlineable data (video, oversized).
+     * Fetch a small preview blob for a metadata-only timeline entry. null when
+     * the id is unknown or the file has no inlineable data (video, oversized).
      */
     'attachment.fetch': {
         params: { sessionId: string; attachmentId: string };

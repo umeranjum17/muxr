@@ -205,6 +205,10 @@ Native contributions name a **primitive** (`item-list`, `collection`, `icon-butt
 
 `muxr-ui.json` is the whole phone UI for a plugin: slot + primitive + parameters (`source`, `capability`, `title`). The phone translates that document. Heavy work is a host RPC or persistent stream adapter. Primitives are slot-agnostic and may repeat in one slot. `voice.session` resolves a provider-neutral `host.stream`; the phone knows only generic audio/control/state/transcript frames and compiled transport capabilities such as PCM streaming or WebRTC. Provider URLs, authentication, models, prompts, tools, codecs, and events remain backend plugin policy. `session.changes` / `session.attachments` events and the host ChangeTracker are gone.
 
+## Amendment 2026-09-20 (Shared Artifacts)
+
+Shared Artifacts deliberately adds one product-owned attachments surface for durable per-session history: the host publishes a metadata-only `attachments.update` session event when the pane's watched dir changes, and an authenticated `attachment.list` request returns the same bounded newest-first snapshot. Neither carries file bytes. Bytes keep moving only through the existing kernel transports (`attachment.fetch`, bounded encrypted `attachment.read` chunks, one-time download tickets) and previews stay bundled kernel renderers, so no manifest slot, declarative node, or plugin code changes. The extracted attachments plugin RPC stays wire-compatible during migration, and `changes` still lists through `plugin.call` — the kernel pushes no other catalog. This supersedes the 2026-08-15 primitive amendments' "the kernel does not push those catalogs" and "`session.changes` / `session.attachments` events ... are gone" wording for this one metadata channel only.
+
 ## Reopen triggers
 
 Reopen this T3 decision if store review rejects the declarative model, an extension can spoof trust-critical UI, browser grants execute host code, manifest mutation bypasses stale-hash rejection, an extension can target implicit desktop context, or real bundled migrations require arbitrary layout/code in the external schema.

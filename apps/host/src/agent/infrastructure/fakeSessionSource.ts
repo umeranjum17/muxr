@@ -56,6 +56,7 @@ function scriptedTurn(sessionId: string, session: SessionInfo, demoWrite: { path
         { type: 'session.updated', session },
         { type: 'status.update', status: statusFor(sessionId, true) },
         { type: 'activity.update', activity: { sessionId, phase: 'active', label: 'working', at: new Date().toISOString() } },
+        { type: 'attachments.update', attachments: [], total: 0, truncated: false },
         { type: 'shell.start', command: 'yarn typecheck' },
         { type: 'shell.chunk', chunk: 'tsc --noEmit\n' },
         { type: 'shell.end', output: 'ok', exitCode: 0, truncated: false, isError: false },
@@ -310,6 +311,10 @@ export function createFakeSessionSource(): SessionSource {
 
         async saveAttachments(_options: SessionSaveAttachmentsOptions) {
             return { savedPaths: [] };
+        },
+
+        async attachmentList() {
+            return { attachments: [], total: 0, truncated: false };
         },
 
         async attachmentFetch() {

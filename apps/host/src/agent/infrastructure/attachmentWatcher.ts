@@ -1,29 +1,20 @@
 /**
  * Per-pane attachment files. Agents drop artifacts into
- * ~/.muxr/attachments/pane/<HERDR_PANE_ID>/. The attachments plugin lists
- * them; this watcher is the prepare/fetch/read source for download tickets.
+ * ~/.muxr/attachments/pane/<HERDR_PANE_ID>/. Shared Artifacts lists them;
+ * this watcher is also the prepare/fetch/read source for previews and downloads.
  */
 
 import { createHash } from 'node:crypto';
 import { createReadStream, mkdirSync, readdirSync, watch, type FSWatcher } from 'node:fs';
-import { open as openAsync, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { open as openAsync, readdir, readFile, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
-import type { SessionAttachment } from '@muxr/contract';
-
-/** Files named `show-*` in a pane dir are not attachments: they are inline
- *  images pushed by `muxr show-image`, forwarded to live terminal viewers and
- *  deleted -- never listed, never stored. */
-export const SHOW_PREFIX = 'show-';
+import type { SessionAttachment, SessionAttachmentMetadata } from '@muxr/contract';
 
 export const MAX_ATTACHMENTS = 50;
 // Large images stay metadata-only instead of crossing the relay inline.
 export const MAX_INLINE_BYTES = 8 * 1024 * 1024;
 /** Whole-file fetch is only the small healing path; larger files use chunks/download. */
 export const MAX_FETCH_BYTES = 2 * 1024 * 1024;
-// One pane may contain dozens of individually valid previews. Bound every
-// event so attachment discovery never starves session/terminal traffic;
-// metadata-only entries heal lazily through attachment.fetch when opened.
-export const MAX_INITIAL_INLINE_BYTES = 2 * 1024 * 1024;
 const DEBOUNCE_MS = 300;
 /** Backstop for missed fs.watch events: rescan every pane dir this often. */
 const RESCAN_MS = 30_000;
@@ -110,20 +101,6 @@ function mimeFor(name: string): string {
     return MIME_BY_EXT[ext] ?? 'application/octet-stream';
 }
 
-/** Magic-byte sniff for show-image pushes; the extension is untrusted. */
-function sniffImageMime(bytes: Uint8Array): string | undefined {
-    if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png';
-    if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
-    if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'image/gif';
-    if (bytes.length >= 12
-        && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
-        && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'image/webp';
-    return undefined;
-}
-
-/** The host side of `muxr show-image`: returns how many live viewers got the image. */
-export type ShowImageSink = (paneId: string, image: { mime: string; bytes: string }) => number | Promise<number>;
-
 /** Metadata-only view of an attachment (id + fields, no base64 data). */
 function metaOnly(entry: SessionAttachment): Omit<SessionAttachment, 'data'> {
     return { id: entry.id, name: entry.name, mimeType: entry.mimeType, size: entry.size, at: entry.at };
@@ -156,7 +133,7 @@ export async function scanPaneWithAttribution(rootDir: string, paneId: string, c
         return { attachments: [], total: 0, truncated: false };
     }
     const names = entries
-        .filter((entry) => entry.isFile() && !entry.name.startsWith('.') && !entry.name.startsWith(SHOW_PREFIX))
+        .filter((entry) => entry.isFile() && !entry.name.startsWith('.'))
         .map((entry) => entry.name)
         .sort(compareNames);
     const total = names.length;
@@ -179,8 +156,8 @@ export async function scanPaneWithAttribution(rootDir: string, paneId: string, c
             const entry: SessionAttachment = { id: '', name, mimeType, size, at };
             if (size > MAX_FETCH_BYTES) {
                 // Larger files cannot use the whole-file heal path and the
-                // first event's aggregate inline budget would strip them
-                // anyway. Stream only the hash; download/read stays chunked.
+                // metadata-only session event never carries bytes anyway.
+                // Stream only the hash; download/read stays chunked.
                 entry.id = await hashFileStream(path);
                 cache?.set(name, { ...metaOnly(entry), signature });
                 out.push(entry);
@@ -230,20 +207,15 @@ export async function scanPane(rootDir: string, paneId: string, cache?: Map<stri
  */
 export class AttachmentWatcher {
     private readonly lastSignature = new Map<string, string>();
-    /** Attachment ids already announced per pane; later lists carry them metadata-only. */
-    private readonly emittedIds = new Map<string, Set<string>>();
     private readonly fileCache = new Map<string, Map<string, CachedAttachment>>();
     private readonly scans = new Map<string, Promise<AttachmentScan>>();
     private readonly debounces = new Map<string, ReturnType<typeof setTimeout>>();
     private watcher: FSWatcher | undefined;
     private interval: ReturnType<typeof setInterval> | undefined;
 
-    /** Where `show-*` images go (TerminalManager). Set by the host after wiring; absent, files wait for the next scan. */
-    showImage?: ShowImageSink;
-
     constructor(
         private readonly rootDir: string,
-        private readonly emit: (paneId: string, attachments: SessionAttachment[], total?: number, truncated?: boolean) => void,
+        private readonly emit: (paneId: string, attachments: SessionAttachmentMetadata[], total?: number, truncated?: boolean) => void,
         private readonly rescanMs: number = RESCAN_MS,
     ) {}
 
@@ -315,32 +287,19 @@ export class AttachmentWatcher {
 
     private async scanAndEmit(paneId: string): Promise<void> {
         try {
-            await this.forwardShowImages(paneId);
             const cache = this.fileCache.get(paneId) ?? new Map<string, CachedAttachment>();
             this.fileCache.set(paneId, cache);
             const scan = await this.scan(paneId, cache);
             const attachments = scan.attachments;
             const names = new Set(attachments.map((entry) => entry.name));
             for (const name of cache.keys()) if (!names.has(name)) cache.delete(name);
-            // Signature over the METADATA-ONLY view: stripping data on the
-            // second emit must not look like a change.
+            // Session events are metadata-only: entries heal lazily through
+            // attachment.fetch when opened, so the signature below never has
+            // to reason about data.
             const signature = JSON.stringify({ attachments: attachments.map(metaOnly), total: scan.total, truncated: scan.truncated });
             if (this.lastSignature.get(paneId) === signature) return;
             this.lastSignature.set(paneId, signature);
-            const known = this.emittedIds.get(paneId);
-            let inlineBytes = 0;
-            const wireView = attachments.map((entry) => {
-                if (known?.has(entry.id) || entry.data === undefined) return metaOnly(entry);
-                const bytes = Buffer.byteLength(entry.data);
-                if (inlineBytes + bytes > MAX_INITIAL_INLINE_BYTES) return metaOnly(entry);
-                inlineBytes += bytes;
-                return entry;
-            });
-            this.emittedIds.set(
-                paneId,
-                new Set(attachments.map((entry) => entry.id)),
-            );
-            this.emit(paneId, wireView, scan.total, scan.truncated);
+            this.emit(paneId, attachments.map(metaOnly), scan.total, scan.truncated);
         } catch {
             // Never throw into the watch callback.
         }
@@ -353,56 +312,12 @@ export class AttachmentWatcher {
         return cache;
     }
 
-    /**
-     * Forward every `show-*` file in the pane dir to live terminal viewers,
-     * then delete it: the phone renders the bytes from the frame alone, so no
-     * copy survives on either side. A `.show-<name>.rc` receipt tells the CLI
-     * how many viewers saw it (dot-prefixed, so the listing filter never
-     * shows it).
-     */
-    private async forwardShowImages(paneId: string): Promise<void> {
-        if (this.showImage === undefined) return;
-        const dir = join(resolve(this.rootDir), paneId);
-        let names: string[];
-        try {
-            names = (await readdir(dir, { withFileTypes: true }))
-                .filter((entry) => entry.isFile() && entry.name.startsWith(SHOW_PREFIX))
-                .map((entry) => entry.name);
-        } catch {
-            return; // No pane dir (or unreadable): nothing to forward.
-        }
-        for (const name of names) {
-            const path = join(dir, name);
-            try {
-                const content = await readFile(path);
-                const mime = content.length > 0 && content.length <= MAX_INLINE_BYTES ? sniffImageMime(content) : undefined;
-                if (mime === undefined) {
-                    await unlink(path);
-                    process.stderr.write(`show-image: ${name} in pane ${paneId} is not a supported image (png, jpeg, gif, webp, <=8MB); discarded\n`);
-                    continue;
-                }
-                const viewers = await this.showImage(paneId, { mime, bytes: content.toString('base64') });
-                try {
-                    await writeFile(join(dir, `.${name}.rc`), JSON.stringify({ viewers }));
-                } catch {
-                    // A receipt the CLI never reads is a cosmetic loss, not a delivery one.
-                }
-                await unlink(path);
-            } catch (error) {
-                // Sink threw (e.g. mid-startup wiring): leave the file for the
-                // next scan instead of dropping the captain's image.
-                process.stderr.write(`show-image: could not forward ${name} for pane ${paneId}: ${error instanceof Error ? error.message : String(error)}\n`);
-            }
-        }
-    }
-
-    /** Clear per-pane state (debounce + last signature + emitted ids). Does NOT delete files. */
+    /** Clear per-pane state (debounce + last signature + file cache). Does NOT delete files. */
     dropPane(paneId: string): void {
         const pending = this.debounces.get(paneId);
         if (pending !== undefined) clearTimeout(pending);
         this.debounces.delete(paneId);
         this.lastSignature.delete(paneId);
-        this.emittedIds.delete(paneId);
         this.fileCache.delete(paneId);
         this.scans.delete(paneId);
     }
@@ -424,9 +339,9 @@ export class AttachmentWatcher {
     }
 
     /**
-     * One attachment's full entry (with data) by content-hash id. Clients that
-     * missed the one-time data emit heal through this. Anything over the
-     * inline caps is answered null -- big files download over HTTP.
+     * One attachment's full entry (with data) by content-hash id. The timeline
+     * uses this bounded healing path for small previews; larger files use the
+     * chunked preview or download transports.
      */
     async fetch(paneId: string, attachmentId: string): Promise<SessionAttachment | null> {
         const cache = this.fileCache.get(paneId) ?? new Map<string, CachedAttachment>();
@@ -485,7 +400,6 @@ export class AttachmentWatcher {
         for (const pending of this.debounces.values()) clearTimeout(pending);
         this.debounces.clear();
         this.lastSignature.clear();
-        this.emittedIds.clear();
         this.fileCache.clear();
         this.scans.clear();
         this.watcher?.close();

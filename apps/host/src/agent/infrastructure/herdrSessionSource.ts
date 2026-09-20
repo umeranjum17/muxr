@@ -31,7 +31,7 @@ import type {
 } from '@muxr/contract';
 import { ATTENTION_REASONS, capUtf8Bytes, realtimePluginPublicContext, relayControlUrl, sanitizeDisplayText } from '@muxr/contract';
 import { closeAgent } from './agentClose.js';
-import { AttachmentWatcher, type ShowImageSink } from './attachmentWatcher.js';
+import { AttachmentWatcher } from './attachmentWatcher.js';
 import { AttachmentDownloadServer } from './attachmentDownloads.js';
 import type { AgentWatchStores } from '../application/watchStores.js';
 import type {
@@ -85,7 +85,7 @@ const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
 
 /** Provider-neutral hint inherited by every pane muxr creates through Herdr. */
 export const MUXR_AGENT_ENV = {
-    MUXR_AGENT_CAPABILITIES: 'Shared browser: use agent-browser; muxr Browser watches and can take over the same session (details: muxr skill browser-takeover). Inline image: muxr show-image <path> uses HERDR_PANE_ID. Full reference: muxr --skill.',
+    MUXR_AGENT_CAPABILITIES: "Shared browser: use agent-browser; muxr Browser watches and can take over the same session (details: muxr skill browser-takeover). Shared artifacts: muxr share <path> saves to this pane's durable Shared Artifacts timeline. Full reference: muxr --skill.",
 } as const;
 
 /** How long to watch a started Herdr action before reporting it as merely started. */
@@ -289,8 +289,6 @@ export interface CreateHerdrSessionSourceOptions {
         outcome: 'ok' | 'rejected',
         detail?: { kind?: string; detected?: string; gate?: 'ready' | 'starting' | 'not-interactive' | 'unbound' | 'no-agent' | 'unnamed' | 'no-session' },
     ) => void;
-    /** `muxr show-image`: forward a dropped inline image to the pane's live terminal viewers. */
-    onShowImage?: ShowImageSink;
 }
 
 export interface AgentRecord {
@@ -1002,13 +1000,17 @@ export async function createHerdrSessionSource(
             ?? undefined;
     }
 
-    /** Agent-dropped artifacts in the pane's dump dir. Listed on demand through the attachments plugin. */
+    /** Agent-dropped artifacts in the pane's durable Shared Artifacts history. */
     const attachmentsDir = options.attachmentsDir ?? join(homedir(), '.muxr', 'attachments', 'pane');
-    const attachments = new AttachmentWatcher(attachmentsDir, () => {
+    const attachments = new AttachmentWatcher(attachmentsDir, (paneId, entries, total = entries.length, truncated = false) => {
+        // Keep the extracted attachments plugin compatible while the product
+        // timeline replaces it. The session event itself is metadata-only.
         const frame: PluginsInvalidatedFrame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: [] };
         for (const listener of machineListeners) listener(frame);
+        const session = currentSessionByPane(paneId);
+        if (session === undefined) return;
+        publish(session.sessionId, { type: 'attachments.update', attachments: entries, total, truncated });
     });
-    if (options.onShowImage !== undefined) attachments.showImage = options.onShowImage;
     attachments.start();
 
     /** One-time tickets + byte streaming for downloads too big for the ws link. */
@@ -3016,6 +3018,17 @@ export async function createHerdrSessionSource(
                 savedPaths.push(target);
             }
             return { savedPaths };
+        },
+
+        async attachmentList({ sessionId }: { sessionId: string }) {
+            const record = currentSession(sessionId);
+            if (record === undefined) throw new Error('Shared Artifacts are unavailable for this session.');
+            const scan = await attachments.scanPane(record.paneId);
+            return {
+                attachments: scan.attachments.map(({ data: _data, ...entry }) => entry),
+                total: scan.total,
+                truncated: scan.truncated,
+            };
         },
 
         async attachmentFetch({ sessionId, attachmentId }: { sessionId: string; attachmentId: string }) {

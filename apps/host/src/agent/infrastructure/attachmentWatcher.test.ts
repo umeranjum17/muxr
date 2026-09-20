@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import type { SessionAttachment } from '@muxr/contract';
-import { AttachmentWatcher, MAX_INITIAL_INLINE_BYTES, MAX_INLINE_BYTES, scanPane, scanPaneWithAttribution } from './attachmentWatcher.js';
+import type { SessionAttachmentMetadata } from '@muxr/contract';
+import { AttachmentWatcher, MAX_INLINE_BYTES, scanPane, scanPaneWithAttribution } from './attachmentWatcher.js';
 
 const PIXEL_B64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -97,7 +97,7 @@ describe('scanPane', () => {
 
 describe('AttachmentWatcher', () => {
     function collect(root: string, rescanMs: number) {
-        const emits: { paneId: string; attachments: SessionAttachment[]; total: number | undefined; truncated: boolean | undefined }[] = [];
+        const emits: { paneId: string; attachments: SessionAttachmentMetadata[]; total: number | undefined; truncated: boolean | undefined }[] = [];
         const watcher = new AttachmentWatcher(
             root,
             (paneId, attachments, total, truncated) => emits.push({ paneId, attachments, total, truncated }),
@@ -162,7 +162,7 @@ describe('AttachmentWatcher', () => {
         }
     });
 
-    it('inlines data only for ids never emitted; re-emit carries them metadata-only', async () => {
+    it('emits session updates metadata-only with stable ids; data heals via fetch', async () => {
         const root = paneRoot();
         mkdirSync(join(root, 'p1'), { recursive: true });
         writeFileSync(join(root, 'p1', 'a.png'), PIXEL);
@@ -172,32 +172,31 @@ describe('AttachmentWatcher', () => {
             await waitFor(1);
             const first = emits[0]!;
             expect(first.paneId).toBe('p1');
-            expect(first.attachments[0]).toMatchObject({ name: 'a.png', data: PIXEL_B64 });
-            expect(first.attachments[0]!.id).toMatch(/^[0-9a-f]{64}$/);
-
-            // New file, same pane: a.png (known id) metadata-only, b.png inlined.
-            writeFileSync(join(root, 'p1', 'b.png'), Buffer.from('second-pixel'));
-            await waitFor(2);
-            const second = emits[1]!;
-            const byName = new Map(second.attachments.map((entry) => [entry.name, entry]));
-            expect(byName.get('a.png')).toEqual({
+            expect(first.attachments[0]).toEqual({
                 id: first.attachments[0]!.id,
                 name: 'a.png',
                 mimeType: 'image/png',
                 size: PIXEL.length,
                 at: expect.any(Number),
             });
-            expect(byName.get('a.png')!.data).toBeUndefined();
-            expect(byName.get('b.png')).toMatchObject({
-                name: 'b.png',
-                data: Buffer.from('second-pixel').toString('base64'),
+            // New file in the same pane: both entries stay metadata-only and
+            // the first entry keeps its content id so the phone can heal it.
+            writeFileSync(join(root, 'p1', 'b.png'), Buffer.from('second-pixel'));
+            await waitFor(2);
+            const second = emits[1]!;
+            expect(second.attachments.map((entry) => entry.name)).toEqual(['b.png', 'a.png']);
+            for (const entry of second.attachments) expect(Object.hasOwn(entry, 'data')).toBe(false);
+            expect(second.attachments[1]!.id).toBe(first.attachments[0]!.id);
+            await expect(watcher.fetch('p1', first.attachments[0]!.id)).resolves.toMatchObject({
+                name: 'a.png',
+                data: PIXEL_B64,
             });
         } finally {
             watcher.dispose();
         }
     });
 
-    it('bounds the aggregate first emit and leaves excess previews metadata-only', async () => {
+    it('never crosses base64 data in session updates even for a heavy pane', async () => {
         const root = paneRoot();
         mkdirSync(join(root, 'p1'), { recursive: true });
         for (let index = 0; index < 6; index += 1) {
@@ -209,11 +208,12 @@ describe('AttachmentWatcher', () => {
             await waitFor(1);
             const attachments = emits[0]!.attachments;
             expect(emits[0]).toMatchObject({ total: 6, truncated: false });
-            const inlineBytes = attachments.reduce((total, entry) => total + (entry.data === undefined ? 0 : Buffer.byteLength(entry.data)), 0);
             expect(attachments).toHaveLength(6);
-            expect(inlineBytes).toBeGreaterThan(0);
-            expect(inlineBytes).toBeLessThanOrEqual(MAX_INITIAL_INLINE_BYTES);
-            expect(attachments.filter((entry) => entry.data === undefined).length).toBeGreaterThan(0);
+            expect(attachments.every((entry) => !Object.hasOwn(entry, 'data'))).toBe(true);
+            expect(attachments.every((entry) => /^[0-9a-f]{64}$/.test(entry.id))).toBe(true);
+            // The heal path still serves full bytes for these ids.
+            const first = attachments.find((entry) => entry.name === '0.mp4')!;
+            await expect(watcher.fetch('p1', first.id)).resolves.toMatchObject({ name: '0.mp4', data: expect.any(String) });
         } finally {
             watcher.dispose();
         }
@@ -281,29 +281,24 @@ describe('AttachmentWatcher', () => {
             // rescan interval can discover this pane.
             await waitFor(1);
             expect(emits[0]!.paneId).toBe('p2');
-            expect(emits[0]!.attachments[0]).toMatchObject({ name: 'shot.png', data: PIXEL_B64 });
+            expect(emits[0]!.attachments[0]!.name).toBe('shot.png');
         } finally {
             watcher.dispose();
         }
     });
 
-    it('muxr show-image uses the current pane, reports no viewer, then forwards ephemerally to a live viewer', async () => {
+    it('keeps muxr share and ordinary watched drops in one durable pane history', async () => {
         const muxrHome = paneRoot();
         const root = join(muxrHome, 'attachments', 'pane');
         const paneId = 'pane:x:1';
         const source = join(muxrHome, 'pixel.png');
         writeFileSync(source, PIXEL);
-        const { watcher, emits } = collect(root, 15);
-        const pushed: Array<{ paneId: string; mime: string; bytes: string }> = [];
-        watcher.showImage = (target, image) => {
-            pushed.push({ paneId: target, ...image });
-            return pushed.length === 1 ? 0 : 1;
-        };
+        const { watcher, emits, waitFor } = collect(root, 15);
         watcher.start();
-        const run = () => new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
+        const runShare = () => new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
             const child = spawn(process.execPath, [
                 fileURLToPath(new URL('../../../../../scripts/cli.mjs', import.meta.url)),
-                'show-image',
+                'share',
                 source,
             ], {
                 env: { ...process.env, MUXR_HOME: muxrHome, HERDR_PANE_ID: paneId },
@@ -316,24 +311,20 @@ describe('AttachmentWatcher', () => {
             child.on('close', (code) => resolve({ code, stdout, stderr }));
         });
         try {
-            await expect(run()).resolves.toMatchObject({ code: 1, stderr: expect.stringContaining('no phone is viewing this pane') });
-            await expect(run()).resolves.toMatchObject({ code: 0, stdout: 'shown to 1 viewer\n' });
+            await expect(runShare()).resolves.toEqual({ code: 0, stdout: 'Shared pixel.png\n', stderr: '' });
+            await waitFor(1);
+            writeFileSync(join(root, paneId, 'notes.md'), 'ordinary watched drop');
+            await waitFor(2);
+            await expect(runShare()).resolves.toEqual({ code: 0, stdout: 'Shared pixel-1.png\n', stderr: '' });
+            await waitFor(3);
 
-            // A garbage file with a trusted extension is discarded by magic
-            // bytes and never reaches the live channel.
-            writeFileSync(join(root, paneId, 'show-garbage.png'), 'definitely not a png');
-            for (let waited = 0; waited < 3000 && readdirSync(join(root, paneId)).some((name) => name.startsWith('show-')); waited += 10) {
-                await new Promise((resolve) => setTimeout(resolve, 10));
-            }
+            expect(emits.at(-1)?.attachments.map((entry) => entry.name).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
+            expect(readdirSync(join(root, paneId)).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
 
-            expect(pushed).toEqual([
-                { paneId, mime: 'image/png', bytes: PIXEL_B64 },
-                { paneId, mime: 'image/png', bytes: PIXEL_B64 },
-            ]);
-            expect(readdirSync(join(root, paneId)).filter((name) => name.startsWith('show-') || name.endsWith('.rc'))).toEqual([]);
-            for (const emit of emits) {
-                for (const entry of emit.attachments) expect(entry.name.startsWith('show-')).toBe(false);
-            }
+            watcher.dropPane(paneId);
+            await watcher.resendAll([paneId]);
+            expect(emits.at(-1)?.attachments.map((entry) => entry.name).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
+            expect(readdirSync(join(root, paneId)).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
         } finally {
             watcher.dispose();
         }

@@ -1,9 +1,9 @@
 /**
  * Download an attachment — native implementation.
  *
- * Local/cleartext streams large files through the system browser. Hosted/E2EE
- * writes bounded encrypted chunks directly to a device file, so no giant blob
- * or JSON frame is retained on the JavaScript heap.
+ * Local/cleartext streams large files through the system browser when the
+ * handoff has a relay credential. Tokenless loopback and hosted/E2EE write
+ * bounded chunks to a device file, so no giant blob or JSON frame is retained.
  *
  * Metro picks downloadAttachment.web.ts on web.
  */
@@ -20,7 +20,7 @@ import { attachmentKind } from '@/utils/attachmentKind';
 
 export type DownloadHandoff = 'browser' | 'device';
 
-/** Same cap as host `MAX_FETCH_BYTES`: bigger than this never rides the JS thread. */
+/** Prefer OS streaming above this cap when the browser handoff can authenticate. */
 const MAX_IN_APP_BYTES = 2 * 1024 * 1024;
 
 function tooHeavyForApp(attachment: StoredSessionAttachment): boolean {
@@ -32,10 +32,29 @@ function safeName(name: string): string {
     return cleaned.length > 0 ? cleaned : 'attachment';
 }
 
-async function writeHostedFile(sessionId: string, attachment: StoredSessionAttachment): Promise<string> {
-    const file = new File(Paths.cache, `${safeName(attachment.id)}-${safeName(attachment.name)}`);
-    if (file.exists) file.delete();
-    file.create();
+/**
+ * The bare display name when free, otherwise numbered suffixes (report-2.md).
+ * create() refuses to overwrite, so a concurrent same-name download can never
+ * replace bytes a pending share target may not have read yet.
+ */
+function reserveCacheFile(name: string): File {
+    const dot = name.lastIndexOf('.');
+    const stem = dot > 0 ? name.slice(0, dot) : name;
+    const ext = dot > 0 ? name.slice(dot) : '';
+    for (let suffix = 1; ; suffix += 1) {
+        const candidate = suffix === 1 ? name : `${stem}-${suffix}${ext}`;
+        const file = new File(Paths.cache, candidate);
+        try {
+            file.create();
+            return file;
+        } catch (error) {
+            if (suffix === 100) throw error;
+        }
+    }
+}
+
+async function writeAttachmentFile(sessionId: string, attachment: StoredSessionAttachment): Promise<string> {
+    const file = reserveCacheFile(safeName(attachment.name));
     const handle = file.open();
     try {
         let offset = 0;
@@ -95,12 +114,12 @@ async function openInBrowser(sessionId: string, attachment: StoredSessionAttachm
 }
 
 export async function downloadAttachment(sessionId: string, attachment: StoredSessionAttachment): Promise<DownloadHandoff> {
-    const local = getCachedConnectionSettings().mode === 'local';
-    if (local && (tooHeavyForApp(attachment) || attachment.localUri === undefined)) {
+    const connection = getCachedConnectionSettings();
+    if (connection.mode === 'local' && connection.token.trim() !== '' && tooHeavyForApp(attachment)) {
         return openInBrowser(sessionId, attachment);
     }
     if (attachment.localUri === undefined) {
-        const uri = await writeHostedFile(sessionId, attachment);
+        const uri = await writeAttachmentFile(sessionId, attachment);
         handoffToOs(uri, attachment);
         return 'device';
     }

@@ -119,13 +119,12 @@ a third-party cloud is both a data-path mismatch and a cost model mismatch.
 2. **Agent-driven authoring and verification (add this — config only).**
    Register `maestro mcp` with the coding agents that already work in herdr
    panes on this machine. The agent's job: given a journey ("pair a fresh
-   device", "open a session and send `muxr show-image`"), drive it on the
+   device", "open a session and share an artifact"), drive it on the
    dedicated locked emulator with inline YAML, verify with
    `inspect_screen`/`take_screenshot` plus host-side facts, and leave behind
    (a) a stable committed flow, (b) screenshots, (c) logcat, (d) an explicit
-   pass/fail statement. Screenshots can be rendered straight to the captain's
-   phone with `muxr show-image` — the same feature this brief ships — so agent
-   QA evidence arrives inline where the captain reads.
+   pass/fail statement. Final screenshots can be added to the pane's durable
+   history with `muxr share`, so QA evidence remains available from the phone.
 3. **Exploratory adb loop (already practiced, formalize).** For bug reports
    and odd states, the agent uses raw adb + uiautomator + screencap per the
    `android-emulator-qa` pattern, always serial-pinned under the existing
@@ -156,9 +155,9 @@ the agent layer is prompt/MCP configuration, not code.
    agent runs `pair.yaml`, captures before/after screenshots + logcat, states
    pass/fail with evidence paths, and does not touch another emulator.
 2. **PoC 2 — author.** Task the agent with a journey that has no flow yet
-   (the inline-image journey this brief adds: open a session, run
-   `muxr show-image`, assert the strip). Success: a reviewed YAML flow lands
-   in `perf/flows/` and passes the PR gate twice in a row.
+   (the Shared Artifacts journey: open a session, run `muxr share`, assert the
+   timeline entry and preview). Success: a reviewed YAML flow lands in
+   `perf/flows/` and passes the PR gate twice in a row.
 3. **PoC 3 — explore.** Nightly unguided run: fresh build, seeded fake-Herdr
    world, agent explores N minutes with a bug-report template (steps,
    screenshots, logcat, expected-vs-actual). Success: at least one

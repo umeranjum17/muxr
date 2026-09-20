@@ -12,6 +12,7 @@ import type {
     LayoutSnapshot,
     PromptAttachment,
     SessionEventBody,
+    SessionAttachmentMetadata,
     CloseResult,
     CloseScope,
     SessionInfo,
@@ -182,6 +183,8 @@ export interface SessionSource {
     shell(options: SessionShellOptions): Promise<SessionShellOutcome | null>;
     readFile(options: SessionReadFileOptions): Promise<{ content: string }>;
     saveAttachments(options: SessionSaveAttachmentsOptions): Promise<{ savedPaths: string[] }>;
+    /** Metadata-only newest-first artifact history for one session's pane. */
+    attachmentList(options: { sessionId: string }): Promise<{ attachments: SessionAttachmentMetadata[]; total: number; truncated: boolean }>;
     /** Re-fetch one pane attachment blob for a client that missed the first emit. */
     attachmentFetch(options: { sessionId: string; attachmentId: string }): Promise<{ name: string; mimeType: string; data: string } | null>;
     /** Mint a one-time local-only download ticket for the attachment's original bytes. */

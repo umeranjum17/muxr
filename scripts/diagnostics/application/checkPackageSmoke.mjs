@@ -97,7 +97,8 @@ function assertCompactSkillOutput(output) {
     assert.match(output, /\$MUXR_AGENT_CAPABILITIES/);
     assert.match(output, /agent-browser/);
     assert.match(output, /muxr skill browser-takeover/);
-    assert.match(output, /muxr show-image <path>/);
+    assert.match(output, /muxr share <path>/);
+    assert.doesNotMatch(output, /show-image/);
     assert.doesNotMatch(output, /muxr-skill-reference|# Cross-machine agent collaboration|## Installed Herdr CLI reference/);
 }
 
@@ -297,6 +298,8 @@ try {
     const sourceEnv = cliEnv();
     const sourceHelp = run(process.execPath, ['scripts/cli.mjs', '--help'], { env: sourceEnv }).stdout;
     assert.match(sourceHelp, /muxr --skill \| muxr skill\s+print the compact muxr agent skill/);
+    assert.match(sourceHelp, /muxr share <path>\s+save a file to this pane's Shared Artifacts timeline/);
+    assert.doesNotMatch(sourceHelp, /show-image/);
     assert.match(sourceHelp, /muxr peers list\|read\|status\|watch\|prompt/);
     assert.match(sourceHelp, /muxr diagnostics\s+show bounded redacted host history/);
     assert.match(sourceHelp, /muxr report\s+prepare a local redacted bug report draft/);
@@ -569,6 +572,8 @@ try {
     assert.match(readFileSync(join(installedPackage, 'README.md'), 'utf8'), /muxr --skill\s+# print the compact agent skill/);
     const rootHelp = run(cli, ['--help'], { cwd: installDir }).stdout;
     assert.match(rootHelp, /muxr --skill \| muxr skill\s+print the compact muxr agent skill/);
+    assert.match(rootHelp, /muxr share <path>\s+save a file to this pane's Shared Artifacts timeline/);
+    assert.doesNotMatch(rootHelp, /show-image/);
     assert.match(rootHelp, /muxr peers list\|read\|status\|watch\|prompt/);
     assert.match(rootHelp, /muxr diagnostics\s+show bounded redacted host history/);
     assert.match(rootHelp, /muxr report\s+prepare a local redacted bug report draft/);

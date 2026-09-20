@@ -1,6 +1,6 @@
 ---
 name: muxr
-description: Set up and operate muxr (control coding agents from your phone) — use the shared browser and inline terminal images, install/pair/self-host, drive Herdr workspaces/panes/agents/worktrees, share pane attachments, hand browser login/2FA/CAPTCHA to the phone, connect computers for cross-machine collaboration and voice, and author/install muxr plugins. Use for any muxr or Herdr setup, orchestration, collaboration, plugin, or troubleshooting task.
+description: Set up and operate muxr (control coding agents from your phone) — use the shared browser and durable Shared Artifacts, install/pair/self-host, drive Herdr workspaces/panes/agents/worktrees, hand browser login/2FA/CAPTCHA to the phone, connect computers for cross-machine collaboration and voice, and author/install muxr plugins. Use for any muxr or Herdr setup, orchestration, collaboration, plugin, or troubleshooting task.
 license: Apache-2.0
 compatibility: Requires the muxr and Herdr CLIs on a paired macOS or Linux host, with shell access for commands.
 ---
@@ -45,13 +45,13 @@ renders state the host reports.
 
 A muxr-launched pane advertises `$MUXR_AGENT_CAPABILITIES`. Run `muxr --skill`
 for this compact reference. Use the existing owners it names rather than opening
-a second browser or turning an image into a file-path message:
+a second browser or sending a filesystem path as the user experience:
 
 - Drive the browser with `agent-browser`; muxr's Browser view watches and can
   take over that same session. Load `muxr skill browser-takeover` for the
   shared-session and authorization rules.
-- Render a conversational image where the user is following the terminal with
-  `muxr show-image <path>`. It resolves the current pane from `$HERDR_PANE_ID`.
+- Share a finished file with `muxr share <path>`. It resolves the current pane
+  from `$HERDR_PANE_ID` and adds the file to that session's durable history.
 
 ## Task router
 
@@ -88,48 +88,34 @@ Absent self-names remain absent until the existing blank-name fallback applies.
 Do not guess names from prompts, cwd, provider-specific transcripts, or shell
 arguments. Provider and model are Herdr pane metadata, not a second JSON store.
 
-## Pane attachments (always-on convention)
+## Shared Artifacts (always-on convention)
 
-Whenever a task produces a FINAL user-facing artifact file — screenshots,
-generated images, exports, recordings, and documents (markdown notes, emails,
-reports, code, JSON) — copy it into the current pane's watched attachments
-directory so it appears as a pill on the phone:
-
-1. Compute the dir: `ATTACH="$HOME/.muxr/attachments/pane/$HERDR_PANE_ID"`
-   (`HERDR_PANE_ID` is injected into every Herdr pane; the id contains a colon —
-   quote the path).
-2. `mkdir -p "$ATTACH"` and copy the final artifact there: `cp shot.png "$ATTACH"/`
-   — one command, then continue the task.
-3. The host watches the dir, compresses raster images (max edge 1568px, webp
-   q80), inlines text/docs whole (≤256KB), videos (≤32MB), and PDFs (≤8MB), and
-   the phone shows them on that pane's session within ~1s. Images open a
-   swipeable carousel; text/docs open a readable preview; videos play in the
-   browser player; PDFs render page-by-page. Every row has a download button —
-   oversized files are fetched from the host on demand.
-
-Rules: if `HERDR_PANE_ID` is unset you are not in a Herdr pane — skip silently.
-Do not dump intermediates or logs; the dir is a user-facing surface with a
-50-file cap. No manual downscaling — the host compresses images automatically;
-save at full resolution. Write documents directly as `.md`/`.txt`/code files so
-they preview natively.
-
-## Show an image inline in the phone's terminal
-
-When the captain is watching this pane's terminal and an image says it better
-than text — a screenshot, a chart, a rendering — push it straight into the
-terminal view instead of filing an attachment:
+Whenever a task produces a FINAL user-facing artifact — a screenshot, generated
+image, export, recording, markdown note, report, code sample, or JSON file — add
+it to the current pane's durable Shared Artifacts history:
 
 ```bash
-muxr show-image shot.png          # uses $HERDR_PANE_ID
-muxr show-image shot.png --pane <pane-id>   # from outside the pane
+muxr share shot.png                       # uses $HERDR_PANE_ID
+muxr share report.md --pane <pane-id>     # from outside the pane
 ```
 
-The image renders inline below the terminal output on every phone currently
-viewing the pane, is ephemeral (scrolls away, gone on dismiss or when the pane
-is left), and nothing is stored on the phone. The command prints how many
-viewers saw it, and exits 1 with "no phone is viewing this pane" when nobody
-was watching — fall back to the attachments dir above in that case.
-png/jpeg/gif/webp up to 8MB.
+The command preserves the filename, adds a numeric suffix on collision, and
+returns as soon as the durable copy is stored. The phone groups artifacts by day
+in the owning session. Images open in a swipeable gallery; readable documents
+open in a rich preview; every entry can download the original. Large files stay
+metadata-only until opened or downloaded.
+
+Direct copies remain the underlying convention when a tool cannot call the CLI:
+
+```bash
+ATTACH="$HOME/.muxr/attachments/pane/$HERDR_PANE_ID"
+mkdir -p "$ATTACH" && cp shot.png "$ATTACH"/
+```
+
+If `HERDR_PANE_ID` is unset, skip sharing unless an exact pane was supplied.
+Share final artifacts only, never intermediates, logs, secrets, or pairing
+material. The live list shows the newest 50 files; write readable material as
+`.md`, `.txt`, or source files so it previews natively.
 
 ## Global pitfalls
 

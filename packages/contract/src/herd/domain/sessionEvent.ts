@@ -13,6 +13,7 @@
 import type {
     AttentionCatalog,
     SessionActivity,
+    SessionAttachmentMetadata,
     SessionInfo,
     SessionStatus,
     LifecycleEvent,
@@ -35,6 +36,13 @@ export type SessionEventBody =
     // --- session state ----------------------------------------------------
     | { type: 'status.update'; status: SessionStatus }
     | { type: 'activity.update'; activity: SessionActivity }
+    /** Metadata-only newest-first artifact history for this session's pane. */
+    | {
+          type: 'attachments.update';
+          attachments: SessionAttachmentMetadata[];
+          total: number;
+          truncated: boolean;
+      }
     /**
      * Which sessions need the user, whole catalog every time. It is bounded by
      * session count, and a full replace cannot drift out of sync the way an
@@ -66,6 +74,7 @@ export const SESSION_EVENT_TYPES = [
     'shell.end',
     'status.update',
     'activity.update',
+    'attachments.update',
     'attention.update',
     'lifecycle.update',
     'watch.settled',

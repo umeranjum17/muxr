@@ -66,7 +66,7 @@ type PluginExecutionRequest = Extract<ClientRequest, {
 const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'session.list', 'session.open', 'session.status',
     'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest',
-    'attachment.fetch', 'attachment.read', 'unread.catalog',
+    'attachment.list', 'attachment.fetch', 'attachment.read', 'unread.catalog',
     'attention.catalog', 'lifecycle.catalog', 'machines.list', 'terminal.attach',
     'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
 ]);
@@ -237,6 +237,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             await readAgentSession(source, { view: 'file', sessionId: params.sessionId, path: params.path }),
         ) as { content: string },
         'session.saveAttachments': (params) => source.saveAttachments(params),
+        'attachment.list': (params) => source.attachmentList(params),
         'attachment.fetch': (params) => source.attachmentFetch(params),
         'attachment.prepare': (params) => {
             if (options.relayUrl === undefined) throw new Error('attachment.prepare is local-only; hosted clients use encrypted attachment.read chunks');

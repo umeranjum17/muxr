@@ -36,22 +36,6 @@ export interface TerminalClosedFrame {
 }
 
 /**
- * host -> client: an image to render inline in the terminal view.
- *
- * Pushed when an agent runs `muxr show-image` in the pane. Strictly ephemeral:
- * it rides only this live channel -- never replayed, never persisted on the
- * client -- so it behaves like terminal output, not a file.
- */
-export interface TerminalImageFrame {
-    type: 'terminal.image';
-    /** Sender-chosen identity; a re-push with the same id replaces the image. */
-    id: string;
-    mime: string;
-    /** base64-encoded image bytes. */
-    bytes: string;
-}
-
-/**
  * host -> client: where herdr's own viewport sits in this pane's scrollback.
  *
  * The client cannot derive this. A `terminal.scroll` does not always move a
@@ -95,7 +79,7 @@ export interface TerminalScrollFrame {
 }
 
 export type TerminalClientFrame = TerminalInputFrame | TerminalResizeFrame | TerminalScrollFrame;
-export type TerminalHostFrame = TerminalOutputFrame | TerminalClosedFrame | TerminalScrollStateFrame | TerminalImageFrame;
+export type TerminalHostFrame = TerminalOutputFrame | TerminalClosedFrame | TerminalScrollStateFrame;
 
 /** Random channel id. The relay pairs the two sockets quoting the same one. */
 export function newTerminalChannel(): string {

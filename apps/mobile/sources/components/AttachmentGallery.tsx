@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, FlatList, Modal, Pressable, Text, View, useWindowDimensions, type ViewToken } from 'react-native';
+import { ActivityIndicator, FlatList, Modal, Pressable, Text, View, useWindowDimensions, type StyleProp, type ViewStyle, type ViewToken } from 'react-native';
 import { Image } from 'expo-image';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ZoomableAttachmentImage } from './ZoomableAttachmentImage';
@@ -21,7 +21,7 @@ export interface GalleryImage {
 
 const MAX_THUMBNAIL_BYTES = 8 * 1024 * 1024;
 
-export function AttachmentThumbnail({ sessionId, image, onPress, enabled = true, onSettled }: { sessionId: string; image: GalleryImage; onPress: () => void; enabled?: boolean; onSettled?: (id: string) => void }) {
+export function AttachmentThumbnail({ sessionId, image, onPress, enabled = true, onSettled, showCaption = true, style }: { sessionId: string; image: GalleryImage; onPress: () => void; enabled?: boolean; onSettled?: (id: string) => void; showCaption?: boolean; style?: StyleProp<ViewStyle> }) {
     // A grid preview is convenience, not permission to pull a 200 MB original.
     const preview = useAttachmentPreview(sessionId, image.action, enabled && image.action.size <= MAX_THUMBNAIL_BYTES);
     const [failed, setFailed] = React.useState(false);
@@ -40,7 +40,7 @@ export function AttachmentThumbnail({ sessionId, image, onPress, enabled = true,
     }, [enabled, image.action.size, preview, settle]);
     return (
         <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`Open ${image.title}`}
-            style={({ pressed }) => [styles.thumbnail, pressed && styles.pressed]}>
+            style={({ pressed }) => [styles.thumbnail, style, pressed && styles.pressed]}>
             {!enabled || image.action.size > MAX_THUMBNAIL_BYTES
                 ? <Ionicons name="image-outline" size={22} color="rgba(255,255,255,0.38)" />
                 : preview === undefined
@@ -51,11 +51,13 @@ export function AttachmentThumbnail({ sessionId, image, onPress, enabled = true,
                       <Image source={{ uri: preview.uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} recyclingKey={recyclingKey} onLoad={() => { setLoaded(true); settle(); }} onError={() => { setFailed(true); settle(); }} />
                       {!loaded && <ActivityIndicator style={StyleSheet.absoluteFill} color="rgba(255,255,255,0.45)" />}
                   </>}
-            <LinearGradient pointerEvents="none" colors={['transparent', 'rgba(0,0,0,0.8)']} locations={[0.25, 1]} style={styles.thumbnailShade} />
-            <View style={styles.thumbnailCaption}>
-                <Text numberOfLines={1} style={styles.thumbnailName}>{image.title}</Text>
-                {image.subtitle !== undefined && <Text style={styles.thumbnailMeta}>{image.subtitle}</Text>}
-            </View>
+            {showCaption && <>
+                <LinearGradient pointerEvents="none" colors={['transparent', 'rgba(0,0,0,0.8)']} locations={[0.25, 1]} style={styles.thumbnailShade} />
+                <View style={styles.thumbnailCaption}>
+                    <Text numberOfLines={1} style={styles.thumbnailName}>{image.title}</Text>
+                    {image.subtitle !== undefined && <Text style={styles.thumbnailMeta}>{image.subtitle}</Text>}
+                </View>
+            </>}
         </Pressable>
     );
 }
@@ -88,7 +90,7 @@ export function AttachmentGallery({ sessionId, images, initialIndex, onClose }: 
     if (active === undefined) return null;
     return (
         <Modal visible transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
-            <GestureHandlerRootView style={styles.gallery}>
+            <GestureHandlerRootView style={{ flex: 1, width, height, backgroundColor: '#050506' }}>
                 <View style={[styles.galleryHeader, { paddingTop: Math.max(insets.top, 12) }]}>
                     <View style={{ flex: 1, minWidth: 0 }}>
                         <Text numberOfLines={1} style={styles.galleryName}>{active.title}</Text>
@@ -176,7 +178,6 @@ const styles = StyleSheet.create({
     thumbnailName: { color: '#fff', fontSize: 12, lineHeight: 15, ...Typography.default('semiBold') },
     thumbnailMeta: { color: 'rgba(255,255,255,0.62)', fontSize: 10, marginTop: 1, ...Typography.mono() },
     pressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
-    gallery: { flex: 1, backgroundColor: '#050506' },
     galleryHeader: { position: 'absolute', zIndex: 2, left: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 8 },
     galleryName: { color: '#fff', fontSize: 13, ...Typography.default('semiBold') },
     galleryCount: { color: 'rgba(255,255,255,0.5)', fontSize: 11, marginTop: 2, ...Typography.mono() },

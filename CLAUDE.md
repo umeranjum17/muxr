@@ -42,10 +42,10 @@ behaviour it claims to cover and watch it go red.
 
 - Long builds/servers run in their own shell pane, never inline inside an agent.
 
-## Attachments
+## Shared Artifacts
 
-- Artifacts meant to appear in muxr must be written to `~/.muxr/attachments/pane/$HERDR_PANE_ID`.
-- Images the captain should see right now are not attachments: run `muxr show-image <path>` inside the pane — it renders inline in the phone's terminal view, ephemeral, and tells you how many viewers saw it.
+- Artifacts meant to appear in muxr must be shared with `muxr share <path>` or written to `~/.muxr/attachments/pane/$HERDR_PANE_ID`.
+- Shared Artifacts is a durable per-session timeline. Artifacts are never rendered as transient terminal overlays; live push channels (`terminal.image`-style) must not be reintroduced.
 
 ## Self-naming
 
