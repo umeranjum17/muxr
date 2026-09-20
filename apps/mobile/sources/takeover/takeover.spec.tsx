@@ -67,6 +67,7 @@ vi.mock('@/preview', () => ({
     attachPreviewTunnel: vi.fn(async () => ({ hostname: 'tunnel.test', port: 1234, close: vi.fn() })),
 }));
 
+import { setStringAsync } from 'expo-clipboard';
 import TakeoverScreen from '../app/(app)/session/[id]/takeover';
 
 class FakeSocket {
@@ -114,8 +115,10 @@ const enableOk = (port: number) => ({
 
 const disableCalls = () => shell.mock.calls.filter(([, command]) => String(command).includes('stream disable'));
 
-const rendersText = (renderer: ReturnType<typeof TestRenderer.create>, fragment: string): boolean =>
-    renderer.root.findAll((node) => typeof node.props.children === 'string' && node.props.children.includes(fragment)).length > 0;
+// Sibling specs hold the renderer as `any`: the ambient shim types
+// ReactTestRenderer.root as unknown on purpose.
+const rendersText = (renderer: any, fragment: string): boolean =>
+    renderer.root.findAll((node: any) => typeof node.props.children === 'string' && node.props.children.includes(fragment)).length > 0;
 
 async function mountAndAttach(): Promise<ReturnType<typeof TestRenderer.create>> {
     let renderer!: ReturnType<typeof TestRenderer.create>;
@@ -177,7 +180,7 @@ describe('takeover stream ownership', () => {
             if (command.includes('stream status')) return browserRunning ? statusBound(42249) : statusBrowserless(42249);
             return { success: true, exitCode: 0, stderr: '', stdout: '' };
         });
-        let renderer!: ReturnType<typeof TestRenderer.create>;
+        let renderer: any;
         await TestRenderer.act(async () => {
             renderer = TestRenderer.create(React.createElement(TakeoverScreen));
         });
@@ -203,6 +206,75 @@ describe('takeover stream ownership', () => {
         // Live: the shared page is on the phone and the shared stream stays up.
         expect(renderer.root.findByProps({ accessibilityLabel: "The agent's browser page" })).toBeTruthy();
         expect(renderer.root.findByProps({ resizeMode: 'contain' }).props.source.uri).toBe('data:image/jpeg;base64,ZmFrZWpwZWc=');
+        expect(disableCalls()).toEqual([]);
+    });
+
+    it('a driverless machine shows the install command and Copy command copies it', async () => {
+        // exit 127: the computer has no agent-browser, so there is no browser
+        // journey at all — the screen must offer the once-only install.
+        shell.mockImplementation(async (_machineId: string, command: string) => {
+            if (command.includes('stream enable')) return { success: false, exitCode: 127, stderr: 'bash: agent-browser: command not found', stdout: '' };
+            return { success: true, exitCode: 0, stderr: '', stdout: '' };
+        });
+        let renderer: any;
+        await TestRenderer.act(async () => {
+            renderer = TestRenderer.create(React.createElement(TakeoverScreen));
+        });
+        await TestRenderer.act(async () => {
+            await vi.waitFor(() => expect(rendersText(renderer, 'npm install -g agent-browser && agent-browser install --with-deps')).toBe(true));
+        });
+        // Nothing to attach to, and nothing of the shared stream to tear down.
+        expect(FakeSocket.instances).toEqual([]);
+
+        const copy = renderer.root.findByProps({ accessibilityRole: 'button', accessibilityLabel: 'browser.copyCommand' });
+        await TestRenderer.act(async () => {
+            copy.props.onPress();
+            await vi.waitFor(() => expect(setStringAsync).toHaveBeenLastCalledWith('npm install -g agent-browser && agent-browser install --with-deps'));
+        });
+        expect(renderer.root.findByProps({ accessibilityLabel: 'browser.copied' })).toBeTruthy();
+    });
+
+    it('a real missing-browser open failure shows the install command, not a dead button', async () => {
+        // The exact output the installed 0.35.1 binary prints for `open` on a
+        // machine with no browser (reproduced live in a chromeless container).
+        const realOpenFailure = [
+            '✗ Chrome not found. Checked:',
+            '  - agent-browser cache: /home/dev/.agent-browser/browsers',
+            '  - System Chrome installations',
+            '  - Puppeteer browser cache',
+            '  - Playwright browser cache',
+            'Run `agent-browser install` to download Chrome, or use --executable-path.',
+        ].join('\n');
+        shell.mockImplementation(async (_machineId: string, command: string) => {
+            if (command === 'agent-browser open') return { success: false, exitCode: 1, stderr: realOpenFailure, stdout: '' };
+            if (command.includes('stream enable')) return alreadyEnabled;
+            if (command.includes('stream status')) return statusBrowserless(42249);
+            return { success: true, exitCode: 0, stderr: '', stdout: '' };
+        });
+        let renderer: any;
+        await TestRenderer.act(async () => {
+            renderer = TestRenderer.create(React.createElement(TakeoverScreen));
+        });
+        await TestRenderer.act(async () => {
+            await vi.waitFor(() => expect(rendersText(renderer, "hasn't opened a browser")).toBe(true));
+        });
+        const openOne = renderer.root.findByProps({ accessibilityRole: 'button', accessibilityLabel: 'Open one' });
+        await TestRenderer.act(async () => {
+            openOne.props.onPress();
+            await vi.waitFor(() => expect(shell.mock.calls.some(([, command]) => command === 'agent-browser open')).toBe(true));
+        });
+        await TestRenderer.act(async () => {
+            await vi.waitFor(() => expect(rendersText(renderer, 'agent-browser install --with-deps')).toBe(true));
+        });
+        // The fix is the once-only install, copied verbatim — never a silent
+        // download here, never a Try-again that fails the same way again.
+        const copy = renderer.root.findByProps({ accessibilityRole: 'button', accessibilityLabel: 'browser.copyCommand' });
+        await TestRenderer.act(async () => {
+            copy.props.onPress();
+            await vi.waitFor(() => expect(setStringAsync).toHaveBeenLastCalledWith('agent-browser install --with-deps'));
+        });
+        expect(renderer.root.findByProps({ accessibilityLabel: 'browser.copied' })).toBeTruthy();
+        expect(FakeSocket.instances).toEqual([]);
         expect(disableCalls()).toEqual([]);
     });
 });

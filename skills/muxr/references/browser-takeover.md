@@ -29,8 +29,9 @@ their action or approval.
 
 ## Hand control to the human
 
-1. When a human-only wall appears, enable the live stream if this session does
-   not already have one: `agent-browser stream enable --json`.
+1. When a human-only wall appears, make the loopback stream live using the
+   status/`connected` check from “Drive the shared browser” above: the stream
+   server is always bound, so `stream enable` alone proves nothing.
 2. Report blocked through Herdr; muxr reads this and notifies the phone:
    ```
    herdr pane report-agent "$HERDR_PANE_ID" --source "$HERDR_PANE_ID" --agent <your-label> --state blocked \
