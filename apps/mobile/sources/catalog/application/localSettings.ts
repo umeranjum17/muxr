@@ -29,10 +29,9 @@ export const LocalSettingsSchema = z.object({
         send: z.string().min(1).max(512),
         repeat: z.boolean().optional(),
     })])).max(TERMINAL_KEY_ROW_LIMIT).nullable().catch(null).describe('Customised terminal key row (null follows the built-in row)'),
-    // Terminal command puck and its open panel rest where the person drags
-    // them, as fractions of the terminal surface's travel range.
+    // The terminal command puck rests where the person drags it, as fractions
+    // of its travel range from the terminal's top edge to the composer's top.
     terminalCommandKeyDock: z.object({ fx: z.number(), fy: z.number() }).nullable().describe('Where the floating terminal command puck rests, as fractions of the terminal surface'),
-    terminalPanelDock: z.object({ fx: z.number(), fy: z.number() }).nullable().describe('Where the floating terminal command panel was last placed, as fractions of the terminal surface'),
     vadStandbyEnabled: z.boolean().describe('Persistently wake realtime voice from local speech activity standby'),
     dictationLanguage: z.string().nullable().describe('Spoken dictation language (null for automatic detection)'),
     dictationModel: z.string().describe('Selected on-device dictation model'),
@@ -74,7 +73,6 @@ export const localSettingsDefaults: LocalSettings = {
     terminalFontIndex: DEFAULT_FONT_INDEX,
     terminalKeyRow: null,
     terminalCommandKeyDock: null,
-    terminalPanelDock: null,
     vadStandbyEnabled: false,
     dictationLanguage: null,
     dictationModel: 'base.en-q5_1',

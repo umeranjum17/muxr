@@ -45,6 +45,8 @@ export const pt: TranslationStructure = {
         nothingToShow: 'Nada para mostrar.',
         treeUnavailable: 'Árvore indisponível.',
         dictate: 'Ditar',
+        stopDictation: 'Parar ditado',
+        stopDictationHint: 'Para a gravação e começa a transcrever',
         unavailableSuffix: 'indisponível',
         showingStale: 'mostrando dados antigos',
         settingsTitle: 'Plugins',
@@ -373,6 +375,7 @@ export const pt: TranslationStructure = {
         noCatalogue: ({ kind }: { kind: string }) => `Ainda não há catálogo para ${kind} · digite um comando abaixo`,
         thisAgent: 'este agente',
         sent: ({ command }: { command: string }) => `Enviado ${command}`,
+        commonReplies: 'Respostas frequentes',
     },
 
 

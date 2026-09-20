@@ -206,11 +206,13 @@ const PACKAGED_BUNDLED_ROOTS = packagedBundledRoots();
 /**
  * Bundled plugins that became product code. Their Herdr registrations survive
  * (global to the machine), but they are not optional add-ons, so the host never
- * serves them to clients: a stale terminal-keys registration would draw two key
- * rows, and panes/control surfaces must not present as disableable plugins.
+ * serves them to clients: a stale registration would draw a second copy of what
+ * the app already renders itself — terminal-keys drew two key rows, dictation
+ * drew a second dictate mic beside the app's own in every composer, and
+ * panes/control surfaces must not present as disableable plugins.
  * User-authored plugins under their own ids are unaffected.
  */
-const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys', 'muxr.panes', 'muxr.control']);
+const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys', 'muxr.panes', 'muxr.control', 'muxr.dictation']);
 function fromPackagedRoot(plugin: HerdrPlugin): HerdrPlugin {
     const root = PACKAGED_BUNDLED_ROOTS.get(plugin.plugin_id);
     return root === undefined ? plugin : { ...plugin, plugin_root: root };

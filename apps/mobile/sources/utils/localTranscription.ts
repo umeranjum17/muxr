@@ -6,7 +6,8 @@ import { BUNDLED_DICTATION_MODEL_ID, getInstalledDictationModelUri } from '@/uti
 const bundledModel = require('@/assets/models/ggml-base.en-q5_1.bin');
 
 /** Transcribe short, tapped dictation entirely on-device with whisper.cpp. */
-export async function transcribePcm16(chunks: readonly string[], hint?: string): Promise<string> {
+export async function transcribePcm16(chunks: readonly string[], hint?: string, signal?: AbortSignal): Promise<string> {
+    if (signal?.aborted) return '';
     const pcm = pcm16ChunksToArrayBuffer(chunks);
     if (pcm.byteLength < 2) return '';
 
@@ -14,16 +15,23 @@ export async function transcribePcm16(chunks: readonly string[], hint?: string):
     const selectedModel = settings.dictationModel || BUNDLED_DICTATION_MODEL_ID;
     const modelUri = getInstalledDictationModelUri(selectedModel);
     const context = await initWhisper({ filePath: modelUri ?? bundledModel });
+    let cancel: (() => void) | undefined;
     try {
-        const { promise } = context.transcribeData(pcm, {
+        if (signal?.aborted) return '';
+        const { promise, stop } = context.transcribeData(pcm, {
             language: settings.dictationLanguage ?? 'auto',
             maxThreads: 4,
             beamSize: 5,
             ...(hint ? { prompt: hint } : {}),
         });
+        cancel = () => { void stop().catch(() => undefined); };
+        signal?.addEventListener('abort', cancel, { once: true });
+        if (signal?.aborted) cancel();
         const { result } = await promise;
+        if (signal?.aborted) return '';
         return applyWordReplacements(result.trim(), settings.dictationWordReplacements).trim();
     } finally {
+        if (cancel !== undefined) signal?.removeEventListener('abort', cancel);
         await context.release();
     }
 }

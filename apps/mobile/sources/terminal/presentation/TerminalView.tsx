@@ -292,7 +292,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const viewControls = React.useMemo<TerminalViewControls>(() => ({
         dismissKeyboard,
         commands: [
-            { label: 'Open terminal keyboard', icon: 'keyboard' as const, dismiss: true,
+            { label: 'Open terminal keyboard', icon: 'keyboard' as const,
                 run: () => { void termRef.current?.showKeyboard().catch(() => latest.current.onStatus?.('Could not open keyboard')); } },
             { label: 'Zoom out', icon: 'minus' as const, run: () => latest.current.zoom(-1), disabled: atMinZoom },
             { label: 'Zoom in', icon: 'plus' as const, run: () => latest.current.zoom(1), disabled: atMaxZoom },

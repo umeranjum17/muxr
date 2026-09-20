@@ -1,21 +1,29 @@
 import * as React from 'react';
-import { BackHandler, Keyboard, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import { BackHandler, PanResponder, Platform, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { useLocalSettingMutable } from '@/catalog/store';
 import { MobileGlassSurface } from '@/components/MobileGlass';
-import { hapticsLight } from '@/components/haptics';
-import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import type { Theme } from '@/theme';
-import type { PanelGlyphName } from '@/components/ActionShortcut';
+import { hapticsLight, hapticsSelection } from '@/components/haptics';
+import { RING_SLOT_SIZE, ringSlotOffsets, slotUnderFinger } from '../domain/ringGeometry';
 
+/** Same contract as the old panel strip; the ⋮ View group renders these rows. */
 export type TerminalCommand = {
     label: string;
-    icon: PanelGlyphName;
+    icon: 'keyboard' | 'minus' | 'plus' | 'reset' | 'close' | 'branch' | 'folder' | 'tools';
     run: () => void;
     disabled?: boolean;
-    dismiss?: boolean;
+};
+
+/** One ring slot: an action that fires on lift. */
+export type RingSlot = {
+    id: string;
+    label: string;
+    icon: React.ComponentProps<typeof Ionicons>['name'];
+    /** Count badge, e.g. Review changes · N; hidden while undefined. */
+    badge?: number;
+    run: () => void;
 };
 
 const KEY = 48;
@@ -24,354 +32,381 @@ const KEY_EDGE = 16;
 // The untouched puck rests a thumb-reach above the bottom edge, clear of the
 // jump-to-bottom pill that lives at the corner.
 const KEY_DEFAULT_BOTTOM_PAD = 64;
-const PANEL_WIDTH = 268;
-const OPEN_MARGIN = 12;
-const BUTTON = 44;
-const PANEL_PADDING = 4;
-const DIVIDER = 1 + 4; // 1dp rule with 2dp margins on each side
-const SLOT_RADIUS = 10;
-const ICON = 20;
+// Slots render at the geometry's disc size; the ring never holds more than
+// five because a longer arc runs out of comfortable thumb angles.
+const SLOT = RING_SLOT_SIZE;
+const SLOT_ICON = 20;
+const RING_CAP = 5;
+const MOVE_THRESHOLD = 8;
+const PICKUP_MS = 400;
+const OPEN_MS = 160;
+const CLOSE_MS = 120;
+const LABEL_RADIUS = 132;
 
-/** Where the puck or the open panel rests, as fractions of its travel range inside the terminal. */
-type Dock = { fx: number; fy: number };
-type DragHandlers = ReturnType<typeof PanResponder.create>['panHandlers'];
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
-
-/** The glyph a command key shows for a terminal command; the label stays its accessible name. */
-const STRIP_GLYPH: Partial<Record<PanelGlyphName, React.ComponentProps<typeof Ionicons>['name']>> = { keyboard: 'keypad-outline', reset: 'refresh-outline', close: 'close-outline' };
-const STRIP_WORD: Partial<Record<PanelGlyphName, string>> = { minus: '−', plus: '+' };
-function CommandGlyph({ name, size, color }: { name: PanelGlyphName; size: number; color: string }) {
-    const word = STRIP_WORD[name];
-    if (word !== undefined) return <Text style={{ fontSize: size, lineHeight: size + 4, color }}>{word}</Text>;
-    return <Ionicons name={STRIP_GLYPH[name] ?? 'ellipse-outline'} size={size} color={color} />;
-}
-
-// Every slot in the panel's top row is the same width, so the view controls
-// and Close read as one evenly divided strip. Longhands, not the `flex`
-// shorthand: on web `flex: 0` resolves to a zero basis and collapses the lone
-// Close slot to no width at all.
-const slotStyle = (theme: Theme, pressed: boolean, { disabled = false, grow = true } = {}) => ({
-    flexGrow: grow ? 1 : 0, flexShrink: 0, flexBasis: BUTTON, minWidth: BUTTON,
-    height: BUTTON, borderRadius: SLOT_RADIUS,
-    alignItems: 'center' as const, justifyContent: 'center' as const,
-    backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent',
-    opacity: disabled ? .32 : 1,
-    transform: [{ scale: pressed ? .96 : 1 }],
-});
 
 /**
  * The one way into the terminal's quick actions: a floating command puck over
- * the terminal itself, in the app's own glass language, carrying the
- * sparkles mark that reads as a command palette rather than an overflow menu.
- * Drag it anywhere on the terminal; where it rests is remembered across
- * sessions. Tapping it expands the command panel beside it.
+ * the terminal, in the app's own glass language, carrying the sparkles mark
+ * that reads as a command palette. Tap opens the ring and it stays; press and
+ * slide to a slot and lift fires it in one motion; hold to move the puck,
+ * and where it rests is remembered across sessions. The ring never dismisses
+ * the keyboard, and it is the only quick-actions overlay at a time.
  */
-function CommandPuck({ open, onPress, onResetPosition, dragHandlers, style }: {
-    open: boolean;
-    onPress: () => void;
-    onResetPosition: () => void;
-    dragHandlers: DragHandlers;
-    style: ReturnType<typeof useAnimatedStyle>;
-}) {
-    const { theme } = useUnistyles();
-    return (
-        <Animated.View {...dragHandlers} collapsable={false}
-            onTouchStart={(event) => event.stopPropagation()}
-            onTouchMove={(event) => event.stopPropagation()}
-            onTouchEnd={(event) => event.stopPropagation()}
-            style={[{ position: 'absolute', top: 0, left: 0, width: KEY, height: KEY }, style]}>
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={open ? 'Close terminal quick actions' : 'Terminal quick actions'}
-                accessibilityHint="Quick terminal actions and view controls. Drag to move; tap to open."
-                accessibilityState={{ expanded: open }}
-                accessibilityActions={[{ name: 'reset', label: 'Reset position' }]}
-                onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'reset') onResetPosition(); }}
-                onPress={() => { hapticsLight(); onPress(); }}
-                hitSlop={6}
-                style={({ pressed }) => ({
-                    width: KEY, height: KEY, borderRadius: KEY / 2,
-                    alignItems: 'center', justifyContent: 'center',
-                    opacity: pressed ? 0.78 : 1,
-                    transform: [{ scale: pressed ? 0.94 : 1 }],
-                })}
-            >
-                {Platform.OS === 'web'
-                    ? <View style={{
-                        width: KEY, height: KEY, borderRadius: KEY / 2,
-                        alignItems: 'center', justifyContent: 'center',
-                        backgroundColor: theme.colors.glass.backgroundStrong,
-                        borderWidth: StyleSheet.hairlineWidth,
-                        borderColor: open ? theme.colors.accent : theme.colors.glass.border,
-                        shadowColor: theme.colors.glass.shadow, shadowOffset: { width: 0, height: 8 },
-                        shadowRadius: 18, shadowOpacity: 1,
-                    }}>
-                        <Ionicons name={open ? 'close' : 'sparkles'} size={KEY_ICON} color={theme.colors.text} />
-                    </View>
-                    : <MobileGlassSurface intensity={76} interactive={false} style={{
-                        width: KEY, height: KEY, borderRadius: KEY / 2,
-                        alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                        backgroundColor: open ? theme.colors.glass.backgroundStrong : theme.colors.glass.backgroundSubtle,
-                        borderWidth: StyleSheet.hairlineWidth,
-                        borderColor: open ? theme.colors.accent : theme.colors.glass.border,
-                    }}>
-                        <Ionicons name={open ? 'close' : 'sparkles'} size={KEY_ICON} color={theme.colors.text} />
-                    </MobileGlassSurface>}
-            </Pressable>
-        </Animated.View>
-    );
-}
-
-/**
- * The command palette: a floating card the puck expands into, rendered on
- * the terminal itself. Across its top the strip -- the terminal's own view
- * controls, then close, as 44dp glyph keys; a hairline; then the
- * quick-action rows, measured to content and scrolling only when the
- * terminal is too short to hold them. The card drags by any edge the action
- * list does not claim, and where it is dropped is remembered across
- * sessions. A tap on the terminal (rendered by the caller) and Back close it.
- */
-export function FloatingTerminalControls({ open, onOpenChange, width, height, commands, renderQuickActions, dismissKeyboard }: {
+export function FloatingTerminalControls({ open, onOpenChange, width, height, slots }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    /** Terminal surface width: puck and panel stay inside it. */
+    /** Terminal surface width: the puck stays inside it. */
     width: number;
-    /** Terminal surface height: shrinks under the keyboard, which keeps both above it. */
+    /** Height of the region the puck may rest in: terminal top down to the composer's top. */
     height: number;
-    commands: readonly TerminalCommand[];
-    renderQuickActions?: (close: () => void) => React.ReactNode;
-    /** Close the terminal's own IME when the panel cannot fit otherwise. */
-    dismissKeyboard?: () => void;
+    slots: readonly RingSlot[];
 }) {
     const { theme } = useUnistyles();
     const [keyDock, setKeyDock] = useLocalSettingMutable('terminalCommandKeyDock');
-    const [panelDock, setPanelDock] = useLocalSettingMutable('terminalPanelDock');
-    const close = React.useCallback(() => onOpenChange(false), [onOpenChange]);
+    const reduceMotion = useReducedMotion();
+    const count = Math.min(slots.length, RING_CAP);
 
-    const hasViewRow = commands.length > 0;
-    const hasActions = renderQuickActions !== undefined;
-    const panelWidth = Math.min(PANEL_WIDTH, Math.max(0, width - OPEN_MARGIN * 2));
-    const headerHeight = PANEL_PADDING * 2 + BUTTON + (hasActions ? DIVIDER : 0);
-    const [contentHeight, setContentHeight] = React.useState<number>();
-    const measured = !hasActions || contentHeight !== undefined;
-    const naturalHeight = headerHeight + (contentHeight ?? 0);
-    const available = Math.max(headerHeight, height - OPEN_MARGIN * 2);
-    const fits = measured && naturalHeight <= available;
-    const [revealClamped, setRevealClamped] = React.useState(false);
-    const [panelReady, setPanelReady] = React.useState(false);
-    // Nothing is painted until every row has its full height, so a common
-    // action is never revealed clipped.
-    const painted = (fits || revealClamped) && panelReady;
-    const panelHeight = measured ? Math.min(naturalHeight, available) : headerHeight;
-    const actionsMaxHeight = Math.max(0, available - headerHeight);
+    const anchor = React.useMemo(() => {
+        const rx = Math.max(0, width - KEY - KEY_EDGE * 2);
+        const ry = Math.max(0, height - KEY - KEY_EDGE * 2);
+        const fx = clamp01(keyDock?.fx ?? 1);
+        const fy = clamp01(keyDock?.fy ?? 1);
+        return {
+            x: KEY_EDGE + fx * rx + KEY / 2,
+            y: KEY_EDGE + fy * ry + KEY / 2 - (keyDock === null || keyDock === undefined ? Math.min(KEY_DEFAULT_BOTTOM_PAD, Math.max(0, ry)) : 0),
+        };
+    }, [width, height, keyDock]);
+    const offsets = React.useMemo(() => ringSlotOffsets(anchor, { width, height }, count), [anchor, width, height, count]);
 
-    // Puck position in terminal coordinates, plus its start for the drag.
-    // The fraction form is what survives app restarts and terminal resizes.
-    const keyFrac = React.useRef<Dock>(keyDock ?? { fx: 1, fy: 1 });
-    const keyDefaulted = React.useRef(keyDock === null);
-    const initialKeyRx = Math.max(0, width - KEY - KEY_EDGE * 2);
-    const initialKeyRy = Math.max(0, height - KEY - KEY_EDGE * 2);
-    const initialKeyX = KEY_EDGE + clamp01(keyFrac.current.fx) * initialKeyRx;
-    const initialKeyY = KEY_EDGE + clamp01(keyFrac.current.fy) * initialKeyRy
-        - (keyDefaulted.current ? Math.min(KEY_DEFAULT_BOTTOM_PAD, Math.max(0, initialKeyRy)) : 0);
-    const initialPanelRx = Math.max(0, width - panelWidth - OPEN_MARGIN * 2);
-    const initialPanelRy = Math.max(0, height - panelHeight - OPEN_MARGIN * 2);
-    const initialPanelX = panelDock ? OPEN_MARGIN + clamp01(panelDock.fx) * initialPanelRx : OPEN_MARGIN;
-    const initialPanelY = panelDock ? OPEN_MARGIN + clamp01(panelDock.fy) * initialPanelRy : OPEN_MARGIN;
-    const keyX = useSharedValue(initialKeyX), keyY = useSharedValue(initialKeyY);
-    const keyStartX = useSharedValue(0), keyStartY = useSharedValue(0);
-    const panelX = useSharedValue(initialPanelX), panelY = useSharedValue(initialPanelY);
-    const panelStartX = useSharedValue(0), panelStartY = useSharedValue(0);
-    const panelPlaced = React.useRef(false);
+    // The ring exists while the parent says open (tap mode) or while a sweep
+    // is in flight; one shared progress drives both directions, so closing
+    // collapses the fan back into the puck with no second animation system.
+    const [sweeping, setSweeping] = React.useState(false);
+    const visible = open || sweeping;
+    const [highlight, setHighlight] = React.useState<number | null>(null);
+    const progress = useSharedValue(0);
+    React.useEffect(() => {
+        if (reduceMotion) { progress.value = visible ? 1 : 0; return; }
+        progress.value = withTiming(visible ? 1 : 0, { duration: visible ? OPEN_MS : CLOSE_MS, easing: Easing.bezier(0.23, 1, 0.32, 1) });
+    }, [visible, reduceMotion, progress]);
 
-    const keyRange = React.useCallback(() => ({
-        rx: Math.max(0, width - KEY - KEY_EDGE * 2),
-        ry: Math.max(0, height - KEY - KEY_EDGE * 2),
-    }), [width, height]);
-    const placeKey = React.useCallback(() => {
-        const { rx, ry } = keyRange();
-        keyX.value = KEY_EDGE + clamp01(keyFrac.current.fx) * rx;
-        keyY.value = KEY_EDGE + clamp01(keyFrac.current.fy) * ry
-            - (keyDefaulted.current ? Math.min(KEY_DEFAULT_BOTTOM_PAD, Math.max(0, ry)) : 0);
-    }, [keyRange, keyX, keyY]);
-    const keyToFrac = (): Dock => {
-        const { rx, ry } = keyRange();
-        return { fx: clamp01(rx === 0 ? 1 : (keyX.value - KEY_EDGE) / rx), fy: clamp01(ry === 0 ? 1 : (keyY.value - KEY_EDGE) / ry) };
-    };
+    // Puck position in region coordinates; the fraction form is what survives
+    // app restarts and terminal resizes.
+    const keyX = useSharedValue(anchor.x - KEY / 2);
+    const keyY = useSharedValue(anchor.y - KEY / 2);
+    const [dragging, setDragging] = React.useState(false);
+    React.useEffect(() => {
+        if (!dragging) {
+            keyX.value = anchor.x - KEY / 2;
+            keyY.value = anchor.y - KEY / 2;
+        }
+    }, [anchor, dragging, keyX, keyY]);
     const resetKeyPosition = React.useCallback(() => {
-        keyFrac.current = { fx: 1, fy: 1 };
-        keyDefaulted.current = true;
         setKeyDock(null);
-        placeKey();
-    }, [placeKey, setKeyDock]);
-    const keyRangeRef = React.useRef(keyRange);
-    keyRangeRef.current = keyRange;
-    const keyToFracRef = React.useRef(keyToFrac);
-    keyToFracRef.current = keyToFrac;
-    React.useEffect(() => {
-        keyFrac.current = keyDock ?? { fx: 1, fy: 1 };
-        keyDefaulted.current = keyDock === null;
-        placeKey();
-    }, [keyDock, placeKey]);
+    }, [setKeyDock]);
 
-    // Every terminal resize (rotation, keyboard, split) re-clamps both into
-    // the surface they live on, so neither can strand off-screen or under
-    // the keyboard: the region itself ends above the IME.
     React.useEffect(() => {
-        placeKey();
-        if (open && panelPlaced.current) {
-            if (panelDock) {
-                panelX.value = OPEN_MARGIN + clamp01(panelDock.fx) * Math.max(0, width - panelWidth - OPEN_MARGIN * 2);
-                panelY.value = OPEN_MARGIN + clamp01(panelDock.fy) * Math.max(0, height - panelHeight - OPEN_MARGIN * 2);
-            } else {
-                const rx = Math.max(0, width - panelWidth - OPEN_MARGIN * 2);
-                const ry = Math.max(0, height - panelHeight - OPEN_MARGIN * 2);
-                panelX.value = Math.max(OPEN_MARGIN, Math.min(OPEN_MARGIN + rx, panelX.value));
-                panelY.value = Math.max(OPEN_MARGIN, Math.min(OPEN_MARGIN + ry, panelY.value));
-            }
-        }
-    }, [placeKey, width, height, open, panelX, panelY, panelWidth, panelHeight, panelDock]);
-
-    React.useEffect(() => { if (!open) { panelPlaced.current = false; setPanelReady(false); setContentHeight(undefined); } }, [open]);
-
-    // Open: the panel grows out of the puck -- centred above it, falling
-    // below when there is no headroom -- unless the person put it somewhere
-    // else before; that spot wins. Derived from the puck's fractions, so the
-    // placement never depends on effect ordering against the puck's layout.
-    React.useEffect(() => {
-        if (!open || !measured || panelPlaced.current) return;
-        panelPlaced.current = true;
-        setPanelReady(true);
-        if (panelDock) {
-            panelX.value = OPEN_MARGIN + clamp01(panelDock.fx) * Math.max(0, width - panelWidth - OPEN_MARGIN * 2);
-            panelY.value = OPEN_MARGIN + clamp01(panelDock.fy) * Math.max(0, height - panelHeight - OPEN_MARGIN * 2);
-            return;
-        }
-        const rx = Math.max(0, width - panelWidth - OPEN_MARGIN * 2);
-        const ry = Math.max(0, height - panelHeight - OPEN_MARGIN * 2);
-        const { rx: krx, ry: kry } = keyRange();
-        const keyPx = KEY_EDGE + clamp01(keyFrac.current.fx) * krx;
-        const keyPy = KEY_EDGE + clamp01(keyFrac.current.fy) * kry
-            - (keyDefaulted.current ? Math.min(KEY_DEFAULT_BOTTOM_PAD, Math.max(0, kry)) : 0);
-        let x = keyPx + KEY / 2 - panelWidth / 2;
-        let y = keyPy - panelHeight - 8;
-        if (y < OPEN_MARGIN) y = keyPy + KEY + 8;
-        panelX.value = Math.max(OPEN_MARGIN, Math.min(OPEN_MARGIN + rx, x));
-        panelY.value = Math.max(OPEN_MARGIN, Math.min(OPEN_MARGIN + ry, y));
-    }, [open, measured, panelDock, panelX, panelY, panelWidth, panelHeight, width, height, keyRange]);
-
-    // Both calls are needed, and neither replaces the other: the native one
-    // takes the IME down on the terminal's window whichever view raised it,
-    // while only the React Native module drops the composer's focus, without
-    // which its keyboard comes straight back.
-    const dismiss = React.useCallback(() => {
-        dismissKeyboard?.();
-        Keyboard.dismiss();
-    }, [dismissKeyboard]);
-    // When the terminal still cannot hold the panel, the keyboard's space is
-    // taken back; the panel's own Keyboard button returns it. If that space
-    // never arrives, show the panel scrolled rather than leave a tap that
-    // painted nothing at all.
-    React.useEffect(() => {
-        if (!open || !measured || fits) { setRevealClamped(false); return; }
-        dismiss();
-        const timer = setTimeout(() => setRevealClamped(true), 400);
-        return () => clearTimeout(timer);
-    }, [dismiss, fits, measured, open]);
-    React.useEffect(() => {
-        if (!open || Platform.OS !== 'android') return;
-        const subscription = BackHandler.addEventListener('hardwareBackPress', () => { close(); return true; });
+        if (!open) return;
+        const subscription = BackHandler.addEventListener('hardwareBackPress', () => { onOpenChange(false); return true; });
         return () => subscription.remove();
-    }, [close, open]);
+    }, [onOpenChange, open]);
 
-    // A drag owns the gesture, so releasing it cannot open the palette; the
-    // capture phase keeps the pane's own agent-swipe out of the puck.
-    const keyDrag = React.useRef(PanResponder.create({
-        onMoveShouldSetPanResponderCapture: (_event, gesture) => gesture.numberActiveTouches === 1 && Math.hypot(gesture.dx, gesture.dy) >= 8,
-        onPanResponderGrant: () => { keyStartX.value = keyX.value; keyStartY.value = keyY.value; },
-        onPanResponderMove: (_event, gesture) => {
-            const { rx, ry } = keyRangeRef.current();
-            keyX.value = KEY_EDGE + Math.max(0, Math.min(rx, keyStartX.value - KEY_EDGE + gesture.dx));
-            keyY.value = KEY_EDGE + Math.max(0, Math.min(ry, keyStartY.value - KEY_EDGE + gesture.dy));
+    // Everything the stable responder closures read, one ref behind.
+    const live = React.useRef({ anchor, offsets, width, height, keyX, keyY });
+    live.current = { anchor, offsets, width, height, keyX, keyY };
+    const slotsRef = React.useRef(slots);
+    slotsRef.current = slots;
+    const gesture = React.useRef({
+        phase: 'idle' as 'idle' | 'sweep' | 'drag',
+        grantDx: 0,
+        grantDy: 0,
+        originX: 0,
+        originY: 0,
+        grabX: 0,
+        grabY: 0,
+    });
+    const containerRef = React.useRef<View | null>(null);
+    const containerOrigin = React.useRef({ x: 0, y: 0 });
+    React.useEffect(() => {
+        containerRef.current?.measureInWindow((x, y) => { containerOrigin.current = { x, y }; });
+    }, [height, width]);
+
+    const endSweep = React.useCallback(() => {
+        setSweeping(false);
+        setHighlight(null);
+    }, []);
+    const persistDrag = React.useCallback(() => {
+        const { width: w, height: h, keyX: x, keyY: y } = live.current;
+        const rx = Math.max(0, w - KEY - KEY_EDGE * 2);
+        const ry = Math.max(0, h - KEY - KEY_EDGE * 2);
+        setKeyDock({ fx: clamp01(rx === 0 ? 1 : (x.value - KEY_EDGE) / rx), fy: clamp01(ry === 0 ? 1 : (y.value - KEY_EDGE) / ry) });
+    }, [setKeyDock]);
+    const releaseDrag = React.useCallback(() => {
+        if (gesture.current.phase !== 'drag') return;
+        gesture.current.phase = 'idle';
+        setDragging(false);
+        persistDrag();
+    }, [persistDrag]);
+    const fire = React.useCallback((index: number) => {
+        hapticsSelection();
+        onOpenChange(false);
+        endSweep();
+        slotsRef.current[index]?.run();
+    }, [endSweep, onOpenChange]);
+
+    const puckDrag = React.useRef(PanResponder.create({
+        // ponytail: the ring fans on the first 8dp of travel rather than on
+        // finger-down, which keeps tap discrimination on the platform's own
+        // press path (Pressable) and avoids a second timing heuristic.
+        onMoveShouldSetPanResponderCapture: (_event, pan) => {
+            const g = gesture.current;
+            return Math.hypot(pan.dx, pan.dy) >= MOVE_THRESHOLD || g.phase === 'drag';
         },
-        onPanResponderRelease: () => { keyFrac.current = keyToFracRef.current(); keyDefaulted.current = false; setKeyDock(keyFrac.current); },
-        onPanResponderTerminationRequest: () => false,
-    })).current;
-    // The panel yields its vertical scroll to the action list and takes the
-    // gestures the list declines -- edges, header, and every horizontal pull.
-    const panelRange = React.useCallback(() => ({
-        rx: Math.max(0, width - panelWidth - OPEN_MARGIN * 2),
-        ry: Math.max(0, height - panelHeight - OPEN_MARGIN * 2),
-    }), [width, height, panelWidth, panelHeight]);
-    const panelRangeRef = React.useRef(panelRange);
-    panelRangeRef.current = panelRange;
-    const panelDrag = React.useRef(PanResponder.create({
-        onMoveShouldSetPanResponder: (_event, gesture) => gesture.numberActiveTouches === 1 && (Math.abs(gesture.dx) >= 8 || Math.abs(gesture.dy) >= 8),
-        onPanResponderGrant: () => { panelStartX.value = panelX.value; panelStartY.value = panelY.value; },
-        onPanResponderMove: (_event, gesture) => {
-            const { rx, ry } = panelRangeRef.current();
-            panelX.value = OPEN_MARGIN + Math.max(0, Math.min(rx, panelStartX.value - OPEN_MARGIN + gesture.dx));
-            panelY.value = OPEN_MARGIN + Math.max(0, Math.min(ry, panelStartY.value - OPEN_MARGIN + gesture.dy));
+        onPanResponderGrant: (event, pan) => {
+            const g = gesture.current;
+            g.grantDx = pan.dx;
+            g.grantDy = pan.dy;
+            g.originX = event.nativeEvent.pageX;
+            g.originY = event.nativeEvent.pageY;
+            if (g.phase === 'drag') {
+                g.grabX = live.current.keyX.value;
+                g.grabY = live.current.keyY.value;
+                return;
+            }
+            g.phase = 'sweep';
+            hapticsLight();
+            setSweeping(true);
         },
-        onPanResponderRelease: () => {
-            const { rx, ry } = panelRangeRef.current();
-            setPanelDock({ fx: clamp01(rx === 0 ? 0 : (panelX.value - OPEN_MARGIN) / rx), fy: clamp01(ry === 0 ? 0 : (panelY.value - OPEN_MARGIN) / ry) });
+        onPanResponderMove: (_event, pan) => {
+            const g = gesture.current;
+            if (g.phase === 'drag') {
+                const rx = Math.max(0, live.current.width - KEY - KEY_EDGE * 2);
+                const ry = Math.max(0, live.current.height - KEY - KEY_EDGE * 2);
+                live.current.keyX.value = KEY_EDGE + Math.max(0, Math.min(rx, g.grabX - KEY_EDGE + pan.dx));
+                live.current.keyY.value = KEY_EDGE + Math.max(0, Math.min(ry, g.grabY - KEY_EDGE + pan.dy));
+                return;
+            }
+            const finger = {
+                x: g.originX + (pan.dx - g.grantDx) - containerOrigin.current.x,
+                y: g.originY + (pan.dy - g.grantDy) - containerOrigin.current.y,
+            };
+            const anchorNow = live.current.anchor;
+            const index = slotUnderFinger({ x: finger.x - anchorNow.x, y: finger.y - anchorNow.y }, live.current.offsets);
+            setHighlight((current) => (current === index ? current : index));
+        },
+        onPanResponderRelease: (_event, pan) => {
+            const g = gesture.current;
+            if (g.phase === 'drag') {
+                releaseDrag();
+                return;
+            }
+            g.phase = 'idle';
+            const finger = {
+                x: g.originX + (pan.dx - g.grantDx) - containerOrigin.current.x,
+                y: g.originY + (pan.dy - g.grantDy) - containerOrigin.current.y,
+            };
+            const anchorNow = live.current.anchor;
+            const index = slotUnderFinger({ x: finger.x - anchorNow.x, y: finger.y - anchorNow.y }, live.current.offsets);
+            if (index !== null) {
+                fire(index);
+                return;
+            }
+            endSweep();
+        },
+        onPanResponderTerminate: () => {
+            releaseDrag();
+            endSweep();
         },
         onPanResponderTerminationRequest: () => false,
     })).current;
 
     const keyPosition = useAnimatedStyle(() => ({ transform: [{ translateX: keyX.value }, { translateY: keyY.value }] }));
-    const panelPosition = useAnimatedStyle(() => ({ transform: [{ translateX: panelX.value }, { translateY: panelY.value }] }));
 
-    if (!hasViewRow && !hasActions) return null;
-    const runCommand = (command: TerminalCommand) => () => { if (command.dismiss) close(); command.run(); };
+    if (count === 0) return null;
 
     return (
-        <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-            {open && <Pressable style={StyleSheet.absoluteFill} accessible={false} onPress={close} />}
-            {open && (
-                <Animated.View
-                    {...panelDrag.panHandlers} collapsable={false}
-                    accessibilityRole="menu" accessibilityLabel="Terminal quick actions"
-                    onTouchStart={(event) => event.stopPropagation()}
-                    onTouchMove={(event) => event.stopPropagation()}
-                    onTouchEnd={(event) => event.stopPropagation()}
-                    style={[{ position: 'absolute', top: 0, left: 0, width: panelWidth }, panelPosition]}
+        <View ref={containerRef} pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+            {/* Tap mode only: a lift elsewhere dismisses. A sweep owns its
+                touches, so it never sees this. */}
+            {open && <Pressable style={StyleSheet.absoluteFill} accessible={false} onPress={() => onOpenChange(false)} />}
+            {slots.slice(0, offsets.length).map((slot, index) => (
+                <RingSlotView
+                    key={slot.id}
+                    slot={slot}
+                    index={index}
+                    offset={offsets[index]}
+                    anchor={anchor}
+                    region={{ width, height }}
+                    progress={progress}
+                    reduceMotion={reduceMotion === true}
+                    visible={visible}
+                    highlight={highlight}
+                    onPress={() => { onOpenChange(false); slot.run(); hapticsSelection(); }}
+                />
+            ))}
+            <Animated.View
+                {...puckDrag.panHandlers}
+                collapsable={false}
+                onTouchStart={(event) => event.stopPropagation()}
+                onTouchMove={(event) => event.stopPropagation()}
+                onTouchEnd={(event) => event.stopPropagation()}
+                style={[{ position: 'absolute', top: 0, left: 0, width: KEY, height: KEY }, keyPosition]}
+            >
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={open ? 'Close terminal quick actions' : 'Terminal quick actions'}
+                    accessibilityHint="Quick actions around your thumb. Tap to open, or press and slide to one. Hold to move."
+                    accessibilityState={{ expanded: open }}
+                    accessibilityActions={[{ name: 'reset', label: 'Reset position' }]}
+                    onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'reset') resetKeyPosition(); }}
+                    // A still short touch is tap mode; the sweep never reaches
+                    // here because the responder has claimed it, and a hold
+                    // became a drag below.
+                    onPress={() => { hapticsLight(); onOpenChange(!open); }}
+                    onLongPress={() => {
+                        gesture.current.phase = 'drag';
+                        setDragging(true);
+                        endSweep();
+                        hapticsLight();
+                    }}
+                    onPressOut={releaseDrag}
+                    delayLongPress={PICKUP_MS}
+                    pressRetentionOffset={{ top: 40, bottom: 40, left: 40, right: 40 }}
+                    hitSlop={6}
+                    style={({ pressed }) => ({
+                        width: KEY, height: KEY, borderRadius: KEY / 2,
+                        alignItems: 'center', justifyContent: 'center',
+                        opacity: pressed ? 0.78 : 1,
+                        transform: [{ scale: dragging ? 1.08 : 1 }],
+                    })}
                 >
-                    <AnimatedPopup style={{
-                        height: panelHeight, borderRadius: 14, overflow: 'hidden',
-                        backgroundColor: theme.colors.surface,
-                        borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider,
-                        elevation: 12,
-                    }}>
-                        <View style={{ flex: 1, opacity: painted ? 1 : 0 }}>
-                        <View style={{ height: BUTTON, flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: PANEL_PADDING, paddingTop: PANEL_PADDING }}>
-                            {commands.map((command) => <Pressable key={command.label} accessibilityRole="button" accessibilityLabel={command.label}
-                                accessibilityState={{ disabled: !!command.disabled }} disabled={command.disabled} onPress={runCommand(command)}
-                                style={({ pressed }) => slotStyle(theme, pressed, { disabled: command.disabled === true })}>
-                                <CommandGlyph name={command.icon} size={ICON} color={theme.colors.text} />
-                            </Pressable>)}
-                            {/* Close is the row's last slot. With no view commands to
-                                divide the row it keeps one slot's width instead of
-                                stretching across the panel. */}
-                            <Pressable accessibilityRole="button" accessibilityLabel="Close terminal quick actions"
-                                style={({ pressed }) => ({ ...slotStyle(theme, pressed, { grow: hasViewRow }), ...(hasViewRow ? {} : { marginLeft: 'auto' as const }), backgroundColor: theme.colors.text })}
-                                onPress={close}>
-                                <CommandGlyph name="close" size={ICON} color={theme.colors.surface} />
-                            </Pressable>
+                    {Platform.OS === 'web'
+                        ? <View style={{
+                            width: KEY, height: KEY, borderRadius: KEY / 2,
+                            alignItems: 'center', justifyContent: 'center',
+                            backgroundColor: theme.colors.glass.backgroundStrong,
+                            borderWidth: StyleSheet.hairlineWidth,
+                            borderColor: visible ? theme.colors.accent : theme.colors.glass.border,
+                            shadowColor: theme.colors.glass.shadow, shadowOffset: { width: 0, height: 8 },
+                            shadowRadius: 18, shadowOpacity: 1,
+                        }}>
+                            <Ionicons name={open ? 'close' : 'sparkles'} size={KEY_ICON} color={theme.colors.text} />
                         </View>
-                        {hasActions && <View style={{ height: 1, marginVertical: 2, marginHorizontal: 6, backgroundColor: theme.colors.divider }} />}
-                        {hasActions && <ScrollView style={measured ? { maxHeight: actionsMaxHeight } : undefined}
-                            onContentSizeChange={(_width, measuredHeight) => setContentHeight(Math.ceil(measuredHeight))}
-                            scrollEnabled={!fits} nestedScrollEnabled keyboardShouldPersistTaps="always">
-                            {renderQuickActions(close)}
-                        </ScrollView>}
-                        <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider }]} />
-                        </View>
-                    </AnimatedPopup>
-                </Animated.View>
-            )}
-            <CommandPuck open={open} onPress={() => onOpenChange(!open)} onResetPosition={resetKeyPosition} dragHandlers={keyDrag.panHandlers} style={keyPosition} />
+                        : <MobileGlassSurface intensity={76} interactive={false} style={{
+                            width: KEY, height: KEY, borderRadius: KEY / 2,
+                            alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                            backgroundColor: visible ? theme.colors.glass.backgroundStrong : theme.colors.glass.backgroundSubtle,
+                            borderWidth: StyleSheet.hairlineWidth,
+                            borderColor: visible ? theme.colors.accent : theme.colors.glass.border,
+                        }}>
+                            <Ionicons name={open ? 'close' : 'sparkles'} size={KEY_ICON} color={theme.colors.text} />
+                        </MobileGlassSurface>}
+                </Pressable>
+            </Animated.View>
         </View>
     );
+}
+
+/**
+ * One slot disc plus its on-highlight label chip. The disc travels from the
+ * anchor to its arc position on open (staggered in arc order) and collapses
+ * back together on close; reduced motion fades it in place instead.
+ */
+function RingSlotView({ slot, index, offset, anchor, region, progress, reduceMotion, visible, highlight, onPress }: {
+    slot: RingSlot;
+    index: number;
+    /** Slot centre as an offset from the anchor's centre. */
+    offset: { x: number; y: number };
+    anchor: { x: number; y: number };
+    region: { width: number; height: number };
+    progress: SharedValue<number>;
+    reduceMotion: boolean;
+    visible: boolean;
+    highlight: number | null;
+    onPress: () => void;
+}) {
+    const { theme } = useUnistyles();
+    // The stagger lives inside the interpolation: each slot's own progress is
+    // the shared one shifted by its arc-order delay, so opening fans out and
+    // closing still collapses together (the shift applies on the way in only).
+    const stagger = 0.11;
+    const travel = useAnimatedStyle(() => {
+        const local = Math.max(0, Math.min(1, (progress.value - index * stagger) / (1 - index * stagger)));
+        return {
+            transform: [
+                { translateX: offset.x * local },
+                { translateY: offset.y * local },
+                { scale: highlight === index ? 1.12 : 1 },
+            ],
+            opacity: reduceMotion ? progress.value : local * (highlight !== null && highlight !== index ? 0.45 : 1),
+        };
+    });
+    const chipAngle = Math.atan2(offset.y, offset.x);
+    const chipX = anchor.x + LABEL_RADIUS * Math.cos(chipAngle);
+    const chipY = anchor.y + LABEL_RADIUS * Math.sin(chipAngle);
+    const chipRight = chipX > region.width / 2;
+    const badge = slot.badge !== undefined && slot.badge > 0 ? (slot.badge > 99 ? '99+' : String(slot.badge)) : null;
+    const glass = (accent: boolean): StyleProp<ViewStyle> => ({
+        width: SLOT, height: SLOT, borderRadius: SLOT / 2, alignItems: 'center', justifyContent: 'center',
+        backgroundColor: accent ? theme.colors.glass.backgroundStrong : theme.colors.glass.backgroundSubtle,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: accent ? theme.colors.accent : theme.colors.glass.border,
+    });
+    return <>
+        <Animated.View
+            pointerEvents={visible ? 'auto' : 'none'}
+            accessibilityElementsHidden={!visible}
+            importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
+            style={[{ position: 'absolute', left: anchor.x - SLOT / 2, top: anchor.y - SLOT / 2, width: SLOT, height: SLOT }, travel]}
+        >
+            <Pressable
+                accessibilityRole="menuitem"
+                accessibilityLabel={badge !== null ? `${slot.label}, ${slot.badge}` : slot.label}
+                disabled={!visible}
+                onPress={onPress}
+                style={({ pressed }) => ({
+                    width: SLOT, height: SLOT, borderRadius: SLOT / 2,
+                    alignItems: 'center', justifyContent: 'center',
+                    opacity: pressed ? 0.78 : 1,
+                })}
+            >
+                {Platform.OS === 'web'
+                    ? <View style={{
+                        ...glass(highlight === index),
+                        shadowColor: theme.colors.glass.shadow, shadowOffset: { width: 0, height: 8 }, shadowRadius: 18, shadowOpacity: 1,
+                    }}>
+                        <Ionicons name={slot.icon} size={SLOT_ICON} color={theme.colors.text} />
+                    </View>
+                    : <MobileGlassSurface intensity={76} interactive={false} style={glass(highlight === index)}>
+                        <Ionicons name={slot.icon} size={SLOT_ICON} color={theme.colors.text} />
+                    </MobileGlassSurface>}
+                {badge !== null && <View style={{
+                    position: 'absolute', top: -3, right: -3, minWidth: 16, height: 16, borderRadius: 8,
+                    paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: theme.colors.accent,
+                }}>
+                    <Text style={{ color: theme.colors.surface, fontSize: 10, lineHeight: 12, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{badge}</Text>
+                </View>}
+            </Pressable>
+        </Animated.View>
+        {/* The label names the highlighted slot, one at a time, on its outward
+            ray — slid horizontally so it never leaves the region, never
+            rotated. */}
+        {highlight === index && visible && <View
+            pointerEvents="none"
+            style={{
+                position: 'absolute',
+                top: Math.max(8, Math.min(region.height - 34, chipY - 12)),
+                left: chipRight ? undefined : Math.min(Math.max(8, chipX), Math.max(8, region.width - 100)),
+                right: chipRight ? Math.min(Math.max(8, region.width - chipX), Math.max(8, region.width - 100)) : undefined,
+                borderRadius: 6,
+                paddingHorizontal: 6, paddingVertical: 3,
+                backgroundColor: theme.colors.glass.backgroundStrong,
+                borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.glass.border,
+            }}
+        >
+            <Text style={{ color: theme.colors.text, fontSize: 11, lineHeight: 15, fontWeight: '600' }}>{slot.label}</Text>
+        </View>}
+    </>;
 }

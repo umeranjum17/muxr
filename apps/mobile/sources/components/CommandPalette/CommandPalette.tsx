@@ -20,8 +20,8 @@ interface CommandPaletteProps {
 
 export function CommandPalette({ commands, onClose, title, appearance, quietLine }: CommandPaletteProps) {
     const { width, height } = useWindowDimensions();
-    // The catalogue sheet grows only while the search field holds focus.
-    const [searchFocused, setSearchFocused] = React.useState(false);
+    // One stable height: the sheet used to grow when the search field took
+    // focus, and that re-layout under the opening keyboard read as a shake.
     const { theme: appTheme } = useUnistyles();
     // A terminal pane stays dark in either app theme, so its command surface
     // uses the same dark chrome. The global navigation palette follows the app.
@@ -42,7 +42,7 @@ export function CommandPalette({ commands, onClose, title, appearance, quietLine
 
     return (
         <View accessibilityViewIsModal={sheet} style={[styles.container, sheet && styles.sheet, {
-            maxHeight: Math.min(500, height * (searchFocused ? 0.82 : 0.65)),
+            maxHeight: Math.min(500, height * 0.65),
             backgroundColor: theme.colors.surface,
             borderColor: theme.colors.modal.border,
             borderTopColor: theme.colors.divider,
@@ -61,7 +61,6 @@ export function CommandPalette({ commands, onClose, title, appearance, quietLine
                 onKeyPress={handleKeyPress}
                 inputRef={inputRef}
                 appearance={appearance}
-                onFocusChange={setSearchFocused}
             />
             <CommandPaletteResults
                 categories={categories}
