@@ -807,11 +807,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 15, fontWeight: '600' }}>{contextTitle}</Text>
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
                                 reads differently whether the agent works, needs you, or
-                                is gone; the dot carries the same colour (scout §4.1). */}
-                            <View accessible={false} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                is gone; the dot carries the same colour (scout §4.1).
+                                Shell panes and unknown lifecycles stay quiet — a live
+                                shell is not "Offline". */}
+                            {(headerLifecycle === 'working' || headerLifecycle === 'starting' || headerLifecycle === 'blocked' || headerLifecycle === 'failed' || headerLifecycle === 'done') && <View accessible={false} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                                 <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: headerStatus.color }} />
-                                {headerLifecycle !== 'idle' && <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '600' }}>{HERD_STATUS_LABELS[headerLifecycle]}</Text>}
-                            </View>
+                                <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '600' }}>{HERD_STATUS_LABELS[headerLifecycle]}</Text>
+                            </View>}
                             {/* No trailing chevron here: the 1/1 pager to the right is the
                                 single pane control — a second chevron read as a duplicate. */}
                         </Pressable>
