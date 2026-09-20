@@ -700,6 +700,9 @@ try {
         const resolveScript = `const {createRequire}=require('node:module');process.stdout.write(createRequire(${JSON.stringify(hostBundle)}).resolve('@ccusage/ccusage-${process.platform}-${process.arch}/bin/ccusage'))`;
         const resolvedCcusage = run(process.execPath, ['-e', resolveScript], { cwd: installDir }).stdout;
         assert.equal(resolvedCcusage, ccusageTarget, 'packaged host bundle did not resolve its installed native ccusage package');
+        // npm does not preserve the exec bit; the host collector chmods on first
+        // use, so the package smoke only proves the binary then runs directly.
+        chmodSync(resolvedCcusage, 0o755);
         const probeHome = join(scratch, 'ccusage-probe-home');
         const claudeLogs = join(probeHome, '.claude', 'projects', 'smoke', 'session');
         mkdirSync(claudeLogs, { recursive: true });
