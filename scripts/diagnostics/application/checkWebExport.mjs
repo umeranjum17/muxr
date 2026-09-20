@@ -120,16 +120,17 @@ if (!existsSync(distIndex)) {
         }
         initialGzip += gzipSync(readFileSync(file)).length;
     }
-    // Ratchet, not target: CI measured 3,193,630 B on the editable key-row
-    // export (the key catalog + row editor added ~5.8 KiB over the 3,187,812 B
-    // 2026-09-18 suite run beside it, past the old 3,190,000 B ceiling), so
-    // the ceiling carries ~0.5% headroom for cross-environment variance (the
-    // same export measures 3,184,436 B on a dev machine; exact-byte pins fail
-    // on noise: the __common chunk once missed by 13 bytes, and this ratchet
-    // once tripped by 178 bytes). The real 2.0 MiB usable-screen target is not
-    // reachable until the markdown lazy-split (mermaidBundle) lands and the
-    // eager __common chunk stops carrying the diff/mermaid subtrees.
-    const USABLE_GZIP_CEILING = 3210000;
+    // Ratchet, not target: CI measured 3,213,904 B on the shared-artifacts
+    // export (the Shared Artifacts timeline route, pane-actions badge, and
+    // download flow added ~4 KiB over the composer-deck suite run beside it,
+    // past the old 3,210,000 B ceiling), so the ceiling carries ~0.5% headroom
+    // for cross-environment variance (the same export measures ~3.20 MB on a
+    // dev machine; exact-byte pins fail on noise: the __common chunk once
+    // missed by 13 bytes, and this ratchet once tripped by 178 bytes). The
+    // real 2.0 MiB usable-screen target is not reachable until the markdown
+    // lazy-split (mermaidBundle) lands and the eager __common chunk stops
+    // carrying the diff/mermaid subtrees.
+    const USABLE_GZIP_CEILING = 3230000;
     check(`dist usable gzip ratchet (target 2.0 MiB once lazy-split lands)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk must stay a stub: anything shared between two
     // lazy chunks lands here and loads before the first paint.
