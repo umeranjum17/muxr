@@ -156,7 +156,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 }
                 const markers: IMarker[] = [];
                 for (const range of plainUrlCellRanges(buffer, term.cols, row)) {
-                    const marker = term.registerMarker(viewportRow - buffer.cursorY);
+                    const marker = term.registerMarker(row - (buffer.baseY + buffer.cursorY));
                     // A marker clamped off its row would re-register every
                     // render; drop it instead of leaking decorations.
                     if (marker.line !== row) {
