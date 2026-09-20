@@ -1,8 +1,6 @@
 import { type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace } from '@muxr/contract';
 import { compactAge } from '../../utils/compactAge';
 
-export { compactAge };
-
 export interface AgentLabels {
     taskTitle: string;
     agentName: string;
