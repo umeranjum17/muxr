@@ -21,7 +21,8 @@ export const TERMINAL_QUICK_REPLIES: readonly { label: string; text: string }[] 
 // Sticky modifiers: tap = applies to the next key, tap again =
 // locked until tapped once more. A touchscreen makes hold-and-reach a
 // two-thumb dance; the lock covers a run of chords without re-arming between
-// them. Keys the armed modifier cannot encode go dim rather than send bare.
+// them. Byte keys the armed modifier cannot encode go dim rather than send
+// bare; action keys (paste, hide kb) never arm or dim at all.
 type Modifier = 'off' | 'once' | 'lock';
 
 const cycle = (state: Modifier): Modifier => (state === 'off' ? 'once' : state === 'once' ? 'lock' : 'off');
