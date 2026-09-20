@@ -3,7 +3,7 @@ title: Plugins on primitives
 slug: plugin-primitives
 status: tested
 created: 2026-08-15
-updated: 2026-09-19
+updated: 2026-09-20
 owner: umer
 links:
   - ../decisions/0005-pi-like-extension-runtime.md
@@ -48,7 +48,7 @@ RPC contributions may explicitly request `sessions` and/or `workspace-tree`. Imm
 
 Usage and machine health are product surfaces served by the host's typed `usage.report` / `usage.now` methods (`apps/host/src/usage/`); they are not plugin surfaces, and no manifest can claim them.
 
-UI version 13 makes dynamic plugin data genuinely visual without creating a plugin layout engine: progress may bind one bounded numeric data path; sections may arrange safe summary nodes in two or three responsive columns; and one bounded `chart` node renders app-owned bar or ring presentation with a visible text legend and full accessibility summary. Series are capped, plugins cannot supply colors, markup, axes, animation, or interaction, and malformed runtime values degrade to an empty state. Usage is the load-bearing proof: today’s measured agent activity and Codex limits use the same public nodes available to every third-party plugin.
+UI version 13 makes dynamic plugin data genuinely visual without creating a plugin layout engine: progress may bind one bounded numeric data path; sections may arrange safe summary nodes in two or three responsive columns; and one bounded `chart` node renders app-owned bar or ring presentation with a visible text legend and full accessibility summary. Series are capped, plugins cannot supply colors, markup, axes, animation, or interaction, and malformed runtime values degrade to an empty state. Usage was that version's load-bearing proof; measured agent activity and plan limits have since moved to host product code (`usage.report`/`usage.now`), so they no longer exercise these nodes.
 
 UI version 14 is covered in `../PLUGINS.md`: rows gain `icon`/`meta` identity, `text`/`badge`/`progress`/`row` gain runtime-bound tones, switch/select fields gain bound saved-state values, `limits` gains an `emptyText` fallback, and the renderer decides notices, notes, row grouping, blank-hides, title dedupe and data-shaped skeletons on the author's behalf.
 
