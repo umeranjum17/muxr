@@ -231,8 +231,8 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
     );
 }
 
-/** Hold the handle to lift the row, then drag; the list swaps underneath. */
-function Handle({ index, label, onDrag, onMove, tint }: {
+/** Hold the handle to lift the row, then drag; the list swaps underneath. Shared by the key-row and quick-reply editors. */
+export function Handle({ index, label, onDrag, onMove, tint }: {
     index: number;
     label: string;
     onDrag: (phase: 'start' | 'update' | 'end', index: number, translationY: number, owner: object) => void;
@@ -283,10 +283,15 @@ function KeyForm({ entry, onSave, onCancel }: {
     const [sendText, setSendText] = React.useState(custom ? bytesToEscape(custom.send) : '');
     const [repeat, setRepeat] = React.useState(custom?.repeat === true || BUILTIN_KEY_CATALOG[keyId]?.repeat === true);
     const selected = letter !== '' ? { label: letter, accessibilityLabel: letter, send: letter } : BUILTIN_KEY_CATALOG[keyId];
+    const actionNote = selected.action === 'paste'
+        ? 'Inserts the clipboard into the prompt. It never sends by itself.'
+        : selected.action === 'hide-keyboard'
+            ? 'Dismisses the keyboard when it is up. Nothing else changes.'
+            : null;
     const bytes = mode === 'text' ? escapeToBytes(sendText) : modifiedSend(selected, ctrl, shift);
     const suggestedLabel = [ctrl ? 'Ctrl' : '', shift ? 'Shift' : '', selected.label].filter(Boolean).join(' ');
     const savedLabel = label.trim() || (mode === 'key' ? suggestedLabel : '');
-    const valid = bytes !== null && bytes.length <= 512 && savedLabel.length > 0 && savedLabel.length <= 12;
+    const valid = (actionNote !== null || (bytes !== null && bytes.length <= 512)) && savedLabel.length > 0 && savedLabel.length <= 12;
     const chip = (active: boolean) => [styles.gridChip, { backgroundColor: active ? theme.colors.accent : theme.colors.surfaceHigh }];
     const ink = (active: boolean) => ({ color: active ? theme.colors.button.primary.tint : theme.colors.text, fontSize: 13, ...Typography.mono() });
     return <View>
@@ -298,6 +303,7 @@ function KeyForm({ entry, onSave, onCancel }: {
         <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Name on the key</Text>
         <TextInput value={label} onChangeText={setLabel} maxLength={12} accessibilityLabel="Key name" placeholder={mode === 'key' ? suggestedLabel : 'e.g. status'} placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider }]} />
         {mode === 'key' ? <>
+            {actionNote !== null ? <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>{actionNote}</Text> : <>
             <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Modifiers</Text>
             <View style={styles.grid}>
                 <Pressable onPress={() => setCtrl(!ctrl)} accessibilityRole="button" accessibilityLabel="Control modifier" accessibilityState={{ selected: ctrl }} style={chip(ctrl)}><Text style={ink(ctrl)}>Ctrl</Text></Pressable>
@@ -313,6 +319,7 @@ function KeyForm({ entry, onSave, onCancel }: {
                     </Pressable>;
                 })}</View>
             </View>)}
+            </>}
         </> : <>
             <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Text or terminal escapes</Text>
             <TextInput value={sendText} onChangeText={setSendText} multiline autoCapitalize="none" autoCorrect={false} accessibilityLabel="Keys or text to send" placeholder={'e.g. git status\\r'} placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider, ...Typography.mono() }]} />
@@ -320,7 +327,7 @@ function KeyForm({ entry, onSave, onCancel }: {
         </>}
         <View style={[styles.sequence, { backgroundColor: theme.colors.surfaceHigh }]}>
             <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Sends</Text>
-            <Text selectable style={[styles.rowLabel, { color: theme.colors.text }]}>{bytes === null ? 'Choose a valid key combination or escape sequence.' : bytesToEscape(bytes)}</Text>
+            <Text selectable style={[styles.rowLabel, { color: theme.colors.text }]}>{actionNote !== null ? actionNote : bytes === null ? 'Choose a valid key combination or escape sequence.' : bytesToEscape(bytes)}</Text>
         </View>
         {savedLabel.length > 12 && <Text style={{ color: theme.colors.warningCritical }}>Keep the name to 12 characters.</Text>}
         {bytes !== null && bytes.length > 512 && <Text style={{ color: theme.colors.warningCritical }}>Keep the sequence to 512 characters.</Text>}

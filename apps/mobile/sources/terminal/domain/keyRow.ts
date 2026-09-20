@@ -8,6 +8,8 @@
 /** The stored row's entry cap; the key-row editor enforces it where keys are added. */
 export const TERMINAL_KEY_ROW_LIMIT = 32;
 
+export type TerminalKeyAction = 'paste' | 'hide-keyboard';
+
 export interface TerminalKey {
     label: string;
     accessibilityLabel: string;
@@ -15,6 +17,12 @@ export interface TerminalKey {
     /** Only for keys whose shifted form is not derivable, like tab's backtab. */
     shift?: string;
     repeat?: boolean;
+    /**
+     * Rail actions are not byte keys: paste and hide-keyboard do a thing to
+     * the composer or the keyboard and must never be encoded through
+     * modifiedSend, which exists to send exact terminal bytes.
+     */
+    action?: TerminalKeyAction;
 }
 
 /** A custom key as the editor stores it on this device. */
@@ -59,10 +67,12 @@ export const BUILTIN_KEY_CATALOG: Record<string, TerminalKey> = {
     tilde: { label: '~', accessibilityLabel: 'Tilde', send: '~' },
     caret: { label: '^', accessibilityLabel: 'Caret', send: '^' },
     backtick: { label: '`', accessibilityLabel: 'Backtick', send: '`' },
+    paste: { label: 'paste', accessibilityLabel: 'Paste into prompt', send: '', action: 'paste' },
+    'hide-keyboard': { label: 'hide kb', accessibilityLabel: 'Hide keyboard', send: '', action: 'hide-keyboard' },
     ...fKeys,
 };
 
-export const DEFAULT_ROW_IDS: readonly string[] = ['esc', 'tab', 'ctrl-c', 'ctrl-d', 'enter', 'left', 'up', 'down', 'right'];
+export const DEFAULT_ROW_IDS: readonly string[] = ['esc', 'tab', 'ctrl-c', 'ctrl-d', 'enter', 'left', 'up', 'down', 'right', 'paste', 'hide-keyboard'];
 
 /** Groups for the add-key grid, in the order a person scans them. */
 export const CATALOG_GROUPS: readonly { title: string; ids: readonly string[] }[] = [
@@ -70,6 +80,7 @@ export const CATALOG_GROUPS: readonly { title: string; ids: readonly string[] }[
     { title: 'Navigation', ids: ['left', 'up', 'down', 'right', 'home', 'end', 'pgup', 'pgdn'] },
     { title: 'Shell', ids: ['backslash', 'pipe', 'tilde', 'caret', 'backtick'] },
     { title: 'Function keys', ids: Object.keys(fKeys) },
+    { title: 'Actions', ids: ['paste', 'hide-keyboard'] },
 ];
 
 /**

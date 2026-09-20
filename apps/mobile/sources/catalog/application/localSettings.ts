@@ -2,6 +2,7 @@ import { LIFECYCLE_NOTIFICATION_LEVELS } from '@muxr/contract';
 import * as z from 'zod';
 import { DEFAULT_FONT_INDEX, FONT_STEPS } from '../../terminal/domain/fontSteps';
 import { TERMINAL_KEY_ROW_LIMIT } from '../../terminal/domain/keyRow';
+import { QUICK_REPLY_LABEL_LIMIT, QUICK_REPLY_LIMIT, QUICK_REPLY_TEXT_LIMIT } from '../../terminal/domain/quickReplies';
 
 //
 // Schema
@@ -29,6 +30,13 @@ export const LocalSettingsSchema = z.object({
         send: z.string().min(1).max(512),
         repeat: z.boolean().optional(),
     })])).max(TERMINAL_KEY_ROW_LIMIT).nullable().catch(null).describe('Customised terminal key row (null follows the built-in row)'),
+    // Personal quick replies: this device's own insert-only prompts. An empty
+    // list is the default; older settings without the field stay valid.
+    terminalQuickReplies: z.array(z.object({
+        id: z.string().min(1),
+        label: z.string().min(1).max(QUICK_REPLY_LABEL_LIMIT),
+        text: z.string().min(1).max(QUICK_REPLY_TEXT_LIMIT),
+    })).max(QUICK_REPLY_LIMIT).default([]).describe('Personal insert-only quick replies (this device only)'),
     // The terminal command puck rests where the person drags it, as fractions
     // of its travel range from the terminal's top edge to the composer's top.
     terminalCommandKeyDock: z.object({ fx: z.number(), fy: z.number() }).nullable().describe('Where the floating terminal command puck rests, as fractions of the terminal surface'),
@@ -72,6 +80,7 @@ export const localSettingsDefaults: LocalSettings = {
     lastTerminal: null,
     terminalFontIndex: DEFAULT_FONT_INDEX,
     terminalKeyRow: null,
+    terminalQuickReplies: [],
     terminalCommandKeyDock: null,
     vadStandbyEnabled: false,
     dictationLanguage: null,

@@ -5,6 +5,7 @@ import { useFocusEffect, useLocalSearchParams, router } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
 import { sync } from '@/catalog/sync';
 import { useHerdrTree, useSession, useSessionsLoaded, useSocketStatus } from '@/catalog/store';
+import { requestDraftInsertion } from '@/terminal/application/draftInsertion';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { Typography } from '@/constants/Typography';
 import { agentLabels, agentNameLine, herdrPaneForSession, isShellLabels } from '@/herd';
@@ -137,6 +138,17 @@ export default React.memo(() => {
         setSelectedMatch((value) => (value + direction + matches.length) % matches.length);
     };
 
+    // History is pane output, not verified shell history: the row action asks
+    // the terminal's draft owner to insert this line on the way back. The pick
+    // waits in a one-shot handoff keyed by the pane it was read from, so a
+    // stale or gone target drops it instead of landing somewhere else. It
+    // never runs anything; explicit Send is the only PTY boundary.
+    const insertLine = (line: string) => {
+        if (sessionId === undefined || paneId === undefined) return;
+        requestDraftInsertion({ sessionId, paneId, text: line });
+        router.back();
+    };
+
     return (
         <View style={{ flex: 1, backgroundColor: theme.colors.terminal.background }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surface }}>
@@ -198,6 +210,8 @@ export default React.memo(() => {
                     <Text style={{ color: theme.colors.textSecondary, fontSize: 13, textAlign: 'center', lineHeight: 19 }}>The host has not reported any pane scrollback.</Text>
                 </View>
             ) : (
+                <>
+                <Text style={{ paddingHorizontal: 12, paddingTop: 8, color: theme.colors.textSecondary, fontSize: 11 }}>Tap the plus on a line to insert it into the prompt. It is never run by itself.</Text>
                 <FlatList
                     ref={listRef}
                     data={lines}
@@ -208,12 +222,27 @@ export default React.memo(() => {
                     onScrollToIndexFailed={(info) => listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true })}
                     renderItem={({ item, index }) => {
                         const active = index === currentLine;
-                        return <Text selectable style={{ color: active ? theme.colors.text : theme.colors.textSecondary, backgroundColor: active ? theme.colors.surfaceSelected : 'transparent', paddingHorizontal: 7, paddingVertical: 3, fontSize: 12, lineHeight: 19, ...Typography.mono() }}>
-                            <Text style={{ color: theme.colors.textSecondary }}>{`${String(index + 1).padStart(4, ' ')} `}</Text>
-                            {lineParts(item, query).map((part, partIndex) => <Text key={`${index}:${partIndex}`} style={part.match ? { color: theme.colors.text, backgroundColor: theme.colors.accent + '55' } : undefined}>{part.text}</Text>)}
-                        </Text>;
+                        return <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44 }}>
+                            <Text selectable style={{ flex: 1, color: active ? theme.colors.text : theme.colors.textSecondary, backgroundColor: active ? theme.colors.surfaceSelected : 'transparent', paddingHorizontal: 7, paddingVertical: 10, fontSize: 12, lineHeight: 19, ...Typography.mono() }}>
+                                <Text style={{ color: theme.colors.textSecondary }}>{`${String(index + 1).padStart(4, ' ')} `}</Text>
+                                {lineParts(item, query).map((part, partIndex) => <Text key={`${index}:${partIndex}`} style={part.match ? { color: theme.colors.text, backgroundColor: theme.colors.accent + '55' } : undefined}>{part.text}</Text>)}
+                            </Text>
+                            <Pressable
+                                onPress={() => insertLine(item)}
+                                disabled={item.trim() === ''}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Insert line ${index + 1} into prompt`}
+                                accessibilityHint="Inserts this line into the prompt draft without sending it"
+                                accessibilityState={{ disabled: item.trim() === '' }}
+                                hitSlop={6}
+                                style={({ pressed }) => ({ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', opacity: item.trim() === '' ? 0.25 : pressed ? 0.6 : 1 })}
+                            >
+                                <Ionicons name="add-circle-outline" size={22} color={theme.colors.textSecondary} />
+                            </Pressable>
+                        </View>;
                     }}
                 />
+                </>
             )}
 
             {truncated && loadedIdentity === identity && lines.length > 0 && <Text style={{ paddingHorizontal: 16, paddingBottom: 8, color: theme.colors.textSecondary, fontSize: 11 }}>Showing the most recent available scrollback.</Text>}

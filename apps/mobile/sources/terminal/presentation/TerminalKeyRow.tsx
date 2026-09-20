@@ -6,7 +6,7 @@ import { Typography } from '@/constants/Typography';
 import { hapticsSelection } from '@/components/haptics';
 import { ui } from '@/components/ui';
 import { useLocalSetting } from '@/catalog/store';
-import { modifiedSend, resolveKeyRow, type TerminalKey } from '../domain/keyRow';
+import { modifiedSend, resolveKeyRow, type TerminalKey, type TerminalKeyAction } from '../domain/keyRow';
 
 const ARROWS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
     '\u001b[D': 'arrow-back', '\u001b[A': 'arrow-up', '\u001b[B': 'arrow-down', '\u001b[C': 'arrow-forward',
@@ -26,7 +26,7 @@ type Modifier = 'off' | 'once' | 'lock';
 
 const cycle = (state: Modifier): Modifier => (state === 'off' ? 'once' : state === 'once' ? 'lock' : 'off');
 
-export function TerminalKeyRow({ channel, children, onEdit }: { channel?: { sendText: (text: string) => void }; children?: React.ReactNode; onEdit: () => void }) {
+export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channel?: { sendText: (text: string) => void }; children?: React.ReactNode; onEdit: () => void; onAction?: (action: TerminalKeyAction) => void }) {
     const { theme } = useUnistyles();
     const rowEntries = useLocalSetting('terminalKeyRow');
     const [ctrl, setCtrl] = React.useState<Modifier>('off');
@@ -65,6 +65,11 @@ export function TerminalKeyRow({ channel, children, onEdit }: { channel?: { send
     });
     const labelStyle = (tint: string) => ({ color: tint, fontSize: 13, ...Typography.mono() });
     const fire = (key: TerminalKey) => {
+        if (key.action !== undefined) {
+            hapticsSelection();
+            onAction?.(key.action);
+            return;
+        }
         const bytes = modifiedSend(key, ctrlRef.current !== 'off', shiftRef.current !== 'off');
         if (bytes === null) return;
         send(bytes);
