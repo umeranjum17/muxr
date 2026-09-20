@@ -47,6 +47,7 @@ export const es: TranslationStructure = {
         dictate: 'Dictar',
         stopDictation: 'Detener dictado',
         stopDictationHint: 'Detiene la grabación y empieza a transcribir',
+        transcribingDictation: 'Transcribiendo el dictado',
         unavailableSuffix: 'no disponible',
         showingStale: 'mostrando datos anteriores',
         settingsTitle: 'Plugins',

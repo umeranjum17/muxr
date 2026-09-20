@@ -47,6 +47,7 @@ export const ca: TranslationStructure = {
         dictate: 'Dicta',
         stopDictation: 'Atura la dicció',
         stopDictationHint: 'Atura l\'enregistrament i comença a transcriure',
+        transcribingDictation: 'Transcrivint la dicció',
         unavailableSuffix: 'no disponible',
         showingStale: 'mostrant dades anteriors',
         settingsTitle: 'Connectors',

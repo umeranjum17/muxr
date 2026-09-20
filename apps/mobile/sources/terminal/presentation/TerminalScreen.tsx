@@ -378,6 +378,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         && paneLifecycle === 'working';
     const paneMissing = currentPane === undefined || isShellLabels(agentLabels(currentPane));
     const sendCommand = React.useCallback((command: string) => {
+        if (currentPaneRef.current?.agentKind === undefined) {
+            showGestureHintRef.current('No agent in this pane');
+            return;
+        }
         const disposition = terminalInputDisposition(currentPaneRef.current, sessionRef.current ?? undefined, command);
         if (disposition.kind === 'blocked') {
             showDialogGuard();
@@ -433,7 +437,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             ...quickReplies.map((reply, index): Command => {
                 const firstParty = index < TERMINAL_QUICK_REPLIES.length;
                 return {
-                    id: `reply:${reply.label}`,
+                    id: `reply:${index}:${reply.label}`,
                     title: reply.label,
                     category: t('commandPalette.commonReplies'),
                     action: firstParty
@@ -730,6 +734,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
     const contextTitle = labels.taskTitle;
     const headerLifecycle = terminalPaneStatus(currentPane);
+    const headerLifecycleLabel = headerLifecycle === 'unknown' || headerLifecycle === 'idle' ? undefined : HERD_STATUS_LABELS[headerLifecycle];
     return (
         <ScopedTheme name="dark"><DarkSurface>{(theme) => {
             const headerStatus = agentStatusColor(headerLifecycle, theme);
@@ -802,7 +807,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         }}
                     >
                         <HeaderBackButton onPress={() => router.back()} style={{ marginLeft: -6 }} />
-                        <Pressable onPress={() => setTreeOpen(true)} accessibilityRole="button" accessibilityLabel={`${contextTitle}. ${agentNameLine(labels)}. ${headerLifecycle}. ${overlayLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, minHeight: 44 }}>
+                        <Pressable onPress={() => setTreeOpen(true)} accessibilityRole="button" accessibilityLabel={`${contextTitle}. ${agentNameLine(labels)}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. ${overlayLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, minHeight: 44 }}>
                             <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={18} />
                             <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 15, fontWeight: '600' }}>{contextTitle}</Text>
                             {/* Status sentence, not a bare subtitle: the lifecycle verb

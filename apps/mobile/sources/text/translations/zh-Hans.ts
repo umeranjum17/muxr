@@ -49,6 +49,7 @@ export const zhHans: TranslationStructure = {
         dictate: '听写',
         stopDictation: '停止听写',
         stopDictationHint: '停止录音并开始转写',
+        transcribingDictation: '正在转写听写',
         unavailableSuffix: '不可用',
         showingStale: '正在显示旧数据',
         settingsTitle: '插件',

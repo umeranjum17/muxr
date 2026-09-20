@@ -72,7 +72,7 @@ export function DictateButton({ context, compact = false, onActiveChange }: {
             </View>;
         }
         if (dictation.transcribing) {
-            label = 'Transcribing dictation';
+            label = t('plugins.transcribingDictation');
             control = <ActivityIndicator size="small" color={theme.colors.textSecondary} />;
         }
         return <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>

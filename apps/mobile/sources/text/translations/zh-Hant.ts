@@ -49,6 +49,7 @@ export const zhHant: TranslationStructure = {
         dictate: '聽寫',
         stopDictation: '停止聽寫',
         stopDictationHint: '停止錄音並開始轉寫',
+        transcribingDictation: '正在轉寫聽寫',
         unavailableSuffix: '無法使用',
         showingStale: '正在顯示舊資料',
         settingsTitle: '外掛程式',

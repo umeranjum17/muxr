@@ -58,6 +58,7 @@ export const ru: TranslationStructure = {
         dictate: 'Диктовать',
         stopDictation: 'Остановить диктовку',
         stopDictationHint: 'Останавливает запись и начинает расшифровку',
+        transcribingDictation: 'Расшифровка диктовки',
         unavailableSuffix: 'недоступно',
         showingStale: 'показаны устаревшие данные',
         settingsTitle: 'Плагины',

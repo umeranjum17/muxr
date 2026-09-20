@@ -58,6 +58,7 @@ export const pl: TranslationStructure = {
         dictate: 'Dyktuj',
         stopDictation: 'Zatrzymaj dyktowanie',
         stopDictationHint: 'Zatrzymuje nagrywanie i rozpoczyna transkrypcję',
+        transcribingDictation: 'Transkrybowanie dyktowania',
         unavailableSuffix: 'niedostępne',
         showingStale: 'pokazano nieaktualne dane',
         settingsTitle: 'Wtyczki',

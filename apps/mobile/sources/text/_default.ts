@@ -47,6 +47,7 @@ export const en = {
         dictate: 'Dictate',
         stopDictation: 'Stop dictation',
         stopDictationHint: 'Stops recording and starts transcribing',
+        transcribingDictation: 'Transcribing dictation',
         unavailableSuffix: 'unavailable',
         showingStale: 'showing stale data',
         settingsTitle: 'Plugins',
