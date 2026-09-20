@@ -836,7 +836,7 @@ index d90375aaf84b9191b8f107ab83869ce323a6a7f5..85a34b92dd47de75af27a1c752729aac
          case GHOSTTY_ACTION_PWD:
              let payload = action.action.pwd
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-index 3f3eeb202351f474526690dc27937df833bdd7e3..5eba2930dffbc59ed07e20267c33b55cc39c29f7 100644
+index 3f3eeb202351f474526690dc27937df833bdd7e3..149b5f47a8907afa281b24fde06ab46a6a9a4ee8 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 @@ -25,9 +25,22 @@
@@ -901,7 +901,7 @@ index 3f3eeb202351f474526690dc27937df833bdd7e3..5eba2930dffbc59ed07e20267c33b55c
                  touchDidScrollDuringCurrentTouch = false
              #endif
              super.touchesCancelled(touches, with: event)
-@@ -448,10 +486,51 @@
+@@ -448,10 +486,55 @@
                  }
              }
  
@@ -947,13 +947,17 @@ index 3f3eeb202351f474526690dc27937df833bdd7e3..5eba2930dffbc59ed07e20267c33b55c
 +                if let url = hoverLink(at: gesture.location(in: self)) {
 +                    stopMomentumScrolling()
 +                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
++                    // The lift must not re-read this gesture as a tap: copy
++                    // and open are mutually exclusive.
++                    pendingTapPoint = nil
++                    pendingKeyboardShowOnTouchEnd = false
 +                    (delegate as? any TerminalSurfaceCopyURLDelegate)?.terminalDidRequestCopyURL(url)
 +                    return
 +                }
                  guard let delegate = delegate as? any TerminalSurfaceTextSelectionRequestDelegate else { return }
                  guard let surface else { return }
                  guard case let .inMemory(session) = configuration.backend else {
-@@ -532,12 +611,16 @@
+@@ -532,12 +615,16 @@
                      "touch scroll changed translation=\(String(format: "%.2f", translation.x))x\(String(format: "%.2f", translation.y))"
                  )
  
@@ -976,7 +980,7 @@ index 3f3eeb202351f474526690dc27937df833bdd7e3..5eba2930dffbc59ed07e20267c33b55c
  
              case .ended:
                  guard activePointerButton == nil else { return }
-@@ -566,8 +649,10 @@
+@@ -566,8 +653,10 @@
                  "momentum start velocity=\(String(format: "%.2f", velocity.x))x\(String(format: "%.2f", velocity.y))"
              )
  
@@ -989,7 +993,7 @@ index 3f3eeb202351f474526690dc27937df833bdd7e3..5eba2930dffbc59ed07e20267c33b55c
  
              let link = CADisplayLink(
                  target: self,
-@@ -597,19 +682,23 @@
+@@ -597,19 +686,23 @@
                  "momentum frame velocity=\(String(format: "%.2f", momentumVelocity.x))x\(String(format: "%.2f", momentumVelocity.y)) delta=\(String(format: "%.2f", deltaX))x\(String(format: "%.2f", deltaY))"
              )
  
@@ -1020,6 +1024,14 @@ index 3f3eeb202351f474526690dc27937df833bdd7e3..5eba2930dffbc59ed07e20267c33b55c
                  let mods = TerminalScrollModifiers(precision: true, momentum: .none)
                  surface?.sendMouseScroll(x: 0, y: 0, mods: mods.rawValue)
              }
+@@ -630,6 +723,7 @@
+         ) -> Bool {
+             if gestureRecognizer is UILongPressGestureRecognizer {
+                 return (delegate as? any TerminalSurfaceTextSelectionRequestDelegate) != nil
++                    || (delegate as? any TerminalSurfaceCopyURLDelegate) != nil
+             }
+             return true
+         }
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
 index 7bb1e9861c9640c197321a9eff2cd7f9e087c0a1..95013fd5530998430bed2c2588a581be598df78d 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift

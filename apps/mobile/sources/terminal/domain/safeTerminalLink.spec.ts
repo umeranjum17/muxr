@@ -131,4 +131,28 @@ describe('terminal printed links open only as safe web URLs', () => {
         );
         joined.dispose();
     });
+
+    it('ends a wrapped URL at an erased parent tail, like the printed stream', async () => {
+        const term = new xterm.Terminal({ cols: 20, rows: 3 });
+        await new Promise<void>((resolve) => term.write('https://x.io/aaaa/bbbb/cccc/dddd/eeee', resolve));
+        // TUI-style in-place rewrite: print a shorter line over the parent and
+        // erase right. The erased tail is unwritten cells now, but the child
+        // row's soft-wrap flag survives the erase.
+        await new Promise<void>((resolve) => term.write('\x1b[1;1Hhttps://short.link\x1b[K', resolve));
+        const lineAt = (r: number) => term.buffer.active.getLine(r)!;
+        expect(lineAt(0).translateToString(true)).toBe('https://short.link');
+        expect(lineAt(1).isWrapped).toBe(true);
+        const rowAt = (r: number): TerminalLinkRow | undefined => {
+            const line = lineAt(r);
+            return line
+                ? { text: line.translateToString(false), isWrapped: line.isWrapped }
+                : undefined;
+        };
+
+        // The stale wrap must not glue the child onto the shortened parent:
+        // the erased tail ends the printed line, so the child is not a link.
+        expect(plainLinkAtCell(lineAt(1), 20, 0, 1, rowAt)).toBeNull();
+        expect(plainLinkAtCell(lineAt(1), 20, 5, 1, rowAt)).toBeNull();
+        term.dispose();
+    });
 });

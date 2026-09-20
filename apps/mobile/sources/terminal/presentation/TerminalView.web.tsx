@@ -266,7 +266,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             const row = buffer.viewportY + viewportRow;
             const lineRow = (r: number): TerminalLinkRow | undefined => {
                 const line = buffer.getLine(r);
-                return line ? { text: line.translateToString(true), isWrapped: line.isWrapped } : undefined;
+                // Padded, not trimmed: an erased tail leaves unwritten cells
+                // that end the printed line, and a soft wrap across them must
+                // not glue the child row onto the shortened parent.
+                return line ? { text: line.translateToString(false), isWrapped: line.isWrapped } : undefined;
             };
             const tapped = buffer.getLine(row);
             if (!tapped) return null;
