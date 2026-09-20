@@ -61,6 +61,7 @@ vi.mock('@/herd', () => ({
     middleTruncate: (value: string) => value,
 }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => {}) }));
 vi.mock('@/preview', () => ({
     attachPreviewTunnel: vi.fn(async () => ({ hostname: 'tunnel.test', port: 1234, close: vi.fn() })),
 }));
@@ -93,7 +94,9 @@ const statusBound = (port: number) => ({
     success: true,
     exitCode: 0,
     stderr: '',
-    stdout: JSON.stringify({ success: true, data: { enabled: true, port, connected: false, screencasting: false } }),
+    // A live browser sits behind the reattached stream; `connected: false`
+    // would now (truthfully) resolve as no-browser instead of attaching.
+    stdout: JSON.stringify({ success: true, data: { enabled: true, port, connected: true, screencasting: false } }),
 });
 const enableOk = (port: number) => ({
     success: true,

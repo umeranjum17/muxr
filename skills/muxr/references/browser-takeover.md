@@ -18,10 +18,14 @@ their action or approval.
 2. Drive that session normally with `agent-browser snapshot -i`, then its
    current refs for click/fill/type. Re-snapshot after navigation. Do not launch
    a parallel browser: muxr's Browser entry attaches to this session.
-3. The Browser screen enables the loopback stream itself. If an explicit
-   `agent-browser stream enable --json` says the stream is already enabled,
-   query `agent-browser stream status --json` and reuse it. Never replace,
-   expose, or disable a stream another viewer enabled.
+3. The Browser screen enables the loopback stream itself. Every session is
+   born with its stream server bound: `agent-browser stream enable --json`
+   always answers "Streaming is already enabled for this session" (exit 1),
+   with or without a browser. Query `agent-browser stream status --json` and
+   reuse its bound port, but check `data.connected`: a bound port with
+   `connected: false` has no live browser behind it and will never stream a
+   frame — open the browser first. Never replace, expose, or disable a stream
+   another viewer enabled.
 
 ## Hand control to the human
 
