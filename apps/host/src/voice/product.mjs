@@ -1,5 +1,12 @@
-#!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+/**
+ * Realtime voice, as product code.
+ *
+ * The provider adapters under ./providers are internal and swappable: this
+ * module is the only surface the host and the app call, and it resolves the
+ * selected adapter from the fixed table in ./provider.mjs. Nothing here is a
+ * plugin contribution, so there is no catalog, approval, or manifest hash in
+ * the voice path.
+ */
 import { reportAgentOutcome } from './coordinatorPolicy.mjs';
 import { providerSecret } from './providerSecret.mjs';
 import { PROVIDERS, providerById, selectProvider, selectedProvider } from './provider.mjs';
@@ -21,14 +28,14 @@ function providerEntry(provider, selected) {
         id: provider.id,
         name: provider.name,
         description: provider.description,
-        configurationContributionId: provider.configurationContributionId,
+        setup: provider.setup,
         selected: provider.id === selected.id,
         stateLabel: provider.id === selected.id ? 'In use' : '',
     };
 }
 
 /** One engine's card for the Settings explainer: what it is, whether it is in use, and whether it is ready. */
-async function describeProvider(id) {
+export async function voiceProviderDescribe(id) {
     const provider = id === undefined || id === null || String(id).trim() === ''
         ? selectedProvider()
         : providerById(String(id).trim());
@@ -46,42 +53,39 @@ async function describeProvider(id) {
     };
 }
 
-const method = process.argv[2];
-const input = JSON.parse(readFileSync(0, 'utf8') || 'null');
-const provider = selectedProvider();
-const secret = secretFor(provider);
-
-let output;
-if (method === 'status') {
+export async function voiceStatus() {
+    const provider = selectedProvider();
+    const secret = secretFor(provider);
     // An adapter without a key store authenticates some other way and owns its
     // own check; loading it is only worth the import cost in that case.
     const status = secret === undefined
         ? (await import(`./providers/${provider.id}.mjs`)).status()
         : await secret.statusPayload();
-    output = { ...status, providerId: provider.id, providerName: provider.name, keyLabel: provider.keyLabel };
-} else if (method === 'key.set') {
-    if (secret === undefined) throw new Error(`${provider.name} does not use an API key`);
-    await secret.writeKey(input?.key);
-    output = null;
-} else if (method === 'key.clear') {
-    if (secret !== undefined) await secret.clearKey();
-    output = null;
-} else if (method === 'provider.list') {
-    output = {
-        selected: provider.id,
-        providers: PROVIDERS.map((entry) => providerEntry(entry, provider)),
-    };
-} else if (method === 'provider.set') {
-    const next = selectProvider(input?.providerId);
-    output = {
-        selected: next.id,
-        providers: PROVIDERS.map((entry) => providerEntry(entry, next)),
-    };
-} else if (method === 'provider.describe') {
-    output = await describeProvider(input?.providerId);
-} else if (method === 'report') {
-    output = { say: reportAgentOutcome(input) };
-} else {
-    throw new Error(`unknown muxr Voice method: ${method ?? ''}`);
+    return { ...status, providerId: provider.id, providerName: provider.name, keyLabel: provider.keyLabel };
 }
-process.stdout.write(JSON.stringify(output));
+
+export async function voiceProviderList() {
+    const selected = selectedProvider();
+    return { selected: selected.id, providers: PROVIDERS.map((entry) => providerEntry(entry, selected)) };
+}
+
+export async function voiceProviderSet(providerId) {
+    const next = selectProvider(providerId);
+    return { selected: next.id, providers: PROVIDERS.map((entry) => providerEntry(entry, next)) };
+}
+
+export async function voiceKeySet(key) {
+    const provider = selectedProvider();
+    const secret = secretFor(provider);
+    if (secret === undefined) throw new Error(`${provider.name} does not use an API key`);
+    await secret.writeKey(key);
+}
+
+export async function voiceKeyClear() {
+    const secret = secretFor(selectedProvider());
+    if (secret !== undefined) await secret.clearKey();
+}
+
+export function voiceReport(input) {
+    return { say: reportAgentOutcome(input) };
+}

@@ -149,6 +149,10 @@ export function createFakeSessionSource(): SessionSource {
             throw new Error('fake source has no plugins');
         },
 
+        async voiceStream() {
+            throw new Error('fake source has no voice runtime');
+        },
+
         async herdrLayout() {
             throw new Error('fake source has no panes');
         },

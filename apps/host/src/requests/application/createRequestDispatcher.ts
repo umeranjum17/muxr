@@ -29,6 +29,15 @@ import {
 import type { PeerDeviceContext, PeerRuntime } from '../../peer/index.js';
 import { grantMayAdministerPeers, hostPlatformLabel, listMachines, observerGrantIsViewOnly } from '../../machine/index.js';
 import { collectUsage, usageNow } from '../../usage/index.js';
+import {
+    voiceKeyClear,
+    voiceKeySet,
+    voiceProviderDescribe,
+    voiceProviderList,
+    voiceProviderSet,
+    voiceReport,
+    voiceStatus,
+} from '../../voice/index.js';
 import { attachPreview as attachPreviewTransport } from '../infrastructure/preview.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
@@ -72,7 +81,11 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'attention.catalog', 'lifecycle.catalog', 'machines.list', 'terminal.attach',
     'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
     'usage.report', 'usage.now',
+    // Voice readiness is readable by every grant; changing a provider or its
+    // key is a mutation and stays out of this set.
+    'voice.status', 'voice.provider.list', 'voice.provider.describe',
 ]);
+
 
 function isPluginExecutionRequest(request: ClientRequest): request is PluginExecutionRequest {
     switch (request.type) {
@@ -268,6 +281,17 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             ...(params.refresh === undefined ? {} : { refresh: params.refresh }),
         }),
         'usage.now': () => usageNow(),
+        'voice.status': () => voiceStatus(),
+        'voice.provider.list': () => voiceProviderList(),
+        'voice.provider.set': (params) => voiceProviderSet(params.providerId),
+        'voice.provider.describe': (params) => voiceProviderDescribe(params.providerId),
+        'voice.key.set': async (params) => { await voiceKeySet(params.key); return null; },
+        'voice.key.clear': async () => { await voiceKeyClear(); return null; },
+        // The spoken sentence is derived from the outcome here, never by the caller.
+        'voice.report': async (params) => voiceReport(params),
+        // Voice is product code: a paired control device is the only gate, and
+        // there is no plugin approval to check.
+        'voice.stream': (params, context) => source.voiceStream({ deviceId: context.deviceId, channel: params.channel, ...(params.sessionId === undefined ? {} : { sessionId: params.sessionId }) }),
         'worktree.land': (params) => landWorktree(params.worktreePath, params.message, params.stash),
         'preview.attach': async (params) => useCaseData(await attachPreviewTunnel({
             ...(options.relayUrl === undefined ? {} : { relayUrl: options.relayUrl }),

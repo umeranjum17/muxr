@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { BackHandler, Pressable, ScrollView, View } from 'react-native';
+import { BackHandler, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -22,6 +22,28 @@ import {
 import { realtimeCallLabel } from '../domain/micOwnership';
 import { voiceFailure } from '../domain/voiceFailure';
 
+type TranscriptRowMeasurement = { index: number; y: number; height: number };
+type FrameHandle =
+    | { kind: 'animation'; id: number }
+    | { kind: 'timeout'; id: ReturnType<typeof setTimeout> };
+type FrameApi = typeof globalThis & {
+    requestAnimationFrame?: (callback: () => void) => number;
+    cancelAnimationFrame?: (handle: number) => void;
+};
+
+function scheduleFrame(callback: () => void): FrameHandle {
+    const api = globalThis as FrameApi;
+    return api.requestAnimationFrame === undefined
+        ? { kind: 'timeout', id: setTimeout(callback, 0) }
+        : { kind: 'animation', id: api.requestAnimationFrame(callback) };
+}
+
+function cancelFrame(handle: FrameHandle): void {
+    const api = globalThis as FrameApi;
+    if (handle.kind === 'animation' && api.cancelAnimationFrame !== undefined) api.cancelAnimationFrame(handle.id);
+    else if (handle.kind === 'timeout') clearTimeout(handle.id);
+}
+
 export const RealtimeConversation = React.memo(function RealtimeConversation({
     visible,
     onClose,
@@ -30,6 +52,7 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     onClose: () => void;
 }) {
     const insets = useSafeAreaInsets();
+    const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
     const { state, detail } = useRealtimeSessionState();
     const turns = useRealtimeTurns();
     const muted = useRealtimeMuted();
@@ -44,6 +67,50 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     // clips it, so there is nothing to recover later.
     const [orbRoom, setOrbRoom] = React.useState<number | undefined>(undefined);
     const transcript = React.useRef<ScrollView>(null);
+    const transcriptRows = React.useRef(new Map<number, TranscriptRowMeasurement>());
+    const transcriptMetrics = React.useRef({ viewportHeight: 0, contentHeight: 0 });
+    const transcriptFrame = React.useRef<FrameHandle | undefined>(undefined);
+    const turnsForTranscript = turns.slice(-24);
+
+    const scheduleTranscriptPosition = React.useCallback(() => {
+        if (transcriptFrame.current !== undefined) cancelFrame(transcriptFrame.current);
+        transcriptFrame.current = scheduleFrame(() => {
+            transcriptFrame.current = undefined;
+            const { viewportHeight, contentHeight } = transcriptMetrics.current;
+            if (viewportHeight <= 0 || contentHeight <= 0) return;
+            const bottom = Math.max(0, contentHeight - viewportHeight);
+            if (bottom === 0) {
+                transcript.current?.scrollTo({ y: 0, animated: false });
+                return;
+            }
+            const target = [...transcriptRows.current.values()]
+                .filter((row) => row.y <= bottom)
+                .sort((left, right) => left.y - right.y)
+                .at(-1)?.y;
+            // No measured boundary means the layout is still settling. Wait
+            // for the next row measurement rather than choosing a pixel inside
+            // an arbitrary transcript row.
+            if (target === undefined) return;
+            transcript.current?.scrollTo({ y: Math.max(0, Math.min(target, bottom)), animated: false });
+        });
+    }, []);
+
+    React.useEffect(() => () => {
+        if (transcriptFrame.current !== undefined) cancelFrame(transcriptFrame.current);
+    }, []);
+
+    React.useEffect(() => {
+        const visibleIds = new Set(turnsForTranscript.map((turn) => turn.id));
+        for (const id of transcriptRows.current.keys()) {
+            if (!visibleIds.has(id)) transcriptRows.current.delete(id);
+        }
+        scheduleTranscriptPosition();
+    }, [scheduleTranscriptPosition, turnsForTranscript.map((turn) => turn.id).join('\u0000')]);
+
+    React.useEffect(() => {
+        scheduleTranscriptPosition();
+    }, [insets.bottom, insets.top, scheduleTranscriptPosition, viewportHeight, viewportWidth]);
+
     // The voice is attached to a working session; what that session is doing is
     // the other half of "what is happening right now".
     const bound = rememberedRealtimeSession();
@@ -203,11 +270,33 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
                 </ScrollView>
                 {/* What it heard and what it said, in order: a single latest line
                     hid the half of the conversation you wanted to check. */}
-                <ScrollView ref={transcript} style={{ flex: 1, alignSelf: 'stretch' }} contentContainerStyle={{ paddingVertical: 8, gap: 10 }}
+                <ScrollView
+                    ref={transcript}
+                    style={{ flex: 1, alignSelf: 'stretch' }}
+                    contentContainerStyle={{ paddingVertical: 8, gap: 10 }}
                     showsVerticalScrollIndicator={false}
-                    onContentSizeChange={() => transcript.current?.scrollToEnd({ animated: true })}>
-                    {turns.slice(-24).map((turn) => (
-                        <View key={turn.id} style={{ flexDirection: 'row', gap: 10 }}>
+                    onLayout={(event) => {
+                        transcriptMetrics.current.viewportHeight = Math.max(0, event.nativeEvent.layout.height);
+                        scheduleTranscriptPosition();
+                    }}
+                    onContentSizeChange={(_width, height) => {
+                        transcriptMetrics.current.contentHeight = Math.max(0, height);
+                        scheduleTranscriptPosition();
+                    }}
+                >
+                    {turnsForTranscript.map((turn, index) => (
+                        <View
+                            key={turn.id}
+                            onLayout={(event) => {
+                                const { y, height } = event.nativeEvent.layout;
+                                const next = { index, y: Math.max(0, y), height: Math.max(0, height) };
+                                const previous = transcriptRows.current.get(turn.id);
+                                if (previous?.index === next.index && previous.y === next.y && previous.height === next.height) return;
+                                transcriptRows.current.set(turn.id, next);
+                                scheduleTranscriptPosition();
+                            }}
+                            style={{ flexDirection: 'row', gap: 10 }}
+                        >
                             <Text style={{ color: turn.role === 'agent' ? '#7f8794' : '#5d636e', fontSize: 11, lineHeight: 21, width: 34, ...Typography.mono('regular') }}>
                                 {turn.role === 'agent' ? 'it' : 'you'}
                             </Text>

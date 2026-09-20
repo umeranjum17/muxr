@@ -11,8 +11,8 @@ import {
     type RealtimeTarget,
 } from './realtimeSessionState';
 import { voiceDiagnostic } from '../infrastructure/voiceDiagnostics';
-import { callPlugin } from '@/plugins/callPlugin';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
+import { voiceStatus } from './voiceSettings';
 
 export async function requestRealtimePermission(): Promise<boolean> {
     voiceDiagnostic('permission.begin');
@@ -33,17 +33,17 @@ export async function requestRealtimePermission(): Promise<boolean> {
     return true;
 }
 
-/** The selected provider plugin owns its credential on the machine. */
+/** The selected adapter owns its credential on the machine. */
 export async function ensureRealtimeProviderConfigured(): Promise<boolean> {
     let configured: boolean;
     try {
-        configured = ((await callPlugin('voice.status')) as { configured: boolean }).configured;
+        configured = (await voiceStatus()).configured;
     } catch (error) {
-        Modal.alert('Realtime conversation', `Could not reach the provider plugin: ${error instanceof Error ? error.message : String(error)}`);
+        Modal.alert('Realtime conversation', `Could not reach the voice provider: ${error instanceof Error ? error.message : String(error)}`);
         return false;
     }
     if (configured) return true;
-    Modal.alert('Realtime conversation', 'Configure the provider plugin from Settings to continue.');
+    Modal.alert('Realtime conversation', 'Configure the voice provider from Settings to continue.');
     return false;
 }
 

@@ -1,50 +1,48 @@
 /**
- * Validate every bundled plugin the same way `muxr plugin check` does.
+ * muxr ships no bundled Herdr add-ons: every product surface is product code.
+ * This proves the retirement stuck -- no add-on folder remains, and no shell
+ * code still branches on an id muxr used to bundle -- and keeps the primitive
+ * dependency and launcher-shortcut guards that were already here.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const pluginsDir = join(root, 'plugins');
-const plugins = readdirSync(pluginsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && existsSync(join(pluginsDir, entry.name, 'herdr-plugin.toml')))
-    .map((entry) => entry.name)
-    .sort();
-
-if (plugins.length === 0) {
-    process.stderr.write('FAIL: no bundled plugins found\n');
-    process.exit(1);
-}
+const plugins = existsSync(pluginsDir)
+    ? readdirSync(pluginsDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && existsSync(join(pluginsDir, entry.name, 'herdr-plugin.toml')))
+        .map((entry) => entry.name)
+        .sort()
+    : [];
 
 let failed = 0;
-for (const name of plugins) {
-    const result = spawnSync(process.execPath, [join(root, 'scripts/cli.mjs'), 'plugin', 'check', join('plugins', name)], {
-        encoding: 'utf8',
-        cwd: root,
-    });
-    if (result.status !== 0) {
-        process.stderr.write(`FAIL plugins/${name}\n${result.stderr || result.stdout}\n`);
-        failed += 1;
-    } else {
-        process.stdout.write(`ok  plugins/${name}\n`);
-    }
+if (plugins.length > 0) {
+    process.stderr.write(`FAIL: muxr ships no bundled add-ons, found ${plugins.join(', ')}\n`);
+    failed += 1;
+} else {
+    process.stdout.write('ok  no bundled Herdr add-ons ship\n');
 }
 
-if (failed > 0) process.exit(1);
-
-// Bundled manifests use the public API; production shell code must never branch
-// on one of their ids. Tests and generated JSON are intentionally outside this scan.
-const bundledIds = plugins.flatMap((name) => {
-    const path = join(pluginsDir, name, 'muxr-ui.json');
-    if (!existsSync(path)) return [];
-    const value = JSON.parse(readFileSync(path, 'utf8'));
-    return typeof value.pluginId === 'string' ? [value.pluginId] : [];
-});
+// Production shell code must never name an add-on muxr used to bundle: every one
+// of those surfaces is product code now. Tests and generated JSON are outside
+// this scan, and the third-party plugin catalog legitimately names installed
+// plugins rather than bundled ones.
+const retiredIds = [
+    'muxr.terminal-keys', 'muxr.panes', 'muxr.control', 'muxr.dictation', 'muxr.status',
+    'muxr.voice', 'muxr.voice-gemini', 'muxr.voice-openai', 'muxr.voice-codex',
+];
+const bundledIds = [...retiredIds,
+    ...plugins.flatMap((name) => {
+        const path = join(pluginsDir, name, 'muxr-ui.json');
+        if (!existsSync(path)) return [];
+        const value = JSON.parse(readFileSync(path, 'utf8'));
+        return typeof value.pluginId === 'string' ? [value.pluginId] : [];
+    })];
 const shellFiles = [];
 function collectShell(directory) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -55,6 +53,11 @@ function collectShell(directory) {
 }
 collectShell(join(root, 'apps/mobile/sources'));
 collectShell(join(root, 'apps/host/src'));
+// A retired id stays a real value in two places, and both are about a previous
+// release rather than a product branch: the voice adapters name the legacy state
+// file setup migrates out of, and the host keeps a retraction list. Those lines
+// are a retention record, so the scan ignores them.
+const RETENTION_LINE = /RETIRED_PLUGIN_IDS|LEGACY_BUNDLED_PLUGIN_IDS|LEGACY_PLUGIN_IDS/;
 // The installed-plugin catalog is the one product surface that identifies
 // bundled plugins for grouping and configuration. Keep this exception local.
 const catalogScreens = new Set([
@@ -62,7 +65,10 @@ const catalogScreens = new Set([
 ]);
 for (const path of shellFiles) {
     if (catalogScreens.has(path)) continue;
-    const source = readFileSync(path, 'utf8');
+    const source = readFileSync(path, 'utf8')
+        .split('\n')
+        .filter((line) => !RETENTION_LINE.test(line))
+        .join('\n');
     for (const pluginId of bundledIds) {
         if (source.includes(pluginId)) {
             process.stderr.write(`FAIL bundled plugin caste guard: ${path} names ${pluginId}\n`);
@@ -137,4 +143,4 @@ if (/VoiceBubble|VoiceOrb|VoiceConversation|voiceState/.test(realtimeStateSource
 }
 if (failed > 0) process.exit(1);
 
-process.stdout.write(`${plugins.length} bundled plugins ok; ${guardedFiles.length} primitive files guarded\n`);
+process.stdout.write(`no bundled add-ons; ${guardedFiles.length} primitive files guarded\n`);

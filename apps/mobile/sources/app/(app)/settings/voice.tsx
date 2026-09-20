@@ -7,13 +7,12 @@ import { ItemList } from '@/components/ItemList';
 import { Switch } from '@/components/Switch';
 import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Modal } from '@/modal';
-import { callPlugin, pluginCatalogSnapshot, pluginHref, refreshPlugins } from '@/plugins';
-import { voicePluginFromCatalog } from '@/plugins/application/voicePluginAccess';
 import { useLocalSetting, useLocalSettingMutable, useSocketStatus } from '@/catalog/store';
 import { useRouter } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
 import { configureVadStandby } from '@/conversation/session';
 import { ensureRealtimeProviderConfigured, requestRealtimePermission } from '@/conversation';
+import { voiceProviderList, voiceProviderSet } from '@/conversation';
 import {
     BUNDLED_DICTATION_MODEL_ID,
     DICTATION_MODELS,
@@ -23,7 +22,7 @@ import {
     type DictationDownloadProgress,
 } from '@/utils/dictationModels';
 
-type ProviderOption = { id: string; name: string; description?: string; selected: boolean; configurationContributionId: string };
+type ProviderOption = { id: string; name: string; description: string; setup: 'api-key' | 'codex-login'; selected: boolean };
 type ProviderList = { selected: string; providers: ProviderOption[] };
 type WordReplacement = { from: string; to: string };
 
@@ -58,21 +57,14 @@ function modelProgressText(progress: DictationDownloadProgress): string {
     return `Downloading · ${Math.round(progress.bytesWritten / 1_000_000)} of ${formatModelSize(progress.totalBytes)}`;
 }
 
-async function loadVoicePlugin() {
-    await refreshPlugins();
-    return voicePluginFromCatalog(pluginCatalogSnapshot());
-}
-
 export default function VoiceProviderScreen() {
     const router = useRouter();
     const { theme } = useUnistyles();
     const { status } = useSocketStatus();
     const [providers, setProviders] = React.useState<ProviderOption[]>([]);
-    const [voicePluginId, setVoicePluginId] = React.useState<string>();
     const [busy, setBusy] = React.useState<string>();
     const [loaded, setLoaded] = React.useState(false);
     const [error, setError] = React.useState<string>();
-    const [disabled, setDisabled] = React.useState(false);
     const busyRef = React.useRef(false);
     const vadStandbyEnabled = useLocalSetting('vadStandbyEnabled');
     const [dictationLanguage, setDictationLanguage] = useLocalSettingMutable('dictationLanguage');
@@ -88,19 +80,10 @@ export default function VoiceProviderScreen() {
         if (status !== 'connected') { setLoaded(true); return; }
         setLoaded(false);
         try {
-            const access = await loadVoicePlugin();
-            if (access.status !== 'ready') {
-                setDisabled(access.status === 'disabled');
-                setProviders([]);
-                setVoicePluginId(undefined);
-                setError(access.status === 'missing' ? 'No voice plugin is available on this machine.' : undefined);
-                return;
-            }
-            setDisabled(false);
-            setVoicePluginId(access.plugin?.summary.pluginId);
-            setProviders((await callPlugin<ProviderList>('voice.provider.list')).providers);
+            setProviders((await voiceProviderList() as ProviderList).providers);
             setError(undefined);
         } catch (cause) {
+            setProviders([]);
             setError(cause instanceof Error ? cause.message : String(cause));
         } finally {
             setLoaded(true);
@@ -174,7 +157,7 @@ export default function VoiceProviderScreen() {
         busyRef.current = true;
         setBusy(provider.id);
         try {
-            setProviders((await callPlugin<ProviderList>('voice.provider.set', { providerId: provider.id })).providers);
+            setProviders((await voiceProviderSet(provider.id) as ProviderList).providers);
             setError(undefined);
         } catch (cause) {
             const message = cause instanceof Error ? cause.message : String(cause);
@@ -190,31 +173,12 @@ export default function VoiceProviderScreen() {
     const selected = providers.find((provider) => provider.selected);
     const wakeBlocked = status !== 'connected'
         ? 'Connect to a computer first.'
-        : disabled
-            ? 'Enable the voice plugin first.'
-            : error !== undefined
-                ? 'Realtime voice is unavailable on this computer.'
-                : selected === undefined ? 'Choose a voice provider first.' : undefined;
-    const configure = React.useCallback(async () => {
-        if (selected === undefined || busyRef.current) return;
-        busyRef.current = true;
-        setBusy(selected.id);
-        try {
-            const access = await loadVoicePlugin();
-            if (access.status === 'disabled') {
-                router.push('/settings/plugins' as any);
-                return;
-            }
-            const plugin = access.plugin;
-            const settings = plugin?.manifest?.contributions.find((contribution) => contribution.slot === 'navigation.content' && contribution.type === 'screen' && contribution.id === selected.configurationContributionId);
-            if (settings === undefined) throw new Error('This provider has no configuration screen.');
-            router.push(pluginHref(plugin!.summary.pluginId, settings.id) as any);
-        } catch (cause) {
-            Modal.alert('Provider settings unavailable', cause instanceof Error ? cause.message : String(cause));
-        } finally {
-            busyRef.current = false;
-            setBusy(undefined);
-        }
+        : error !== undefined
+            ? 'Realtime voice is unavailable on this computer.'
+            : selected === undefined ? 'Choose a voice provider first.' : undefined;
+    const configure = React.useCallback(() => {
+        if (selected === undefined) return;
+        router.push(`/settings/voice-provider?providerId=${encodeURIComponent(selected.id)}` as never);
     }, [router, selected]);
 
     const editWordReplacement = React.useCallback(async (existing: WordReplacement | undefined, index: number | undefined) => {
@@ -270,7 +234,6 @@ export default function VoiceProviderScreen() {
     const providersLoading = status === 'connected' && !loaded;
 
     const providerFooter = error
-        ?? (disabled ? 'Realtime voice is turned off for this device. Enable it from Plugins if you want it back.' : undefined)
         ?? (status === 'connected' ? 'One provider runs on this machine at a time.' : 'Connect to a machine to choose its voice provider.');
     const activeDictationModelId = installedModelIds.has(dictationModel) ? dictationModel : BUNDLED_DICTATION_MODEL_ID;
     const downloadableModel = DICTATION_MODELS.find((model) => !model.bundled);
@@ -291,14 +254,7 @@ export default function VoiceProviderScreen() {
                 </ItemGroup>
             ) : (
                 <ItemGroup title="Provider" footer={providerFooter}>
-                {disabled ? (
-                    <Item
-                        title="Voice plugin disabled"
-                        subtitle="Open Plugins to enable it"
-                        icon={<Ionicons name="settings-outline" size={28} color={theme.colors.textSecondary} />}
-                        onPress={() => router.push('/settings/plugins' as any)}
-                    />
-                ) : providers.map((provider) => (
+                {providers.map((provider) => (
                     <Item
                         key={provider.id}
                         title={provider.name}
@@ -311,14 +267,12 @@ export default function VoiceProviderScreen() {
                         rightElement={provider.selected ? <Ionicons name="checkmark-circle" size={24} color={theme.colors.textLink} /> : undefined}
                     />
                 ))}
-                {voicePluginId !== undefined && (
-                    <Item
-                        title="Voice engines"
-                        subtitle="What each one is, and talk to hear it"
-                        icon={<Ionicons name="information-circle-outline" size={28} color={theme.colors.textSecondary} />}
-                        onPress={() => router.push(pluginHref(voicePluginId, 'engines-screen') as any)}
-                    />
-                )}
+                <Item
+                    title="Voice engines"
+                    subtitle="What each one is, and talk to hear it"
+                    icon={<Ionicons name="information-circle-outline" size={28} color={theme.colors.textSecondary} />}
+                    onPress={() => router.push('/settings/voice-engines' as never)}
+                />
                 </ItemGroup>
             )}
             {selected !== undefined && (

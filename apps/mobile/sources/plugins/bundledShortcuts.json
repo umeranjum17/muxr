@@ -1,6 +1,6 @@
 [
   {
-    "id": "muxr.voice.jarvis",
+    "id": "voice.jarvis",
     "action": {
       "type": "capability",
       "name": "voice.start"

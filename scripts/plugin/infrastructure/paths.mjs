@@ -27,10 +27,12 @@ export function pluginReferencePath() {
 }
 
 export function bundledPluginsRoot() {
-    // Anchored on voice, the remaining bundled add-on (see setup paths).
-    const toml = walkFor('plugins/voice/herdr-plugin.toml');
-    if (toml === undefined) return undefined;
-    return dirname(dirname(toml));
+    // muxr ships no bundled add-ons any more; a checkout that still has a
+    // plugins/ directory is the only place `plugin clone` can read from.
+    const root = walkFor('CONTEXT.md') ?? walkFor('PLUGINS.md');
+    if (root === undefined) return undefined;
+    const plugins = join(dirname(root), 'plugins');
+    return existsSync(plugins) ? plugins : undefined;
 }
 
 export function mobilePackageJson() {

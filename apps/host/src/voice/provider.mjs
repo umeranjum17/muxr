@@ -1,15 +1,15 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 /**
  * The installed speech-to-speech adapters. `key` is the secret filename under
  * $MUXR_HOME; adapters that authenticate through an existing CLI login have none.
  */
 export const PROVIDERS = [
-    { id: 'xai', name: 'Grok', description: 'Grok on xAI. Needs an xAI API key on this machine.', configurationContributionId: 'settings-screen', secret: 'xai.key', keyLabel: 'xAI', placeholder: 'xai-…' },
-    { id: 'gemini', name: 'Gemini Live', description: 'Gemini Live on Google. Needs a Gemini API key on this machine.', configurationContributionId: 'settings-screen', secret: 'gemini.key', keyLabel: 'Gemini', placeholder: 'AIza…' },
-    { id: 'openai', name: 'OpenAI Realtime', description: 'OpenAI Realtime. Needs an OpenAI API key on this machine.', configurationContributionId: 'settings-screen', secret: 'openai.key', keyLabel: 'OpenAI', placeholder: 'sk-…' },
-    { id: 'codex', name: 'Codex Voice (experimental)', description: 'Codex Voice, experimental. Uses the ChatGPT login on this machine, no API key.', configurationContributionId: 'login-screen', keyLabel: 'Codex', placeholder: '' },
+    { id: 'xai', name: 'Grok', description: 'Grok on xAI. Needs an xAI API key on this machine.', setup: 'api-key', secret: 'xai.key', keyLabel: 'xAI', placeholder: 'xai-…' },
+    { id: 'gemini', name: 'Gemini Live', description: 'Gemini Live on Google. Needs a Gemini API key on this machine.', setup: 'api-key', secret: 'gemini.key', keyLabel: 'Gemini', placeholder: 'AIza…' },
+    { id: 'openai', name: 'OpenAI Realtime', description: 'OpenAI Realtime. Needs an OpenAI API key on this machine.', setup: 'api-key', secret: 'openai.key', keyLabel: 'OpenAI', placeholder: 'sk-…' },
+    { id: 'codex', name: 'Codex Voice (experimental)', description: 'Codex Voice, experimental. Uses the ChatGPT login on this machine, no API key.', setup: 'codex-login', keyLabel: 'Codex', placeholder: '' },
 ];
 
 const DEFAULT_ID = 'codex';
@@ -20,8 +20,10 @@ const LEGACY_PLUGIN_IDS = new Map([
 ]);
 
 function stateFile() {
-    const state = process.env.MUXR_PLUGIN_STATE_DIR?.trim();
-    return state ? join(state, 'provider') : undefined;
+    // Product state, not plugin state: the selection belongs to muxr, and the
+    // plugin directory that used to hold it no longer exists.
+    const home = process.env.MUXR_HOME?.trim();
+    return home ? join(home, 'voice', 'provider') : undefined;
 }
 
 export function providerById(id) {
@@ -46,7 +48,10 @@ export function selectProvider(id) {
     const provider = providerById(String(id ?? '').trim());
     if (provider === undefined) throw new Error('unknown realtime voice provider');
     const file = stateFile();
-    if (file === undefined) throw new Error('plugin state directory is unavailable');
+    if (file === undefined) throw new Error('realtime voice state directory is unavailable');
+    const directory = dirname(file);
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    chmodSync(directory, 0o700);
     writeFileSync(file, `${provider.id}\n`, { mode: 0o600 });
     return provider;
 }

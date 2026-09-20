@@ -31,6 +31,7 @@ import type {
     SessionStatus,
 } from '@muxr/contract';
 import { ATTENTION_REASONS, capUtf8Bytes, realtimePluginPublicContext, relayControlUrl, sanitizeDisplayText } from '@muxr/contract';
+import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
 import { AttachmentWatcher } from './attachmentWatcher.js';
 import { AttachmentDownloadServer } from './attachmentDownloads.js';
@@ -61,10 +62,15 @@ import { PluginApprovals } from './pluginApprovals.js';
 import { PluginStreamManager } from './pluginStreamManager.js';
 import {
     RealtimeCodingCoordinator,
+    type RealtimeAgentCatalog,
     type RealtimeCodingAgent,
+    type RealtimeCoordinationDiagnostic,
     type RealtimePromptDiagnostic,
 } from './realtimeCoordinator.js';
 import type { HostedMachineKeys } from '../../machine/index.js';
+
+/** Diagnostics and env identity for the product-owned realtime voice runtime. */
+const VOICE_STREAM_ID = 'voice';
 import type { PeerBroker } from '../../peer/index.js';
 import { MAX_RPC_CONCURRENCY, MAX_RPC_INPUT_BYTES, MAX_RPC_PER_DEVICE, MAX_RPC_PER_PLUGIN, type PluginContextRequest } from '@muxr/contract';
 import { buildPluginPublicContext, type PublicContextSource } from '../application/pluginPublicContext.js';
@@ -312,6 +318,8 @@ export interface CreateHerdrSessionSourceOptions {
     peerBroker?: PeerBroker;
     /** Writes bounded semantic prompt outcomes to the owner-only host diagnostics journal. */
     onRealtimePromptDiagnostic?: (event: RealtimePromptDiagnostic) => void;
+    /** Writes bounded Realtime operation outcomes to the owner-only host diagnostics journal. */
+    onRealtimeCoordinationDiagnostic?: (event: RealtimeCoordinationDiagnostic) => void;
     /** Privacy-safe route-generation and readiness outcomes only. */
     onAgentReadinessDiagnostic?: (
         reason: 'starting' | 'ready' | 'not-promptable',
@@ -693,6 +701,8 @@ export async function createHerdrSessionSource(
     const pluginInvocations = new Map<string, Promise<void>>();
     let codingCoordinator: RealtimeCodingCoordinator | undefined;
     let pluginStreams: PluginStreamManager | undefined;
+    /** Realtime voice is product code, so its own fence replaces plugin approval. */
+    const voiceStreamAborts = new Map<string, AbortController>();
     if (options.relayUrl !== undefined && options.machineId !== undefined) {
         codingCoordinator = new RealtimeCodingCoordinator(join(options.dataDir, 'realtime-coding.sock'), {
             list: listRealtimeAgents,
@@ -705,10 +715,10 @@ export async function createHerdrSessionSource(
             sendKeys: sendSessionKeys,
             prompt: promptSession,
             read: readSessionOutput,
-            status: async (sessionId) => statusFor(sessionId).agentStatus ?? 'unknown',
+            status: statusRealtimeAgent,
             watch: waitForAgent,
             focus: focusSession,
-        }, options.onRealtimePromptDiagnostic);
+        }, options.onRealtimePromptDiagnostic, options.onRealtimeCoordinationDiagnostic);
         await codingCoordinator.start();
         pluginStreams = new PluginStreamManager({
             relayUrl: options.relayUrl,
@@ -1376,7 +1386,7 @@ export async function createHerdrSessionSource(
         }
     }
 
-    async function refreshSnapshot(): Promise<void> {
+    async function refreshSnapshotOnce(): Promise<void> {
         const lifecycleEpochAtStart = new Map(lifecycleEpochByPane);
         const result = await client.call<{
             snapshot?: {
@@ -1413,6 +1423,18 @@ export async function createHerdrSessionSource(
         }
         for (const tab of result.snapshot?.tabs ?? []) tabsById.set(tab.tab_id, tab);
         await syncDiscovery();
+    }
+
+    let snapshotInFlight: Promise<void> | undefined;
+    async function refreshSnapshot(): Promise<void> {
+        if (snapshotInFlight !== undefined) return snapshotInFlight;
+        const request = refreshSnapshotOnce();
+        snapshotInFlight = request;
+        try {
+            await request;
+        } finally {
+            if (snapshotInFlight === request) snapshotInFlight = undefined;
+        }
     }
 
     function scheduleResnapshot(): void {
@@ -1929,9 +1951,27 @@ export async function createHerdrSessionSource(
         };
     }
 
-    async function listRealtimeAgents(): Promise<RealtimeCodingAgent[]> {
-        await refreshSnapshot();
-        return currentSessions().filter((session) => session.agent !== undefined).map(realtimeAgentFor);
+    function rosterFailureCode(error: unknown): 'roster-timeout' | 'roster-unavailable' {
+        const message = error instanceof Error ? error.message : String(error);
+        return /timed? ?out|timeout/i.test(message) ? 'roster-timeout' : 'roster-unavailable';
+    }
+
+    async function realtimeAgentCatalog(): Promise<RealtimeAgentCatalog> {
+        let failureCode: 'roster-timeout' | 'roster-unavailable' | undefined;
+        try {
+            await refreshSnapshot();
+        } catch (error) {
+            failureCode = rosterFailureCode(error);
+        }
+        return {
+            agents: currentSessions().filter((session) => session.agent !== undefined).map(realtimeAgentFor),
+            freshness: failureCode === undefined ? 'fresh' : 'last-known',
+            ...(failureCode === undefined ? {} : { failureCode }),
+        };
+    }
+
+    async function listRealtimeAgents(): Promise<RealtimeAgentCatalog> {
+        return realtimeAgentCatalog();
     }
 
     async function startRealtimeAgent(input: {
@@ -1952,6 +1992,11 @@ export async function createHerdrSessionSource(
             : { accepted: true, agent: realtimeAgentFor(session) };
     }
 
+    async function statusRealtimeAgent(sessionId: string): Promise<string> {
+        const session = await resolvePane(sessionId);
+        return statusFor(session.sessionId).agentStatus ?? 'unknown';
+    }
+
     /**
      * A just-started agent reports promptable a beat after it is listed, and it
      * can flap once more while it settles. Wait that out instead of losing the
@@ -1970,9 +2015,14 @@ export async function createHerdrSessionSource(
                 await sleep(500);
             } while (Date.now() < deadline);
         }
+        const generation = sessionGenerationKey(session);
         const promptable = agentPromptable(session);
         if (!promptable) options.onAgentReadinessDiagnostic?.('not-promptable', false, readinessDetail(session));
         await promptPromptableHerdrAgent(client, session, promptable, text);
+        const current = await resolvePane(sessionId);
+        if (sessionGenerationKey(current) !== generation) {
+            throw Object.assign(new Error('The prompt generation changed before its receipt could be confirmed.'), { code: 'prompt-outcome-unknown' });
+        }
     }
 
     async function sendSessionKeys(sessionId: string, keys: string[]): Promise<void> {
@@ -1981,32 +2031,33 @@ export async function createHerdrSessionSource(
         await sendKeysToLiveAgent(client, session, keys);
     }
 
+    type RealtimePaneReadSource = 'visible' | 'recent' | 'recent_unwrapped';
+    async function readPaneForRecord(
+        record: CurrentSession,
+        source: RealtimePaneReadSource,
+        lines: number | undefined,
+        ansi = false,
+    ): Promise<{ text: string; truncated: boolean }> {
+        const result = await client.call<{ read?: { text?: string; truncated?: boolean } }>('pane.read', {
+            pane_id: record.paneId,
+            source,
+            ...(lines === undefined ? {} : { lines }),
+            format: ansi ? 'ansi' : 'text',
+            strip_ansi: !ansi,
+        });
+        return { text: result.read?.text ?? '', truncated: result.read?.truncated === true };
+    }
 
     async function readSessionOutput(sessionId: string, readOptions?: { lines: number }): Promise<{ text: string; truncated: boolean }> {
         const record = await resolvePane(sessionId);
-        const source = ['idle', 'done'].includes(lifecycleOf(record)) ? 'recent-unwrapped' : 'visible';
-        const readPane = (requestedSource: 'visible' | 'recent-unwrapped') => client.call<{ read?: { text?: string; truncated?: boolean } }>('pane.read', {
-            pane_id: record.paneId,
-            source: requestedSource,
-            lines: readOptions?.lines ?? 80,
-            format: 'text',
-            strip_ansi: true,
-        });
-        // Herdr scrolls an alternate-screen transcript only when the agent is
-        // idle. Keep the live screen fallback for working/blocked agents, and
-        // also recover when a stale lifecycle snapshot picked the wrong source.
-        let result;
-        try {
-            result = await readPane(source);
-        } catch (error) {
-            if (source === 'visible') throw error;
-            result = await readPane('visible');
-        }
-        if (source !== 'visible' && !(result.read?.text ?? '').trim()) {
-            const visible = await readPane('visible').catch(() => undefined);
-            if (visible !== undefined && (visible.read?.text ?? '').trim()) result = visible;
-        }
-        return { text: result.read?.text ?? '', truncated: result.read?.truncated === true };
+        const generation = sessionGenerationKey(record);
+        const source: RealtimePaneReadSource = ['idle', 'done'].includes(lifecycleOf(record)) ? 'recent_unwrapped' : 'visible';
+        // Herdr's settled-agent transcript is the canonical source. Protocol
+        // errors stay errors; do not hide them with an arbitrary second read.
+        const result = await readPaneForRecord(record, source, readOptions?.lines ?? 80);
+        const current = await resolvePane(sessionId);
+        if (sessionGenerationKey(current) !== generation) throw agentUnavailable();
+        return result;
     }
 
     async function waitForAgent(sessionId: string, timeoutMs: number): Promise<{ status: string; detail: string; timedOut?: boolean }> {
@@ -2050,6 +2101,8 @@ export async function createHerdrSessionSource(
             );
             if (frame === undefined) return;
             // A changed/disabled manifest must not leave an old provider process live.
+            for (const abort of voiceStreamAborts.values()) abort.abort();
+            voiceStreamAborts.clear();
             pluginStreams?.closeAll();
             for (const listener of machineListeners) listener(frame);
         });
@@ -2495,22 +2548,16 @@ export async function createHerdrSessionSource(
                 const voiceSession = catalog.streamClaimsCapability(pluginId, manifestHash, contributionId, 'voice.session');
                 let publicContext: RealtimePluginPublicContext | undefined;
                 if (voiceSession) {
-                    publicContext = realtimePluginPublicContext(
-                        currentSessions()
-                            .filter((session) => session.agent !== undefined)
-                            .map((session) => {
-                                const info = infoFor(session);
-                                return {
-                                    sessionId: session.sessionId,
-                                    ...(info.agentName === undefined ? {} : { agentName: info.agentName }),
-                                    ...(info.taskTitle === undefined ? {} : { taskTitle: info.taskTitle }),
-                                    ...(info.agentKind === undefined ? {} : { agentKind: info.agentKind }),
-                                    ...(info.displayAgent === undefined ? {} : { displayAgent: info.displayAgent }),
-                                    agentStatus: info.agentStatus,
-                                    promptable: info.promptable,
-                                };
-                            }),
-                    );
+                    const agentCatalog = await realtimeAgentCatalog();
+                    // Startup context is explicitly a fresh snapshot. A
+                    // failed refresh leaves the app's cached tree useful, but
+                    // Realtime must call list_agents rather than treating it as
+                    // a live inventory.
+                    if (agentCatalog.freshness === 'fresh') {
+                        publicContext = realtimePluginPublicContext(agentCatalog.agents);
+                    } else {
+                        publicContext = realtimePluginPublicContext([]);
+                    }
                 }
                 await pluginStreams.attach({
                     target: {
@@ -2545,6 +2592,46 @@ export async function createHerdrSessionSource(
                 const call = catalog.callTarget(pluginId, manifestHash, contributionId);
                 return BROWSER_RPC_PLUGINS_ROOT !== undefined && dirname(call.pluginRoot) === BROWSER_RPC_PLUGINS_ROOT && call.modeDeclared && call.mode === 'read' ? 'read' : undefined;
             } catch { return undefined; }
+        },
+
+        /**
+         * Realtime voice is product code. It reuses the plugin stream transport
+         * and the coordinator capability, but it resolves its own adapter
+         * runtime instead of a catalog entry, and it needs no plugin approval:
+         * a paired control device is the only gate, exactly like every other
+         * product mutation.
+         */
+        async voiceStream({ deviceId, channel, sessionId }): Promise<null> {
+            if (pluginStreams === undefined) throw new Error('plugin stream transport is unavailable');
+            if (typeof channel !== 'string' || !/^rs_[A-Za-z0-9_-]{8,80}$/.test(channel)) throw new Error('invalid realtime voice channel');
+            if (voiceStreamAborts.has(channel)) throw new Error('realtime voice channel is already attached');
+            if (sessionId !== undefined) await resolvePane(sessionId);
+            const record = sessionId === undefined ? undefined : await resolvePane(sessionId);
+            const agentCatalog = await realtimeAgentCatalog();
+            const abort = new AbortController();
+            voiceStreamAborts.set(channel, abort);
+            try {
+                await pluginStreams.attach({
+                    target: { pluginId: VOICE_STREAM_ID, pluginRoot: voiceRuntimeRoot(), entry: 'stream.mjs', peerBroker: true, codingCoordinator: true },
+                    channel,
+                    stateDir: join(process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr'), 'voice'),
+                    ...(record === undefined ? {} : {
+                        sessionId: record.sessionId,
+                        paneId: record.paneId,
+                        cwd: cwdForSession(record.sessionId) ?? '',
+                    }),
+                    // Startup context is explicitly a fresh snapshot; a failed
+                    // refresh must not present a cached tree as live.
+                    publicContext: realtimePluginPublicContext(agentCatalog.freshness === 'fresh' ? agentCatalog.agents : []),
+                    deviceId,
+                    signal: abort.signal,
+                    onClosed: () => { voiceStreamAborts.delete(channel); },
+                });
+            } catch (error) {
+                voiceStreamAborts.delete(channel);
+                throw error;
+            }
+            return null;
         },
 
         async pluginCall({ deviceId, pluginId, manifestHash, contributionId, input, idempotencyKey }): Promise<unknown> {
@@ -2589,15 +2676,13 @@ export async function createHerdrSessionSource(
 
 
         async list(listOptions?: SessionListOptions): Promise<SessionInfo[]> {
-            await refreshSnapshot().then(
-                () => {
-                    client.connected = true;
-                },
-                () => {
-                    client.connected = false;
-                },
-            );
-            let sessions = currentSessions();
+            // The same roster projection powers Realtime. A one-shot snapshot
+            // failure keeps the cached tree visible without falsifying the
+            // event socket's connected state.
+            const agentCatalog = await realtimeAgentCatalog();
+            client.connected = agentCatalog.freshness === 'fresh';
+            const agentIds = new Set(agentCatalog.agents.map((agent) => agent.sessionId));
+            let sessions = currentSessions().filter((session) => session.agent === undefined || agentIds.has(session.sessionId));
             if (listOptions?.cwd !== undefined) {
                 sessions = sessions.filter((session) => cwdForSession(session.sessionId) === listOptions.cwd);
             }
@@ -2772,19 +2857,17 @@ export async function createHerdrSessionSource(
         }): Promise<{ text: string; truncated: boolean }> {
             const record = await resolvePane(readOptions.sessionId);
             const generation = sessionGenerationKey(record);
-            // herdr nests the payload under `read`, unlike pane.split's `pane`.
-            const result = await client.call<{ read?: { text?: string; truncated?: boolean } }>('pane.read', {
-                pane_id: record.paneId,
-                source: readOptions.source ?? 'recent',
-                ...(readOptions.lines === undefined ? {} : { lines: readOptions.lines }),
-                format: readOptions.ansi === true ? 'ansi' : 'text',
-                strip_ansi: readOptions.ansi !== true,
-            });
+            const result = await readPaneForRecord(
+                record,
+                readOptions.source ?? 'recent',
+                readOptions.lines,
+                readOptions.ansi === true,
+            );
             // A route may be rebound while Herdr is serving the read. Never
             // return text from the old pane/generation to the new route.
             const current = await resolvePane(readOptions.sessionId);
             if (sessionGenerationKey(current) !== generation) throw agentUnavailable();
-            return { text: result.read?.text ?? '', truncated: result.read?.truncated === true };
+            return result;
         },
 
         // By pane id, not by session: the terminal channel already resolved the
@@ -3256,6 +3339,8 @@ export async function createHerdrSessionSource(
             attachmentDownloads.dispose();
             for (const close of statusWatches.values()) close();
             statusWatches.clear();
+            for (const abort of voiceStreamAborts.values()) abort.abort();
+            voiceStreamAborts.clear();
             client.close();
             await routes.flush();
         },

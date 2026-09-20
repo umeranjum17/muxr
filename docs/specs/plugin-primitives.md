@@ -66,8 +66,8 @@ Muxr is presentation-only for Agent Name and Task Title. Those values come from 
 - `apps/mobile/sources/components/KernelNotifications.tsx` — unconditional foreground-service and baseline notification owner
 - `apps/mobile/sources/plugins/primitives/` — the compiled widgets
 - `apps/mobile/sources/voice/realtimeSession.ts` — token `url` + `transport`
-- `plugins/voice*/stream.mjs` — self-contained xAI, OpenAI Realtime, and Gemini Live adapters for the public provider-neutral `voice.session` stream; each `rpc.mjs` owns only its key lifecycle and report wording
-- `plugins/voice/coordinatorPolicy.mjs` and realtime adapters — explicit prompt target schema, clarification, and exact queued receipt wording; Codex delegation fails closed when it cannot supply a semantic target
+- `apps/host/src/voice/stream.mjs` — self-contained xAI, OpenAI Realtime, and Gemini Live adapters behind the product-owned `voice.stream`; `product.mjs` owns the key lifecycle and report wording
+- `apps/host/src/voice/coordinatorPolicy.mjs` and the realtime adapters — explicit prompt target schema, clarification, and exact queued receipt wording; Codex delegation fails closed when it cannot supply a semantic target
 - `apps/host/src/agent/infrastructure/realtimeCoordinator.ts`, `herdrSessionSource.ts`, and `diagnostics/infrastructure/journal.ts` — strict prompt parsing, receipt-to-pane validation, and privacy-safe diagnostics
 - `scripts/setup/infrastructure/herdr.mjs` — xAI defaults on, Gemini/OpenAI default off, and setup preserves every existing enabled/disabled choice across npm upgrades
 - `plugins/*/muxr-ui.json` plus the RPC sources for the bundled plugins

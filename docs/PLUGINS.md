@@ -78,7 +78,7 @@ Package management keeps Herdr as the only executable registry and runtime:
 ```bash
 muxr plugin docs
 muxr plugin create hello-muxr
-muxr plugin clone muxr.voice ./my-voice
+muxr plugin clone <id> ./my-voice
 muxr plugin check ./hello-muxr
 muxr plugin dev ./hello-muxr
 muxr plugin list
@@ -487,7 +487,7 @@ Every extension should explain:
 6. how to disable and unlink it;
 7. supported muxr UI and Herdr versions.
 
-`muxr plugin create` writes a minimal working plugin and is the fastest starting point. For a richer list/detail/form/RPC/chart example, clone a bundled one with `muxr plugin clone muxr.voice ./my-plugin`; every bundled plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons are also full examples you can read or install: `muxr plugin install umeranjum17/herdr-files` `muxr plugin install umeranjum17/herdr-attachments`.
+`muxr plugin create` writes a minimal working plugin and is the fastest starting point. A previously installed plugin can be cloned with `muxr plugin clone <id> ./my-plugin` while the checkout that shipped it still has a `plugins/` directory; every plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons are also full examples you can read or install: `muxr plugin install umeranjum17/herdr-files` `muxr plugin install umeranjum17/herdr-attachments`.
 
 ## Lists of real things
 
@@ -547,18 +547,19 @@ shows your navigation label, and an in-body title resolving to the same string
 is dropped. A blank `metric` value prints "—" instead of an empty line, because
 a missing figure is information.
 
-## Overriding a bundled plugin
+## Cloning an installed plugin
 
-Bundled plugins have no special status: they are ordinary plugins linked from
-the muxr install. To override a bundled surface, use the clone command so
-package identity is rewritten and your source lives outside npm ownership:
+Every plugin is an ordinary plugin linked into Herdr; muxr ships no bundled
+add-ons, so realtime voice and the other product surfaces are product code you
+extend in the app, not by cloning. To start from an existing plugin, clone it
+so package identity is rewritten and your source lives outside npm ownership:
 
 ```bash
-muxr plugin clone muxr.voice ./my-voice
-# edit ./my-voice/muxr-ui.json
-herdr plugin disable muxr.voice
-muxr plugin dev ./my-voice
-# if linking fails: herdr plugin enable muxr.voice
+muxr plugin clone <id> ./my-plugin
+# edit ./my-plugin/muxr-ui.json
+herdr plugin disable <id>
+muxr plugin dev ./my-plugin
+# if linking fails: herdr plugin enable <id>
 ```
 
 The same `terminal.key-row` contribution accepts up to eight `quickReplies`:
@@ -570,7 +571,7 @@ sends only validated terminal control sequences. The built-in key row is product
 code; author your own replies and keys with a `terminal.key-row` contribution in
 your own plugin (see `muxr plugin create`).
 
-Dictation, terminal keys, the workspace tree, and Panes are no longer bundled plugins — they are product code in the app, so there is nothing left to clone or override. This is a **breaking change** if you cloned `muxr.workspace-hierarchy`, `muxr.panes`, `muxr.control`, or `muxr.status` under the previously documented path: the clone keeps running after you upgrade, and because muxr never lets one plugin suppress another, you will see the surface twice — a duplicated workspace tree, a second Applications chip beside the product Panes screen, or the retired Usage screen beside the product Right-now card. Disable the clone after upgrading (`herdr plugin disable <your-clone-id>`); author your own version with the `dictate`/`tree-sheet` primitives in your own plugin instead.
+Realtime voice, Dictation, terminal keys, the workspace tree, and Panes are no longer bundled plugins — they are product code in the app, so there is nothing left to clone or override. This is a **breaking change** if you cloned `muxr.workspace-hierarchy`, `muxr.panes`, `muxr.control`, or `muxr.status` under the previously documented path: the clone keeps running after you upgrade, and because muxr never lets one plugin suppress another, you will see the surface twice — a duplicated workspace tree, a second Applications chip beside the product Panes screen, or the retired Usage screen beside the product Right-now card. Disable the clone after upgrading (`herdr plugin disable <your-clone-id>`); author your own version with the `dictate`/`tree-sheet` primitives in your own plugin instead.
 
 `muxr.terminal-keys`, `muxr.panes`, `muxr.control`, `muxr.dictation`, and `muxr.status` are retired ids: the host no longer serves those exact ids to any device, so a registration still carrying one does not double a surface — a stale dictation registration adds no second dictate button — but none appears in Settings > Plugins, so you cannot see or disable them from the phone. Disable one on the machine instead (`herdr plugin disable <id>`); `muxr setup` retracts a stale in-bundle registration, and `muxr integrations uninstall` unlinks retired ids. Re-register your copy under an id of your own to keep it, adding your keys with a `terminal.key-row` contribution.
 
@@ -659,7 +660,7 @@ The backend reads fresh Herdr topology before every mutation. Pane close needs n
 
 A stream process receives one private `realtime.open` line followed by bounded provider-neutral NDJSON frames. A PCM provider exchanges ready/audio/state/transcript/control frames and keeps its provider socket on the host. A WebRTC signaling provider exchanges bounded offer/answer SDP plus opaque data-channel control while the mobile kernel owns the peer and direct media. The host enforces approval revocation, admission, process cleanup, frame bounds, and encrypted relay transport.
 
-The package ships one voice plugin (`plugins/voice`) with four adapters under `plugins/voice/providers/`: xAI (default), Gemini Live, OpenAI Realtime, and experimental Codex Voice. Choose one under **Settings → Voice & dictation**; the selection is the plugin's own state, read by its `voice.provider.list` and `voice.provider.set` capabilities. PCM providers keep their host-relayed stream; Codex adds only the generic WebRTC transport kind.
+Realtime voice is **not** a plugin: it is product code. The four adapters under `apps/host/src/voice/providers/` (xAI, Gemini Live, OpenAI Realtime, and experimental Codex Voice) are internal and swappable behind the typed `voice.*` host methods. Choose one under **Settings → Voice & dictation**. PCM providers keep their host-relayed stream; Codex adds only the generic WebRTC transport kind.
 
 Voice uses this without knowing any provider plugin id. Its one-shot semantic RPC aliases remain:
 
@@ -706,7 +707,7 @@ Contribute Android launcher entries with the `shortcuts` slot:
 
 The app runs the same closed action union events use (`capability` or `plugin.call`). A cold shortcut first refreshes the enabled catalog and resolves the live contribution before any capability or RPC runs. If the host is unavailable or the plugin is disabled, the shortcut does nothing.
 
-The app projects every currently enabled runtime contribution into Android's dynamic launcher shortcuts with `ShortcutManagerCompat`; disabling or uninstalling the plugin removes it on the next catalog refresh. Build-bundled plugins are also baked into `res/xml/shortcuts.xml` by `apps/mobile/plugins/withAppActions.js`, using the same public manifest contribution and localized resources. Both paths deep-link through `muxr://shortcut/<id>` and re-check the live enabled catalog before acting.
+The app projects every currently enabled runtime contribution into Android's dynamic launcher shortcuts with `ShortcutManagerCompat`; disabling or uninstalling the plugin removes it on the next catalog refresh. Product shortcuts and any build-bundled plugin contributions are baked into `res/xml/shortcuts.xml` by `apps/mobile/plugins/withAppActions.js`, using the same public manifest contribution and localized resources. Both paths deep-link through `muxr://shortcut/<id>` and re-check the live enabled catalog before acting.
 
 `synonyms` remain accepted as legacy aliases for deep links made by older builds. The Play build intentionally omits optional Assistant App Actions capability metadata because Google Play rejects those resources unless its separate Actions terms entitlement is active.
 
@@ -715,4 +716,4 @@ The app projects every currently enabled runtime contribution into Android's dyn
 1. Install the release build on a phone.
 2. Long-press the launcher icon and tap the contributed shortcut.
 3. Or test the deep link directly:
-   `adb shell am start -a android.intent.action.VIEW -d "muxr://shortcut/muxr.voice.jarvis"`
+   `adb shell am start -a android.intent.action.VIEW -d "muxr://shortcut/voice.jarvis"`

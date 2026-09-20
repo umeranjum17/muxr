@@ -20,7 +20,7 @@ const mmkvValues = vi.hoisted(() => {
     return new Map<string, string>();
 });
 const voiceMocks = vi.hoisted(() => ({
-    callPlugin: vi.fn(async () => ({ say: 'Maria needs attention.' })),
+    voiceReport: vi.fn(async () => ({ say: 'Maria needs attention.' })),
     speakReport: vi.fn(async () => undefined),
     sleepAfterReports: vi.fn(),
     cancelReportWait: vi.fn(),
@@ -35,7 +35,6 @@ vi.mock('@/connection', () => ({
     getCachedConnectionSettings: () => ({ machineId: 'machine' }),
 }));
 vi.mock('./sync', () => ({ sync: { request, refreshSessions } }));
-vi.mock('@/plugins/callPlugin', () => ({ callPlugin: voiceMocks.callPlugin }));
 vi.mock('@/../modules/voice-overlay', () => ({
     startVoiceService: () => true,
     stopVoiceService: () => undefined,
@@ -56,6 +55,7 @@ vi.mock('@/conversation/session', () => ({
     },
     sleepAfterReports: voiceMocks.sleepAfterReports,
     speakReport: voiceMocks.speakReport,
+    voiceReport: voiceMocks.voiceReport,
     startRealtimeSession: () => {
         voiceMocks.generation += 1;
         voiceMocks.state = 'connected';
@@ -98,7 +98,7 @@ describe('session sync flow', () => {
         vi.restoreAllMocks();
         refreshSessions.mockReset();
         request.mockReset();
-        voiceMocks.callPlugin.mockClear();
+        voiceMocks.voiceReport.mockClear();
         voiceMocks.speakReport.mockClear();
         voiceMocks.sleepAfterReports.mockClear();
         voiceMocks.cancelReportWait.mockClear();
@@ -738,7 +738,7 @@ describe('session sync flow', () => {
         voiceMocks.watching = true;
         for (const listener of voiceMocks.listeners) listener();
         await vi.waitFor(() => expect(voiceMocks.speakReport).toHaveBeenCalledOnce());
-        expect(voiceMocks.callPlugin).toHaveBeenCalledWith('voice.report', {
+        expect(voiceMocks.voiceReport).toHaveBeenCalledWith({
             displayName: 'Maria', taskTitle: 'Stabilizing realtime voice', status: 'blocked', outcome: 'blocked',
         });
         expect(restarted.getState().voicePendingReports).toEqual([]);
@@ -749,7 +749,7 @@ describe('session sync flow', () => {
         expect(restarted.getState().voicePendingReports).toEqual([]);
         expect(restarted.getState().admitVoiceReport(durableReport)).toBe('delivered');
         expect(restarted.getState().admitVoiceReport({ ...durableReport, identity: 'voice-delivered' })).toBe('delivered');
-        expect(JSON.stringify(voiceMocks.callPlugin.mock.calls)).not.toMatch(/secret-token|hunter-two|key=abcdef|sk-abcdef|eyJhbG|private key|ignore previous|assistant:|\/home\/user|pp_deadbeef|disregard earlier/i);
+        expect(JSON.stringify(voiceMocks.voiceReport.mock.calls)).not.toMatch(/secret-token|hunter-two|key=abcdef|sk-abcdef|eyJhbG|private key|ignore previous|assistant:|\/home\/user|pp_deadbeef|disregard earlier/i);
 
         // Switching the real persisted scope rejects stale callers immediately,
         // while leaving user-owned realtime and the old durable item untouched.
@@ -757,12 +757,12 @@ describe('session sync flow', () => {
         voiceMocks.state = 'connected';
         const sleepCount = voiceMocks.sleepAfterReports.mock.calls.length;
         let finishRpc!: (value: { say: string }) => void;
-        voiceMocks.callPlugin.mockImplementationOnce(() => new Promise((resolve) => { finishRpc = resolve; }));
+        voiceMocks.voiceReport.mockImplementationOnce(() => new Promise((resolve) => { finishRpc = resolve; }));
         const stale = coordinator.wakeAndReport({
             sessionId: 'scope-session', from: 'working', status: 'blocked', eventId: 'scope-event',
             agentName: 'Nora', taskTitle: 'Resolve scoped issue',
         });
-        await vi.waitFor(() => expect(voiceMocks.callPlugin).toHaveBeenCalledTimes(2));
+        await vi.waitFor(() => expect(voiceMocks.voiceReport).toHaveBeenCalledTimes(2));
         restarted.getState().setLifecycleScope('new-scope');
         await expect(stale).rejects.toThrow('scope changed');
         const scopedPersistence = JSON.parse(mmkvValues.get('lifecycle-voice-reports-v1')!) as {
@@ -776,7 +776,7 @@ describe('session sync flow', () => {
         await Promise.resolve();
         expect(voiceMocks.speakReport).toHaveBeenCalledOnce();
         expect(voiceMocks.sleepAfterReports).toHaveBeenCalledTimes(sleepCount);
-        const deliveredCallCount = voiceMocks.callPlugin.mock.calls.length;
+        const deliveredCallCount = voiceMocks.voiceReport.mock.calls.length;
 
         // A second process restart reconstructs delivered identity only; activation cannot replay it.
         voiceMocks.listeners.clear();
@@ -790,7 +790,7 @@ describe('session sync flow', () => {
         for (const listener of voiceMocks.listeners) listener();
         await Promise.resolve();
         await Promise.resolve();
-        expect(voiceMocks.callPlugin).toHaveBeenCalledTimes(deliveredCallCount);
+        expect(voiceMocks.voiceReport).toHaveBeenCalledTimes(deliveredCallCount);
         expect(voiceMocks.speakReport).toHaveBeenCalledOnce();
     });
 

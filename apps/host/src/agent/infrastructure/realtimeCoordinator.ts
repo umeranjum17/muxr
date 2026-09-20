@@ -24,7 +24,40 @@ export interface RealtimeCodingStartResult {
     agent?: RealtimeCodingAgent;
 }
 
+export type RealtimeCatalogFreshness = 'fresh' | 'last-known';
+export type RealtimeCatalogFailureCode = 'roster-timeout' | 'roster-unavailable';
+
+export interface RealtimeAgentCatalog {
+    agents: RealtimeCodingAgent[];
+    freshness: RealtimeCatalogFreshness;
+    failureCode?: RealtimeCatalogFailureCode;
+}
+
+export type RealtimeCodingFailureCode =
+    | RealtimeCatalogFailureCode
+    | 'status-unavailable'
+    | 'output-unavailable'
+    | 'prompt-not-sent'
+    | 'prompt-outcome-unknown'
+    | 'capability-revoked'
+    | 'request-invalid'
+    | 'operation-timeout'
+    | 'operation-unavailable';
+
 export type RealtimePromptOutcome = 'queued' | 'rejected' | 'failed';
+
+export const REALTIME_FAILURE_MESSAGES: Readonly<Record<RealtimeCodingFailureCode, string>> = {
+    'roster-timeout': 'The live agent roster timed out. No action was performed.',
+    'roster-unavailable': 'The live agent roster is unavailable. No action was performed.',
+    'status-unavailable': 'The agent status could not be confirmed. No action was performed.',
+    'output-unavailable': 'The agent output could not be read. No action was performed.',
+    'prompt-not-sent': 'The prompt was not sent. No action was performed.',
+    'prompt-outcome-unknown': 'The prompt outcome is unconfirmed. Do not repeat it automatically.',
+    'capability-revoked': 'Voice coordination is no longer authorized. No action was performed.',
+    'request-invalid': 'That work request is invalid. No action was performed.',
+    'operation-timeout': 'The work request timed out. Its outcome is unconfirmed; do not repeat an action automatically.',
+    'operation-unavailable': 'The work request is unavailable. No action was performed.',
+};
 
 export interface RealtimePromptDiagnostic {
     provider: string;
@@ -34,8 +67,19 @@ export interface RealtimePromptDiagnostic {
     outcome: RealtimePromptOutcome;
 }
 
+export type RealtimeCoordinationOperation = 'list' | 'status' | 'read' | 'prompt' | 'watch' | 'start' | 'key' | 'focus' | 'context';
+export type RealtimeCoordinationOutcome = 'ok' | 'rejected' | 'timeout' | 'unavailable';
+
+export interface RealtimeCoordinationDiagnostic {
+    provider: string;
+    operation: RealtimeCoordinationOperation;
+    outcome: RealtimeCoordinationOutcome;
+    durationMs: number;
+    code?: RealtimeCodingFailureCode;
+}
+
 export interface RealtimeCodingHandlers {
-    list(): Promise<RealtimeCodingAgent[]>;
+    list(): Promise<RealtimeAgentCatalog>;
     activity(): Promise<LifecycleEvent[]>;
     kinds?(): Promise<string[]>;
     start(input: { cwd: string; taskTitle: string; kind: string }): Promise<RealtimeCodingStartResult>;
@@ -50,6 +94,13 @@ export interface RealtimeCodingHandlers {
 export interface RealtimeCoordinatorAccess {
     socketPath: string;
     capability: string;
+}
+
+class RealtimeCodingFailure extends Error {
+    constructor(readonly code: RealtimeCodingFailureCode) {
+        super(REALTIME_FAILURE_MESSAGES[code]);
+        this.name = 'RealtimeCodingFailure';
+    }
 }
 
 type CodingRequest =
@@ -244,6 +295,48 @@ function spokenTaskTitle(agent: RealtimeCodingAgent): string {
     return safeProviderText(taskLabel(agent), 120) || 'Unnamed agent';
 }
 
+function diagnosticOperation(method: string | undefined): RealtimeCoordinationOperation {
+    const operations: Partial<Record<string, RealtimeCoordinationOperation>> = {
+        context: 'context',
+        status: 'status',
+        read: 'read',
+        prompt: 'prompt',
+        watch: 'watch',
+        start: 'start',
+        key: 'key',
+        focus: 'focus',
+    };
+    return method === undefined ? 'list' : operations[method] ?? 'list';
+}
+
+function errorCode(error: unknown): string | undefined {
+    if (error === null || typeof error !== 'object') return undefined;
+    const code = (error as { code?: unknown }).code;
+    return typeof code === 'string' ? code : undefined;
+}
+
+function failureCodeFor(method: string | undefined, error: unknown): RealtimeCodingFailureCode {
+    const known = errorCode(error);
+    if (known !== undefined && known in REALTIME_FAILURE_MESSAGES) return known as RealtimeCodingFailureCode;
+    const message = error instanceof Error ? error.message : String(error);
+    if (/timed? ?out|timeout/i.test(message)) {
+        if (method === 'list' || method === 'context') return 'roster-timeout';
+        if (method === 'prompt' || method === 'start' || method === 'key' || method === 'focus') return 'prompt-outcome-unknown';
+        return 'operation-timeout';
+    }
+    if (method === 'list' || method === 'context') return 'roster-unavailable';
+    if (method === 'status') return 'status-unavailable';
+    if (method === 'read') return 'output-unavailable';
+    if (method === 'prompt') return 'prompt-outcome-unknown';
+    return 'operation-unavailable';
+}
+
+function failureOutcome(code: RealtimeCodingFailureCode): RealtimeCoordinationOutcome {
+    if (code === 'roster-timeout' || code === 'operation-timeout' || code === 'prompt-outcome-unknown') return 'timeout';
+    if (code === 'roster-unavailable' || code === 'status-unavailable' || code === 'output-unavailable' || code === 'operation-unavailable') return 'unavailable';
+    return 'rejected';
+}
+
 export class RealtimeCodingCoordinator {
     private server: Server | undefined;
     private readonly capabilities = new Map<string, CapabilityState>();
@@ -252,6 +345,7 @@ export class RealtimeCodingCoordinator {
         readonly socketPath: string,
         private readonly handlers: RealtimeCodingHandlers,
         private readonly onPromptDiagnostic?: (event: RealtimePromptDiagnostic) => void,
+        private readonly onCoordinationDiagnostic?: (event: RealtimeCoordinationDiagnostic) => void,
     ) {}
 
     async start(): Promise<void> {
@@ -304,21 +398,41 @@ export class RealtimeCodingCoordinator {
         if (existsSync(this.socketPath) && lstatSync(this.socketPath).isSocket()) unlinkSync(this.socketPath);
     }
 
-    private async currentAgents(): Promise<RealtimeCodingAgent[]> {
-        return (await this.handlers.list()).filter((agent) => PRIVATE_ID.test(agent.sessionId));
+    private async currentAgents(): Promise<RealtimeAgentCatalog> {
+        try {
+            const catalog = await this.handlers.list();
+            return {
+                ...catalog,
+                agents: catalog.agents.filter((agent) => PRIVATE_ID.test(agent.sessionId)),
+            };
+        } catch (error) {
+            throw Object.assign(error instanceof Error ? error : new Error('roster unavailable'), {
+                code: failureCodeFor('list', error),
+            });
+        }
     }
 
     private async resolve(state: CapabilityState, spoken: string | undefined): Promise<{ agent?: RealtimeCodingAgent; clarification?: string }> {
-        const agents = await this.currentAgents();
+        const catalog = await this.currentAgents();
+        const agents = catalog.agents;
+        const unavailable = 'The live agent roster is unavailable. I can only use a last-confirmed exact match; ask me to list agents again before choosing another name.';
         if (spoken === undefined || spoken.trim() === '') {
             const active = agents.find((agent) => agent.sessionId === state.activeSessionId);
-            return active === undefined
-                ? { clarification: 'Which named agent should I use? Use list_agents to inspect the available agents.' }
-                : { agent: active };
+            if (active !== undefined) return { agent: active };
+            return {
+                clarification: catalog.freshness === 'fresh'
+                    ? 'Which named agent should I use? Use list_agents to inspect the available agents.'
+                    : unavailable,
+            };
         }
         const clean = cleanHuman(spoken, '', 160);
         const publicSpoken = safeProviderText(clean, 160) || 'that spoken name';
         const direct = agents.filter((agent) => agent.agentName !== undefined && key(agent.agentName) === key(clean));
+        if (catalog.freshness === 'last-known') {
+            const exact = agents.filter((agent) => agentLabels(agent).some((label) => key(label) === key(clean)));
+            if (exact.length === 1) return { agent: exact[0]! };
+            return { clarification: unavailable };
+        }
         if (direct.length > 1) {
             const choices = direct.map((agent) => `${spokenAgentName(agent)}, ${spokenTaskTitle(agent)}, ${agentKindLabel(agent)}`).join('; or ');
             return { clarification: `More than one agent is named ${publicSpoken}. Which one: ${choices}?` };
@@ -396,32 +510,41 @@ export class RealtimeCodingCoordinator {
 
     private async invoke(state: CapabilityState, request: CodingRequest): Promise<string> {
         if (request.method === 'context') {
-            const agents = await this.currentAgents();
+            const agentCatalog = await this.currentAgents();
+            const agents = agentCatalog.agents;
             const selected = agents.find((agent) => agent.sessionId === state.activeSessionId);
             const describe = (agent: RealtimeCodingAgent): string => `${spokenAgentName(agent)}, ${spokenTaskTitle(agent)}; ${agentKindLabel(agent)}; ${agent.agentStatus}`;
             const focused = agents.filter((agent) => agent.focused);
             const kinds = await this.handlers.kinds?.().catch(() => []) ?? [];
-            return `Voice target or last tool-selected agent: ${selected ? describe(selected) : 'none'}. Desktop focus: ${focused.map(describe).join('; ') || 'none'}. ${agents.length} live agents available. Installed agent kinds: ${kinds.map(kindLabel).join(', ') || 'not reported'}. Use inspect_app for actual phone focus and recently viewed agents; lifecycle recency is not user viewing history. If the user has not identified a target, offer these candidates and ask one short clarification before sending a prompt.`;
+            const availability = agentCatalog.freshness === 'fresh'
+                ? `${agents.length} live agents available.`
+                : `${agents.length} agents are last confirmed; the live roster is unavailable, so do not present that count as current.`;
+            return `Voice target or last tool-selected agent: ${selected ? describe(selected) : 'none'}. Desktop focus: ${focused.map(describe).join('; ') || 'none'}. ${availability} Installed agent kinds: ${kinds.map(kindLabel).join(', ') || 'not reported'}. Use inspect_app for actual phone focus and recently viewed agents; lifecycle recency is not user viewing history. If the user has not identified a target, offer these candidates and ask one short clarification before sending a prompt.`;
         }
         if (request.method === 'list') {
             const requestedKind = request.kind === undefined ? undefined : key(cleanHuman(request.kind, '', 32));
-            const catalog = (await this.currentAgents())
+            const agentCatalog = await this.currentAgents();
+            const catalog = agentCatalog.agents
                 .filter((agent) => requestedKind === undefined || agent.agentKind !== undefined && key(agent.agentKind) === requestedKind)
                 .sort((left, right) => (right.changedAt ?? 0) - (left.changedAt ?? 0) || agentNameLabel(left).localeCompare(agentNameLabel(right)));
             const matching = request.query ? spokenMatches(request.query, catalog, agentLabels) : catalog;
             const offset = request.offset ?? 0;
             const agents = matching.slice(offset, offset + Math.min(request.limit ?? 8, 8));
-            if (agents.length === 0 && request.query) return `No live agents match ${safeProviderText(request.query, 160)}. ${catalog.length} agents are available in this catalog; list without a query or try another task keyword.`;
-            if (agents.length === 0 && offset > 0) return `No more matching agents. Total matches: ${matching.length}.`;
+            const freshness = agentCatalog.freshness === 'fresh'
+                ? ''
+                : ' The live roster could not be refreshed; these are last-confirmed labels and the count is not current.';
+            if (agents.length === 0 && request.query) return `No live agents match ${safeProviderText(request.query, 160)}.${freshness} Use list_agents without a query or try another task keyword.`;
+            if (agents.length === 0 && offset > 0) return `No more matching agents.${freshness}`;
             if (agents.length === 0) return requestedKind === undefined
-                ? 'No named coding agents are available.'
-                : `No ${safeProviderText(request.kind!, 32)} agents are available.`;
+                ? `No named coding agents are available.${freshness}`
+                : `No ${safeProviderText(request.kind!, 32)} agents are available.${freshness}`;
             const names = agents.map((agent) => {
                 const display = agent.displayAgent === undefined ? '' : `; display ${safeProviderText(agent.displayAgent, 80)}`;
                 return `${spokenAgentName(agent)} — ${spokenTaskTitle(agent)}; ${agentKindLabel(agent)}${display}; ${agent.agentStatus}; promptable ${agent.promptable}; ${agent.focused ? 'desktop focused; ' : ''}workspace ${safeProviderText(agent.workspace ?? 'unknown', 80)}; tab ${safeProviderText(agent.tab ?? 'unknown', 80)}${agent.changedAt ? `; status changed ${Math.max(0, Math.floor((Date.now() - agent.changedAt) / 1000))} seconds ago` : ''}`;
             });
             const next = offset + agents.length < matching.length ? ` More results: call list_agents with offset ${offset + agents.length}.` : '';
-            return `Showing ${offset + 1}–${offset + agents.length} of ${matching.length} agents, most recent first: ${names.join('. ')}.${next}`;
+            const total = agentCatalog.freshness === 'fresh' ? `of ${matching.length} agents` : `of ${matching.length} last-confirmed agents`;
+            return `Showing ${offset + 1}–${offset + agents.length} ${total}, most recent first: ${names.join('. ')}.${next}${freshness}`;
         }
         if (request.method === 'activity') {
             const seen = new Set<string>();
@@ -445,8 +568,9 @@ export class RealtimeCodingCoordinator {
             if (taskTitle === undefined || !KIND.test(kind)) {
                 return 'Please give an agent kind and concise task title.';
             }
-            const agents = await this.currentAgents();
-            const active = agents.find((agent) => agent.sessionId === state.activeSessionId);
+            const agentCatalog = await this.currentAgents();
+            if (agentCatalog.freshness === 'last-known') return REALTIME_FAILURE_MESSAGES['roster-unavailable'];
+            const active = agentCatalog.agents.find((agent) => agent.sessionId === state.activeSessionId);
             const cwd = active && isAbsolute(active.cwd) && active.cwd.length <= 4096 ? active.cwd : state.cwd;
             if (cwd === undefined) return 'I need an active project before I can start an agent.';
             const result = await this.handlers.start({ cwd, taskTitle, kind });
@@ -524,31 +648,50 @@ export class RealtimeCodingCoordinator {
             if (newline === -1) return;
             socket.removeAllListeners('data');
             void (async () => {
+                const startedAt = Date.now();
+                let state: CapabilityState | undefined;
+                let request: CodingRequest | undefined;
+                let method: string | undefined;
                 try {
                     const message = record(JSON.parse(input.slice(0, newline)), 'realtime coordinator message');
                     only(message, ['id', 'capability', 'request']);
                     id = string(message.id, 'id', 200).slice(0, 160);
                     const capability = string(message.capability, 'capability', 200);
-                    const state = this.capabilities.get(capability);
-                    if (state === undefined) throw new Error('realtime coordinator capability rejected');
+                    state = this.capabilities.get(capability);
+                    if (state === undefined) throw new RealtimeCodingFailure('capability-revoked');
                     state.sockets.add(socket);
-                    socket.once('close', () => state.sockets.delete(socket));
-                    let request: CodingRequest;
+                    socket.once('close', () => state?.sockets.delete(socket));
+                    const raw = typeof message.request === 'object' && message.request !== null && !Array.isArray(message.request)
+                        ? message.request as Record<string, unknown>
+                        : undefined;
+                    method = typeof raw?.method === 'string' ? raw.method : undefined;
                     try {
                         request = parseRequest(message.request);
                     } catch (error) {
-                        const raw = typeof message.request === 'object' && message.request !== null && !Array.isArray(message.request)
-                            ? message.request as Record<string, unknown>
-                            : undefined;
-                        if (raw?.method === 'prompt') {
-                            this.promptDiagnostic(state, typeof raw.agent === 'string' ? raw.agent : 'unspecified', undefined, 'rejected');
+                        if (method === 'prompt') {
+                            this.promptDiagnostic(state, typeof raw?.agent === 'string' ? raw.agent : 'unspecified', undefined, 'rejected');
                         }
-                        throw error;
+                        throw new RealtimeCodingFailure('request-invalid');
                     }
                     const data = await this.invoke(state, request);
+                    this.onCoordinationDiagnostic?.({
+                        provider: state.provider,
+                        operation: diagnosticOperation(method),
+                        outcome: 'ok',
+                        durationMs: Date.now() - startedAt,
+                    });
                     if (!socket.destroyed) socket.end(`${JSON.stringify({ id, ok: true, data: boundedProviderText(data) })}\n`);
-                } catch {
-                    if (!socket.destroyed) socket.end(`${JSON.stringify({ id, ok: false, error: 'Voice coordination could not complete that request.' })}\n`);
+                } catch (error) {
+                    const code = error instanceof RealtimeCodingFailure ? error.code : failureCodeFor(method, error);
+                    const provider = state?.provider ?? 'unknown';
+                    this.onCoordinationDiagnostic?.({
+                        provider,
+                        operation: diagnosticOperation(method),
+                        outcome: failureOutcome(code),
+                        durationMs: Date.now() - startedAt,
+                        code,
+                    });
+                    if (!socket.destroyed) socket.end(`${JSON.stringify({ id, ok: false, code, error: REALTIME_FAILURE_MESSAGES[code] })}\n`);
                 }
             })();
         });

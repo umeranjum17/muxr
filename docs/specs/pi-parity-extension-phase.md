@@ -64,7 +64,7 @@ Likely files:
 - `apps/mobile/sources/extensions/DeclarativeScreen.tsx`
 - `apps/mobile/sources/extensions/ExtensionSlot.tsx`
 - `apps/mobile/sources/extensions/useSlotContributions.ts`
-- `plugins/voice/muxr-ui.json`
+- the native realtime voice screens under `apps/mobile/sources/app/(app)/settings/voice*.tsx`
 - `scripts/plugin/application/checkPlugin.mjs`
 
 ## Milestone 2: Package Management

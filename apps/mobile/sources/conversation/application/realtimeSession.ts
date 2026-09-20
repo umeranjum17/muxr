@@ -1,8 +1,7 @@
 import { realtimePcm16ByteLength, type RealtimeHostFrame } from '@muxr/contract';
 import { reportEnergy, resetEnergy } from './audioEnergy';
-import {
-    capturePluginStreamSnapshot, openPluginStream, refreshPluginStreamSnapshot, type PluginStream,
-} from '@/plugins/openPluginStream';
+import { refreshPluginStreamSnapshot, type PluginStream } from '@/plugins/openPluginStream';
+import { captureVoiceStreamSnapshot, openVoiceStream } from './openVoiceStream';
 import { acquireRealtimeCapture, type RealtimeCaptureLease } from './vadStandby';
 import { createRealtimePlayback } from '@/playback';
 import { sync } from '@/catalog/sync';
@@ -34,7 +33,7 @@ export function startRealtimeSession(options: {
 }): RealtimeHandle {
     const { target, onStatus, onTurn, onActivity } = options;
     const playback = createRealtimePlayback();
-    let streamSnapshot = capturePluginStreamSnapshot('voice.session', target.machineId);
+    let streamSnapshot = captureVoiceStreamSnapshot(target.machineId);
     let stream: StablePluginStream | undefined;
     let readyStream: StablePluginStream | undefined;
     let stopped = false;
@@ -230,10 +229,9 @@ export function startRealtimeSession(options: {
             onStatus('connecting', reconnects === 0 ? undefined : 'Reconnecting voice stream');
             const snapshot = await refreshPluginStreamSnapshot(await streamSnapshot);
             streamSnapshot = Promise.resolve(snapshot);
-            const next = await openPluginStream('voice.session', {
+            const next = await openVoiceStream({
                 sessionId: target.sessionId,
                 snapshot,
-                requestControl: (params) => sync.request('plugin.stream', params),
             }) as StablePluginStream;
             if (stopped) { next.close(); return; }
             let readySeen = false;

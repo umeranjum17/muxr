@@ -41,7 +41,7 @@ import {
 import { parseHostedAuth, pairingIntentFromHostedFlags } from '../domain/dist/index.js';
 import {
     detectedLifecycleTargets,
-    ensureBundledPlugins,
+    retireBundledPlugins,
     ensureHerdr,
     ensureHerdrServer,
     herdrBin,
@@ -343,7 +343,7 @@ export async function applyHostedSetup(args = []) {
         });
         if (binary) {
             await ensureHerdrServer(binary, dryRun);
-            await ensureBundledPlugins(binary, dryRun);
+            await retireBundledPlugins(binary, dryRun);
             const integrationArgs = ['sync', ...(dryRun ? ['--dry-run'] : []), ...(args.includes('--force') ? ['--force'] : [])];
             if (args.includes('--all')) integrationArgs.push('--all');
             if ((await runIntegrations(integrationArgs)) !== 0) throw new Error('integration sync failed');

@@ -32,7 +32,6 @@ const allowedFeatureCycles = [
     'account<->catalog', 'account<->pairing', 'catalog<->herd', 'catalog<->pairing',
     'catalog<->watch', 'connection<->pairing', 'conversation<->plugins',
     'conversation<->watch', 'herd<->plugins', 'herd<->spawn', 'herd<->terminal',
-    'plugins<->watch',
 ];
 
 // Cross-feature internal imports were repointed to public barrels during the

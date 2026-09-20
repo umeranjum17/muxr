@@ -191,7 +191,7 @@ The work lands as one cohesive feature PR.
 - `apps/mobile/sources/plugins/openPluginStream.ts`
 - `apps/mobile/sources/realtime/realtimeSessionState.ts`
 - `apps/mobile/sources/voice/realtimeSession.ts`
-- bundled voice provider stream adapters under `plugins/voice*/`
+- the product-owned realtime voice adapters under `apps/host/src/voice/`
 
 ## Revisions
 

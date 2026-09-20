@@ -67,7 +67,7 @@ Application operations: [apps/mobile/sources/USE_CASES.md](./apps/mobile/sources
 ## Relationships
 
 - **CLI → named use cases**: `scripts/cli.mjs` is a composition root. It parses argv/menus and calls named application functions through each feature's public index.
-- **Setup → Plugin (public)**: linking bundled plugins reads Plugin Id from the plugin public index
+- **Setup → Plugin (public)**: linking plugins reads Plugin Id from the plugin public index
 - **Release → Setup / Plugin trees**: pack copies compiled context folders into the npm artifact
 - **Diagnostics → Setup (public)**: self-host and Tailscale checks call setup use cases through the public index
 - **Plugin clone → Voice**: cloned adapters vendor `../voice/*` files so they stay self-contained

@@ -1,8 +1,8 @@
 // Expo config plugin: Android launcher shortcuts.
 //
-// Shortcuts come from the bundled plugins' own muxr-ui.json. Static shortcuts
-// are baked at build time by Android's design. Runtime-installed plugins use
-// the same contribution through ShortcutManagerCompat.
+// Product shortcuts are declared here; runtime-installed plugins add their own
+// `shortcuts` contributions through ShortcutManagerCompat. Static shortcuts are
+// baked at build time by Android's design.
 const { readdirSync, readFileSync, mkdirSync, writeFileSync, existsSync, unlinkSync } = require('fs');
 const { join } = require('path');
 const { withAndroidManifest, withDangerousMod, withInfoPlist, AndroidConfig } = require('expo/config-plugins');
@@ -35,7 +35,22 @@ function dedupe(values) {
     });
 }
 
+/** Product-owned shortcuts. Realtime voice is product code, so it lives here. */
+const PRODUCT_SHORTCUTS = [{
+    shortcutId: 'voice.jarvis',
+    resourceName: 'voice_jarvis',
+    label: 'Jarvis',
+    longLabel: 'Talk to muxr',
+    synonyms: ['Jarvis', 'voice agent', 'talk', 'live voice'],
+    localized: {},
+    action: { type: 'capability', name: 'voice.start' },
+}];
+
 function bundledShortcuts() {
+    return [...PRODUCT_SHORTCUTS, ...pluginShortcuts()];
+}
+
+function pluginShortcuts() {
     if (!existsSync(PLUGINS_DIR)) return [];
     return readdirSync(PLUGINS_DIR, { withFileTypes: true })
         .filter((entry) => entry.isDirectory())

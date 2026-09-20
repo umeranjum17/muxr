@@ -18,4 +18,8 @@ export default defineConfig({
     resolve: {
         alias: [{ find: /^@\//, replacement: path.resolve('apps/mobile/sources') + '/' }],
     },
+    // Metro defines this global for the app. A spec that reaches a product
+    // module which imports an Expo module must fail on behaviour, not on an
+    // absent bundler global.
+    define: { __DEV__: 'false' },
 });

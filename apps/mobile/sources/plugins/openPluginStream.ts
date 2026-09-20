@@ -34,20 +34,28 @@ const MAX_PENDING_WIRE_FRAMES = 1024;
 const MAX_PENDING_WIRE_BYTES = 16 * 1024 * 1024;
 const MAX_SEND_BUFFER_BYTES = 512 * 1024;
 
-/** Everything reconnect may use, captured once before the call opens. */
-export interface PluginStreamSnapshot {
+/**
+ * Everything reconnect may use, captured once before the call opens. The
+ * transport fields are shared by every realtime stream; a plugin stream adds
+ * the catalog identity it must echo back to the host.
+ */
+export interface RealtimeStreamSnapshot {
     capability: string;
     machineId: string;
     relayUrl: string;
     mode: 'hosted' | 'local';
     token: string;
-    pluginId: string;
-    manifestHash: string;
-    contributionId: string;
     grant?: StoredHostedGrant;
 }
 
-export async function capturePluginStreamSnapshot(capability: string, machineId: string): Promise<PluginStreamSnapshot> {
+export interface PluginStreamSnapshot extends RealtimeStreamSnapshot {
+    pluginId: string;
+    manifestHash: string;
+    contributionId: string;
+}
+
+/** Machine, relay and grant pins shared by plugin and product voice streams. */
+export async function captureStreamTransport(capability: string, machineId: string): Promise<RealtimeStreamSnapshot> {
     const settings = { ...getCachedConnectionSettings() };
     if (settings.machineId !== machineId) throw new Error('End voice before switching computers.');
     const cachedGrant = settings.mode === 'hosted' ? getCachedHostedGrant(machineId) : undefined;
@@ -58,7 +66,18 @@ export async function capturePluginStreamSnapshot(capability: string, machineId:
     if (getCachedConnectionSettings().machineId !== machineId) throw new Error('End voice before switching computers.');
     const grant = latestGrant === undefined ? undefined : JSON.parse(JSON.stringify(latestGrant)) as StoredHostedGrant;
     if (grant !== undefined && grant.expiresAt <= Date.now()) throw new Error('stream: device grant expired; pair again');
+    return {
+        capability,
+        machineId,
+        relayUrl: grant?.relayUrl ?? settings.relayUrl,
+        mode: settings.mode,
+        token: grant?.credential ?? settings.token,
+        ...(grant === undefined ? {} : { grant }),
+    };
+}
 
+export async function capturePluginStreamSnapshot(capability: string, machineId: string): Promise<PluginStreamSnapshot> {
+    const transport = await captureStreamTransport(capability, machineId);
     await refreshPlugins();
     if (getCachedConnectionSettings().machineId !== machineId) throw new Error('End voice before switching computers.');
     const matches = pluginSnapshot().filter(({ summary }) => summary.capabilities[capability] !== undefined);
@@ -69,21 +88,11 @@ export async function capturePluginStreamSnapshot(capability: string, machineId:
     const contribution = manifest.contributions.find((candidate): candidate is PluginStreamCapability =>
         candidate.slot === 'host.stream' && candidate.id === contributionId);
     if (contribution === undefined) throw new Error(`${capability} capability is not a host.stream contribution`);
-    return {
-        capability,
-        machineId,
-        relayUrl: grant?.relayUrl ?? settings.relayUrl,
-        mode: settings.mode,
-        token: grant?.credential ?? settings.token,
-        pluginId: summary.pluginId,
-        manifestHash: summary.manifestHash,
-        contributionId,
-        ...(grant === undefined ? {} : { grant }),
-    };
+    return { ...transport, pluginId: summary.pluginId, manifestHash: summary.manifestHash, contributionId };
 }
 
 /** Refresh only the pinned machine's grant generation; never re-read the active machine or provider. */
-export async function refreshPluginStreamSnapshot(snapshot: PluginStreamSnapshot): Promise<PluginStreamSnapshot> {
+export async function refreshPluginStreamSnapshot<T extends RealtimeStreamSnapshot>(snapshot: T): Promise<T> {
     if (snapshot.grant === undefined) return snapshot;
     const refreshed = await refreshHostedGrant(snapshot.machineId, snapshot.token, snapshot.relayUrl);
     if (refreshed === undefined || refreshed.machineId !== snapshot.machineId || refreshed.deviceId !== snapshot.grant.deviceId) {
@@ -110,6 +119,36 @@ export async function openPluginStream(
         capability,
         options.machineId ?? getCachedConnectionSettings().machineId,
     );
+    return openRealtimeStream(capability, {
+        ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+        snapshot,
+        attach: (params) => options.requestControl({
+            pluginId: snapshot.pluginId,
+            manifestHash: snapshot.manifestHash,
+            contributionId: snapshot.contributionId,
+            ...params,
+        }),
+    });
+}
+
+/**
+ * Attach one realtime stream over the relay. The caller owns how the host is
+ * asked to attach it, so a plugin stream and a product voice stream share the
+ * exact framing, e2ee and backpressure behaviour.
+ */
+export async function openRealtimeStream(
+    capability: string,
+    options: {
+        sessionId?: string;
+        machineId?: string;
+        snapshot?: RealtimeStreamSnapshot;
+        attach: (params: { channel: string; sessionId?: string }) => Promise<unknown>;
+    },
+): Promise<PluginStream> {
+    const snapshot = options.snapshot ?? await captureStreamTransport(
+        capability,
+        options.machineId ?? getCachedConnectionSettings().machineId,
+    );
     if (snapshot.capability !== capability) throw new Error('stream capability snapshot mismatch');
     const grant = snapshot.grant;
     const hosted = grant === undefined ? undefined : new DeviceV2Crypto(grant);
@@ -117,10 +156,7 @@ export async function openPluginStream(
     if (getCachedConnectionSettings().machineId !== snapshot.machineId) throw new Error('End voice before switching computers.');
     // Reuse the main relay client: a second socket receives the same encrypted broadcasts
     // and can lose the shared replay race before its plugin.stream result arrives.
-    await options.requestControl({
-        pluginId: snapshot.pluginId,
-        manifestHash: snapshot.manifestHash,
-        contributionId: snapshot.contributionId,
+    await options.attach({
         channel,
         ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
     });

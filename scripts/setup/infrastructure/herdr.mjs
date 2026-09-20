@@ -36,24 +36,25 @@ import {
     stateDir,
     xml,
 } from './runtime.mjs';
-import { panePackFolder, pluginFolder, pluginsRoot } from './paths.mjs';
+import { panePackFolder, voiceFolder } from './paths.mjs';
 import { parseBundledPlugin } from '../../plugin/index.mjs';
 
-const bundledPluginPath = (name) => pluginFolder(name);
+/**
+ * Herdr plugins muxr itself used to bundle and install. muxr no longer ships
+ * add-ons -- realtime voice is product code now -- so setup retracts any of
+ * these a previous release registered, and only when the registration still
+ * points into a bundled `plugins/` directory.
+ */
+const LEGACY_BUNDLED_PLUGIN_IDS = [
+    // Retired product surfaces that used to ship as bundled add-ons.
+    'muxr.terminal-keys', 'muxr.panes', 'muxr.control', 'muxr.dictation', 'muxr.status',
+    // Realtime voice, which is product code now.
+    'muxr.voice', 'muxr.voice-gemini', 'muxr.voice-openai', 'muxr.voice-codex',
+];
 
-export function bundledPlugins() {
-    const dir = pluginsRoot();
-    return readdirSync(dir, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory() && existsSync(join(dir, entry.name, 'herdr-plugin.toml')))
-        .map((entry) => {
-            const manifest = readFileSync(join(dir, entry.name, 'herdr-plugin.toml'), 'utf8');
-            const id = manifest.match(/^id\s*=\s*"([^"]+)"/m)?.[1];
-            const version = manifest.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
-            const parsed = parseBundledPlugin(id, entry.name);
-            if (!parsed.ok || version === undefined) throw new Error(`plugins/${entry.name}/herdr-plugin.toml is missing id or version`);
-            return { id: parsed.value.id, name: parsed.value.folderName, version };
-        })
-        .sort((left, right) => left.name.localeCompare(right.name));
+function isLegacyBundledRegistration(pluginId, pluginRoot) {
+    if (!LEGACY_BUNDLED_PLUGIN_IDS.includes(pluginId)) return false;
+    return basename(dirname(resolve(pluginRoot))) === 'plugins';
 }
 
 /**
@@ -159,11 +160,17 @@ export async function ensureHerdr({ dryRun, noInstall, installRequested }) {
     return binary;
 }
 
+/**
+ * Carry a selected engine from the retired voice plugin's state directory into
+ * muxr's own voice state. Nothing is written when nothing was selected.
+ */
 async function migrateLegacyVoiceProvider(installed, dryRun) {
-    const root = bundledPluginPath('voice');
-    if (!existsSync(join(root, 'provider.mjs'))) return undefined;
-    const { migrateLegacyProvider } = await import(pathToFileURL(join(root, 'provider.mjs')).href);
-    return migrateLegacyProvider(installed, join(stateDir(), 'plugin-state', 'muxr.voice'), dryRun);
+    const { migrateLegacyProvider } = await import(pathToFileURL(join(voiceFolder(), 'provider.mjs')).href);
+    return migrateLegacyProvider(
+        installed.filter((plugin) => isLegacyBundledRegistration(plugin.plugin_id, plugin.plugin_root)),
+        join(stateDir(), 'voice'),
+        dryRun,
+    );
 }
 
 function runBundledPluginBackfill(root, binary, enabled, dryRun) {
@@ -184,7 +191,12 @@ function runBundledPluginBackfill(root, binary, enabled, dryRun) {
     }
 }
 
-export async function ensureBundledPlugins(binary, dryRun) {
+/**
+ * muxr ships no Herdr add-ons. This retracts the add-ons a previous release
+ * installed and carries the selected realtime voice engine into muxr's own
+ * state; anything the user linked from elsewhere stays untouched.
+ */
+export async function retireBundledPlugins(binary, dryRun) {
     const pluginList = run(binary, ['plugin', 'list', '--json']);
     if (!pluginList.ok) throw new Error(pluginList.stderr || pluginList.stdout || 'failed to list Herdr plugins');
     let installed;
@@ -201,46 +213,16 @@ export async function ensureBundledPlugins(binary, dryRun) {
         || typeof plugin.enabled !== 'boolean')) {
         throw new Error('Herdr returned an invalid plugin list');
     }
-    const bundled = bundledPlugins();
-    if (bundled.length === 0) throw new Error('no bundled Herdr plugins were found');
-    const bundledRoot = realpathSync(dirname(bundledPluginPath(bundled[0].name)));
-    const ownedInstalled = installed.filter((plugin) => typeof plugin.plugin_root === 'string'
-        && dirname(resolve(plugin.plugin_root)) === bundledRoot);
-    const legacyVoice = await migrateLegacyVoiceProvider(ownedInstalled, dryRun);
+    const legacyVoice = await migrateLegacyVoiceProvider(installed, dryRun);
     if (legacyVoice !== undefined) print(`  ${dryRun ? 'would preserve' : '✓ preserved'} ${legacyVoice.name} as the realtime voice provider`);
-    // A registration pointing directly into our bundle directory that no longer
-    // names a shipped plugin is ours to retract, whether it was renamed, merged
-    // or removed. Anything the user linked from elsewhere stays untouched.
-    const shipped = new Set(bundled.map((plugin) => resolve(bundledRoot, plugin.name)));
     for (const current of installed) {
-        const root = resolve(current.plugin_root);
-        if (dirname(root) !== bundledRoot || shipped.has(root)) continue;
-        if (dryRun) { print(`  would unlink removed bundled plugin ${current.plugin_id}`); continue; }
+        if (!isLegacyBundledRegistration(current.plugin_id, current.plugin_root)) continue;
+        if (dryRun) { print(`  would unlink retired bundled plugin ${current.plugin_id}`); continue; }
         const unlinked = run(binary, ['plugin', 'unlink', current.plugin_id]);
         if (!unlinked.ok && !/not (?:found|installed)|unknown plugin/i.test(`${unlinked.stderr}${unlinked.stdout}`)) {
             throw new Error(unlinked.stderr || unlinked.stdout || `failed to unlink ${current.plugin_id}`);
         }
-        print(`  ✓ unlinked removed bundled plugin ${current.plugin_id}`);
-    }
-    for (const { id, name, version } of bundled) {
-        const expected = realpathSync(bundledPluginPath(name));
-        const current = installed.find((plugin) => plugin.plugin_id === id);
-        const enabled = current ? current.enabled === true || (id === 'muxr.voice' && legacyVoice !== undefined) : true;
-        if (current && realpathOrUndefined(current.plugin_root) === expected && current.version === version && current.enabled === enabled) {
-            print(`  ✓ ${id} ${version} Herdr plugin ready${enabled ? '' : ' (disabled)'}`);
-            runBundledPluginBackfill(expected, binary, enabled, dryRun);
-            continue;
-        }
-        if (dryRun) {
-            print(`  would link ${id} from ${expected} (${enabled ? 'enabled' : 'disabled'})`);
-            continue;
-        }
-        const linked = run(binary, ['plugin', 'link', expected, enabled ? '--enabled' : '--disabled']);
-        if (!linked.ok) throw new Error(linked.stderr || linked.stdout || `failed to link ${id}`);
-        const action = current ? 'updated' : 'installed';
-        const disabledNote = enabled ? '' : ' (disabled)';
-        print(`  ✓ ${id} ${version} Herdr plugin ${action}${disabledNote}`);
-        runBundledPluginBackfill(expected, binary, enabled, false);
+        print(`  ✓ unlinked retired bundled plugin ${current.plugin_id}`);
     }
     await ensureProductPanePack(binary, installed, dryRun);
 }
@@ -426,7 +408,7 @@ export async function bootstrapHerdr(args) {
     });
     if (!binary) return undefined;
     await ensureHerdrServer(binary, dryRun);
-    await ensureBundledPlugins(binary, dryRun);
+    await retireBundledPlugins(binary, dryRun);
     return binary;
 }
 
@@ -498,7 +480,7 @@ export async function runIntegrations(args = []) {
             if (binary) {
                 // Bundled add-ons, the product's management pane pack, and the
                 // retired panes plugin a prior release may still have registered.
-                const productIds = [...bundledPlugins().map((plugin) => plugin.id), productPanePack().id, 'muxr.panes'];
+                const productIds = [...LEGACY_BUNDLED_PLUGIN_IDS, productPanePack().id, 'muxr.panes'];
                 for (const id of productIds) {
                     if (!args.includes('--quiet')) print(`  ${dryRun ? 'would run' : 'run'} herdr plugin unlink ${id}`);
                     if (!dryRun) {

@@ -18,13 +18,13 @@ describe('plugin approval lifecycle', () => {
 
     it('enables a plugin by default and keeps it on across hash changes until disabled', async () => {
         const approvals = new PluginApprovals(await mkdtemp(join(tmpdir(), 'muxr-plugin-default-on-')));
-        expect(approvals.has('device', 'muxr.voice')).toBe(true);
-        await approvals.set('device', 'muxr.voice', true);
-        expect(approvals.has('device', 'muxr.voice')).toBe(true);
-        await approvals.set('device', 'muxr.voice', false);
-        expect(approvals.has('device', 'muxr.voice')).toBe(false);
-        await approvals.set('device', 'muxr.voice', true);
-        expect(approvals.has('device', 'muxr.voice')).toBe(true);
+        expect(approvals.has('device', 'local.example')).toBe(true);
+        await approvals.set('device', 'local.example', true);
+        expect(approvals.has('device', 'local.example')).toBe(true);
+        await approvals.set('device', 'local.example', false);
+        expect(approvals.has('device', 'local.example')).toBe(false);
+        await approvals.set('device', 'local.example', true);
+        expect(approvals.has('device', 'local.example')).toBe(true);
     });
 
     it('runs approved work concurrently, aborts it on revoke, and fences new work', async () => {

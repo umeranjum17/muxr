@@ -104,7 +104,7 @@ export {
     startMuxrDaemon,
 } from './infrastructure/daemon.mjs';
 export {
-    ensureBundledPlugins,
+    retireBundledPlugins,
     ensureHerdr,
     ensureHerdrServer,
     herdrBin,

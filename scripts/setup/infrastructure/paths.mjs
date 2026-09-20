@@ -35,16 +35,16 @@ export function cryptoModuleUrl() {
     return pathToFileURL(checkout).href;
 }
 
-export function pluginsRoot() {
-    // Anchored on voice: the last bundled add-on still shipped in plugins/.
-    // When it leaves the bundle, this walk moves with it.
-    const packed = walkFor('plugins/voice/herdr-plugin.toml');
-    if (packed !== undefined) return dirname(dirname(packed));
-    throw new Error('muxr plugins root not found');
-}
-
-export function pluginFolder(name) {
-    return join(pluginsRoot(), name);
+/**
+ * The realtime voice adapter runtime, found next to the packed host bundle or
+ * in the checkout. muxr ships no Herdr add-ons any more.
+ */
+export function voiceFolder() {
+    const packed = walkFor('voice/stream.mjs');
+    if (packed !== undefined) return dirname(packed);
+    const checkout = walkFor('apps/host/src/voice/stream.mjs');
+    if (checkout === undefined) throw new Error('muxr realtime voice runtime not found; run yarn build');
+    return dirname(checkout);
 }
 
 /** The product's own Herdr management pane pack; ships inside the muxr package. */

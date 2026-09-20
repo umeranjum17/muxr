@@ -16,7 +16,7 @@ scripts/plugin/
 
 **Plugin Id** is the only identity used to link, enable, clone, or remove a plugin. Folder names are paths.
 
-**Bundled Plugin** keys each package by Plugin Id, not folder name. Realtime voice is one `muxr.voice` package with provider adapters under `plugins/voice/providers/`.
+**Plugin Id** keys each installed package, not its folder name. muxr ships no bundled add-ons: every product surface, including realtime voice, is product code.
 
 Setup removes registrations that still point at deleted direct children of its own bundle directory; plugins linked from elsewhere are untouched.
 

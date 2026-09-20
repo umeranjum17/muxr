@@ -24,3 +24,12 @@ export * from './application/startRealtimeCapability';
 export { RealtimeAppController, realtimeAppController, useRealtimeAppControl } from './application/realtimeAppControl';
 export * from './application/audioEnergy';
 export * from './infrastructure/voiceDiagnostics';
+export {
+    voiceStatus,
+    voiceProviderList,
+    voiceProviderSet,
+    voiceProviderDescribe,
+    voiceKeySet,
+    voiceKeyClear,
+    voiceReport,
+} from './application/voiceSettings';

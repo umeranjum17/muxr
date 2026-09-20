@@ -35,6 +35,7 @@ const machineId = `herdr-check-${process.pid}`;
 const dataDir = mkdtempSync(join(tmpdir(), 'muxr-herdr-'));
 const workdir = mkdtempSync(join(tmpdir(), 'muxr-cwd-'));
 const TIMEOUT_MS = 120_000;
+const realtimeHealthMode = process.env.MUXR_REALTIME_AGENT_HEALTH === '1';
 
 const children = [];
 const actionPluginId = `local.action-e2e-${process.pid}`;
@@ -69,6 +70,7 @@ Object.assign(env, {
     MUXR_MODE: 'local',
     MUXR_RELAY_DEVELOPMENT_API: '1',
     MUXR_RELAY_PORT: '0',
+    MUXR_RELAY_MDNS: '0',
     MUXR_MACHINE_ID: machineId,
     MUXR_DATA_DIR: dataDir,
     MUXR_RELAY_DATA_DIR: join(dataDir, 'relay'),
@@ -210,7 +212,12 @@ async function run() {
     console.log('ok: phone-started and terminal-opened Shell omit agentKind');
 
     // 2. session.start publishes the Herdr generation before it becomes promptable.
-    const started = await request(socket, 'session.start', { cwd: workdir, kind: 'pi', label: 'e2e' });
+    const started = await request(socket, 'session.start', {
+        cwd: workdir,
+        kind: 'pi',
+        label: realtimeHealthMode ? 'crane' : 'e2e',
+        ...(realtimeHealthMode ? { taskTitle: 'crane' } : {}),
+    });
     const newId = started?.info?.id;
     createdWorkspaceId = started?.info?.workspaceId;
     if (typeof newId !== 'string') fail('session.start returned no session id');
@@ -228,6 +235,12 @@ async function run() {
         await new Promise((resolve) => setTimeout(resolve, 250));
     }
     console.log('ok: current Herdr generation became promptable');
+    if (realtimeHealthMode) {
+        const currentCatalog = await request(socket, 'session.list', {});
+        const agentCount = currentCatalog.filter((session) => session.agentKind !== undefined).length;
+        if (agentCount < 1) fail('real Herdr host catalog returned no agents');
+        console.log(`ok: real Herdr host catalog returned ${agentCount} agent(s)`);
+    }
 
     // A real failing Herdr action must travel invoke -> log -> bounded public error.
     const plugins = await request(socket, 'plugin.list', {});
