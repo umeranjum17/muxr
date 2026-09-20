@@ -570,6 +570,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // lands it in the middle of whatever you were typing, so paths ride as
     // chips and are appended once, at send.
     const sendPrompt = React.useCallback(() => {
+        // The same immediate guard the quick replies carry: a pane with no
+        // agent has nothing to prompt, so Enter never reaches the host to be
+        // refused. The draft stays; nothing reaches the shell.
+        if (currentPaneRef.current?.agentKind === undefined) {
+            showGestureHintRef.current('No agent in this pane');
+            return;
+        }
         // A booting agent is not a refusal: the host holds the prompt until it
         // can accept it, so let the composer stay live and let the host answer.
         if (attaching || selectedImages.length > 0 || dictationActive) return;
