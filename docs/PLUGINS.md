@@ -160,7 +160,7 @@ Every slot below is shipped. **JSON** means you edit `muxr-ui.json` and the chan
 | `app.overlay` | an app-wide overlay | primitive |
 | `session.overlay` | a session-scoped sheet | primitive |
 | `home.composer.leading` / `home.composer.trailing` | buttons beside the home prompt | primitive |
-| `session.composer.trailing` | a button in the session composer's utility row beneath the prompt | primitive |
+| `session.composer.trailing` | plugin controls in the header's three-dot pane menu | primitive |
 
 Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships named widgets and validates each widget's allowed slots, required context, and bounded `params`. Unknown primitive names are ignored for forward compatibility; known primitives reject wrong slots, missing or unknown parameters, and invalid values. Bundled plugins use the same table as anyone else.
 
@@ -175,7 +175,7 @@ Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships n
 
 Primitive parameters live under `params`. An `item-list` with `refreshIntervalMs` refreshes only while its screen and the app are active, stops its timer when unfocused/unmounted, and always force-refreshes when the user opens it. Returning zero items hides the control.
 
-Session actions normally appear under the header's three-dot pane menu. A session `screen-button`, or an `item-list`/`icon-button` native contribution in a supported session action slot, can set `"quickAction": true` on the contribution (not inside `params`). It then appears directly in the floating terminal command panel, separated from keyboard and zoom controls. Placement comes from the declaration, not a bundled plugin-id list.
+Session actions appear under the header's three-dot pane menu. A session `screen-button`, or an `item-list`/`icon-button` native contribution in a supported session action slot, may set `"quickAction": true` on the contribution (not inside `params`). The flag stays accepted; the floating terminal command panel it once targeted was removed, so quick and non-quick actions alike render as pane-menu rows — every declared action remains reachable there.
 
 ```json
 { "slot": "session.pills", "id": "files", "type": "native", "primitive": "item-list",
@@ -687,8 +687,7 @@ phone-effect name is skipped, not fatal.
 
 `session.header.trailing` accepts `type: "screen-button"` in addition to
 `data-card`. A screen-button opens another contribution in the same plugin from
-the pane menu, or directly from terminal quick controls when `quickAction` is
-true (a `quickAction` row appears directly in the terminal quick controls).
+the header's three-dot pane menu.
 
 ```json
 {

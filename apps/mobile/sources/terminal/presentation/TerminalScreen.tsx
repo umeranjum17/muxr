@@ -107,7 +107,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const gitStatus = useSessionGitStatus(props.id);
     const pluginButtons = useSessionPlugins();
     const declaredActions = useDeclarativeSessionActions(session?.metadata?.path);
-    const paneActions = React.useMemo(() => declaredActions.filter((action) => !action.quickAction), [declaredActions]);
     const pluginQuickReplies = useTerminalQuickReplies();
     const quickReplies = React.useMemo(() => [...TERMINAL_QUICK_REPLIES, ...pluginQuickReplies], [pluginQuickReplies]);
     const [changesCount, setChangesCount] = React.useState<number | null>(null);
@@ -815,9 +814,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 is gone; the dot carries the same colour (scout §4.1).
                                 Shell panes and unknown lifecycles stay quiet — a live
                                 shell is not "Offline". */}
-                            {(headerLifecycle === 'working' || headerLifecycle === 'starting' || headerLifecycle === 'blocked' || headerLifecycle === 'failed' || headerLifecycle === 'done') && <View accessible={false} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                            {headerLifecycleLabel !== undefined && <View accessible={false} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                                 <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: headerStatus.color }} />
-                                <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '600' }}>{HERD_STATUS_LABELS[headerLifecycle]}</Text>
+                                <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '600' }}>{headerLifecycleLabel}</Text>
                             </View>}
                             {/* No trailing chevron here: the 1/1 pager to the right is the
                                 single pane control — a second chevron read as a duplicate. */}
@@ -1168,7 +1167,21 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         </View>}
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
-                                    {canControl && <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />}
+                                    {canControl && <DeclarativeSessionActions actions={declaredActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />}
+                                    {canControl && (
+                                        <View>
+                                            <Pressable onPress={() => splitPane('right')} accessibilityRole="button" accessibilityLabel="Split right"
+                                                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                                <Ionicons name="git-commit-outline" size={18} color={theme.colors.textSecondary} />
+                                                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Split right</Text>
+                                            </Pressable>
+                                            <Pressable onPress={() => splitPane('down')} accessibilityRole="button" accessibilityLabel="Split down"
+                                                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                                <Ionicons name="git-commit-outline" size={18} color={theme.colors.textSecondary} style={{ transform: [{ rotate: '90deg' }] }} />
+                                                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Split down</Text>
+                                            </Pressable>
+                                        </View>
+                                    )}
                                     {canControl && <Pressable onPress={focusInHerdr} disabled={socketStatus.status !== 'connected' || focusPending} accessibilityRole="button"
                                         accessibilityLabel={socketStatus.status === 'connected' ? 'Focus in Herdr' : 'Focus in Herdr, unavailable: not connected'}
                                         accessibilityState={{ disabled: socketStatus.status !== 'connected' || focusPending, busy: focusPending }}
