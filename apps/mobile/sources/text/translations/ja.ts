@@ -98,6 +98,7 @@ export const ja: TranslationStructure = {
             collecting: '使用量を収集中…',
             unavailable: '使用量を取得できません · タップで再試行',
             notConnected: 'プラン制限に未接続',
+            planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `リセットまで ${time}`,
             opensUsage: '使用量を開く',
             memory: 'メモリ',

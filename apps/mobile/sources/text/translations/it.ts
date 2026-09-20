@@ -95,6 +95,7 @@ export const it: TranslationStructure = {
             collecting: 'Raccolta dell’utilizzo…',
             unavailable: 'Utilizzo non disponibile · tocca per riprovare',
             notConnected: 'Limiti del piano non connessi',
+            planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `si rinnova tra ${time}`,
             opensUsage: 'Apre Utilizzo',
             memory: 'Memoria',

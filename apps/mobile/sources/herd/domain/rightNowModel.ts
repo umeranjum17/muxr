@@ -1,5 +1,5 @@
 import { RIGHT_NOW_CARD_MIN_UI_VERSION, rightNowCard, type PluginManifestV1 } from '@muxr/contract';
-import { asLimitsPayload, type PluginLimitsPayload } from '@/plugins/limits';
+import { asLimitsPayload, asLimitsWindows, boundedText, type PluginLimitsPayload, type PluginLimitsWindow } from '@/plugins/limits';
 import { compactAge } from './agentPresentation';
 
 /** What the host says about right now: the plan limits vocabulary the Usage
@@ -21,6 +21,9 @@ export interface RightNowVitals {
 
 export interface RightNowPayload {
     limits: PluginLimitsPayload;
+    /** One entry per provider with real quota windows, most urgent first; the
+     *  host publishes the order, the card only bounds it. */
+    connected?: RightNowConnectedProvider[];
     /** Cold usage cache; the host fell back so the vitals could answer. */
     collecting?: true;
     /** How old the limit figures are, by the host's clock. The vitals beside
@@ -28,6 +31,16 @@ export interface RightNowPayload {
      *  worth mentioning. */
     ageSeconds?: number;
     vitals?: RightNowVitals;
+}
+
+export interface RightNowConnectedProvider {
+    id: string;
+    label: string;
+    /** Provider mark id for the app-owned glyph; absent falls back to the
+     *  glyph's own monogram. */
+    glyph?: string;
+    plan?: string;
+    windows: PluginLimitsWindow[];
 }
 
 /** No machine has been up a century: past this the host is publishing a bad
@@ -69,12 +82,40 @@ export function asRightNowPayload(value: unknown): RightNowPayload {
         : {};
     const vitals = rightNowVitals(raw.vitals);
     const ageSeconds = figure(raw.ageSeconds, MAX_UPTIME_SECONDS);
+    const connected = asConnectedProviders(raw.connected);
     return {
         limits: asLimitsPayload(raw.limits),
+        ...(connected.length === 0 ? {} : { connected }),
         ...(raw.collecting === true ? { collecting: true as const } : {}),
         ...(ageSeconds === undefined ? {} : { ageSeconds }),
         ...(vitals === undefined ? {} : { vitals }),
     };
+}
+
+/** Four plan collectors exist today; the cap only bounds a hostile payload. */
+const MAX_CONNECTED_PROVIDERS = 8;
+
+function asConnectedProviders(value: unknown): RightNowConnectedProvider[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((entry): RightNowConnectedProvider[] => {
+        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return [];
+        const raw = entry as Record<string, unknown>;
+        const id = boundedText(raw.id, 32);
+        const label = boundedText(raw.label, 40);
+        if (id === '' || label === '') return [];
+        // A provider without a real window is not a provider on this strip.
+        const windows = asLimitsWindows(raw.windows);
+        if (windows.length === 0) return [];
+        const glyph = boundedText(raw.glyph, 32);
+        const plan = boundedText(raw.plan, 40);
+        return [{
+            id,
+            label,
+            ...(glyph === '' ? {} : { glyph }),
+            ...(plan === '' ? {} : { plan }),
+            windows,
+        }];
+    }).slice(0, MAX_CONNECTED_PROVIDERS);
 }
 
 /** Every host figure this card renders is bounded here, at the one boundary

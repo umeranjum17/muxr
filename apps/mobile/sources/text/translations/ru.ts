@@ -106,6 +106,7 @@ export const ru: TranslationStructure = {
             collecting: 'Собираем данные использования…',
             unavailable: 'Данные использования недоступны · нажмите, чтобы повторить',
             notConnected: 'Лимиты плана не подключены',
+            planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `обновится через ${time}`,
             opensUsage: 'Открывает использование',
             memory: 'Память',

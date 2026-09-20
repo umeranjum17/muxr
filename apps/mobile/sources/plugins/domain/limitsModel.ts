@@ -29,19 +29,15 @@ const VERDICTS = new Set<PluginLimitsVerdict>(['go', 'ahead', 'watch', 'low', 'l
 const bounded = (value: unknown, bytes: number): string =>
     typeof value === 'string' ? capUtf8Bytes(sanitizeDisplayText(value).trim(), bytes) : '';
 
+export { bounded as boundedText };
+
 const finiteIn = (value: unknown, low: number, high: number): value is number =>
     typeof value === 'number' && Number.isFinite(value) && value >= low && value <= high;
 
-/** Bound untrusted RPC limits data before it reaches the app-owned renderer. */
-export function asLimitsPayload(value: unknown): PluginLimitsPayload {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return { verdict: 'unknown', windows: [] };
-    const raw = value as Record<string, unknown>;
-    const verdict = typeof raw.verdict === 'string' && VERDICTS.has(raw.verdict as PluginLimitsVerdict)
-        ? raw.verdict as PluginLimitsVerdict
-        : 'unknown';
-    const plan = bounded(raw.plan, 40);
-    const message = bounded(raw.message, 160);
-    const windows = (Array.isArray(raw.windows) ? raw.windows : []).flatMap((entry): PluginLimitsWindow[] => {
+/** Bounded quota windows: the exact shape the `limits` payload carries, shared
+ *  by the payload parser and the Home card's connected strip. */
+export function asLimitsWindows(value: unknown): PluginLimitsWindow[] {
+    return (Array.isArray(value) ? value : []).flatMap((entry): PluginLimitsWindow[] => {
         if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return [];
         const window = entry as Record<string, unknown>;
         const label = bounded(window.label, MAX_CHART_LABEL_BYTES);
@@ -58,6 +54,18 @@ export function asLimitsPayload(value: unknown): PluginLimitsPayload {
             ...(elapsed === undefined ? {} : { elapsed }),
         }];
     }).slice(0, MAX_CHART_SERIES);
+}
+
+/** Bound untrusted RPC limits data before it reaches the app-owned renderer. */
+export function asLimitsPayload(value: unknown): PluginLimitsPayload {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return { verdict: 'unknown', windows: [] };
+    const raw = value as Record<string, unknown>;
+    const verdict = typeof raw.verdict === 'string' && VERDICTS.has(raw.verdict as PluginLimitsVerdict)
+        ? raw.verdict as PluginLimitsVerdict
+        : 'unknown';
+    const plan = bounded(raw.plan, 40);
+    const message = bounded(raw.message, 160);
+    const windows = asLimitsWindows(raw.windows);
     return {
         verdict,
         ...(plan === '' ? {} : { plan }),

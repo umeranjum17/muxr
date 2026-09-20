@@ -94,6 +94,7 @@ export const en = {
             collecting: 'Collecting usage…',
             unavailable: 'Usage unavailable · tap to retry',
             notConnected: 'Plan limits aren’t connected',
+            planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `resets in ${time}`,
             opensUsage: 'Opens Usage',
             memory: 'Memory',

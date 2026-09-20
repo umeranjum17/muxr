@@ -97,6 +97,7 @@ export const zhHans: TranslationStructure = {
             collecting: '正在收集用量…',
             unavailable: '用量不可用 · 点按重试',
             notConnected: '未连接套餐限额',
+            planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `${time}后重置`,
             opensUsage: '打开用量',
             memory: '内存',

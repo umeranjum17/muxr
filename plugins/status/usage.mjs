@@ -6,7 +6,7 @@ import { constants, accessSync, chmodSync, readFileSync, renameSync, statSync, w
 import { createRequire } from 'node:module';
 import {
   activityTotals, claudeWindows, codexWindows, goWindows, limitsPayload, localActivityForModels,
-  NOT_CONNECTED_MESSAGE, providerModelIds, windowRow, zaiWindows,
+  NOT_CONNECTED_MESSAGE, providerModelIds, tightestWindow, windowRow, zaiWindows,
 } from './usageWindows.mjs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +29,8 @@ const refreshRequested = input._refresh === true;
 let ccusageFailure;
 /** Short tab-strip names; every other tab falls back to its AGENTS name. */
 const TAB_LABELS = { claude: 'Claude', codex: 'Codex', copilot: 'Copilot', gemini: 'Gemini', grok: 'Grok', kimi: 'Kimi', kilo: 'Kilo', hermes: 'Hermes', qodercli: 'Qoder', mastracode: 'Mastra' };
+/** Providers with a plan collector, and the plan name each one reports. */
+const PLAN_PROVIDERS = { claude: 'Claude plan', codex: 'OpenAI Codex', opencode: 'OpenCode Go', zai: 'Z.ai plan' };
 const AGENTS = {
   claude: 'Anthropic Claude', codex: 'OpenAI Codex', zai: 'Z.ai', opencode: 'OpenCode', amp: 'Amp', droid: 'Droid', codebuff: 'Codebuff',
   hermes: 'Hermes Agent', pi: 'Pi', goose: 'Goose', openclaw: 'OpenClaw', kilo: 'Kilo Code', kimi: 'Kimi Code', qwen: 'Qwen',
@@ -572,10 +574,14 @@ if (cached !== undefined) {
   const days = agents.get(provider) ?? PERIODS.map((period) => ({ period, row: undefined }));
   const totals = activityTotals(days);
   const { today, tokensToday, tokensWeek, costToday, costWeek } = totals;
+  // Connected plans load whatever tab is on screen: a machine-level view
+  // (the default tab, the Home card) must see every real window, not just
+  // the selected tab's. An explicitly selected tab still collects its own
+  // source even when disconnected, so its honest unavailable message stands.
   const [claudeRaw, go, zaiPlan] = await Promise.all([
-    provider === 'claude' ? claudePlanLimits() : undefined,
-    provider === 'opencode' ? goPlanLimits() : { series: [], label: '' },
-    provider === 'zai' ? zaiPlanLimits() : { series: [], label: '' },
+    planConnected.includes('claude') || provider === 'claude' ? claudePlanLimits() : undefined,
+    planConnected.includes('opencode') || provider === 'opencode' ? goPlanLimits() : { series: [], label: '' },
+    planConnected.includes('zai') || provider === 'zai' ? zaiPlanLimits() : { series: [], label: '' },
   ]);
   // One transform per source, one view model for the screen: everything below
   // renders from these, never from a provider payload.
@@ -583,10 +589,21 @@ if (cached !== undefined) {
   const claudeVMs = claudeWindows(claudeRaw, { nowMs });
   const zaiVMs = zaiPlan.vms ?? [];
   const goVMs = go.vms ?? [];
-  let windows = goVMs;
-  if (provider === 'claude') windows = claudeVMs;
-  else if (provider === 'codex') windows = codex.windows;
-  else if (provider === 'zai') windows = zaiVMs;
+  const selectedVMs = provider === 'claude' ? claudeVMs
+    : provider === 'codex' ? codex.windows
+    : provider === 'zai' ? zaiVMs
+    : provider === 'opencode' ? goVMs
+    : [];
+  // Every plan collector's real windows, most urgent first: the borrow rule
+  // and the Home card's connected strip read the same list, so a machine-level
+  // view and a per-tab view can never disagree about which plan is tightest.
+  const planShapes = [
+    { id: 'claude', plan: PLAN_PROVIDERS.claude, vms: claudeVMs },
+    { id: 'codex', plan: PLAN_PROVIDERS.codex, vms: codex.windows },
+    { id: 'opencode', plan: PLAN_PROVIDERS.opencode, vms: goVMs },
+    { id: 'zai', plan: PLAN_PROVIDERS.zai, vms: zaiVMs },
+  ].flatMap(({ id, plan, vms }) => (vms.length === 0 ? [] : [{ id, plan, vms, used: tightestWindow(vms).percentUsed }]))
+    .sort((a, b) => b.used - a.used);
   const items = [];
   if (ccusageFailure) items.push({
     id: 'ccusage-unavailable', title: 'Local activity unavailable', subtitle: ccusageFailure, icon: 'warning-outline', metadata: [],
@@ -609,12 +626,21 @@ if (cached !== undefined) {
   // provider-specific truth (not connected, reconnect, unavailable).
   const noProviders = providerIds.length === 0 ? 'Run a coding agent on this computer or connect a plan.' : undefined;
   const noProvidersTitle = noProviders === undefined ? undefined : 'No supported providers detected';
-  const limitsMessage = noProviders === undefined && (provider === 'claude' && claudeVMs.length === 0 ? 'Claude plan limits unavailable'
-    : provider === 'opencode' && (go.vms ?? []).length === 0 ? go.label
-    : provider === 'zai' && (zaiPlan.vms ?? []).length === 0 ? zaiPlan.label
-    : provider === 'codex' && codex.windows.length === 0 ? 'Codex plan limits unavailable'
-    : windows.length === 0 ? NOT_CONNECTED_MESSAGE
-    : undefined);
+  // A selection without its own plan collector (pi, omp, gemini, ...) borrows
+  // the tightest connected plan, so the default view answers with a real
+  // window instead of a machine-level "not connected" that is false whenever
+  // any plan is connected. A plan tab keeps speaking for itself: its own
+  // unavailable message beats another plan's numbers.
+  const borrowed = PLAN_PROVIDERS[provider] === undefined && selectedVMs.length === 0 ? planShapes[0] : undefined;
+  const limitsVMs = borrowed !== undefined ? borrowed.vms : selectedVMs;
+  const limitsPlan = borrowed !== undefined ? borrowed.plan : PLAN_PROVIDERS[provider];
+  const limitsMessage = noProviders === undefined && limitsVMs.length === 0
+    ? (provider === 'claude' && claudeVMs.length === 0 ? 'Claude plan limits unavailable'
+      : provider === 'opencode' && goVMs.length === 0 ? go.label
+      : provider === 'zai' && zaiVMs.length === 0 ? zaiPlan.label
+      : provider === 'codex' && codex.windows.length === 0 ? 'Codex plan limits unavailable'
+      : NOT_CONNECTED_MESSAGE)
+    : undefined;
   const output = {
     items: ordered.slice(0, 50),
     actions: [{ id: 'details', label: 'Open full usage', icon: 'stats-chart-outline', action: { type: 'screen', contributionId: 'usage.details' } }],
@@ -647,10 +673,22 @@ if (cached !== undefined) {
     capturedAt: NOW.toISOString(),
     windowPeriods: PERIODS,
     // The normalized view model behind every rendered rate-limit shape.
-    windows: windows.map((vm) => ({ ...vm })),
-    limits: limitsPayload(windows, {
-      ...(provider === 'claude' ? { plan: 'Claude plan' } : provider === 'zai' ? { plan: 'Z.ai plan' } : provider === 'opencode' ? { plan: 'OpenCode Go' } : provider === 'codex' ? { plan: 'OpenAI Codex' } : {}),
+    windows: limitsVMs.map((vm) => ({ ...vm })),
+    limits: limitsPayload(limitsVMs, {
+      ...(limitsPlan === undefined ? {} : { plan: limitsPlan }),
       ...(limitsMessage === undefined ? {} : { message: limitsMessage }),
+    }),
+    // One compact entry per provider with real quota windows, most urgent
+    // first: the Home card's strip reads this instead of re-deriving every
+    // tab's state from a payload that answers for one tab.
+    ...(planShapes.length === 0 ? {} : {
+      connected: planShapes.map(({ id, plan, vms }) => ({
+        id,
+        label: TAB_LABELS[id] ?? AGENTS[id],
+        glyph: id,
+        plan,
+        windows: limitsPayload(vms, { plan }).windows.map(({ label, window, used }) => ({ label, ...(window === undefined ? {} : { window }), used })),
+      })),
     }),
   };
   if (output.items.length === 0) output.items.push({ id: 'usage-unavailable', title: 'Usage unavailable', icon: 'warning-outline', metadata: [] });

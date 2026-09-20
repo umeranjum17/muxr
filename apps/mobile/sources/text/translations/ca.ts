@@ -95,6 +95,7 @@ export const ca: TranslationStructure = {
             collecting: 'Recollint l’ús…',
             unavailable: 'Ús no disponible · toca per reintentar',
             notConnected: 'Límits del pla no connectats',
+            planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `es renova en ${time}`,
             opensUsage: 'Obre Ús',
             memory: 'Memòria',

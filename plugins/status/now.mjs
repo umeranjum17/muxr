@@ -42,6 +42,10 @@ const payload = {
         windows: window === undefined ? [] : [window],
         ...(typeof reason === 'string' && reason !== '' && reason !== NOT_CONNECTED_MESSAGE ? { message: reason } : {}),
     },
+    // One compact entry per provider with real quota windows, passed through
+    // verbatim: the Home card's connected strip reads it, and the phone bounds
+    // it at its own RPC boundary.
+    ...(Array.isArray(output?.connected) ? { connected: output.connected } : {}),
     ...(output === undefined ? { collecting: true } : {}),
     // How old the limit figures are, not whether some other surface would call
     // them stale: the usage cache replays its original `capturedAt`, and both

@@ -206,7 +206,13 @@ try {
     // reports its own figure.
     assert.ok(kimi.weekSeries.some((day) => day.valueLabel === '60.0K'), 'older day must keep its total');
     assert.equal(kimi.weekSeries.at(-1)?.valueLabel, '2.5K');
-    assert.deepEqual(kimi.limits, { verdict: 'unknown', windows: [], message: 'Plan limits aren’t connected in muxr' });
+    // A tab whose agent has no plan integration borrows the machine's
+    // tightest connected plan (codex 90% used beats claude 42%), so it
+    // answers with a real window instead of a false "not connected".
+    assert.equal(kimi.limits.plan, 'OpenAI Codex');
+    assert.equal(kimi.limits.verdict, 'low');
+    assert.deepEqual(kimi.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['OpenAI Codex · 168h', '7d', 90], ['OpenAI Codex · 5h', '5h', 25]]);
+    assert.equal(kimi.limits.message, undefined);
 
     // A deep link to an installed-but-idle provider no longer mints a tab;
     // it falls back to the default one instead.
@@ -549,7 +555,12 @@ try {
         // Yesterday's record has no recorded cost: unknown, never free.
         assert.equal(pi.weekSeries.at(-2)?.value, 500);
         assert.equal(pi.weekCost, '—');
-        assert.deepEqual(pi.limits, { verdict: 'unknown', windows: [], message: 'Plan limits aren’t connected in muxr' });
+        // The pi tab borrows the machine's tightest connected plan (codex)
+        // instead of a false "not connected".
+        assert.equal(pi.limits.plan, 'OpenAI Codex');
+        assert.equal(pi.limits.verdict, 'low');
+        assert.deepEqual(pi.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['OpenAI Codex · 168h', '7d', 90], ['OpenAI Codex · 5h', '5h', 25]]);
+        assert.equal(pi.limits.message, undefined);
 
         const omp = flowRun('omp');
         assert.equal(omp.provider, 'omp');
@@ -560,7 +571,11 @@ try {
         assert.equal(omp.weekTokens, '4.0K');
         assert.equal(omp.weekCost, '$0.00');
         assert.equal(omp.weekSeries.at(-2)?.value, 4000);
-        assert.doesNotMatch(JSON.stringify(omp), /stale-omp|999999999|4242/, 'stale stats database outranked the transcripts');
+        // A stale row could only surface through measured activity. The
+        // borrowed limits node ships no usage records, and its clock-derived
+        // elapsed floats legitimately print digit runs like 999999999.
+        assert.doesNotMatch(JSON.stringify([omp.modelSeries, omp.weekSeries, omp.weekTokens, omp.weekCost, omp.todayTokens, omp.todayCost]),
+            /stale-omp|999999999|4242/, 'stale stats database outranked the transcripts');
 
         // Real Codex logs through the real ccusage: pinned daily and week totals,
         // not a shape check.
