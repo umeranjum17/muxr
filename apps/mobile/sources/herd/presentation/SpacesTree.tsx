@@ -395,7 +395,7 @@ const AgentRow = React.memo(({
             importantForAccessibility="no-hide-descendants"
         >
             {/* Working panes poll the visible screen; the rest take one
-                snapshot per mount. Paused with the app or the scrolled-away
+                snapshot per look. Paused with the app or the scrolled-away
                 card. */}
             <TerminalPreview sessionId={sessionId} live={live} paused={!visible} maxLines={4} nonEmpty />
             <View style={styles.agentPreviewGlyph} pointerEvents="none">{glyph}</View>
