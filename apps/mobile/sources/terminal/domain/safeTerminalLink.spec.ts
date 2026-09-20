@@ -93,4 +93,42 @@ describe('terminal printed links open only as safe web URLs', () => {
         expect(plainLinkAtCell(line, 20, 1, 0, rowAt)).toBeNull();
         term.dispose();
     });
+
+    it('ends a wrapped URL at the parent row trailing blanks, like the printed stream', async () => {
+        const term = new xterm.Terminal({ cols: 20, rows: 3 });
+        await new Promise<void>((resolve) => term.write('see https://x.io/a  more', resolve));
+        const lineAt = (r: number) => term.buffer.active.getLine(r)!;
+        // The two blanks filled the parent row and 'more' wrapped: the row is a
+        // soft-wrap continuation whose parent does not end in URL text.
+        expect(lineAt(1).isWrapped).toBe(true);
+        expect(lineAt(0).translateToString(true)).toBe('see https://x.io/a  ');
+        const rowAt = (r: number): TerminalLinkRow | undefined => {
+            const line = lineAt(r);
+            return line
+                ? { text: line.translateToString(true), isWrapped: line.isWrapped }
+                : undefined;
+        };
+
+        // The blanks ended the printed URL: the wrapped word is not part of it
+        // and the join must not fabricate one.
+        expect(plainLinkAtCell(lineAt(1), 20, 0, 1, rowAt)).toBeNull();
+        expect(plainLinkAtCell(lineAt(1), 20, 3, 1, rowAt)).toBeNull();
+        term.dispose();
+
+        // A genuinely contiguous soft wrap still joins into one link.
+        const joined = new xterm.Terminal({ cols: 20, rows: 3 });
+        await new Promise<void>((resolve) => joined.write('https://x.io/aaaa/bbbb/cccc/dddd/eeee', resolve));
+        const joinedLineAt = (r: number) => joined.buffer.active.getLine(r)!;
+        expect(joinedLineAt(1).isWrapped).toBe(true);
+        const joinedRowAt = (r: number): TerminalLinkRow | undefined => {
+            const line = joinedLineAt(r);
+            return line
+                ? { text: line.translateToString(true), isWrapped: line.isWrapped }
+                : undefined;
+        };
+        expect(plainLinkAtCell(joinedLineAt(1), 20, 0, 1, joinedRowAt)).toBe(
+            'https://x.io/aaaa/bbbb/cccc/dddd/eeee',
+        );
+        joined.dispose();
+    });
 });
