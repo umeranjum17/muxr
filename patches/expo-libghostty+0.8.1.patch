@@ -445,7 +445,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..5ae0bb4075d295fbf938f08a2f6856c2
    }
  
    // ── Rendering ──
-@@ -526,6 +613,142 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -526,6 +613,151 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      invalidate()
    }
  
@@ -453,7 +453,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..5ae0bb4075d295fbf938f08a2f6856c2
 +
 +  /** One contiguous link run in a row. [segment] is the exact on-screen text;
 +   *  empty for OSC 8 runs, whose URI resolves at hit-test time. */
-+  private class LinkRange(val startCol: Int, val endCol: Int, val segment: String) {
++  private class LinkRange(val startCol: Int, val endCol: Int, val segment: String, val fromWrap: Boolean = false) {
 +    val isOsc8: Boolean get() = segment.isEmpty()
 +  }
 +
@@ -462,6 +462,13 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..5ae0bb4075d295fbf938f08a2f6856c2
 +   *  previous row's URL reached the final column (a wrapped URL). */
 +  private fun updateRowLinks(rowIndex: Int, textUnits: Int, wrapContinuation: Boolean) {
 +    if (rowIndex >= rowLinks.size) return
++    // A redraw here invalidates wrap-continuation ranges the row below
++    // cached against this row's previous content.
++    val below = rowLinks.getOrNull(rowIndex + 1)
++    if (below != null && below.any { it.fromWrap }) {
++      val kept = below.filter { !it.fromWrap }
++      rowLinks[rowIndex + 1] = if (kept.isEmpty()) null else kept.toTypedArray()
++    }
 +    val mask = BooleanArray(cols)
 +    val ranges = ArrayList<LinkRange>(2)
 +
@@ -510,7 +517,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..5ae0bb4075d295fbf938f08a2f6856c2
 +          while (end < textUnits && !isUrlBreak(rowChars[end])) end++
 +          val endCol = if (end > 0) colOf[end - 1] else -1
 +          if (endCol >= 0) {
-+            ranges.add(LinkRange(0, endCol, String(rowChars, 0, end)))
++            ranges.add(LinkRange(0, endCol, String(rowChars, 0, end), fromWrap = true))
 +            for (c in 0..endCol) mask[c] = true
 +          }
 +        }
@@ -561,6 +568,8 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..5ae0bb4075d295fbf938f08a2f6856c2
 +      topRow--
 +      topRange = prev
 +    }
++    // A continuation range at the top of the chain has no validating parent above.
++    if (topRange.fromWrap) return null
 +    var bottomRow = r
 +    var bottomRange = tapped
 +    while (bottomRange.endCol >= cols - 1 && rowWrapCont.getOrNull(bottomRow + 1) == true && text.length < LINK_MAX_CHARS) {
@@ -588,7 +597,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..5ae0bb4075d295fbf938f08a2f6856c2
    // ── Selection ──
  
    /** Top-left / bottom-right cells of the rendered selection, or null. */
-@@ -782,6 +1005,8 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -782,6 +1014,8 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      val selStart = buf.int
      val selEnd = buf.int
      val textUnits = buf.int
@@ -597,7 +606,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..5ae0bb4075d295fbf938f08a2f6856c2
      if (rowIndex < rowSelStart.size) {
        rowSelStart[rowIndex] = selStart
        rowSelEnd[rowIndex] = selEnd
-@@ -836,6 +1061,8 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -836,6 +1070,8 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
      buf.position(nextRecord)
  
@@ -606,7 +615,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..5ae0bb4075d295fbf938f08a2f6856c2
      val top = (rowIndex * cellHeight).toFloat()
      val bottom = top + cellHeight
  
-@@ -871,7 +1098,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -871,7 +1107,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        val x = col * cellWidth
        canvas.drawText(rowChars, cellTextOff[col], len, x, top + baseline, paint)
        val runWidth = if (flags and FLAG_WIDE != 0) cellWidth * 2 else cellWidth
@@ -617,7 +626,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..5ae0bb4075d295fbf938f08a2f6856c2
          canvas.drawRect(x, bottom - underlineThickness, x + runWidth, bottom, paint)
        }
        if (flags and FLAG_STRIKETHROUGH != 0) {
-@@ -970,6 +1199,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -970,6 +1208,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
    }
  
@@ -638,7 +647,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..5ae0bb4075d295fbf938f08a2f6856c2
    // ── Input ──
  
    override fun onTouchEvent(event: MotionEvent): Boolean {
-@@ -1105,6 +1348,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1105,6 +1357,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val MAX_SCROLLBACK = 10_000L
      const val BLINK_INTERVAL_MS = 600L
      const val SYMBOLS_FONT_ASSET = "SymbolsNerdFontMono-Regular.ttf"
@@ -650,7 +659,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..5ae0bb4075d295fbf938f08a2f6856c2
  
      // Nerd Font glyph ranges: BMP private-use area plus the supplementary
      // private-use planes (material icons live at U+F0000+ since v3).
-@@ -1131,7 +1379,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1131,7 +1388,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val JUMP_CHIP_ARROW_COLOR = 0xFFE0E0E0.toInt()
  
      const val HEADER_BYTES = 52
@@ -659,7 +668,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..5ae0bb4075d295fbf938f08a2f6856c2
      const val CELL_RECORD_BYTES = 16
      const val MAX_CELL_TEXT_UNITS = 32
  
-@@ -1153,5 +1401,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1153,5 +1410,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val FLAG_SPACER = 1 shl 8
      const val FLAG_FG_DEFAULT = 1 shl 9
      const val FLAG_BG_NONE = 1 shl 10
