@@ -34,8 +34,10 @@ import {
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import { createTerminalScrollGate } from '../application/terminalScrollGate';
 import { DEFAULT_FONT_INDEX, FONT_STEPS, clampFontIndex } from '../domain/fontSteps';
+import { openTerminalLink } from '../domain/safeTerminalLink';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { createTerminalWritePump, type TerminalWritePump } from '../application/terminalWritePump';
+import { openExternalUrl } from '@/utils/openExternalUrl';
 
 export interface TerminalViewProps {
     sessionId: string;
@@ -337,6 +339,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // Ghostty counts rows the way the finger moved, herdr counts
                 // them the way the text does, hence the negation.
                 onScroll={({ nativeEvent }) => scrollGate.queue(-nativeEvent.rows)}
+                onOpenLink={({ nativeEvent }) => openTerminalLink(nativeEvent.url, openExternalUrl)}
             />
             </View>
         </View>

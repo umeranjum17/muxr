@@ -1,0 +1,199 @@
+import { describe, expect, it, vi } from 'vitest';
+import xterm from '@xterm/xterm';
+import {
+    joinedTerminalUrlAt,
+    joinedTerminalUrlRanges,
+    lineCellMap,
+    openTerminalLink,
+    plainLinkAtCell,
+    safeTerminalLinkUrl,
+    terminalUrlAt,
+    type TerminalLinkRow,
+} from './safeTerminalLink';
+
+/**
+ * One flow: a link the terminal printed (plain text or OSC 8) travels through
+ * the safe-open boundary to the browser. Everything a user actually taps or
+ * copies rides this single function, so the flow test drives it with real
+ * printed output shapes and asserts what reaches the open boundary.
+ */
+describe('terminal printed links open only as safe web URLs', () => {
+    it('opens plain and OSC 8 web links through the boundary, drops every other scheme, and never mutates the exact URL', () => {
+        const open = vi.fn<(url: string) => Promise<void>>().mockResolvedValue(undefined);
+        const tap = (raw: string) => {
+            openTerminalLink(raw, open);
+        };
+
+        // Plain http/https printed in output — forwarded byte-exact.
+        tap('https://example.com/docs/r/1?a=b#section');
+        tap('https://example.test/osc8'); // OSC 8 carries its own URI — same boundary, same verdict.
+        expect(open.mock.calls.map(([url]) => url)).toEqual([
+            'https://example.com/docs/r/1?a=b#section',
+            'https://example.test/osc8',
+        ]);
+
+        // Executable, file, javascript, data and unknown schemes never reach a
+        // handler; terminal output is untrusted.
+        open.mockClear();
+        for (const raw of [
+            'file:///etc/passwd',
+            'javascript:alert(document.cookie)',
+            'data:text/html,<script>fetch("/")</script>',
+            'ssh://host.example.internal',
+            'market://details?id=com.example',
+            'http://', // no host
+            'not a url',
+            '',
+        ]) {
+            tap(raw);
+        }
+        expect(open).not.toHaveBeenCalled();
+
+        // A session may print enormous junk; the boundary caps what it will open.
+        expect(safeTerminalLinkUrl(`https://example.com/${'x'.repeat(4000)}`)).toBeNull();
+
+        // Long-press copy extracts the exact link the finger is on: full
+        // query/fragment kept, trailing punctuation never joins it, a wrapped
+        // URL joined into one string copies as one link, and text that is not
+        // a link (including non-web schemes) copies nothing.
+        expect(terminalUrlAt('see https://example.com/a?b=c#d.', 5)).toBe('https://example.com/a?b=c#d');
+        expect(terminalUrlAt('https://example.com/a, then https://other.test/x', 0)).toBe('https://example.com/a');
+        const wrapped = 'https://example.com/very/long' + '/path/with/query?x=1';
+        expect(terminalUrlAt(' ' + wrapped + ' ', 4)).toBe(wrapped);
+        expect(terminalUrlAt('plain terminal text', 5)).toBeNull();
+        expect(terminalUrlAt('open ssh://git@host:22/repo.git now', 6)).toBeNull();
+    });
+
+    it('joins a URL across soft-wrapped rows and never across a hard new line', () => {
+        const rows = (wrap: boolean): ((row: number) => TerminalLinkRow | undefined) => {
+            const list: TerminalLinkRow[] = [
+                { text: 'https://example.com/very/long/path/that/fills/the/width/aaaa', isWrapped: false },
+                wrap
+                    ? { text: 'bbbb/ccc?d=1', isWrapped: true }
+                    : { text: 'Notes:', isWrapped: false },
+            ];
+            return (row) => list[row];
+        };
+        const full = 'https://example.com/very/long/path/that/fills/the/width/aaaa';
+
+        // Hard new line below a full-width URL: the URL stays whole and the
+        // word under the finger on the next line is not a link.
+        expect(joinedTerminalUrlAt(rows(false), 0, 10)).toBe(full);
+        expect(joinedTerminalUrlAt(rows(false), 1, 0)).toBeNull();
+
+        // Soft-wrapped continuation: both rows resolve the same joined link.
+        expect(joinedTerminalUrlAt(rows(true), 0, 10)).toBe(`${full}bbbb/ccc?d=1`);
+        expect(joinedTerminalUrlAt(rows(true), 1, 0)).toBe(`${full}bbbb/ccc?d=1`);
+    });
+
+    it('maps long-press cells through the same string xterm renders, wide glyphs included', async () => {
+        const term = new xterm.Terminal({ cols: 20, rows: 2 });
+        await new Promise<void>((resolve) => term.write('中文 https://a.io', resolve));
+        const line = term.buffer.active.getLine(0)!;
+        const rowAt = (): TerminalLinkRow => ({ text: line.translateToString(true), isWrapped: false });
+
+        // The walk sees exactly the string xterm renders: the zero-width cell
+        // after each wide glyph contributes nothing, so cells and string units
+        // stay aligned and both surfaces resolve the same link.
+        expect(lineCellMap(line, 20).text).toBe(line.translateToString(false));
+        expect(plainLinkAtCell(line, 20, 16, 0, rowAt)).toBe('https://a.io');
+        expect(plainLinkAtCell(line, 20, 5, 0, rowAt)).toBe('https://a.io');
+        expect(plainLinkAtCell(line, 20, 4, 0, rowAt)).toBeNull();
+        expect(plainLinkAtCell(line, 20, 1, 0, rowAt)).toBeNull();
+        term.dispose();
+    });
+
+    it('ends a wrapped URL at the parent row trailing blanks, like the printed stream', async () => {
+        const term = new xterm.Terminal({ cols: 20, rows: 3 });
+        await new Promise<void>((resolve) => term.write('see https://x.io/a  more', resolve));
+        const lineAt = (r: number) => term.buffer.active.getLine(r)!;
+        // The two blanks filled the parent row and 'more' wrapped: the row is a
+        // soft-wrap continuation whose parent does not end in URL text.
+        expect(lineAt(1).isWrapped).toBe(true);
+        expect(lineAt(0).translateToString(true)).toBe('see https://x.io/a  ');
+        const rowAt = (r: number): TerminalLinkRow | undefined => {
+            const line = lineAt(r);
+            return line
+                ? { text: line.translateToString(true), isWrapped: line.isWrapped }
+                : undefined;
+        };
+
+        // The blanks ended the printed URL: the wrapped word is not part of it
+        // and the join must not fabricate one.
+        expect(plainLinkAtCell(lineAt(1), 20, 0, 1, rowAt)).toBeNull();
+        expect(plainLinkAtCell(lineAt(1), 20, 3, 1, rowAt)).toBeNull();
+        term.dispose();
+
+        // A genuinely contiguous soft wrap still joins into one link.
+        const joined = new xterm.Terminal({ cols: 20, rows: 3 });
+        await new Promise<void>((resolve) => joined.write('https://x.io/aaaa/bbbb/cccc/dddd/eeee', resolve));
+        const joinedLineAt = (r: number) => joined.buffer.active.getLine(r)!;
+        expect(joinedLineAt(1).isWrapped).toBe(true);
+        const joinedRowAt = (r: number): TerminalLinkRow | undefined => {
+            const line = joinedLineAt(r);
+            return line
+                ? { text: line.translateToString(true), isWrapped: line.isWrapped }
+                : undefined;
+        };
+        expect(plainLinkAtCell(joinedLineAt(1), 20, 0, 1, joinedRowAt)).toBe(
+            'https://x.io/aaaa/bbbb/cccc/dddd/eeee',
+        );
+        joined.dispose();
+    });
+
+    it('ends a wrapped URL at an erased parent tail, like the printed stream', async () => {
+        const term = new xterm.Terminal({ cols: 20, rows: 3 });
+        await new Promise<void>((resolve) => term.write('https://x.io/aaaa/bbbb/cccc/dddd/eeee', resolve));
+        // TUI-style in-place rewrite: print a shorter line over the parent and
+        // erase right. The erased tail is unwritten cells now, but the child
+        // row's soft-wrap flag survives the erase.
+        await new Promise<void>((resolve) => term.write('\x1b[1;1Hhttps://short.link\x1b[K', resolve));
+        const lineAt = (r: number) => term.buffer.active.getLine(r)!;
+        expect(lineAt(0).translateToString(true)).toBe('https://short.link');
+        expect(lineAt(1).isWrapped).toBe(true);
+        const rowAt = (r: number): TerminalLinkRow | undefined => {
+            const line = lineAt(r);
+            return line
+                ? { text: line.translateToString(false), isWrapped: line.isWrapped }
+                : undefined;
+        };
+
+        // The stale wrap must not glue the child onto the shortened parent:
+        // the erased tail ends the printed line, so the child is not a link.
+        expect(plainLinkAtCell(lineAt(1), 20, 0, 1, rowAt)).toBeNull();
+        expect(plainLinkAtCell(lineAt(1), 20, 5, 1, rowAt)).toBeNull();
+        term.dispose();
+    });
+
+    it('underlines a soft-wrapped URL continuously, and never past a hard new line or a stale wrap', async () => {
+        const term = new xterm.Terminal({ cols: 20, rows: 3 });
+        await new Promise<void>((resolve) => term.write('see https://x.io/aaaa/bbbb/cccc', resolve));
+        const lineAt = (r: number) => term.buffer.active.getLine(r)!;
+        expect(lineAt(1).isWrapped).toBe(true);
+        const rowAt = (r: number): TerminalLinkRow | undefined => {
+            const line = lineAt(r);
+            return line
+                ? { text: line.translateToString(false), isWrapped: line.isWrapped }
+                : undefined;
+        };
+        const rangesOf = (r: number) => joinedTerminalUrlRanges(lineAt(r), 20, r, rowAt);
+
+        // The parent underlines the URL head from its printed column, the
+        // wrapped row underlines its share from the first cell: together the
+        // exact link the hit-test resolves on either row.
+        expect(rangesOf(0)).toEqual([{ start: 4, length: 16 }]);
+        expect(rangesOf(1)).toEqual([{ start: 0, length: 11 }]);
+        expect(plainLinkAtCell(lineAt(1), 20, 0, 1, rowAt)).toBe('https://x.io/aaaa/bbbb/cccc');
+
+        // A hard new line below the run underlines nothing.
+        await new Promise<void>((resolve) => term.write('\r\nplain text', resolve));
+        expect(lineAt(2).isWrapped).toBe(false);
+        expect(rangesOf(2)).toEqual([]);
+
+        // After a TUI-style in-place rewrite shortens the parent, the stale
+        // wrap underlines nothing, like the hit-test resolves.
+        await new Promise<void>((resolve) => term.write('\x1b[1;1Hnew header line\x1b[K', resolve));
+        expect(rangesOf(1)).toEqual([]);
+        term.dispose();
+    });
+});
