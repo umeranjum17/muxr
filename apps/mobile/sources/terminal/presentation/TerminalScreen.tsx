@@ -486,6 +486,21 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             .catch((error: unknown) => setFocusFailure(humanError(error).message))
             .finally(() => setFocusPending(false));
     }, [focusPending, props.id, showGestureHint]);
+
+    // Product split: the same typed call the overview sheet's New pane uses,
+    // with the direction the old control plugin's buttons used to carry.
+    const splitPane = React.useCallback((direction: 'right' | 'down') => {
+        setActionsOpen(false);
+        void sync.request('pane.split', { sessionId: props.id, direction })
+            .then((result) => {
+                void sync.refreshHerdTree().catch(() => undefined);
+                if (result.sessionId !== undefined) navigateToSession(result.sessionId);
+            })
+            .catch((error: unknown) => {
+                Modal.alert('Split failed', humanError(error).message);
+                void sync.refreshHerdTree().catch(() => undefined);
+            });
+    }, [props.id, navigateToSession]);
     React.useEffect(() => { if (!actionsOpen) setFocusFailure(null); }, [actionsOpen]);
 
     const showRecentLinks = React.useCallback((action: 'open' | 'copy') => {
@@ -1122,6 +1137,20 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
                                     {canControl && <DeclarativeSessionActions actions={paneActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />}
+                                    {canControl && (
+                                        <View>
+                                            <Pressable onPress={() => splitPane('right')} accessibilityRole="button" accessibilityLabel="Split right"
+                                                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                                <Ionicons name="git-commit-outline" size={18} color={theme.colors.textSecondary} />
+                                                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Split right</Text>
+                                            </Pressable>
+                                            <Pressable onPress={() => splitPane('down')} accessibilityRole="button" accessibilityLabel="Split down"
+                                                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                                <Ionicons name="git-commit-outline" size={18} color={theme.colors.textSecondary} style={{ transform: [{ rotate: '90deg' }] }} />
+                                                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Split down</Text>
+                                            </Pressable>
+                                        </View>
+                                    )}
                                     {canControl && <Pressable onPress={focusInHerdr} disabled={socketStatus.status !== 'connected' || focusPending} accessibilityRole="button"
                                         accessibilityLabel={socketStatus.status === 'connected' ? 'Focus in Herdr' : 'Focus in Herdr, unavailable: not connected'}
                                         accessibilityState={{ disabled: socketStatus.status !== 'connected' || focusPending, busy: focusPending }}

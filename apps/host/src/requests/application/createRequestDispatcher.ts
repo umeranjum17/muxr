@@ -66,6 +66,7 @@ type PluginExecutionRequest = Extract<ClientRequest, {
 const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'session.list', 'session.open', 'session.status',
     'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest',
+    'applications.list',
     'attachment.list', 'attachment.fetch', 'attachment.read', 'unread.catalog',
     'attention.catalog', 'lifecycle.catalog', 'machines.list', 'terminal.attach',
     'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
@@ -154,6 +155,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
         'session.open': async (params) => useCaseData(await openAgent(source, params)),
         'herdr.tree': async () => source.herdrTree(),
+        'applications.list': async () => source.applicationsList(),
+        'applications.launch': async (params) => source.applicationsLaunch(params),
         'herdr.agentKinds': async () => {
             const kinds = await source.agentKinds();
             return { kinds, installed: await source.installedAgentKinds(kinds) };

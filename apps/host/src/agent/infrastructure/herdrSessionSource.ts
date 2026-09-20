@@ -9,14 +9,15 @@
 
 import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { delimiter, dirname, join } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import type {
     AgentLifecycle,
+    ApplicationLauncher,
     CloseResult,
     PluginsInvalidatedFrame,
     HerdrTreeWorkspace,
@@ -203,12 +204,13 @@ function packagedBundledRoots(): Map<string, string> {
 }
 const PACKAGED_BUNDLED_ROOTS = packagedBundledRoots();
 /**
- * The bundled terminal-keys plugin is product code now. Its registration
- * survives in herdr (global to the machine), so a host that still projected it
- * would draw two key rows. Never serve this id to clients; a user-authored
- * plugin under its own id is unaffected.
+ * Bundled plugins that became product code. Their Herdr registrations survive
+ * (global to the machine), but they are not optional add-ons, so the host never
+ * serves them to clients: a stale terminal-keys registration would draw two key
+ * rows, and panes/control surfaces must not present as disableable plugins.
+ * User-authored plugins under their own ids are unaffected.
  */
-const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys']);
+const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys', 'muxr.panes', 'muxr.control']);
 function fromPackagedRoot(plugin: HerdrPlugin): HerdrPlugin {
     const root = PACKAGED_BUNDLED_ROOTS.get(plugin.plugin_id);
     return root === undefined ? plugin : { ...plugin, plugin_root: root };
@@ -257,6 +259,36 @@ function decrement(map: Map<string, number>, key: string): void {
     const next = (map.get(key) ?? 1) - 1;
     if (next <= 0) map.delete(key);
     else map.set(key, next);
+}
+
+/**
+ * Bounded PATH for third-party application launches: the host's own PATH plus
+ * the usual user-install directories a GUI daemon's inherited PATH omits.
+ */
+const LAUNCHER_TOOL_PATH = [
+    process.env.PATH ?? '',
+    join(homedir(), '.local', 'bin'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    '/usr/bin',
+].filter(Boolean).join(delimiter);
+
+/** A launcher row title: the declared title, else the action id in words. */
+function launcherTitle(value: unknown, fallbackId: string): string {
+    const title = typeof value === 'string' ? value.trim() : '';
+    if (title !== '') return title;
+    const parts = fallbackId.split(/[._-]+/).filter(Boolean);
+    return parts.length === 0 ? 'Untitled' : parts.map((part) => part.slice(0, 1).toUpperCase() + part.slice(1)).join(' ');
+}
+
+interface ApplicationAction {
+    id: string;
+    title: string;
+    pluginName: string;
+    pluginId: string;
+    actionId: string;
+    command: unknown;
+    pluginRoot: string;
 }
 
 export interface CreateHerdrSessionSourceOptions {
@@ -2246,6 +2278,138 @@ export async function createHerdrSessionSource(
         await reportHerdrActionFailure(client, pluginId, logId);
     }
 
+    /** Enabled plugins' global actions, fresh from the registry, display-sorted. */
+    async function applicationCatalog(): Promise<ApplicationAction[]> {
+        const result = await client.call<{ plugins?: HerdrPlugin[] }>('plugin.list');
+        const entries: ApplicationAction[] = [];
+        for (const plugin of result.plugins ?? []) {
+            if (plugin.enabled !== true || typeof plugin.plugin_id !== 'string' || plugin.plugin_id === '') continue;
+            const displayName = typeof plugin.name === 'string' && plugin.name.trim() !== '' ? plugin.name.trim() : 'Extension';
+            const global = (plugin.actions ?? []).filter((action) => {
+                const contexts = (action as Record<string, unknown>).contexts;
+                return typeof action.id === 'string' && action.id !== '' && Array.isArray(contexts) && contexts.includes('global');
+            });
+            for (const action of global) {
+                entries.push({
+                    id: `action:${plugin.plugin_id}:${action.id}`,
+                    // One action speaks for the plugin; several keep their own names.
+                    title: global.length === 1 ? displayName : launcherTitle((action as Record<string, unknown>).title, action.id),
+                    pluginName: displayName,
+                    pluginId: plugin.plugin_id,
+                    actionId: action.id,
+                    command: (action as Record<string, unknown>).command,
+                    pluginRoot: plugin.plugin_root,
+                });
+            }
+        }
+        return entries.sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
+    }
+
+    async function launchApplication({ applicationId, sessionId }: { applicationId: string; sessionId?: string }): Promise<{ title: string; sessionId: string }> {
+        const entry = (await applicationCatalog()).find((candidate) => candidate.id === applicationId);
+        if (entry === undefined) throw new Error('This application is no longer installed. Refresh Applications and try again.');
+        const declared = entry.command;
+        if (!Array.isArray(declared) || declared.length === 0 || !declared.every((part) => typeof part === 'string' && part.length > 0)
+            || typeof entry.pluginRoot !== 'string' || !entry.pluginRoot.startsWith('/')) {
+            throw new Error('This application has no launchable command. Update or reinstall its plugin.');
+        }
+
+        // Anchor: the calling session's workspace and cwd, else the focused workspace.
+        let workspaceId: string | undefined;
+        let cwd: string | undefined;
+        if (sessionId !== undefined) {
+            const record = await resolvePane(sessionId);
+            workspaceId = record.agent?.workspace_id ?? record.pane.workspace_id;
+            cwd = infoFor(record).cwd;
+        }
+        if (workspaceId === undefined) {
+            workspaceId = [...workspacesById.values()].find((workspace) => workspace.focused === true)?.workspace_id
+                ?? [...workspacesById.values()][0]?.workspace_id;
+        }
+        if (workspaceId === undefined) throw new Error('No Herdr workspace is open on this computer yet.');
+        const launchCwd = cwd !== undefined && cwd !== '' ? cwd : homedir();
+
+        // Every launch gets an owned tab: an action may split its anchor, and
+        // its result can never be confused with an unrelated pane created elsewhere.
+        const created = await client.call<{ tab?: { tab_id?: string }; root_pane?: { pane_id?: string } }>('tab.create', {
+            workspace_id: workspaceId,
+            cwd: launchCwd,
+            label: entry.title,
+            focus: false,
+        });
+        const anchor = created.root_pane?.pane_id;
+        const tabId = created.tab?.tab_id;
+        if (anchor === undefined || tabId === undefined) throw new Error('Could not create a pane for this application.');
+        const actionPanes = (): string[] => [...panesById.values()]
+            .filter((pane) => pane.tab_id === tabId && pane.pane_id !== anchor)
+            .map((pane) => pane.pane_id);
+
+        const context = {
+            workspace_id: workspaceId,
+            tab_id: tabId,
+            focused_pane_id: anchor,
+            focused_pane_cwd: launchCwd,
+            invocation_source: 'muxr',
+        };
+        // Run only the plugin's declared argv, never a shell: no interpolation,
+        // a bounded launcher PATH, and the real exit instead of acknowledging an
+        // asynchronous invocation as done. Relative args resolve against the
+        // plugin's own root when they name a file there.
+        const argv = declared.map((part) => {
+            if (isAbsolute(part) || part.startsWith('-')) return part;
+            const candidate = resolve(entry.pluginRoot as string, part);
+            try { return statSync(candidate).isFile() ? candidate : part; } catch { return part; }
+        });
+        const actionEnv: NodeJS.ProcessEnv = {
+            HOME: homedir(),
+            PATH: LAUNCHER_TOOL_PATH,
+            HERDR_ENV: '1',
+            HERDR_BIN_PATH: process.env.HERDR_BIN_PATH?.trim() || process.env.HERDR_BIN?.trim() || 'herdr',
+            // The action talks to the same Herdr this host is wired to, so a
+            // launcher that splits panes lands on the desk the phone is viewing.
+            HERDR_SOCKET_PATH: socketPath,
+            HERDR_WORKSPACE_ID: workspaceId,
+            HERDR_TAB_ID: tabId,
+            HERDR_PANE_ID: anchor,
+            HERDR_PLUGIN_ID: entry.pluginId,
+            HERDR_PLUGIN_ACTION_ID: entry.actionId,
+            HERDR_PLUGIN_ROOT: entry.pluginRoot,
+            HERDR_PLUGIN_CONTEXT_JSON: JSON.stringify(context),
+            ...(process.env.MUXR_HOME ? { MUXR_HOME: process.env.MUXR_HOME } : {}),
+        };
+        try {
+            await new Promise<void>((done, fail) => {
+                execFile(argv[0], argv.slice(1), { timeout: 15_000, cwd: launchCwd, env: actionEnv, windowsHide: true }, (error) => {
+                    if (error) fail(error);
+                    else done();
+                });
+            });
+            const deadline = Date.now() + 5_000;
+            let opened: string[] = [];
+            do {
+                await refreshSnapshot();
+                opened = actionPanes();
+                if (opened.length > 0) break;
+                await sleep(150);
+            } while (Date.now() < deadline);
+            const openedPane = opened[0];
+            if (opened.length !== 1 || openedPane === undefined) throw new Error('The application did not open exactly one pane.');
+            await client.call('pane.close', { pane_id: anchor });
+            await refreshSnapshot();
+            return { title: entry.title, sessionId: shellRoute(openedPane) };
+        } catch (cause) {
+            // A failed action may still have opened its pane: keep it findable
+            // in Panes rather than orphaning work, and only clean an empty tab.
+            await refreshSnapshot().catch(() => undefined);
+            const remaining = actionPanes();
+            if (remaining.length === 0) await client.call('pane.close', { pane_id: anchor }).catch(() => undefined);
+            if (remaining.length > 0) {
+                throw new Error('The application did not finish starting. Its pane is available in Panes; check its output before retrying.');
+            }
+            throw new Error(`Could not open ${entry.title}. Check that its command is installed and runnable on the host, then try again.`);
+        }
+    }
+
     return {
         async refreshHerdr(): Promise<void> {
             await refreshSnapshot();
@@ -2555,6 +2719,14 @@ export async function createHerdrSessionSource(
                 });
             }
             return { workspaces, connected: client.connected };
+        },
+
+        async applicationsList(): Promise<{ items: ApplicationLauncher[] }> {
+            return { items: await applicationCatalog() };
+        },
+
+        async applicationsLaunch(options: { applicationId: string; sessionId?: string }): Promise<{ title: string; sessionId: string }> {
+            return launchApplication(options);
         },
 
         async paneSplit(splitOptions: {

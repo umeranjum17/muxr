@@ -109,6 +109,14 @@ export function createFakeSessionSource(): SessionSource {
             return { workspaces: [], connected: true };
         },
 
+        async applicationsList() {
+            return { items: [] };
+        },
+
+        async applicationsLaunch() {
+            throw new Error('fake source has no applications');
+        },
+
         async agentKinds() {
             return ['pi', 'claude', 'codex'];
         },

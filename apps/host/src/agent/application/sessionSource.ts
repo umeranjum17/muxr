@@ -6,6 +6,7 @@
  */
 
 import type {
+    ApplicationLauncher,
     PluginManifestV1,
     PluginSummary,
     HerdrTreeWorkspace,
@@ -98,6 +99,10 @@ export interface SessionSource {
     refreshPlugins?(): Promise<void>;
     /** The whole herd: workspaces -> tabs -> panes with live agent state. `connected` is herdr event-socket liveness. */
     herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean }>;
+    /** Third-party Applications: enabled plugins' global launcher actions, read from the live Herdr registry. */
+    applicationsList(): Promise<{ items: ApplicationLauncher[] }>;
+    /** Launch one third-party application action in its own new tab; returns the pane it opened. */
+    applicationsLaunch(options: { applicationId: string; sessionId?: string }): Promise<{ title: string; sessionId: string }>;
     /** Agent kinds supported by the connected Herdr host. */
     agentKinds(): Promise<string[]>;
     /** Kinds whose canonical executable is launchable in the host PATH. */

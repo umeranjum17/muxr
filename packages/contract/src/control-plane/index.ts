@@ -1,4 +1,5 @@
 export type {
+    ApplicationLauncher,
     ClientRequest,
     ChangesBadge,
     ChangesBrowse,

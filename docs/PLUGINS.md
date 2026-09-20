@@ -78,7 +78,7 @@ Package management keeps Herdr as the only executable registry and runtime:
 ```bash
 muxr plugin docs
 muxr plugin create hello-muxr
-muxr plugin clone muxr.panes ./my-panes
+muxr plugin clone muxr.status ./my-status
 muxr plugin check ./hello-muxr
 muxr plugin dev ./hello-muxr
 muxr plugin list
@@ -488,7 +488,7 @@ Every extension should explain:
 6. how to disable and unlink it;
 7. supported muxr UI and Herdr versions.
 
-`muxr plugin create` writes a minimal working plugin and is the fastest starting point. For a richer list/detail/form/RPC/chart example, clone a bundled one with `muxr plugin clone muxr.panes ./my-plugin`; every bundled plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons are also full examples you can read or install: `muxr plugin install umeranjum17/herdr-files` `muxr plugin install umeranjum17/herdr-attachments`.
+`muxr plugin create` writes a minimal working plugin and is the fastest starting point. For a richer list/detail/form/RPC/chart example, clone a bundled one with `muxr plugin clone muxr.status ./my-plugin`; every bundled plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons are also full examples you can read or install: `muxr plugin install umeranjum17/herdr-files` `muxr plugin install umeranjum17/herdr-attachments`.
 
 ## Lists of real things
 
@@ -555,11 +555,11 @@ the muxr install. To override a bundled surface, use the clone command so
 package identity is rewritten and your source lives outside npm ownership:
 
 ```bash
-muxr plugin clone muxr.panes ./my-panes
-# edit ./my-panes/muxr-ui.json
-herdr plugin disable muxr.panes
-muxr plugin dev ./my-panes
-# if linking fails: herdr plugin enable muxr.panes
+muxr plugin clone muxr.status ./my-status
+# edit ./my-status/muxr-ui.json
+herdr plugin disable muxr.status
+muxr plugin dev ./my-status
+# if linking fails: herdr plugin enable muxr.status
 ```
 
 The same `terminal.key-row` contribution accepts up to eight `quickReplies`:
@@ -688,7 +688,7 @@ phone-effect name is skipped, not fatal.
 `session.header.trailing` accepts `type: "screen-button"` in addition to
 `data-card`. A screen-button opens another contribution in the same plugin from
 the pane menu, or directly from terminal quick controls when `quickAction` is
-true (see the `tools-sheet` contribution in `plugins/panes/muxr-ui.json`).
+true (a `quickAction` row appears directly in the terminal quick controls).
 
 ```json
 {

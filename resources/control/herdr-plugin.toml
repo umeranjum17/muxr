@@ -1,6 +1,11 @@
+# Product-owned Herdr pane pack. This manifest exists only because Herdr's
+# pane surface is manifest-shaped; it is not an optional plugin and has no
+# muxr UI. `muxr setup` installs and relinks it.
 id = "muxr.control"
 name = "muxr"
-version = "0.1.0"
+# Versioned with muxr itself: bump when a release changes the pack; setup
+# relinks whenever the version or path moves.
+version = "0.2.0"
 min_herdr_version = "0.8.0"
 description = "Set up and pair muxr from Herdr, and drive Herdr layout from your phone"
 platforms = ["linux", "macos"]

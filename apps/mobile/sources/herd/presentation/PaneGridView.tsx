@@ -47,6 +47,8 @@ function snapshotCaption(state: TerminalPreviewState | undefined): string {
 
 const PaneCard = React.memo(function PaneCard(props: {
     pane: HerdrTreePane;
+    /** The route this card opens: the pane's session, or a caller-resolved route (e.g. a shell pane). */
+    sessionId?: string;
     width: number;
     selected: boolean;
     visible: boolean;
@@ -58,13 +60,14 @@ const PaneCard = React.memo(function PaneCard(props: {
 }): React.JSX.Element {
     const { theme } = useUnistyles();
     const { pane } = props;
+    const sessionId = props.sessionId;
     const labels = agentLabels(pane);
     const shell = isShellLabels(labels);
     const status = pane.promptable ? pane.agentStatus : 'unknown';
     const tone = agentStatusColor(status, theme);
     const [snapshot, setSnapshot] = React.useState<TerminalPreviewState>();
-    const openable = pane.sessionId !== undefined && !props.pending;
-    const closable = props.canClose && pane.sessionId !== undefined && !props.pending;
+    const openable = sessionId !== undefined && !props.pending;
+    const closable = props.canClose && sessionId !== undefined && !props.pending;
     const context = shell ? (pane.cwd ?? 'Shell') : `${agentNameLine(labels)} · ${HERD_STATUS_LABELS[status]}`;
     const title = `${labels.taskTitle}. ${shell ? 'Shell' : HERD_STATUS_LABELS[status]}`;
     return (
@@ -117,9 +120,9 @@ const PaneCard = React.memo(function PaneCard(props: {
             <View style={{ marginHorizontal: 10, marginBottom: 10, gap: 4 }}>
                 <Text style={{ ...Typography.default(), fontSize: 10, color: theme.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.4 }}>{snapshotCaption(snapshot)}</Text>
                 <View style={{ height: PREVIEW_HEIGHT, borderRadius: 8, overflow: 'hidden' }}>
-                    {pane.sessionId !== undefined && (
+                    {sessionId !== undefined && (
                         // One passive read while the card is on screen; nothing polls.
-                        <TerminalPreview sessionId={pane.sessionId} live={false} paused={!props.visible} maxLines={SNAPSHOT_LINES} nonEmpty onState={setSnapshot} />
+                        <TerminalPreview sessionId={sessionId} live={false} paused={!props.visible} maxLines={SNAPSHOT_LINES} nonEmpty onState={setSnapshot} />
                     )}
                 </View>
             </View>
@@ -139,6 +142,13 @@ export interface PaneGridViewProps {
     onClose: (pane: HerdrTreePane) => void;
     /** Sits above the cards inside the same scroll. */
     header?: React.ReactElement | null;
+    /** Sits below the cards inside the same scroll (e.g. the Applications section). */
+    footer?: React.ReactElement | null;
+    /**
+     * The route a card opens. Defaults to the pane's session id; a caller may
+     * resolve more (shell panes have no session, but `shell:<paneId>` opens).
+     */
+    sessionIdFor?: (pane: HerdrTreePane) => string | undefined;
     emptyText: string;
     /** When false (sheet closed, app backgrounded) no card reads anything. */
     active?: boolean;
@@ -180,27 +190,32 @@ export function PaneGridView(props: PaneGridViewProps): React.JSX.Element {
                     columnWrapperStyle={columns > 1 ? { gap: GUTTER } : undefined}
                     contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: GUTTER, paddingBottom: GUTTER, width: inner, alignSelf: 'center' }}
                     ListHeaderComponent={props.header ?? null}
+                    ListFooterComponent={props.footer ?? null}
                     ListEmptyComponent={<Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center', paddingVertical: 32 }}>{props.emptyText}</Text>}
                     onViewableItemsChanged={onViewableItemsChanged}
                     viewabilityConfig={viewabilityConfig}
                     initialNumToRender={8}
                     windowSize={3}
                     keyboardShouldPersistTaps="always"
-                    renderItem={({ item }) => (
+                    renderItem={({ item }) => {
+                        const sessionId = props.sessionIdFor ? props.sessionIdFor(item) : item.sessionId;
+                        return (
                         <CardSurface name={props.surfaceTheme}>
                         <PaneCard
                             pane={item}
+                            sessionId={sessionId}
                             width={cardWidth}
-                            selected={item.sessionId !== undefined && item.sessionId === props.selectedSessionId}
+                            selected={sessionId !== undefined && sessionId === props.selectedSessionId}
                             visible={active && visibleIds.has(item.paneId)}
-                            pending={item.sessionId !== undefined && (props.pendingSessionIds?.has(item.sessionId) ?? false)}
+                            pending={sessionId !== undefined && (props.pendingSessionIds?.has(sessionId) ?? false)}
                             canClose={props.canClose}
                             closeReason={props.closeReason}
                             onOpen={props.onOpen}
                             onClose={props.onClose}
                         />
                         </CardSurface>
-                    )}
+                        );
+                    }}
                 />
             )}
         </View>

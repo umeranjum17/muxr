@@ -27,7 +27,8 @@ export function pluginReferencePath() {
 }
 
 export function bundledPluginsRoot() {
-    const toml = walkFor('plugins/control/herdr-plugin.toml');
+    // Anchored on voice, the remaining bundled add-on (see setup paths).
+    const toml = walkFor('plugins/voice/herdr-plugin.toml');
     if (toml === undefined) return undefined;
     return dirname(dirname(toml));
 }
