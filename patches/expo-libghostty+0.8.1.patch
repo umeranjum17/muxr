@@ -1,5 +1,5 @@
 diff --git a/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp b/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
-index b9c118ee074ba100136c20cc6fd5896b15c4bb33..bf55a087de4087d47921b59abd9e84707332449a 100644
+index b9c118ee074ba100136c20cc6fd5896b15c4bb33..620e92d0c553ae500d3ee6c337bf642ad034c1d7 100644
 --- a/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
 +++ b/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
 @@ -18,7 +18,8 @@
@@ -12,7 +12,15 @@ index b9c118ee074ba100136c20cc6fd5896b15c4bb33..bf55a087de4087d47921b59abd9e8470
  //     cells[cols] x 16 bytes:
  //       i32 fg (ARGB), i32 bg (ARGB),
  //       u16 textOffset (UTF-16 units into row blob), u16 textLen (units),
-@@ -52,9 +53,12 @@ constexpr uint16_t kFlagWide = 1 << 7;
+@@ -32,6 +33,7 @@
+ 
+ #include <cstdint>
+ #include <cstring>
++#include <string>
+ #include <vector>
+ 
+ #include <ghostty/vt.h>
+@@ -52,9 +54,12 @@ constexpr uint16_t kFlagWide = 1 << 7;
  constexpr uint16_t kFlagSpacer = 1 << 8;
  constexpr uint16_t kFlagFgDefault = 1 << 9;
  constexpr uint16_t kFlagBgNone = 1 << 10;
@@ -26,7 +34,7 @@ index b9c118ee074ba100136c20cc6fd5896b15c4bb33..bf55a087de4087d47921b59abd9e8470
  constexpr size_t kCellRecordBytes = 16;
  // Cap per-cell grapheme text; anything longer is truncated (degenerate input).
  constexpr uint32_t kMaxCellTextUnits = 32;
-@@ -507,6 +511,14 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+@@ -507,6 +512,14 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
      rowHeader[1] = selResult == GHOSTTY_SUCCESS ? selection.start_x : -1;
      rowHeader[2] = selResult == GHOSTTY_SUCCESS ? selection.end_x : -1;
  
@@ -41,7 +49,7 @@ index b9c118ee074ba100136c20cc6fd5896b15c4bb33..bf55a087de4087d47921b59abd9e8470
      if (ghostty_render_state_row_get(session->rowIter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS,
                                       &session->cells) != GHOSTTY_SUCCESS) {
        return -1;
-@@ -534,6 +546,10 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+@@ -534,6 +547,10 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
          flags |= kFlagSpacer;
        }
  
@@ -52,7 +60,7 @@ index b9c118ee074ba100136c20cc6fd5896b15c4bb33..bf55a087de4087d47921b59abd9e8470
        bool hasStyling = false;
        ghostty_render_state_row_cells_get(session->cells,
                                           GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_HAS_STYLING,
-@@ -628,6 +644,32 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+@@ -628,6 +645,86 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
    return rowCount;
  }
  
@@ -72,14 +80,68 @@ index b9c118ee074ba100136c20cc6fd5896b15c4bb33..bf55a087de4087d47921b59abd9e8470
 +    return nullptr;
 +  }
 +  // ghostty_grid_ref_hyperlink_uri writes exactly `needed` bytes without a
-+  // terminator; NewStringUTF strlen-reads, so keep one spare NUL byte.
++  // terminator; keep one spare NUL byte so the decode below can strlen-read.
 +  std::vector<uint8_t> uri(needed + 1, 0);
 +  size_t written = 0;
 +  if (ghostty_grid_ref_hyperlink_uri(&ref, uri.data(), uri.size(), &written) != GHOSTTY_SUCCESS ||
 +      written == 0) {
 +    return nullptr;
 +  }
-+  return env->NewStringUTF(reinterpret_cast<const char*>(uri.data()));
++  // NewStringUTF requires modified UTF-8, not standard UTF-8: astral
++  // codepoints must arrive as surrogate pairs and embedded NULs as 0xC0 0x80.
++  // 2- and 3-byte sequences are identical in both encodings. Anything that
++  // is not valid UTF-8 fails closed to null.
++  std::string modified;
++  modified.reserve(written * 3 / 2 + 1);
++  for (size_t i = 0; i < written;) {
++    const uint8_t lead = uri[i];
++    if (lead < 0x80) {
++      if (lead == 0) {
++        modified.push_back(static_cast<char>(0xC0));
++        modified.push_back(static_cast<char>(0x80));
++      } else {
++        modified.push_back(static_cast<char>(lead));
++      }
++      i++;
++      continue;
++    }
++    uint32_t cp = 0;
++    size_t len = 0;
++    if ((lead & 0xE0) == 0xC0 && i + 1 < written) {
++      cp = lead & 0x1F;
++      len = 2;
++    } else if ((lead & 0xF0) == 0xE0 && i + 2 < written) {
++      cp = lead & 0x0F;
++      len = 3;
++    } else if ((lead & 0xF8) == 0xF0 && i + 3 < written) {
++      cp = lead & 0x07;
++      len = 4;
++    } else {
++      return nullptr;
++    }
++    for (size_t k = 1; k < len; k++) {
++      if ((uri[i + k] & 0xC0) != 0x80) return nullptr;
++      cp = (cp << 6) | (uri[i + k] & 0x3F);
++    }
++    if ((len == 2 && cp < 0x80) || (len == 3 && cp < 0x800) ||
++        (len == 4 && cp < 0x10000) || (cp >= 0xD800 && cp <= 0xDFFF)) {
++      return nullptr;
++    }
++    if (len == 4) {
++      if (cp > 0x10FFFF) return nullptr;
++      cp -= 0x10000;
++      const uint32_t surrogates[2] = {0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF)};
++      for (const uint32_t s : surrogates) {
++        modified.push_back(static_cast<char>(0xE0 | (s >> 12)));
++        modified.push_back(static_cast<char>(0x80 | ((s >> 6) & 0x3F)));
++        modified.push_back(static_cast<char>(0x80 | (s & 0x3F)));
++      }
++    } else {
++      modified.append(reinterpret_cast<const char*>(uri.data() + i), len);
++    }
++    i += len;
++  }
++  return env->NewStringUTF(modified.c_str());
 +}
 +
  JNIEXPORT jboolean JNICALL
@@ -836,7 +898,7 @@ index d90375aaf84b9191b8f107ab83869ce323a6a7f5..85a34b92dd47de75af27a1c752729aac
          case GHOSTTY_ACTION_PWD:
              let payload = action.action.pwd
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-index 3f3eeb202351f474526690dc27937df833bdd7e3..149b5f47a8907afa281b24fde06ab46a6a9a4ee8 100644
+index 3f3eeb202351f474526690dc27937df833bdd7e3..2e53ab74359832646fdd3e5a004add9f7c623e5e 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 @@ -25,9 +25,22 @@
@@ -901,7 +963,7 @@ index 3f3eeb202351f474526690dc27937df833bdd7e3..149b5f47a8907afa281b24fde06ab46a
                  touchDidScrollDuringCurrentTouch = false
              #endif
              super.touchesCancelled(touches, with: event)
-@@ -448,10 +486,55 @@
+@@ -448,10 +486,54 @@
                  }
              }
  
@@ -946,7 +1008,6 @@ index 3f3eeb202351f474526690dc27937df833bdd7e3..149b5f47a8907afa281b24fde06ab46a
                  guard gesture.state == .began else { return }
 +                if let url = hoverLink(at: gesture.location(in: self)) {
 +                    stopMomentumScrolling()
-+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 +                    // The lift must not re-read this gesture as a tap: copy
 +                    // and open are mutually exclusive.
 +                    pendingTapPoint = nil
@@ -957,7 +1018,7 @@ index 3f3eeb202351f474526690dc27937df833bdd7e3..149b5f47a8907afa281b24fde06ab46a
                  guard let delegate = delegate as? any TerminalSurfaceTextSelectionRequestDelegate else { return }
                  guard let surface else { return }
                  guard case let .inMemory(session) = configuration.backend else {
-@@ -532,12 +615,16 @@
+@@ -532,12 +614,16 @@
                      "touch scroll changed translation=\(String(format: "%.2f", translation.x))x\(String(format: "%.2f", translation.y))"
                  )
  
@@ -980,7 +1041,7 @@ index 3f3eeb202351f474526690dc27937df833bdd7e3..149b5f47a8907afa281b24fde06ab46a
  
              case .ended:
                  guard activePointerButton == nil else { return }
-@@ -566,8 +653,10 @@
+@@ -566,8 +652,10 @@
                  "momentum start velocity=\(String(format: "%.2f", velocity.x))x\(String(format: "%.2f", velocity.y))"
              )
  
@@ -993,7 +1054,7 @@ index 3f3eeb202351f474526690dc27937df833bdd7e3..149b5f47a8907afa281b24fde06ab46a
  
              let link = CADisplayLink(
                  target: self,
-@@ -597,19 +686,23 @@
+@@ -597,19 +685,23 @@
                  "momentum frame velocity=\(String(format: "%.2f", momentumVelocity.x))x\(String(format: "%.2f", momentumVelocity.y)) delta=\(String(format: "%.2f", deltaX))x\(String(format: "%.2f", deltaY))"
              )
  
@@ -1024,7 +1085,7 @@ index 3f3eeb202351f474526690dc27937df833bdd7e3..149b5f47a8907afa281b24fde06ab46a
                  let mods = TerminalScrollModifiers(precision: true, momentum: .none)
                  surface?.sendMouseScroll(x: 0, y: 0, mods: mods.rawValue)
              }
-@@ -630,6 +723,7 @@
+@@ -630,6 +722,7 @@
          ) -> Bool {
              if gestureRecognizer is UILongPressGestureRecognizer {
                  return (delegate as? any TerminalSurfaceTextSelectionRequestDelegate) != nil
