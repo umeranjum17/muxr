@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { connect, createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { Transform } from 'node:stream';
@@ -10,6 +10,11 @@ const MAX_CONNECTIONS = 64;
 function bundledRoots(root) {
     const roots = new Map();
     const directory = join(root, 'plugins');
+    // muxr ships no bundled add-ons, so a checkout legitimately has no plugins/
+    // directory. The adapter is then a transparent pass-through to the real
+    // Herdr socket, which is exactly what a checkout-local projection means
+    // when there is nothing to project.
+    if (!existsSync(directory)) return roots;
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
         const pluginRoot = realpathSync(join(directory, entry.name));
@@ -24,7 +29,6 @@ function bundledRoots(root) {
             throw error;
         }
     }
-    if (roots.size === 0) throw new Error('No bundled plugin manifests found');
     return roots;
 }
 

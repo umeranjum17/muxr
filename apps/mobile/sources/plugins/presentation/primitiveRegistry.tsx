@@ -3,7 +3,7 @@ import { PRIMITIVE_SPECS, type PluginPrimitive } from '@muxr/contract';
 import type { PrimitiveProps } from '../domain/primitiveTypes';
 import { CapabilityButton } from './primitives/CapabilityButton';
 import { CollectionView } from './primitives/CollectionView';
-import { RealtimeSessionOverlay } from './primitives/RealtimeSessionOverlay';
+import { RealtimeSessionOverlay } from '@/conversation/ui';
 import { DictateButton } from '@/components/DictateButton';
 import { TreeSheet } from './primitives/TreeSheet';
 import { ItemList } from './primitives/ItemList';

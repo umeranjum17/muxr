@@ -95,6 +95,42 @@ if (/<capability(?:-binding)?\b/.test(nativeShortcuts) || nativeShortcuts.includ
     process.stderr.write('FAIL Android launcher shortcuts must not declare Play-blocked App Actions capabilities\n');
     failed += 1;
 }
+// The launcher XML is generated from the shortcut list, so it must not drift
+// when a product shortcut is renamed. Nothing else compares these files.
+const generatedShortcuts = require(join(root, 'apps/mobile/plugins/withAppActions.js'));
+const shortcutData = generatedShortcuts.bundledShortcutData();
+for (const variant of [
+    { file: join(root, 'apps/mobile/android/app/src/main/res/xml/shortcuts.xml'), scheme: 'muxr', target: 'com.trymuxr.app' },
+    { file: join(root, 'apps/mobile/android/app/src/main/res/xml/dev_shortcuts.xml'), scheme: 'muxr-dev', target: 'app.muxr.local.dev' },
+]) {
+    const xml = readFileSync(variant.file, 'utf8');
+    for (const shortcut of shortcutData) {
+        const resourceName = shortcut.id.replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+        if (!xml.includes(`android:shortcutId="${shortcut.id}"`)) {
+            process.stderr.write(`FAIL ${variant.file} is stale: it does not declare shortcut ${shortcut.id}\n`);
+            failed += 1;
+        }
+        if (!xml.includes(`android:data="${variant.scheme}://shortcut/${shortcut.id}"`)) {
+            process.stderr.write(`FAIL ${variant.file} is stale: ${shortcut.id} deep link does not match its id\n`);
+            failed += 1;
+        }
+        if (!xml.includes(`@string/muxr_shortcut_${resourceName}_short`)) {
+            process.stderr.write(`FAIL ${variant.file} is stale: ${shortcut.id} does not reference its generated strings\n`);
+            failed += 1;
+        }
+        if (!xml.includes(`android:targetPackage="${variant.target}"`)) {
+            process.stderr.write(`FAIL ${variant.file} must target ${variant.target}\n`);
+            failed += 1;
+        }
+    }
+    const declared = [...xml.matchAll(/android:shortcutId="([^"]+)"/g)].map((match) => match[1]).sort();
+    const expected = shortcutData.map((shortcut) => shortcut.id).sort();
+    if (declared.join(',') !== expected.join(',')) {
+        process.stderr.write(`FAIL ${variant.file} declares ${declared.join(',')} but the shortcut list is ${expected.join(',')}\n`);
+        failed += 1;
+    }
+}
+
 const localizedShortcutFixture = [{
     shortcutId: 'example.open', resourceName: 'example_open', label: 'Open', longLabel: 'Open example', synonyms: ['Open'],
     localized: { es: { label: 'Abrir', longLabel: 'Abrir ejemplo', synonyms: ['Abrir', 'iniciar'] } },

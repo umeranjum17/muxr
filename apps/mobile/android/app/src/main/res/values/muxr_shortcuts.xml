@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="muxr_shortcut_muxr_voice_jarvis_short">Jarvis</string>
-    <string name="muxr_shortcut_muxr_voice_jarvis_long">Talk to the muxr voice agent</string>
-    <string-array name="muxr_shortcut_muxr_voice_jarvis_synonyms">
+    <string name="muxr_shortcut_voice_jarvis_short">Jarvis</string>
+    <string name="muxr_shortcut_voice_jarvis_long">Talk to the muxr voice agent</string>
+    <string-array name="muxr_shortcut_voice_jarvis_synonyms">
         <item>Jarvis</item>
         <item>voice agent</item>
         <item>talk</item>

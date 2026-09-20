@@ -27,6 +27,7 @@ import { t } from '@/text';
 import { getCachedConnectionSettings } from '@/connection';
 import { useNewSessionDraft } from '../application/useNewSessionDraft';
 import { PluginSlot } from '@/plugins/ui';
+import { RealtimeTalkButton } from '@/conversation/ui';
 import { useAllMachines, useSessions, useSocketStatus } from '@/catalog/store';
 import { isMachineOnline } from '@/pairing';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
@@ -791,6 +792,7 @@ export const HomeDock = React.memo(({
             style={styles.composerSurface}
         >
             <View style={styles.composerContent}>
+                <RealtimeTalkButton accessibilityLabel="Start or open realtime conversation" />
                 <PluginSlot slot="home.composer.leading" context={{}} />
                 {activateOnPress ? (
                     <Pressable onPress={activateOnPress} style={styles.inputEntry}>

@@ -17,6 +17,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { initialWindowMetrics, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { PluginSlot } from '@/plugins/ui';
+import { RealtimeSessionOverlay } from '@/conversation/presentation/RealtimeSessionOverlay';
 import { usePluginEvents } from '@/plugins';
 import { SidebarNavigator } from '@/herd/ui';
 import sodium from '@/encryption/libsodium.lib';
@@ -477,6 +478,9 @@ export default function RootLayout() {
                                             <SidebarNavigator />
                                         </HorizontalSafeAreaWrapper>
                                         <PluginEventRunner />
+                                        {/* Realtime voice is product code: its overlay is mounted
+                                            here rather than by a plugin contribution. */}
+                                        <RealtimeSessionOverlay />
                                         <PluginSlot slot="app.overlay" context={{}} />
                                 </CommandPaletteProvider>
                             </ModalProvider>

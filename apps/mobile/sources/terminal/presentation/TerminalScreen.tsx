@@ -6,6 +6,7 @@
  * are the ones the toolbar sends. Approvals happen in the terminal itself.
  */
 
+import { RealtimeTalkButton } from '@/conversation/ui';
 import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -1575,6 +1576,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                             <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                         </Pressable>
                                     </>}
+                                    {/* Realtime voice is product code, so its row is always
+                                        offered; the slot row below stays for third-party
+                                        contributions to the same place. */}
+                                    {canControl && <View style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 14, paddingRight: 8, paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Talk to this session</Text>
+                                        <RealtimeTalkButton sessionId={props.id} accessibilityLabel="Talk to this session" />
+                                    </View>}
                                     {canControl && composerContributions.length > 0 && <View style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 14, paddingRight: 8, paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{composerSlotLabel ?? 'Session tools'}</Text>
                                         <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />

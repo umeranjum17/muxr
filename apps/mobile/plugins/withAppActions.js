@@ -40,7 +40,7 @@ const PRODUCT_SHORTCUTS = [{
     shortcutId: 'voice.jarvis',
     resourceName: 'voice_jarvis',
     label: 'Jarvis',
-    longLabel: 'Talk to muxr',
+    longLabel: 'Talk to the muxr voice agent',
     synonyms: ['Jarvis', 'voice agent', 'talk', 'live voice'],
     localized: {},
     action: { type: 'capability', name: 'voice.start' },
