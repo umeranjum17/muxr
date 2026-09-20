@@ -74,8 +74,11 @@ const checks = [
     ['A suppressed iOS keyboard still leaves the terminal holding key input',
         ghosttyIosTerminal.includes('softwareKeyboardSuppressed ? suppressedInputView : nil') &&
         // Bounded to the branch body: [^}] cannot cross the closing brace, so
-        // this fails if the call is removed, comment or no comment.
-        /\} else if autoShowKeyboard \{[^}]*showKeyboard\(\)/.test(ghosttyIosInteraction) &&
+        // this fails if the deferral is removed, comment or no comment. The
+        // explicit request happens at touch end now, so a tap that opens a
+        // link gets the first say over whether the keyboard rises.
+        /\} else if autoShowKeyboard \{[^}]*pendingKeyboardShowOnTouchEnd = true/.test(ghosttyIosInteraction) &&
+        ghosttyIosInteraction.includes('} else if pendingKeyboardShowOnTouchEnd, !touchDidScrollDuringCurrentTouch {\n                    showKeyboard()') &&
         ghosttyIosInteraction.includes('softwareKeyboardSuppressed = true\n                    becomeFirstResponder()') &&
         ghosttyIosTerminal.includes('guard softwareKeyboardSuppressed != oldValue, isFirstResponder else { return }')],
     // A notification's task map was read on the async function queue while the
