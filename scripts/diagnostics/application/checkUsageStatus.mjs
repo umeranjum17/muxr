@@ -551,9 +551,14 @@ try {
 
         // Upstream ccusage counts the fork's copies again; that is the defect
         // this collector exists to correct, so assert the raw report first.
-        const upstream = JSON.parse(spawnSync(ccusageBinary,
+        // The pinned native binary ships without an exec bit (npm strips it);
+        // repair first use exactly like the host collector does.
+        chmodSync(ccusageBinary, 0o755);
+        const upstreamRun = spawnSync(ccusageBinary,
             ['daily', '--by-agent', '--sections', 'daily', '--json', '--offline'],
-            { encoding: 'utf8', env: { ...process.env, HOME: flow, PI_AGENT_DIR: piRoot, TZ: 'Asia/Dubai' }, timeout: 30_000 }).stdout);
+            { encoding: 'utf8', env: { ...process.env, HOME: flow, PI_AGENT_DIR: piRoot, TZ: 'Asia/Dubai' }, timeout: 30_000 });
+        assert.equal(upstreamRun.error, undefined, `upstream ccusage did not run: ${upstreamRun.error}`);
+        const upstream = JSON.parse(upstreamRun.stdout);
         const upstreamToday = upstream.daily.find((day) => day.period === '2026-09-08')?.agents.find((row) => row.agent === 'pi');
         assert.equal(upstreamToday?.totalTokens, 2250, 'fixture no longer reproduces the fork duplication');
 
