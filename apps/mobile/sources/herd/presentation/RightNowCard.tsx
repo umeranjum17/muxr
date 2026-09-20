@@ -1,8 +1,9 @@
 import * as React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
+import { AgentGlyph } from '@/components/AgentGlyph';
 import { cardStyle, Meter, SectionLabel, withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { pluginSnapshot, pluginHref, toneColor, useSlotContributions } from '@/plugins';
@@ -10,7 +11,7 @@ import type { PluginLimitsWindow } from '@/plugins/limits';
 import { VERDICT_KEYS, usePluginCall, verdictTone } from '@/plugins/ui';
 import { t } from '@/text';
 import { compactAge } from '../domain/agentPresentation';
-import { asRightNowPayload, rightNowBinding, vitalsFacts, type RightNowPayload } from '../domain/rightNowModel';
+import { asRightNowPayload, rightNowBinding, vitalsFacts, type RightNowConnectedProvider, type RightNowPayload } from '../domain/rightNowModel';
 
 /** The card has no refresh of its own and the Usage screen is where live
  *  detail lives, so a few minutes behind is normal here and says nothing.
@@ -63,12 +64,21 @@ export function RightNowCard() {
 
     if (payload === undefined) return null;
     const verdict = payload.limits.verdict;
-    const limit = payload.limits.windows[0];
+    // Real quota windows for more than the selected tab turn the first row
+    // into one restrained provider strip; Memory/Disk/Load/Uptime stay the
+    // quiet row beneath it. A plan tab's own failure message keeps its row.
+    const strip = hasConnectedStrip(payload);
+    const limit = strip ? undefined : payload.limits.windows[0];
     const verdictWord = verdict === 'unknown' ? undefined : t(VERDICT_KEYS[verdict]);
     const tone = verdict === 'unknown' ? undefined : verdictTone(verdict);
     const dot = tone === undefined ? undefined : <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: toneColor(theme, tone) }} />;
     const staleMark = <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />;
-    const line = limit !== undefined
+    const line = strip
+        ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {failed && staleMark}
+            <ConnectedStrip providers={payload.connected!} />
+        </View>
+        : limit !== undefined
         ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {failed ? staleMark : dot}
             <Text numberOfLines={1} style={{ color: failed ? theme.colors.textDestructive : theme.colors.text, fontSize: 13, lineHeight: 18 }}>
@@ -102,6 +112,45 @@ function CardBody({ limit, line, quiet }: { limit?: PluginLimitsWindow; line: Re
         {limit !== undefined && <Meter ratio={limit.used / 100} emphasis={0.9} marker={limit.elapsed} style={{ marginTop: 8, marginBottom: 10 }} />}
         {quiet.length > 0 && <FactsLine parts={quiet} style={limit === undefined ? { marginTop: 10 } : undefined} />}
     </View>;
+}
+
+/** One tiny mark per connected provider beside a compact stack of the real
+ *  remaining percentages for its quota windows -- the machine's plans at a
+ *  glance, not a second Usage screen. A horizontal row scrolls instead of
+ *  wrapping, so a 270 dp viewport keeps the vitals line on screen. */
+function ConnectedStrip({ providers }: { providers: RightNowConnectedProvider[] }) {
+    const { theme } = useUnistyles();
+    return (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingRight: 4 }}>
+            {providers.map((provider) => (
+                <View key={provider.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}
+                    accessibilityLabel={providerSummary(provider)}>
+                    <AgentGlyph name={provider.glyph ?? provider.id} size={16} />
+                    <View>
+                        {provider.windows.map((window, index) => (
+                            <Text key={index} style={{ color: theme.colors.text, fontSize: 11.5, lineHeight: 13, ...Typography.mono('regular') }}>
+                                {`${100 - window.used}%`}
+                            </Text>
+                        ))}
+                    </View>
+                </View>
+            ))}
+        </ScrollView>
+    );
+}
+
+/** The strip answers only when the payload itself leads with a real window:
+ *  a plan tab's own failure keeps its honest row. */
+function hasConnectedStrip(payload: RightNowPayload): boolean {
+    return (payload.connected?.length ?? 0) > 0 && payload.limits.windows.length > 0;
+}
+
+/** One sentence per provider for the reader: "OpenCode Go: 100% left, 32% left". */
+function providerSummary(provider: RightNowConnectedProvider): string {
+    return t('plugins.rightNow.planRemaining', {
+        plan: provider.plan ?? provider.label,
+        remainings: provider.windows.map((window) => t('plugins.limits.percentLeft', { percent: 100 - window.used })).join(', '),
+    });
 }
 
 /** One mono line in the card's quiet voice: a machine at 80% memory is a
@@ -155,8 +204,10 @@ function emptyLine(payload: RightNowPayload): string {
 function cardAccessibilityLabel(payload: RightNowPayload, stale: boolean): string {
     const parts: string[] = [t('plugins.rightNow.title')];
     if (stale) parts.push(t('plugins.showingStale'));
-    const limit = payload.limits.windows[0];
-    if (limit !== undefined) {
+    if (hasConnectedStrip(payload)) {
+        parts.push(payload.connected!.map(providerSummary).join(', '));
+    } else if (payload.limits.windows[0] !== undefined) {
+        const limit = payload.limits.windows[0];
         const verdict = payload.limits.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.limits.verdict]);
         const line = [verdict, [limit.label, t('plugins.limits.percentUsed', { percent: Math.round(limit.used) })].join(' ')]
             .filter((part) => part !== undefined).join(', ');
