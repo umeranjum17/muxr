@@ -64,16 +64,16 @@ export interface TerminalLinkRow {
 }
 
 /**
- * The exact link text under (rowIndex, at) of terminal rows, joined across
- * soft-wrapped rows only. A hard new line never inherits the row above: a
- * full-width URL followed by a hard new line stops at that line. `at` is a
- * string index inside row rowIndex's text.
+ * The rows a wrapped join resolves across: rowIndex's soft-wrapped run —
+ * upward while the run continues, stopping after the first row containing a
+ * space, mirrored downward — plus rowIndex's string offset inside the join.
+ * Every row of one run sees the same span, so hit-testing and decorations
+ * agree on where a printed link starts and ends.
  */
-export function joinedTerminalUrlAt(
+function joinedTerminalWindow(
     rowAt: (row: number) => TerminalLinkRow | undefined,
     rowIndex: number,
-    at: number,
-): string | null {
+): { lines: string[]; offset: number } {
     const textOf = (row: number): string => rowAt(row)?.text ?? '';
     const lines: string[] = [textOf(rowIndex)];
     let top = rowIndex;
@@ -92,9 +92,58 @@ export function joinedTerminalUrlAt(
         bottom++;
         if (t.includes(' ')) break;
     }
-    let anchor = 0;
-    for (let i = 0; i < rowIndex - top; i++) anchor += lines[i].length;
-    return terminalUrlAt(lines.join(''), anchor + at);
+    let offset = 0;
+    for (let i = 0; i < rowIndex - top; i++) offset += lines[i].length;
+    return { lines, offset };
+}
+
+/**
+ * The exact link text under (rowIndex, at) of terminal rows, joined across
+ * soft-wrapped rows only. A hard new line never inherits the row above: a
+ * full-width URL followed by a hard new line stops at that line. `at` is a
+ * string index inside row rowIndex's text.
+ */
+export function joinedTerminalUrlAt(
+    rowAt: (row: number) => TerminalLinkRow | undefined,
+    rowIndex: number,
+    at: number,
+): string | null {
+    const span = joinedTerminalWindow(rowAt, rowIndex);
+    return terminalUrlAt(span.lines.join(''), span.offset + at);
+}
+
+/**
+ * The cell ranges to underline on one row of terminal text: the plain http(s)
+ * URLs the wrapped-row join resolves there, mapped back through the row's
+ * cell map. A soft-wrapped URL underlines its share of every row it spans,
+ * so the affordance is continuous exactly where tap-open and long-press
+ * copy resolve the same link.
+ */
+export function joinedTerminalUrlRanges(
+    line: TerminalLineCells,
+    cols: number,
+    row: number,
+    rowAt: (r: number) => TerminalLinkRow | undefined,
+): { start: number; length: number }[] {
+    const { text, cellOf } = lineCellMap(line, cols);
+    const span = joinedTerminalWindow(rowAt, row);
+    const joined = span.lines.join('');
+    const from = span.offset;
+    const to = from + text.length;
+    const ranges: { start: number; length: number }[] = [];
+    const pattern = new RegExp(TERMINAL_URL_PATTERN.source, 'g');
+    for (let match = pattern.exec(joined); match !== null; match = pattern.exec(joined)) {
+        if (match.index >= to) break;
+        const start = Math.max(match.index, from);
+        const end = Math.min(match.index + match[0].length, to);
+        if (end <= start) continue;
+        const startCell = cellOf[start - from];
+        const endCell = cellOf[end - 1 - from];
+        if (startCell !== undefined && endCell !== undefined) {
+            ranges.push({ start: startCell, length: endCell - startCell + 1 });
+        }
+    }
+    return ranges;
 }
 
 /** One cell of an xterm buffer line, as the cell map walks it. */

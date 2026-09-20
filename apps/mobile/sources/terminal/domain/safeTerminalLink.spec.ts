@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import xterm from '@xterm/xterm';
-import { joinedTerminalUrlAt, lineCellMap, openTerminalLink, plainLinkAtCell, safeTerminalLinkUrl, terminalUrlAt, type TerminalLinkRow } from './safeTerminalLink';
+import {
+    joinedTerminalUrlAt,
+    joinedTerminalUrlRanges,
+    lineCellMap,
+    openTerminalLink,
+    plainLinkAtCell,
+    safeTerminalLinkUrl,
+    terminalUrlAt,
+    type TerminalLinkRow,
+} from './safeTerminalLink';
 
 /**
  * One flow: a link the terminal printed (plain text or OSC 8) travels through
@@ -153,6 +162,38 @@ describe('terminal printed links open only as safe web URLs', () => {
         // the erased tail ends the printed line, so the child is not a link.
         expect(plainLinkAtCell(lineAt(1), 20, 0, 1, rowAt)).toBeNull();
         expect(plainLinkAtCell(lineAt(1), 20, 5, 1, rowAt)).toBeNull();
+        term.dispose();
+    });
+
+    it('underlines a soft-wrapped URL continuously, and never past a hard new line or a stale wrap', async () => {
+        const term = new xterm.Terminal({ cols: 20, rows: 3 });
+        await new Promise<void>((resolve) => term.write('see https://x.io/aaaa/bbbb/cccc', resolve));
+        const lineAt = (r: number) => term.buffer.active.getLine(r)!;
+        expect(lineAt(1).isWrapped).toBe(true);
+        const rowAt = (r: number): TerminalLinkRow | undefined => {
+            const line = lineAt(r);
+            return line
+                ? { text: line.translateToString(false), isWrapped: line.isWrapped }
+                : undefined;
+        };
+        const rangesOf = (r: number) => joinedTerminalUrlRanges(lineAt(r), 20, r, rowAt);
+
+        // The parent underlines the URL head from its printed column, the
+        // wrapped row underlines its share from the first cell: together the
+        // exact link the hit-test resolves on either row.
+        expect(rangesOf(0)).toEqual([{ start: 4, length: 16 }]);
+        expect(rangesOf(1)).toEqual([{ start: 0, length: 11 }]);
+        expect(plainLinkAtCell(lineAt(1), 20, 0, 1, rowAt)).toBe('https://x.io/aaaa/bbbb/cccc');
+
+        // A hard new line below the run underlines nothing.
+        await new Promise<void>((resolve) => term.write('\r\nplain text', resolve));
+        expect(lineAt(2).isWrapped).toBe(false);
+        expect(rangesOf(2)).toEqual([]);
+
+        // After a TUI-style in-place rewrite shortens the parent, the stale
+        // wrap underlines nothing, like the hit-test resolves.
+        await new Promise<void>((resolve) => term.write('\x1b[1;1Hnew header line\x1b[K', resolve));
+        expect(rangesOf(1)).toEqual([]);
         term.dispose();
     });
 });

@@ -5,7 +5,7 @@
 
 import * as React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import type { IBufferLine, IMarker } from '@xterm/xterm';
+import type { IBuffer, IMarker } from '@xterm/xterm';
 import type { TerminalCommand } from './FloatingTerminalControls';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -14,10 +14,9 @@ import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import {
-    lineCellMap,
+    joinedTerminalUrlRanges,
     openTerminalLink,
     plainLinkAtCell,
-    TERMINAL_URL_PATTERN,
     type TerminalLinkRow,
 } from '../domain/safeTerminalLink';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
@@ -42,19 +41,21 @@ function decodeBase64(value: string): Uint8Array {
 
 const LONG_PRESS_MS = 500;
 
-/** Cell ranges of plain http(s) URLs in one buffer line. The OSC 8 URI has
- *  no public per-cell API, so those links keep xterm's hover affordance and
- *  this only underlines plain text. */
-function plainUrlCellRanges(line: IBufferLine, cols: number): { start: number; length: number }[] {
-    const { text, cellOf } = lineCellMap(line, cols);
-    const ranges: { start: number; length: number }[] = [];
-    const pattern = new RegExp(TERMINAL_URL_PATTERN.source, 'g');
-    for (let match = pattern.exec(text); match !== null; match = pattern.exec(text)) {
-        const start = cellOf[match.index];
-        const end = cellOf[match.index + match[0].length - 1];
-        if (start !== undefined && end !== undefined) ranges.push({ start, length: end - start + 1 });
-    }
-    return ranges;
+/** Cell ranges of plain http(s) URLs to underline on one buffer row. The
+ *  OSC 8 URI has no public per-cell API, so those links keep xterm's hover
+ *  affordance and this only underlines plain text. Ranges come from the same
+ *  wrapped-row join the tap and long-press resolve, so a soft-wrapped URL
+ *  underlines continuously across all of its rows. */
+function plainUrlCellRanges(buffer: IBuffer, cols: number, row: number): { start: number; length: number }[] {
+    const line = buffer.getLine(row);
+    if (!line) return [];
+    const rowAt = (r: number): TerminalLinkRow | undefined => {
+        const neighbor = buffer.getLine(r);
+        // Padded, not trimmed: the underline covers the text a hit-test
+        // resolves, and the join ends at erased tails.
+        return neighbor ? { text: neighbor.translateToString(false), isWrapped: neighbor.isWrapped } : undefined;
+    };
+    return joinedTerminalUrlRanges(line, cols, row, rowAt);
 }
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
@@ -143,9 +144,18 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     if (cached.text === text) continue;
                     for (const marker of cached.markers) marker.dispose();
                     linkDecorations.delete(row);
+                    // This row's rewrite changes what a wrapped row below
+                    // joins against; its cached underline re-derives there.
+                    if (buffer.getLine(row + 1)?.isWrapped) {
+                        const child = linkDecorations.get(row + 1);
+                        if (child) {
+                            for (const marker of child.markers) marker.dispose();
+                            linkDecorations.delete(row + 1);
+                        }
+                    }
                 }
                 const markers: IMarker[] = [];
-                for (const range of plainUrlCellRanges(line, term.cols)) {
+                for (const range of plainUrlCellRanges(buffer, term.cols, row)) {
                     const marker = term.registerMarker(viewportRow - buffer.cursorY);
                     // A marker clamped off its row would re-register every
                     // render; drop it instead of leaking decorations.
