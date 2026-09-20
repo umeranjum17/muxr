@@ -31,6 +31,10 @@ export const en = {
         },
     },
 
+    usage: {
+        title: 'Usage',
+    },
+
     plugins: {
         openFromHome: 'Open a plugin from Home.',
         unavailable: 'This plugin is disabled or unavailable.',

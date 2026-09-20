@@ -324,11 +324,6 @@ export interface PluginDataCard {
      * contributions; this only gives a card somewhere to go.
      */
     contentContributionId?: string;
-    /** Deliberate opt-in to the product's Right now card. Absent means the
-     *  generic data card, no matter what the source rpc happens to be named;
-     * only this marker claims the product surface. Any other value is
-     * rejected at parse time rather than guessed at. */
-    product?: 'right-now';
     icon?: string;
 }
 
@@ -691,10 +686,6 @@ export const MUXR_UI_VERSION = 15;
 export const DYNAMIC_SCREEN_MIN_UI_VERSION = 13;
 /** Manifests using `limits`, bound tones, row identity fields or bound field values declare this. */
 export const SCREEN_IDENTITY_MIN_UI_VERSION = 14;
-/** A `home.cards` data-card that opted in with `product: "right-now"` answers
- *  with the structured right-now payload, so the product card draws it instead
- *  of the generic data card. A manifest below this keeps the generic card. */
-export const RIGHT_NOW_CARD_MIN_UI_VERSION = 15;
 export const MAX_CHART_SERIES = 8;
 export const MAX_CHART_LABEL_BYTES = 24;
 /** Static list rows, and the render cap for a repeat expansion. */
@@ -774,22 +765,6 @@ export interface PluginManifestV1 {
      * trusted kernel adapters may additionally pin a packaged plugin identity and root. */
     capabilities?: Record<string, string>;
     contributions: PluginContribution[];
-}
-
-/**
- * The `home.cards` data-card the product's Right now card draws: an inline
- * card that opted in with `product: "right-now"` and sources a declared read
- * rpc. One rule, so the product card and the generic Home row cannot select
- * different cards. The rpc's method name is author-chosen and never selects.
- */
-export function rightNowCard(contributions: readonly PluginContribution[]): PluginDataCard | undefined {
-    return contributions.find((contribution): contribution is PluginDataCard =>
-        'type' in contribution && contribution.type === 'data-card'
-        && contribution.slot === 'home.cards' && contribution.presentation !== 'sheet'
-        && contribution.product === 'right-now'
-        && contributions.some((candidate) =>
-            candidate.slot === 'host.rpc' && candidate.mode === 'read'
-            && candidate.id === contribution.source.contributionId));
 }
 
 /** A host may forward a newer manifest; the rendering phone is authoritative. */

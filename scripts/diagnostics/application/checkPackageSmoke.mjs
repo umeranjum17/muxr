@@ -692,25 +692,25 @@ try {
         : undefined;
     if (ccusageTarget !== undefined) {
         assert.ok(existsSync(ccusageTarget), `ccusage native backend missing for ${process.platform}-${process.arch}`);
-        const usageHome = join(scratch, 'usage-home');
-        const claudeLogs = join(usageHome, '.claude', 'projects', 'smoke', 'session');
+        assert.ok(!existsSync(join(installedPackage, 'plugins', 'status')), 'the retired status plugin must not ship in the package');
+        // Usage collection is host product code now: the packaged host bundle
+        // is what resolves the pinned backend, so resolution must work from it.
+        const hostBundle = join(installedPackage, 'host.js');
+        assert.ok(existsSync(hostBundle), 'packaged host bundle missing');
+        const resolveScript = `const {createRequire}=require('node:module');process.stdout.write(createRequire(${JSON.stringify(hostBundle)}).resolve('@ccusage/ccusage-${process.platform}-${process.arch}/bin/ccusage'))`;
+        const resolvedCcusage = run(process.execPath, ['-e', resolveScript], { cwd: installDir }).stdout;
+        assert.equal(resolvedCcusage, ccusageTarget, 'packaged host bundle did not resolve its installed native ccusage package');
+        const probeHome = join(scratch, 'ccusage-probe-home');
+        const claudeLogs = join(probeHome, '.claude', 'projects', 'smoke', 'session');
         mkdirSync(claudeLogs, { recursive: true });
         writeFileSync(join(claudeLogs, 'chat.jsonl'), `${JSON.stringify({
             costUSD: 0,
             message: { id: 'smoke', model: 'claude-sonnet-4-20250514', role: 'assistant', usage: { cache_creation_input_tokens: 0, cache_read_input_tokens: 0, input_tokens: 1, output_tokens: 1 } },
             requestId: 'smoke-request', sessionId: 'smoke-session', timestamp: new Date().toISOString(), version: '2.0.0',
         })}\n`);
-        const usagePlugin = join(installDir, 'node_modules', '@trymuxr', 'cli', 'plugins', 'status', 'usage.mjs');
-        const usageResult = run(process.execPath, [usagePlugin], { cwd: installDir, env: { ...process.env, HOME: usageHome, PATH: binDir } });
-        const usageOutput = JSON.parse(usageResult.stdout);
-        assert.ok(usageOutput.items.some((item) => item.id === 'activity-claude' && item.metadata[0]?.value === '2 tokens' && item.action?.type === 'screen'), 'installed Usage did not return a Claude activity item that opens its details');
-        assert.notEqual(statSync(ccusageTarget).mode & 0o111, 0, 'packaged ccusage backend stayed non-executable');
-        const resolveScript = `const {createRequire}=require('node:module');process.stdout.write(createRequire(${JSON.stringify(usagePlugin)}).resolve('@ccusage/ccusage-${process.platform}-${process.arch}/bin/ccusage'))`;
-        const resolvedCcusage = run(process.execPath, ['-e', resolveScript], { cwd: installDir }).stdout;
-        assert.equal(resolvedCcusage, ccusageTarget, 'Usage plugin did not resolve its installed native ccusage package');
         const probe = run(resolvedCcusage, ['daily', '--by-agent', '--json', '--offline'], {
             cwd: installDir,
-            env: { ...process.env, HOME: usageHome, HTTPS_PROXY: 'http://127.0.0.1:1', HTTP_PROXY: 'http://127.0.0.1:1' },
+            env: { ...process.env, HOME: probeHome, HTTPS_PROXY: 'http://127.0.0.1:1', HTTP_PROXY: 'http://127.0.0.1:1' },
         });
         const parsedProbe = JSON.parse(probe.stdout);
         assert.ok(Array.isArray(parsedProbe.daily), 'pinned ccusage changed its --by-agent JSON shape');

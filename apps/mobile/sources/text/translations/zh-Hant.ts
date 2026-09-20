@@ -17,6 +17,11 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const zhHant: TranslationStructure = {
+    usage: {
+        title: '用量',
+    },
+
+
     tabs: {
         // Tab navigation labels
         sessions: '終端',

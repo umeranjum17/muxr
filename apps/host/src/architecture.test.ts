@@ -5,7 +5,7 @@ import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const SRC = dirname(fileURLToPath(import.meta.url));
-const MODULES = ['agent', 'machine', 'peer', 'requests', 'diagnostics'] as const;
+const MODULES = ['agent', 'machine', 'peer', 'requests', 'diagnostics', 'usage'] as const;
 const COMPOSITION = new Set(['main.ts', 'host.ts', 'host.test.ts', 'architecture.test.ts']);
 
 // Bidirectional module dependency pairs measured at the 2026 structure

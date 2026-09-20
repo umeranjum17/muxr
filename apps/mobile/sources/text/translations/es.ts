@@ -15,6 +15,11 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
  * Must match the exact structure of the English translations
  */
 export const es: TranslationStructure = {
+    usage: {
+        title: 'Uso',
+    },
+
+
     tabs: {
         // Tab navigation labels
         sessions: 'Terminales',

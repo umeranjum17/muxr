@@ -468,7 +468,6 @@ The required author experience is:
 ```bash
 muxr plugin docs                # prints the installed guide and agent-skill paths
 muxr plugin create hello-muxr   # writes a minimal three-file settings-screen plugin
-muxr plugin clone muxr.status   # copies a bundled plugin with a new local id
 muxr plugin dev ./hello-muxr    # validates and links it into Herdr
 muxr plugin dev ./hello-muxr --web  # ...and opens the app in a browser with hot reload
 muxr plugin check ./hello-muxr  # validates files, ids, slots, and primitives

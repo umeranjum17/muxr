@@ -404,6 +404,12 @@ export const SettingsView = React.memo(function SettingsView({
             </ItemGroup>
             <ItemGroup title="App and plugins">
                 <Item
+                    title={t('usage.title')}
+                    subtitle="Tokens, cost and plan limits for this computer"
+                    icon={<Ionicons name="speedometer-outline" size={29} color="#5856D6" />}
+                    onPress={() => router.push('/usage' as any)}
+                />
+                <Item
                     title="Plugins"
                     subtitle="Extensions installed through Herdr on the computer"
                     icon={<Ionicons name="extension-puzzle-outline" size={29} color="#5856D6" />}

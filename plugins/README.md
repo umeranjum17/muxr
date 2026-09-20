@@ -10,7 +10,7 @@ are product screens backed by typed host methods, not plugin contributions.
 | Plugin | Backend | Mobile contribution |
 |---|---|---|
 | `voice` | machine-held realtime provider adapter | generic capability buttons, provider-neutral realtime overlay, declarative settings + voice shortcut |
-| `status` | pinned offline ccusage + bounded plan limits (see `status/README.md`); disk/memory/load/uptime | Usage rows + chart detail screen; Home machine card |
+| `panes` | Herdr pane/tool catalog + launch | Applications chip (Running / Terminal apps / Plugin tools / Plugin commands) and Panes destination |
 
 Agent Names and Task Titles are Herdr fields. Muxr only displays them. Agents name
 their own workspace and pane through the self-naming endpoint (see the Self-naming

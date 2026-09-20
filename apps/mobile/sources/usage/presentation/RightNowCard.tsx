@@ -3,15 +3,16 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
+import type { UsageConnectedProvider, UsageLimitsWindow, UsageNow } from '@muxr/contract';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { cardStyle, Meter, SectionLabel, withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
-import { pluginSnapshot, pluginHref, toneColor, useSlotContributions } from '@/plugins';
-import type { PluginLimitsWindow } from '@/plugins/limits';
-import { VERDICT_KEYS, usePluginCall, verdictTone } from '@/plugins/ui';
+import { toneColor } from '@/plugins';
+import { VERDICT_KEYS, verdictTone } from '@/plugins/ui';
 import { t } from '@/text';
-import { compactAge } from '../domain/agentPresentation';
-import { asRightNowPayload, rightNowBinding, vitalsFacts, type RightNowConnectedProvider, type RightNowPayload } from '../domain/rightNowModel';
+import { compactAge } from '@/utils/compactAge';
+import { useUsageNow } from '../application/useUsageNow';
+import { vitalsFacts } from '../domain/usageModel';
 
 /** The card has no refresh of its own and the Usage screen is where live
  *  detail lives, so a few minutes behind is normal here and says nothing.
@@ -21,22 +22,17 @@ const AGE_WORTH_MENTIONING_SECONDS = 600;
 /**
  * The top of Home as figures: one verdict line, one neutral meter, one
  * vitals line. The section label is the title; the whole card opens the
- * Usage screen.
+ * Usage screen. Served by the host's typed usage.now method -- product code,
+ * no plugin in the path.
  */
 export function RightNowCard() {
     const { theme } = useUnistyles();
     const router = useRouter();
-    // Subscribes this component to manifest changes and keeps them loading.
-    useSlotContributions('home.cards');
-    const plugins = pluginSnapshot();
-    const binding = React.useMemo(() => rightNowBinding(plugins), [plugins]);
     // The last-known card survives a transient failure; only a load with
     // nothing to show becomes the retry card.
-    const { value: payload, failed, retry } = usePluginCall(binding, asRightNowPayload);
+    const { value: payload, failed, retry } = useUsageNow();
 
-    if (binding === undefined) return null;
-    const open = binding.contentContributionId === undefined ? undefined : () =>
-        router.push(pluginHref(binding.pluginId, binding.contentContributionId!) as never);
+    const open = () => router.push('/usage');
     const label = <SectionLabel style={{ marginTop: 20, marginBottom: 8, marginHorizontal: 16 }}>{t('plugins.rightNow.title')}</SectionLabel>;
     const skeleton = payload === undefined && !failed;
 
@@ -85,9 +81,9 @@ export function RightNowCard() {
                 {[verdictWord, `${limit.label} ${Math.round(limit.used)}%`].filter((part) => part !== undefined).join(' · ')}
             </Text>
             {limit.resetsIn !== undefined && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{` · ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`}</Text>}
-            {open !== undefined && <View style={{ marginLeft: 'auto' }}>
+            <View style={{ marginLeft: 'auto' }}>
                 <Ionicons name="chevron-forward" size={14} color={withAlpha(theme.colors.textSecondary, 0.6)} />
-            </View>}
+            </View>
         </View>
         : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {failed && staleMark}
@@ -97,15 +93,13 @@ export function RightNowCard() {
         </View>;
     return <View>
         {label}
-        {open !== undefined
-            ? <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(payload, failed)}>
-                <CardBody limit={limit} line={line} quiet={quietLine(payload)} />
-            </Pressable>
-            : <CardBody limit={limit} line={line} quiet={quietLine(payload)} />}
+        <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(payload, failed)}>
+            <CardBody limit={limit} line={line} quiet={quietLine(payload)} />
+        </Pressable>
     </View>;
 }
 
-function CardBody({ limit, line, quiet }: { limit?: PluginLimitsWindow; line: React.ReactNode; quiet: string[] }) {
+function CardBody({ limit, line, quiet }: { limit?: UsageLimitsWindow; line: React.ReactNode; quiet: string[] }) {
     const { theme } = useUnistyles();
     return <View style={[cardStyle(theme), { marginHorizontal: 16, padding: 14 }]}>
         {line}
@@ -118,7 +112,7 @@ function CardBody({ limit, line, quiet }: { limit?: PluginLimitsWindow; line: Re
  *  remaining percentages for its quota windows -- the machine's plans at a
  *  glance, not a second Usage screen. A horizontal row scrolls instead of
  *  wrapping, so a 270 dp viewport keeps the vitals line on screen. */
-function ConnectedStrip({ providers }: { providers: RightNowConnectedProvider[] }) {
+function ConnectedStrip({ providers }: { providers: UsageConnectedProvider[] }) {
     const { theme } = useUnistyles();
     return (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingRight: 4 }}>
@@ -141,12 +135,12 @@ function ConnectedStrip({ providers }: { providers: RightNowConnectedProvider[] 
 
 /** The strip answers only when the payload itself leads with a real window:
  *  a plan tab's own failure keeps its honest row. */
-function hasConnectedStrip(payload: RightNowPayload): boolean {
+function hasConnectedStrip(payload: UsageNow): boolean {
     return (payload.connected?.length ?? 0) > 0 && payload.limits.windows.length > 0;
 }
 
 /** One sentence per provider for the reader: "OpenCode Go: 100% left, 32% left". */
-function providerSummary(provider: RightNowConnectedProvider): string {
+function providerSummary(provider: UsageConnectedProvider): string {
     return t('plugins.rightNow.planRemaining', {
         plan: provider.plan ?? provider.label,
         remainings: provider.windows.map((window) => t('plugins.limits.percentLeft', { percent: 100 - window.used })).join(', '),
@@ -167,7 +161,7 @@ function FactsLine({ parts, style }: { parts: string[]; style?: object }) {
 
 /** The quiet line: the machine's figures, then the age of the limit figures
  *  above once it is old enough to be worth saying. */
-function quietLine(payload: RightNowPayload, percent = (value: number) => `${value}%`): string[] {
+function quietLine(payload: UsageNow, percent = (value: number) => `${value}%`): string[] {
     const agedFor = disclosedAge(payload);
     return [
         ...(payload.vitals === undefined ? [] : vitalsFigures(payload.vitals, percent)),
@@ -177,8 +171,10 @@ function quietLine(payload: RightNowPayload, percent = (value: number) => `${val
 
 /** The figures the host could read, in order; a filesystem it could not stat
  *  drops its own figure and leaves the rest of the line standing. */
-function vitalsFigures(vitals: NonNullable<RightNowPayload['vitals']>, percent = (value: number) => `${value}%`): string[] {
-    const { memoryPercent, diskPercent, load, uptime } = vitalsFacts(vitals);
+function vitalsFigures(vitals: NonNullable<UsageNow['vitals']>, percent = (value: number) => `${value}%`): string[] {
+    const facts = vitalsFacts(vitals);
+    if (facts === undefined) return [];
+    const { memoryPercent, diskPercent, load, uptime } = facts;
     return [
         `${t('plugins.rightNow.memory')} ${percent(memoryPercent)}`,
         ...(diskPercent === undefined ? [] : [`${t('plugins.rightNow.disk')} ${percent(diskPercent)}`]),
@@ -188,7 +184,7 @@ function vitalsFigures(vitals: NonNullable<RightNowPayload['vitals']>, percent =
 }
 
 /** The age of the limit figures, once it is old enough to be worth saying. */
-function disclosedAge(payload: RightNowPayload): string | undefined {
+function disclosedAge(payload: UsageNow): string | undefined {
     return payload.ageSeconds === undefined || payload.ageSeconds < AGE_WORTH_MENTIONING_SECONDS
         ? undefined
         : compactAge(payload.ageSeconds * 1_000);
@@ -196,12 +192,12 @@ function disclosedAge(payload: RightNowPayload): string | undefined {
 
 /** With no window to show: the host's own reason when it has one -- an expired
  *  token is not a plan that was never connected -- otherwise the phone's word. */
-function emptyLine(payload: RightNowPayload): string {
+function emptyLine(payload: UsageNow): string {
     return payload.limits.message ?? t('plugins.rightNow.notConnected');
 }
 
 /** One sentence for the reader; the dots are decorative. */
-function cardAccessibilityLabel(payload: RightNowPayload, stale: boolean): string {
+function cardAccessibilityLabel(payload: UsageNow, stale: boolean): string {
     const parts: string[] = [t('plugins.rightNow.title')];
     if (stale) parts.push(t('plugins.showingStale'));
     if (hasConnectedStrip(payload)) {

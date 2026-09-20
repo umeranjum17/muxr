@@ -37,7 +37,6 @@ import {
     PLUGIN_TEXT_MIN_UI_VERSION,
     DYNAMIC_SCREEN_MIN_UI_VERSION,
     SCREEN_IDENTITY_MIN_UI_VERSION,
-    RIGHT_NOW_CARD_MIN_UI_VERSION,
     sanitizeDisplayText,
     parsePluginId,
 } from '../domain/plugins.js';
@@ -75,13 +74,6 @@ function paramKey(value: unknown): string {
 function presentation(value: unknown): 'card' | 'sheet' {
     if (value !== 'card' && value !== 'sheet') throw new Error('invalid data-card presentation');
     return value;
-}
-/** The only product card a manifest may claim. Any other value is a typo in a
- *  closed vocabulary, not a product, so it rejects instead of degrading into
- *  a claim on a surface the author never asked for. */
-function productMarker(value: unknown): 'right-now' {
-    if (value !== 'right-now') throw new Error('invalid data-card product');
-    return 'right-now';
 }
 
 function pluginCallSource(value: unknown, label: string): { type: 'plugin.call'; contributionId: string } {
@@ -744,7 +736,6 @@ function parseContribution(item: Record<string, unknown>, skipped: string[]): Pl
             source: { type: 'plugin.call', contributionId: id(item.source.contributionId) },
             ...(item.emptyText === undefined ? {} : { emptyText: pluginText(item.emptyText, 120) }),
             ...(item.presentation === undefined ? {} : { presentation: presentation(item.presentation) }),
-            ...(item.product === undefined ? {} : { product: productMarker(item.product) }),
             ...(item.contentContributionId === undefined ? {} : { contentContributionId: id(item.contentContributionId) }),
             ...(item.icon === undefined ? {} : { icon: id(item.icon) }),
         };
@@ -878,10 +869,6 @@ function validateManifestGraph(
     if (contributions.some((contribution) => 'type' in contribution && contribution.type === 'screen' && usesScreenIdentityNodes(contribution.children))
         && declaredMinVersion < SCREEN_IDENTITY_MIN_UI_VERSION) {
         throw new Error(`plugin screen identity nodes require minMuxrVersion ${SCREEN_IDENTITY_MIN_UI_VERSION}`);
-    }
-    if (contributions.some((contribution) => 'type' in contribution && contribution.type === 'data-card' && contribution.product === 'right-now')
-        && declaredMinVersion < RIGHT_NOW_CARD_MIN_UI_VERSION) {
-        throw new Error(`the right-now product card requires minMuxrVersion ${RIGHT_NOW_CARD_MIN_UI_VERSION}`);
     }
 }
 

@@ -28,6 +28,7 @@ import {
 } from '../../agent/index.js';
 import type { PeerDeviceContext, PeerRuntime } from '../../peer/index.js';
 import { grantMayAdministerPeers, hostPlatformLabel, listMachines, observerGrantIsViewOnly } from '../../machine/index.js';
+import { collectUsage, usageNow } from '../../usage/index.js';
 import { attachPreview as attachPreviewTransport } from '../infrastructure/preview.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
@@ -70,6 +71,7 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'attachment.list', 'attachment.fetch', 'attachment.read', 'unread.catalog',
     'attention.catalog', 'lifecycle.catalog', 'machines.list', 'terminal.attach',
     'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
+    'usage.report', 'usage.now',
 ]);
 
 function isPluginExecutionRequest(request: ClientRequest): request is PluginExecutionRequest {
@@ -261,6 +263,11 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         }).data,
         'machine.shell': (params) => runMachineShell(params.command, params.cwd),
         'machine.listDir': (params) => listDir(params.path),
+        'usage.report': (params) => collectUsage({
+            ...(params.provider === undefined ? {} : { provider: params.provider }),
+            ...(params.refresh === undefined ? {} : { refresh: params.refresh }),
+        }),
+        'usage.now': () => usageNow(),
         'worktree.land': (params) => landWorktree(params.worktreePath, params.message, params.stash),
         'preview.attach': async (params) => useCaseData(await attachPreviewTunnel({
             ...(options.relayUrl === undefined ? {} : { relayUrl: options.relayUrl }),

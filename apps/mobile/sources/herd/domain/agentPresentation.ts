@@ -1,4 +1,7 @@
 import { type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace } from '@muxr/contract';
+import { compactAge } from '../../utils/compactAge';
+
+export { compactAge };
 
 export interface AgentLabels {
     taskTitle: string;
@@ -143,11 +146,3 @@ export function agentAccessibilityLabel(labels: AgentLabels, status: AgentLifecy
         .join('. ');
 }
 
-export function compactAge(elapsedMs: number): string {
-    const minutes = Math.max(0, Math.floor(elapsedMs / 60_000));
-    if (minutes < 1) return 'now';
-    if (minutes < 60) return `${minutes}m`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h`;
-    return `${Math.floor(hours / 24)}d`;
-}

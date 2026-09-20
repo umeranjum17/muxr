@@ -246,7 +246,6 @@ export {
     MAX_SCREEN_LIST_ROWS,
     MUXR_UI_VERSION,
     DYNAMIC_SCREEN_MIN_UI_VERSION,
-    RIGHT_NOW_CARD_MIN_UI_VERSION,
     MAX_CHART_SERIES,
     MAX_CHART_LABEL_BYTES,
     MAX_SCREEN_NODES,
@@ -258,7 +257,6 @@ export {
     PLUGIN_CONTEXT_REQUESTS,
     capUtf8Bytes,
     boundRpcDisplay,
-    rightNowCard,
     pluginCompatibilityError,
     pluginIsCompatible,
     sanitizeDisplayText,
@@ -298,3 +296,16 @@ export {
     realtimeSocketUrl,
 } from './realtime/index.js';
 export { spokenMatches } from './realtime/index.js';
+
+export type {
+    UsageLimitsVerdict,
+    UsageLimitsWindow,
+    UsageLimitsPayload,
+    UsageProviderTab,
+    UsageSeriesPoint,
+    UsageWindowViewModel,
+    UsageConnectedProvider,
+    UsageReport,
+    UsageVitals,
+    UsageNow,
+} from './usage/index.js';

@@ -704,7 +704,7 @@ async function main() {
     save('package.txt', await adb('shell', 'dumpsys', 'package', pkg));
     await adb('logcat', '-c');
     stack = await startFakeStack({ ...load, sourceRoot: hostRoot, setupHome: usageHome, setupPlugins: usagePlugins(hostRoot) });
-    report.fixtures = { usage: 'Synthetic SQLite aggregates + ccusage CLI output; scratch entry restores test env then imports actual usage plugin; no real auth/quota calls' };
+    report.fixtures = { usage: 'Synthetic SQLite aggregates + ccusage CLI output; the host\'s own usage collector reads the fixture env; no real auth/quota calls' };
     const lines = ['export function fixture() {', ...Array.from({ length: 250 }, (_, i) => `// PR gate document line ${i + 1}: deterministic readable content with a long tail for panning END_${i + 1}`), '}'];
     lines[2] = `// CJK_START ${'漢字'.repeat(40)} CJK_END`;
     lines[4] = 'const value = "beforeMarker";';
