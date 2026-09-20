@@ -68,7 +68,7 @@ vi.mock('expo-router', async () => {
 // These resolve the mocked modules, so they must stay below the vi.mock calls.
 import { router } from 'expo-router';
 import { clearDraftInsertion, consumeDraftInsertion } from '@/terminal/application/draftInsertion';
-import HistoryScreen from './history';
+import HistoryScreen from '@/app/(app)/session/[id]/history';
 
 beforeEach(() => {
     clearDraftInsertion(SESSION);
