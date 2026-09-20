@@ -30,7 +30,7 @@ import { TerminalView, type TerminalViewControls } from './TerminalView';
 import { usePaneGestures } from '../application/usePaneGestures';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { agentLabels, agentNameLine, agentStatusColor, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, resolveTabPane, tabLabel, useNavigateToSession } from '@/herd';
+import { agentLabels, agentNameLine, agentStatusColor, HERD_STATUS_LABELS, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, resolveTabPane, tabLabel, useNavigateToSession } from '@/herd';
 import {
     DIALOG_GUARD_ACTION,
     DIALOG_GUARD_MESSAGE,
@@ -805,7 +805,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         <Pressable onPress={() => setTreeOpen(true)} accessibilityRole="button" accessibilityLabel={`${contextTitle}. ${agentNameLine(labels)}. ${headerLifecycle}. ${overlayLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, minHeight: 44 }}>
                             <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={18} />
                             <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 15, fontWeight: '600' }}>{contextTitle}</Text>
-                            <View accessible={false} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: headerStatus.color }} />
+                            {/* Status sentence, not a bare subtitle: the lifecycle verb
+                                reads differently whether the agent works, needs you, or
+                                is gone; the dot carries the same colour (scout §4.1). */}
+                            <View accessible={false} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: headerStatus.color }} />
+                                {headerLifecycle !== 'idle' && <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '600' }}>{HERD_STATUS_LABELS[headerLifecycle]}</Text>}
+                            </View>
                             {/* No trailing chevron here: the 1/1 pager to the right is the
                                 single pane control — a second chevron read as a duplicate. */}
                         </Pressable>
