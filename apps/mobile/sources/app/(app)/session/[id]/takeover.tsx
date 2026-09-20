@@ -9,12 +9,13 @@ import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
 import { cardStyle, ui } from '@/components/ui';
 import { Modal } from '@/modal';
+import * as Clipboard from 'expo-clipboard';
 import { machineBash } from '@/catalog/ops';
 import { useHerdrTree, useSession, useSocketStatus } from '@/catalog/store';
 import { agentLabels, herdrPaneForSession, isShellLabels, middleTruncate } from '@/herd';
 import { t } from '@/text';
 import { mapDisplayToInput, resolveStreamPort, type Point, type Size, type StreamFrameMetadata } from '@/takeover';
-import { codeForKey, keyMessage, mouseMessage, openTakeover, parseStreamFrame, parseStreamPage, touchMessage } from '@/takeover';
+import { codeForKey, keyMessage, missingBrowserBinary, mouseMessage, openTakeover, parseStreamFrame, parseStreamPage, touchMessage } from '@/takeover';
 
 function selectedPort(value: string | undefined): number | undefined {
     if (value === undefined || !/^\d{1,5}$/.test(value)) return undefined;
@@ -52,10 +53,11 @@ const OPEN_TIMEOUT_MS = 15_000;
 
 /**
  * What the person can be looking at: the page, the wait for the connection
- * or for the page, or one of four plain-language failures (no browser to
- * open, could not reach it, lost it mid-session, could not open one).
+ * or for the page, or one of five plain-language failures (no browser to
+ * open, no driver to open one with, could not reach it, lost it mid-session,
+ * could not open one).
  */
-type Phase = 'waiting' | 'opening' | 'live' | 'unreachable' | 'noBrowser' | 'lost' | 'openFailed';
+type Phase = 'waiting' | 'opening' | 'live' | 'unreachable' | 'noBrowser' | 'noDriver' | 'lost' | 'openFailed';
 
 /**
  * Live view of an agent-browser stream, tunnelled through the relay preview
@@ -76,6 +78,7 @@ export default function TakeoverScreen() {
     // Raw shell output, kept for the Details disclosure only.
     const [detail, setDetail] = React.useState<string | null>(null);
     const [detailOpen, setDetailOpen] = React.useState(false);
+    const [copied, setCopied] = React.useState(false);
     const [display, setDisplay] = React.useState<Size>({ width: 0, height: 0 });
     const [keyboardOpen, setKeyboardOpen] = React.useState(false);
     const socketRef = React.useRef<WebSocket | null>(null);
@@ -211,6 +214,13 @@ export default function TakeoverScreen() {
                 // output stays behind Details.
                 setDetail(stream.detail);
                 setPhase('noBrowser');
+                return;
+            }
+            if (stream.kind === 'noDriver') {
+                // The computer has no agent-browser to open anything with;
+                // the raw shell error stays behind Details.
+                setDetail(stream.detail);
+                setPhase('noDriver');
                 return;
             }
             if (stream.kind === 'unreachable') {
@@ -529,17 +539,33 @@ export default function TakeoverScreen() {
     const retry = () => void connect(lastPortRef.current);
     const tryOpenBrowser = () => void openBrowser();
     const waitingForConnection = phase === 'opening' || phase === 'waiting';
+    // A missing driver or browser is fixed once on the computer, not from
+    // here: show the install command with a copy button instead of a button
+    // that would only fail the same way again.
+    const installCommand = phase === 'noDriver'
+        ? 'npm install -g agent-browser && agent-browser install --with-deps'
+        : phase === 'openFailed' && detail !== null && missingBrowserBinary(detail)
+            ? 'agent-browser install --with-deps'
+            : undefined;
     const errorTitle = phase === 'noBrowser'
         ? `${agentName} hasn't opened a browser.`
-        : phase === 'unreachable'
-            ? `Couldn't reach the browser on ${machineName}.`
-            : phase === 'lost'
-                ? 'Lost the browser.'
-                : phase === 'openFailed'
-                    ? t('browser.openFailedTitle', { machine: machineName })
-                    : undefined;
-    const errorBody = phase === 'lost' ? t('browser.lostBody', { machine: machineName }) : undefined;
-    const errorAction = errorTitle === undefined ? undefined : {
+        : phase === 'noDriver'
+            ? t('browser.noDriverTitle', { machine: machineName })
+            : phase === 'unreachable'
+                ? `Couldn't reach the browser on ${machineName}.`
+                : phase === 'lost'
+                    ? 'Lost the browser.'
+                    : phase === 'openFailed'
+                        ? t('browser.openFailedTitle', { machine: machineName })
+                        : undefined;
+    const errorBody = phase === 'lost'
+        ? t('browser.lostBody', { machine: machineName })
+        : phase === 'noDriver'
+            ? t('browser.noDriverBody')
+            : installCommand !== undefined
+                ? t('browser.installBody', { machine: machineName })
+                : undefined;
+    const errorAction = errorTitle === undefined || installCommand !== undefined ? undefined : {
         label: phase === 'noBrowser' ? 'Open one' : phase === 'lost' ? 'Reconnect' : 'Try again',
         onPress: phase === 'noBrowser' || phase === 'openFailed' ? tryOpenBrowser : retry,
     };
@@ -574,6 +600,28 @@ export default function TakeoverScreen() {
                     >
                         <Text style={{ ...Typography.default('semiBold'), fontSize: 14, color: theme.colors.button.primary.tint }}>{errorAction.label}</Text>
                     </Pressable>
+                )}
+                {installCommand !== undefined && (
+                    <View style={[cardStyle(theme), { alignSelf: 'stretch', marginHorizontal: 24, padding: 12, gap: 10 }]}>
+                        <Text selectable style={{ ...Typography.mono(), fontSize: 12, lineHeight: 18, color: theme.colors.text }}>
+                            {installCommand}
+                        </Text>
+                        <Pressable
+                            onPress={() => {
+                                void Clipboard.setStringAsync(installCommand)
+                                    .then(() => setCopied(true))
+                                    .catch(() => Modal.alert(t('browser.copyFailedTitle'), t('browser.copyFailedBody')));
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={copied ? t('browser.copied') : t('browser.copyCommand')}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, alignSelf: 'flex-start', paddingHorizontal: 12, borderRadius: ui.radius.control, backgroundColor: theme.colors.surfacePressed }}
+                        >
+                            <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={14} color={theme.colors.text} />
+                            <Text style={{ ...Typography.default('semiBold'), fontSize: 13, color: theme.colors.text }}>
+                                {copied ? t('browser.copied') : t('browser.copyCommand')}
+                            </Text>
+                        </Pressable>
+                    </View>
                 )}
                 {detail !== null && (
                     <>

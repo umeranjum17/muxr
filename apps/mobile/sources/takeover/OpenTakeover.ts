@@ -109,6 +109,28 @@ export function parseStatusPort(stdout: string): number | undefined {
     }
 }
 
+/**
+ * Whether the bound stream has a live browser behind it. The daemon keeps
+ * every session's stream server bound from birth (0.35.1), so a bound port
+ * alone says nothing — a stream with `connected: false` never produces a
+ * frame. Older CLIs omit the field: assume live.
+ */
+export function streamHasLiveBrowser(statusStdout: string): boolean {
+    try {
+        const parsed = JSON.parse(statusStdout) as { data?: { connected?: unknown } | null };
+        return parsed.data?.connected !== false;
+    } catch {
+        return true;
+    }
+}
+
+/** True when `agent-browser open` failed for want of any browser binary. */
+export function missingBrowserBinary(openOutput: string): boolean {
+    // "Chrome not found … Run `agent-browser install` …" is the real 0.35.1
+    // open-failure wording; the others cover doctor/older variants.
+    return /chrome not found|agent-browser install|no chrome|chrome binary|browser binary/i.test(openOutput);
+}
+
 /** The stream's tabs message: muxr only wants the current page address. */
 export function parseStreamPage(raw: unknown): { url: string } | undefined {
     if (typeof raw !== 'string') return undefined;
@@ -137,17 +159,22 @@ export function codeForKey(key: string): string {
 export type ResolvedStreamPort =
     | { kind: 'ready'; port: number; owned: boolean }
     | { kind: 'noBrowser'; detail: string | null }
+    | { kind: 'noDriver'; detail: string | null }
     | { kind: 'unreachable' };
 
 /** The slice of machineBash the stream resolution needs. */
-type ShellResult = { success: boolean; stdout: string; stderr: string };
+type ShellResult = { success: boolean; stdout: string; stderr: string; exitCode?: number };
 
 /**
  * The port the takeover watches: a fresh `stream enable`, or — when the daemon
- * reports one already bound (an orphaned viewer, a returned deep link) — the
- * bound port from `stream status`, so the screen reattaches to the live stream
- * instead of dead-ending on the enable error. A machine with neither keeps the
- * plain no-browser failure. Only a fresh enable is `owned`: a reattached port
+ * reports one already bound (an orphaned viewer, a returned deep link, or the
+ * 0.35.1 stream server every session is born with) — the bound port from
+ * `stream status`, so the screen reattaches to the live stream instead of
+ * dead-ending on the enable error. A bound port only counts when a browser is
+ * actually connected behind it; otherwise the truthful answer is the plain
+ * no-browser failure, not a port that would spin forever without a frame.
+ * A missing driver (`command not found`) is its own state: the fix there is an
+ * install, not a browser. Only a fresh enable is `owned`: a reattached port
  * belongs to whoever enabled it, and its watchers must leave it running.
  */
 export async function resolveStreamPort(
@@ -162,14 +189,15 @@ export async function resolveStreamPort(
         if (port !== undefined) return { kind: 'ready', port, owned: true };
         return { kind: 'unreachable' };
     }
+    const output = [enabled.stderr, enabled.stdout].filter(Boolean).join('\n');
+    if (enabled.exitCode === 127 || /command not found/i.test(output)) return { kind: 'noDriver', detail: output || null };
     // The daemon refuses a second enable while a stream is already bound;
     // that browser is perfectly streamable, so reattach to its bound port.
-    const output = [enabled.stderr, enabled.stdout].filter(Boolean).join('\n');
     if (!/already enabled/i.test(output)) return { kind: 'noBrowser', detail: output || null };
     const status = await run(`${agentBrowser} stream status --json`);
     const bound = status.success ? parseStatusPort(status.stdout) : undefined;
-    if (bound !== undefined) return { kind: 'ready', port: bound, owned: false };
-    return { kind: 'noBrowser', detail: output || null };
+    if (bound === undefined || !streamHasLiveBrowser(status.stdout)) return { kind: 'noBrowser', detail: output || null };
+    return { kind: 'ready', port: bound, owned: false };
 }
 
 export interface OpenTakeover {
