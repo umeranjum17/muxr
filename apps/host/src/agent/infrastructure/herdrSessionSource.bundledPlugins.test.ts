@@ -29,11 +29,11 @@ const packagedManifest = (id: string) => JSON.parse(readFileSync(join(packagedRo
     contributions: Array<Record<string, unknown>>;
 };
 
-function staleStatusManifest(): Record<string, unknown> {
-    const manifest = packagedManifest('muxr.status') as unknown as Record<string, unknown>;
+function staleVoiceManifest(): Record<string, unknown> {
+    const manifest = packagedManifest('muxr.voice') as unknown as Record<string, unknown>;
     const contributions = (manifest.contributions as Array<Record<string, unknown>>).map((contribution) => {
-        if (contribution.slot === 'session.header.trailing') return { ...contribution, title: 'STALE Usage' };
-        if (contribution.slot === 'host.rpc' && contribution.id === 'usage') return { ...contribution, entry: 'stale-usage.mjs' };
+        if (contribution.slot === 'host.rpc' && contribution.id === 'report') return { ...contribution, entry: 'stale-report.mjs' };
+        if (contribution.slot === 'host.stream' && contribution.id === 'session') return { ...contribution, entry: 'stale-stream.mjs' };
         return contribution;
     });
     return { ...manifest, contributions };
@@ -84,22 +84,20 @@ function fakeHerdr(dir: string, plugins: HerdrPlugin[]) {
 describe('bundled plugins resolve to the host package', () => {
     it('projects packaged titles and RPC wiring when the global registry points at an older release', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-bundled-'));
-        // The "older installed release": valid manifests with stale labels and
-        // stale RPC wiring for ids this package also ships.
-        const staleStatus = join(dir, 'old-release', 'status');
+        // The "older installed release": a valid manifest with stale RPC wiring
+        // for an id this package also ships.
+        const staleVoice = join(dir, 'old-release', 'voice');
         const extraRoot = join(dir, 'third-party', 'extra');
-        for (const root of [staleStatus, extraRoot]) {
+        for (const root of [staleVoice, extraRoot]) {
             mkdirSync(root, { recursive: true });
         }
-        writeFileSync(join(staleStatus, 'muxr-ui.json'), JSON.stringify(staleStatusManifest()));
+        writeFileSync(join(staleVoice, 'muxr-ui.json'), JSON.stringify(staleVoiceManifest()));
         const extraManifest = { schemaVersion: 1, pluginId: 'example.extra', contributions: [] };
         writeFileSync(join(extraRoot, 'muxr-ui.json'), JSON.stringify(extraManifest));
 
         const herdr = fakeHerdr(dir, [
-            pluginEntry({ plugin_id: 'muxr.status', name: 'Status', version: '0.0.1', plugin_root: staleStatus, enabled: true }),
+            pluginEntry({ plugin_id: 'muxr.voice', name: 'Voice', version: '0.0.1', plugin_root: staleVoice, enabled: true }),
             pluginEntry({ plugin_id: 'example.extra', name: 'Extra', version: '1.0.0', plugin_root: extraRoot, enabled: true }),
-            // Herdr stays the authority on enabled state: bundled but disabled here.
-            pluginEntry({ plugin_id: 'muxr.voice', name: 'Voice', version: '0.0.1', plugin_root: join(dir, 'old-release', 'voice'), enabled: false }),
         ]);
         const source = await createHerdrSessionSource({
             socketPath: herdr.socketPath,
@@ -113,27 +111,24 @@ describe('bundled plugins resolve to the host package', () => {
             const byId = new Map(list.map((summary) => [summary.pluginId, summary]));
 
             // Bundled id: the projected manifest is the packaged one, not the stale one.
-            const status = byId.get('muxr.status');
-            expect(status).toBeDefined();
-            const statusManifest = await source.pluginManifest({ pluginId: 'muxr.status', manifestHash: status!.manifestHash! });
+            const voice = byId.get('muxr.voice');
+            expect(voice).toBeDefined();
+            const voiceManifest = await source.pluginManifest({ pluginId: 'muxr.voice', manifestHash: voice!.manifestHash! });
             // The catalog projects the packaged manifest (normalized by the
             // real parser), never the stale registry copy.
-            expect(statusManifest).toEqual(parseManifest(packagedManifest('muxr.status')));
+            expect(voiceManifest).toEqual(parseManifest(packagedManifest('muxr.voice')));
             // RPC wiring resolves to the packaged script, not the stale entry.
-            const rpc = statusManifest.contributions.find((contribution) => contribution.slot === 'host.rpc' && contribution.id === 'usage');
-            expect(rpc).toMatchObject({ entry: 'usage.mjs' });
-            for (const contribution of statusManifest.contributions) {
+            const rpc = voiceManifest.contributions.find((contribution) => contribution.slot === 'host.rpc' && contribution.id === 'report');
+            expect(rpc).toMatchObject({ entry: 'rpc.mjs' });
+            for (const contribution of voiceManifest.contributions) {
                 if (contribution.slot !== 'host.rpc' && contribution.slot !== 'host.stream') continue;
-                expect(existsSync(join(packagedRoot('muxr.status'), (contribution as { entry: string }).entry))).toBe(true);
+                expect(existsSync(join(packagedRoot('muxr.voice'), (contribution as { entry: string }).entry))).toBe(true);
             }
 
             // Adversarial: a plugin this package does not ship keeps Herdr's root.
             const extra = byId.get('example.extra');
             expect(extra).toBeDefined();
             expect(await source.pluginManifest({ pluginId: 'example.extra', manifestHash: extra!.manifestHash! })).toEqual(extraManifest);
-
-            // Adversarial: Herdr's disabled state stands even though a packaged root exists.
-            expect(byId.has('muxr.voice')).toBe(false);
         } finally {
             await source.dispose();
             herdr.close();

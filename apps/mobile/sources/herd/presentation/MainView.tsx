@@ -439,7 +439,7 @@ const HeaderRight = React.memo(({
 let lastTerminalLaunchClaimed = false;
 
 export const MainView = React.memo(() => {
-    const { theme } = useUnistyles();
+    useUnistyles();
     const useSplitView = useSplitViewLayout();
     const router = useRouter();
     const socketStatus = useSocketStatus();
@@ -601,26 +601,11 @@ export const MainView = React.memo(() => {
         setHeaderBackdropVisible(nextVisible);
     }, []);
 
-    // The Usage entry is product furniture, not a plugin chip: one pill beside
-    // the add-on nav row, so the machine's usage is one tap from Home.
-    const usageChip = (
-        <Pressable onPress={() => router.push('/usage' as never)} accessibilityRole="button" accessibilityLabel={t('usage.title')}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider }}>
-            <Ionicons name="speedometer-outline" size={15} color={theme.colors.textSecondary} />
-            <Text style={{ color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>{t('usage.title')}</Text>
-        </Pressable>
-    );
-
     const homeHeader = <>
         <PluginSlot slot="home.cards" context={{}} />
         <RightNowCard />
         <DeclarativeHomeCards />
-        <View style={{ paddingLeft: 16 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                {usageChip}
-                <DeclarativePhoneNavRow onSelect={(pluginId, contentId) => router.push(pluginHref(pluginId, contentId))} />
-            </View>
-        </View>
+        <DeclarativePhoneNavRow onSelect={(pluginId, contentId) => router.push(pluginHref(pluginId, contentId))} />
     </>;
 
     const renderWebContent = () => {

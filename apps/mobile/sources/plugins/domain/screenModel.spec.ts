@@ -560,7 +560,7 @@ describe('declarative screen identity platform', () => {
             }
         };
         let screens = 0;
-        for (const name of ['voice', 'panes']) {
+        for (const name of ['voice']) {
             const raw = JSON.parse(readFileSync(join(dir, name, 'muxr-ui.json'), 'utf8'));
             const { manifest, skippedScreenNodes } = parseManifestWithMeta(raw);
             expect(skippedScreenNodes).toEqual([]);

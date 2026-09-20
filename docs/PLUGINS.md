@@ -78,7 +78,7 @@ Package management keeps Herdr as the only executable registry and runtime:
 ```bash
 muxr plugin docs
 muxr plugin create hello-muxr
-muxr plugin clone muxr.status ./my-status
+muxr plugin clone muxr.voice ./my-voice
 muxr plugin check ./hello-muxr
 muxr plugin dev ./hello-muxr
 muxr plugin list
@@ -487,7 +487,7 @@ Every extension should explain:
 6. how to disable and unlink it;
 7. supported muxr UI and Herdr versions.
 
-`muxr plugin create` writes a minimal working plugin and is the fastest starting point. For a richer list/detail/form/RPC/chart example, clone a bundled one with `muxr plugin clone muxr.status ./my-plugin`; every bundled plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons are also full examples you can read or install: `muxr plugin install umeranjum17/herdr-files` `muxr plugin install umeranjum17/herdr-attachments`.
+`muxr plugin create` writes a minimal working plugin and is the fastest starting point. For a richer list/detail/form/RPC/chart example, clone a bundled one with `muxr plugin clone muxr.voice ./my-plugin`; every bundled plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons are also full examples you can read or install: `muxr plugin install umeranjum17/herdr-files` `muxr plugin install umeranjum17/herdr-attachments`.
 
 ## Lists of real things
 
@@ -554,11 +554,11 @@ the muxr install. To override a bundled surface, use the clone command so
 package identity is rewritten and your source lives outside npm ownership:
 
 ```bash
-muxr plugin clone muxr.status ./my-status
-# edit ./my-status/muxr-ui.json
-herdr plugin disable muxr.status
-muxr plugin dev ./my-status
-# if linking fails: herdr plugin enable muxr.status
+muxr plugin clone muxr.voice ./my-voice
+# edit ./my-voice/muxr-ui.json
+herdr plugin disable muxr.voice
+muxr plugin dev ./my-voice
+# if linking fails: herdr plugin enable muxr.voice
 ```
 
 The same `terminal.key-row` contribution accepts up to eight `quickReplies`:
@@ -570,9 +570,9 @@ sends only validated terminal control sequences. The built-in key row is product
 code; author your own replies and keys with a `terminal.key-row` contribution in
 your own plugin (see `muxr plugin create`).
 
-Dictation, terminal keys, the workspace tree, and Panes are no longer bundled plugins — they are product code in the app, so there is nothing left to clone or override. This is a **breaking change** if you cloned `muxr.workspace-hierarchy` or `muxr.panes` under the previously documented path: the clone keeps running after you upgrade, and because muxr never lets one plugin suppress another, you will see the surface twice — a duplicated workspace tree, or a second Applications chip beside the product Panes screen. Disable the clone after upgrading (`herdr plugin disable <your-clone-id>`); author your own version with the `dictate`/`tree-sheet` primitives in your own plugin instead.
+Dictation, terminal keys, the workspace tree, and Panes are no longer bundled plugins — they are product code in the app, so there is nothing left to clone or override. This is a **breaking change** if you cloned `muxr.workspace-hierarchy`, `muxr.panes`, `muxr.control`, or `muxr.status` under the previously documented path: the clone keeps running after you upgrade, and because muxr never lets one plugin suppress another, you will see the surface twice — a duplicated workspace tree, a second Applications chip beside the product Panes screen, or the retired Usage screen beside the product Right-now card. Disable the clone after upgrading (`herdr plugin disable <your-clone-id>`); author your own version with the `dictate`/`tree-sheet` primitives in your own plugin instead.
 
-`muxr.terminal-keys`, `muxr.panes`, and `muxr.dictation` are retired ids: the host no longer serves those exact ids to any device, so a registration still carrying one does not double a surface — a stale dictation registration adds no second dictate button — but none appears in Settings > Plugins, so you cannot see or disable them from the phone. Disable one on the machine instead (`herdr plugin disable <id>`); `muxr setup` retracts a stale in-bundle registration, and `muxr integrations uninstall` unlinks retired ids. Re-register your copy under an id of your own to keep it, adding your keys with a `terminal.key-row` contribution.
+`muxr.terminal-keys`, `muxr.panes`, `muxr.control`, `muxr.dictation`, and `muxr.status` are retired ids: the host no longer serves those exact ids to any device, so a registration still carrying one does not double a surface — a stale dictation registration adds no second dictate button — but none appears in Settings > Plugins, so you cannot see or disable them from the phone. Disable one on the machine instead (`herdr plugin disable <id>`); `muxr setup` retracts a stale in-bundle registration, and `muxr integrations uninstall` unlinks retired ids. Re-register your copy under an id of your own to keep it, adding your keys with a `terminal.key-row` contribution.
 
 Direct edits under the global npm package work live but are replaced by the next npm install. A cloned folder and its Herdr registration survive package upgrades; subsequent `muxr setup` runs preserve both plugins' explicit enabled/disabled states.
 
@@ -586,18 +586,7 @@ you retype it. Fields win on a key collision.
 
 ## What a backend RPC gets
 
-An installation may explicitly grant a script private host configuration through
-`plugins/private-contexts.json` beside its installed plugin folders. This registry
-is installation-owned; a plugin manifest or RPC caller cannot grant access.
-Each recipe binds `pluginId`, `method`, and the canonical `entry` path relative to
-the registry, and names a reserved `inputKey`. The host overwrites that field with
-only the recipe's `environment` names and `jsonEnvironment` projections. A JSON
-projection specifies an environment variable, one member, allowed string fields,
-and optional exact `match` fields. Valid JSON missing or not matching that member
-projects `null`, preserving explicit empty
-overrides. Values travel on stdin, never in public context or generic child env.
-Do not put actual credentials in the registry. Changes to these grants require a
-trusted installation change, not a plugin's self-authored manifest.
+An installation can no longer grant a script private host configuration: the retired `plugins/private-contexts.json` registry is not read anymore, because its only consumer is now host product code and provider environment access is host-internal. No manifest or installation file grants a plugin process anything beyond the call input and the environment below.
 
 The child receives the call input as bounded UTF-8 JSON on **stdin** (`"null"` when absent). Secrets from secure prompts are never placed in its environment. The child process is started with a deliberately small environment:
 

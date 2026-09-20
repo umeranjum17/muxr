@@ -5,7 +5,7 @@
  * paths or credentials into the output.
  */
 import { createReadStream, readdirSync, statSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { isAbsolute, join } from 'node:path';
@@ -181,12 +181,6 @@ async function collectTranscripts(root: string, periods: string[], now: number, 
 
 // Node 22.0 predates node:sqlite. Python's standard-library SQLite is a
 // read-only fallback on older hosts; neither path launches an agent CLI.
-let DatabaseSync: (new (path: string, options?: { readOnly?: boolean }) => {
-    exec: (sql: string) => void;
-    prepare: (sql: string) => { all: (...params: unknown[]) => unknown[] };
-    close: () => void;
-}) | undefined;
-try { ({ DatabaseSync } = await import('node:sqlite') as { DatabaseSync?: typeof DatabaseSync }); } catch {}
 const pythonQuery = `import json,sqlite3,sys
 request=json.load(sys.stdin)
 db=sqlite3.connect(request['uri'],uri=True,timeout=0.5)
@@ -196,14 +190,74 @@ try:
 finally:
  db.close()
 `;
-function query(db: InstanceType<NonNullable<typeof DatabaseSync>> | undefined, path: string, sql: string, params: unknown[]): unknown[] {
-    if (db) return db.prepare(sql).all(...params);
-    const result = spawnSync('python3', ['-c', pythonQuery], {
-        input: JSON.stringify({ uri: `${pathToFileURL(path).href}?mode=ro`, sql, params }),
+
+// The recency read is a synchronous full-table scan inside whatever SQLite
+// engine reads the store, so it runs in a bounded child process: a large
+// OpenCode store must never block the host's own event loop (the retired
+// plugin ran the same read behind a process boundary). The child prefers
+// node:sqlite and falls back to Python's standard library on hosts predating
+// Node 22.13.
+const recencyScript = `
+import { spawnSync } from 'node:child_process';
+const [path, uri, sql, now] = process.argv.slice(1);
+const nowMs = Number(now);
+let answer;
+try {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(path, { readOnly: true });
+    db.exec('PRAGMA busy_timeout = 500');
+    try { answer = { rows: db.prepare(sql).all(nowMs) }; } finally { db.close(); }
+} catch {
+    const result = spawnSync('python3', ['-c', ${JSON.stringify(pythonQuery)}], {
+        input: JSON.stringify({ uri, sql, params: [nowMs] }),
         encoding: 'utf8', timeout: 2_000, maxBuffer: 2 * 1024 * 1024,
     });
-    if (result.status !== 0) throw new Error('SQLite reader unavailable');
-    return JSON.parse(result.stdout) as unknown[];
+    answer = result.status !== 0 || !result.stdout
+        ? { unavailable: result.error ? 'unsupported' : 'database' }
+        : { rows: JSON.parse(result.stdout) };
+}
+process.stdout.write(JSON.stringify(answer));
+`;
+
+const RECENT_ASSISTANT_SQL = `SELECT max(at) AS at FROM (
+  SELECT coalesce(json_extract(data, '$.time.completed'), json_extract(data, '$.time.created'), time_created) AS at,
+    json_extract(data, '$.tokens.input') + json_extract(data, '$.tokens.output')
+    + coalesce(json_extract(data, '$.tokens.cache.read'), 0) + coalesce(json_extract(data, '$.tokens.cache.write'), 0) AS total
+  FROM message WHERE json_extract(data, '$.role') = 'assistant' AND json_type(data, '$.tokens') = 'object')
+  WHERE total > 0 AND at <= ?`;
+
+interface RecencyAnswer { rows?: Array<{ at?: unknown }>; unavailable?: 'database' | 'unsupported'; }
+
+/** Run the recency scan in a child killed at a hard timeout; never rejects. */
+function runRecency(path: string, uri: string, now: number): Promise<RecencyAnswer> {
+    return new Promise((resolve) => {
+        const child = spawn(process.execPath, ['--input-type=module', '--eval', recencyScript, path, uri, RECENT_ASSISTANT_SQL, String(now)], { stdio: ['ignore', 'pipe', 'ignore'] });
+        let buffer = '';
+        let settled = false;
+        let escalation: NodeJS.Timeout | undefined;
+        const finish = (answer: RecencyAnswer) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            if (child.exitCode === null) {
+                child.kill('SIGTERM');
+                escalation = setTimeout(() => { if (child.exitCode === null) child.kill('SIGKILL'); }, 1_000);
+            }
+            resolve(answer);
+        };
+        const timer = setTimeout(() => finish({ unavailable: 'database' }), 5_000);
+        child.once('error', () => finish({ unavailable: 'database' }));
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', (chunk: string) => {
+            buffer += chunk;
+            if (buffer.length > 1024 * 1024) finish({ unavailable: 'database' });
+        });
+        child.once('close', (code) => {
+            if (escalation) clearTimeout(escalation);
+            if (code !== 0) { finish({ unavailable: 'database' }); return; }
+            try { finish(JSON.parse(buffer) as RecencyAnswer); } catch { finish({ unavailable: 'database' }); }
+        });
+    });
 }
 
 /** Where the pinned ccusage reader looks, so both collectors agree on roots. */
@@ -252,24 +306,17 @@ export async function collectLocalUsage(periods: string[], now: number, env: Nod
     // OpenCode contributes recency only: ccusage already reads the same store for
     // its tokens, so a second count would be the same activity twice.
     const opencodePath = isAbsolute(opencodeDb) ? opencodeDb : join(opencodeRoot, opencodeDb);
-    let db: InstanceType<NonNullable<typeof DatabaseSync>> | undefined;
     try {
         if (exists(opencodePath)) {
-            if (DatabaseSync) {
-                db = new DatabaseSync(opencodePath, { readOnly: true });
-                db.exec('PRAGMA busy_timeout = 500');
-            }
-            const rows = query(db, opencodePath, `SELECT max(at) AS at FROM (
-      SELECT coalesce(json_extract(data, '$.time.completed'), json_extract(data, '$.time.created'), time_created) AS at,
-        json_extract(data, '$.tokens.input') + json_extract(data, '$.tokens.output')
-        + coalesce(json_extract(data, '$.tokens.cache.read'), 0) + coalesce(json_extract(data, '$.tokens.cache.write'), 0) AS total
-      FROM message WHERE json_extract(data, '$.role') = 'assistant' AND json_type(data, '$.tokens') = 'object')
-      WHERE total > 0 AND at <= ?`, [now]) as { at?: number }[];
-            const latest = rows[0]?.at;
+            const answer = await runRecency(opencodePath, `${pathToFileURL(opencodePath).href}?mode=ro`, now);
+            const latest = answer.rows?.[0]?.at;
             if (typeof latest === 'number' && Number.isFinite(latest)) result.opencode = { latest };
+            else if (answer.unavailable) {
+                result.opencode = { unavailable: true, reason: answer.unavailable === 'unsupported' ? 'Local usage unavailable · requires Node 22.13+ or Python 3' : 'Local usage database unavailable' };
+            }
         }
     } catch {
-        result.opencode = { unavailable: true, reason: DatabaseSync ? 'Local usage database unavailable' : 'Local usage unavailable · requires Node 22.13+ or Python 3' };
-    } finally { db?.close(); }
+        result.opencode = { unavailable: true, reason: 'Local usage database unavailable' };
+    }
     return result;
 }
