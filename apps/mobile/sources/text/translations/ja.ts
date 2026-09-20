@@ -48,6 +48,9 @@ export const ja: TranslationStructure = {
         nothingToShow: '表示するものがありません。',
         treeUnavailable: 'ツリーを利用できません。',
         dictate: '音声入力',
+        stopDictation: '音声入力を停止',
+        stopDictationHint: '録音を停止して文字起こしを開始します',
+        transcribingDictation: '音声入力を文字起こし中',
         unavailableSuffix: '利用不可',
         showingStale: '古いデータを表示中',
         settingsTitle: 'プラグイン',
@@ -375,6 +378,7 @@ export const ja: TranslationStructure = {
         noCatalogue: ({ kind }: { kind: string }) => `${kind}のカタログはまだありません · 以下にコマンドを入力`,
         thisAgent: 'このエージェント',
         sent: ({ command }: { command: string }) => `${command}を送信しました`,
+        commonReplies: 'よく使う返信',
     },
 
 

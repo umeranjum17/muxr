@@ -45,6 +45,9 @@ export const es: TranslationStructure = {
         nothingToShow: 'Nada que mostrar.',
         treeUnavailable: 'El árbol no está disponible.',
         dictate: 'Dictar',
+        stopDictation: 'Detener dictado',
+        stopDictationHint: 'Detiene la grabación y empieza a transcribir',
+        transcribingDictation: 'Transcribiendo el dictado',
         unavailableSuffix: 'no disponible',
         showingStale: 'mostrando datos anteriores',
         settingsTitle: 'Plugins',
@@ -373,6 +376,7 @@ export const es: TranslationStructure = {
         noCatalogue: ({ kind }: { kind: string }) => `Aún no hay catálogo para ${kind} · escribe un comando abajo`,
         thisAgent: 'este agente',
         sent: ({ command }: { command: string }) => `Enviado ${command}`,
+        commonReplies: 'Respuestas frecuentes',
     },
 
 

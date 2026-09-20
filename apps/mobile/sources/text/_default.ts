@@ -45,6 +45,9 @@ export const en = {
         nothingToShow: 'Nothing to show.',
         treeUnavailable: 'Tree unavailable.',
         dictate: 'Dictate',
+        stopDictation: 'Stop dictation',
+        stopDictationHint: 'Stops recording and starts transcribing',
+        transcribingDictation: 'Transcribing dictation',
         unavailableSuffix: 'unavailable',
         showingStale: 'showing stale data',
         settingsTitle: 'Plugins',
@@ -388,6 +391,7 @@ export const en = {
         noCatalogue: ({ kind }: { kind: string }) => `No catalogue for ${kind} yet · type a command below`,
         thisAgent: 'this agent',
         sent: ({ command }: { command: string }) => `Sent ${command}`,
+        commonReplies: 'Common replies',
     },
 
 

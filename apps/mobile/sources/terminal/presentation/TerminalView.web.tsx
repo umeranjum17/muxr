@@ -20,7 +20,7 @@ export interface TerminalViewProps {
     onChannel?: (channel: TerminalChannel | undefined) => void;
     /** Same contract as the native view; the browser has no view commands and
      *  no terminal IME, so the pane keeps its own keyboard fallback and the
-     *  panel is Close plus the quick-action rows. */
+     *  ring carries only the screen's own slots. */
     onViewControls?: (controls: { commands: TerminalCommand[]; dismissKeyboard: () => void }) => void;
 }
 

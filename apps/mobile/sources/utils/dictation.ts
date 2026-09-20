@@ -40,10 +40,12 @@ export function useDictation(getText: () => string, setText: (text: string) => v
     const stoppingRef = React.useRef(false);
     const recordingRef = React.useRef(false);
     const chunksRef = React.useRef<string[]>([]);
+    const transcriptionRef = React.useRef<AbortController | null>(null);
     const sinkRef = React.useRef({ getText, setText, hint });
     sinkRef.current = { getText, setText, hint };
 
     React.useEffect(() => () => {
+        transcriptionRef.current?.abort();
         if (!recordingRef.current) return;
         recordingRef.current = false;
         void stopRecorder().catch(() => undefined).finally(releaseDictation);
@@ -76,6 +78,7 @@ export function useDictation(getText: () => string, setText: (text: string) => v
         }
 
         try {
+            transcriptionRef.current = new AbortController();
             chunksRef.current = [];
             setPending(null);
             setFinished(null);
@@ -112,12 +115,15 @@ export function useDictation(getText: () => string, setText: (text: string) => v
         setRecording(false);
         setLevel(0);
         const elapsed = Date.now() - startedAtRef.current;
+        const signal = transcriptionRef.current?.signal;
+        setTranscribing(!signal?.aborted && elapsed >= MIN_RECORDING_MS && chunksRef.current.length > 0);
 
         try {
             await stopRecorder();
         } catch (error) {
             console.error('Failed to stop recording:', error);
             releaseDictation();
+            setTranscribing(false);
             stoppingRef.current = false;
             return;
         }
@@ -125,24 +131,26 @@ export function useDictation(getText: () => string, setText: (text: string) => v
 
         const chunks = chunksRef.current;
         chunksRef.current = [];
-        if (elapsed < MIN_RECORDING_MS || chunks.length === 0) {
+        if (signal?.aborted || elapsed < MIN_RECORDING_MS || chunks.length === 0) {
+            setTranscribing(false);
             stoppingRef.current = false;
             return;
         }
 
-        setTranscribing(true);
         try {
             const { getText, setText, hint } = sinkRef.current;
-            const text = await transcribePcm16(chunks, hint);
+            const text = await transcribePcm16(chunks, hint, signal);
             const trimmed = (text ?? '').trim();
-            if (trimmed) {
+            if (trimmed && !signal?.aborted) {
                 setText(appendTranscript(getText(), trimmed));
                 setPending(trimmed);
                 setFinished(null);
             }
         } catch (error) {
-            console.error('Transcription failed:', error);
-            Modal.alert('Dictation failed', error instanceof Error ? error.message : 'Could not transcribe audio.');
+            if (!signal?.aborted) {
+                console.error('Transcription failed:', error);
+                Modal.alert('Dictation failed', error instanceof Error ? error.message : 'Could not transcribe audio.');
+            }
         } finally {
             setTranscribing(false);
             stoppingRef.current = false;
@@ -151,9 +159,14 @@ export function useDictation(getText: () => string, setText: (text: string) => v
 
     const toggle = React.useCallback(() => {
         voiceDiagnostic('dictate.tap');
-        if (transcribing) return;
+        if (transcribing || stoppingRef.current) return;
         void (recording ? stop() : start());
     }, [recording, start, stop, transcribing]);
+
+    const cancel = React.useCallback(() => {
+        transcriptionRef.current?.abort();
+        if (recording) void stop();
+    }, [recording, stop]);
 
     const accept = React.useCallback(() => {
         if (pending === null) return;
@@ -180,5 +193,5 @@ export function useDictation(getText: () => string, setText: (text: string) => v
         setFinished(null);
     }, []);
 
-    return { recording, transcribing, level, pending, finished, accept, discard, clearFinished, toggle };
+    return { recording, transcribing, level, pending, finished, accept, discard, clearFinished, toggle, cancel };
 }

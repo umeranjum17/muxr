@@ -8,13 +8,11 @@ import { Typography } from '@/constants/Typography';
 import { hapticsLight, hapticsSelection } from '@/components/haptics';
 import { Switch } from '@/components/Switch';
 import { ui } from '@/components/ui';
-import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, TERMINAL_KEY_ROW_LIMIT, bytesToEscape, escapeToBytes, type CustomKey, type RowEntry } from '../domain/keyRow';
+import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, TERMINAL_KEY_ROW_LIMIT, bytesToEscape, escapeToBytes, modifiedSend, resolveKeyRow, type RowEntry } from '../domain/keyRow';
 
 /**
- * Edit the key row at the point of use: a sheet over the terminal with one
- * editable line per key (hold the handle, drag to reorder, minus to remove),
- * the add-key grid, and a custom-key form speaking the `\e` `\n` `\xHH`
- * escape syntax.
+ * Arrange the live row, then edit one shortcut in a dedicated form. The
+ * stored format is unchanged: catalog ids or named terminal byte sequences.
  */
 
 // ponytail: rows live in one ScrollView; a drag cannot autoscroll the list,
@@ -36,7 +34,7 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
     const insets = useSafeAreaInsets();
     const { height: windowHeight } = useWindowDimensions();
     const [working, setWorking] = React.useState<RowEntry[]>([]);
-    const [adding, setAdding] = React.useState(false);
+    const [formIndex, setFormIndex] = React.useState<number | null>(null);
     const [drag, setDrag] = React.useState<{ index: number; translate: number } | null>(null);
     // Drag math lives in refs: pan updates arrive faster than renders, so the
     // state used for painting must never be the state used for computing.
@@ -59,7 +57,7 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
         if (visible && !wasOpen.current) {
             wasOpen.current = true;
             setWorking([...openState.current.seed]);
-            setAdding(false);
+            setFormIndex(null);
             setDrag(null);
             dragging.current = false;
         }
@@ -77,11 +75,16 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
         commit(working.filter((_, i) => i !== index));
     };
 
-    const appendEntry = (entry: RowEntry) => {
-        if (dragging.current || working.length >= TERMINAL_KEY_ROW_LIMIT) return;
+    const saveKey = (entry: RowEntry) => {
+        if (formIndex === null || dragging.current) return;
+        const next = [...working];
+        if (formIndex === next.length && next.length >= TERMINAL_KEY_ROW_LIMIT) return;
+        next[formIndex] = entry;
         hapticsSelection();
-        commit([...working, entry]);
+        commit(next);
+        setFormIndex(null);
     };
+    const close = () => { if (formIndex !== null) setFormIndex(null); else onClose(); };
 
     const swap = (a: number, b: number) => {
         const next = [...workingRef.current];
@@ -137,12 +140,14 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
     };
 
     const sheetHeight = Math.min(windowHeight * 0.85, windowHeight - insets.top - 24);
+    let title = 'Terminal keys';
+    if (formIndex !== null) title = formIndex < working.length ? 'Edit key' : 'New key';
 
     return (
-        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
             <GestureHandlerRootView style={styles.root}>
-            <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-                <Pressable style={styles.dismiss} onPress={onClose} accessibilityLabel="Close key row editor" />
+            <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                <Pressable style={styles.dismiss} onPress={close} accessibilityLabel="Close key row editor" />
                 <View style={[styles.sheet, {
                     backgroundColor: theme.colors.surface,
                     maxHeight: sheetHeight,
@@ -150,13 +155,21 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
                     borderColor: theme.colors.divider,
                 }]}>
                     <View style={styles.header}>
-                        <Text style={[styles.title, { color: theme.colors.text }]}>Key row</Text>
-                        <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Done" hitSlop={8}>
-                            <Ionicons name="close" size={22} color={theme.colors.text} />
+                        <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
+                        <Pressable onPress={close} accessibilityRole="button" accessibilityLabel={formIndex === null ? 'Done editing keys' : 'Cancel key changes'} style={styles.close}>
+                            <Text style={{ color: theme.colors.accent, fontSize: 14 }}>{formIndex === null ? 'Done' : 'Cancel'}</Text>
                         </Pressable>
                     </View>
 
                     <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
+                    {formIndex !== null ? <KeyForm entry={working[formIndex]} onSave={saveKey} onCancel={() => setFormIndex(null)} /> : <>
+                    <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Your key row · scroll to preview</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 3 }}>
+                        {resolveKeyRow(working).map((key, index) => <View key={index} style={[styles.previewKey, { backgroundColor: theme.colors.surfaceHigh }]}>
+                            <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{key.label}</Text>
+                        </View>)}
+                    </ScrollView>
+                    <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Tap to edit · hold a handle to reorder</Text>
                     {(() => {
                         const occurrence = new Map<string, number>();
                         return working.map((entry, index) => {
@@ -178,11 +191,11 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
                                     ]}
                                 >
                                     <Handle index={index} label={label} onDrag={onDrag} onMove={moveBy} tint={theme.colors.textSecondary} />
-                                    <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{label}</Text>
-                                    <Text style={[styles.rowSend, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                                        sends {bytesToEscape(send)}
-                                    </Text>
-                                    <Pressable onPress={() => removeAt(index)} accessibilityRole="button" accessibilityLabel={`Remove ${label}`} hitSlop={6}>
+                                    <Pressable onPress={() => setFormIndex(index)} accessibilityRole="button" accessibilityLabel={`Edit ${label}`} style={{ flex: 1, minHeight: 44, justifyContent: 'center' }}>
+                                        <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{label}</Text>
+                                        <Text style={[styles.rowSend, { color: theme.colors.textSecondary }]} numberOfLines={1}>{bytesToEscape(send)}</Text>
+                                    </Pressable>
+                                    <Pressable onPress={() => removeAt(index)} accessibilityRole="button" accessibilityLabel={`Remove ${label}`} style={styles.close}>
                                         <Ionicons name="remove-circle-outline" size={22} color={theme.colors.textSecondary} />
                                     </Pressable>
                                 </View>
@@ -190,13 +203,11 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
                         });
                     })()}
 
-                    {adding ? (
-                        <AddPanel atLimit={working.length >= TERMINAL_KEY_ROW_LIMIT} onAppend={appendEntry} onDone={() => setAdding(false)} />
-                    ) : working.length >= TERMINAL_KEY_ROW_LIMIT ? (
+                    {working.length >= TERMINAL_KEY_ROW_LIMIT ? (
                         <Text style={[styles.caption, { color: theme.colors.warningCritical }]}>{CAP_NOTICE}</Text>
                     ) : (
                         <Pressable
-                            onPress={() => setAdding(true)}
+                            onPress={() => setFormIndex(working.length)}
                             accessibilityRole="button"
                             accessibilityLabel="Add a key"
                             style={[styles.addRow, { borderColor: theme.colors.accent }]}
@@ -211,6 +222,7 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
                             <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the default row</Text>
                         </Pressable>
                     )}
+                    </>}
                     </ScrollView>
                 </View>
             </KeyboardAvoidingView>
@@ -255,99 +267,76 @@ function Handle({ index, label, onDrag, onMove, tint }: {
     );
 }
 
-function AddPanel({ atLimit, onAppend, onDone }: {
-    atLimit: boolean;
-    onAppend: (entry: RowEntry) => void;
-    onDone: () => void;
+function KeyForm({ entry, onSave, onCancel }: {
+    entry: RowEntry | undefined;
+    onSave: (entry: RowEntry) => void;
+    onCancel: () => void;
 }) {
     const { theme } = useUnistyles();
-    const [label, setLabel] = React.useState('');
-    const [sendText, setSendText] = React.useState('');
-    const [repeat, setRepeat] = React.useState(false);
-    const bytes = escapeToBytes(sendText);
-    const canAdd = !atLimit && label.trim() !== '' && bytes !== null && bytes.length <= 512;
-    const problem = sendText.trim() === '' ? null
-        : bytes === null ? 'That escape is unfinished, or names a byte above \\x7f. Use \\\\ for a literal backslash.'
-        : bytes.length > 512 ? `That sends ${bytes.length} characters; the limit is 512.`
-        : null;
-    return (
-        <View style={styles.addPanel}>
-            {atLimit && <Text style={[styles.caption, { color: theme.colors.warningCritical }]}>{CAP_NOTICE}</Text>}
-            {CATALOG_GROUPS.map((group) => (
-                <View key={group.title}>
-                    <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>{group.title}</Text>
-                    <View style={styles.grid}>
-                        {group.ids.map((id) => (
-                            <Pressable
-                                key={id}
-                                onPress={() => onAppend(id)}
-                                disabled={atLimit}
-                                accessibilityRole="button"
-                                accessibilityState={{ disabled: atLimit }}
-                                accessibilityLabel={`Add ${BUILTIN_KEY_CATALOG[id].accessibilityLabel}`}
-                                style={({ pressed }) => [styles.gridChip, { backgroundColor: theme.colors.surfaceHigh }, atLimit && { opacity: 0.4 }, pressed && { opacity: 0.6 }]}
-                            >
-                                <Text style={{ color: theme.colors.text, fontSize: 12, ...Typography.mono() }}>{BUILTIN_KEY_CATALOG[id].label}</Text>
-                            </Pressable>
-                        ))}
-                    </View>
-                </View>
-            ))}
-            <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Custom key</Text>
-            <View style={styles.customForm}>
-                <TextInput
-                    value={label}
-                    onChangeText={setLabel}
-                    maxLength={12}
-                    placeholder="Label"
-                    placeholderTextColor={theme.colors.textSecondary}
-                    style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider }]}
-                />
-                <TextInput
-                    value={sendText}
-                    onChangeText={setSendText}
-                    placeholder="Keys or text to send"
-                    placeholderTextColor={theme.colors.textSecondary}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={[styles.input, styles.sendInput, { color: theme.colors.text, borderColor: theme.colors.divider }]}
-                />
-            </View>
-            <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>
-                {'Escapes: \\e Esc · \\n Enter · \\t Tab · \\x03 Ctrl+C · \\\\ backslash. Anything else sends as typed.'}
-            </Text>
-            {problem !== null && <Text style={[styles.caption, { color: theme.colors.warningCritical }]}>{problem}</Text>}
-            <View style={styles.repeatRow}>
-                <Text style={{ color: theme.colors.text, fontSize: 13 }}>Repeat while held</Text>
-                <Switch value={repeat} onValueChange={setRepeat} />
-            </View>
-            <View style={styles.addRow}>
-                <Pressable
-                    onPress={() => {
-                        if (!canAdd || bytes === null) return;
-                        const custom: CustomKey = {
-                            label: label.trim(),
-                            send: bytes,
-                            ...(repeat ? { repeat: true } : {}),
-                        };
-                        onAppend(custom);
-                        setLabel('');
-                        setSendText('');
-                        setRepeat(false);
-                    }}
-                    disabled={!canAdd}
-                    accessibilityRole="button"
-                    accessibilityLabel="Add custom key"
-                    style={[styles.customAdd, { backgroundColor: canAdd ? theme.colors.accent : theme.colors.surfaceHigh }]}
-                >
-                    <Text style={{ color: canAdd ? '#fff' : theme.colors.textSecondary, fontSize: 14 }}>Add key</Text>
-                </Pressable>
-                <Pressable onPress={onDone} accessibilityRole="button" accessibilityLabel="Done adding keys" style={styles.customDone}>
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 14 }}>Done</Text>
-                </Pressable>
-            </View>
+    const custom = typeof entry === 'object' ? entry : undefined;
+    const [mode, setMode] = React.useState<'key' | 'text'>(custom ? 'text' : 'key');
+    const [keyId, setKeyId] = React.useState(typeof entry === 'string' ? entry : 'esc');
+    const [letter, setLetter] = React.useState('');
+    const [ctrl, setCtrl] = React.useState(false);
+    const [shift, setShift] = React.useState(false);
+    const [label, setLabel] = React.useState(custom?.label ?? '');
+    const [sendText, setSendText] = React.useState(custom ? bytesToEscape(custom.send) : '');
+    const [repeat, setRepeat] = React.useState(custom?.repeat === true || BUILTIN_KEY_CATALOG[keyId]?.repeat === true);
+    const selected = letter !== '' ? { label: letter, accessibilityLabel: letter, send: letter } : BUILTIN_KEY_CATALOG[keyId];
+    const bytes = mode === 'text' ? escapeToBytes(sendText) : modifiedSend(selected, ctrl, shift);
+    const suggestedLabel = [ctrl ? 'Ctrl' : '', shift ? 'Shift' : '', selected.label].filter(Boolean).join(' ');
+    const savedLabel = label.trim() || (mode === 'key' ? suggestedLabel : '');
+    const valid = bytes !== null && bytes.length <= 512 && savedLabel.length > 0 && savedLabel.length <= 12;
+    const chip = (active: boolean) => [styles.gridChip, { backgroundColor: active ? theme.colors.accent : theme.colors.surfaceHigh }];
+    const ink = (active: boolean) => ({ color: active ? theme.colors.button.primary.tint : theme.colors.text, fontSize: 13, ...Typography.mono() });
+    return <View>
+        <View style={styles.grid}>
+            {(['key', 'text'] as const).map((value) => <Pressable key={value} onPress={() => setMode(value)} accessibilityRole="button" accessibilityState={{ selected: mode === value }} style={chip(mode === value)}>
+                <Text style={ink(mode === value)}>{value === 'key' ? 'Key combination' : 'Text / escapes'}</Text>
+            </Pressable>)}
         </View>
-    );
+        <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Name on the key</Text>
+        <TextInput value={label} onChangeText={setLabel} maxLength={12} accessibilityLabel="Key name" placeholder={mode === 'key' ? suggestedLabel : 'e.g. status'} placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider }]} />
+        {mode === 'key' ? <>
+            <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Modifiers</Text>
+            <View style={styles.grid}>
+                <Pressable onPress={() => setCtrl(!ctrl)} accessibilityRole="button" accessibilityLabel="Control modifier" accessibilityState={{ selected: ctrl }} style={chip(ctrl)}><Text style={ink(ctrl)}>Ctrl</Text></Pressable>
+                <Pressable onPress={() => setShift(!shift)} accessibilityRole="button" accessibilityLabel="Shift modifier" accessibilityState={{ selected: shift }} style={chip(shift)}><Text style={ink(shift)}>Shift</Text></Pressable>
+                <TextInput value={letter} onChangeText={setLetter} maxLength={1} autoCapitalize="none" autoCorrect={false} accessibilityLabel="Letter or character" placeholder="A–Z" placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { minWidth: 64, color: theme.colors.text, borderColor: theme.colors.divider }]} />
+            </View>
+            {CATALOG_GROUPS.map((group) => <View key={group.title}>
+                <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>{group.title}</Text>
+                <View style={styles.grid}>{group.ids.map((id) => {
+                    const active = keyId === id && letter === '';
+                    return <Pressable key={id} onPress={() => { setKeyId(id); setLetter(''); setRepeat(BUILTIN_KEY_CATALOG[id].repeat === true); }} accessibilityRole="button" accessibilityLabel={`Choose ${BUILTIN_KEY_CATALOG[id].accessibilityLabel}`} accessibilityState={{ selected: active }} style={chip(active)}>
+                        <Text style={ink(active)}>{BUILTIN_KEY_CATALOG[id].label}</Text>
+                    </Pressable>;
+                })}</View>
+            </View>)}
+        </> : <>
+            <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Text or terminal escapes</Text>
+            <TextInput value={sendText} onChangeText={setSendText} multiline autoCapitalize="none" autoCorrect={false} accessibilityLabel="Keys or text to send" placeholder={'e.g. git status\\r'} placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider, ...Typography.mono() }]} />
+            <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>{'\\e Escape · \\r Enter · \\t Tab · \\x03 Ctrl+C · \\\\ backslash'}</Text>
+        </>}
+        <View style={[styles.sequence, { backgroundColor: theme.colors.surfaceHigh }]}>
+            <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Sends</Text>
+            <Text selectable style={[styles.rowLabel, { color: theme.colors.text }]}>{bytes === null ? 'Choose a valid key combination or escape sequence.' : bytesToEscape(bytes)}</Text>
+        </View>
+        {savedLabel.length > 12 && <Text style={{ color: theme.colors.warningCritical }}>Keep the name to 12 characters.</Text>}
+        {bytes !== null && bytes.length > 512 && <Text style={{ color: theme.colors.warningCritical }}>Keep the sequence to 512 characters.</Text>}
+        <View style={styles.repeatRow}>
+            <Text style={{ color: theme.colors.text, fontSize: 14 }}>Repeat while held</Text>
+            <Switch value={repeat} onValueChange={setRepeat} accessibilityLabel="Repeat while held" />
+        </View>
+        <View style={styles.formActions}>
+            <Pressable onPress={onCancel} accessibilityRole="button" style={styles.customDone}><Text style={{ color: theme.colors.textSecondary }}>Cancel</Text></Pressable>
+            <Pressable disabled={!valid} accessibilityRole="button" accessibilityLabel="Save key" accessibilityState={{ disabled: !valid }} style={[styles.customAdd, { backgroundColor: theme.colors.accent, opacity: valid ? 1 : 0.4 }]} onPress={() => {
+                if (!valid || bytes === null) return;
+                const unchangedBuiltin = mode === 'key' && letter === '' && !ctrl && !shift && label.trim() === '' && repeat === (selected.repeat === true);
+                onSave(unchangedBuiltin ? keyId : { label: savedLabel, send: bytes, ...(repeat ? { repeat: true } : {}) });
+            }}><Text style={{ color: theme.colors.button.primary.tint, fontSize: 14, fontWeight: '600' }}>Save key</Text></Pressable>
+        </View>
+    </View>;
 }
 
 const styles = StyleSheet.create({
@@ -362,17 +351,19 @@ const styles = StyleSheet.create({
     caption: { fontSize: 12, marginTop: 10, marginBottom: 6 },
     row: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 54, paddingHorizontal: 8, marginTop: 8, borderRadius: ui.radius.control, borderWidth: StyleSheet.hairlineWidth },
     handle: { paddingHorizontal: 6, paddingVertical: 12 },
-    rowLabel: { fontSize: 14, width: 56, ...Typography.mono() },
-    rowSend: { fontSize: 12, flex: 1 },
+    rowLabel: { fontSize: 14, ...Typography.mono() },
+    rowSend: { fontSize: 11, marginTop: 3, ...Typography.mono() },
+    previewKey: { minWidth: 44, height: 44, paddingHorizontal: 8, borderRadius: ui.radius.control, alignItems: 'center', justifyContent: 'center' },
+    close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     addRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12, paddingVertical: 10, borderRadius: ui.radius.control, borderWidth: StyleSheet.hairlineWidth },
-    addPanel: { marginTop: 4 },
+
     grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-    gridChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: ui.radius.control },
-    customForm: { flexDirection: 'row', gap: 8 },
-    input: { borderWidth: StyleSheet.hairlineWidth, borderRadius: ui.radius.control, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, minWidth: 80 },
-    sendInput: { flex: 1 },
+    gridChip: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: ui.radius.control },
+    input: { minHeight: 44, borderWidth: StyleSheet.hairlineWidth, borderRadius: ui.radius.control, paddingHorizontal: 10, paddingVertical: 8, fontSize: 16 },
+    sequence: { marginTop: 16, padding: 12, borderRadius: ui.radius.control },
+    formActions: { flexDirection: 'row', gap: 8, marginTop: 16 },
     repeatRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 },
-    customAdd: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: ui.radius.control },
-    customDone: { paddingHorizontal: 16, paddingVertical: 10 },
+    customAdd: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 10, borderRadius: ui.radius.control },
+    customDone: { minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 10 },
     resetRow: { alignItems: 'center', paddingVertical: 14, marginTop: 4 },
 });

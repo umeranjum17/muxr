@@ -4,7 +4,6 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { OptionSheet } from '@/components/OptionSheet';
-import { ActionShortcut } from '@/components/ActionShortcut';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import type { PluginDataCard, PluginNativeContribution, PluginNavigationItem, PluginTerminalKeyRow } from '@muxr/contract';
 import { MAX_RPC_DISPLAY_BYTES, capUtf8Bytes, sanitizeDisplayText } from '@muxr/contract';
@@ -186,7 +185,7 @@ function DataActionScope({ children }: { children: (theme: ReturnType<typeof use
     return <>{children(theme)}</>;
 }
 
-function DataActionRow({ contribution, pluginId, manifestHash, presentation }: { contribution: PluginDataCard; pluginId: string; manifestHash: string; presentation?: 'shortcut' }) {
+function DataActionRow({ contribution, pluginId, manifestHash }: { contribution: PluginDataCard; pluginId: string; manifestHash: string }) {
     const data = useDataValue(pluginId, manifestHash, contribution.source.contributionId);
     const [open, setOpen] = React.useState(false);
     let shown = data.value;
@@ -202,26 +201,16 @@ function DataActionRow({ contribution, pluginId, manifestHash, presentation }: {
     // own loads outside the screen's render pass, so it names that theme for
     // what it mounts itself.
     return <ScopedTheme name="dark"><DataActionScope>{(theme) => {
-        let trigger: React.ReactNode;
-        if (presentation === 'shortcut') {
-            trigger = <ActionShortcut label={label}
-                accessibilityLabel={data.failed ? failureLabel : `${label}, ${shown}`}
-                icon={(data.failed ? 'warning-outline' : (contribution.icon ?? 'stats-chart-outline')) as never}
-                badge={shown}
-                disabled={contribution.presentation !== 'sheet' && !data.failed}
-                onPress={retryOrOpen} />;
-        } else {
-            const style = ({ pressed = false } = {}) => ({ minHeight: 44, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh });
-            const body = <>
-                {/* A named action row is words; the declared glyph stays metadata. */}
-                <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{label}</Text>
-                {data.failed && <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />}
-                <Text numberOfLines={1} style={{ maxWidth: 120, color: data.failed ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 12 }}>{shown}</Text>
-            </>;
-            trigger = contribution.presentation !== 'sheet' && !data.failed
-                ? <View style={style()}>{body}</View>
-                : <Pressable onPress={retryOrOpen} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : label} style={style}>{body}</Pressable>;
-        }
+        const style = ({ pressed = false } = {}) => ({ minHeight: 44, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh });
+        const body = <>
+            {/* A named action row is words; the declared glyph stays metadata. */}
+            <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{label}</Text>
+            {data.failed && <Ionicons name="warning-outline" size={14} color={theme.colors.textDestructive} />}
+            <Text numberOfLines={1} style={{ maxWidth: 120, color: data.failed ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 12 }}>{shown}</Text>
+        </>;
+        const trigger = contribution.presentation !== 'sheet' && !data.failed
+            ? <View style={style()}>{body}</View>
+            : <Pressable onPress={retryOrOpen} accessibilityRole="button" accessibilityLabel={data.failed ? failureLabel : label} style={style}>{body}</Pressable>;
         return <>
             {trigger}
             {contribution.presentation === 'sheet' && <OptionSheet visible={open} title={label} options={[]} onSelect={() => {}} onClose={() => setOpen(false)}
@@ -263,12 +252,11 @@ export function useDeclarativeSessionActions(cwd?: string): DeclarativeSessionAc
     })).sort((left, right) => left.label.localeCompare(right.label)), [cwd, entries]);
 }
 
-/** The same declared action opens directly from a panel row or a pane-menu row. */
-export function DeclarativeSessionActions({ actions, sessionId, onNavigate, presentation }: {
+/** The same declared action opens directly from a pane-menu row. */
+export function DeclarativeSessionActions({ actions, sessionId, onNavigate }: {
     actions: readonly DeclarativeSessionAction[];
     sessionId: string;
     onNavigate: () => void;
-    presentation?: 'shortcut';
 }) {
     const { theme } = useUnistyles();
     const router = useRouter();
@@ -276,22 +264,20 @@ export function DeclarativeSessionActions({ actions, sessionId, onNavigate, pres
     const rows = actions.map((action) => {
         if (action.kind === 'screen') {
             const open = () => { onNavigate(); router.push(pluginHref(action.pluginId, action.contentId, { sessionId })); };
-            if (presentation !== undefined) return <ActionShortcut key={action.key} label={action.label} icon={action.icon as never} onPress={open} />;
             // Named action rows are words; the declared glyph stays metadata.
             return <Pressable key={action.key} accessibilityRole="button" accessibilityLabel={action.label} onPress={open}
                 style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                 <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{action.label}</Text>
             </Pressable>;
         }
-        if (action.kind === 'list') return <ItemList key={action.key} context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} presentation={presentation ?? 'action-row'} />;
+        if (action.kind === 'list') return <ItemList key={action.key} context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} presentation="action-row" />;
         if (action.kind === 'capability') {
-            if (presentation !== undefined) return <CapabilityButton key={action.key} context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} onNavigate={onNavigate} presentation={presentation} />;
             return <View key={action.key} style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
                 <CapabilityButton context={{ sessionId }} pluginId={action.pluginId} manifestHash={action.manifestHash} contribution={action.contribution} onNavigate={onNavigate} />
                 <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{action.label}</Text>
             </View>;
         }
-        return <DataActionRow key={action.key} contribution={action.contribution} pluginId={action.pluginId} manifestHash={action.manifestHash} presentation={presentation} />;
+        return <DataActionRow key={action.key} contribution={action.contribution} pluginId={action.pluginId} manifestHash={action.manifestHash} />;
     });
     return <>{rows}</>;
 }

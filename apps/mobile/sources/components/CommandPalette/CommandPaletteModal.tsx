@@ -97,7 +97,10 @@ export function CommandPaletteModal({
                     paddingTop: sheet ? 0 : Platform.OS === 'web' ? Math.min(140, height * 0.12) : insets.top + 12,
                     paddingBottom: sheet ? insets.bottom : Platform.OS === 'web' ? 12 : Math.max(insets.bottom, 12),
                 }]}
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                // ponytail: Android and web have no avoidance here — the dialog
+                // window already tracks the IME, and a height adjustment on top
+                // of it double-animates the same layout, which shook the sheet.
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             >
                 <TouchableWithoutFeedback onPress={handleBackdropPress}>
                     <Animated.View

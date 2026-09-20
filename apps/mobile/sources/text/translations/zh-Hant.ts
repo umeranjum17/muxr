@@ -47,6 +47,9 @@ export const zhHant: TranslationStructure = {
         nothingToShow: '沒有可顯示的內容。',
         treeUnavailable: '樹狀結構無法使用。',
         dictate: '聽寫',
+        stopDictation: '停止聽寫',
+        stopDictationHint: '停止錄音並開始轉寫',
+        transcribingDictation: '正在轉寫聽寫',
         unavailableSuffix: '無法使用',
         showingStale: '正在顯示舊資料',
         settingsTitle: '外掛程式',
@@ -374,6 +377,7 @@ export const zhHant: TranslationStructure = {
         noCatalogue: ({ kind }: { kind: string }) => `${kind}尚無命令目錄 · 在下方輸入命令`,
         thisAgent: '該代理',
         sent: ({ command }: { command: string }) => `已送出 ${command}`,
+        commonReplies: '常用回覆',
     },
 
 

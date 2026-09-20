@@ -56,6 +56,9 @@ export const pl: TranslationStructure = {
         nothingToShow: 'Brak danych do wyświetlenia.',
         treeUnavailable: 'Drzewo jest niedostępne.',
         dictate: 'Dyktuj',
+        stopDictation: 'Zatrzymaj dyktowanie',
+        stopDictationHint: 'Zatrzymuje nagrywanie i rozpoczyna transkrypcję',
+        transcribingDictation: 'Transkrybowanie dyktowania',
         unavailableSuffix: 'niedostępne',
         showingStale: 'pokazano nieaktualne dane',
         settingsTitle: 'Wtyczki',
@@ -390,6 +393,7 @@ export const pl: TranslationStructure = {
         noCatalogue: ({ kind }: { kind: string }) => `Nie ma jeszcze katalogu dla ${kind} · wpisz polecenie poniżej`,
         thisAgent: 'tego agenta',
         sent: ({ command }: { command: string }) => `Wysłano ${command}`,
+        commonReplies: 'Częste odpowiedzi',
     },
 
 

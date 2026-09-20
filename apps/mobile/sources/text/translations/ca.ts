@@ -45,6 +45,9 @@ export const ca: TranslationStructure = {
         nothingToShow: 'No hi ha res per mostrar.',
         treeUnavailable: 'L’arbre no està disponible.',
         dictate: 'Dicta',
+        stopDictation: 'Atura la dicció',
+        stopDictationHint: 'Atura l\'enregistrament i comença a transcriure',
+        transcribingDictation: 'Transcrivint la dicció',
         unavailableSuffix: 'no disponible',
         showingStale: 'mostrant dades anteriors',
         settingsTitle: 'Connectors',
@@ -373,6 +376,7 @@ export const ca: TranslationStructure = {
         noCatalogue: ({ kind }: { kind: string }) => `Encara no hi ha catàleg per a ${kind} · escriu una comanda a continuació`,
         thisAgent: 'aquest agent',
         sent: ({ command }: { command: string }) => `Enviat ${command}`,
+        commonReplies: 'Respostes freqüents',
     },
 
 

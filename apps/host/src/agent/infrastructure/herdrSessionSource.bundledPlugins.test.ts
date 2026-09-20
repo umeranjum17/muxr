@@ -140,4 +140,41 @@ describe('bundled plugins resolve to the host package', () => {
             rmSync(dir, { recursive: true, force: true });
         }
     }, 30_000);
+
+    // Dictation is product code: the app renders its own dictate control in
+    // every composer. The bundled plugin's registration survives in herdr, so
+    // a host that projected it would draw a second mic beside the app's own.
+    it('never projects a retired bundled plugin, even registered and enabled', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-bundled-'));
+        const dictation = join(dir, 'installed-release', 'dictation');
+        mkdirSync(dictation, { recursive: true });
+        writeFileSync(join(dictation, 'muxr-ui.json'), JSON.stringify({
+            schemaVersion: 1,
+            pluginId: 'muxr.dictation',
+            minMuxrVersion: 2,
+            contributions: [
+                { slot: 'home.composer.trailing', id: 'dictate-home', type: 'native', primitive: 'dictate' },
+                { slot: 'session.composer.trailing', id: 'dictate-session', type: 'native', primitive: 'dictate' },
+            ],
+        }));
+
+        const herdr = fakeHerdr(dir, [
+            pluginEntry({ plugin_id: 'muxr.dictation', name: 'Dictation', version: '0.0.1', plugin_root: dictation, enabled: true }),
+        ]);
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            attachmentsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            await source.refreshPlugins?.();
+            const list = await source.pluginList('test-device');
+            expect(list.find((summary) => summary.pluginId === 'muxr.dictation')).toBeUndefined();
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 30_000);
 });

@@ -12,10 +12,9 @@ interface CommandPaletteInputProps {
     onKeyPress?: (key: string) => void;
     inputRef?: React.RefObject<TextInput | null>;
     appearance?: 'terminal';
-    onFocusChange?: (focused: boolean) => void;
 }
 
-export function CommandPaletteInput({ value, onChangeText, onKeyPress, inputRef, appearance, onFocusChange }: CommandPaletteInputProps) {
+export function CommandPaletteInput({ value, onChangeText, onKeyPress, inputRef, appearance }: CommandPaletteInputProps) {
     const { theme: appTheme } = useUnistyles();
     const theme = appearance === 'terminal' ? darkTheme : appTheme;
     // A physical keyboard is the only kind on wide screens, so the field can
@@ -50,8 +49,6 @@ export function CommandPaletteInput({ value, onChangeText, onKeyPress, inputRef,
                     autoCapitalize="none"
                     returnKeyType="go"
                     onKeyPress={handleKeyDown}
-                    onFocus={() => onFocusChange?.(true)}
-                    onBlur={() => onFocusChange?.(false)}
                     onSubmitEditing={Platform.OS === 'web' ? undefined : () => onKeyPress?.('Enter')}
                     blurOnSubmit={false}
                 />

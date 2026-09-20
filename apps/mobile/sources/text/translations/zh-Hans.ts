@@ -47,6 +47,9 @@ export const zhHans: TranslationStructure = {
         nothingToShow: '没有可显示的内容。',
         treeUnavailable: '树不可用。',
         dictate: '听写',
+        stopDictation: '停止听写',
+        stopDictationHint: '停止录音并开始转写',
+        transcribingDictation: '正在转写听写',
         unavailableSuffix: '不可用',
         showingStale: '正在显示旧数据',
         settingsTitle: '插件',
@@ -375,6 +378,7 @@ export const zhHans: TranslationStructure = {
         noCatalogue: ({ kind }: { kind: string }) => `${kind}尚无命令目录 · 在下方输入命令`,
         thisAgent: '该代理',
         sent: ({ command }: { command: string }) => `已发送 ${command}`,
+        commonReplies: '常用回复',
     },
 
 

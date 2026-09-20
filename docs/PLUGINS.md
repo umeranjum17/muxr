@@ -151,8 +151,8 @@ Every slot below is shipped. **JSON** means you edit `muxr-ui.json` and the chan
 | `navigation.primary` | a navigation destination; product chrome decides where it renders (home chips, sidebar tools) and in what order | JSON (`navigation-item`) |
 | `navigation.content` | the screen that destination opens | JSON (`screen`) or primitive |
 | `home.cards` | a Home card, or `"presentation": "sheet"` for a pill that opens a bottom sheet; a card may set `contentContributionId` to open a declared `navigation.content` screen; a card that declares `"product": "right-now"` is drawn by the product's Right now card (bounded limit/verdict/vitals figures) instead of the generic data card, provided the manifest declares `minMuxrVersion: 15`; anything else — including a card whose source rpc merely happens to be named `now` — keeps the generic data card. The product card owns every string it shows, so that card's own `title` and `emptyText` go unread | JSON (`data-card`) |
-| `session.header.trailing` | a session action; compatible buttons can opt into terminal quick controls | JSON (`data-card` or `screen-button`) or primitive |
-| `session.pills` | a session action; compatible primitives can opt into terminal quick controls | JSON (`data-card`) or primitive |
+| `session.header.trailing` | a session action; the pane menu renders it as a row | JSON (`data-card` or `screen-button`) or primitive |
+| `session.pills` | a session action; the pane menu renders it as a row | JSON (`data-card`) or primitive |
 | `session.toolbar` | a pane-menu command that runs a declared Herdr action | JSON (`button`) |
 | `terminal.key-row` | terminal keys | JSON (`key-row`) |
 | `settings.items` | a row in Settings that opens your screen | JSON (`settings-item`) |
@@ -160,7 +160,7 @@ Every slot below is shipped. **JSON** means you edit `muxr-ui.json` and the chan
 | `app.overlay` | an app-wide overlay | primitive |
 | `session.overlay` | a session-scoped sheet | primitive |
 | `home.composer.leading` / `home.composer.trailing` | buttons beside the home prompt | primitive |
-| `session.composer.trailing` | a button in the session composer's utility row beneath the prompt | primitive |
+| `session.composer.trailing` | plugin controls in the header's three-dot pane menu | primitive |
 
 Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships named widgets and validates each widget's allowed slots, required context, and bounded `params`. Unknown primitive names are ignored for forward compatibility; known primitives reject wrong slots, missing or unknown parameters, and invalid values. Bundled plugins use the same table as anyone else.
 
@@ -175,7 +175,7 @@ Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships n
 
 Primitive parameters live under `params`. An `item-list` with `refreshIntervalMs` refreshes only while its screen and the app are active, stops its timer when unfocused/unmounted, and always force-refreshes when the user opens it. Returning zero items hides the control.
 
-Session actions normally appear under the header's three-dot pane menu. A session `screen-button`, or an `item-list`/`icon-button` native contribution in a supported session action slot, can set `"quickAction": true` on the contribution (not inside `params`). It then appears directly in the floating terminal command panel, separated from keyboard and zoom controls. Placement comes from the declaration, not a bundled plugin-id list.
+Session actions appear under the header's three-dot pane menu. A session `screen-button`, or an `item-list`/`icon-button` native contribution in a supported session action slot, may set `"quickAction": true` on the contribution (not inside `params`). The flag stays accepted; the floating terminal command panel it once targeted was removed, so quick and non-quick actions alike render as pane-menu rows — every declared action remains reachable there.
 
 ```json
 { "slot": "session.pills", "id": "files", "type": "native", "primitive": "item-list",
@@ -564,15 +564,16 @@ muxr plugin dev ./my-status
 
 The same `terminal.key-row` contribution accepts up to eight `quickReplies`:
 `{"label":"Run tests","text":"Run the relevant tests and report failures."}`.
-Each phrase appears in the session tools panel and inserts text into the phone
-composer; the person can edit it and must still press Send. The `keys` array
+Each phrase appears in the agent command palette (the composer's `/` button)
+under Common replies and inserts text into the phone composer; the person can
+edit it and must still press Send. The `keys` array
 sends only validated terminal control sequences. The built-in key row is product
 code; author your own replies and keys with a `terminal.key-row` contribution in
 your own plugin (see `muxr plugin create`).
 
-Dictation, terminal keys, the workspace tree, and Panes are no longer bundled plugins — they are product code in the app, so there is nothing left to clone or override. This is a **breaking change** if you cloned `muxr.dictation`, `muxr.workspace-hierarchy`, or `muxr.panes` under the previously documented path: the clone keeps running after you upgrade, and because muxr never lets one plugin suppress another, you will see the surface twice — two dictate buttons, a duplicated workspace tree, or a second Applications chip beside the product Panes screen. Disable the clone after upgrading (`herdr plugin disable <your-clone-id>`); author your own version with the `dictate`/`tree-sheet` primitives in your own plugin instead.
+Dictation, terminal keys, the workspace tree, and Panes are no longer bundled plugins — they are product code in the app, so there is nothing left to clone or override. This is a **breaking change** if you cloned `muxr.workspace-hierarchy` or `muxr.panes` under the previously documented path: the clone keeps running after you upgrade, and because muxr never lets one plugin suppress another, you will see the surface twice — a duplicated workspace tree, or a second Applications chip beside the product Panes screen. Disable the clone after upgrading (`herdr plugin disable <your-clone-id>`); author your own version with the `dictate`/`tree-sheet` primitives in your own plugin instead.
 
-`muxr.terminal-keys` and `muxr.panes` are retired ids: the host no longer serves those exact ids to any device, so a registration still carrying one does not double a surface — but neither appears in Settings > Plugins, so you cannot see or disable them from the phone. Disable one on the machine instead (`herdr plugin disable <id>`); `muxr setup` retracts a stale in-bundle registration, and `muxr integrations uninstall` unlinks retired ids. Re-register your copy under an id of your own to keep it, adding your keys with a `terminal.key-row` contribution.
+`muxr.terminal-keys`, `muxr.panes`, and `muxr.dictation` are retired ids: the host no longer serves those exact ids to any device, so a registration still carrying one does not double a surface — a stale dictation registration adds no second dictate button — but none appears in Settings > Plugins, so you cannot see or disable them from the phone. Disable one on the machine instead (`herdr plugin disable <id>`); `muxr setup` retracts a stale in-bundle registration, and `muxr integrations uninstall` unlinks retired ids. Re-register your copy under an id of your own to keep it, adding your keys with a `terminal.key-row` contribution.
 
 Direct edits under the global npm package work live but are replaced by the next npm install. A cloned folder and its Herdr registration survive package upgrades; subsequent `muxr setup` runs preserve both plugins' explicit enabled/disabled states.
 
@@ -687,8 +688,7 @@ phone-effect name is skipped, not fatal.
 
 `session.header.trailing` accepts `type: "screen-button"` in addition to
 `data-card`. A screen-button opens another contribution in the same plugin from
-the pane menu, or directly from terminal quick controls when `quickAction` is
-true (a `quickAction` row appears directly in the terminal quick controls).
+the header's three-dot pane menu.
 
 ```json
 {

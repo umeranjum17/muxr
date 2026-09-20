@@ -56,6 +56,9 @@ export const ru: TranslationStructure = {
         nothingToShow: 'Нечего показывать.',
         treeUnavailable: 'Дерево недоступно.',
         dictate: 'Диктовать',
+        stopDictation: 'Остановить диктовку',
+        stopDictationHint: 'Останавливает запись и начинает расшифровку',
+        transcribingDictation: 'Расшифровка диктовки',
         unavailableSuffix: 'недоступно',
         showingStale: 'показаны устаревшие данные',
         settingsTitle: 'Плагины',
@@ -474,6 +477,7 @@ export const ru: TranslationStructure = {
         noCatalogue: ({ kind }: { kind: string }) => `Каталога для ${kind} пока нет · введите команду ниже`,
         thisAgent: 'этого агента',
         sent: ({ command }: { command: string }) => `Отправлено ${command}`,
+        commonReplies: 'Быстрые ответы',
     },
 
     agentInput: {

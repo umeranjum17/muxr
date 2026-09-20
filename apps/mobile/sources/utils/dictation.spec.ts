@@ -204,9 +204,24 @@ describe('on-device dictation flow', () => {
         await act(async () => { api!.toggle(); });
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(mocks.transcribe).toHaveBeenCalledWith([pcm], undefined);
+        expect(mocks.transcribe).toHaveBeenCalledWith([pcm], undefined, expect.objectContaining({ aborted: false }));
         expect(appended).toEqual(['hello world']);
         expect(applyWordReplacements('muxer muxer opens othermuxer', [{ from: 'muxer', to: 'muxr' }])).toBe('muxr muxr opens othermuxer');
+        expect(micOwners()).toEqual([]);
+
+        // Cancelling inference must not append a late transcript to the draft.
+        let finish!: (text: string) => void;
+        mocks.transcribe.mockImplementationOnce(() => new Promise<string>((resolve) => { finish = resolve; }));
+        await act(async () => { api!.toggle(); });
+        onData?.(pcm);
+        await vi.advanceTimersByTimeAsync(500);
+        await act(async () => { api!.toggle(); });
+        expect(api!.transcribing).toBe(true);
+        await act(async () => { api!.cancel(); });
+        expect(mocks.transcribe.mock.calls.at(-1)![2].aborted).toBe(true);
+        await act(async () => { finish('discard this'); });
+        expect(api!.transcribing).toBe(false);
+        expect(appended).toEqual(['hello world']);
         expect(micOwners()).toEqual([]);
     });
 
