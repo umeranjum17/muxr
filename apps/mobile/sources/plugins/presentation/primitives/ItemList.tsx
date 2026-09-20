@@ -248,7 +248,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
     const icon = contribution.icon ?? 'document-outline';
     const accessibilityLabel = contribution.accessibilityLabel === undefined ? title : resolvePluginText(contribution.accessibilityLabel);
     const shortcut = presentation === 'shortcut';
-    // A row (Tools panel or pane actions) only ever sits on the session's
+    // A pane-actions row only ever sits on the session's
     // dark surface; the pill follows whatever screen shows it. The list
     // mounts its row and opens its sheet on its own loads, outside the
     // screen's render pass, so it names the surface's theme itself for what

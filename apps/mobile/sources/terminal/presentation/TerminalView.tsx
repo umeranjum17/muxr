@@ -41,7 +41,7 @@ export interface TerminalViewProps {
     sessionId: string;
     onStatus?: (status: string) => void;
     onChannel?: (channel: TerminalChannel | undefined) => void;
-    /** The pane hosts the control, so the panel can cover the accessory row. */
+    /** The pane hosts the control, so the ring can cover the accessory row. */
     onViewControls?: (controls: TerminalViewControls) => void;
 }
 

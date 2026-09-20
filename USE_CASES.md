@@ -63,7 +63,7 @@ Herdr keeps `rpc.mjs` / `stream.mjs` at the plugin root. Those files are adapter
 | Interrupt playback | `plugins/voice/stream.mjs` | Realtime Playback, Stream Generation | provider interrupt / `realtime.audio.clear` |
 | Store a Provider Secret | `providerSecret` | Provider Secret | voice `key.set` / `key.clear` |
 
-Dictation and terminal key-row plugins are UI-only: Start Dictation and the key row live in the phone kernel (`dictate`, `terminal.key-row`), not in a host use case.
+Dictation and the terminal key row are product code in the phone app, not host use cases.
 
 ## Release and diagnostics
 

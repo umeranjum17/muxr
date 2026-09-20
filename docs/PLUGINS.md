@@ -151,8 +151,8 @@ Every slot below is shipped. **JSON** means you edit `muxr-ui.json` and the chan
 | `navigation.primary` | a navigation destination; product chrome decides where it renders (home chips, sidebar tools) and in what order | JSON (`navigation-item`) |
 | `navigation.content` | the screen that destination opens | JSON (`screen`) or primitive |
 | `home.cards` | a Home card, or `"presentation": "sheet"` for a pill that opens a bottom sheet; a card may set `contentContributionId` to open a declared `navigation.content` screen; a card that declares `"product": "right-now"` is drawn by the product's Right now card (bounded limit/verdict/vitals figures) instead of the generic data card, provided the manifest declares `minMuxrVersion: 15`; anything else — including a card whose source rpc merely happens to be named `now` — keeps the generic data card. The product card owns every string it shows, so that card's own `title` and `emptyText` go unread | JSON (`data-card`) |
-| `session.header.trailing` | a session action; compatible buttons can opt into terminal quick controls | JSON (`data-card` or `screen-button`) or primitive |
-| `session.pills` | a session action; compatible primitives can opt into terminal quick controls | JSON (`data-card`) or primitive |
+| `session.header.trailing` | a session action; the pane menu renders it as a row | JSON (`data-card` or `screen-button`) or primitive |
+| `session.pills` | a session action; the pane menu renders it as a row | JSON (`data-card`) or primitive |
 | `session.toolbar` | a pane-menu command that runs a declared Herdr action | JSON (`button`) |
 | `terminal.key-row` | terminal keys | JSON (`key-row`) |
 | `settings.items` | a row in Settings that opens your screen | JSON (`settings-item`) |
@@ -564,8 +564,9 @@ muxr plugin dev ./my-status
 
 The same `terminal.key-row` contribution accepts up to eight `quickReplies`:
 `{"label":"Run tests","text":"Run the relevant tests and report failures."}`.
-Each phrase appears in the session tools panel and inserts text into the phone
-composer; the person can edit it and must still press Send. The `keys` array
+Each phrase appears in the agent command palette (the composer's `/` button)
+under Common replies and inserts text into the phone composer; the person can
+edit it and must still press Send. The `keys` array
 sends only validated terminal control sequences. The built-in key row is product
 code; author your own replies and keys with a `terminal.key-row` contribution in
 your own plugin (see `muxr plugin create`).
