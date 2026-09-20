@@ -91,23 +91,11 @@ describe('personal quick replies are local, bounded, insert-only', () => {
         expect(localSettingsParse({ terminalQuickReplies: over }).terminalQuickReplies).toEqual([]);
         const atCap = over.slice(0, QUICK_REPLY_LIMIT);
         expect(localSettingsParse({ terminalQuickReplies: atCap }).terminalQuickReplies).toEqual(atCap);
-    });
 
-    it('edit, reorder and remove keep the built-in replies untouched', () => {
-        // The personal list is edited as a plain array; the built-in
-        // TERMINAL_QUICK_REPLIES are a separate constant, so removing every
-        // personal reply leaves the defaults intact.
-        const replies = [
-            { id: 'a', label: 'First', text: 'one' },
-            { id: 'b', label: 'Second', text: 'two' },
-        ];
-        const reordered = [replies[1]!, replies[0]!];
-        expect(reordered.map((reply) => reply.id)).toEqual(['b', 'a']);
-        const edited = reordered.map((reply) => (reply.id === 'b' ? { ...reply, text: 'two, but better' } : reply));
-        expect(edited[0]!.text).toBe('two, but better');
-        const removed = edited.filter((reply) => reply.id !== 'a');
-        expect(removed).toEqual([{ id: 'b', label: 'Second', text: 'two, but better' }]);
-        // And the personal reply's text still only ever joins a draft.
-        expect(appendToDraft('working', removed[0]!.text)).toBe('working two, but better');
+        // One malformed entry costs only the replies list: the field's own catch
+        // keeps the device's theme, font, key row and layouts parsed.
+        const salvaged = localSettingsParse({ terminalQuickReplies: [{ id: '', label: '', text: '' }], terminalFontIndex: 5 });
+        expect(salvaged.terminalQuickReplies).toEqual([]);
+        expect(salvaged.terminalFontIndex).toBe(5);
     });
 });

@@ -121,7 +121,7 @@ export function TerminalQuickReplyEditor({ visible, replies, onChange, onClose }
         while (translate < -STEP / 2 && dragIndex.current > 0) {
             swap(dragIndex.current, dragIndex.current - 1);
             dragIndex.current -= 1;
-            accumulated.current += STEP;
+            accumulated.current -= STEP;
             translate += STEP;
         }
         setDrag({ index: dragIndex.current, translate });

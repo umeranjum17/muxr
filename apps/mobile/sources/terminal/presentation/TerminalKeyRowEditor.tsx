@@ -267,7 +267,8 @@ export function Handle({ index, label, onDrag, onMove, tint }: {
     );
 }
 
-function KeyForm({ entry, onSave, onCancel }: {
+/** The key form, exported so a test can drive the picker and the save rule. */
+export function KeyForm({ entry, onSave, onCancel }: {
     entry: RowEntry | undefined;
     onSave: (entry: RowEntry) => void;
     onCancel: () => void;
@@ -283,6 +284,10 @@ function KeyForm({ entry, onSave, onCancel }: {
     const [sendText, setSendText] = React.useState(custom ? bytesToEscape(custom.send) : '');
     const [repeat, setRepeat] = React.useState(custom?.repeat === true || BUILTIN_KEY_CATALOG[keyId]?.repeat === true);
     const selected = letter !== '' ? { label: letter, accessibilityLabel: letter, send: letter } : BUILTIN_KEY_CATALOG[keyId];
+    // An action key is the catalog key itself: it carries no bytes, so the name,
+    // the modifiers, the letter and Repeat are all inapplicable to it and are
+    // hidden rather than offering a choice that could not be stored.
+    const isAction = mode === 'key' && selected.action !== undefined;
     const actionNote = selected.action === 'paste'
         ? 'Inserts the clipboard into the prompt. It never sends by itself.'
         : selected.action === 'hide-keyboard'
@@ -291,7 +296,7 @@ function KeyForm({ entry, onSave, onCancel }: {
     const bytes = mode === 'text' ? escapeToBytes(sendText) : modifiedSend(selected, ctrl, shift);
     const suggestedLabel = [ctrl ? 'Ctrl' : '', shift ? 'Shift' : '', selected.label].filter(Boolean).join(' ');
     const savedLabel = label.trim() || (mode === 'key' ? suggestedLabel : '');
-    const valid = (actionNote !== null || (bytes !== null && bytes.length <= 512)) && savedLabel.length > 0 && savedLabel.length <= 12;
+    const valid = (isAction || (bytes !== null && bytes.length <= 512)) && savedLabel.length > 0 && savedLabel.length <= 12;
     const chip = (active: boolean) => [styles.gridChip, { backgroundColor: active ? theme.colors.accent : theme.colors.surfaceHigh }];
     const ink = (active: boolean) => ({ color: active ? theme.colors.button.primary.tint : theme.colors.text, fontSize: 13, ...Typography.mono() });
     return <View>
@@ -300,26 +305,32 @@ function KeyForm({ entry, onSave, onCancel }: {
                 <Text style={ink(mode === value)}>{value === 'key' ? 'Key combination' : 'Text / escapes'}</Text>
             </Pressable>)}
         </View>
+        {!(mode === 'key' && isAction) && <>
         <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Name on the key</Text>
         <TextInput value={label} onChangeText={setLabel} maxLength={12} accessibilityLabel="Key name" placeholder={mode === 'key' ? suggestedLabel : 'e.g. status'} placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider }]} />
+        </>}
         {mode === 'key' ? <>
-            {actionNote !== null ? <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>{actionNote}</Text> : <>
+            {actionNote !== null && <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>{actionNote}</Text>}
+            {!isAction && <>
             <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Modifiers</Text>
             <View style={styles.grid}>
                 <Pressable onPress={() => setCtrl(!ctrl)} accessibilityRole="button" accessibilityLabel="Control modifier" accessibilityState={{ selected: ctrl }} style={chip(ctrl)}><Text style={ink(ctrl)}>Ctrl</Text></Pressable>
                 <Pressable onPress={() => setShift(!shift)} accessibilityRole="button" accessibilityLabel="Shift modifier" accessibilityState={{ selected: shift }} style={chip(shift)}><Text style={ink(shift)}>Shift</Text></Pressable>
                 <TextInput value={letter} onChangeText={setLetter} maxLength={1} autoCapitalize="none" autoCorrect={false} accessibilityLabel="Letter or character" placeholder="A–Z" placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { minWidth: 64, color: theme.colors.text, borderColor: theme.colors.divider }]} />
             </View>
+            </>}
             {CATALOG_GROUPS.map((group) => <View key={group.title}>
                 <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>{group.title}</Text>
                 <View style={styles.grid}>{group.ids.map((id) => {
                     const active = keyId === id && letter === '';
-                    return <Pressable key={id} onPress={() => { setKeyId(id); setLetter(''); setRepeat(BUILTIN_KEY_CATALOG[id].repeat === true); }} accessibilityRole="button" accessibilityLabel={`Choose ${BUILTIN_KEY_CATALOG[id].accessibilityLabel}`} accessibilityState={{ selected: active }} style={chip(active)}>
+                    // Picking an action key clears the modifiers it cannot use, so
+                    // the form never shows an arming that has no effect; picking a
+                    // byte key leaves them armed the way the row does.
+                    return <Pressable key={id} onPress={() => { setKeyId(id); setLetter(''); setRepeat(BUILTIN_KEY_CATALOG[id].repeat === true); if (BUILTIN_KEY_CATALOG[id].action !== undefined) { setCtrl(false); setShift(false); } }} accessibilityRole="button" accessibilityLabel={`Choose ${BUILTIN_KEY_CATALOG[id].accessibilityLabel}`} accessibilityState={{ selected: active }} style={chip(active)}>
                         <Text style={ink(active)}>{BUILTIN_KEY_CATALOG[id].label}</Text>
                     </Pressable>;
                 })}</View>
             </View>)}
-            </>}
         </> : <>
             <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Text or terminal escapes</Text>
             <TextInput value={sendText} onChangeText={setSendText} multiline autoCapitalize="none" autoCorrect={false} accessibilityLabel="Keys or text to send" placeholder={'e.g. git status\\r'} placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider, ...Typography.mono() }]} />
@@ -327,18 +338,23 @@ function KeyForm({ entry, onSave, onCancel }: {
         </>}
         <View style={[styles.sequence, { backgroundColor: theme.colors.surfaceHigh }]}>
             <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Sends</Text>
-            <Text selectable style={[styles.rowLabel, { color: theme.colors.text }]}>{actionNote !== null ? actionNote : bytes === null ? 'Choose a valid key combination or escape sequence.' : bytesToEscape(bytes)}</Text>
+            <Text selectable style={[styles.rowLabel, { color: theme.colors.text }]}>{isAction && actionNote !== null ? actionNote : bytes === null ? 'Choose a valid key combination or escape sequence.' : bytesToEscape(bytes)}</Text>
         </View>
         {savedLabel.length > 12 && <Text style={{ color: theme.colors.warningCritical }}>Keep the name to 12 characters.</Text>}
         {bytes !== null && bytes.length > 512 && <Text style={{ color: theme.colors.warningCritical }}>Keep the sequence to 512 characters.</Text>}
-        <View style={styles.repeatRow}>
+        {!isAction && <View style={styles.repeatRow}>
             <Text style={{ color: theme.colors.text, fontSize: 14 }}>Repeat while held</Text>
             <Switch value={repeat} onValueChange={setRepeat} accessibilityLabel="Repeat while held" />
-        </View>
+        </View>}
         <View style={styles.formActions}>
             <Pressable onPress={onCancel} accessibilityRole="button" style={styles.customDone}><Text style={{ color: theme.colors.textSecondary }}>Cancel</Text></Pressable>
             <Pressable disabled={!valid} accessibilityRole="button" accessibilityLabel="Save key" accessibilityState={{ disabled: !valid }} style={[styles.customAdd, { backgroundColor: theme.colors.accent, opacity: valid ? 1 : 0.4 }]} onPress={() => {
-                if (!valid || bytes === null) return;
+                if (!valid) return;
+                // An action key is stored as the catalog id it is: a hand-rolled
+                // { label, send: '' } entry would fail the stored schema and take
+                // the whole customised row down with it.
+                if (isAction) { onSave(keyId); return; }
+                if (bytes === null) return;
                 const unchangedBuiltin = mode === 'key' && letter === '' && !ctrl && !shift && label.trim() === '' && repeat === (selected.repeat === true);
                 onSave(unchangedBuiltin ? keyId : { label: savedLabel, send: bytes, ...(repeat ? { repeat: true } : {}) });
             }}><Text style={{ color: theme.colors.button.primary.tint, fontSize: 14, fontWeight: '600' }}>Save key</Text></Pressable>

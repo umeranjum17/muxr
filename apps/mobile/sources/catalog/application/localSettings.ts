@@ -36,7 +36,7 @@ export const LocalSettingsSchema = z.object({
         id: z.string().min(1),
         label: z.string().min(1).max(QUICK_REPLY_LABEL_LIMIT),
         text: z.string().min(1).max(QUICK_REPLY_TEXT_LIMIT),
-    })).max(QUICK_REPLY_LIMIT).default([]).describe('Personal insert-only quick replies (this device only)'),
+    })).max(QUICK_REPLY_LIMIT).default([]).catch([]).describe('Personal insert-only quick replies (this device only)'),
     // The terminal command puck rests where the person drags it, as fractions
     // of its travel range from the terminal's top edge to the composer's top.
     terminalCommandKeyDock: z.object({ fx: z.number(), fy: z.number() }).nullable().describe('Where the floating terminal command puck rests, as fractions of the terminal surface'),

@@ -117,7 +117,11 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
                 <Text style={labelStyle(active(shift) ? theme.colors.button.primary.tint : theme.colors.text)}>shift</Text>
             </Pressable>
             {keys.map((key, index) => {
-                const unavailable = modifiedSend(key, active(ctrl), active(shift)) === null;
+                // An action key never encodes modifiers, so an armed modifier
+                // must not dim or disable it: modifiedSend answers null for a
+                // key with no bytes, which is not the same as a chord the
+                // terminal cannot express.
+                const unavailable = key.action === undefined && modifiedSend(key, active(ctrl), active(shift)) === null;
                 return (
                     <Pressable
                         key={`${key.label}:${key.send}:${index}`}
