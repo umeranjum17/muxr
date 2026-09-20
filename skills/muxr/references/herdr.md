@@ -13,9 +13,11 @@ If that section is missing, run `herdr --skill` and follow its output.
   workspace is `${HERDR_PANE_ID%%:*}`.
 - Keep `HERDR_PANE_ID` private. User-facing messages use workspace, tab, pane,
   machine names, Agent Names, and Task Titles rather than internal ids.
-- Final user-facing files belong in
-  `$HOME/.muxr/attachments/pane/$HERDR_PANE_ID`; quote the path because the pane
-  id contains a colon. Skip attachment publication when the variable is unset.
+- Final user-facing files go through `muxr share <path>` into the pane's durable
+  Shared Artifacts history; the muxr skill's Shared Artifacts section owns that
+  convention. Direct copies land in
+  `$HOME/.muxr/attachments/pane/$HERDR_PANE_ID` (quote the path: the pane id
+  contains a colon). Skip publication when the variable is unset.
 - Use persistent, phone-visible Herdr work for long builds and servers rather
   than blocking the current agent session.
 - Name your own workspace and pane at task start — use the canonical

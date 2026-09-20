@@ -156,8 +156,8 @@ export async function scanPaneWithAttribution(rootDir: string, paneId: string, c
             const entry: SessionAttachment = { id: '', name, mimeType, size, at };
             if (size > MAX_FETCH_BYTES) {
                 // Larger files cannot use the whole-file heal path and the
-                // first event's aggregate inline budget would strip them
-                // anyway. Stream only the hash; download/read stays chunked.
+                // metadata-only session event never carries bytes anyway.
+                // Stream only the hash; download/read stays chunked.
                 entry.id = await hashFileStream(path);
                 cache?.set(name, { ...metaOnly(entry), signature });
                 out.push(entry);
@@ -312,7 +312,7 @@ export class AttachmentWatcher {
         return cache;
     }
 
-    /** Clear per-pane state (debounce + last signature + emitted ids). Does NOT delete files. */
+    /** Clear per-pane state (debounce + last signature + file cache). Does NOT delete files. */
     dropPane(paneId: string): void {
         const pending = this.debounces.get(paneId);
         if (pending !== undefined) clearTimeout(pending);
