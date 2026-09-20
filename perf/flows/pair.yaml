@@ -8,13 +8,19 @@ tags:
 - launchApp:
     appId: com.trymuxr.app
     clearState: false
-# The hosted build opens on its welcome screen, whose entry point is the exact
-# button "Enter pairing string". A rerun can instead land on the form itself or
-# on the error state of a failed attempt. Anything else is the wrong build.
+# The hosted build opens on its welcome screen, whose string entry point is the
+# exact button "Enter pairing string" under the "Other ways to connect" toggle.
+# A rerun can instead land on the form itself or on the error state of a failed
+# attempt. Anything else is the wrong build.
 - extendedWaitUntil:
     visible:
-      text: 'Enter pairing string|Pairing string|Enter another code'
+      text: 'Other ways to connect|Enter pairing string|Pairing string|Enter another code'
     timeout: 40000
+# The fresh welcome nests the string route behind that toggle; the other
+# landings have no toggle, so the tap is optional.
+- tapOn:
+    text: 'Other ways to connect'
+    optional: true
 # A failed attempt leaves the error state, which shows no input at all.
 - tapOn:
     text: 'Enter another code'
