@@ -1225,7 +1225,11 @@ else if(a[0]==='view') {
 
     writeFileSync(join(home, '.muxr', 'xai.key'), 'xai-user-owned\n', { mode: 0o600 });
     run(cli, ['daemon', 'uninstall'], { cwd: installDir, env });
+    const logBeforeUninstall = readFileSync(fakeLog, 'utf8');
     run(cli, ['integrations', 'uninstall'], { cwd: installDir, env });
+    const uninstallLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeUninstall.length);
+    assert.match(uninstallLinks, /plugin unlink muxr\.panes/, 'uninstall left a retired registration from a prior release in place');
+    assert.match(uninstallLinks, /plugin unlink muxr\.control/, 'uninstall left the management pane pack registered');
     assert.equal(readFileSync(instructionPath, 'utf8'), initialInstructions);
     assert.ok(existsSync(join(home, '.muxr', 'xai.key')), 'narrow integration uninstall removed provider data');
 

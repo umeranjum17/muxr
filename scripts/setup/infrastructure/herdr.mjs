@@ -496,8 +496,9 @@ export async function runIntegrations(args = []) {
                 }
             }
             if (binary) {
-                // Bundled add-ons plus the product's own management pane pack.
-                const productIds = [...bundledPlugins().map((plugin) => plugin.id), productPanePack().id];
+                // Bundled add-ons, the product's management pane pack, and the
+                // retired panes plugin a prior release may still have registered.
+                const productIds = [...bundledPlugins().map((plugin) => plugin.id), productPanePack().id, 'muxr.panes'];
                 for (const id of productIds) {
                     if (!args.includes('--quiet')) print(`  ${dryRun ? 'would run' : 'run'} herdr plugin unlink ${id}`);
                     if (!dryRun) {
