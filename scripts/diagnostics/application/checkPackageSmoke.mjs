@@ -436,11 +436,12 @@ try {
     assert.ok(listing.includes('package/plugin/application/installPlugin.mjs'), 'plugin install use case missing from npm artifact');
     assert.ok(listing.includes('package/setup/application/promptPeerAgent.mjs'), 'peer CLI client missing from npm artifact');
     assert.ok(listing.includes('package/diagnostics/application/dumpDiagnostics.mjs'), 'host diagnostics CLI missing from npm artifact');
-    assert.ok(listing.includes('package/plugins/control/run.mjs'), 'control plugin missing from npm artifact');
+    assert.ok(listing.includes('package/resources/control/run.mjs'), 'management pane pack missing from npm artifact');
     // Code and Attachments left the bundle for their own public repositories;
-    // the npm artifact must not still ship them.
+    // the npm artifact must not still ship them. Panes became product code.
     assert.ok(!listing.includes('package/plugins/code/'), 'extracted Code plugin still shipped in npm artifact');
     assert.ok(!listing.includes('package/plugins/attachments/'), 'extracted Attachments plugin still shipped in npm artifact');
+    assert.ok(!listing.includes('package/plugins/panes/'), 'de-plugined panes plugin still shipped in npm artifact');
     assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'Voice plugin missing from npm artifact');
     for (const provider of ['xai', 'gemini', 'openai', 'codex']) {
         assert.ok(listing.includes(`package/plugins/voice/providers/${provider}.mjs`), `${provider} voice adapter missing from npm artifact`);
@@ -643,19 +644,19 @@ try {
     assert.match(createdId ?? '', /^local\.created-plugin-[a-f0-9]{8}$/);
     assert.match(secondCreatedId ?? '', /^local\.created-plugin-[a-f0-9]{8}$/);
     assert.notEqual(secondCreatedId, createdId, 'same-basename plugins received the same global id');
-    const clonedPlugin = join(scratch, 'cloned-panes');
-    run(cli, ['plugin', 'clone', 'muxr.panes', clonedPlugin], { cwd: installDir });
+    const clonedPlugin = join(scratch, 'cloned-status');
+    run(cli, ['plugin', 'clone', 'muxr.status', clonedPlugin], { cwd: installDir });
     const clonedId = readFileSync(join(clonedPlugin, 'herdr-plugin.toml'), 'utf8').match(/^id = "([^"]+)"/m)?.[1];
-    assert.match(clonedId ?? '', /^local\.cloned-panes-[a-f0-9]{8}$/);
+    assert.match(clonedId ?? '', /^local\.cloned-status-[a-f0-9]{8}$/);
     assert.equal(JSON.parse(readFileSync(join(clonedPlugin, 'muxr-ui.json'))).pluginId, clonedId);
     assert.match(run(cli, ['plugin', 'check', clonedPlugin], { cwd: installDir }).stdout, /muxr UI manifest/);
     const packageClone = join(installedPackage, 'must-not-survive');
-    assert.notEqual(run(cli, ['plugin', 'clone', 'muxr.panes', packageClone], { cwd: installDir, allowFailure: true }).status, 0);
+    assert.notEqual(run(cli, ['plugin', 'clone', 'muxr.status', packageClone], { cwd: installDir, allowFailure: true }).status, 0);
     assert.notEqual(run(cli, ['plugin', 'create', packageClone], { cwd: installDir, allowFailure: true }).status, 0);
     assert.equal(existsSync(packageClone), false);
     const packageAlias = join(scratch, 'package-alias');
     symlinkSync(installedPackage, packageAlias, 'dir');
-    assert.notEqual(run(cli, ['plugin', 'clone', 'muxr.panes', join(packageAlias, 'alias-clone')], { cwd: installDir, allowFailure: true }).status, 0);
+    assert.notEqual(run(cli, ['plugin', 'clone', 'muxr.status', join(packageAlias, 'alias-clone')], { cwd: installDir, allowFailure: true }).status, 0);
     assert.notEqual(run(cli, ['plugin', 'create', join(packageAlias, 'alias-create')], { cwd: installDir, allowFailure: true }).status, 0);
     assert.equal(existsSync(join(installedPackage, 'alias-clone')), false);
     assert.equal(existsSync(join(installedPackage, 'alias-create')), false);
@@ -843,6 +844,10 @@ try {
         result: {
             plugins: [
                 { plugin_id: 'muxr.panes', plugin_root: join(pluginRoot, 'panes'), version: '0.1.0', enabled: true },
+                // The management pane pack under its pre-product location: setup
+                // must retract this registration and link the pack from
+                // resources/control instead.
+                { plugin_id: 'muxr.control', plugin_root: join(pluginRoot, 'control'), version: '0.1.0', enabled: true },
                 { plugin_id: 'muxr.voice', plugin_root: join(pluginRoot, 'voice'), version: '0.1.0', enabled: false },
                 // Any stale direct child of our bundle directory must be retracted;
                 // this deliberately names no historical plugin or retirement map.
@@ -855,6 +860,8 @@ try {
     const secondSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeSecondSetup.length);
     assert.doesNotMatch(secondSetupLinks, /plugin link .*plugins[/\\]voice(?:\s|[/\\])/, 'setup relinked an existing provider and changed its enabled state');
     assert.match(secondSetupLinks, /plugin unlink muxr\.removed-package-smoke/, 'setup kept a bundled plugin it no longer ships');
+    assert.match(secondSetupLinks, /plugin unlink muxr\.control/, 'setup kept the old in-bundle management pane pack registration');
+    assert.match(secondSetupLinks, new RegExp(`plugin link ${join(installedPackage, 'resources', 'control').replaceAll('\\', '\\\\')} --enabled`), 'setup did not install the product management pane pack');
     const failedUnlink = run(cli, ['setup', ...setupArgs], {
         cwd: installDir,
         env: { ...env, FAKE_UNLINK_FAIL: '1', FAKE_PLUGIN_LIST: JSON.stringify(existingProviders) },
@@ -871,6 +878,9 @@ try {
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(movedProviders) } });
     const movedSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeMovedSetup.length);
     assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --disabled`));
+    // The pack re-links from its product location even while a stale
+    // out-of-bundle registration exists; retraction never touches those.
+    assert.match(movedSetupLinks, new RegExp(`plugin link ${join(installedPackage, 'resources', 'control').replaceAll('\\', '\\\\')} --enabled`));
     assert.doesNotMatch(movedSetupLinks, /plugin unlink/, 'setup unlinked a plugin outside its own bundle directory');
     assert.equal(readFileSync(join(home, '.muxr', 'setup-manifest.json'), 'utf8'), manifestAfterFirst);
     if (process.platform === 'darwin') {
@@ -1215,7 +1225,11 @@ else if(a[0]==='view') {
 
     writeFileSync(join(home, '.muxr', 'xai.key'), 'xai-user-owned\n', { mode: 0o600 });
     run(cli, ['daemon', 'uninstall'], { cwd: installDir, env });
+    const logBeforeUninstall = readFileSync(fakeLog, 'utf8');
     run(cli, ['integrations', 'uninstall'], { cwd: installDir, env });
+    const uninstallLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeUninstall.length);
+    assert.match(uninstallLinks, /plugin unlink muxr\.panes/, 'uninstall left a retired registration from a prior release in place');
+    assert.match(uninstallLinks, /plugin unlink muxr\.control/, 'uninstall left the management pane pack registered');
     assert.equal(readFileSync(instructionPath, 'utf8'), initialInstructions);
     assert.ok(existsSync(join(home, '.muxr', 'xai.key')), 'narrow integration uninstall removed provider data');
 

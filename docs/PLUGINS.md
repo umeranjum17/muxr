@@ -78,7 +78,7 @@ Package management keeps Herdr as the only executable registry and runtime:
 ```bash
 muxr plugin docs
 muxr plugin create hello-muxr
-muxr plugin clone muxr.panes ./my-panes
+muxr plugin clone muxr.status ./my-status
 muxr plugin check ./hello-muxr
 muxr plugin dev ./hello-muxr
 muxr plugin list
@@ -175,7 +175,7 @@ Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships n
 
 Primitive parameters live under `params`. An `item-list` with `refreshIntervalMs` refreshes only while its screen and the app are active, stops its timer when unfocused/unmounted, and always force-refreshes when the user opens it. Returning zero items hides the control.
 
-Session actions normally appear under the header's three-dot pane menu. A session `screen-button`, or an `item-list`/`icon-button` native contribution in a supported session action slot, can set `"quickAction": true` on the contribution (not inside `params`). It then appears directly in the floating terminal command panel, separated from keyboard and zoom controls. Placement comes from the declaration, not a bundled plugin-id list; the bundled Applications action opts in.
+Session actions normally appear under the header's three-dot pane menu. A session `screen-button`, or an `item-list`/`icon-button` native contribution in a supported session action slot, can set `"quickAction": true` on the contribution (not inside `params`). It then appears directly in the floating terminal command panel, separated from keyboard and zoom controls. Placement comes from the declaration, not a bundled plugin-id list.
 
 ```json
 { "slot": "session.pills", "id": "files", "type": "native", "primitive": "item-list",
@@ -488,7 +488,7 @@ Every extension should explain:
 6. how to disable and unlink it;
 7. supported muxr UI and Herdr versions.
 
-`muxr plugin create` writes a minimal working plugin and is the fastest starting point. For a richer list/detail/form/RPC/chart example, clone a bundled one with `muxr plugin clone muxr.panes ./my-plugin`; every bundled plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons are also full examples you can read or install: `muxr plugin install umeranjum17/herdr-files` `muxr plugin install umeranjum17/herdr-attachments`.
+`muxr plugin create` writes a minimal working plugin and is the fastest starting point. For a richer list/detail/form/RPC/chart example, clone a bundled one with `muxr plugin clone muxr.status ./my-plugin`; every bundled plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons are also full examples you can read or install: `muxr plugin install umeranjum17/herdr-files` `muxr plugin install umeranjum17/herdr-attachments`.
 
 ## Lists of real things
 
@@ -555,11 +555,11 @@ the muxr install. To override a bundled surface, use the clone command so
 package identity is rewritten and your source lives outside npm ownership:
 
 ```bash
-muxr plugin clone muxr.panes ./my-panes
-# edit ./my-panes/muxr-ui.json
-herdr plugin disable muxr.panes
-muxr plugin dev ./my-panes
-# if linking fails: herdr plugin enable muxr.panes
+muxr plugin clone muxr.status ./my-status
+# edit ./my-status/muxr-ui.json
+herdr plugin disable muxr.status
+muxr plugin dev ./my-status
+# if linking fails: herdr plugin enable muxr.status
 ```
 
 The same `terminal.key-row` contribution accepts up to eight `quickReplies`:
@@ -570,9 +570,9 @@ sends only validated terminal control sequences. The built-in key row is product
 code; author your own replies and keys with a `terminal.key-row` contribution in
 your own plugin (see `muxr plugin create`).
 
-Dictation, terminal keys, and the workspace tree are no longer bundled plugins — they are product code in the app, so there is nothing left to clone or override. This is a **breaking change** if you cloned `muxr.dictation` or `muxr.workspace-hierarchy` under the previously documented path: the clone keeps running after you upgrade, and because muxr never lets one plugin suppress another, you will see the surface twice — two dictate buttons, a duplicated workspace tree. Disable the clone after upgrading (`herdr plugin disable <your-clone-id>`); author your own version with the `dictate`/`tree-sheet` primitives in your own plugin instead.
+Dictation, terminal keys, the workspace tree, and Panes are no longer bundled plugins — they are product code in the app, so there is nothing left to clone or override. This is a **breaking change** if you cloned `muxr.dictation`, `muxr.workspace-hierarchy`, or `muxr.panes` under the previously documented path: the clone keeps running after you upgrade, and because muxr never lets one plugin suppress another, you will see the surface twice — two dictate buttons, a duplicated workspace tree, or a second Applications chip beside the product Panes screen. Disable the clone after upgrading (`herdr plugin disable <your-clone-id>`); author your own version with the `dictate`/`tree-sheet` primitives in your own plugin instead.
 
-`muxr.terminal-keys` is the exception: the host no longer serves that exact id to any device, so a registration still carrying it does not double the key row — but it is also absent from Settings > Plugins, so you cannot see or disable it from the phone. Disable it on the machine instead (`herdr plugin disable muxr.terminal-keys`), or re-register your copy under an id of your own to keep it, adding your keys with a `terminal.key-row` contribution.
+`muxr.terminal-keys` and `muxr.panes` are retired ids: the host no longer serves those exact ids to any device, so a registration still carrying one does not double a surface — but neither appears in Settings > Plugins, so you cannot see or disable them from the phone. Disable one on the machine instead (`herdr plugin disable <id>`); `muxr setup` retracts a stale in-bundle registration, and `muxr integrations uninstall` unlinks retired ids. Re-register your copy under an id of your own to keep it, adding your keys with a `terminal.key-row` contribution.
 
 Direct edits under the global npm package work live but are replaced by the next npm install. A cloned folder and its Herdr registration survive package upgrades; subsequent `muxr setup` runs preserve both plugins' explicit enabled/disabled states.
 
@@ -688,7 +688,7 @@ phone-effect name is skipped, not fatal.
 `session.header.trailing` accepts `type: "screen-button"` in addition to
 `data-card`. A screen-button opens another contribution in the same plugin from
 the pane menu, or directly from terminal quick controls when `quickAction` is
-true (see the `tools-sheet` contribution in `plugins/panes/muxr-ui.json`).
+true (a `quickAction` row appears directly in the terminal quick controls).
 
 ```json
 {

@@ -66,6 +66,7 @@ export {
 } from './herd/index.js';
 
 export type {
+    ApplicationLauncher,
     ClientRequest,
     ChangesBadge,
     ChangesBrowse,

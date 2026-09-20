@@ -29,11 +29,11 @@ const packagedManifest = (id: string) => JSON.parse(readFileSync(join(packagedRo
     contributions: Array<Record<string, unknown>>;
 };
 
-function stalePanesManifest(): Record<string, unknown> {
-    const manifest = packagedManifest('muxr.panes') as unknown as Record<string, unknown>;
+function staleStatusManifest(): Record<string, unknown> {
+    const manifest = packagedManifest('muxr.status') as unknown as Record<string, unknown>;
     const contributions = (manifest.contributions as Array<Record<string, unknown>>).map((contribution) => {
-        if (contribution.slot === 'navigation.primary') return { ...contribution, label: 'STALE Panes' };
-        if (contribution.slot === 'host.rpc' && contribution.id === 'list') return { ...contribution, entry: 'stale-panes.mjs' };
+        if (contribution.slot === 'session.header.trailing') return { ...contribution, title: 'STALE Usage' };
+        if (contribution.slot === 'host.rpc' && contribution.id === 'usage') return { ...contribution, entry: 'stale-usage.mjs' };
         return contribution;
     });
     return { ...manifest, contributions };
@@ -86,17 +86,17 @@ describe('bundled plugins resolve to the host package', () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-bundled-'));
         // The "older installed release": valid manifests with stale labels and
         // stale RPC wiring for ids this package also ships.
-        const stalePanes = join(dir, 'old-release', 'panes');
+        const staleStatus = join(dir, 'old-release', 'status');
         const extraRoot = join(dir, 'third-party', 'extra');
-        for (const root of [stalePanes, extraRoot]) {
+        for (const root of [staleStatus, extraRoot]) {
             mkdirSync(root, { recursive: true });
         }
-        writeFileSync(join(stalePanes, 'muxr-ui.json'), JSON.stringify(stalePanesManifest()));
+        writeFileSync(join(staleStatus, 'muxr-ui.json'), JSON.stringify(staleStatusManifest()));
         const extraManifest = { schemaVersion: 1, pluginId: 'example.extra', contributions: [] };
         writeFileSync(join(extraRoot, 'muxr-ui.json'), JSON.stringify(extraManifest));
 
         const herdr = fakeHerdr(dir, [
-            pluginEntry({ plugin_id: 'muxr.panes', name: 'Panes', version: '0.0.1', plugin_root: stalePanes, enabled: true }),
+            pluginEntry({ plugin_id: 'muxr.status', name: 'Status', version: '0.0.1', plugin_root: staleStatus, enabled: true }),
             pluginEntry({ plugin_id: 'example.extra', name: 'Extra', version: '1.0.0', plugin_root: extraRoot, enabled: true }),
             // Herdr stays the authority on enabled state: bundled but disabled here.
             pluginEntry({ plugin_id: 'muxr.voice', name: 'Voice', version: '0.0.1', plugin_root: join(dir, 'old-release', 'voice'), enabled: false }),
@@ -113,23 +113,18 @@ describe('bundled plugins resolve to the host package', () => {
             const byId = new Map(list.map((summary) => [summary.pluginId, summary]));
 
             // Bundled id: the projected manifest is the packaged one, not the stale one.
-            const panes = byId.get('muxr.panes');
-            expect(panes).toBeDefined();
-            const panesManifest = await source.pluginManifest({ pluginId: 'muxr.panes', manifestHash: panes!.manifestHash! });
+            const status = byId.get('muxr.status');
+            expect(status).toBeDefined();
+            const statusManifest = await source.pluginManifest({ pluginId: 'muxr.status', manifestHash: status!.manifestHash! });
             // The catalog projects the packaged manifest (normalized by the
             // real parser), never the stale registry copy.
-            expect(panesManifest).toEqual(parseManifest(packagedManifest('muxr.panes')));
-            // No bundled plugin contributes top-level navigation anymore: the
-            // home is the screen and destinations live in cards, settings
-            // rows, and sheets, never as tabs.
-            const nav = panesManifest.contributions.find((contribution) => contribution.slot === 'navigation.primary');
-            expect(nav).toBeUndefined();
+            expect(statusManifest).toEqual(parseManifest(packagedManifest('muxr.status')));
             // RPC wiring resolves to the packaged script, not the stale entry.
-            const rpc = panesManifest.contributions.find((contribution) => contribution.slot === 'host.rpc' && contribution.id === 'tools');
-            expect(rpc).toMatchObject({ entry: 'panes.mjs' });
-            for (const contribution of panesManifest.contributions) {
+            const rpc = statusManifest.contributions.find((contribution) => contribution.slot === 'host.rpc' && contribution.id === 'usage');
+            expect(rpc).toMatchObject({ entry: 'usage.mjs' });
+            for (const contribution of statusManifest.contributions) {
                 if (contribution.slot !== 'host.rpc' && contribution.slot !== 'host.stream') continue;
-                expect(existsSync(join(packagedRoot('muxr.panes'), (contribution as { entry: string }).entry))).toBe(true);
+                expect(existsSync(join(packagedRoot('muxr.status'), (contribution as { entry: string }).entry))).toBe(true);
             }
 
             // Adversarial: a plugin this package does not ship keeps Herdr's root.

@@ -175,6 +175,17 @@ export type PeerClientRequest = {
     [K in PeerRequestType]: { type: K; requestId: string; params: PeerRequestParams<K> };
 }[PeerRequestType];
 
+/** One third-party application launcher: an enabled plugin's global action. */
+export interface ApplicationLauncher {
+    /** Opaque launch handle for `applications.launch`; never displayed. */
+    id: string;
+    title: string;
+    /** The declaring plugin's display name; shown as the third-party source. */
+    pluginName: string;
+    /** The declaring plugin; an opaque catalog key, never displayed. */
+    pluginId: string;
+}
+
 export interface RequestMap extends PeerRequestMap {
     // --- lifecycle ----------------------------------------------------------
     /**
@@ -209,6 +220,22 @@ export interface RequestMap extends PeerRequestMap {
     };
     /** The whole herd: workspaces -> tabs -> panes with live agent state. `connected` is herdr liveness; absent from pre-liveness hosts. */
     'herdr.tree': { params: Record<string, never>; result: { workspaces: HerdrTreeWorkspace[]; connected?: boolean } };
+    /**
+     * Third-party Applications: the global launcher actions declared by enabled
+     * plugins in the live Herdr registry. Product pane launching lives in
+     * `pane.split`; this list is only what third parties declare.
+     */
+    'applications.list': { params: Record<string, never>; result: { items: ApplicationLauncher[] } };
+    /**
+     * Launch one third-party application action in its own new tab and return
+     * the pane it opened (a `shell:` route). `sessionId` anchors the launch to
+     * that session's workspace and cwd; without it the focused workspace is
+     * used.
+     */
+    'applications.launch': {
+        params: { applicationId: string; sessionId?: string };
+        result: { title: string; sessionId: string };
+    };
     'herdr.agentKinds': { params: Record<string, never>; result: { kinds: string[]; installed?: string[] } };
     /** Immutable native UI plugin catalog. Safe to enumerate from read-only clients. */
     'plugin.list': {

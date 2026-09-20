@@ -36,7 +36,7 @@ import {
     stateDir,
     xml,
 } from './runtime.mjs';
-import { pluginFolder, pluginsRoot } from './paths.mjs';
+import { panePackFolder, pluginFolder, pluginsRoot } from './paths.mjs';
 import { parseBundledPlugin } from '../../plugin/index.mjs';
 
 const bundledPluginPath = (name) => pluginFolder(name);
@@ -54,6 +54,21 @@ export function bundledPlugins() {
             return { id: parsed.value.id, name: parsed.value.folderName, version };
         })
         .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+/**
+ * The product's own Herdr management pane pack. It is not an add-on: setup
+ * installs it and relinks it whenever this release's version or path moves.
+ * It stays Herdr-manifest-shaped only because Herdr's pane surface is.
+ */
+export function productPanePack() {
+    const root = panePackFolder();
+    const manifest = readFileSync(join(root, 'herdr-plugin.toml'), 'utf8');
+    const id = manifest.match(/^id\s*=\s*"([^"]+)"/m)?.[1];
+    const version = manifest.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+    const parsed = parseBundledPlugin(id, 'control');
+    if (!parsed.ok || version === undefined) throw new Error('resources/control/herdr-plugin.toml is missing id or version');
+    return { id: parsed.value.id, root, version };
 }
 
 export function herdrBin() {
@@ -227,6 +242,25 @@ export async function ensureBundledPlugins(binary, dryRun) {
         print(`  ✓ ${id} ${version} Herdr plugin ${action}${disabledNote}`);
         runBundledPluginBackfill(expected, binary, enabled, false);
     }
+    await ensureProductPanePack(binary, installed, dryRun);
+}
+
+/** The product's management pane pack: always linked, never user-optional. */
+async function ensureProductPanePack(binary, installed, dryRun) {
+    const pack = productPanePack();
+    const expected = realpathSync(pack.root);
+    const current = installed.find((plugin) => plugin.plugin_id === pack.id);
+    if (current && realpathOrUndefined(current.plugin_root) === expected && current.version === pack.version && current.enabled === true) {
+        print(`  ✓ ${pack.id} ${pack.version} management pane pack ready`);
+        return;
+    }
+    if (dryRun) {
+        print(`  would link ${pack.id} from ${expected} (enabled)`);
+        return;
+    }
+    const linked = run(binary, ['plugin', 'link', expected, '--enabled']);
+    if (!linked.ok) throw new Error(linked.stderr || linked.stdout || `failed to link ${pack.id}`);
+    print(`  ✓ ${pack.id} ${pack.version} management pane pack ${current ? 'updated' : 'installed'}`);
 }
 
 /** Absolute executable paths pinned by a service file that no longer exist. */
@@ -462,7 +496,10 @@ export async function runIntegrations(args = []) {
                 }
             }
             if (binary) {
-                for (const { id } of bundledPlugins()) {
+                // Bundled add-ons, the product's management pane pack, and the
+                // retired panes plugin a prior release may still have registered.
+                const productIds = [...bundledPlugins().map((plugin) => plugin.id), productPanePack().id, 'muxr.panes'];
+                for (const id of productIds) {
                     if (!args.includes('--quiet')) print(`  ${dryRun ? 'would run' : 'run'} herdr plugin unlink ${id}`);
                     if (!dryRun) {
                         const result = run(binary, ['plugin', 'unlink', id]);

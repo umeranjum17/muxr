@@ -172,6 +172,7 @@ const extensionSource = readFileSync(join(out, 'plugin', 'application', 'checkPl
 if (!extensionSource.includes("from '@muxr/contract'")) throw new Error('plugin validator import changed; update the package rewrite');
 writeFileSync(join(out, 'plugin', 'application', 'checkPlugin.mjs'), extensionSource.replace("from '@muxr/contract'", "from '../../contract.mjs'"));
 cpSync(join(root, 'plugins'), join(out, 'plugins'), { recursive: true });
+cpSync(join(root, 'resources'), join(out, 'resources'), { recursive: true });
 cpSync(join(root, 'skills', 'muxr'), join(out, 'skills', 'muxr'), { recursive: true });
 const webDist = join(root, 'apps', 'mobile', 'dist');
 if (!existsSync(join(webDist, 'index.html'))) {
@@ -243,6 +244,7 @@ const pkg = {
         'LICENSES/',
         'THIRD_PARTY_LICENSES.json',
         'plugins/',
+        'resources/',
         'skills/',
         'web/',
     ],

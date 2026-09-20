@@ -361,6 +361,21 @@ const HeaderRight = React.memo(({
             <View style={styles.headerActions}>
                 <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
                     <Pressable
+                        onPress={() => router.push('/panes')}
+                        style={styles.headerActionButton}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Panes"
+                    >
+                        <Ionicons
+                            name="grid-outline"
+                            size={21}
+                            color={theme.colors.header.tint}
+                        />
+                    </Pressable>
+                </MobileGlassSurface>
+                <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
+                    <Pressable
                         onPress={onSearchPress}
                         style={styles.headerActionButton}
                         hitSlop={8}
@@ -390,6 +405,15 @@ const HeaderRight = React.memo(({
     }
     return (
         <View style={styles.headerActions}>
+            <Pressable
+                onPress={() => router.push('/panes')}
+                hitSlop={15}
+                style={styles.headerButton}
+                accessibilityRole="button"
+                accessibilityLabel="Panes"
+            >
+                <Ionicons name="grid-outline" size={24} color={theme.colors.header.tint} />
+            </Pressable>
             <Pressable
                 onPress={() => router.push('/settings')}
                 hitSlop={15}

@@ -36,13 +36,22 @@ export function cryptoModuleUrl() {
 }
 
 export function pluginsRoot() {
-    const packed = walkFor('plugins/control/herdr-plugin.toml');
+    // Anchored on voice: the last bundled add-on still shipped in plugins/.
+    // When it leaves the bundle, this walk moves with it.
+    const packed = walkFor('plugins/voice/herdr-plugin.toml');
     if (packed !== undefined) return dirname(dirname(packed));
     throw new Error('muxr plugins root not found');
 }
 
 export function pluginFolder(name) {
     return join(pluginsRoot(), name);
+}
+
+/** The product's own Herdr management pane pack; ships inside the muxr package. */
+export function panePackFolder() {
+    const packed = walkFor('resources/control/herdr-plugin.toml');
+    if (packed !== undefined) return dirname(packed);
+    throw new Error('muxr management pane pack not found');
 }
 
 export function relayEntry() {

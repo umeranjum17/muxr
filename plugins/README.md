@@ -2,11 +2,14 @@
 
 These packages install into Herdr during muxr setup. Each can have an optional Herdr backend and an optional muxr native UI contribution.
 
+Product surfaces are not plugins: the muxr management pane pack (setup, pair,
+doctor, service, self-host) lives in `resources/control/`, is versioned with
+muxr, and `muxr setup` links it. Pane navigation and Applications on the phone
+are product screens backed by typed host methods, not plugin contributions.
+
 | Plugin | Backend | Mobile contribution |
 |---|---|---|
-| `control` | muxr control command | setup/control surface |
 | `voice` | machine-held realtime provider adapter | generic capability buttons, provider-neutral realtime overlay, declarative settings + voice shortcut |
-| `panes` | Herdr pane/tool catalog + launch | Applications chip (Running / Terminal apps / Plugin tools / Plugin commands) and Panes destination |
 | `status` | pinned offline ccusage + bounded plan limits (see `status/README.md`); disk/memory/load/uptime | Usage rows + chart detail screen; Home machine card |
 
 Agent Names and Task Titles are Herdr fields. Muxr only displays them. Agents name

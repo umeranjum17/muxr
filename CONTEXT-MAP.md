@@ -62,7 +62,7 @@ Application operations: [apps/mobile/sources/USE_CASES.md](./apps/mobile/sources
 - [Plugin](./scripts/plugin/README.md): Plugin Id, bundled catalog, clone, npm registry, `muxr plugin`
 - [Release](./scripts/release/README.md): pack the npm CLI and update an installed package
 - [Diagnostics](./scripts/diagnostics/README.md): flow checks, doctor entry, diagnostics dump
-- Bundled Herdr plugins (`plugins/*`): Voice Report, Provider Secret, Inbox lifecycle, workspace tree. Herdr invokes `rpc.mjs` / `stream.mjs` at the plugin root.
+- Bundled Herdr plugins (`plugins/*`): voice and status. Herdr invokes `rpc.mjs` / `stream.mjs` at the plugin root.
 
 ## Relationships
 
