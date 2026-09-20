@@ -41,9 +41,11 @@ export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPr
                 accessibilityRole="button"
                 accessibilityLabel={command.destructive === true
                     ? `${command.title}, destructive, ${command.subtitle ?? ''}. Asks before sending.`
-                    : command.category === CUSTOM_CATEGORY
-                        ? `${command.title}, ${command.subtitle ?? ''}. Inserts a draft and closes.`
-                        : `${command.title}, ${command.subtitle ?? ''}. Sends now.`}
+                    : command.actionLabel !== undefined
+                        ? `${command.title}, ${command.subtitle ?? ''}. ${command.actionLabel}`
+                        : command.category === CUSTOM_CATEGORY
+                            ? `${command.title}, ${command.subtitle ?? ''}. Inserts a draft and closes.`
+                            : `${command.title}, ${command.subtitle ?? ''}. Sends now.`}
                 style={({ pressed }) => [styles.rowTap, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
                 <View style={styles.rowCopy}>
                     <View style={styles.commandLine}>

@@ -76,6 +76,9 @@ import { t } from '@/text';
 import { FindOutputSheet } from './FindOutputSheet';
 import { useTerminalQuickReplies } from '@/plugins/ui';
 
+/** What a reply row's primary tap really does, for replies that never send. */
+const INSERT_ONLY_LABEL = 'Inserts into the prompt, never sends.';
+
 /**
  * The session is one dark surface: the terminal paints dark whatever the app
  * theme, so everything around it -- header, strip, composer, keys, Tools and
@@ -491,6 +494,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             sendCommand(reply.text);
                         }
                         : () => insertDraft(reply.text),
+                    // A host-contributed reply only ever lands in the draft, so
+                    // the row must not announce that it sends.
+                    actionLabel: firstParty ? undefined : INSERT_ONLY_LABEL,
                     secondaryAction: () => insertDraft(reply.text),
                 };
             }),
@@ -501,6 +507,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 title: reply.label,
                 category: t('commandPalette.commonReplies'),
                 action: () => insertDraft(reply.text),
+                actionLabel: INSERT_ONLY_LABEL,
                 secondaryAction: () => insertDraft(reply.text),
             })),
             ...known.filter((entry) => entry.common === true && entry.dangerous !== true).map((entry) => toEntry(entry, t('commandPalette.common'))),
