@@ -5,10 +5,11 @@ import { Gesture, GestureDetector, GestureHandlerRootView, ScrollView } from 're
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import { hapticsLight, hapticsSelection } from '@/components/haptics';
+import { hapticsSelection } from '@/components/haptics';
 import { ui } from '@/components/ui';
 import { randomUUID } from 'expo-crypto';
 import { Handle } from './TerminalKeyRowEditor';
+import { useReorderableList } from './useReorderableList';
 import { personalReplyErrors, QUICK_REPLY_LABEL_LIMIT, QUICK_REPLY_LIMIT, QUICK_REPLY_TEXT_LIMIT, type PersonalQuickReply } from '../domain/quickReplies';
 
 /**
@@ -17,7 +18,6 @@ import { personalReplyErrors, QUICK_REPLY_LABEL_LIMIT, QUICK_REPLY_LIMIT, QUICK_
  * the stored format is plain { id, label, text } in local settings.
  */
 
-const STEP = 62;
 const CAP_NOTICE = `The list is full at ${QUICK_REPLY_LIMIT} replies. Remove one to add another.`;
 
 export function TerminalQuickReplyEditor({ visible, replies, onChange, onClose }: {
@@ -29,44 +29,13 @@ export function TerminalQuickReplyEditor({ visible, replies, onChange, onClose }
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
     const { height: windowHeight } = useWindowDimensions();
-    const [working, setWorking] = React.useState<PersonalQuickReply[]>([]);
+    const { working, drag, commit, removeAt, onDrag, moveBy, isDragging } = useReorderableList<PersonalQuickReply>(visible, replies, onChange);
     const [formIndex, setFormIndex] = React.useState<number | null>(null);
-    const [drag, setDrag] = React.useState<{ index: number; translate: number } | null>(null);
-    const workingRef = React.useRef<PersonalQuickReply[]>([]);
-    const dragIndex = React.useRef(0);
-    const accumulated = React.useRef(0);
-    const dragging = React.useRef(false);
-    const dragOwner = React.useRef<object | null>(null);
-    workingRef.current = working;
-
-    // Re-seed only on the closed→open transition, like the key-row editor.
-    const wasOpen = React.useRef(false);
-    const openState = React.useRef({ replies });
-    openState.current = { replies };
-    React.useEffect(() => {
-        if (visible && !wasOpen.current) {
-            wasOpen.current = true;
-            setWorking([...openState.current.replies]);
-            setFormIndex(null);
-            setDrag(null);
-            dragging.current = false;
-        }
-        if (!visible) wasOpen.current = false;
-    }, [visible]);
-
-    const commit = (next: PersonalQuickReply[]) => {
-        setWorking(next);
-        onChange(next);
-    };
-
-    const removeAt = (index: number) => {
-        if (dragging.current) return;
-        hapticsSelection();
-        commit(working.filter((_, i) => i !== index));
-    };
+    // The sheet comes back to its list, never to a half-finished edit.
+    React.useEffect(() => { if (visible) setFormIndex(null); }, [visible]);
 
     const saveReply = (reply: PersonalQuickReply) => {
-        if (formIndex === null || dragging.current) return;
+        if (formIndex === null || isDragging()) return;
         const next = [...working];
         if (formIndex === next.length && next.length >= QUICK_REPLY_LIMIT) return;
         next[formIndex] = reply;
@@ -75,57 +44,6 @@ export function TerminalQuickReplyEditor({ visible, replies, onChange, onClose }
         setFormIndex(null);
     };
     const close = () => { if (formIndex !== null) setFormIndex(null); else onClose(); };
-
-    const swap = (a: number, b: number) => {
-        const next = [...workingRef.current];
-        [next[a], next[b]] = [next[b], next[a]];
-        workingRef.current = next;
-        setWorking(next);
-        onChange(next);
-    };
-
-    const moveBy = (index: number, delta: number) => {
-        if (dragging.current) return;
-        const target = index + delta;
-        if (target < 0 || target >= workingRef.current.length) return;
-        hapticsSelection();
-        swap(index, target);
-    };
-
-    const onDrag = (phase: 'start' | 'update' | 'end', index: number, translationY: number, owner: object) => {
-        if (phase === 'start') {
-            if (dragging.current) return;
-            dragging.current = true;
-            dragOwner.current = owner;
-            hapticsLight();
-            dragIndex.current = index;
-            accumulated.current = 0;
-            setDrag({ index, translate: 0 });
-            return;
-        }
-        if (!dragging.current || dragOwner.current !== owner) return;
-        if (phase === 'end') {
-            dragging.current = false;
-            dragOwner.current = null;
-            setDrag(null);
-            return;
-        }
-        let translate = translationY - accumulated.current;
-        const last = workingRef.current.length - 1;
-        while (translate > STEP / 2 && dragIndex.current < last) {
-            swap(dragIndex.current, dragIndex.current + 1);
-            dragIndex.current += 1;
-            accumulated.current += STEP;
-            translate -= STEP;
-        }
-        while (translate < -STEP / 2 && dragIndex.current > 0) {
-            swap(dragIndex.current, dragIndex.current - 1);
-            dragIndex.current -= 1;
-            accumulated.current -= STEP;
-            translate += STEP;
-        }
-        setDrag({ index: dragIndex.current, translate });
-    };
 
     const sheetHeight = Math.min(windowHeight * 0.85, windowHeight - insets.top - 24);
     const title = formIndex === null ? 'Quick replies' : formIndex < working.length ? 'Edit reply' : 'New reply';

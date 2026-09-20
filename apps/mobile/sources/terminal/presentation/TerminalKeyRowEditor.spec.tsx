@@ -109,4 +109,32 @@ describe('terminal key form with an action key', () => {
         press(renderer, 'Save key');
         expect(saved).toEqual(['paste', 'esc']);
     });
+
+    it('lets an action key be saved even after an overlong name was typed into the hidden field', () => {
+        const saved: unknown[] = [];
+        const renderer = mount((entry) => saved.push(entry));
+
+        // The name field is there for a byte key, and a name over the limit is
+        // refused while the person can see the field they typed it in.
+        TestRenderer.act(() => { renderer.root.findByProps({ accessibilityLabel: 'Key name' }).props.onChangeText('fourteenchars!'); });
+        expect(present(renderer, 'Save key')).toBe(1);
+        expect(renderer.root.findByProps({ accessibilityLabel: 'Save key' }).props.disabled).toBe(true);
+        expect(drawn(renderer)).toContain('Keep the name to 12 characters.');
+
+        // Choosing the action key hides that field, so it cannot keep Save
+        // disabled: what is hidden cannot block the choice.
+        press(renderer, 'Choose Paste into prompt');
+        expect(present(renderer, 'Key name')).toBe(0);
+        expect(drawn(renderer)).not.toContain('Keep the name to 12 characters.');
+        expect(renderer.root.findByProps({ accessibilityLabel: 'Save key' }).props.disabled).toBe(false);
+        press(renderer, 'Save key');
+        expect(saved).toEqual(['paste']);
+
+        // Switching back to a byte key shows the field again, still over the
+        // limit, so the rule was never dropped for a visible field.
+        press(renderer, 'Choose Escape');
+        expect(present(renderer, 'Key name')).toBe(1);
+        expect(renderer.root.findByProps({ accessibilityLabel: 'Save key' }).props.disabled).toBe(true);
+        expect(drawn(renderer)).toContain('Keep the name to 12 characters.');
+    });
 });

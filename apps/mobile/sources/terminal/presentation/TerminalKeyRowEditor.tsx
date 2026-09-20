@@ -5,10 +5,11 @@ import { Gesture, GestureDetector, GestureHandlerRootView, ScrollView } from 're
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import { hapticsLight, hapticsSelection } from '@/components/haptics';
+import { hapticsSelection } from '@/components/haptics';
 import { Switch } from '@/components/Switch';
 import { ui } from '@/components/ui';
 import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, TERMINAL_KEY_ROW_LIMIT, bytesToEscape, escapeToBytes, modifiedSend, resolveKeyRow, type RowEntry } from '../domain/keyRow';
+import { useReorderableList } from './useReorderableList';
 
 /**
  * Arrange the live row, then edit one shortcut in a dedicated form. The
@@ -18,7 +19,6 @@ import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, TERMINAL_KEY_ROW_LIMIT, bytesToEsc
 // ponytail: rows live in one ScrollView; a drag cannot autoscroll the list,
 // so a drag that reaches the visible edge stops there. Wrap or autoscroll if
 // a longer row ever needs it.
-const STEP = 62;
 const CAP_NOTICE = `The row is full at ${TERMINAL_KEY_ROW_LIMIT} keys. Remove one to add another.`;
 
 export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose }: {
@@ -33,50 +33,13 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
     const { height: windowHeight } = useWindowDimensions();
-    const [working, setWorking] = React.useState<RowEntry[]>([]);
+    const { working, drag, commit, removeAt, moveBy, onDrag, isDragging } = useReorderableList<RowEntry>(visible, seed, onChange);
     const [formIndex, setFormIndex] = React.useState<number | null>(null);
-    const [drag, setDrag] = React.useState<{ index: number; translate: number } | null>(null);
-    // Drag math lives in refs: pan updates arrive faster than renders, so the
-    // state used for painting must never be the state used for computing.
-    const workingRef = React.useRef<RowEntry[]>([]);
-    const dragIndex = React.useRef(0);
-    const accumulated = React.useRef(0);
-    const dragging = React.useRef(false);
-    // Only the handle that started the drag may steer it: a second finger on
-    // another handle owns a separate recognizer whose updates would otherwise
-    // move the first handle's row.
-    const dragOwner = React.useRef<object | null>(null);
-    workingRef.current = working;
-
-    // Re-seed only on the closed→open transition: commits during an open edit
-    // come back through `entries`, and re-seeding then would drop the drag.
-    const wasOpen = React.useRef(false);
-    const openState = React.useRef({ entries, seed });
-    openState.current = { entries, seed };
-    React.useEffect(() => {
-        if (visible && !wasOpen.current) {
-            wasOpen.current = true;
-            setWorking([...openState.current.seed]);
-            setFormIndex(null);
-            setDrag(null);
-            dragging.current = false;
-        }
-        if (!visible) wasOpen.current = false;
-    }, [visible]);
-
-    const commit = (next: RowEntry[]) => {
-        setWorking(next);
-        onChange(next);
-    };
-
-    const removeAt = (index: number) => {
-        if (dragging.current) return;
-        hapticsSelection();
-        commit(working.filter((_, i) => i !== index));
-    };
+    // The sheet comes back to its list, never to a half-finished edit.
+    React.useEffect(() => { if (visible) setFormIndex(null); }, [visible]);
 
     const saveKey = (entry: RowEntry) => {
-        if (formIndex === null || dragging.current) return;
+        if (formIndex === null || isDragging()) return;
         const next = [...working];
         if (formIndex === next.length && next.length >= TERMINAL_KEY_ROW_LIMIT) return;
         next[formIndex] = entry;
@@ -85,59 +48,6 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
         setFormIndex(null);
     };
     const close = () => { if (formIndex !== null) setFormIndex(null); else onClose(); };
-
-    const swap = (a: number, b: number) => {
-        const next = [...workingRef.current];
-        [next[a], next[b]] = [next[b], next[a]];
-        workingRef.current = next;
-        setWorking(next);
-        onChange(next);
-    };
-
-    // Reordering without the drag gesture, for screen readers and anyone who
-    // cannot hold and pan: the same swap the drag performs, one slot at a time.
-    const moveBy = (index: number, delta: number) => {
-        if (dragging.current) return;
-        const target = index + delta;
-        if (target < 0 || target >= workingRef.current.length) return;
-        hapticsSelection();
-        swap(index, target);
-    };
-
-    const onDrag = (phase: 'start' | 'update' | 'end', index: number, translationY: number, owner: object) => {
-        if (phase === 'start') {
-            if (dragging.current) return;
-            dragging.current = true;
-            dragOwner.current = owner;
-            hapticsLight();
-            dragIndex.current = index;
-            accumulated.current = 0;
-            setDrag({ index, translate: 0 });
-            return;
-        }
-        if (!dragging.current || dragOwner.current !== owner) return;
-        if (phase === 'end') {
-            dragging.current = false;
-            dragOwner.current = null;
-            setDrag(null);
-            return;
-        }
-        let translate = translationY - accumulated.current;
-        const last = workingRef.current.length - 1;
-        while (translate > STEP / 2 && dragIndex.current < last) {
-            swap(dragIndex.current, dragIndex.current + 1);
-            dragIndex.current += 1;
-            accumulated.current += STEP;
-            translate -= STEP;
-        }
-        while (translate < -STEP / 2 && dragIndex.current > 0) {
-            swap(dragIndex.current, dragIndex.current - 1);
-            dragIndex.current -= 1;
-            accumulated.current -= STEP;
-            translate += STEP;
-        }
-        setDrag({ index: dragIndex.current, translate });
-    };
 
     const sheetHeight = Math.min(windowHeight * 0.85, windowHeight - insets.top - 24);
     let title = 'Terminal keys';
@@ -295,7 +205,10 @@ export function KeyForm({ entry, onSave, onCancel }: {
             : null;
     const bytes = mode === 'text' ? escapeToBytes(sendText) : modifiedSend(selected, ctrl, shift);
     const suggestedLabel = [ctrl ? 'Ctrl' : '', shift ? 'Shift' : '', selected.label].filter(Boolean).join(' ');
-    const savedLabel = label.trim() || (mode === 'key' ? suggestedLabel : '');
+    // An action key is saved as the catalog key itself and the name field is
+    // hidden for it, so a name typed before the selection must not be able to
+    // disable Save: what is hidden cannot block the choice.
+    const savedLabel = isAction ? selected.label : label.trim() || (mode === 'key' ? suggestedLabel : '');
     const valid = (isAction || (bytes !== null && bytes.length <= 512)) && savedLabel.length > 0 && savedLabel.length <= 12;
     const chip = (active: boolean) => [styles.gridChip, { backgroundColor: active ? theme.colors.accent : theme.colors.surfaceHigh }];
     const ink = (active: boolean) => ({ color: active ? theme.colors.button.primary.tint : theme.colors.text, fontSize: 13, ...Typography.mono() });
