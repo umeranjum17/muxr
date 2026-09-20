@@ -571,7 +571,11 @@ try {
         assert.equal(omp.weekTokens, '4.0K');
         assert.equal(omp.weekCost, '$0.00');
         assert.equal(omp.weekSeries.at(-2)?.value, 4000);
-        assert.doesNotMatch(JSON.stringify(omp), /stale-omp|999999999|4242/, 'stale stats database outranked the transcripts');
+        // A stale row could only surface through measured activity. The
+        // borrowed limits node ships no usage records, and its clock-derived
+        // elapsed floats legitimately print digit runs like 999999999.
+        assert.doesNotMatch(JSON.stringify([omp.modelSeries, omp.weekSeries, omp.weekTokens, omp.weekCost, omp.todayTokens, omp.todayCost]),
+            /stale-omp|999999999|4242/, 'stale stats database outranked the transcripts');
 
         // Real Codex logs through the real ccusage: pinned daily and week totals,
         // not a shape check.
