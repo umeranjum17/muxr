@@ -5,10 +5,11 @@ import { Gesture, GestureDetector, GestureHandlerRootView, ScrollView } from 're
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import { hapticsLight, hapticsSelection } from '@/components/haptics';
+import { hapticsSelection } from '@/components/haptics';
 import { Switch } from '@/components/Switch';
 import { ui } from '@/components/ui';
 import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, TERMINAL_KEY_ROW_LIMIT, bytesToEscape, escapeToBytes, modifiedSend, resolveKeyRow, type RowEntry } from '../domain/keyRow';
+import { useReorderableList } from './useReorderableList';
 
 /**
  * Arrange the live row, then edit one shortcut in a dedicated form. The
@@ -18,7 +19,6 @@ import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, TERMINAL_KEY_ROW_LIMIT, bytesToEsc
 // ponytail: rows live in one ScrollView; a drag cannot autoscroll the list,
 // so a drag that reaches the visible edge stops there. Wrap or autoscroll if
 // a longer row ever needs it.
-const STEP = 62;
 const CAP_NOTICE = `The row is full at ${TERMINAL_KEY_ROW_LIMIT} keys. Remove one to add another.`;
 
 export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose }: {
@@ -33,50 +33,13 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
     const { height: windowHeight } = useWindowDimensions();
-    const [working, setWorking] = React.useState<RowEntry[]>([]);
+    const { working, drag, commit, removeAt, moveBy, onDrag, isDragging } = useReorderableList<RowEntry>(visible, seed, onChange);
     const [formIndex, setFormIndex] = React.useState<number | null>(null);
-    const [drag, setDrag] = React.useState<{ index: number; translate: number } | null>(null);
-    // Drag math lives in refs: pan updates arrive faster than renders, so the
-    // state used for painting must never be the state used for computing.
-    const workingRef = React.useRef<RowEntry[]>([]);
-    const dragIndex = React.useRef(0);
-    const accumulated = React.useRef(0);
-    const dragging = React.useRef(false);
-    // Only the handle that started the drag may steer it: a second finger on
-    // another handle owns a separate recognizer whose updates would otherwise
-    // move the first handle's row.
-    const dragOwner = React.useRef<object | null>(null);
-    workingRef.current = working;
-
-    // Re-seed only on the closed→open transition: commits during an open edit
-    // come back through `entries`, and re-seeding then would drop the drag.
-    const wasOpen = React.useRef(false);
-    const openState = React.useRef({ entries, seed });
-    openState.current = { entries, seed };
-    React.useEffect(() => {
-        if (visible && !wasOpen.current) {
-            wasOpen.current = true;
-            setWorking([...openState.current.seed]);
-            setFormIndex(null);
-            setDrag(null);
-            dragging.current = false;
-        }
-        if (!visible) wasOpen.current = false;
-    }, [visible]);
-
-    const commit = (next: RowEntry[]) => {
-        setWorking(next);
-        onChange(next);
-    };
-
-    const removeAt = (index: number) => {
-        if (dragging.current) return;
-        hapticsSelection();
-        commit(working.filter((_, i) => i !== index));
-    };
+    // The sheet comes back to its list, never to a half-finished edit.
+    React.useEffect(() => { if (visible) setFormIndex(null); }, [visible]);
 
     const saveKey = (entry: RowEntry) => {
-        if (formIndex === null || dragging.current) return;
+        if (formIndex === null || isDragging()) return;
         const next = [...working];
         if (formIndex === next.length && next.length >= TERMINAL_KEY_ROW_LIMIT) return;
         next[formIndex] = entry;
@@ -85,59 +48,6 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
         setFormIndex(null);
     };
     const close = () => { if (formIndex !== null) setFormIndex(null); else onClose(); };
-
-    const swap = (a: number, b: number) => {
-        const next = [...workingRef.current];
-        [next[a], next[b]] = [next[b], next[a]];
-        workingRef.current = next;
-        setWorking(next);
-        onChange(next);
-    };
-
-    // Reordering without the drag gesture, for screen readers and anyone who
-    // cannot hold and pan: the same swap the drag performs, one slot at a time.
-    const moveBy = (index: number, delta: number) => {
-        if (dragging.current) return;
-        const target = index + delta;
-        if (target < 0 || target >= workingRef.current.length) return;
-        hapticsSelection();
-        swap(index, target);
-    };
-
-    const onDrag = (phase: 'start' | 'update' | 'end', index: number, translationY: number, owner: object) => {
-        if (phase === 'start') {
-            if (dragging.current) return;
-            dragging.current = true;
-            dragOwner.current = owner;
-            hapticsLight();
-            dragIndex.current = index;
-            accumulated.current = 0;
-            setDrag({ index, translate: 0 });
-            return;
-        }
-        if (!dragging.current || dragOwner.current !== owner) return;
-        if (phase === 'end') {
-            dragging.current = false;
-            dragOwner.current = null;
-            setDrag(null);
-            return;
-        }
-        let translate = translationY - accumulated.current;
-        const last = workingRef.current.length - 1;
-        while (translate > STEP / 2 && dragIndex.current < last) {
-            swap(dragIndex.current, dragIndex.current + 1);
-            dragIndex.current += 1;
-            accumulated.current += STEP;
-            translate -= STEP;
-        }
-        while (translate < -STEP / 2 && dragIndex.current > 0) {
-            swap(dragIndex.current, dragIndex.current - 1);
-            dragIndex.current -= 1;
-            accumulated.current -= STEP;
-            translate += STEP;
-        }
-        setDrag({ index: dragIndex.current, translate });
-    };
 
     const sheetHeight = Math.min(windowHeight * 0.85, windowHeight - insets.top - 24);
     let title = 'Terminal keys';
@@ -231,8 +141,8 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
     );
 }
 
-/** Hold the handle to lift the row, then drag; the list swaps underneath. */
-function Handle({ index, label, onDrag, onMove, tint }: {
+/** Hold the handle to lift the row, then drag; the list swaps underneath. Shared by the key-row and quick-reply editors. */
+export function Handle({ index, label, onDrag, onMove, tint }: {
     index: number;
     label: string;
     onDrag: (phase: 'start' | 'update' | 'end', index: number, translationY: number, owner: object) => void;
@@ -267,7 +177,8 @@ function Handle({ index, label, onDrag, onMove, tint }: {
     );
 }
 
-function KeyForm({ entry, onSave, onCancel }: {
+/** The key form, exported so a test can drive the picker and the save rule. */
+export function KeyForm({ entry, onSave, onCancel }: {
     entry: RowEntry | undefined;
     onSave: (entry: RowEntry) => void;
     onCancel: () => void;
@@ -283,10 +194,22 @@ function KeyForm({ entry, onSave, onCancel }: {
     const [sendText, setSendText] = React.useState(custom ? bytesToEscape(custom.send) : '');
     const [repeat, setRepeat] = React.useState(custom?.repeat === true || BUILTIN_KEY_CATALOG[keyId]?.repeat === true);
     const selected = letter !== '' ? { label: letter, accessibilityLabel: letter, send: letter } : BUILTIN_KEY_CATALOG[keyId];
+    // An action key is the catalog key itself: it carries no bytes, so the name,
+    // the modifiers, the letter and Repeat are all inapplicable to it and are
+    // hidden rather than offering a choice that could not be stored.
+    const isAction = mode === 'key' && selected.action !== undefined;
+    const actionNote = selected.action === 'paste'
+        ? 'Inserts the clipboard into the prompt. It never sends by itself.'
+        : selected.action === 'hide-keyboard'
+            ? 'Dismisses the keyboard when it is up. Nothing else changes.'
+            : null;
     const bytes = mode === 'text' ? escapeToBytes(sendText) : modifiedSend(selected, ctrl, shift);
     const suggestedLabel = [ctrl ? 'Ctrl' : '', shift ? 'Shift' : '', selected.label].filter(Boolean).join(' ');
-    const savedLabel = label.trim() || (mode === 'key' ? suggestedLabel : '');
-    const valid = bytes !== null && bytes.length <= 512 && savedLabel.length > 0 && savedLabel.length <= 12;
+    // An action key is saved as the catalog key itself and the name field is
+    // hidden for it, so a name typed before the selection must not be able to
+    // disable Save: what is hidden cannot block the choice.
+    const savedLabel = isAction ? selected.label : label.trim() || (mode === 'key' ? suggestedLabel : '');
+    const valid = (isAction || (bytes !== null && bytes.length <= 512)) && savedLabel.length > 0 && savedLabel.length <= 12;
     const chip = (active: boolean) => [styles.gridChip, { backgroundColor: active ? theme.colors.accent : theme.colors.surfaceHigh }];
     const ink = (active: boolean) => ({ color: active ? theme.colors.button.primary.tint : theme.colors.text, fontSize: 13, ...Typography.mono() });
     return <View>
@@ -295,20 +218,28 @@ function KeyForm({ entry, onSave, onCancel }: {
                 <Text style={ink(mode === value)}>{value === 'key' ? 'Key combination' : 'Text / escapes'}</Text>
             </Pressable>)}
         </View>
+        {!(mode === 'key' && isAction) && <>
         <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Name on the key</Text>
         <TextInput value={label} onChangeText={setLabel} maxLength={12} accessibilityLabel="Key name" placeholder={mode === 'key' ? suggestedLabel : 'e.g. status'} placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider }]} />
+        </>}
         {mode === 'key' ? <>
+            {actionNote !== null && <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>{actionNote}</Text>}
+            {!isAction && <>
             <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Modifiers</Text>
             <View style={styles.grid}>
                 <Pressable onPress={() => setCtrl(!ctrl)} accessibilityRole="button" accessibilityLabel="Control modifier" accessibilityState={{ selected: ctrl }} style={chip(ctrl)}><Text style={ink(ctrl)}>Ctrl</Text></Pressable>
                 <Pressable onPress={() => setShift(!shift)} accessibilityRole="button" accessibilityLabel="Shift modifier" accessibilityState={{ selected: shift }} style={chip(shift)}><Text style={ink(shift)}>Shift</Text></Pressable>
                 <TextInput value={letter} onChangeText={setLetter} maxLength={1} autoCapitalize="none" autoCorrect={false} accessibilityLabel="Letter or character" placeholder="A–Z" placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { minWidth: 64, color: theme.colors.text, borderColor: theme.colors.divider }]} />
             </View>
+            </>}
             {CATALOG_GROUPS.map((group) => <View key={group.title}>
                 <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>{group.title}</Text>
                 <View style={styles.grid}>{group.ids.map((id) => {
                     const active = keyId === id && letter === '';
-                    return <Pressable key={id} onPress={() => { setKeyId(id); setLetter(''); setRepeat(BUILTIN_KEY_CATALOG[id].repeat === true); }} accessibilityRole="button" accessibilityLabel={`Choose ${BUILTIN_KEY_CATALOG[id].accessibilityLabel}`} accessibilityState={{ selected: active }} style={chip(active)}>
+                    // Picking an action key clears the modifiers it cannot use, so
+                    // the form never shows an arming that has no effect; picking a
+                    // byte key leaves them armed the way the row does.
+                    return <Pressable key={id} onPress={() => { setKeyId(id); setLetter(''); setRepeat(BUILTIN_KEY_CATALOG[id].repeat === true); if (BUILTIN_KEY_CATALOG[id].action !== undefined) { setCtrl(false); setShift(false); } }} accessibilityRole="button" accessibilityLabel={`Choose ${BUILTIN_KEY_CATALOG[id].accessibilityLabel}`} accessibilityState={{ selected: active }} style={chip(active)}>
                         <Text style={ink(active)}>{BUILTIN_KEY_CATALOG[id].label}</Text>
                     </Pressable>;
                 })}</View>
@@ -320,18 +251,23 @@ function KeyForm({ entry, onSave, onCancel }: {
         </>}
         <View style={[styles.sequence, { backgroundColor: theme.colors.surfaceHigh }]}>
             <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Sends</Text>
-            <Text selectable style={[styles.rowLabel, { color: theme.colors.text }]}>{bytes === null ? 'Choose a valid key combination or escape sequence.' : bytesToEscape(bytes)}</Text>
+            <Text selectable style={[styles.rowLabel, { color: theme.colors.text }]}>{isAction && actionNote !== null ? actionNote : bytes === null ? 'Choose a valid key combination or escape sequence.' : bytesToEscape(bytes)}</Text>
         </View>
         {savedLabel.length > 12 && <Text style={{ color: theme.colors.warningCritical }}>Keep the name to 12 characters.</Text>}
         {bytes !== null && bytes.length > 512 && <Text style={{ color: theme.colors.warningCritical }}>Keep the sequence to 512 characters.</Text>}
-        <View style={styles.repeatRow}>
+        {!isAction && <View style={styles.repeatRow}>
             <Text style={{ color: theme.colors.text, fontSize: 14 }}>Repeat while held</Text>
             <Switch value={repeat} onValueChange={setRepeat} accessibilityLabel="Repeat while held" />
-        </View>
+        </View>}
         <View style={styles.formActions}>
             <Pressable onPress={onCancel} accessibilityRole="button" style={styles.customDone}><Text style={{ color: theme.colors.textSecondary }}>Cancel</Text></Pressable>
             <Pressable disabled={!valid} accessibilityRole="button" accessibilityLabel="Save key" accessibilityState={{ disabled: !valid }} style={[styles.customAdd, { backgroundColor: theme.colors.accent, opacity: valid ? 1 : 0.4 }]} onPress={() => {
-                if (!valid || bytes === null) return;
+                if (!valid) return;
+                // An action key is stored as the catalog id it is: a hand-rolled
+                // { label, send: '' } entry would fail the stored schema and take
+                // the whole customised row down with it.
+                if (isAction) { onSave(keyId); return; }
+                if (bytes === null) return;
                 const unchangedBuiltin = mode === 'key' && letter === '' && !ctrl && !shift && label.trim() === '' && repeat === (selected.repeat === true);
                 onSave(unchangedBuiltin ? keyId : { label: savedLabel, send: bytes, ...(repeat ? { repeat: true } : {}) });
             }}><Text style={{ color: theme.colors.button.primary.tint, fontSize: 14, fontWeight: '600' }}>Save key</Text></Pressable>

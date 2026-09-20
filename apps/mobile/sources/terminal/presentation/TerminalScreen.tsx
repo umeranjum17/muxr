@@ -54,7 +54,9 @@ import type { SessionMenu } from '@/plugins';
 import { FloatingTerminalControls, type RingSlot } from './FloatingTerminalControls';
 import { TERMINAL_QUICK_REPLIES, TerminalKeyRow } from './TerminalKeyRow';
 import { TerminalKeyRowEditor } from './TerminalKeyRowEditor';
-import { DEFAULT_ROW_IDS, type RowEntry } from '../domain/keyRow';
+import { TerminalQuickReplyEditor } from './TerminalQuickReplyEditor';
+import { DEFAULT_ROW_IDS, type RowEntry, type TerminalKeyAction } from '../domain/keyRow';
+import { appendToDraft, clearDraftInsertion, consumeDraftInsertion } from '../application/draftInsertion';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins';
@@ -73,6 +75,9 @@ import { agentKindLabel } from '@/herd';
 import { t } from '@/text';
 import { FindOutputSheet } from './FindOutputSheet';
 import { useTerminalQuickReplies } from '@/plugins/ui';
+
+/** What a reply row's primary tap really does, for replies that never send. */
+const INSERT_ONLY_LABEL = 'Inserts into the prompt, never sends.';
 
 /**
  * The session is one dark surface: the terminal paints dark whatever the app
@@ -144,6 +149,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const [actionsOpen, setActionsOpen] = React.useState(false);
     const [findOpen, setFindOpen] = React.useState(false);
     const [editingKeys, setEditingKeys] = React.useState(false);
+    const [editingReplies, setEditingReplies] = React.useState(false);
+    const [personalReplies, setPersonalReplies] = useLocalSettingMutable('terminalQuickReplies');
     const [rowEntries, setRowEntries] = useLocalSettingMutable('terminalKeyRow');
     const rowSeed = React.useMemo<RowEntry[]>(() => rowEntries ?? [...DEFAULT_ROW_IDS], [rowEntries]);
     const [dictationActive, setDictationActive] = React.useState(false);
@@ -169,7 +176,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const composerRef = React.useRef<TextInput>(null);
     draftRef.current = draft;
     const insertDraft = React.useCallback((value: string) => {
-        const next = [draftRef.current.trimEnd(), value].filter(Boolean).join(' ');
+        const next = appendToDraft(draftRef.current, value);
         draftRef.current = next;
         setDraft(next);
         // The palette animates out; focus once its input has released the IME.
@@ -292,6 +299,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             setStatus(next);
             if (!goneRef.current && next.includes('unknown session')) {
                 goneRef.current = true;
+                clearDraftInsertion(props.id);
                 storage.getState().deleteSession(props.id);
                 Modal.alert('Session no longer exists', 'The host closed this session, so it was removed from your list.');
                 router.back();
@@ -316,6 +324,47 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     sessionRef.current = session;
     const currentPaneRef = React.useRef(currentPane);
     currentPaneRef.current = currentPane;
+
+    // One-shot consumption of a pick made elsewhere (history's "Insert into
+    // prompt"): the handoff is keyed by session and pane, so a pick only
+    // lands when this very pane is back in focus, and only once. The stored
+    // draft may be re-loading into an empty local value on this same focus,
+    // so the pick appends to what is about to be visible, never past it.
+    React.useEffect(() => {
+        if (!isFocused) return;
+        const paneId = currentPane?.paneId;
+        if (paneId === undefined) return;
+        const text = consumeDraftInsertion(props.id, paneId);
+        if (text === null) return;
+        if (draftRef.current === '') {
+            const stored = storage.getState().sessions[props.id]?.draft;
+            if (stored !== undefined && stored !== null && stored !== '') draftRef.current = stored;
+        }
+        insertDraft(text);
+    }, [currentPane?.paneId, insertDraft, isFocused, props.id]);
+
+    // Rail actions: paste reads the clipboard only on this press and stops at
+    // the draft; hide dismisses the keyboard now and persists nothing. Both
+    // are draft-side, so neither can emit PTY bytes.
+    const pasteToDraft = React.useCallback(async () => {
+        let text: string | null;
+        try {
+            text = await Clipboard.getStringAsync();
+        } catch {
+            return; // clipboard denied: stay quiet
+        }
+        if (text === null || text === '') return;
+        insertDraft(text);
+    }, [insertDraft]);
+    const hideKeyboardNow = React.useCallback(() => {
+        if (!keyboardVisible) return;
+        viewControls.dismissKeyboard();
+        Keyboard.dismiss();
+    }, [keyboardVisible, viewControls]);
+    const onKeyAction = React.useCallback((action: TerminalKeyAction) => {
+        if (action === 'paste') void pasteToDraft();
+        else hideKeyboardNow();
+    }, [hideKeyboardNow, pasteToDraft]);
     const showGestureHintRef = React.useRef<(text: string) => void>(() => undefined);
     const navigateToSession = useNavigateToSession();
     const tabStripRef = React.useRef<ScrollView>(null);
@@ -326,8 +375,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const [treeOpen, setTreeOpen] = React.useState(false);
     // A sheet or editor owns the screen; no floating control remains beneath it.
     React.useEffect(() => {
-        if (actionsOpen || overviewOpen || treeOpen || findOpen || editingKeys || menu !== null) setToolsOpen(false);
-    }, [actionsOpen, overviewOpen, treeOpen, findOpen, editingKeys, menu]);
+        if (actionsOpen || overviewOpen || treeOpen || findOpen || editingKeys || editingReplies || menu !== null) setToolsOpen(false);
+    }, [actionsOpen, overviewOpen, treeOpen, findOpen, editingKeys, editingReplies, menu]);
     const editKeys = React.useCallback(() => { setToolsOpen(false); setActionsOpen(false); setEditingKeys(true); }, []);
     const overlayContributions = useSlotContributions('session.overlay');
     // The workspace tree is product and always opens from the header;
@@ -445,9 +494,22 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             sendCommand(reply.text);
                         }
                         : () => insertDraft(reply.text),
+                    // A host-contributed reply only ever lands in the draft, so
+                    // the row must not announce that it sends.
+                    actionLabel: firstParty ? undefined : INSERT_ONLY_LABEL,
                     secondaryAction: () => insertDraft(reply.text),
                 };
             }),
+            // Personal replies are insert-only: a tap lands in the visible
+            // draft and only an explicit Send sends anything.
+            ...personalReplies.map((reply): Command => ({
+                id: `reply:user:${reply.id}`,
+                title: reply.label,
+                category: t('commandPalette.commonReplies'),
+                action: () => insertDraft(reply.text),
+                actionLabel: INSERT_ONLY_LABEL,
+                secondaryAction: () => insertDraft(reply.text),
+            })),
             ...known.filter((entry) => entry.common === true && entry.dangerous !== true).map((entry) => toEntry(entry, t('commandPalette.common'))),
             ...known.filter((entry) => entry.common !== true && entry.dangerous !== true).map((entry) => toEntry(entry, t('commandPalette.allCommands', { kind: kindLabel ?? '' }))),
             ...known.filter((entry) => entry.dangerous === true).map((entry) => toEntry(entry, t('commandPalette.destructive'))),
@@ -462,7 +524,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             quietLine: known.length > 0 ? undefined : t('commandPalette.noCatalogue', { kind: paneKind ?? t('commandPalette.thisAgent') }),
             commands: entries,
         } } as any);
-    }, [canControl, insertDraft, paneKind, quickReplies, sendCommand, showDialogGuard]);
+    }, [canControl, insertDraft, paneKind, personalReplies, quickReplies, sendCommand, showDialogGuard]);
     React.useEffect(() => {
         if (paneMissing) {
             recordAgentGate({
@@ -1078,7 +1140,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         onLayout={({ nativeEvent }) => setComposerTop((current) => (current !== undefined && Math.abs(current - nativeEvent.layout.y) < 0.5 ? current : nativeEvent.layout.y))}
                         style={{ backgroundColor: theme.colors.terminal.background }}>
                     <View style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center' }}>
-                        <TerminalKeyRow channel={channel} onEdit={editKeys}>
+                        <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction}>
                             <DeclarativeTerminalKeySlot channel={channel} />
                         </TerminalKeyRow>
                     </View>
@@ -1112,6 +1174,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     })()}
 
                     <TerminalKeyRowEditor visible={editingKeys} entries={rowEntries} seed={rowSeed} onChange={setRowEntries} onClose={() => setEditingKeys(false)} />
+                    <TerminalQuickReplyEditor visible={editingReplies} replies={personalReplies} onChange={setPersonalReplies} onClose={() => setEditingReplies(false)} />
                     <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} onClose={() => setOverviewOpen(false)} />
                     <WorkspaceTreeSheet visible={treeOpen} sessionId={props.id} onClose={() => setTreeOpen(false)} />
                     <PluginSlot
@@ -1225,9 +1288,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     </View>}
                                     <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>View</Text>
                                     {canControl && <Pressable onPress={editKeys} accessibilityRole="button" accessibilityLabel="Edit terminal keys"
-                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="options-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Edit terminal keys</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>}
+                                    {canControl && <Pressable onPress={() => { setActionsOpen(false); setEditingReplies(true); }} accessibilityRole="button" accessibilityLabel="Edit quick replies"
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="chatbubbles-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Edit quick replies</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>}
                                     {viewControls.commands.map((command) => (
