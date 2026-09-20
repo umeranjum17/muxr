@@ -6,7 +6,8 @@ import { Text } from '@/components/StyledText';
 import { SectionLabel, cardStyle } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { agentNameLine, compactAge, isShellLabels } from '../domain/agentPresentation';
+import { agentNameLine, isShellLabels } from '../domain/agentPresentation';
+import { compactAge } from '@/utils/compactAge';
 import { recentActivityStatus, type RecentActivityRow } from '../domain/recentActivity';
 import { AgentGlyph } from '@/components/AgentGlyph';
 

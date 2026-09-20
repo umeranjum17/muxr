@@ -5,7 +5,7 @@ import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const SRC = dirname(fileURLToPath(import.meta.url));
-const MODULES = ['agent', 'machine', 'peer', 'requests', 'diagnostics'] as const;
+const MODULES = ['agent', 'machine', 'peer', 'requests', 'diagnostics', 'usage'] as const;
 const COMPOSITION = new Set(['main.ts', 'host.ts', 'host.test.ts', 'architecture.test.ts']);
 
 // Bidirectional module dependency pairs measured at the 2026 structure
@@ -84,13 +84,13 @@ describe('host runtime architecture', () => {
                 }
             }
             for (const spec of importsOf(source)) {
-                const cross = spec.match(/^(\.\.\/)+(agent|machine|peer|requests|diagnostics)\/(domain|application|infrastructure)\//);
+                const cross = spec.match(/^(\.\.\/)+(agent|machine|peer|requests|diagnostics|usage)\/(domain|application|infrastructure)\//);
                 if (cross && cross[2] !== module) offenders.push(`${rel} -> ${spec}`);
             }
             if (COMPOSITION.has(rel)) {
                 for (const spec of importsOf(source)) {
                     if (!spec.startsWith('.')) continue;
-                    const internal = spec.match(/^\.\/(agent|machine|peer|requests|diagnostics)\/(domain|application|infrastructure)\//);
+                    const internal = spec.match(/^\.\/(agent|machine|peer|requests|diagnostics|usage)\/(domain|application|infrastructure)\//);
                     if (internal) offenders.push(`${rel} composition -> ${spec}`);
                 }
             }

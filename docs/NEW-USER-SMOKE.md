@@ -26,7 +26,7 @@ Primary gate: clean Linux VM plus a fresh API 36 Android emulator. Follow-up doc
    - Create a disposable git repository and start one real Herdr agent.
    - From the app: see working/waiting/done state, open its real terminal, send input, answer a prompt, stop/restart, and confirm the phone reflects Herdr truth.
 6. **Exercise public plugin parity**
-   - Open Usage and Machine.
+   - Open Usage and Machine (host product surfaces, not plugins).
    - Browse Files as a hierarchy and open a file.
    - Review Changes with status and +/- metadata.
    - Open/download an attachment and verify its bytes/SHA.

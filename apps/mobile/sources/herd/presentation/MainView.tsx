@@ -22,7 +22,7 @@ import { pluginHref } from '@/plugins';
 import { HomeDock, MOBILE_HOME_DOCK_CONTENT_INSET } from '@/spawn/ui';
 import { HerdView } from './HerdView';
 import { LiveTerminalsRow } from './LiveTerminalsRow';
-import { RightNowCard } from './RightNowCard';
+import { RightNowCard } from '@/usage';
 import { SessionItem } from './SessionsList';
 import { Header } from '@/components/navigation/Header';
 import { HeaderLogo } from '@/components/HeaderLogo';

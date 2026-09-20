@@ -212,7 +212,7 @@ const PACKAGED_BUNDLED_ROOTS = packagedBundledRoots();
  * panes/control surfaces must not present as disableable plugins.
  * User-authored plugins under their own ids are unaffected.
  */
-const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys', 'muxr.panes', 'muxr.control', 'muxr.dictation']);
+const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys', 'muxr.panes', 'muxr.control', 'muxr.dictation', 'muxr.status']);
 function fromPackagedRoot(plugin: HerdrPlugin): HerdrPlugin {
     const root = PACKAGED_BUNDLED_ROOTS.get(plugin.plugin_id);
     return root === undefined ? plugin : { ...plugin, plugin_root: root };

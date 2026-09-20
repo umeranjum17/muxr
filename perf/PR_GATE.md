@@ -97,13 +97,15 @@ The full flow requires:
   retaining local tokens. No live authentication/error matrix is claimed.
 
 Only Herdr and upstream usage fixture inputs are controlled. The fake Herdr
-advertises the real code/status plugin manifests. Its cwd is a real
+advertises the real attachments/code add-on manifests — Usage and machine health
+are host product code, so there is no status plugin fixture. Its cwd is a real
 scratch git repository. OMP/OpenCode databases contain synthetic aggregate rows.
-A scratch Usage entry wrapper sets test-only clock/backend environment variables
-then imports the original plugin: the production host intentionally sanitizes
-plugin environment variables, and the harness does not weaken that boundary.
-The ccusage CLI is an explicit fixture boundary; this flow does not test ccusage's
-own database parser or call real provider credentials/quota services.
+The host's own usage collector reads the fixture's test-only clock/backend
+environment variables directly; the production host still sanitizes plugin
+environment variables, and the harness does not weaken that boundary.
+The ccusage CLI is an explicit fixture boundary (only it is stubbed); this flow
+does not test ccusage's own database parser or call real provider
+credentials/quota services.
 
 Every performance window is 35 seconds by default (`--seconds 30..120`) and must
 contain at least 25 seconds of actual timestamped CPU and PSS samples. Raw tick

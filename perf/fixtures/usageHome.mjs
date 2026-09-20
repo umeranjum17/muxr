@@ -1,30 +1,23 @@
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { attachmentsAddonDir, codeAddonDir } from '../lib/addons.mjs';
-import { pathToFileURL } from 'node:url';
 
-export const usagePlugins = (sourceRoot) => ({ root, env }) => {
+/** Usage and machine health are host product code, so the fake stack needs no
+ *  status plugin fixture: the host's typed usage.report answers from this
+ *  module's environment fixture alone. The remaining fixture plugins are the
+ *  add-on checkouts the journeys walk (Files/Changes). */
+export const usagePlugins = () => ({ root }) => {
     const dir = join(root, 'fixture-plugins');
-    mkdirSync(join(dir, 'status'), { recursive: true });
+    mkdirSync(dir, { recursive: true });
     // Attachments left the bundle for its own repo: MUXR_ADDONS_ROOT or the Herdr install.
     symlinkSync(attachmentsAddonDir(), join(dir, 'attachments'));
     symlinkSync(codeAddonDir(), join(dir, 'code'));
-    for (const name of ['terminal-keys']) symlinkSync(join(sourceRoot, 'plugins', name), join(dir, name));
-    const original = join(sourceRoot, 'plugins/status');
-    for (const file of readdirSync(original)) {
-        // The real catalog opens manifests with O_NOFOLLOW. Preserve that guard.
-        if (file === 'muxr-ui.json') copyFileSync(join(original, file), join(dir, 'status', file));
-        else if (file !== 'usage.mjs') symlinkSync(join(original, file), join(dir, 'status', file));
-    }
-    // Host sanitization is retained: only this scratch fixture entry restores
-    // test env. All parsing, collection and rendering use real product modules.
-    writeFileSync(join(dir, 'status/usage.mjs'), `Object.assign(process.env, ${JSON.stringify(env)});\nawait import(${JSON.stringify(pathToFileURL(join(original, 'usage.mjs')).href)});\n`);
     return dir;
 };
 
-// Real provider databases, consumed by the real plugin. Only the external
-// ccusage CLI is stubbed; there is deliberately no mocked plugin response.
+// Real provider databases, consumed by the real host collector. Only the external
+// ccusage CLI is stubbed; there is deliberately no mocked usage response.
 export function usageHome(home) {
     execFileSync('python3', ['-c', `
 import sqlite3,json,pathlib,sys,datetime

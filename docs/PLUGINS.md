@@ -78,7 +78,7 @@ Package management keeps Herdr as the only executable registry and runtime:
 ```bash
 muxr plugin docs
 muxr plugin create hello-muxr
-muxr plugin clone muxr.status ./my-status
+muxr plugin clone muxr.voice ./my-voice
 muxr plugin check ./hello-muxr
 muxr plugin dev ./hello-muxr
 muxr plugin list
@@ -150,7 +150,7 @@ Every slot below is shipped. **JSON** means you edit `muxr-ui.json` and the chan
 | `host.stream` | a persistent provider adapter over bounded NDJSON frames | `.mjs` |
 | `navigation.primary` | a navigation destination; product chrome decides where it renders (home chips, sidebar tools) and in what order | JSON (`navigation-item`) |
 | `navigation.content` | the screen that destination opens | JSON (`screen`) or primitive |
-| `home.cards` | a Home card, or `"presentation": "sheet"` for a pill that opens a bottom sheet; a card may set `contentContributionId` to open a declared `navigation.content` screen; a card that declares `"product": "right-now"` is drawn by the product's Right now card (bounded limit/verdict/vitals figures) instead of the generic data card, provided the manifest declares `minMuxrVersion: 15`; anything else — including a card whose source rpc merely happens to be named `now` — keeps the generic data card. The product card owns every string it shows, so that card's own `title` and `emptyText` go unread | JSON (`data-card`) |
+| `home.cards` | a Home card, or `"presentation": "sheet"` for a pill that opens a bottom sheet; a card may set `contentContributionId` to open a declared `navigation.content` screen. The Right-now card is host product code fed by the `usage.now` request, not a plugin contribution: the retired `"product": "right-now"` data-card marker is ignored, and every `home.cards` contribution keeps the generic data card | JSON (`data-card`) |
 | `session.header.trailing` | a session action; the pane menu renders it as a row | JSON (`data-card` or `screen-button`) or primitive |
 | `session.pills` | a session action; the pane menu renders it as a row | JSON (`data-card`) or primitive |
 | `session.toolbar` | a pane-menu command that runs a declared Herdr action | JSON (`button`) |
@@ -468,7 +468,6 @@ The required author experience is:
 ```bash
 muxr plugin docs                # prints the installed guide and agent-skill paths
 muxr plugin create hello-muxr   # writes a minimal three-file settings-screen plugin
-muxr plugin clone muxr.status   # copies a bundled plugin with a new local id
 muxr plugin dev ./hello-muxr    # validates and links it into Herdr
 muxr plugin dev ./hello-muxr --web  # ...and opens the app in a browser with hot reload
 muxr plugin check ./hello-muxr  # validates files, ids, slots, and primitives
@@ -488,7 +487,7 @@ Every extension should explain:
 6. how to disable and unlink it;
 7. supported muxr UI and Herdr versions.
 
-`muxr plugin create` writes a minimal working plugin and is the fastest starting point. For a richer list/detail/form/RPC/chart example, clone a bundled one with `muxr plugin clone muxr.status ./my-plugin`; every bundled plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons are also full examples you can read or install: `muxr plugin install umeranjum17/herdr-files` `muxr plugin install umeranjum17/herdr-attachments`.
+`muxr plugin create` writes a minimal working plugin and is the fastest starting point. For a richer list/detail/form/RPC/chart example, clone a bundled one with `muxr plugin clone muxr.voice ./my-plugin`; every bundled plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons are also full examples you can read or install: `muxr plugin install umeranjum17/herdr-files` `muxr plugin install umeranjum17/herdr-attachments`.
 
 ## Lists of real things
 
@@ -555,11 +554,11 @@ the muxr install. To override a bundled surface, use the clone command so
 package identity is rewritten and your source lives outside npm ownership:
 
 ```bash
-muxr plugin clone muxr.status ./my-status
-# edit ./my-status/muxr-ui.json
-herdr plugin disable muxr.status
-muxr plugin dev ./my-status
-# if linking fails: herdr plugin enable muxr.status
+muxr plugin clone muxr.voice ./my-voice
+# edit ./my-voice/muxr-ui.json
+herdr plugin disable muxr.voice
+muxr plugin dev ./my-voice
+# if linking fails: herdr plugin enable muxr.voice
 ```
 
 The same `terminal.key-row` contribution accepts up to eight `quickReplies`:
@@ -571,9 +570,9 @@ sends only validated terminal control sequences. The built-in key row is product
 code; author your own replies and keys with a `terminal.key-row` contribution in
 your own plugin (see `muxr plugin create`).
 
-Dictation, terminal keys, the workspace tree, and Panes are no longer bundled plugins — they are product code in the app, so there is nothing left to clone or override. This is a **breaking change** if you cloned `muxr.workspace-hierarchy` or `muxr.panes` under the previously documented path: the clone keeps running after you upgrade, and because muxr never lets one plugin suppress another, you will see the surface twice — a duplicated workspace tree, or a second Applications chip beside the product Panes screen. Disable the clone after upgrading (`herdr plugin disable <your-clone-id>`); author your own version with the `dictate`/`tree-sheet` primitives in your own plugin instead.
+Dictation, terminal keys, the workspace tree, and Panes are no longer bundled plugins — they are product code in the app, so there is nothing left to clone or override. This is a **breaking change** if you cloned `muxr.workspace-hierarchy`, `muxr.panes`, `muxr.control`, or `muxr.status` under the previously documented path: the clone keeps running after you upgrade, and because muxr never lets one plugin suppress another, you will see the surface twice — a duplicated workspace tree, a second Applications chip beside the product Panes screen, or the retired Usage screen beside the product Right-now card. Disable the clone after upgrading (`herdr plugin disable <your-clone-id>`); author your own version with the `dictate`/`tree-sheet` primitives in your own plugin instead.
 
-`muxr.terminal-keys`, `muxr.panes`, and `muxr.dictation` are retired ids: the host no longer serves those exact ids to any device, so a registration still carrying one does not double a surface — a stale dictation registration adds no second dictate button — but none appears in Settings > Plugins, so you cannot see or disable them from the phone. Disable one on the machine instead (`herdr plugin disable <id>`); `muxr setup` retracts a stale in-bundle registration, and `muxr integrations uninstall` unlinks retired ids. Re-register your copy under an id of your own to keep it, adding your keys with a `terminal.key-row` contribution.
+`muxr.terminal-keys`, `muxr.panes`, `muxr.control`, `muxr.dictation`, and `muxr.status` are retired ids: the host no longer serves those exact ids to any device, so a registration still carrying one does not double a surface — a stale dictation registration adds no second dictate button — but none appears in Settings > Plugins, so you cannot see or disable them from the phone. Disable one on the machine instead (`herdr plugin disable <id>`); `muxr setup` retracts a stale in-bundle registration, and `muxr integrations uninstall` unlinks retired ids. Re-register your copy under an id of your own to keep it, adding your keys with a `terminal.key-row` contribution.
 
 Direct edits under the global npm package work live but are replaced by the next npm install. A cloned folder and its Herdr registration survive package upgrades; subsequent `muxr setup` runs preserve both plugins' explicit enabled/disabled states.
 
@@ -587,18 +586,7 @@ you retype it. Fields win on a key collision.
 
 ## What a backend RPC gets
 
-An installation may explicitly grant a script private host configuration through
-`plugins/private-contexts.json` beside its installed plugin folders. This registry
-is installation-owned; a plugin manifest or RPC caller cannot grant access.
-Each recipe binds `pluginId`, `method`, and the canonical `entry` path relative to
-the registry, and names a reserved `inputKey`. The host overwrites that field with
-only the recipe's `environment` names and `jsonEnvironment` projections. A JSON
-projection specifies an environment variable, one member, allowed string fields,
-and optional exact `match` fields. Valid JSON missing or not matching that member
-projects `null`, preserving explicit empty
-overrides. Values travel on stdin, never in public context or generic child env.
-Do not put actual credentials in the registry. Changes to these grants require a
-trusted installation change, not a plugin's self-authored manifest.
+An installation can no longer grant a script private host configuration: the retired `plugins/private-contexts.json` registry is not read anymore, because its only consumer is now host product code and provider environment access is host-internal. No manifest or installation file grants a plugin process anything beyond the call input and the environment below.
 
 The child receives the call input as bounded UTF-8 JSON on **stdin** (`"null"` when absent). Secrets from secure prompts are never placed in its environment. The child process is started with a deliberately small environment:
 
@@ -637,7 +625,7 @@ validates shape; `plugin call` proves wiring.
 { "schemaVersion": 1, "pluginId": "you.thing", "minMuxrVersion": 8, "contributions": [] }
 ```
 
-`minMuxrVersion` is optional and is preserved when the host parses the manifest. UI version 15 adds the product Right now card: a `home.cards` data-card that opts in with `"product": "right-now"` answers with a structured `{ limits, vitals }` payload instead of a display string, and the app draws it as figures rather than passing it to the generic data card. The marker is deliberate opt-in — a plugin whose rpc happens to be named `now` keeps its own generic card — and `muxr plugin check` rejects a manifest that declares it without `minMuxrVersion: 15`. UI version 14 adds the declarative `limits` node (with an `emptyText` fallback for windowless payloads), row `icon`/`meta` identity fields, runtime-bound tones (`tonePath`) on `text`, `badge`, `progress` and `row`, runtime-bound field values (`valuePath`) on switch/select fields, and an optional agent-mark `glyph` id on tab strip entries, resolved against the app's bundled agent marks with a ringed-monogram fallback. `muxr plugin check` rejects a manifest that uses 14-only nodes without declaring it, and warns on screen node types it does not recognize (unknown nodes are skipped silently at runtime so old apps tolerate new manifests). UI version 12 allows generic `item-list` rows to omit actions for honest read-only status and metric lists; actionable rows still require a validated closed action. UI version 11 adds the bounded declarative `code` node and syntax highlighting for source previews and native unified diffs. UI version 10 adds the generic declarative `tree` node: per-folder expand/collapse, expand/collapse-all controls, optional lazy `host.rpc` children, closed leaf actions, and folder selection into an existing form field. UI version 9 adds provider-neutral `host.stream` contributions and strict encrypted stream transport. UI version 8 adds bounded per-row icons/metadata and optional sheet-level actions to the generic `item-list` response. UI version 7 adds plugin-owned `navigation-item.badge` read sources and singleton tree-sheet cardinality. UI version 6 adds bounded localized values for every user-visible manifest string and runtime Android launcher projection for shortcut contributions. UI version 5 removes `url-chip`; adds bounded active-only refresh and presentation parameters to `item-list`; and defines capability actions, Android launcher shortcuts, the realtime indicator, and singleton realtime-overlay cardinality. UI version 4 added source-driven grouped collections/tree sheets and allow-listed public RPC context. Each phone compares it with its own `MUXR_UI_VERSION`; an older app lists the plugin as unavailable with an update message and refuses to mount its contributions instead of quietly rendering partial UI.
+`minMuxrVersion` is optional and is preserved when the host parses the manifest. UI version 15's product Right now card is retired: the Right-now card is host product code fed by the `usage.now` request, the `"product": "right-now"` data-card marker is ignored, and `muxr plugin check` no longer rejects anything over it. UI version 14 adds the declarative `limits` node (with an `emptyText` fallback for windowless payloads), row `icon`/`meta` identity fields, runtime-bound tones (`tonePath`) on `text`, `badge`, `progress` and `row`, runtime-bound field values (`valuePath`) on switch/select fields, and an optional agent-mark `glyph` id on tab strip entries, resolved against the app's bundled agent marks with a ringed-monogram fallback. `muxr plugin check` rejects a manifest that uses 14-only nodes without declaring it, and warns on screen node types it does not recognize (unknown nodes are skipped silently at runtime so old apps tolerate new manifests). UI version 12 allows generic `item-list` rows to omit actions for honest read-only status and metric lists; actionable rows still require a validated closed action. UI version 11 adds the bounded declarative `code` node and syntax highlighting for source previews and native unified diffs. UI version 10 adds the generic declarative `tree` node: per-folder expand/collapse, expand/collapse-all controls, optional lazy `host.rpc` children, closed leaf actions, and folder selection into an existing form field. UI version 9 adds provider-neutral `host.stream` contributions and strict encrypted stream transport. UI version 8 adds bounded per-row icons/metadata and optional sheet-level actions to the generic `item-list` response. UI version 7 adds plugin-owned `navigation-item.badge` read sources and singleton tree-sheet cardinality. UI version 6 adds bounded localized values for every user-visible manifest string and runtime Android launcher projection for shortcut contributions. UI version 5 removes `url-chip`; adds bounded active-only refresh and presentation parameters to `item-list`; and defines capability actions, Android launcher shortcuts, the realtime indicator, and singleton realtime-overlay cardinality. UI version 4 added source-driven grouped collections/tree sheets and allow-listed public RPC context. Each phone compares it with its own `MUXR_UI_VERSION`; an older app lists the plugin as unavailable with an update message and refuses to mount its contributions instead of quietly rendering partial UI.
 
 ## Capabilities
 

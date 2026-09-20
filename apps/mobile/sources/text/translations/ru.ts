@@ -26,6 +26,11 @@ function plural({ count, one, few, many }: { count: number; one: string; few: st
  * Must match the exact structure of the English translations
  */
 export const ru: TranslationStructure = {
+    usage: {
+        title: 'Использование',
+    },
+
+
     tabs: {
         // Tab navigation labels
         sessions: 'Терминалы',

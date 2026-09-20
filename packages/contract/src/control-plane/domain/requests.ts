@@ -31,6 +31,7 @@ import type {
     UnreadCatalog,
 } from '../../herd/index.js';
 import type { PluginManifestV1, PluginSource, PluginSummary } from '../../plugins/index.js';
+import type { UsageNow, UsageReport } from '../../usage/index.js';
 import type { LandWorktreeResult } from '../../worktree/index.js';
 import type { AttentionCatalog, CloseResult, CloseScope, HerdrTreeWorkspace, LifecycleCatalog, SessionAttachmentMetadata, SessionInfo, SessionShellOutcome, SessionStatus } from '../../herd/index.js';
 import type {
@@ -559,6 +560,15 @@ export interface RequestMap extends PeerRequestMap {
         result: { paneId: string };
     };
     'terminal.detach': { params: { sessionId: string; channel: string }; result: null };
+
+    // --- usage + machine vitals ----------------------------------------------
+    // Product surfaces served by typed host methods, not by plugins. Read-only;
+    // the host collects, normalizes and bounds every figure.
+    /** One provider tab's Usage report; `provider` empty means the machine's
+     *  default tab. `refresh` re-collects past a still-valid cache. */
+    'usage.report': { params: { provider?: string; refresh?: boolean }; result: UsageReport };
+    /** The Home "Right now" card payload: the binding limit window plus vitals. */
+    'usage.now': { params: Record<string, never>; result: UsageNow };
 }
 
 export type RequestType = keyof RequestMap;

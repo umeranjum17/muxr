@@ -4,7 +4,7 @@ let DatabaseSync;
 try { ({ DatabaseSync } = await import('node:sqlite')); } catch {};
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, resolve, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 /** One recorded assistant response, in the Pi transcript format OMP and Pi both write. */
@@ -34,7 +34,7 @@ function seedDatabase(path, schema, insert, params) {
     assert.equal(seeded.status, 0, 'SQLite fixtures require Node 22.13+ or Python 3');
 }
 
-// The same platform map the plugin ships with: pinning one target would test
+// The same platform map the collector ships with: pinning one target would test
 // a binary the release never runs anywhere else.
 const ccusageTarget = {
     'darwin-arm64': '@ccusage/ccusage-darwin-arm64', 'darwin-x64': '@ccusage/ccusage-darwin-x64',
@@ -106,14 +106,90 @@ const claudeLimits = {
     },
 };
 
-const runPlugin = (entry, input, environment = {}) => { const r = spawnSync(process.execPath, [entry], {
-    cwd: process.cwd(),
-    encoding: 'utf8',
-    input: JSON.stringify(input),
-    env: { ...process.env, HOME: scratch, XDG_DATA_HOME: join(scratch, '.local/share'), PI_CONFIG_DIR: '.omp', OMP_PROFILE: '', PI_PROFILE: '', OPENCODE_AUTH_CONTENT: '', CLAUDE_CONFIG_DIR: join(scratch, '.claude'), TZ: 'UTC', MUXR_USAGE_NOW: today.toISOString(), PATH: `${scratch}:${process.env.PATH}`, MUXR_CCUSAGE_BIN: ccusage, MUXR_PLUGIN_STATE_DIR: scratch, ...environment },
-    timeout: 20_000,
-}); if (r.status !== 0 || r.stdout === '') console.error('RUN-DEBUG', JSON.stringify(input), 'status=', r.status, 'stderr=', (r.stderr||'')); return r; };
-const run = (input, environment = {}) => runPlugin('plugins/status/usage.mjs', input, environment);
+// The usage collector is a host module now: the check drives the built host
+// dist the same way the running host does, mutating the host's own environment
+// per scenario and restoring it afterwards.
+const { collectUsage, usageNow } = await import('../../../apps/host/dist/usage/index.js');
+const { tightestWindow } = await import('../../../apps/host/dist/usage/domain/usageWindows.js');
+
+const ENV_KEYS = ['HOME', 'PATH', 'TZ', 'XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'PI_AGENT_DIR', 'OMP_PROFILE', 'PI_PROFILE', 'OPENCODE_DB', 'OPENCODE_DATA_DIR', 'OPENCODE_AUTH_CONTENT', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'MUXR_HOME', 'MUXR_CCUSAGE_BIN', 'MUXR_USAGE_NOW', 'MUXR_USAGE_PROVIDER', 'NODE_OPTIONS'];
+let fetchStub = undefined;
+const realFetch = globalThis.fetch;
+async function stubbedFetch(url, options) {
+    if (fetchStub !== undefined) return fetchStub(url, options);
+    return realFetch(url, options);
+}
+globalThis.fetch = stubbedFetch;
+
+/** Run one collection against a host environment, then restore everything.
+ *  `__fetch` stubs global fetch for plan endpoints instead of touching env. */
+async function drive(environment, input) {
+    const previous = new Map(ENV_KEYS.map((key) => [key, process.env[key]]));
+    const previousFetch = fetchStub;
+    const { __fetch, ...env } = environment;
+    for (const [key, value] of Object.entries(env)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+    }
+    fetchStub = __fetch;
+    // The collector reads a frozen snapshot: a collection that keeps running
+    // behind usage.now's bounded wait never observes a later restore.
+    const frozenEnv = { ...process.env };
+    try {
+        return await collectUsage(input ?? {}, frozenEnv);
+    } finally {
+        fetchStub = previousFetch;
+        for (const [key, value] of previous) {
+            if (value === undefined) delete process.env[key];
+            else process.env[key] = value;
+        }
+    }
+}
+
+/** One usage.now answer (the Home card path, bounded wait included). */
+async function driveNow(environment) {
+    const previous = new Map(ENV_KEYS.map((key) => [key, process.env[key]]));
+    const previousFetch = fetchStub;
+    const { __fetch, ...env } = environment;
+    for (const [key, value] of Object.entries(env)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+    }
+    fetchStub = __fetch;
+    const frozenEnv = { ...process.env };
+    try {
+        return await usageNow(frozenEnv);
+    } finally {
+        fetchStub = previousFetch;
+        for (const [key, value] of previous) {
+            if (value === undefined) delete process.env[key];
+            else process.env[key] = value;
+        }
+    }
+}
+
+const baseEnv = () => ({
+    HOME: scratch,
+    PATH: `${scratch}:${process.env.PATH}`,
+    XDG_DATA_HOME: join(scratch, '.local/share'),
+    PI_CONFIG_DIR: '.omp',
+    OMP_PROFILE: '',
+    PI_PROFILE: '',
+    CLAUDE_CONFIG_DIR: join(scratch, '.claude'),
+    TZ: 'UTC',
+    MUXR_USAGE_NOW: today.toISOString(),
+    MUXR_HOME: scratch,
+    MUXR_CCUSAGE_BIN: ccusage,
+    CODEX_HOME: join(scratch, '.codex'),
+    // undefined deletes: the disk Go account is the default unless a run pins
+    // the OPENCODE_AUTH_CONTENT override itself.
+    OPENCODE_AUTH_CONTENT: undefined,
+    NODE_OPTIONS: undefined,
+    PI_AGENT_DIR: undefined,
+    PI_CODING_AGENT_DIR: undefined,
+});
+const run = (input, environment = {}) => drive({ ...baseEnv(), ...environment }, input);
+const stateFile = (tab) => join(scratch, 'usage', `usage-v2-${tab}.json`);
 
 try {
     writeTranscript(join(scratch, '.omp/agent/sessions/proj/session.jsonl'), [
@@ -130,33 +206,9 @@ try {
     writeFileSync(join(scratch, 'codex'), `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(codexMarker)}, 'x');let b='';process.stdin.setEncoding('utf8');process.stdin.on('data',d=>{b+=d;for(;;){const i=b.indexOf('\\n');if(i<0)break;const line=b.slice(0,i);b=b.slice(i+1);const m=JSON.parse(line);if(m.id===1)console.log(JSON.stringify({id:1,result:{}}));if(m.id===2)console.log(JSON.stringify({id:2,result:{rateLimitsByLimitId:{codex:{limitId:'codex',primary:{usedPercent:25,windowDurationMins:300,resetsAt:Math.floor(Date.now()/1000)+3600},secondary:{usedPercent:90,windowDurationMins:10080,resetsAt:Math.floor(Date.now()/1000)+86400}}}}}));}});\n`, { mode: 0o755 });
     for (const command of ['claude', 'kimi', 'opencode', 'hermes', 'github-copilot', 'cursor-agent', 'omp', 'gemini', 'grok', 'amp', 'droid', 'codebuff', 'goose', 'openclaw', 'kilocode', 'qwen', 'devin', 'kiro-cli', 'cline', 'maki', 'mastra', 'qoder', 'antigravity']) writeFileSync(join(scratch, command), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
-    // Default tab: the busiest measured provider leads, and the card keeps its rows.
-    const result = run({ provider: 'claude' });
-    assert.equal(result.status, 0, result.stderr);
-    const output = JSON.parse(result.stdout);
-    const activity = Object.fromEntries(output.items.filter((item) => item.id.startsWith('activity-')).map((item) => [item.title, item.metadata[0]?.value]));
-    // Pi is accounted from its own transcripts: with none on disk the measured
-    // answer is nothing, and ccusage's own Pi row never stands in for it.
-    assert.deepEqual(activity, { 'Anthropic Claude': '1.3M tokens', 'Kimi Code': '2.5K tokens', OpenCode: '300 tokens', OMP: '150 tokens' });
-    const emptyPi = JSON.parse(run({ provider: 'pi' }).stdout);
-    assert.equal(emptyPi.todayTokens, '0');
-    assert.equal(emptyPi.weekTokens, '0');
-    assert.match(emptyPi.items.find((item) => item.id === 'available-pi')?.subtitle ?? '', /No measured activity today/);
-    assert.ok(output.items.some((item) => item.id === 'limit-codex-0' && item.metadata[0]?.value === '75% left' && item.group === 'Rate limits'));
-    assert.ok(output.items.some((item) => item.id === 'limit-codex-1' && item.metadata[0]?.value === '10% left'));
-    // Pace, not percent: the 90%-burned weekly window projects past its reset
-    // (danger), while the 25%-burned 5-hour window survives it (positive).
-    const codexPrimary = output.items.find((item) => item.id === 'limit-codex-0');
-    assert.equal(codexPrimary?.metadata[0]?.tone, 'positive');
-    assert.match(codexPrimary?.metadata[1]?.value ?? '', /· ahead$/);
-    const codexSecondary = output.items.find((item) => item.id === 'limit-codex-1');
-    assert.equal(codexSecondary?.metadata[0]?.tone, 'danger');
-    assert.match(codexSecondary?.metadata[1]?.value ?? '', /· burning$/);
-    // The default tab's own windows ride the same view model.
-    assert.deepEqual(output.windows.map((vm) => [vm.provider, vm.windowKind, vm.percentUsed, vm.percentRemaining, vm.pace.verdict]), [
-        ['claude', 'session', 21, 79, 'ahead'],
-        ['claude', 'weekly', 42, 58, 'on pace'],
-    ]);
+    // Default tab: the busiest measured provider leads, and its own windows ride
+    // the same view model as the limits card.
+    const output = await run({ provider: 'claude' });
     // Only integrated providers earn tabs: measured activity this week or a
     // connected plan/account. The fixture installs many idle CLIs; none of
     // them may mint a tab.
@@ -170,8 +222,7 @@ try {
         assert.ok(provider.glyph === provider.id, `tab ${provider.id} must carry its own mark id`);
         assert.ok(agentMarks.has(provider.glyph) || monogramOnly.has(provider.glyph), `unresolved mark: ${provider.glyph}`);
     }
-    assert.equal(output.badge?.value, '1.3M tokens today');
-
+    assert.doesNotMatch(JSON.stringify(output), /hostile/);
     // Default tab: the busiest measured provider leads.
     assert.equal(output.provider, 'claude');
     const tabs = output.providers.map((tab) => tab.id);
@@ -185,7 +236,6 @@ try {
     // older total into today's slot.
     assert.equal(output.weekSeries.length, 7);
     assert.equal(output.weekSeries.at(-1)?.valueLabel, '1.3M');
-    assert.equal(output.limitLabel, undefined);
     // The limits card payload: used shares, spelled-out resets, elapsed anchors.
     assert.equal(output.limits.plan, 'Claude plan');
     assert.equal(output.limits.verdict, 'go');
@@ -199,7 +249,7 @@ try {
     ]);
 
     // A quiet provider reports zero today rather than its last active day.
-    const kimi = JSON.parse(run({ provider: 'kimi' }).stdout);
+    const kimi = await run({ provider: 'kimi' });
     assert.equal(kimi.provider, 'kimi');
     assert.equal(kimi.todayTokens, '2.5K');
     // Days sit at their own date, so the older total stays in the past and today
@@ -216,56 +266,50 @@ try {
 
     // A deep link to an installed-but-idle provider no longer mints a tab;
     // it falls back to the default one instead.
-    const cursor = JSON.parse(run({ provider: 'cursor' }).stdout);
+    const cursor = await run({ provider: 'cursor' });
     assert.equal(cursor.provider, 'omp');
     assert.ok(!cursor.providers.some((p) => p.id === 'cursor'));
 
-    assert.doesNotMatch(result.stdout, /hostile/);
-    // Rows open the details screen and nothing else: the card is a summary of
-    // the same screen, not a second place that shows usage its own way.
-    assert.ok(
-        output.items.every((item) => item.action === undefined || item.action.type === 'screen' && item.action.contributionId === 'usage.details'),
-        'Usage rows reach past their own details screen',
-    );
-    assert.equal(output.items.find((item) => item.id === 'activity-kimi')?.action?.params?.provider, 'kimi');
-    assert.equal(output.actions[0]?.action?.contributionId, 'usage.details');
-    assert.ok(existsSync(ccusageMarker), 'Usage plugin did not invoke its pinned ccusage backend');
-    assert.ok(!existsSync(piMarker), 'Usage plugin invoked Pi and could enter a paid model path');
+    // Pi is accounted from its own transcripts: with none on disk the measured
+    // answer is nothing, and ccusage's own Pi row never stands in for it.
+    const emptyPi = await run({ provider: 'pi' });
+    assert.equal(emptyPi.todayTokens, '0');
+    assert.equal(emptyPi.weekTokens, '0');
+    assert.equal(emptyPi.activityNotice, undefined);
 
     // One cache entry per tab, so reopening a tab does not rescan.
-    const cached = run({ provider: 'claude' });
-    assert.equal(cached.status, 0, cached.stderr);
-    assert.equal(JSON.parse(cached.stdout).todayTokens, '1.3M');
+    const cached = await run({ provider: 'claude' });
+    assert.equal(cached.todayTokens, '1.3M');
     assert.equal(readFileSync(ccusageMarker, 'utf8'), 'xxxx', 'per-tab cache did not prevent a duplicate ccusage scan');
     assert.equal(readFileSync(codexMarker, 'utf8'), 'xxxx', 'per-tab cache did not prevent a duplicate Codex app-server');
 
-    // Pi is accounted locally, so its idle row has to report a collection that
-    // failed rather than reading silence as a quiet day.
+    // Pi is accounted locally, so a collection that failed must surface on the
+    // tab it belongs to: an honest unavailable notice, not a quiet zero.
     writeTranscript(join(scratch, 'broken-pi/sessions/proj/broken.jsonl'), ['{"message":{"role":"assistant","usage":{"input":5']);
-    const brokenPi = JSON.parse(run({ provider: 'claude' }, { PI_AGENT_DIR: join(scratch, 'broken-pi'), MUXR_PLUGIN_STATE_DIR: '' }).stdout);
-    assert.match(brokenPi.items.find((item) => item.id === 'available-pi')?.subtitle ?? '', /could not be measured/);
+    const brokenPi = await run({ provider: 'pi' }, { PI_AGENT_DIR: join(scratch, 'broken-pi'), MUXR_HOME: join(scratch, 'no-cache-pi') });
+    assert.equal(brokenPi.todayTokens, '—');
+    assert.match(brokenPi.activityNotice ?? '', /could not be measured/);
 
-    const recent = JSON.parse(run({}).stdout);
+    const recent = await run({});
     assert.equal(recent.provider, 'omp');
     assert.equal(recent.todayTokens, '150');
     assert.equal(recent.todayCost, '$0.01');
     assert.equal(recent.modelSeries[0]?.label, 'fixture-omp');
-    const go = JSON.parse(run({ provider: 'opencode' }).stdout);
+    const go = await run({ provider: 'opencode' });
     assert.equal(go.todayTokens, '300');
     assert.equal(go.todayCost, '$0.00');
     assert.match(go.limits.message ?? '', /Go limits unavailable/);
-    assert.ok(!existsSync(join(scratch, 'usage-v2-opencode.json')), 'missing Go limits must not be cached');
+    assert.ok(!existsSync(stateFile('opencode')), 'missing Go limits must not be cached');
+    const goStub = (url, options) => {
+        if (url !== 'https://opencode.ai/zen/go/v1/usage' || options.redirect !== 'error' || options.headers.authorization !== 'Bearer fixture-secret-key') throw new Error('unexpected quota request');
+        return Promise.resolve(new Response(JSON.stringify({ usage: Object.fromEntries(['rolling', 'weekly', 'monthly'].map((key, index) => [key, { status: 'ok', percent: 20 + index, resetsAt: new Date(Date.now() + 3600000).toISOString() }])) })));
+    };
     writeFileSync(join(scratch, '.local/share/opencode/auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: 'fixture-secret-key' } }));
-    const goFetch = join(scratch, 'go-fetch.mjs');
-    writeFileSync(goFetch, `globalThis.fetch = async (url, options) => {
-      if (url !== 'https://opencode.ai/zen/go/v1/usage' || options.redirect !== 'error' || options.headers.authorization !== 'Bearer fixture-secret-key') throw new Error('unexpected quota request');
-      return new Response(JSON.stringify({usage:Object.fromEntries(['rolling','weekly','monthly'].map((key,index)=>[key,{status:'ok',percent:20+index,resetsAt:new Date(Date.now()+3600000).toISOString()}]))}));
-    };`);
-    const goEnv = { NODE_OPTIONS: `--import=${goFetch}`, OPENCODE_AUTH_CONTENT: '{}' };
-    const override = JSON.parse(run({ provider: 'opencode' }, goEnv).stdout);
+    // A pinned-but-unusable override must not borrow the disk account.
+    const override = await run({ provider: 'opencode' }, { OPENCODE_AUTH_CONTENT: '{}', __fetch: goStub });
     assert.match(override.limits.message ?? '', /connect your Go account/, 'valid auth override must not borrow disk key');
-    const connected = run({ provider: 'opencode' }, { ...goEnv, OPENCODE_AUTH_CONTENT: '' });
-    const connectedGo = JSON.parse(connected.stdout);
+    const connected = await run({ provider: 'opencode' }, { __fetch: goStub });
+    const connectedGo = connected;
     assert.equal(connectedGo.limits.plan, 'OpenCode Go');
     assert.deepEqual(connectedGo.limits.windows.map((limit) => [limit.label, limit.used]), [['Rolling', 20], ['Weekly', 21], ['Monthly', 22]]);
     // Rolling is documented as five hours, so it carries a length and an
@@ -278,11 +322,13 @@ try {
         ['opencode', 'weekly', 21, 79],
         ['opencode', 'monthly', 22, 78],
     ]);
-    assert.doesNotMatch(connected.stdout, /fixture-secret-key/);
-    assert.match(JSON.parse(run({ provider: 'opencode' }, goEnv).stdout).limits.message, /connect your Go account/, 'auth override change reused cached account limits');
+    assert.doesNotMatch(JSON.stringify(connected), /fixture-secret-key/);
+    // A changed disk key changes the cache identity, so the answer is
+    // re-collected instead of replaying the previous account's limits.
     writeFileSync(join(scratch, '.local/share/opencode/auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: 'different-fixture-key' } }));
-    assert.match(JSON.parse(run({ provider: 'opencode' }, { ...goEnv, OPENCODE_AUTH_CONTENT: '' }).stdout).limits.message, /limits unavailable/, 'disk key change reused cached account limits');
-    assert.doesNotMatch(readFileSync(join(scratch, 'usage-v2-opencode.json'), 'utf8'), /fixture-secret-key|different-fixture-key/);
+    const changedKey = await run({ provider: 'opencode' }, { __fetch: async () => { throw new Error('unexpected quota request'); } });
+    assert.match(changedKey.limits.message ?? '', /limits unavailable/, 'disk key change reused cached account limits');
+    assert.doesNotMatch(readFileSync(stateFile('claude'), 'utf8'), /fixture-secret-key|different-fixture-key/);
 
     // Z.ai: the GLM Coding Plan credential Pi holds earns a tab, and its
     // measured activity is the Z.ai-model slice of Pi's own local records --
@@ -295,16 +341,15 @@ try {
         record('zai-1', '2026-09-05T11:30:00.000Z', 'glm-fixture', { input: 300, output: 100, cacheRead: 100 }, 0.7),
         record('zai-2', '2026-09-05T11:45:00.000Z', 'other-model', { input: 50 }, 0.9),
     ]);
-    const zaiFetchOk = join(scratch, 'zai-fetch-ok.mjs');
-    writeFileSync(zaiFetchOk, `globalThis.fetch = async (url, options) => {
-      if (url !== 'https://api.z.ai/api/monitor/usage/quota/limit' || options.redirect !== 'error' || options.headers.authorization !== 'Bearer fixture-zai-key') throw new Error('unexpected quota request');
-      return new Response(JSON.stringify({ code: 200, msg: 'Operation successful', success: true, data: { level: 'pro', limits: [
-        { type: 'CREDIT_LIMIT', unit: 3, number: 5, usage: 12000, currentValue: 539, remaining: 11461, percentage: 4, nextResetTime: Date.now() + 3 * 3600000 },
-        { type: 'CREDIT_LIMIT', unit: 6, number: 1, usage: 60000, currentValue: 539, remaining: 59461, percentage: 1, nextResetTime: Date.now() + 3 * 86400000 },
-        { type: 'CREDIT_LIMIT', unit: 9, number: 9, usage: 1, currentValue: 0, remaining: 1, percentage: 200, nextResetTime: Date.now() + 3600000 },
-      ] } }));
-    };`);
-    const zaiRun = JSON.parse(run({ provider: 'zai' }, { NODE_OPTIONS: `--import=${zaiFetchOk}`, PI_AGENT_DIR: zaiAgent }).stdout);
+    const zaiStubOk = (url, options) => {
+        if (url !== 'https://api.z.ai/api/monitor/usage/quota/limit' || options.redirect !== 'error' || options.headers.authorization !== 'Bearer fixture-zai-key') throw new Error('unexpected quota request');
+        return Promise.resolve(new Response(JSON.stringify({ code: 200, msg: 'Operation successful', success: true, data: { level: 'pro', limits: [
+            { type: 'CREDIT_LIMIT', unit: 3, number: 5, usage: 12000, currentValue: 539, remaining: 11461, percentage: 4, nextResetTime: Date.now() + 3 * 3600000 },
+            { type: 'CREDIT_LIMIT', unit: 6, number: 1, usage: 60000, currentValue: 539, remaining: 59461, percentage: 1, nextResetTime: Date.now() + 3 * 86400000 },
+            { type: 'CREDIT_LIMIT', unit: 9, number: 9, usage: 1, currentValue: 0, remaining: 1, percentage: 200, nextResetTime: Date.now() + 3600000 },
+        ] } })));
+    };
+    const zaiRun = await run({ provider: 'zai' }, { PI_AGENT_DIR: zaiAgent, MUXR_HOME: join(scratch, 'zai-state'), __fetch: zaiStubOk });
     assert.equal(zaiRun.provider, 'zai');
     assert.deepEqual(zaiRun.limits.plan, 'Z.ai plan');
     assert.deepEqual(zaiRun.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['5-hour limit', '5h', 4], ['Weekly limit', '7d', 1]]);
@@ -325,39 +370,36 @@ try {
     assert.doesNotMatch(JSON.stringify(zaiRun), /fixture-zai-key/);
     // The configured plan is a tab even with zero measured activity of its
     // own, while installed-but-idle CLIs still are not.
-    const withZai = JSON.parse(run({}, { PI_AGENT_DIR: zaiAgent, MUXR_PLUGIN_STATE_DIR: '' }).stdout);
+    const withZai = await run({}, { PI_AGENT_DIR: zaiAgent, MUXR_HOME: join(scratch, 'zai-state2') });
     assert.ok(withZai.providers.some((p) => p.id === 'zai'));
     assert.ok(!withZai.providers.some((p) => p.id === 'cursor' || p.id === 'gemini'));
-    writeFileSync(join(scratch, 'zai-fetch-denied.mjs'), "globalThis.fetch = async () => new Response('denied', { status: 401 });");
-    const zaiDenied = JSON.parse(run({ provider: 'zai' }, { NODE_OPTIONS: '--import=' + join(scratch, 'zai-fetch-denied.mjs'), PI_AGENT_DIR: zaiAgent, MUXR_PLUGIN_STATE_DIR: '' }).stdout);
+    const zaiDenied = await run({ provider: 'zai' }, { PI_AGENT_DIR: zaiAgent, MUXR_HOME: join(scratch, 'zai-state3'), __fetch: async () => new Response('denied', { status: 401 }) });
     assert.match(zaiDenied.limits.message ?? '', /reconnect in Pi/);
     assert.deepEqual(zaiDenied.limits.windows, []);
-    writeFileSync(join(scratch, 'zai-fetch-none.mjs'), "globalThis.fetch = async () => new Response(JSON.stringify({ code: 200, success: false, msg: 'no package' }), { status: 200 });");
-    const zaiNone = JSON.parse(run({ provider: 'zai' }, { NODE_OPTIONS: '--import=' + join(scratch, 'zai-fetch-none.mjs'), PI_AGENT_DIR: zaiAgent, MUXR_PLUGIN_STATE_DIR: '' }).stdout);
+    const zaiNone = await run({ provider: 'zai' }, { PI_AGENT_DIR: zaiAgent, MUXR_HOME: join(scratch, 'zai-state4'), __fetch: async () => new Response(JSON.stringify({ code: 200, success: false, msg: 'no package' }), { status: 200 }) });
     assert.match(zaiNone.limits.message ?? '', /coding plan unavailable/);
     // A valid dotted profile is isolated from the default; an invalid profile
     // must never quietly read another account's database.
     cpSync(join(scratch, '.omp/agent'), join(scratch, '.omp/profiles/work.team/agent'), { recursive: true });
-    const profileEnv = { OMP_PROFILE: 'work.team', MUXR_PLUGIN_STATE_DIR: '' };
-    assert.equal(JSON.parse(run({ provider: 'omp' }, profileEnv).stdout).todayTokens, '150');
-    const invalidProfile = JSON.parse(run({ provider: 'omp' }, { ...profileEnv, OMP_PROFILE: '../default' }).stdout);
+    const profileEnv = { OMP_PROFILE: 'work.team', MUXR_HOME: join(scratch, 'profile-state') };
+    assert.equal((await run({ provider: 'omp' }, profileEnv)).todayTokens, '150');
+    const invalidProfile = await run({ provider: 'omp' }, { ...profileEnv, OMP_PROFILE: '../default' });
     assert.match(invalidProfile.activityNotice ?? '', /Invalid OMP profile/);
     assert.equal(invalidProfile.todayTokens, '—');
 
     // A collector that cannot measure one agent does not stop a healthy tab
     // from caching its own (honestly labelled) payload: the failure stays on
     // screen, and the next open refreshes instead of pinning it.
-    rmSync(join(scratch, 'usage-v2-kimi.json'));
-    const kimiDuringOmpFailure = JSON.parse(run({ provider: 'kimi' }, { OMP_PROFILE: '../default' }).stdout);
+    rmSync(stateFile('kimi'), { force: true });
+    const kimiDuringOmpFailure = await run({ provider: 'kimi' }, { OMP_PROFILE: '../default' });
     assert.equal(kimiDuringOmpFailure.todayTokens, '2.5K');
-    assert.match(kimiDuringOmpFailure.items.find((item) => item.id === 'available-omp')?.subtitle ?? '', /Invalid OMP profile/);
-    assert.ok(existsSync(join(scratch, 'usage-v2-kimi.json')), 'a healthy tab caches despite another collector failing');
-    assert.equal(JSON.parse(run({ provider: 'kimi' }).stdout).providers[0]?.id, 'omp');
+    assert.ok(existsSync(stateFile('kimi')), 'a healthy tab caches despite another collector failing');
+    assert.equal((await run({ provider: 'kimi' })).providers[0]?.id, 'omp');
 
     // The lag fix: with any last-known payload on disk, the screen paints it
     // at once (flagged stale) instead of holding a skeleton behind a slow
     // collector; the paint itself never runs the collector.
-    const kimiCache = join(scratch, 'usage-v2-kimi.json');
+    const kimiCache = stateFile('kimi');
     const seeded = JSON.parse(readFileSync(kimiCache, 'utf8'));
     seeded.at -= 120_000;
     writeFileSync(kimiCache, JSON.stringify(seeded));
@@ -365,43 +407,41 @@ try {
     const slowCcusage = join(scratch, 'ccusage-slow');
     writeFileSync(slowCcusage, `#!/bin/sh\nsleep 6\ntouch "${slowMarker}"\nexit 1\n`, { mode: 0o755 });
     const staleStarted = Date.now();
-    const stalePaint = JSON.parse(run({ provider: 'kimi' }, { MUXR_CCUSAGE_BIN: slowCcusage }).stdout);
+    const stalePaint = await run({ provider: 'kimi' }, { MUXR_CCUSAGE_BIN: slowCcusage });
     const staleMs = Date.now() - staleStarted;
     assert.equal(stalePaint.todayTokens, '2.5K');
     assert.equal(stalePaint.stale, true);
     assert.ok(staleMs < 5_000, `stale paint waited on its slow collector (${staleMs}ms)`);
     assert.ok(!existsSync(slowMarker), 'stale paint must not run the collector at all');
-    // The screen's revalidation asks for fresh data by name (`_refresh`), so
+    // The screen's revalidation asks for fresh data by name (`refresh`), so
     // it re-collects past a still-valid cache and lands clean, flag-free.
     const refreshMarker = join(scratch, 'refresh-ccusage-ran');
     const refreshCcusage = join(scratch, 'ccusage-refresh');
     writeFileSync(refreshCcusage, `#!/bin/sh\ntouch "${refreshMarker}"\nprintf '%s' '${JSON.stringify(report)}'\n`, { mode: 0o755 });
-    const refreshed = JSON.parse(run({ provider: 'kimi', _refresh: true }, { MUXR_CCUSAGE_BIN: refreshCcusage }).stdout);
+    const refreshed = await run({ provider: 'kimi', refresh: true }, { MUXR_CCUSAGE_BIN: refreshCcusage });
     assert.ok(existsSync(refreshMarker), 'revalidation re-collected past the cache');
     assert.ok(!('stale' in refreshed));
     assert.equal(refreshed.todayTokens, '2.5K');
-    rmSync(join(scratch, 'usage-v2-all.json'));
+    rmSync(stateFile('all'), { force: true });
     const codexFixture = readFileSync(join(scratch, 'codex'), 'utf8');
     rmSync(join(scratch, 'codex'));
-    const fallback = run({ provider: 'codex' }, { PATH: scratch, MUXR_CCUSAGE_BIN: join(scratch, 'missing') });
-    assert.equal(fallback.status, 0, fallback.stderr);
-    const fallbackOutput = JSON.parse(fallback.stdout);
+    const fallback = await run({ provider: 'codex' }, { MUXR_CCUSAGE_BIN: join(scratch, 'missing') });
     // Codex without its CLI earns no tab, so the deep link falls back; the
-    // collection failure still surfaces on the card it landed on.
-    assert.equal(fallbackOutput.provider, 'omp');
-    assert.ok(fallbackOutput.items.some((item) => item.id === 'ccusage-unavailable'));
-    assert.ok(fallbackOutput.items.some((item) => item.id === 'available-claude' && item.metadata.length === 0));
-    assert.doesNotMatch(fallback.stdout, /OpenAI Codex current limit/);
-    assert.ok(!existsSync(join(scratch, 'usage-v2-codex.json')));
-    assert.ok(!existsSync(piMarker), 'Fallback Usage invoked Pi');
+    // measured-local tab it lands on still answers from its own collector.
+    assert.equal(fallback.provider, 'omp');
+    assert.equal(fallback.todayTokens, '150');
+    assert.ok(!fallback.providers.some((p) => p.id === 'codex'));
+    assert.doesNotMatch(JSON.stringify(fallback.windows), /OpenAI Codex/);
+    assert.ok(!existsSync(stateFile('codex')));
 
-    const invalid = JSON.parse(run({ provider: 'qwen' }, { PATH: scratch, MUXR_CCUSAGE_BIN: '/bin/true' }).stdout);
+    const invalid = await run({ provider: 'qwen' }, { MUXR_CCUSAGE_BIN: '/bin/true' });
     assert.equal(invalid.provider, 'omp');
     assert.ok(!invalid.providers.some((p) => p.id === 'qwen'));
 
+    // Daylight saving: the reported window is seven local days, and a
+    // spring-forward day cannot drop out of the week.
     const dstScratch = mkdtempSync(join(tmpdir(), 'muxr-usage-dst-'));
     try {
-        const dstCcusage = join(dstScratch, 'ccusage');
         const dstReport = {
             daily: [
                 { period: '2026-03-07', agents: [{ agent: 'claude', totalTokens: 333, totalCost: 1 }] },
@@ -410,26 +450,19 @@ try {
             ],
             totals: { totalTokens: 666, totalCost: 3 },
         };
+        const dstCcusage = join(dstScratch, 'ccusage');
         writeFileSync(dstCcusage, `#!/bin/sh\nprintf '%s' '${JSON.stringify(dstReport)}'\n`, { mode: 0o755 });
         writeFileSync(join(dstScratch, 'claude'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
-        const dst = spawnSync(process.execPath, ['plugins/status/usage.mjs'], {
-            cwd: process.cwd(),
-            encoding: 'utf8',
-            input: '{}',
-            env: {
-                ...process.env,
-                HOME: dstScratch,
-                PATH: `${dstScratch}:${process.env.PATH}`,
-                MUXR_CCUSAGE_BIN: dstCcusage,
-                MUXR_PLUGIN_STATE_DIR: dstScratch,
-                XDG_DATA_HOME: join(dstScratch, '.local/share'), PI_CONFIG_DIR: '.omp',
-                TZ: 'America/New_York',
-                MUXR_USAGE_NOW: '2026-03-09T04:30:00.000Z',
-            },
-            timeout: 20_000,
-        });
-        assert.equal(dst.status, 0, dst.stderr);
-        const dstOut = JSON.parse(dst.stdout);
+        const dstOut = await drive({
+            HOME: dstScratch,
+            PATH: `${dstScratch}:${process.env.PATH}`,
+            MUXR_CCUSAGE_BIN: dstCcusage,
+            MUXR_HOME: dstScratch,
+            XDG_DATA_HOME: join(dstScratch, '.local/share'), PI_CONFIG_DIR: '.omp',
+            TZ: 'America/New_York',
+            MUXR_USAGE_NOW: '2026-03-09T04:30:00.000Z',
+            OPENCODE_AUTH_CONTENT: undefined, NODE_OPTIONS: undefined,
+        }, {});
         assert.equal(dstOut.weekSeries.length, 7);
         assert.equal(dstOut.weekSeries[4]?.valueLabel, '333');
         assert.equal(dstOut.weekSeries[5]?.valueLabel, '111', 'DST spring-forward day dropped from the local week');
@@ -437,9 +470,11 @@ try {
     } finally {
         rmSync(dstScratch, { recursive: true, force: true });
     }
-    // Real host boundary: a custom profile and Go account override reach only
-    // the installed bundled Usage script, through stdin rather than generic env.
-    const { runPluginProcess } = await import('../../../apps/host/dist/agent/infrastructure/pluginCatalog.js');
+    process.stdout.write('PASS tabs: per-provider ccusage tabs + safe live limits + deduped local accounting\n');
+
+    // Profile switches and provider env stay host-internal: the same module
+    // the running host calls reads the host's own environment, and a switch
+    // re-collects instead of replaying another profile's cache.
     const hostRoot = join(scratch, 'host-xdg');
     mkdirSync(join(hostRoot, 'omp/profiles/host.flow'), { recursive: true });
     mkdirSync(join(hostRoot, 'opencode'), { recursive: true });
@@ -453,34 +488,23 @@ try {
         'CREATE TABLE message (time_created INTEGER, data TEXT)', 'INSERT INTO message VALUES (?, ?)',
         [Date.now() - 30_000, JSON.stringify({ role: 'assistant', modelID: 'fixture-go', providerID: 'opencode-go', tokens: { input: 5, output: 5 }, cost: 0 })]);
     writeFileSync(join(scratch, 'codex'), codexFixture, { mode: 0o755 });
-    mkdirSync(join(scratch, 'host-state'));
-    const hostEnvironment = { HOME: scratch, PATH: `${scratch}:${process.env.PATH}`, XDG_DATA_HOME: hostRoot, PI_CONFIG_DIR: '.omp', OMP_PROFILE: 'host.flow', PI_PROFILE: '', OPENCODE_AUTH_CONTENT: '{}', CLAUDE_CONFIG_DIR: join(scratch, '.claude'), CODEX_HOME: join(scratch, '.codex') };
-    const previous = Object.fromEntries(Object.keys(hostEnvironment).map((key) => [key, process.env[key]]));
-    try {
-        Object.assign(process.env, hostEnvironment);
-        const call = (script, provider) => runPluginProcess({ pluginId: 'muxr.status', method: 'usage', script, serializedInput: JSON.stringify({ provider, _usageConfig: { OMP_PROFILE: 'caller-must-not-win' } }), stateDir: join(scratch, 'host-state') });
-        const launched = await call(resolve('plugins/status/usage.mjs'), 'omp');
-        assert.equal(launched.provider, 'omp');
-        assert.equal(launched.todayTokens, '150');
-        assert.equal(launched.modelSeries[0]?.label, 'host-omp');
-        writeTranscript(join(hostRoot, 'omp/profiles/host.next/agent/sessions/proj/session.jsonl'), [
-            record('next-1', new Date(Date.now() - 60_000).toISOString(), 'next-omp', { input: 7 }, 0.01),
-        ]);
-        process.env.OMP_PROFILE = 'host.next';
-        const switched = await call(resolve('plugins/status/usage.mjs'), 'omp');
-        assert.equal(switched.todayTokens, '7', 'profile switch reused another profile cache');
-        const hostGo = await call(resolve('plugins/status/usage.mjs'), 'opencode');
-        assert.match(hostGo.limits.message ?? '', /connect your Go account/);
-        assert.doesNotMatch(JSON.stringify(hostGo), /must-not-borrow-disk-key|_usageConfig/);
-        const untrusted = join(scratch, 'usage.mjs');
-        writeFileSync(untrusted, `import{readFileSync}from'node:fs';const input=JSON.parse(readFileSync(0,'utf8'));console.log(JSON.stringify({hostAuthInInput:input._usageConfig?.goAuthOverride!==undefined,hostAuthInEnv:process.env.OPENCODE_AUTH_CONTENT!==undefined,hostProfileInEnv:process.env.OMP_PROFILE!==undefined}));`);
-        const denied = await call(untrusted, 'omp');
-        assert.deepEqual({ ...denied }, { hostAuthInInput: false, hostAuthInEnv: false, hostProfileInEnv: false });
-    } finally {
-        for (const [key, value] of Object.entries(previous)) {
-            if (value === undefined) delete process.env[key]; else process.env[key] = value;
-        }
-    }
+    // The host-internal section runs on the real clock like the live host: the
+    // transcripts it writes are fresh, so no pinned MUXR_USAGE_NOW here.
+    const hostEnvironment = { HOME: scratch, PATH: `${scratch}:${process.env.PATH}`, XDG_DATA_HOME: hostRoot, PI_CONFIG_DIR: '.omp', OMP_PROFILE: 'host.flow', PI_PROFILE: '', CLAUDE_CONFIG_DIR: join(scratch, '.claude'), CODEX_HOME: join(scratch, '.codex'), TZ: 'UTC', MUXR_HOME: scratch, MUXR_CCUSAGE_BIN: ccusage, MUXR_USAGE_NOW: undefined, OPENCODE_AUTH_CONTENT: '{}' };
+    const launched = await drive(hostEnvironment, { provider: 'omp' });
+    assert.equal(launched.provider, 'omp');
+    assert.equal(launched.todayTokens, '150');
+    assert.equal(launched.modelSeries[0]?.label, 'host-omp');
+    writeTranscript(join(hostRoot, 'omp/profiles/host.next/agent/sessions/proj/session.jsonl'), [
+        record('next-1', new Date(Date.now() - 60_000).toISOString(), 'next-omp', { input: 7 }, 0.01),
+    ]);
+    const switched = await drive({ ...hostEnvironment, OMP_PROFILE: 'host.next' }, { provider: 'omp' });
+    assert.equal(switched.todayTokens, '7', 'profile switch reused another profile cache');
+    const hostGo = await drive({ ...hostEnvironment, OPENCODE_AUTH_CONTENT: '{}' }, { provider: 'opencode' });
+    assert.match(hostGo.limits.message ?? '', /connect your Go account/);
+    assert.doesNotMatch(JSON.stringify(hostGo), /must-not-borrow-disk-key/);
+    process.stdout.write('PASS host env: profile switches re-collect; the disk Go account is never borrowed\n');
+
     // Release flow: real transcripts through the real collector, next to the
     // real pinned ccusage reading the same Pi root. Everything below is one
     // journey across tabs at one fixed instant, minutes after Dubai midnight.
@@ -513,33 +537,32 @@ try {
         mkdirSync(join(flow, '.claude/projects'), { recursive: true });
         codexRollout(join(flow, '.codex/sessions/2026/09/07/rollout-2026-09-07T20-02-00-a.jsonl'), '2026-09-07T20:02:00.000Z', 'gpt-5-codex', { input: 1000, cached: 200, output: 300, reasoning: 100 });
         codexRollout(join(flow, '.codex/sessions/2026/09/06/rollout-2026-09-06T10-00-00-b.jsonl'), '2026-09-06T10:00:00.000Z', 'gpt-5-codex', { input: 500, cached: 0, output: 200, reasoning: 0 });
-        const flowRun = (provider, environment = {}) => {
-            const result = spawnSync(process.execPath, ['plugins/status/usage.mjs'], {
-                cwd: process.cwd(), encoding: 'utf8', input: JSON.stringify({ provider }),
-                env: {
-                    ...process.env, HOME: flow, PATH: `${flow}:${process.env.PATH}`,
-                    XDG_DATA_HOME: join(flow, '.local/share'), PI_CONFIG_DIR: '.omp', PI_AGENT_DIR: piRoot,
-                    OMP_PROFILE: '', PI_PROFILE: '', OPENCODE_AUTH_CONTENT: '', CLAUDE_CONFIG_DIR: join(flow, '.claude'),
-                    CODEX_HOME: join(flow, '.codex'), TZ: 'Asia/Dubai', MUXR_USAGE_NOW: captured,
-                    MUXR_PLUGIN_STATE_DIR: join(flow, 'state'),
-                    ...environment,
-                },
-                timeout: 30_000,
-            });
-            assert.equal(result.status, 0, result.stderr);
-            return JSON.parse(result.stdout);
+        const flowEnv = {
+            HOME: flow, PATH: `${flow}:${process.env.PATH}`,
+            XDG_DATA_HOME: join(flow, '.local/share'), PI_CONFIG_DIR: '.omp', PI_AGENT_DIR: piRoot,
+            OMP_PROFILE: '', PI_PROFILE: '', CLAUDE_CONFIG_DIR: join(flow, '.claude'),
+            CODEX_HOME: join(flow, '.codex'), TZ: 'Asia/Dubai', MUXR_USAGE_NOW: captured,
+            MUXR_HOME: join(flow, 'state'),
+            MUXR_CCUSAGE_BIN: undefined,
+            OPENCODE_AUTH_CONTENT: undefined, NODE_OPTIONS: undefined,
         };
+        const flowRun = (provider, environment = {}) => drive({ ...flowEnv, ...environment }, { provider });
         mkdirSync(join(flow, 'state'));
 
         // Upstream ccusage counts the fork's copies again; that is the defect
         // this collector exists to correct, so assert the raw report first.
-        const upstream = JSON.parse(spawnSync(ccusageBinary,
+        // The pinned native binary ships without an exec bit (npm strips it);
+        // repair first use exactly like the host collector does.
+        chmodSync(ccusageBinary, 0o755);
+        const upstreamRun = spawnSync(ccusageBinary,
             ['daily', '--by-agent', '--sections', 'daily', '--json', '--offline'],
-            { encoding: 'utf8', env: { ...process.env, HOME: flow, PI_AGENT_DIR: piRoot, TZ: 'Asia/Dubai' }, timeout: 30_000 }).stdout);
+            { encoding: 'utf8', env: { ...process.env, HOME: flow, PI_AGENT_DIR: piRoot, TZ: 'Asia/Dubai' }, timeout: 30_000 });
+        assert.equal(upstreamRun.error, undefined, `upstream ccusage did not run: ${upstreamRun.error}`);
+        const upstream = JSON.parse(upstreamRun.stdout);
         const upstreamToday = upstream.daily.find((day) => day.period === '2026-09-08')?.agents.find((row) => row.agent === 'pi');
         assert.equal(upstreamToday?.totalTokens, 2250, 'fixture no longer reproduces the fork duplication');
 
-        const pi = flowRun('pi');
+        const pi = await flowRun('pi');
         assert.equal(pi.provider, 'pi');
         assert.equal(pi.capturedAt, captured);
         // 1000 today plus 250 from the fork's own message, each counted once.
@@ -562,7 +585,7 @@ try {
         assert.deepEqual(pi.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['OpenAI Codex · 168h', '7d', 90], ['OpenAI Codex · 5h', '5h', 25]]);
         assert.equal(pi.limits.message, undefined);
 
-        const omp = flowRun('omp');
+        const omp = await flowRun('omp');
         assert.equal(omp.provider, 'omp');
         // Measured, and measured empty: zero tokens cost zero, not unknown.
         assert.equal(omp.todayTokens, '0');
@@ -579,7 +602,7 @@ try {
 
         // Real Codex logs through the real ccusage: pinned daily and week totals,
         // not a shape check.
-        const codex = flowRun('codex');
+        const codex = await flowRun('codex');
         assert.equal(codex.provider, 'codex');
         assert.ok(codex.limits.windows.length > 0);
         // Every limits row ships a used share inside 0..100 and a spelled-out reset.
@@ -603,7 +626,7 @@ try {
         writeTranscript(join(custom, 'sessions/proj/session.jsonl'), [
             record('custom-1', '2026-09-07T20:03:00.000Z', 'custom-omp', { input: 55 }, 0.02),
         ]);
-        const customRoot = flowRun('omp', { PI_CODING_AGENT_DIR: custom });
+        const customRoot = await flowRun('omp', { PI_CODING_AGENT_DIR: custom, MUXR_HOME: join(flow, 'state-custom') });
         assert.equal(customRoot.todayTokens, '55');
         assert.equal(customRoot.modelSeries[0]?.label, 'custom-omp');
 
@@ -614,7 +637,7 @@ try {
             record('good-1', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 10 }, 0.01),
             '{"message":{"role":"assistant","usage":{"input":5',
         ]);
-        const broken = flowRun('pi', { PI_AGENT_DIR: malformed });
+        const broken = await flowRun('pi', { PI_AGENT_DIR: malformed, MUXR_HOME: join(flow, 'state-m1') });
         assert.equal(broken.todayTokens, '—');
         assert.match(broken.activityNotice ?? '', /could not be measured/);
         // A transcript nested past the scan's depth bound is unread, not empty.
@@ -622,7 +645,7 @@ try {
         writeTranscript(join(deep, 'sessions/a/b/c/d/e/f/g/h/i/session.jsonl'), [
             record('deep-1', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 10 }, 0.01),
         ]);
-        assert.equal(flowRun('pi', { PI_AGENT_DIR: deep }).todayTokens, '—');
+        assert.equal((await flowRun('pi', { PI_AGENT_DIR: deep, MUXR_HOME: join(flow, 'state-m2') })).todayTokens, '—');
 
         // Real Pi trees nest by worktree slug, session, subagent, and run —
         // depth the scan has to measure, not refuse.
@@ -630,7 +653,7 @@ try {
         writeTranscript(join(nested, 'sessions/--home-umer-worktree--/2026-09-07_session/sub-1/run-0/session.jsonl'), [
             record('nested-1', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 700 }, 0.02),
         ]);
-        assert.equal(flowRun('pi', { PI_AGENT_DIR: nested }).todayTokens, '700');
+        assert.equal((await flowRun('pi', { PI_AGENT_DIR: nested, MUXR_HOME: join(flow, 'state-m3') })).todayTokens, '700');
 
         // A line past the 4 MB bound whose usage sits after the retained prefix:
         // the head alone cannot say the line was worthless, so the total is not
@@ -640,7 +663,7 @@ try {
             record('good-2', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 10 }, 0.01),
             `{"id":"huge","pad":"${'p'.repeat(5 * 1024 * 1024)}","message":{"role":"assistant","model":"fixture-pi","timestamp":"2026-09-07T20:03:30.000Z","usage":{"input":999999}}}`,
         ]);
-        const huge = flowRun('pi', { PI_AGENT_DIR: oversized });
+        const huge = await flowRun('pi', { PI_AGENT_DIR: oversized, MUXR_HOME: join(flow, 'state-m4') });
         assert.equal(huge.todayTokens, '—');
         assert.match(huge.activityNotice ?? '', /could not be measured/);
 
@@ -654,14 +677,14 @@ try {
             ]);
             chmodSync(join(locked, 'sessions/proj'), 0o000);
             try {
-                const denied = flowRun('pi', { PI_AGENT_DIR: locked });
+                const denied = await flowRun('pi', { PI_AGENT_DIR: locked, MUXR_HOME: join(flow, 'state-m5') });
                 assert.equal(denied.todayTokens, '—');
                 assert.match(denied.activityNotice ?? '', /could not be measured/);
             } finally { chmodSync(join(locked, 'sessions/proj'), 0o755); }
         }
 
         // Back to Pi: the same journey twice reports the same figures.
-        const again = flowRun('pi');
+        const again = await flowRun('pi');
         assert.equal(again.provider, 'pi');
         assert.equal(again.todayTokens, '1.3K');
         assert.equal(again.weekCost, '—');
@@ -672,7 +695,7 @@ try {
         writeTranscript(join(exhausted, 'sessions/proj/wide.jsonl'),
             Array.from({ length: 1100 }, (_, index) => record(`wide-${index}`, '2026-09-07T20:03:00.000Z', `model-${index}`, { input: 10 }, 0.01)));
         rmSync(join(flow, 'state', 'usage-v2-pi.json'), { force: true });
-        const unavailable = flowRun('pi', { PI_AGENT_DIR: exhausted });
+        const unavailable = await flowRun('pi', { PI_AGENT_DIR: exhausted });
         assert.equal(unavailable.todayTokens, '—');
         assert.equal(unavailable.todayCost, '—');
         assert.match(unavailable.activityNotice ?? '', /could not be measured/);
@@ -680,26 +703,25 @@ try {
     } finally {
         rmSync(flow, { recursive: true, force: true });
     }
-    process.stdout.write('PASS e2e: per-provider ccusage tabs + safe live limits + deduped local accounting\n');
+    process.stdout.write('PASS flow: fork-deduped transcripts, borrowed plans, bounded scans, Dubai-midnight journey\n');
 
     // The Right now card leads with the window the verdict describes: the
     // highest share used, ties to the first published. Compared against the
-    // same Usage answer now.mjs read, so a selection that picked another
+    // same Usage answer usage.now read, so a selection that picked another
     // window -- or none -- fails here. Runs after the scan-counting
-    // assertions: now.mjs invokes usage.mjs, and a warm-cache answer still
-    // counts as one ccusage scan.
-    // now.mjs never names a provider -- it always spawns usage.mjs with '{}'
+    // assertions: usage.now answers from the same cache one ccusage scan fills.
+    // usage.now never names a provider -- it always collects the default view
     // -- so the default selection decides the payload, and in this fixture
     // that is `omp`, which publishes no plan windows at all. Seed the `all`
     // cache both readers below will hit with the Claude answer, whose fixture
     // publishes a competing 5-hour and 7-day window, so there is something to
     // select between. MUXR_USAGE_NOW pins NOW, so the seeded entry is age 0
     // and is served fresh rather than flagged stale.
-    const claudeRun = run({ provider: 'claude' });
-    assert.equal(claudeRun.status, 0, claudeRun.stderr);
-    cpSync(join(scratch, 'usage-v2-claude.json'), join(scratch, 'usage-v2-all.json'));
-    const nowPayload = JSON.parse(runPlugin('plugins/status/now.mjs', {}).stdout);
-    const nowUsage = JSON.parse(runPlugin('plugins/status/usage.mjs', {}).stdout);
+    const claudeRun = await run({ provider: 'claude' });
+    assert.equal(claudeRun.provider, 'claude');
+    cpSync(stateFile('claude'), stateFile('all'));
+    const nowPayload = await driveNow(baseEnv());
+    const nowUsage = await run({});
     assert.equal(nowUsage.provider, 'claude', 'the seeded cache must be what both readers answered from');
     assert.ok(!('stale' in nowUsage), 'a cache seeded at the pinned NOW must be served fresh');
     assert.ok(nowUsage.windows.length > 1, 'fixtures must publish competing windows for the selection to mean anything');
@@ -709,7 +731,6 @@ try {
     // usage payload published. Which window was selected, not object
     // identity: both runs rebuild from their own `Date.now()`, so `elapsed` is
     // a live float that only a cache-served second run would match whole.
-    const { tightestWindow } = await import('../../../plugins/status/usageWindows.mjs');
     const led = nowPayload.limits.windows[0];
     const describes = nowUsage.limits.windows[nowUsage.windows.indexOf(tightestWindow(nowUsage.windows))];
     assert.ok(led !== undefined && describes !== undefined, 'the card must lead with a window');
@@ -725,17 +746,28 @@ try {
     // contract; present-but-zero would divide the share by zero.
     assert.ok(nowPayload.vitals.diskTotal === undefined
         || (Number.isFinite(nowPayload.vitals.diskTotal) && nowPayload.vitals.diskTotal > 0));
-    // The cold-cache fallback, driven: a usage read that cannot answer at all
-    // still leaves the vitals line standing, and says it is collecting rather
-    // than reporting a limit it never read.
-    const coldStatus = join(scratch, 'now-cold');
-    cpSync(resolve('plugins/status'), coldStatus, { recursive: true });
-    writeFileSync(join(coldStatus, 'usage.mjs'), 'process.exit(1);\n');
-    const coldNow = JSON.parse(runPlugin(join(coldStatus, 'now.mjs'), {}).stdout);
-    assert.equal(coldNow.collecting, true, 'a usage read that cannot answer must report collecting');
+    // The connected strip passes through verbatim: every provider with real
+    // quota windows, most urgent first, one entry per window.
+    assert.ok(Array.isArray(nowPayload.connected) && nowPayload.connected.length > 0);
+    assert.deepEqual(nowPayload.connected.map((entry) => [entry.id, entry.windows.length]), [['codex', 2], ['claude', 2]]);
+    // The cold-cache fallback, driven through the real usage.now path: a
+    // usage read that cannot answer within its bounded wait still leaves the
+    // vitals line standing, and says it is collecting rather than reporting a
+    // limit it never read.
+    const slowCold = join(scratch, 'ccusage-cold');
+    const coldMarker = join(scratch, 'cold-ccusage-ran');
+    writeFileSync(slowCold, `#!/bin/sh\nsleep 9\ntouch "${coldMarker}"\nexit 1\n`, { mode: 0o755 });
+    const coldHome = join(scratch, 'now-cold');
+    const coldStarted = Date.now();
+    const coldNow = await driveNow({ ...baseEnv(), HOME: coldHome, MUXR_HOME: coldHome, MUXR_CCUSAGE_BIN: slowCold });
+    const coldMs = Date.now() - coldStarted;
+    assert.equal(coldNow.collecting, true, 'a usage read that cannot answer in time must report collecting');
     assert.deepEqual(coldNow.limits, { verdict: 'unknown', windows: [] });
     assert.ok(Number.isFinite(coldNow.vitals.memoryTotal) && coldNow.vitals.memoryTotal > 0);
+    assert.ok(coldMs < 8_000, `the bounded wait answered late (${coldMs}ms)`);
+    assert.ok(!existsSync(join(coldHome, 'usage')), 'a timed-out collection must not have cached a partial answer');
     process.stdout.write('PASS now: the home card leads with the window its verdict describes\n');
 } finally {
+    globalThis.fetch = realFetch;
     rmSync(scratch, { recursive: true, force: true });
 }

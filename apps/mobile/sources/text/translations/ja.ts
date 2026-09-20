@@ -18,6 +18,11 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const ja: TranslationStructure = {
+    usage: {
+        title: '使用状況',
+    },
+
+
     tabs: {
         // Tab navigation labels
         sessions: 'ターミナル',

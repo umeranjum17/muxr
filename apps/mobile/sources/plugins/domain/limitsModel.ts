@@ -1,28 +1,12 @@
 import { MAX_CHART_LABEL_BYTES, MAX_CHART_SERIES, capUtf8Bytes, sanitizeDisplayText } from '@muxr/contract';
+import type { UsageLimitsPayload, UsageLimitsVerdict, UsageLimitsWindow } from '@muxr/contract';
 
-/** What the host says about the plan right now; the app owns wording and tone. */
-export type PluginLimitsVerdict = 'go' | 'ahead' | 'watch' | 'low' | 'limited' | 'unknown';
-
-export interface PluginLimitsWindow {
-    label: string;
-    /** Published window length after the label ("5h", "7d"); omitted when the host does not know one. */
-    window?: string;
-    /** Percent of the window used, 0..100. */
-    used: number;
-    /** Duration until reset ("4h 11m"); omitted when the host has no reset time. */
-    resetsIn?: string;
-    /** How much of the window has elapsed, 0..1, when the length is known. */
-    elapsed?: number;
-}
-
-export interface PluginLimitsPayload {
-    /** Plan name rendered beside the section label ("OpenCode Go"). */
-    plan?: string;
-    verdict: PluginLimitsVerdict;
-    /** Host message shown as one quiet line when there is nothing to card. */
-    message?: string;
-    windows: PluginLimitsWindow[];
-}
+/** The limits vocabulary is the contract's own usage vocabulary; the parsers
+ *  below bound it at the untrusted plugin boundary and are reused by typed
+ *  host surfaces that render through the same primitives. */
+export type PluginLimitsVerdict = UsageLimitsVerdict;
+export type PluginLimitsWindow = UsageLimitsWindow;
+export type PluginLimitsPayload = UsageLimitsPayload;
 
 const VERDICTS = new Set<PluginLimitsVerdict>(['go', 'ahead', 'watch', 'low', 'limited']);
 

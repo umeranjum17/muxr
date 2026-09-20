@@ -3,7 +3,7 @@ title: Plugins on primitives
 slug: plugin-primitives
 status: tested
 created: 2026-08-15
-updated: 2026-09-19
+updated: 2026-09-20
 owner: umer
 links:
   - ../decisions/0005-pi-like-extension-runtime.md
@@ -46,9 +46,9 @@ Attachments and changes list via `plugin.call` (metadata only). Actionable rows 
 
 RPC contributions may explicitly request `sessions` and/or `workspace-tree`. Immediately before spawn, the host passes a fresh bounded `MUXR_PLUGIN_CONTEXT_JSON` with stable muxr session ids, labels, cwd/workspace/tab labels, agent kind/status, attention timestamps, and label-only tree relationships. It never includes secrets, terminal bytes, device ids, pane ids, workspace ids, tab ids, or other internal ids; records and bytes are capped. Inbox consumes `sessions` and owns grouping, ordering, wording, and the six-hour done TTL. Agent close is host code, not a plugin backend: `session.stop` runs the close ladder in `agentClose.ts` directly on the live Herdr socket, asking live Herdr for each exact pane → tab → workspace → worktree-group escalation, returning a typed confirmation for every broader scope, revalidating after confirmation, treating only a target missing from a live snapshot as already closed, and returning retry/error for temporary revalidation outages. A Herdr refusal advances strictly beyond both the attempted and already-confirmed scopes. The phone never counts topology or invents close scope.
 
-The Usage plugin aggregates bounded local activity and plan limits through the public screen nodes; `plugins/status/README.md` is the authoritative contract for activity, plan limits, recency, and bounds.
+Usage and machine health are product surfaces served by the host's typed `usage.report` / `usage.now` methods (`apps/host/src/usage/`); they are not plugin surfaces, and no manifest can claim them.
 
-UI version 13 makes dynamic plugin data genuinely visual without creating a plugin layout engine: progress may bind one bounded numeric data path; sections may arrange safe summary nodes in two or three responsive columns; and one bounded `chart` node renders app-owned bar or ring presentation with a visible text legend and full accessibility summary. Series are capped, plugins cannot supply colors, markup, axes, animation, or interaction, and malformed runtime values degrade to an empty state. Usage is the load-bearing proof: today’s measured agent activity and Codex limits use the same public nodes available to every third-party plugin.
+UI version 13 makes dynamic plugin data genuinely visual without creating a plugin layout engine: progress may bind one bounded numeric data path; sections may arrange safe summary nodes in two or three responsive columns; and one bounded `chart` node renders app-owned bar or ring presentation with a visible text legend and full accessibility summary. Series are capped, plugins cannot supply colors, markup, axes, animation, or interaction, and malformed runtime values degrade to an empty state. Usage was that version's load-bearing proof; measured agent activity and plan limits have since moved to host product code (`usage.report`/`usage.now`), so they no longer exercise these nodes.
 
 UI version 14 is covered in `../PLUGINS.md`: rows gain `icon`/`meta` identity, `text`/`badge`/`progress`/`row` gain runtime-bound tones, switch/select fields gain bound saved-state values, `limits` gains an `emptyText` fallback, and the renderer decides notices, notes, row grouping, blank-hides, title dedupe and data-shaped skeletons on the author's behalf.
 
@@ -100,7 +100,7 @@ Muxr is presentation-only for Agent Name and Task Title. Those values come from 
 
 - 2026-09-17 — Dictation, the terminal key row, and the workspace tree are product code, no longer bundled plugins: there is nothing left to clone or override, and legacy clones keep rendering beside the product surfaces until disabled. Agent close is host code — `session.stop` runs the close ladder in `agentClose.ts` on the live Herdr socket — so the packaged capability pin is gone and no `agent.close` capability name is consumed.
 
-- 2026-09-15 — Usage paragraph now points to `plugins/status/README.md` (integrated-only tabs, Z.ai plan limits); the spec no longer carries a second copy of the Usage contract.
+- 2026-09-15 — Usage paragraph once pointed to the bundled status plugin's README (integrated-only tabs, Z.ai plan limits); the spec no longer carries a second copy of the Usage contract.
 
 - 2026-08-30 — Remove bundled pane-titler. Muxr consumes Herdr `name`/`title` only; install a community plugin such as `wyattjoh/herdr-plugin-renamer` for Claude/Codex/Pi titles.
 - 2026-08-29 — Replace “Untitled task” on live/recent agent cards with the canonical Agent Name fallback, carry Agent Kind into Lifecycle Events, render Agent Kind beside titles, and fix Pane Titler metadata so idle/done titles remain visible. Title generation now uses each detected provider's own ACP/CLI path (Cursor Auto; Pi only for Pi) and falls back quickly offline; Agent Name rename remains independent from Task Title and Agent Kind.
