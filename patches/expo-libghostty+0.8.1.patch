@@ -680,7 +680,7 @@ index e3bf3b8973c565cccfea1982e498d5d23bac1d8c..dc5b3670183dfe2d7484df683144cf63
              writeText: whenReady((text) => native.current.writeText(text)),
              finish: whenReady((exitCode) => native.current.finish(exitCode)),
 diff --git a/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift b/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift
-index 2f32970ab6b560820b12b8e17842ed05471ba8ec..6f55572a5d721c2d33d39eee1fee32ab60210164 100644
+index 2f32970ab6b560820b12b8e17842ed05471ba8ec..c5e92a89906756f683904fb5d897f9d2de9cfaef 100644
 --- a/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift
 +++ b/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift
 @@ -5,7 +5,7 @@ public class ExpoLibghosttyModule: Module {
@@ -688,7 +688,7 @@ index 2f32970ab6b560820b12b8e17842ed05471ba8ec..6f55572a5d721c2d33d39eee1fee32ab
  
      View(ExpoLibghosttyView.self) {
 -      Events("onInput", "onResize")
-+      Events("onInput", "onResize", "onScroll")
++      Events("onInput", "onResize", "onScroll", "onOpenLink")
  
        // Base font size in points (default 14). Changing it after mount
        // rebuilds the surface and resets the grid.
@@ -719,7 +719,7 @@ index 2f32970ab6b560820b12b8e17842ed05471ba8ec..6f55572a5d721c2d33d39eee1fee32ab
        AsyncFunction("finish") { (view: ExpoLibghosttyView, exitCode: UInt32) in
          view.finish(exitCode: exitCode)
 diff --git a/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift b/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift
-index 12925b541f7d4ebb98b5a9976486a561c69d6fe2..98f1d481f2700b0a48cbad3313a232f77c5ce376 100644
+index 12925b541f7d4ebb98b5a9976486a561c69d6fe2..9b74fa3163fde7936c407ba279bd323cf7054d66 100644
 --- a/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift
 +++ b/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift
 @@ -1,5 +1,6 @@
@@ -729,11 +729,12 @@ index 12925b541f7d4ebb98b5a9976486a561c69d6fe2..98f1d481f2700b0a48cbad3313a232f7
  
  // Ghostty-backed terminal view. The JS side owns transport and session
  // lifecycle; this view only renders bytes pushed via `write` and reports
-@@ -44,6 +45,12 @@ class ExpoLibghosttyView: ExpoView {
+@@ -44,6 +45,13 @@ class ExpoLibghosttyView: ExpoView {
  
    let onInput = EventDispatcher()
    let onResize = EventDispatcher()
 +  let onScroll = EventDispatcher()
++  let onOpenLink = EventDispatcher()
 +  var autoShowKeyboard = true {
 +    didSet { terminalView.autoShowKeyboard = autoShowKeyboard }
 +  }
@@ -742,7 +743,7 @@ index 12925b541f7d4ebb98b5a9976486a561c69d6fe2..98f1d481f2700b0a48cbad3313a232f7
  
    required init(appContext: AppContext? = nil) {
      super.init(appContext: appContext)
-@@ -57,7 +64,14 @@ class ExpoLibghosttyView: ExpoView {
+@@ -57,7 +65,14 @@ class ExpoLibghosttyView: ExpoView {
          ])
        },
        resize: { [weak self] viewport in
@@ -758,12 +759,13 @@ index 12925b541f7d4ebb98b5a9976486a561c69d6fe2..98f1d481f2700b0a48cbad3313a232f7
        }
      )
      self.session = session
-@@ -65,8 +79,18 @@ class ExpoLibghosttyView: ExpoView {
+@@ -65,8 +80,19 @@ class ExpoLibghosttyView: ExpoView {
      // ("surface rebuild skipped: missing controller").
      terminalView.controller = TerminalController.shared
      terminalView.configuration = TerminalSurfaceOptions(backend: .inMemory(session))
 +    terminalView.inputAccessoryItems = []
      terminalView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
++    terminalView.delegate = self
      addSubview(terminalView)
 +    terminalView.hostScrollHandler = { [weak self] deltaY in
 +      guard let self else { return }
@@ -777,7 +779,7 @@ index 12925b541f7d4ebb98b5a9976486a561c69d6fe2..98f1d481f2700b0a48cbad3313a232f7
    }
  
    /// Feed PTY output (terminal.output on the wire) into the grid.
-@@ -79,6 +103,16 @@ class ExpoLibghosttyView: ExpoView {
+@@ -79,8 +105,33 @@ class ExpoLibghosttyView: ExpoView {
      session?.receive(text)
    }
  
@@ -794,25 +796,164 @@ index 12925b541f7d4ebb98b5a9976486a561c69d6fe2..98f1d481f2700b0a48cbad3313a232f7
    /// Mark the underlying PTY as exited (terminal.exit on the wire).
    func finish(exitCode: UInt32) {
      session?.finish(exitCode: exitCode, runtimeMilliseconds: 0)
+   }
+ }
++
++extension ExpoLibghosttyView: TerminalSurfaceOpenURLDelegate, TerminalSurfaceCopyURLDelegate {
++  /// Core recognized the user activating a printed link (plain URL or OSC 8).
++  /// The JS layer owns the scheme boundary; nothing is opened natively.
++  func terminalDidRequestOpenURL(_ url: String, kind: TerminalOpenURLKind) {
++    onOpenLink(["url": url])
++  }
++
++  func terminalDidRequestCopyURL(_ url: String) {
++    guard !url.isEmpty else { return }
++    UIPasteboard.general.string = url
++    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
++    UIAccessibility.post(notification: .announcement, argument: "Link copied")
++  }
++}
+diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/InMemory/TerminalCallbackBridge.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/InMemory/TerminalCallbackBridge.swift
+index d90375aaf84b9191b8f107ab83869ce323a6a7f5..85a34b92dd47de75af27a1c752729aac317003f3 100644
+--- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/InMemory/TerminalCallbackBridge.swift
++++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/InMemory/TerminalCallbackBridge.swift
+@@ -20,6 +20,9 @@ final class TerminalCallbackBridge {
+     nonisolated(unsafe) var rawSurface: ghostty_surface_t?
+     var onCellSizeChange: ((UInt32, UInt32) -> Void)?
+     var onRenderRequest: (() -> Void)?
++    /// Link presence under the pointer changed. Touch views use this to
++    /// prime a synchronous link lookup (touch has no hover of its own).
++    var onMouseOverLink: ((String?) -> Void)?
+ 
+     init(delegate: (any TerminalSurfaceViewDelegate)? = nil) {
+         self.delegate = delegate
+@@ -129,6 +132,7 @@ final class TerminalCallbackBridge {
+             )
+             (delegate as? any TerminalSurfaceHoverLinkDelegate)?
+                 .terminalDidUpdateHoverLink(url)
++            onMouseOverLink?(url)
+ 
+         case GHOSTTY_ACTION_PWD:
+             let payload = action.action.pwd
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-index 3f3eeb202351f474526690dc27937df833bdd7e3..12192145f835723d68efb0290bd55b8bb470cd8a 100644
+index 3f3eeb202351f474526690dc27937df833bdd7e3..5eba2930dffbc59ed07e20267c33b55cc39c29f7 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-@@ -25,7 +25,13 @@
+@@ -25,9 +25,22 @@
                  touchDidScrollDuringCurrentTouch = false
                  if softwareKeyboardVisible {
                      pendingKeyboardDismissOnTouchEnd = true
 +                } else if autoShowKeyboard {
-+                    // Already first responder is the common case, and becoming
-+                    // one again is a no-op, so the keyboard has to be asked for
-+                    // explicitly rather than implied by taking focus.
-+                    showKeyboard()
++                    // Deferred to touch end: a tap that activates a link must
++                    // not raise the keyboard, and the link decision needs the
++                    // stable end point.
++                    pendingKeyboardShowOnTouchEnd = true
                  } else {
 +                    softwareKeyboardSuppressed = true
                      becomeFirstResponder()
                  }
++                if touches.count == 1, let touch = touches.first, touch.type == .direct {
++                    let point = touch.location(in: self)
++                    pendingTapPoint = point
++                    primeHoverLink(at: point)
++                } else {
++                    pendingTapPoint = nil
++                }
              #endif
-@@ -532,12 +538,16 @@
+         }
+ 
+@@ -49,6 +62,29 @@
+                 return
+             }
+             #if !targetEnvironment(macCatalyst)
++                defer {
++                    pendingKeyboardShowOnTouchEnd = false
++                    pendingTapPoint = nil
++                }
++                if let start = pendingTapPoint,
++                   !touchDidScrollDuringCurrentTouch,
++                   event?.allTouches?.count == 1,
++                   let touch = touches.first {
++                    let point = touch.location(in: self)
++                    if hypot(point.x - start.x, point.y - start.y) <= 10 {
++                        if hoverLink(at: point) != nil {
++                            activateLink(at: point)
++                            // A link activation must not raise or dismiss the
++                            // keyboard; the browser opens over what is there.
++                            pendingKeyboardDismissOnTouchEnd = false
++                            pendingKeyboardShowOnTouchEnd = false
++                        } else if pendingKeyboardShowOnTouchEnd {
++                            showKeyboard()
++                        }
++                    }
++                } else if pendingKeyboardShowOnTouchEnd, !touchDidScrollDuringCurrentTouch {
++                    showKeyboard()
++                }
+                 if pendingKeyboardDismissOnTouchEnd, !touchDidScrollDuringCurrentTouch {
+                     resignFirstResponder()
+                 }
+@@ -67,6 +103,8 @@
+             }
+             #if !targetEnvironment(macCatalyst)
+                 pendingKeyboardDismissOnTouchEnd = false
++                pendingKeyboardShowOnTouchEnd = false
++                pendingTapPoint = nil
+                 touchDidScrollDuringCurrentTouch = false
+             #endif
+             super.touchesCancelled(touches, with: event)
+@@ -448,10 +486,51 @@
+                 }
+             }
+ 
++            /// Prime core's link hover state at the touch-down point; the
++            /// MOUSE_OVER_LINK action reports the result asynchronously.
++            func primeHoverLink(at point: CGPoint) {
++                guard let surface else { return }
++                pendingHoverPoint = point
++                surface.sendMousePos(
++                    x: Double(point.x),
++                    y: Double(point.y),
++                    mods: ghostty_input_mods_e(rawValue: 0)
++                )
++            }
++
++            /// The link core reported under `point`, or nil. The stored point
++            /// must be within tap drift, so entries from other locations or
++            /// reports that never arrived cannot produce a false hit.
++            func hoverLink(at point: CGPoint) -> String? {
++                guard let hover = lastHoverLink,
++                      hypot(hover.point.x - point.x, hover.point.y - point.y) <= 10
++                else { return nil }
++                return hover.url
++            }
++
++            /// Activate the link under `point` through core's own open-URL
++            /// recognition. The super modifier is the bypass gesture: core
++            /// opens the link itself and never forwards the click to a
++            /// mouse-reporting program, and a click on plain grid text is a
++            /// no-op rather than a selection.
++            func activateLink(at point: CGPoint) {
++                guard let surface else { return }
++                let mods = ghostty_input_mods_e(rawValue: GHOSTTY_MODS_SUPER.rawValue)
++                surface.sendMousePos(x: Double(point.x), y: Double(point.y), mods: mods)
++                _ = surface.sendMouseButton(state: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT, mods: mods)
++                _ = surface.sendMouseButton(state: GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT, mods: mods)
++            }
++
+             @objc func handleLongPressForSelection(
+                 _ gesture: UILongPressGestureRecognizer
+             ) {
+                 guard gesture.state == .began else { return }
++                if let url = hoverLink(at: gesture.location(in: self)) {
++                    stopMomentumScrolling()
++                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
++                    (delegate as? any TerminalSurfaceCopyURLDelegate)?.terminalDidRequestCopyURL(url)
++                    return
++                }
+                 guard let delegate = delegate as? any TerminalSurfaceTextSelectionRequestDelegate else { return }
+                 guard let surface else { return }
+                 guard case let .inMemory(session) = configuration.backend else {
+@@ -532,12 +611,16 @@
                      "touch scroll changed translation=\(String(format: "%.2f", translation.x))x\(String(format: "%.2f", translation.y))"
                  )
  
@@ -835,7 +976,7 @@ index 3f3eeb202351f474526690dc27937df833bdd7e3..12192145f835723d68efb0290bd55b8b
  
              case .ended:
                  guard activePointerButton == nil else { return }
-@@ -566,8 +576,10 @@
+@@ -566,8 +649,10 @@
                  "momentum start velocity=\(String(format: "%.2f", velocity.x))x\(String(format: "%.2f", velocity.y))"
              )
  
@@ -848,7 +989,7 @@ index 3f3eeb202351f474526690dc27937df833bdd7e3..12192145f835723d68efb0290bd55b8b
  
              let link = CADisplayLink(
                  target: self,
-@@ -597,19 +609,23 @@
+@@ -597,19 +682,23 @@
                  "momentum frame velocity=\(String(format: "%.2f", momentumVelocity.x))x\(String(format: "%.2f", momentumVelocity.y)) delta=\(String(format: "%.2f", deltaX))x\(String(format: "%.2f", deltaY))"
              )
  
@@ -880,10 +1021,10 @@ index 3f3eeb202351f474526690dc27937df833bdd7e3..12192145f835723d68efb0290bd55b8b
                  surface?.sendMouseScroll(x: 0, y: 0, mods: mods.rawValue)
              }
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
-index 7bb1e9861c9640c197321a9eff2cd7f9e087c0a1..b7d4dcec4dcc8cc771baf57c5f39d6e28b4f9b4e 100644
+index 7bb1e9861c9640c197321a9eff2cd7f9e087c0a1..95013fd5530998430bed2c2588a581be598df78d 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
-@@ -36,12 +36,28 @@
+@@ -36,13 +36,36 @@
          lazy var inputHandler = TerminalTextInputHandler(view: self)
          weak var _inputDelegate: (any UITextInputDelegate)?
          var onFocusChange: ((Bool) -> Void)?
@@ -910,9 +1051,17 @@ index 7bb1e9861c9640c197321a9eff2cd7f9e087c0a1..b7d4dcec4dcc8cc771baf57c5f39d6e2
 +            }
 +            private lazy var suppressedInputView = UIView(frame: .zero)
              var touchDidScrollDuringCurrentTouch = false
++            var pendingKeyboardShowOnTouchEnd = false
++            var pendingTapPoint: CGPoint?
++            var pendingHoverPoint: CGPoint?
++            /// Link core last reported under the primed pointer. Touch has no
++            /// hover, so tap and long-press prime it and read it back when the
++            /// gesture resolves; the stored point keeps stale entries inert.
++            var lastHoverLink: (url: String, point: CGPoint)?
          #endif
  
-@@ -86,6 +102,31 @@
+         #if !targetEnvironment(macCatalyst)
+@@ -86,6 +109,31 @@
              true
          }
  
@@ -944,6 +1093,38 @@ index 7bb1e9861c9640c197321a9eff2cd7f9e087c0a1..b7d4dcec4dcc8cc771baf57c5f39d6e2
          override public init(frame: CGRect) {
              super.init(frame: frame)
              commonInit()
+@@ -128,6 +176,13 @@
+             core.onPostRender = { [weak self] in
+                 self?.enforceSublayerScale()
+             }
++            #if !targetEnvironment(macCatalyst)
++                core.bridge.onMouseOverLink = { [weak self] url in
++                    guard let self, let point = self.pendingHoverPoint else { return }
++                    self.lastHoverLink = url.map { ($0, point) }
++                    self.pendingHoverPoint = nil
++                }
++            #endif
+ 
+             setupApplicationLifecycleObservers()
+             syncApplicationActiveState()
+diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Surface/TerminalSurfaceViewDelegate.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Surface/TerminalSurfaceViewDelegate.swift
+index 7a7b11d90f7fdaafbf984a331274378a92064be1..41910c707a9ee7c4646a34c7fafeec28aba2c715 100644
+--- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Surface/TerminalSurfaceViewDelegate.swift
++++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Surface/TerminalSurfaceViewDelegate.swift
+@@ -111,6 +111,13 @@ public protocol TerminalSurfaceHoverLinkDelegate: TerminalSurfaceViewDelegate {
+     func terminalDidUpdateHoverLink(_ url: String?)
+ }
+ 
++/// Host asked to copy a hyperlink instead of opening it. The URL is the
++/// exact string core recognized (plain printed URL or OSC 8 URI).
++@MainActor
++public protocol TerminalSurfaceCopyURLDelegate: TerminalSurfaceViewDelegate {
++    func terminalDidRequestCopyURL(_ url: String)
++}
++
+ /// OSC 7 working-directory update.
+ @MainActor
+ public protocol TerminalSurfacePwdDelegate: TerminalSurfaceViewDelegate {
 diff --git a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts b/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
 index cbd0ab4128aa22b18c65f633dd81cbd0d737f51b..71230312ecb6316313222be337537853a253db42 100644
 --- a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
