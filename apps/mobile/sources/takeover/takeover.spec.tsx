@@ -42,7 +42,8 @@ vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme }) }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 vi.mock('expo-router', () => ({ useLocalSearchParams: () => ({ id: 'sess-1' }) }));
 vi.mock('react-native-keyboard-controller', () => ({ useKeyboardState: () => ({ isVisible: false, height: 0 }) }));
-vi.mock('@/components/StyledText', () => ({ Text: () => null }));
+// Text passes its children through so tests can assert what the screen shows.
+vi.mock('@/components/StyledText', () => ({ Text: (props: { children?: React.ReactNode }) => React.createElement('Text', props) }));
 vi.mock('@/constants/Typography', () => ({
     Typography: { default: () => ({}), mono: () => ({}), semiBold: () => ({}) },
 }));
@@ -98,6 +99,12 @@ const statusBound = (port: number) => ({
     // would now (truthfully) resolve as no-browser instead of attaching.
     stdout: JSON.stringify({ success: true, data: { enabled: true, port, connected: true, screencasting: false } }),
 });
+const statusBrowserless = (port: number) => ({
+    success: true,
+    exitCode: 0,
+    stderr: '',
+    stdout: JSON.stringify({ success: true, data: { enabled: true, port, connected: false, screencasting: false } }),
+});
 const enableOk = (port: number) => ({
     success: true,
     exitCode: 0,
@@ -106,6 +113,9 @@ const enableOk = (port: number) => ({
 });
 
 const disableCalls = () => shell.mock.calls.filter(([, command]) => String(command).includes('stream disable'));
+
+const rendersText = (renderer: ReturnType<typeof TestRenderer.create>, fragment: string): boolean =>
+    renderer.root.findAll((node) => typeof node.props.children === 'string' && node.props.children.includes(fragment)).length > 0;
 
 async function mountAndAttach(): Promise<ReturnType<typeof TestRenderer.create>> {
     let renderer!: ReturnType<typeof TestRenderer.create>;
@@ -153,5 +163,46 @@ describe('takeover stream ownership', () => {
             renderer.unmount();
         });
         expect(disableCalls()).toEqual([expect.arrayContaining([expect.anything(), expect.stringContaining('agent-browser stream disable')])]);
+    });
+
+    it('Open one launches the shared browser and attaches to its live stream', async () => {
+        // First entry lands on a browserless bound stream, the 0.35.1 birth state.
+        let browserRunning = false;
+        shell.mockImplementation(async (_machineId: string, command: string) => {
+            if (command === 'agent-browser open') {
+                browserRunning = true;
+                return { success: true, exitCode: 0, stderr: '', stdout: '' };
+            }
+            if (command.includes('stream enable')) return alreadyEnabled;
+            if (command.includes('stream status')) return browserRunning ? statusBound(42249) : statusBrowserless(42249);
+            return { success: true, exitCode: 0, stderr: '', stdout: '' };
+        });
+        let renderer!: ReturnType<typeof TestRenderer.create>;
+        await TestRenderer.act(async () => {
+            renderer = TestRenderer.create(React.createElement(TakeoverScreen));
+        });
+        await TestRenderer.act(async () => {
+            await vi.waitFor(() => expect(rendersText(renderer, "hasn't opened a browser")).toBe(true));
+        });
+        expect(rendersText(renderer, 'Open one')).toBe(true);
+        // The browserless bound port must not attach: no socket, no dead stream.
+        expect(FakeSocket.instances).toEqual([]);
+
+        const openOne = renderer.root.findByProps({ accessibilityRole: 'button', accessibilityLabel: 'Open one' });
+        await TestRenderer.act(async () => {
+            openOne.props.onPress();
+            await vi.waitFor(() => expect(shell.mock.calls.some(([, command]) => command === 'agent-browser open')).toBe(true));
+        });
+        await TestRenderer.act(async () => {
+            await vi.waitFor(() => expect(FakeSocket.instances.length).toBe(1));
+        });
+        await TestRenderer.act(async () => {
+            FakeSocket.instances[0].onmessage?.({ data: JSON.stringify({ type: 'frame', data: 'ZmFrZWpwZWc=', metadata: { deviceWidth: 390, deviceHeight: 844, pageScaleFactor: 1 } }) });
+        });
+
+        // Live: the shared page is on the phone and the shared stream stays up.
+        expect(renderer.root.findByProps({ accessibilityLabel: "The agent's browser page" })).toBeTruthy();
+        expect(renderer.root.findByProps({ resizeMode: 'contain' }).props.source.uri).toBe('data:image/jpeg;base64,ZmFrZWpwZWc=');
+        expect(disableCalls()).toEqual([]);
     });
 });

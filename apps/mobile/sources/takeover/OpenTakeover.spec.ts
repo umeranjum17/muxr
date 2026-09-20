@@ -84,7 +84,21 @@ describe('resolveStreamPort', () => {
 });
 
 describe('missingBrowserBinary', () => {
-    it('recognises the open failure of a machine with no browser installed', () => {
+    // The real `open` failure with no browser downloaded (0.35.1, measured).
+    const realOpenFailure = [
+        'Chrome not found. Checked:',
+        '  - agent-browser cache: /home/dev/.agent-browser/chrome',
+        '  - System Chrome installations',
+        '  - Puppeteer browser cache',
+        '  - Playwright browser cache',
+        'Run `agent-browser install` to download Chrome, or use --executable-path.',
+    ].join('\n');
+
+    it('recognises the real open failure of a machine with no browser installed', () => {
+        expect(missingBrowserBinary(realOpenFailure)).toBe(true);
+    });
+
+    it('still recognises the older missing-binary wording', () => {
         expect(missingBrowserBinary('No Chrome binary found. Run `agent-browser install` to install one.')).toBe(true);
     });
 

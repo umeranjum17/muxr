@@ -126,7 +126,9 @@ export function streamHasLiveBrowser(statusStdout: string): boolean {
 
 /** True when `agent-browser open` failed for want of any browser binary. */
 export function missingBrowserBinary(openOutput: string): boolean {
-    return /no chrome|chrome binary|browser binary/i.test(openOutput);
+    // "Chrome not found … Run `agent-browser install` …" is the real 0.35.1
+    // open-failure wording; the others cover doctor/older variants.
+    return /chrome not found|agent-browser install|no chrome|chrome binary|browser binary/i.test(openOutput);
 }
 
 /** The stream's tabs message: muxr only wants the current page address. */
