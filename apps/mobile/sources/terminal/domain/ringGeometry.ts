@@ -109,7 +109,7 @@ export function ringSlotOffsets(anchor: { x: number; y: number }, region: { widt
 
 /** Elevations, in degrees, of the docked fan's first and last disc. */
 export const DOCKED_ARC_START_DEG = 162;
-export const DOCKED_ARC_END_DEG = 18;
+export const DOCKED_ARC_END_DEG = 30;
 
 /**
  * The docked ring's fan: `count` discs on an elliptical arc ABOVE the thumb

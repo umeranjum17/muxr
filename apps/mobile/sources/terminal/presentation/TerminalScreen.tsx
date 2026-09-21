@@ -112,6 +112,9 @@ function TranscribingDots({ color }: { color: string }) {
  * screen's own render root and the theme is read beneath it, so each render
  * of the screen (and everything it mounts) paints from the same palette.
  */
+// The canvas black is the Ghostty background itself: chrome painted in any
+// other value shows up as a band against the terminal.
+const CANVAS_BLACK = '#0c0c0b';
 function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();
     return <>{children(theme)}</>;
@@ -915,7 +918,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             // above the IME, and it measures the gap below itself to do it, so a bar
             // that floats over it gets counted as empty space and lands on the output.
                 return (
-                <View style={{ flex: 1, backgroundColor: theme.colors.terminal.background, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
+                <View style={{ flex: 1, backgroundColor: CANVAS_BLACK, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
                     {watchingWorkingAgent && <ActiveAgentWakeLock />}
 
                     {/* One quiet line inside the terminal plane: a back circle,
@@ -1266,7 +1269,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         </ScrollView>
                     )}
 
-                    {canControl && <View style={{ backgroundColor: theme.colors.terminal.background, opacity: toolsOpen ? 0.25 : 1 }}>
+                    {canControl && <View style={{ backgroundColor: CANVAS_BLACK, opacity: toolsOpen ? 0.25 : 1 }}>
                         <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction}>
                             <DeclarativeTerminalKeySlot channel={channel} />
                         </TerminalKeyRow>
