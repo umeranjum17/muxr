@@ -72,8 +72,10 @@ than guessing.
   "protocol": 1,
   "platform": "linux",
   "session": {"kind": "wayland"},
+  "x11": {"available": true, "size": [2560, 1440]},
   "capture": {
     "mechanism": "portal-screencast+pipewire",
+    "backends": ["portal-screencast+pipewire", "x11-root"],
     "formats": ["bgrx", "rgba", "nv12"],
     "cursor": "embedded",
     "audio": false
@@ -89,6 +91,12 @@ than guessing.
   "grant": {"requires": "uinput-access", "state": "granted"}
 }
 ```
+
+`input.mechanism` is the backend that will actually be used: `inputtino/uinput`
+for a portal desktop, where the engine creates its own virtual devices, and
+`xtest` for an X display, where the X server applies the events and nothing the
+engine does can reach another session's keyboard. `capture.backends` lists what
+this build has, not what this machine can necessarily use.
 
 Every field describes what this process can *actually* do right now, not what the
 platform might do. `input.unavailable_reason` and `grant.state` are the honest
@@ -117,7 +125,7 @@ opaque and local to this process's lifetime — it is not a portable identity.
 
 ```jsonc
 {"id":4,"method":"session.open","params":{
-  "source": null,                       // null = let the portal/consent UI choose
+  "source": {"kind":"portal"},          // or {"kind":"x11","display":":99"}
   "permissions": ["view","control","clipboard"],
   "maxWidth": 1280, "maxHeight": 800,   // encode box; never upscales
   "bitrateKbps": 4000,
@@ -136,6 +144,13 @@ Result:
  "video":{"width":1280,"height":720,"codec":"vp9","payloadType":98},
  "permissions":["view","control","clipboard"]}
 ```
+
+`source` selects the desktop. `portal` (or absent) asks the compositor for a
+screen cast, which is the only path that carries a Wayland user's consent;
+`x11` reads a named X display's root window and applies input through XTest. The
+choice is capability-based rather than a table of desktops: the portal when there
+is one, an X display otherwise. It is normally the *consumer's* decision, because
+a client is not in a position to know which of the two a machine can offer.
 
 `permissions` are the engine's authority for this session. The engine enforces
 them on every input and clipboard action and never infers them from a source, a

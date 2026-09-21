@@ -29,5 +29,9 @@
     },
     "dependencies": {
         "ws": "^8.18.0"
+    },
+    "optionalDependencies": {
+        "@desklink/host-linux-x64-gnu": "0.1.0",
+        "@desklink/host-linux-arm64-gnu": "0.1.0"
     }
 }

@@ -109,6 +109,24 @@ and its voice path are unchanged. A second AAR copy was the alternative and was
 rejected: two copies of the JNI library in one app is a worse failure mode than
 one extra factory instance.
 
+## The seam a consumer connects through `[decided]`
+
+The engine needs exactly one thing from a consumer: somewhere for SDP and ICE to
+travel. That is `Signaling` on the client side and `EngineClient.drainEvents` /
+`acceptAnswer` / `addCandidate` on the host side, and it is deliberately small,
+because every application already has an authenticated way to talk to itself.
+
+muxr supplies its existing paired, encrypted request path and nothing else: no
+address, port, code or certificate reaches the user, and the engine's session is
+started by the host that already serves the terminal. A consumer with no channel
+of its own is not left to invent one — `desklink-host bridge` re-serves the same
+protocol over a WebSocket and serves a reference client that needs no build step,
+so a stranger's first run is one command and one URL.
+
+The same substitution is therefore available to both: the packages carry no muxr
+concept, and muxr's contribution is one file that adapts its own channel to the
+`Signaling` interface.
+
 ## Still open `[open]`
 
 - Whether a persisted portal restore token makes the second visit to the desktop

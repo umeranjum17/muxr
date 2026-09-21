@@ -18,9 +18,5 @@
         "expo-modules-core": ">=55",
         "react": ">=19",
         "react-native": ">=0.83"
-    },
-    "dependencies": {
-        "expo": "*",
-        "expo-modules-core": "*"
     }
 }

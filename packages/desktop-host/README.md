@@ -89,3 +89,78 @@ the portal over D-Bus rather than linking it. See `NOTICE`.
 
 No GPL/AGPL remote-desktop code is copied, linked or derived; Sunshine,
 Moonlight, Apollo and RustDesk were read as architecture references only.
+
+## Connecting an application to it
+
+The engine needs one thing from a consumer: somewhere for the SDP and ICE
+candidates to go, and somewhere for the answer and the client's candidates to
+come back. That is the whole seam, and it is deliberately the smallest possible
+one, because every application already has a way to talk to itself.
+
+```ts
+import { EngineClient, resolveEngine } from '@desklink/host';
+
+const engine = resolveEngine();                       // prebuilt, or a source build
+const client = await EngineClient.start(engine.command, engine.args);
+const session = await client.openSession({ permissions: ['view', 'control', 'clipboard'] });
+
+// Everything the engine wants to tell the client arrives here, in order.
+client.drainEvents().forEach((event) => myChannel.send(event));
+
+// Bring the client's answer and candidates back.
+await client.acceptAnswer(session.sessionId, session.generation, answerSdp);
+await client.addCandidate(session.sessionId, session.generation, candidate, sdpMid, sdpMLineIndex);
+```
+
+`myChannel` is the application's own authenticated connection, whatever that is.
+There is no second identity system, no pairing ceremony and no account: the
+engine trusts the consumer's decision and enforces the scope it was given.
+
+### If you have no channel of your own
+
+`desklink-host bridge` re-serves the same protocol over a WebSocket, and serves a
+reference client at `/` so the first run is one command:
+
+```sh
+desklink-host bridge --listen 127.0.0.1:19400
+#  engine   /path/to/desklink-host
+#  bridge   ws://127.0.0.1:19400/desktop
+#  token    <generated>
+#  open     http://127.0.0.1:19400/?token=<generated>
+```
+
+Open that URL and you have a desktop in a browser. `examples/reference-client.html`
+is that page's source: one file, no build step, and the shortest complete
+description of the protocol that exists.
+
+Two things the bridge is honest about: `ws://` is plaintext, so keep it on a
+private network or put it behind TLS; and the token in the URL *is* the
+authorisation for that socket, so treat it as a credential.
+
+## Packaging
+
+The engine is a native executable, so the package ships a small JavaScript
+launcher and depends on one platform package per supported target:
+
+```text
+@desklink/host
+  optionalDependencies:
+    @desklink/host-linux-x64-gnu     # the executable, its notices and provenance
+    @desklink/host-linux-arm64-gnu
+```
+
+`resolveEngine` looks for the platform package first and falls back to a source
+build, and it never searches `PATH`: a program that happens to be called
+`desklink-host` is not evidence of which program is about to be given control of
+a desktop.
+
+The platform packages must be usable **without lifecycle scripts**, because
+muxr's documented install uses `npm install --global --ignore-scripts`. Nothing
+here downloads or chmods anything at install time; the executable arrives with
+the executable bit already set in the tarball.
+
+`platformTag()` includes the libc (`-gnu` or `-musl`) because a glibc binary on a
+musl system fails in ways that read as "broken install" rather than "unsupported
+platform". Only variants that have passed their own qualification are published:
+`linux-x64-gnu` first, `linux-arm64-gnu` when a real machine has run a real
+journey on it. macOS and Windows are separate backends, not separate builds.
