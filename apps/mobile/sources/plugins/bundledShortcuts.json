@@ -1,6 +1,7 @@
 [
   {
     "id": "voice.jarvis",
+    "product": true,
     "action": {
       "type": "capability",
       "name": "voice.start"

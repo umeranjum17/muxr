@@ -1,10 +1,10 @@
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type PluginShortcut } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
-import { capabilityFor } from './capabilityRegistry';
+import { capabilityFor, productCapabilityFor } from './capabilityRegistry';
 import { pluginSnapshot, refreshPlugins } from './pluginStore';
 import baked from '../bundledShortcuts.json';
 
-type BakedShortcut = { id: string; aliases?: string[] };
+type BakedShortcut = { id: string; product?: boolean; aliases?: string[]; action?: { type: string; name?: string } };
 
 function key(value: string): string {
     try {
@@ -14,11 +14,15 @@ function key(value: string): string {
     }
 }
 
-function canonicalShortcutId(shortcutId: string): string {
+function bakedShortcut(shortcutId: string): BakedShortcut | undefined {
     const needle = key(shortcutId);
     return (baked as BakedShortcut[]).find((entry) =>
         key(entry.id) === needle || (entry.aliases ?? []).some((alias) => key(alias) === needle),
-    )?.id ?? shortcutId;
+    );
+}
+
+function canonicalShortcutId(shortcutId: string): string {
+    return bakedShortcut(shortcutId)?.id ?? shortcutId;
 }
 
 export type RunPluginShortcutCommand = { shortcutId: string };
@@ -33,6 +37,16 @@ export type RunPluginShortcutResult = { ok: true } | { ok: false };
  * authoritative even on cold start, so a disabled plugin can never open the mic.
  */
 export async function runPluginShortcut(command: RunPluginShortcutCommand): Promise<RunPluginShortcutResult> {
+    // A baked product shortcut needs no catalog entry; its capability is
+    // product code and the product mounts the surface it requires.
+    const product = bakedShortcut(command.shortcutId);
+    if (product?.product === true) {
+        const name = product.action?.type === 'capability' ? product.action.name : undefined;
+        const run = name === undefined ? undefined : productCapabilityFor(name);
+        if (run === undefined) return { ok: false };
+        await run({ sessionId: '', status: 'shortcut', from: 'shortcut' });
+        return { ok: true };
+    }
     try {
         await refreshPlugins();
     } catch {

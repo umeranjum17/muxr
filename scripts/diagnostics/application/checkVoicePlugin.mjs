@@ -78,10 +78,12 @@ assert.match(report.say, /Host-confirmed report/);
 assert.match(report.say, /<untrusted-agent-output>[\s\S]*raw pane text[\s\S]*<\/untrusted-agent-output>/);
 assert.match(voice.voiceReport({ displayName: 'Maria', taskTitle: 'Stabilize voice', status: 'idle', outcome: 'done' }).say, /Host-confirmed report/);
 
-// 6. No plugin surface survives in the adapters that shipped as one.
+// 6. Retirement policy scan, not behavioural proof: voice must stay product
+//    code and never return as a plugin. The parity gate that drives voice.stream
+//    with no catalog entry or approval is the behavioural proof.
 for (const file of ['stream.mjs', 'provider.mjs', 'product.mjs', 'toolRuntime.mjs']) {
     const source = readFileSync(join(voiceRoot, file), 'utf8');
-    assert.doesNotMatch(source, /muxr-ui\.json|herdr-plugin\.toml|plugin_host|capabilities\s*\[\s*'voice/, `${file} is product code, not a plugin`);
+    assert.doesNotMatch(source, /muxr-ui\.json|herdr-plugin\.toml|plugin_host|capabilities\s*\[\s*'voice/, `retirement policy: ${file} must not reference a plugin manifest or host`);
 }
 
 process.stdout.write('ok: realtime voice product lifecycle (selection, key store, reporting)\n');

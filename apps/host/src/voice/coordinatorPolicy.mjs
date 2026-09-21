@@ -395,7 +395,7 @@ const safeTail = (value) => redactCredentials(value)
     .trim().slice(-1500);
 
 export function parseVoiceReport(value) {
-    const agentName = cleanProviderProse(value?.agentName, 'The watched agent', 80);
+    const agentName = cleanProviderProse(value?.displayName ?? value?.agentName, 'The watched agent', 80);
     const taskTitle = cleanProviderProse(value?.taskTitle, 'coding task', 120);
     const status = cleanProviderProse(value?.outcome ?? value?.status, 'settled', 32).toLocaleLowerCase();
     if (status === 'idle') {

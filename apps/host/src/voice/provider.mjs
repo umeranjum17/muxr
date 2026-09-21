@@ -1,4 +1,5 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 /**
@@ -22,8 +23,8 @@ const LEGACY_PLUGIN_IDS = new Map([
 function stateFile() {
     // Product state, not plugin state: the selection belongs to muxr, and the
     // plugin directory that used to hold it no longer exists.
-    const home = process.env.MUXR_HOME?.trim();
-    return home ? join(home, 'voice', 'provider') : undefined;
+    const home = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
+    return join(home, 'voice', 'provider');
 }
 
 export function providerById(id) {
@@ -35,10 +36,8 @@ export function providerById(id) {
  * table rather than sanitized; an unknown or unreadable value falls back.
  */
 export function selectedProvider() {
-    const file = stateFile();
-    if (file === undefined) return providerById(DEFAULT_ID);
     try {
-        return providerById(readFileSync(file, 'utf8').trim()) ?? providerById(DEFAULT_ID);
+        return providerById(readFileSync(stateFile(), 'utf8').trim()) ?? providerById(DEFAULT_ID);
     } catch {
         return providerById(DEFAULT_ID);
     }
@@ -48,7 +47,6 @@ export function selectProvider(id) {
     const provider = providerById(String(id ?? '').trim());
     if (provider === undefined) throw new Error('unknown realtime voice provider');
     const file = stateFile();
-    if (file === undefined) throw new Error('realtime voice state directory is unavailable');
     const directory = dirname(file);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     chmodSync(directory, 0o700);

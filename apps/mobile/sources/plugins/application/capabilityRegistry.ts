@@ -31,6 +31,19 @@ export function capabilityFor(name: string, manifest: PluginManifestV1): ((input
     const registration = registry[name]!;
     if (registration.requiredPrimitive !== undefined && !manifest.contributions.some((contribution) =>
         'type' in contribution && contribution.type === 'native' && contribution.primitive === registration.requiredPrimitive)) return undefined;
+    return invoke(registration);
+}
+
+/**
+ * A baked product shortcut has no manifest to declare the surface it needs;
+ * the product mounts its own primitives, so only the runtime wait applies.
+ */
+export function productCapabilityFor(name: string): ((input: CapabilityInput) => Promise<void>) | undefined {
+    if (!Object.prototype.hasOwnProperty.call(registry, name)) return undefined;
+    return invoke(registry[name]!);
+}
+
+function invoke(registration: CapabilityRegistration): (input: CapabilityInput) => Promise<void> {
     return async (input) => {
         if (registration.requiredPrimitive !== undefined && !await waitForPrimitive(registration.requiredPrimitive)) {
             throw new Error(`Required plugin surface did not mount: ${registration.requiredPrimitive}`);

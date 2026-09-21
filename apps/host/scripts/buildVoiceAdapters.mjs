@@ -13,25 +13,27 @@ const source = join(here, '..', 'src', 'voice');
 const target = join(here, '..', 'dist', 'voice');
 
 const isRuntime = (path) => (path.endsWith('.mjs') && !path.endsWith('.spec.mjs')) || path.endsWith('README.md');
-const isStaging = (path) => path.endsWith('.mjs') || path.endsWith('README.md');
+const exists = (path) => {
+    try {
+        statSync(path);
+        return true;
+    } catch {
+        return false;
+    }
+};
 
 /** Drop runtime files this build no longer ships; never touch tsc's output. */
 function prune(directory, counterpart) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
         const path = join(directory, entry.name);
         const mirror = join(counterpart, entry.name);
-        if (!isStaging(entry.name)) continue;
         if (entry.isDirectory()) {
-            prune(path, mirror);
-            rmSync(path, { recursive: true, force: true });
+            if (exists(mirror)) prune(path, mirror);
+            else rmSync(path, { recursive: true, force: true });
             continue;
         }
         if (!isRuntime(path)) continue;
-        try {
-            statSync(mirror);
-        } catch {
-            rmSync(path, { force: true });
-        }
+        if (!exists(mirror)) rmSync(path, { force: true });
     }
 }
 

@@ -2051,10 +2051,17 @@ export async function createHerdrSessionSource(
     async function readSessionOutput(sessionId: string, readOptions?: { lines: number }): Promise<{ text: string; truncated: boolean }> {
         const record = await resolvePane(sessionId);
         const generation = sessionGenerationKey(record);
-        const source: RealtimePaneReadSource = ['idle', 'done'].includes(lifecycleOf(record)) ? 'recent_unwrapped' : 'visible';
+        const settled = ['idle', 'done'].includes(lifecycleOf(record));
+        const source: RealtimePaneReadSource = settled ? 'recent_unwrapped' : 'visible';
         // Herdr's settled-agent transcript is the canonical source. Protocol
         // errors stay errors; do not hide them with an arbitrary second read.
-        const result = await readPaneForRecord(record, source, readOptions?.lines ?? 80);
+        // A stale lifecycle snapshot can pick a transcript source an alternate
+        // screen never filled, so an empty one falls back to the visible screen.
+        let result = await readPaneForRecord(record, source, readOptions?.lines ?? 80);
+        if (settled && result.text.trim() === '') {
+            const visible = await readPaneForRecord(record, 'visible', readOptions?.lines ?? 80);
+            if (visible.text.trim() !== '') result = visible;
+        }
         const current = await resolvePane(sessionId);
         if (sessionGenerationKey(current) !== generation) throw agentUnavailable();
         return result;
@@ -2605,7 +2612,6 @@ export async function createHerdrSessionSource(
             if (pluginStreams === undefined) throw new Error('plugin stream transport is unavailable');
             if (typeof channel !== 'string' || !/^rs_[A-Za-z0-9_-]{8,80}$/.test(channel)) throw new Error('invalid realtime voice channel');
             if (voiceStreamAborts.has(channel)) throw new Error('realtime voice channel is already attached');
-            if (sessionId !== undefined) await resolvePane(sessionId);
             const record = sessionId === undefined ? undefined : await resolvePane(sessionId);
             const agentCatalog = await realtimeAgentCatalog();
             const abort = new AbortController();
@@ -2676,13 +2682,10 @@ export async function createHerdrSessionSource(
 
 
         async list(listOptions?: SessionListOptions): Promise<SessionInfo[]> {
-            // The same roster projection powers Realtime. A one-shot snapshot
-            // failure keeps the cached tree visible without falsifying the
-            // event socket's connected state.
-            const agentCatalog = await realtimeAgentCatalog();
-            client.connected = agentCatalog.freshness === 'fresh';
-            const agentIds = new Set(agentCatalog.agents.map((agent) => agent.sessionId));
-            let sessions = currentSessions().filter((session) => session.agent === undefined || agentIds.has(session.sessionId));
+            // A one-shot snapshot failure keeps the cached tree visible without
+            // falsifying the event socket's connected state.
+            await refreshSnapshot().catch(() => undefined);
+            let sessions = currentSessions();
             if (listOptions?.cwd !== undefined) {
                 sessions = sessions.filter((session) => cwdForSession(session.sessionId) === listOptions.cwd);
             }

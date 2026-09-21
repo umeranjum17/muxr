@@ -38,6 +38,7 @@ function dedupe(values) {
 /** Product-owned shortcuts. Realtime voice is product code, so it lives here. */
 const PRODUCT_SHORTCUTS = [{
     shortcutId: 'voice.jarvis',
+    product: true,
     resourceName: 'voice_jarvis',
     label: 'Jarvis',
     longLabel: 'Talk to the muxr voice agent',
@@ -91,6 +92,8 @@ function escapeXml(value) {
 function bundledShortcutData(shortcuts = bundledShortcuts()) {
     return shortcuts.map((shortcut) => ({
         id: shortcut.shortcutId,
+        // Baked product shortcuts resolve without a plugin catalog entry.
+        ...(shortcut.product === true ? { product: true } : {}),
         action: shortcut.action,
         // Keep aliases so old deep links still resolve to the canonical id.
         aliases: dedupe([

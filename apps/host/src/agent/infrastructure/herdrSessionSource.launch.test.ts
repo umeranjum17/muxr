@@ -17,6 +17,7 @@ function fakeHerdr(dir: string, cwd: string) {
     const panes: Record<string, unknown>[] = [];
     const agents: Record<string, unknown>[] = [];
     const subscribers = new Set<Socket>();
+    const state = { failSnapshot: false };
     let next = 1;
     const handleSnapshot = () => ({ snapshot: { workspaces, tabs, panes, agents } });
     const handlePluginList = () => ({ plugins: [] });
@@ -55,7 +56,9 @@ function fakeHerdr(dir: string, cwd: string) {
                 let reply: unknown;
                 switch (method) {
                     case 'session.snapshot':
-                        reply = { id, result: handleSnapshot() };
+                        reply = state.failSnapshot
+                            ? { id, error: { code: 'snapshot_failed', message: 'snapshot failed' } }
+                            : { id, result: handleSnapshot() };
                         break;
                     case 'plugin.list':
                         reply = { id, result: handlePluginList() };
@@ -89,6 +92,7 @@ function fakeHerdr(dir: string, cwd: string) {
     server.listen(socketPath);
     return {
         socketPath,
+        state,
         agents,
         tabs,
         emit(type: string, data: Record<string, unknown>): void {
@@ -164,6 +168,41 @@ describe('phone launch before herdr detects the agent', () => {
         } finally {
             unsubscribe();
             vi.restoreAllMocks();
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+});
+
+describe('session list on a snapshot failure', () => {
+    it('keeps the runtime online and the cached sessions visible', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-list-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            attachmentsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            const started = await source.start({ cwd, kind: 'claude' });
+            if (!('info' in started)) throw new Error('launch rejected');
+            await source.refreshHerdr();
+            expect((await source.herdrTree()).connected).toBe(true);
+
+            // A session the event path bound between refreshes is still listed.
+            const listed = await source.list();
+            expect(listed.map((session) => session.id)).toContain(started.info.id);
+
+            // One failed snapshot keeps the cached tree and the healthy event
+            // socket's connected state, instead of reporting the runtime down.
+            herdr.state.failSnapshot = true;
+            const duringFailure = await source.list();
+            expect(duringFailure.map((session) => session.id)).toContain(started.info.id);
+            expect((await source.herdrTree()).connected).toBe(true);
+        } finally {
             await source.dispose();
             herdr.close();
             rmSync(dir, { recursive: true, force: true });
