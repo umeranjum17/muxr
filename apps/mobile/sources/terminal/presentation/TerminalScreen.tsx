@@ -1343,12 +1343,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 {composerInput}
                                 {clearAction}
                                 {/* Once there is a prompt the rail is the prompt: the
-                                    thumb control and the microphone stand down so the
-                                    text keeps the reference's full-width measure
-                                    instead of wrapping four words to a line. Clearing
-                                    the field brings both straight back, and every
-                                    action either carries its own permanent route or
-                                    has no meaning with a draft already typed. */}
+                                    thumb control stands down so the text keeps the
+                                    reference's full-width measure instead of wrapping
+                                    four words to a line. It comes straight back when
+                                    the field is cleared, and every action either keeps
+                                    its own permanent route or is a menu row away —
+                                    dictation appends to a draft rather than replacing
+                                    it, so it stays reachable from the ⋯ menu while the
+                                    rail belongs to the text. */}
                                 {railShowsRing && <>
                                     {/* The ring's docked centre: the overlay draws the
                                         control exactly here, so this only reserves the
@@ -1455,6 +1457,18 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         <Ionicons name="terminal-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Agent commands</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>}
+                                    {/* The rail's microphone yields to a typed draft, and
+                                        dictation appends rather than replaces, so the one
+                                        flow that would otherwise be out of reach — speak
+                                        the rest of a prompt you started typing — lives
+                                        here. */}
+                                    {canControl && <Pressable onPress={() => { setActionsOpen(false); dictation.toggle(); }} disabled={dictationActive} accessibilityRole="button" accessibilityLabel="Dictate into the prompt"
+                                        accessibilityHint="Adds what you say to the prompt. It never sends by itself."
+                                        accessibilityState={{ disabled: dictationActive }}
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: dictationActive ? 0.4 : 1 })}>
+                                        <Ionicons name="mic-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Dictate into the prompt</Text>
                                     </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/takeover`); }} accessibilityRole="button" accessibilityLabel="Browser"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
