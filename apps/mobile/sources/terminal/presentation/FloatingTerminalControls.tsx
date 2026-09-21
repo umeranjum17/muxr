@@ -68,9 +68,10 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, fa
 }) {
     const { theme } = useUnistyles();
     const reduceMotion = useReducedMotion();
-    // Narrow panes carry five discs on the tight ellipse; reference-width
-    // phones take all six.
-    const count = Math.min(slots.length, RING_CAP, width < 340 ? 5 : RING_CAP);
+    // Every action reaches every pane: the fan spends its gap, its disc size and
+    // the whole overlay before it would drop a slot, so no width cap may truncate
+    // the ring (the reference 270dp phone lost its last action to one).
+    const count = Math.min(slots.length, RING_CAP);
     // Inside the region, always: a layout race between the rail's measurement
     // and the terminal's box must never park the centre off-screen.
     const center = React.useMemo(() => ({

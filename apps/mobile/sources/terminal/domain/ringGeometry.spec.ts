@@ -63,7 +63,9 @@ describe('command ring geometry', () => {
             { width: 270, height: 110 },
         ]) {
             const disc = compact.width < 340 ? 38 : 48;
-            const count = compact.width < 340 ? 5 : 6;
+            // The composer's ring carries every action at every width: the fan
+            // has no narrow-pane cap to hide behind.
+            const count = 6;
             for (let x = 40; x <= compact.width - 40; x += 20) {
                 const docked = { x, y: compact.height + 63 };
                 const points = dockedRingOffsets(docked, compact, count, disc, docked.y + 40);
@@ -109,7 +111,7 @@ describe('command ring geometry', () => {
         for (const region of [{ width: 270, height: 400 }, { width: 270, height: 300 }, { width: 360, height: 500 }]) {
             const anchor = { x: Math.max(44, region.width - 44), y: Math.max(120, region.height - 84) };
             const disc = region.width < 340 ? 38 : 48;
-            const count = region.width < 340 ? 5 : 6;
+            const count = 6;
             const points = dockedRingOffsets(anchor, region, count, disc);
             const where = `at the view-only anchor in ${region.width}x${region.height}`;
             expect(points, where).toHaveLength(count);
@@ -140,7 +142,7 @@ describe('command ring geometry', () => {
     it('opens in place: every disc the same distance from the control and the same gap apart', () => {
         for (const region of [{ width: 270, height: 400 }, { width: 270, height: 200 }, { width: 360, height: 520 }, { width: 360, height: 180 }]) {
             const disc = region.width < 340 ? 38 : 48;
-            const count = region.width < 340 ? 5 : 6;
+            const count = 6;
             // Every anchor the composer rail can hand it, edge to edge.
             for (let x = 40; x <= region.width - 40; x += 20) {
                 // The screen anchors the trigger on the composer rail, below the
