@@ -203,12 +203,11 @@ export class EngineClient {
 
     async stop(): Promise<void> {
         if (this.closed) return;
+        // The documented graceful stop: the engine exits without answering, so
+        // this is sent and the EOF/timeout below still brings a stuck engine
+        // down.
+        void this.request('shutdown').catch(() => undefined);
         this.closed = true;
-        try {
-            await this.request('shutdown');
-        } catch {
-            // The engine already ended; the exit handler reconciles the rest.
-        }
         this.child.stdin.end();
         const child = this.child;
         await new Promise<void>((resolve) => {

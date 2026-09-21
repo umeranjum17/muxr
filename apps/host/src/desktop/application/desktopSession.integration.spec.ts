@@ -122,6 +122,7 @@ describe('desktop sessions, host side', () => {
             'session.description',
             'session.candidate',
             'session.close',
+            'shutdown',
         ]);
         expect(sent[2]?.params).toMatchObject({
             permissions: ['view', 'control', 'clipboard'],
@@ -245,7 +246,11 @@ describe('desktop sessions, host side', () => {
         writeFileSync(log, '');
         const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
 
-        expect(await desktop.capabilities()).toMatchObject({ available: false });
+        const failed = await desktop.capabilities();
+        expect(failed).toMatchObject({ available: false });
+        expect(failed.unavailableReason).toBeTruthy();
+        // The reason is the start failure, not the generic missing-engine text.
+        expect(failed.unavailableReason).not.toBe('The desktop engine is unavailable.');
 
         // The engine is built (or fixed) while the host keeps running. Tapping
         // Try again must ask again rather than replay the first answer.

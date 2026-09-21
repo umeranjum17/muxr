@@ -67,6 +67,8 @@ export class DesktopSessions {
     private capabilitiesCache: DesktopCapabilities | null = null;
     private sessions = new Map<string, LiveSession>();
     private starting: Promise<EngineClient | null> | null = null;
+    /** The reason the last start attempt failed, when the engine resolved but did not come up. */
+    private startFailure: string | null = null;
 
     private readonly environment: NodeJS.ProcessEnv;
 
@@ -82,7 +84,12 @@ export class DesktopSessions {
             // A probe that failed is not cached: the engine may be built or
             // fixed while the host keeps running, and the next request must ask
             // again rather than replaying the first answer forever.
-            return { available: false, unavailableReason: this.missingEngineReason(), input: false, clipboard: false };
+            return {
+                available: false,
+                unavailableReason: this.startFailure ?? this.missingEngineReason(),
+                input: false,
+                clipboard: false,
+            };
         }
         try {
             const reported = await client.capabilities();
@@ -275,7 +282,10 @@ export class DesktopSessions {
         if (this.starting !== null) return this.starting;
         this.starting = (async () => {
             const resolved = resolveEngine(this.options.enginePath);
-            if (resolved === null) return null;
+            if (resolved === null) {
+                this.startFailure = null;
+                return null;
+            }
             try {
                 const client = await EngineClient.start(
                     resolved.command,
@@ -297,9 +307,11 @@ export class DesktopSessions {
                     },
                 );
                 this.client = client;
+                this.startFailure = null;
                 return client;
             } catch (error) {
-                this.options.onDiagnostic?.(`could not start the desktop engine: ${error instanceof Error ? error.message : error}`);
+                this.startFailure = error instanceof Error ? error.message : String(error);
+                this.options.onDiagnostic?.(`could not start the desktop engine: ${this.startFailure}`);
                 return null;
             } finally {
                 this.starting = null;

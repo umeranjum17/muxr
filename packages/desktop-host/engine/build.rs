@@ -9,12 +9,13 @@
 //!   over `uinput`/`libevdev`, built by its own CMake project into a static
 //!   library and called through its documented C API.
 //!
-//! inputtino is optional: when it cannot be built the engine still captures and
-//! reports its input backend as unavailable rather than failing to start.
+//! Both are required to build the engine; the README lists the system packages
+//! they need. Whether input can actually be injected is a separate, runtime
+//! question the engine answers through its own `/dev/uinput` probe.
 
 use std::path::{Path, PathBuf};
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=native/vpx_shim.c");
     println!("cargo:rerun-if-changed=vendor/inputtino/include/inputtino/input.h");
     println!("cargo:rerun-if-changed=vendor/inputtino/CMakeLists.txt");
@@ -25,16 +26,14 @@ fn main() {
         .compile("dlvpx");
     println!("cargo:rustc-link-lib=vpx");
 
-    if build_inputtino(&PathBuf::from(std::env::var("OUT_DIR").unwrap())) {
-        println!("cargo:rustc-cfg=inputtino");
-    }
+    build_inputtino(&PathBuf::from(std::env::var("OUT_DIR")?))?;
+    Ok(())
 }
 
-fn build_inputtino(out: &Path) -> bool {
+fn build_inputtino(out: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let source = Path::new("vendor/inputtino");
     if !source.join("CMakeLists.txt").exists() {
-        println!("cargo:warning=inputtino source is not vendored; the engine will report no input backend");
-        return false;
+        return Err("the vendored inputtino source is missing from engine/vendor/inputtino".into());
     }
     let destination = out.join("inputtino-build");
     let configured = std::process::Command::new("cmake")
@@ -52,19 +51,20 @@ fn build_inputtino(out: &Path) -> bool {
         ])
         .status()
         .is_ok_and(|s| s.success());
-    let compiled = configured
-        && std::process::Command::new("cmake")
-            .args([
-                "--build",
-                &destination.display().to_string(),
-                "--target",
-                "libinputtino",
-            ])
-            .status()
-            .is_ok_and(|s| s.success());
+    if !configured {
+        return Err("cmake could not configure the vendored inputtino project; install cmake and libevdev".into());
+    }
+    let compiled = std::process::Command::new("cmake")
+        .args([
+            "--build",
+            &destination.display().to_string(),
+            "--target",
+            "libinputtino",
+        ])
+        .status()
+        .is_ok_and(|s| s.success());
     if !compiled {
-        println!("cargo:warning=inputtino failed to build; the engine will report no input backend");
-        return false;
+        return Err("cmake could not build the vendored inputtino project".into());
     }
     println!("cargo:rustc-link-search=native={}", destination.display());
     println!("cargo:rustc-link-lib=static=libinputtino");
@@ -72,5 +72,5 @@ fn build_inputtino(out: &Path) -> bool {
     // inputtino statically embeds its own code but not libevdev, which it calls
     // into for uinput device management.
     println!("cargo:rustc-link-lib=dylib=evdev");
-    true
+    Ok(())
 }
