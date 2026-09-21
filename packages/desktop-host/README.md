@@ -144,10 +144,16 @@ launcher and depends on one platform package per supported target:
 
 ```text
 @desklink/host
-  optionalDependencies:
+  optionalDependencies:              # added when those packages are published
     @desklink/host-linux-x64-gnu     # the executable, its notices and provenance
     @desklink/host-linux-arm64-gnu
 ```
+
+They are deliberately **not declared yet**, because a declared optional
+dependency that does not exist on the registry makes `yarn install
+--frozen-lockfile` fail outright rather than being skipped — the whole install,
+for every consumer, including ones that never open a desktop. Declaring them is
+part of publishing them.
 
 `resolveEngine` looks for the platform package first and falls back to a source
 build, and it never searches `PATH`: a program that happens to be called
