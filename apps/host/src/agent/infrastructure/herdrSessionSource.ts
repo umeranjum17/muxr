@@ -171,8 +171,10 @@ const moduleRoot = dirname(fileURLToPath(import.meta.url));
 function bundledPluginsDirectory(start: string): string | undefined {
     let dir = start;
     for (let depth = 0; depth < 8; depth += 1) {
-        const candidate = join(dir, 'plugins');
-        if (existsSync(candidate)) return realpathSync(candidate);
+        if (existsSync(join(dir, 'apps', 'host')) || existsSync(join(dir, 'host.js'))) {
+            const candidate = join(dir, 'plugins');
+            return existsSync(candidate) ? realpathSync(candidate) : undefined;
+        }
         const parent = dirname(dir);
         if (parent === dir) break;
         dir = parent;

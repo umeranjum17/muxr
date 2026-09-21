@@ -9,17 +9,6 @@ export const voiceTools = [...codingTools, ...appTools, {
     parameters: codingTools.find((tool) => tool.name === 'read_agent_output').parameters,
 }];
 
-const operationForTool = (name) => name === 'read_work_context' ? 'context'
-    : name === 'list_agents' || name === 'agent_context' || name === 'recent_agent_activity' ? 'list'
-        : name === 'read_agent_output' ? 'read'
-            : name === 'agent_status' ? 'status'
-                : name === 'prompt_agent' ? 'prompt'
-                    : name === 'watch_agent' ? 'watch'
-                        : name === 'start_agent' ? 'start'
-                            : name === 'send_agent_keybinding' ? 'key'
-                                : name === 'focus_agent' ? 'focus'
-                                    : 'list';
-
 export function createVoiceTools(emit, { invoke = runCodingTool, timeoutMs = 20000, answerTimeoutMs = 20000 } = {}) {
     const app = createAppTools(emit);
     const lifetime = new AbortController();
@@ -103,10 +92,10 @@ export function createVoiceTools(emit, { invoke = runCodingTool, timeoutMs = 200
                 return String(await Promise.race([operation, aborted])).slice(0, 8000);
             } catch (error) {
                 const detail = controller.signal.aborted
-                    ? safeVoiceToolFailure(undefined, operationForTool(name), true)
+                    ? safeVoiceToolFailure(undefined, name, true)
                     : signal?.aborted || lifetime.signal.aborted
                         ? 'The work request was cancelled. No action was performed.'
-                        : safeVoiceToolFailure(error, operationForTool(name));
+                        : safeVoiceToolFailure(error, name);
                 if (!lifetime.signal.aborted && !signal?.aborted) state('thinking', detail);
                 return `${detail} Tell the user this directly instead of promising to check again.`;
             } finally {

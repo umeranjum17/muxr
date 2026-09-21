@@ -22,6 +22,4 @@ Setup retracts a previous release's bundled add-ons by id: only ids in its legac
 
 ## Invariants
 
-- Clone destinations stay outside the packed npm artifact.
-- Clone output stays self-contained.
 - Provider choice is preserved across setup and package upgrades.
