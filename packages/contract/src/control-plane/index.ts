@@ -1,5 +1,9 @@
 export type {
     ApplicationLauncher,
+    DesktopCapabilities,
+    DesktopEvent,
+    DesktopPermission,
+    DesktopSurfaceGeometry,
     ClientRequest,
     ChangesBadge,
     ChangesBrowse,

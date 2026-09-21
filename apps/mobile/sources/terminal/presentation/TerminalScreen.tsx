@@ -871,6 +871,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             icon: 'globe-outline',
             run: () => router.push(`/session/${encodeURIComponent(props.id)}/takeover`),
         });
+        // The computer action opens this machine's own desktop inside the
+        // conversation. Native only: the live surface needs a real decoder and
+        // renderer, which the web build does not have.
+        if (Platform.OS !== 'web') slots.push({
+            id: 'computer',
+            label: 'Computer',
+            icon: 'desktop-outline',
+            run: () => router.push(`/session/${encodeURIComponent(props.id)}/desktop`),
+        });
         return slots;
     }, [canControl, changesCount, keyboardVisible, openAgentCommands, pasteToDraft, props.id, sendCommand, terminalKeyboardCommand, viewControls]);
 
@@ -1514,6 +1523,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Browser</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
+                                    {Platform.OS !== 'web' && <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/desktop`); }} accessibilityRole="button" accessibilityLabel="Computer"
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="desktop-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Computer</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/history`); }} accessibilityRole="button" accessibilityLabel="Conversation history"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="document-text-outline" size={18} color={theme.colors.textSecondary} />

@@ -1,0 +1,251 @@
+import { EngineClient, EngineRefused, explainMissingEngine, resolveEngine } from '@desklink/host';
+import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfaceGeometry } from '@muxr/contract';
+
+import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSession.js';
+
+export interface DesktopEngineOptions {
+    /** Overrides the configured engine path, for a test that owns its own build. */
+    enginePath?: string;
+    onDiagnostic?: (line: string) => void;
+}
+
+interface LiveSession extends DesktopSessionRecord {
+    client: EngineClient;
+    events: DesktopEvent[];
+    cursor: number;
+}
+
+const UNAVAILABLE_INPUT = 'This computer cannot inject input, so there is nothing to control.';
+
+/**
+ * Host-side owner of the desktop engine.
+ *
+ * One engine process serves whatever session is open, and the process is started
+ * lazily: a host that never opens a desktop never spawns it. Authority is the
+ * caller's business — this class only refuses to start when the machine cannot
+ * do what was asked, and it is the *only* place that talks to the engine.
+ */
+export class DesktopSessions {
+    private readonly options: DesktopEngineOptions;
+    private client: EngineClient | null = null;
+    private capabilitiesCache: DesktopCapabilities | null = null;
+    private sessions = new Map<string, LiveSession>();
+    private starting: Promise<EngineClient | null> | null = null;
+
+    constructor(options: DesktopEngineOptions = {}) {
+        this.options = options;
+    }
+
+    async capabilities(): Promise<DesktopCapabilities> {
+        if (this.capabilitiesCache !== null) return this.capabilitiesCache;
+        const client = await this.ensureClient();
+        if (client === null) {
+            this.capabilitiesCache = { available: false, unavailableReason: this.missingEngineReason(), input: false, clipboard: false };
+            return this.capabilitiesCache;
+        }
+        try {
+            const reported = await client.capabilities();
+            this.capabilitiesCache = {
+                available: true,
+                input: reported.input.pointer && reported.input.keyboard,
+                ...(reported.input.unavailable_reason === null
+                    ? {}
+                    : { inputUnavailableReason: reported.input.unavailable_reason.reason }),
+                clipboard: reported.clipboard.read && reported.clipboard.write,
+                codec: reported.encode.codecs[0] ?? 'unknown',
+            };
+        } catch (error) {
+            this.capabilitiesCache = {
+                available: false,
+                unavailableReason: error instanceof Error ? error.message : 'the desktop engine did not answer',
+                input: false,
+                clipboard: false,
+            };
+        }
+        return this.capabilitiesCache;
+    }
+
+    async open(request: {
+        permissions: DesktopPermission[];
+        maxWidth?: number;
+        maxHeight?: number;
+        bitrateKbps?: number;
+        maxFps?: number;
+    }): Promise<{ desktopId: string; generation: number; geometry: DesktopSurfaceGeometry; source: LiveSession['source'] }> {
+        const capabilities = await this.capabilities();
+        if (!capabilities.available) {
+            throw new EngineRefused('desktop-unavailable', capabilities.unavailableReason ?? 'the desktop engine is unavailable');
+        }
+        if (request.permissions.includes('control') && !capabilities.input) {
+            // Refuse rather than hand back a surface whose controls do nothing.
+            throw new EngineRefused('input-unavailable', capabilities.inputUnavailableReason ?? UNAVAILABLE_INPUT);
+        }
+        const client = await this.ensureClient();
+        if (client === null) {
+            throw new EngineRefused('desktop-unavailable', this.missingEngineReason());
+        }
+        const opened = await client.openSession({
+            permissions: request.permissions,
+            ...(request.maxWidth === undefined ? {} : { maxWidth: request.maxWidth }),
+            ...(request.maxHeight === undefined ? {} : { maxHeight: request.maxHeight }),
+            ...(request.bitrateKbps === undefined ? {} : { bitrateKbps: request.bitrateKbps }),
+            ...(request.maxFps === undefined ? {} : { maxFps: request.maxFps }),
+        });
+        const desktopId = nextDesktopId();
+        this.sessions.set(desktopId, {
+            desktopId,
+            engineSessionId: opened.sessionId,
+            generation: opened.generation,
+            permissions: request.permissions,
+            geometry: opened.geometry,
+            source: opened.source,
+            openedAt: Date.now(),
+            client,
+            events: [],
+            cursor: 0,
+        });
+        // The offer is already queued on the engine client; the first poll
+        // delivers it, which keeps one delivery path instead of two.
+        this.drain(desktopId);
+        return { desktopId, generation: opened.generation, geometry: opened.geometry, source: opened.source };
+    }
+
+    async answer(desktopId: string, sdp: string): Promise<{ accepted: boolean }> {
+        const session = this.require(desktopId);
+        return session.client.acceptAnswer(session.engineSessionId, session.generation, sdp);
+    }
+
+    async candidate(
+        desktopId: string,
+        candidate: string,
+        sdpMid: string | null,
+        sdpMLineIndex: number | null,
+    ): Promise<{ accepted: boolean }> {
+        const session = this.require(desktopId);
+        return session.client.addCandidate(session.engineSessionId, session.generation, candidate, sdpMid, sdpMLineIndex);
+    }
+
+    async poll(desktopId: string, cursor: number): Promise<{ cursor: number; events: DesktopEvent[] }> {
+        const session = this.require(desktopId);
+        this.drain(desktopId);
+        // A client that fell behind gets the whole backlog; a client that sends a
+        // cursor from a previous session gets the current one rather than silence.
+        const events = cursor <= session.cursor && session.cursor - cursor <= session.events.length
+            ? session.events.slice(session.events.length - (session.cursor - cursor))
+            : session.events.slice();
+        session.cursor = cursor + events.length;
+        return { cursor: session.cursor, events };
+    }
+
+    async close(desktopId: string): Promise<{ closed: boolean }> {
+        const session = this.sessions.get(desktopId);
+        if (session === undefined) return { closed: true };
+        this.sessions.delete(desktopId);
+        try {
+            await session.client.closeSession(session.engineSessionId);
+        } catch {
+            // The session is already gone on the engine side; the client stays
+            // usable for the next session, which is what matters.
+        }
+        if (this.sessions.size === 0) {
+            const client = this.client;
+            this.client = null;
+            this.capabilitiesCache = null;
+            await client?.stop().catch(() => undefined);
+        }
+        return { closed: true };
+    }
+
+    /** Close every session this host owns; called when the host shuts down. */
+    async closeAll(): Promise<void> {
+        for (const desktopId of [...this.sessions.keys()]) {
+            await this.close(desktopId);
+        }
+        const client = this.client;
+        this.client = null;
+        this.capabilitiesCache = null;
+        await client?.stop().catch(() => undefined);
+    }
+
+    private missingEngineReason(): string {
+        return explainMissingEngine(this.options.enginePath) ?? 'The desktop engine is unavailable.';
+    }
+
+    private require(desktopId: string): LiveSession {
+        const session = this.sessions.get(desktopId);
+        if (session === undefined) {
+            throw new EngineRefused('session', 'that desktop session is not open');
+        }
+        return session;
+    }
+
+    /** Move everything the engine queued into this session's event list. */
+    private drain(desktopId: string): void {
+        const session = this.sessions.get(desktopId);
+        if (session === undefined) return;
+        for (const event of session.client.drainEvents()) {
+            session.events.push(toDesktopEvent(event));
+            if (session.events.length > 512) session.events.splice(0, session.events.length - 512);
+        }
+    }
+
+    private async ensureClient(): Promise<EngineClient | null> {
+        if (this.client !== null) return this.client;
+        if (this.starting !== null) return this.starting;
+        this.starting = (async () => {
+            const resolved = resolveEngine(this.options.enginePath);
+            if (resolved === null) return null;
+            try {
+                const client = await EngineClient.start(resolved.command, resolved.args, {
+                    ...(this.options.onDiagnostic === undefined ? {} : { onDiagnostic: this.options.onDiagnostic }),
+                    onExit: () => {
+                        // The engine died: drop every session with it rather than
+                        // leaving the phone attached to a process that is gone.
+                        this.client = null;
+                        this.capabilitiesCache = null;
+                        for (const [desktopId, session] of this.sessions) {
+                            session.events.push({ kind: 'revoked', reason: 'the desktop engine stopped' });
+                            this.sessions.delete(desktopId);
+                        }
+                    },
+                });
+                this.client = client;
+                return client;
+            } catch (error) {
+                this.options.onDiagnostic?.(`could not start the desktop engine: ${error instanceof Error ? error.message : error}`);
+                return null;
+            } finally {
+                this.starting = null;
+            }
+        })();
+        return this.starting;
+    }
+}
+
+function toDesktopEvent(event: { event: string; params: Record<string, unknown> }): DesktopEvent {
+    switch (event.event) {
+        case 'session.description':
+            return {
+                kind: 'offer',
+                generation: Number(event.params.generation ?? 0),
+                sdp: String((event.params.description as { sdp?: string } | undefined)?.sdp ?? ''),
+            };
+        case 'session.candidate':
+            return {
+                kind: 'candidate',
+                generation: Number(event.params.generation ?? 0),
+                candidate: String(event.params.candidate ?? ''),
+                sdpMid: (event.params.sdpMid as string | null) ?? null,
+                sdpMLineIndex: (event.params.sdpMLineIndex as number | null) ?? null,
+            };
+        case 'session.state':
+            return {
+                kind: 'state',
+                capture: String(event.params.capture ?? 'unknown'),
+                transport: String(event.params.transport ?? 'unknown'),
+                firstFrame: event.params.firstFrame === true,
+            };
+        default:
+            return { kind: 'revoked', reason: String(event.params.reason ?? 'the desktop session ended') };
+    }
+}

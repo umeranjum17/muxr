@@ -1,0 +1,29 @@
+{
+    "name": "@desklink/host",
+    "version": "0.1.0",
+    "license": "Apache-2.0",
+    "description": "Per-user, on-demand desktop capture, encode and input engine with a versioned local control protocol",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "bin": {
+        "desklink-host": "./bin/desklink-host.mjs"
+    },
+    "files": [
+        "bin",
+        "dist",
+        "engine/native",
+        "engine/build.rs",
+        "engine/Cargo.toml",
+        "engine/src",
+        "engine/vendor",
+        "docs",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "tsc --build"
+    },
+    "engines": {
+        "node": ">=22"
+    }
+}

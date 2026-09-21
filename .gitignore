@@ -1,5 +1,7 @@
 node_modules
 dist/
+# Rust build output for the desktop engine (multi-gigabyte, rebuilt from source)
+packages/desktop-host/engine/target/
 *.tsbuildinfo
 .expo/
 .pi-subagents/

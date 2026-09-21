@@ -9,6 +9,7 @@
 import type { ClientFrame, ClientRequest, SessionEvent, SessionEventBody } from '@muxr/contract';
 import { connectToRelay, deviceTableCanMutate, type RelayLink, type RelayStateCode, type HostedMachineKeys } from './machine/index.js';
 import { createRequestDispatcher } from './requests/index.js';
+import { DesktopSessions } from './desktop/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
 import type { PeerRuntime } from './peer/index.js';
 import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/index.js';
@@ -50,6 +51,8 @@ export interface HostOptions {
     token?: string;
     peerRuntime?: PeerRuntime;
     diagnostics?: HostDiagnosticsJournal;
+    /** Overrides the desktop engine path; a test can point at its own build. */
+    desktopEnginePath?: string;
 }
 
 export interface Host {
@@ -81,6 +84,10 @@ export function startHost(options: HostOptions): Host {
             },
         };
     }
+    // Started lazily: a host that never opens a desktop never spawns the engine.
+    const desktop = new DesktopSessions(
+        options.desktopEnginePath === undefined ? {} : { enginePath: options.desktopEnginePath },
+    );
     const dispatcher = createRequestDispatcher({
         source,
         domain,
@@ -94,6 +101,7 @@ export function startHost(options: HostOptions): Host {
         ...(options.terminals === undefined ? {} : { terminals: options.terminals }),
         ...(options.token === undefined ? {} : { token: options.token }),
         ...(options.peerRuntime === undefined ? {} : { peerRuntime: options.peerRuntime }),
+        desktop,
         ...hostedDispatcherOptions,
     });
 
@@ -204,6 +212,7 @@ export function startHost(options: HostOptions): Host {
             unsubscribe();
             unsubscribeMachine?.();
             link?.close();
+            await desktop.closeAll();
             await source.dispose();
         },
     };

@@ -36,6 +36,7 @@ import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { runHerdrCli } from '../infrastructure/runHerdrCli.js';
 import { attachPreviewTunnel } from './attachPreviewTunnel.js';
+import type { DesktopSessions } from '../../desktop/index.js';
 
 export interface RequestDispatcherOptions {
     source: SessionSource;
@@ -55,6 +56,8 @@ export interface RequestDispatcherOptions {
     canMutateDevice?: (deviceId: string) => boolean;
     peerRuntime?: PeerRuntime;
     getDeviceContext?: (deviceId: string) => PeerDeviceContext | undefined;
+    /** The live-desktop owner. Absent means this host cannot show a desktop. */
+    desktop?: DesktopSessions;
 }
 
 type RequestContext = { deviceId: string; requestId: string };
@@ -71,8 +74,13 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'attachment.list', 'attachment.fetch', 'attachment.read', 'unread.catalog',
     'attention.catalog', 'lifecycle.catalog', 'machines.list', 'terminal.attach',
     'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
-    'usage.report', 'usage.now',
+    'usage.report', 'usage.now', 'desktop.capabilities',
 ]);
+
+function desktopOrThrow(options: RequestDispatcherOptions): DesktopSessions {
+    if (options.desktop === undefined) throw new Error('This host has no desktop engine.');
+    return options.desktop;
+}
 
 function isPluginExecutionRequest(request: ClientRequest): request is PluginExecutionRequest {
     switch (request.type) {
@@ -172,6 +180,33 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'plugin.call': () => { throw new Error('authenticated device context required'); },
         'plugin.stream': () => { throw new Error('authenticated device context required'); },
         'host.update': (params, context) => repairHost(params, context.deviceId),
+        'desktop.capabilities': async () => {
+            if (options.desktop === undefined) {
+                return { available: false, unavailableReason: 'This host has no desktop engine.', input: false, clipboard: false };
+            }
+            return options.desktop.capabilities();
+        },
+        'desktop.open': async (params) => {
+            if (options.desktop === undefined) {
+                throw new Error('This host has no desktop engine.');
+            }
+            return options.desktop.open({
+                permissions: params.permissions,
+                ...(params.maxWidth === undefined ? {} : { maxWidth: params.maxWidth }),
+                ...(params.maxHeight === undefined ? {} : { maxHeight: params.maxHeight }),
+                ...(params.bitrateKbps === undefined ? {} : { bitrateKbps: params.bitrateKbps }),
+                ...(params.maxFps === undefined ? {} : { maxFps: params.maxFps }),
+            });
+        },
+        'desktop.answer': async (params) => desktopOrThrow(options).answer(params.desktopId, params.sdp),
+        'desktop.candidate': async (params) => desktopOrThrow(options).candidate(
+            params.desktopId,
+            params.candidate,
+            params.sdpMid ?? null,
+            params.sdpMLineIndex ?? null,
+        ),
+        'desktop.poll': async (params) => desktopOrThrow(options).poll(params.desktopId, params.cursor),
+        'desktop.close': async (params) => desktopOrThrow(options).close(params.desktopId),
         'herdr.cli': async (params) => {
             const result = await runHerdrCli(params.args, params.timeoutMs);
             await source.refreshHerdr();
