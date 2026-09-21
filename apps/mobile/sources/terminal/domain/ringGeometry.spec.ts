@@ -13,7 +13,7 @@ describe('command ring geometry', () => {
     const anchor = { x: 326, y: 560 };
     const reach = 640;
 
-    it('fans the default four into an arc that stays inside the region', () => {
+    it('fans four slots into an arc that stays inside the region', () => {
         const points = dockedRingOffsets(anchor, region, 4, RING_SLOT_SIZE, reach);
         expect(points).toHaveLength(4);
         for (const point of points) {
