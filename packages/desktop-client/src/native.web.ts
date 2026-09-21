@@ -413,7 +413,13 @@ export const nativeDesklink: NativeDesklinkModule = {
     },
 };
 
-/** Called by `DesktopView.web` to mount the session's surface into the page. */
+/**
+ * Mount a session's surface into the page.
+ *
+ * Attaching to a second container moves it: the session owns exactly one
+ * surface, and removing the old one is what keeps a re-render from leaving two
+ * live videos behind.
+ */
 export function attachSurface(id: string, container: HTMLElement | null): void {
     const session = sessions.get(id);
     if (session === undefined) return;

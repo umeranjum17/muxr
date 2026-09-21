@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { nativeDesklink } from './native';
+import type { NativeDesklinkModule } from './native';
 import type {
     ControlMessage,
     IceServerConfig,
@@ -19,6 +19,26 @@ const CLIPBOARD_TIMEOUT_MS = 4000;
 
 /** One reconnect attempt per session; beyond that the caller must ask again. */
 const MAX_RECONNECT_ATTEMPTS = 1;
+
+/**
+ * The platform module, loaded the first time a desktop is opened.
+ *
+ * It holds the session, the renderer and the input bridge — the largest thing in
+ * this package — and most sessions never open a desktop, so it must not sit in
+ * the application's initial bundle. Everything below uses this binding as it did
+ * when it was a static import; the only change is when it becomes non-null.
+ */
+let nativeDesklink: NativeDesklinkModule | null = null;
+
+async function loadPlatform(): Promise<boolean> {
+    if (nativeDesklink !== null) return true;
+    try {
+        nativeDesklink = (await import('./native')).nativeDesklink;
+    } catch {
+        return false;
+    }
+    return nativeDesklink !== null;
+}
 
 export interface DesktopSessionOptions {
     /**
@@ -99,7 +119,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
 
     const send = useCallback((message: ControlMessage) => {
         const id = nativeRef.current;
-        if (id == null || nativeDesklink == null) return;
+        if (id == null || nativeDesklink === null) return;
         nativeDesklink.sendControl(id, controlMessageText(message, nextSeq()));
     }, []);
 
@@ -144,7 +164,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
     }, [update]);
 
     const connect = useCallback(async () => {
-        if (nativeDesklink == null) {
+        if (!(await loadPlatform())) {
             refuse('this build cannot show a desktop surface');
             return;
         }
@@ -184,7 +204,10 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         opened.current = openedResult;
         update({ geometry: openedResult.geometry, status: 'connecting' });
 
-        const id = nativeDesklink.createSession(
+        // `loadPlatform` above guarantees this, but the compiler cannot see
+        // through the assignment inside it.
+        const platform = nativeDesklink;
+        const id = platform === null ? null : platform.createSession(
             JSON.stringify(authorization.session.iceServers ?? []),
             authorization.session.relayOnly ?? false,
         );

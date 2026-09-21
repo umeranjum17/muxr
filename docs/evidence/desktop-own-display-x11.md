@@ -1,12 +1,17 @@
-# Own-display proof: the desktop engine end to end on a display this task owns
+# Stand-in proof: the desktop engine end to end on a display this task owns
+
+**This is a stand-in, not the acceptance journey.** It drives an X server this
+task started; it never touches the real desktop. The acceptance journey is the
+physical phone controlling a real machine's own desktop, and it is named as the
+outstanding gate at the end of this document. Nothing here substitutes for it.
 
 Run on 2026-09-21/22 against **Xvfb `:99`** with a purpose-written X client
 (`packages/desktop-host/engine/examples/x11_target.rs`) as the thing being driven.
 No part of this touched the captain's session: his desktop was neither captured
 nor injected into.
 
-This is **not** live-desktop proof. The portal consent path and `uinput` input are
-exercised only against his own machine, which is the one outstanding gate.
+The portal consent path and `uinput` input are exercised only against a real
+machine, which is the one outstanding gate.
 
 ## What was driven
 
@@ -110,6 +115,17 @@ Three defects were found and fixed getting there: the desktop route had no entry
 in the stack layout and collapsed to zero size inside the web route, the web
 module did not export the availability flag the view checks, and a protocol
 helper was reached through the wrong module.
+
+## What this does and does not buy
+
+It buys confidence in everything between the desktop and the phone: capture,
+encode, transport, decode, presentation, geometry, gestures, the keyboard, the
+clipboard protocol, close and reopen, release of held input, and the failure and
+reconnect states. Those are the parts that were actually uncertain, and several
+of them were broken until this run found them.
+
+It does **not** buy: portal consent, kernel input injection, the clipboard
+transfer on a real compositor, or any statement about a real desktop at all.
 
 ## Not covered here
 
