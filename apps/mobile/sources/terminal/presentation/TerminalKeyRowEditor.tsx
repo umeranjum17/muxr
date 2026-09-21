@@ -91,7 +91,9 @@ export function TerminalControlGrid({
 
                     {/* The category tabs: the grid's own switch row. It scrolls
                         when the pane is narrow so chips never collide. */}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={{ gap: 8, paddingBottom: 10 }}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always"
+                        style={{ flexGrow: 0 }}
+                        contentContainerStyle={{ gap: 8, paddingBottom: 10, alignItems: 'center' }}>
                         {CATEGORIES.map((entry) => {
                             const active = entry.id === category;
                             return <Pressable key={entry.id} onPress={() => { hapticsSelection(); onCategoryChange(entry.id); }}
