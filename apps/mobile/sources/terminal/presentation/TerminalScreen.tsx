@@ -1151,7 +1151,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         (or, across tabs, the other tabs); the active chip
                         carries close, a trailing + adds a pane. No band, no
                         underline. */}
-                    {(tabPanes.length > 1 || workspaceTabs.length > 1) && (
+                    {(tabPanes.length > 1 || workspaceTabs.length > 1) && !(dictationActive && keyboardVisible) && (
                         <ScrollView
                             ref={tabStripRef}
                             horizontal
@@ -1269,7 +1269,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         </ScrollView>
                     )}
 
-                    {canControl && <View style={{ backgroundColor: CANVAS_BLACK, opacity: toolsOpen ? 0.25 : 1 }}>
+                    {canControl && !(dictationActive && keyboardVisible) && <View style={{ backgroundColor: CANVAS_BLACK, opacity: toolsOpen ? 0.25 : 1 }}>
                         <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction}>
                             <DeclarativeTerminalKeySlot channel={channel} />
                         </TerminalKeyRow>
@@ -1285,8 +1285,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         One geometry, one material, every state. */}
                     <View style={{ paddingHorizontal: 10, paddingTop: 2, paddingBottom: (keyboardVisible ? 8 : insets.bottom + 8) }}>
                         <View style={{
-                            minHeight: 54,
-                            borderRadius: 27,
+                            minHeight: keyboardVisible ? 48 : 54,
+                            borderRadius: keyboardVisible ? 24 : 27,
                             backgroundColor: theme.colors.glass.backgroundSubtle,
                             borderWidth: StyleSheet.hairlineWidth,
                             borderColor: theme.colors.glass.border,
@@ -1294,7 +1294,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             alignItems: 'center',
                             paddingLeft: 2,
                             paddingRight: 5,
-                            paddingVertical: 7,
+                            paddingVertical: keyboardVisible ? 5 : 7,
                         }}>
                             {dictating ? <>
                                 <DictationBars level={dictation.level} color={theme.colors.status.error} />
