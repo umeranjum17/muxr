@@ -160,11 +160,11 @@ for (const [name, cmd, args, needs, timeoutMs] of checks) {
         process.stdout.write(`SKIP  ${name}  (no herdr server)\n`);
         continue;
     }
-    // The lab gate needs both the guarded helper and a warmed agent the caller
-    // started; without them it would be testing its own missing precondition.
-    if (needs === 'herdr-lab' && !(existsSync(labHelper) && process.env.MUXR_PARITY_AGENT?.trim())) {
+    // The lab gate runs where the guarded helper exists; that wrapper provisions
+    // its own isolated lab session and warms the agent it tests.
+    if (needs === 'herdr-lab' && !existsSync(labHelper)) {
         skipped += 1;
-        process.stdout.write(`SKIP  ${name}  (set MUXR_PARITY_AGENT and ${labHelper} to run it)\n`);
+        process.stdout.write(`SKIP  ${name}  (guarded herdr lab helper not found at ${labHelper})\n`);
         continue;
     }
     // No settle wait between checks: every relay they spawn now takes a
@@ -174,7 +174,7 @@ for (const [name, cmd, args, needs, timeoutMs] of checks) {
 
 const failed = results.filter((r) => r.code !== 0);
 const total = (results.reduce((sum, r) => sum + r.ms, 0) / 1000).toFixed(1);
-const skipNote = skipped > 0 ? `, ${skipped} skipped (no herdr server)` : '';
+const skipNote = skipped > 0 ? `, ${skipped} skipped` : '';
 process.stdout.write(`\n=== ${results.length - failed.length}/${results.length} passed in ${total}s${skipNote} ===\n`);
 if (failed.length > 0) {
     process.stdout.write(`failed: ${failed.map((r) => r.name).join(', ')}\n`);

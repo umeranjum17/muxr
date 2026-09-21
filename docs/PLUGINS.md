@@ -223,7 +223,9 @@ a capability instead:
 A capability name exists only because code compiled into the app claims it, the
 same rule as a primitive, so a downloaded manifest references behaviour but never
 ships it. An unregistered name is skipped, not fatal, so a newer manifest never
-breaks an older app. The boxed Voice plugin is the worked example: the manifest decides *when* it wakes, its own `voice.report` RPC decides *what it says*, and a generic native PCM stream captures and plays audio. Provider authentication, models, prompts, tools, and event translation stay in the backend `host.stream` adapter.
+breaks an older app. The `speech.wake` capability is the worked example: the
+manifest decides *when* the trigger fires, and the app's compiled handler decides
+*what happens next*; the plugin supplies the timing, never the behaviour.
 
 ## Components
 
@@ -440,7 +442,7 @@ Plugins do not own OS permission or foreground-service lifetime. A future notifi
 
 A Herdr backend runs unsandboxed as your computer user. Installing one is equivalent to trusting local code. muxr's declarative UI limits what reaches the phone; it does not sandbox the backend.
 
-Approved `voice.session` children receive one short-lived broker token for that stream. The token is least-ambient routing: unapproved and non-voice plugins do not receive direct broker access, active calls are aborted when the stream exits, and peer credentials never enter the provider protocol or environment. It is not isolation from malicious code explicitly enabled as the same host user, which can read user files and inspect other same-user processes. Hostile-local-plugin isolation requires a separate OS sandbox architecture.
+Approved `host.stream` children receive one short-lived broker token for that stream. The token is least-ambient routing: unapproved plugins, and plugins without a stream contribution, do not receive direct broker access, active calls are aborted when the stream exits, and peer credentials never enter the provider protocol or environment. It is not isolation from malicious code explicitly enabled as the same host user, which can read user files and inspect other same-user processes. Hostile-local-plugin isolation requires a separate OS sandbox architecture.
 
 Enabling or linking a Herdr plugin is the user's trust decision. Every enabled plugin is available to connected phones by default; a phone can explicitly disable it, and disable/revoke remains authoritative. Manifest or authority changes refresh the immutable snapshot and hash but do not trigger per-device reapproval.
 
@@ -634,7 +636,7 @@ validates shape; `plugin call` proves wiring.
 
 ```json
 "capabilities": {
-  "voice.session": "session"
+  "example.session": "session"
 }
 ```
 
@@ -662,11 +664,7 @@ A stream process receives one private `realtime.open` line followed by bounded p
 
 Realtime voice is **not** a plugin: it is product code. The four adapters under `apps/host/src/voice/providers/` (xAI, Gemini Live, OpenAI Realtime, and experimental Codex Voice) are internal and swappable behind the typed `voice.*` host methods. Choose one under **Settings → Voice & dictation**. PCM providers keep their host-relayed stream; Codex adds only the generic WebRTC transport kind.
 
-Voice uses this without knowing any provider plugin id. Its one-shot semantic RPC aliases remain:
-
-- `voice.status`: input `null`, output `{ "configured": boolean }`;
-- `voice.key.set`: input `{ "key": string }`, output `null` (write mode; reached through attributed secure prompt);
-- `voice.report`: input `{ "status": string, "pane": string }`, output `{ "say": string }`.
+Realtime voice does not use this capability map: its `voice.*` surface is a typed product host request, so no plugin id, capability name, or manifest hash is involved. See [Voice setup](VOICE-SETUP.md).
 
 Names are dotted ids; values must be contribution ids that exist in the same manifest. This semantic map resolves backend RPCs and streams. It is not a phone effect. Phone effects (`speech.wake`, `voice.start`) are
 compiled into the app and referenced from events or shortcuts as
