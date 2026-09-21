@@ -36,7 +36,7 @@ use webrtc::media_stream::track_local::TrackLocal;
 use webrtc::peer_connection::{
     PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCPeerConnectionState,
 };
-use webrtc::runtime::{default_runtime, Runtime};
+use webrtc::runtime::default_runtime;
 
 /// VP9 clock rate, fixed by RFC 9628.
 const VP9_CLOCK_RATE: u32 = 90_000;
@@ -150,7 +150,6 @@ pub struct VideoPeer {
     ssrc: u32,
     control: Arc<dyn DataChannel>,
     payload_type: PayloadType,
-    runtime: Arc<dyn Runtime>,
 }
 
 impl VideoPeer {
@@ -210,7 +209,7 @@ impl VideoPeer {
                 events,
                 wants_keyframe: wants_keyframe.clone(),
             }))
-            .with_runtime(runtime.clone())
+            .with_runtime(runtime)
             // An ephemeral port on every interface: ICE needs a socket to gather
             // candidates from, and the peer needs no fixed port because the
             // consumer's authenticated channel carries the candidates.
@@ -272,7 +271,6 @@ impl VideoPeer {
                 ssrc,
                 control,
                 payload_type,
-                runtime,
             },
             offer.sdp,
         ))
@@ -337,11 +335,5 @@ impl VideoPeer {
     pub async fn close(&self) {
         let _ = self.control.close().await;
         let _ = self.peer.close().await;
-    }
-
-    /// Sleep on the runtime the peer was built with, so timer behaviour belongs
-    /// to one runtime rather than to whichever one a caller happens to use.
-    pub async fn sleep(&self, duration: Duration) {
-        self.runtime.sleep(duration).await;
     }
 }

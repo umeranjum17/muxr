@@ -9,7 +9,7 @@ use crate::capture::{self, Capture};
 use crate::clipboard;
 use crate::convert::I420;
 use crate::encoder::Encoder;
-use crate::input::{Button, HeldState, InputDevices, InputUnavailable};
+use crate::input::{Button, HeldState, InputDevices};
 use crate::keymap::{self, Layout};
 use crate::peer::{PeerEvent, TransportOptions, VideoPeer};
 use crate::portal::{self, SelectedSource};
@@ -175,6 +175,8 @@ struct InputTarget {
 enum Applier {
     Uinput(InputDevices),
     X11(Arc<Mutex<X11Desktop>>),
+    #[cfg(test)]
+    Recording(Arc<Mutex<Vec<(i16, bool)>>>),
 }
 
 impl InputTarget {
@@ -185,6 +187,8 @@ impl InputTarget {
                 Ok(())
             }
             Applier::X11(desktop) => lock(desktop).move_pointer(x, y),
+            #[cfg(test)]
+            Applier::Recording(_) => Ok(()),
         }
     }
 
@@ -196,6 +200,13 @@ impl InputTarget {
                 Ok(())
             }
             Applier::X11(desktop) => lock(desktop).button(x11_button(button), down),
+            #[cfg(test)]
+            Applier::Recording(log) => {
+                if let Ok(mut log) = log.lock() {
+                    log.push((-1, down));
+                }
+                Ok(())
+            }
         }
     }
 
@@ -206,6 +217,8 @@ impl InputTarget {
                 Ok(())
             }
             Applier::X11(desktop) => lock(desktop).scroll(dx, dy),
+            #[cfg(test)]
+            Applier::Recording(_) => Ok(()),
         }
     }
 
@@ -217,6 +230,13 @@ impl InputTarget {
                 Ok(())
             }
             Applier::X11(desktop) => lock(desktop).key(code, down),
+            #[cfg(test)]
+            Applier::Recording(log) => {
+                if let Ok(mut log) = log.lock() {
+                    log.push((code, down));
+                }
+                Ok(())
+            }
         }
     }
 
@@ -227,12 +247,24 @@ impl InputTarget {
             match &mut self.applier {
                 Applier::Uinput(devices) => devices.button(button, false),
                 Applier::X11(desktop) => lock(desktop).button(x11_button(button), false)?,
+                #[cfg(test)]
+                Applier::Recording(log) => {
+                    if let Ok(mut log) = log.lock() {
+                        log.push((-1, false));
+                    }
+                }
             }
         }
         for code in keys {
             match &mut self.applier {
                 Applier::Uinput(devices) => devices.key(code, false),
                 Applier::X11(desktop) => lock(desktop).key(code, false)?,
+                #[cfg(test)]
+                Applier::Recording(log) => {
+                    if let Ok(mut log) = log.lock() {
+                        log.push((code, false));
+                    }
+                }
             }
         }
         Ok(())
@@ -319,13 +351,14 @@ struct Inner {
     last_seq: Mutex<u64>,
     control_open: AtomicBool,
     closed: AtomicBool,
+    /// Set false to stop the encode loop; owned here so closing is reachable
+    /// from the lease as well as from the consumer.
+    pipeline: Arc<AtomicBool>,
     events: tokio_mpsc::UnboundedSender<SessionEvent>,
 }
 
 pub struct Session {
     inner: Arc<Inner>,
-    /// Kept alive so dropping the session stops the pipeline's frame source.
-    pipeline: Arc<AtomicBool>,
 }
 
 /// What the engine can actually do on this machine right now.
@@ -503,6 +536,7 @@ impl Session {
             })
         };
 
+        let pipeline = Arc::new(AtomicBool::new(true));
         let inner = Arc::new(Inner {
             id: opaque_id(),
             generation,
@@ -521,6 +555,7 @@ impl Session {
             last_seq: Mutex::new(0),
             control_open: AtomicBool::new(false),
             closed: AtomicBool::new(false),
+            pipeline: pipeline.clone(),
             events: events.clone(),
         });
 
@@ -534,12 +569,11 @@ impl Session {
             first_frame: false,
         });
 
-        let pipeline = Arc::new(AtomicBool::new(true));
-        spawn_pipeline(&inner, frame_rx, pipeline.clone());
+        spawn_pipeline(&inner, frame_rx, pipeline);
         spawn_peer_events(&inner, peer_events_rx);
         spawn_lease(&inner, request.ttl.unwrap_or(Duration::from_secs(3600)));
 
-        Ok(Self { inner, pipeline })
+        Ok(Self { inner })
     }
 
     pub fn id(&self) -> &str {
@@ -564,10 +598,6 @@ impl Session {
             .lock()
             .map(|m| m.clone())
             .unwrap_or_default()
-    }
-
-    pub fn first_frame_sent(&self) -> bool {
-        self.metrics().encoded_frames > 0
     }
 
     pub async fn accept_answer(&self, sdp: String) -> Result<()> {
@@ -617,43 +647,45 @@ impl Session {
     }
 
     pub async fn close(&self, reason: &str) {
-        if self.inner.closed.swap(true, Ordering::SeqCst) {
+        self.inner.close(reason).await;
+    }
+}
+
+impl Inner {
+    /// Stop everything and release whatever input this session held. Idempotent,
+    /// and the one teardown both an explicit close and a lease expiry take.
+    async fn close(&self, reason: &str) {
+        if self.closed.swap(true, Ordering::SeqCst) {
             return;
         }
+        self.control_open.store(false, Ordering::SeqCst);
         self.pipeline.store(false, Ordering::SeqCst);
         // Release first, then tear down: a stuck modifier is the one failure the
         // user cannot undo by reconnecting.
-        if let Ok(mut input) = self.inner.input.lock() {
+        if let Ok(mut input) = self.input.lock() {
             if let Some(target) = input.as_mut() {
                 let _ = target.release_all();
             }
             *input = None;
         }
-        let _ = self.inner.peer.send_control(
+        let _ = self.peer.send_control(
             &serde_json::to_string(&ControlReply::Revoked { reason })
                 .unwrap_or_else(|_| String::from(r#"{"kind":"revoked","reason":"closed"}"#)),
         ).await;
-        self.inner.peer.close().await;
+        self.peer.close().await;
         // Dropping the capture stops the PipeWire stream and joins its thread,
         // which is what releases the compositor's consent for this session. It
         // has to happen synchronously, not when the last handle happens to fall
         // out of scope, so the consumer can truthfully say the desktop stopped.
-        let capture = self
-            .inner
-            .capture
-            .lock()
-            .ok()
-            .and_then(|mut held| held.take());
+        let capture = self.capture.lock().ok().and_then(|mut held| held.take());
         drop(capture);
-        let _ = self.inner.events.send(SessionEvent::State {
+        let _ = self.events.send(SessionEvent::State {
             capture: "ended",
             transport: String::from("closed"),
             first_frame: false,
         });
     }
-}
 
-impl Inner {
     fn revoked_reason(&self) -> Option<String> {
         if self.closed.load(Ordering::Relaxed) {
             Some(String::from("session closed"))
@@ -690,6 +722,10 @@ impl Inner {
     /// exactly as it was.
     fn apply(self: &Arc<Self>, message: ControlMessage) {
         let seq = message.seq();
+        if self.closed.load(Ordering::Relaxed) {
+            self.reject(seq, "session", "the session has ended");
+            return;
+        }
         if !self.control_open.load(Ordering::Relaxed) {
             self.reject(seq, "session", "the control channel is not open");
             return;
@@ -1066,13 +1102,15 @@ fn spawn_lease(inner: &Arc<Inner>, ttl: Duration) {
     let inner = inner.clone();
     tokio::spawn(async move {
         tokio::time::sleep(ttl).await;
-        if !inner.closed.load(Ordering::SeqCst) {
-            let _ = inner
-                .events
-                .send(SessionEvent::Revoked {
-                    reason: String::from("the session lease expired"),
-                });
+        if inner.closed.load(Ordering::SeqCst) {
+            return;
         }
+        let _ = inner.events.send(SessionEvent::Revoked {
+            reason: String::from("the session lease expired"),
+        });
+        // An expiry ends the session exactly as an explicit close does; the
+        // notification above is not a substitute for stopping the desktop.
+        inner.close("the session lease expired").await;
     });
 }
 
@@ -1157,5 +1195,102 @@ mod tests {
         assert_eq!(to_source_pixels(640, 360, (1280, 720), &source), (1280, 720));
         assert_eq!(to_source_pixels(1279, 719, (1280, 720), &source), (2558, 1438));
         assert_eq!(to_source_pixels(0, 0, (1280, 720), &source), (0, 0));
+    }
+
+    async fn test_inner(events: tokio_mpsc::UnboundedSender<SessionEvent>) -> (Arc<Inner>, Arc<Mutex<Vec<(i16, bool)>>>) {
+        let (peer_events, _peer_events_rx) = tokio_mpsc::unbounded_channel();
+        let (peer, _offer) = VideoPeer::offer(
+            TransportOptions {
+                ice_servers: Vec::new(),
+                relay_only: false,
+            },
+            peer_events,
+        )
+        .await
+        .expect("a peer connection builds without a network");
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let inner = Arc::new(Inner {
+            id: String::from("test-session"),
+            generation: 1,
+            permissions: vec![Permission::Control],
+            source: SelectedSource {
+                node_id: 0,
+                width: 640,
+                height: 480,
+                position: None,
+                source_type: None,
+                origin_x: 0,
+                origin_y: 0,
+            },
+            geometry: serde_json::json!({
+                "source": { "width": 640, "height": 480 },
+                "encoded": { "width": 640, "height": 480 },
+                "origin": { "x": 0, "y": 0 },
+            }),
+            metrics: Arc::new(Mutex::new(Metrics::default())),
+            peer: Arc::new(peer),
+            encoder: Mutex::new(Encoder::new(64, 64, 1000, 30, 1).expect("an encoder")),
+            input: Mutex::new(Some(InputTarget {
+                applier: Applier::Recording(recorded.clone()),
+                held: HeldState::default(),
+            })),
+            capture: Mutex::new(None),
+            layout: Mutex::new(Layout::from_environment().expect("a keymap")),
+            last_seq: Mutex::new(0),
+            control_open: AtomicBool::new(true),
+            closed: AtomicBool::new(false),
+            pipeline: Arc::new(AtomicBool::new(true)),
+            events,
+        });
+        (inner, recorded)
+    }
+
+    #[tokio::test]
+    async fn a_lease_that_expires_ends_the_session_and_releases_held_input() {
+        let (events, mut received) = tokio_mpsc::unbounded_channel();
+        let (inner, recorded) = test_inner(events).await;
+
+        inner.apply(ControlMessage::Key {
+            name: None,
+            character: Some(String::from("a")),
+            down: true,
+            modifiers: Vec::new(),
+            seq: 1,
+        });
+        assert!(
+            recorded.lock().unwrap().iter().any(|(_, down)| *down),
+            "the press reached the desktop",
+        );
+
+        spawn_lease(&inner, Duration::from_millis(20));
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        assert!(inner.revoked_reason().is_some(), "an expired lease must end the session");
+        assert!(
+            !inner.pipeline.load(Ordering::SeqCst),
+            "an expired lease must stop capture",
+        );
+        assert!(
+            recorded.lock().unwrap().iter().any(|(_, down)| !*down),
+            "an expired lease must release what the session pressed",
+        );
+        assert!(
+            matches!(received.try_recv(), Ok(SessionEvent::Revoked { .. })),
+            "the consumer is still told why the session ended",
+        );
+
+        let rejected = inner.metrics.lock().unwrap().input_rejected;
+        inner.apply(ControlMessage::Key {
+            name: None,
+            character: Some(String::from("b")),
+            down: true,
+            modifiers: Vec::new(),
+            seq: 2,
+        });
+        assert_eq!(
+            inner.metrics.lock().unwrap().input_rejected,
+            rejected + 1,
+            "a control message after expiry must be refused",
+        );
     }
 }

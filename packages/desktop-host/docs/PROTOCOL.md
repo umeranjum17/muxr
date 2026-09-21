@@ -74,6 +74,7 @@ arrives, every other request is refused the same way; `capabilities` and
 ```jsonc
 {
   "protocol": 1,
+  "engine": "desklink-host/0.1.0",
   "platform": "linux",
   "session": {"kind": "wayland"},
   "x11": {"available": true, "size": [2560, 1440]},
@@ -84,29 +85,31 @@ arrives, every other request is refused the same way; `capabilities` and
     "cursor": "embedded",
     "audio": false
   },
-  "encode": {"codecs": ["vp9"], "hardware": false, "maxWidth": 2560, "maxHeight": 1440},
+  "encode": {"codecs": ["vp9"], "hardware": false},
   "input": {
     "mechanism": "inputtino/uinput",
     "pointer": true, "wheel": true, "keyboard": true,
-    "text": ["ascii", "keysym"],
-    "unavailable_reason": null
+    "text": ["latin1", "layout-reachable"],
+    "unavailable_reason": null,
+    "grant": "granted"
   },
-  "clipboard": {"read": true, "write": true, "mime": ["text/plain;charset=utf-8"]},
-  "grant": {"requires": "uinput-access", "state": "granted"}
+  "clipboard": {"read": true, "write": true, "mime": ["text/plain;charset=utf-8"], "maxBytes": 262144}
 }
 ```
 
-`input.mechanism` is the backend that will actually be used: `inputtino/uinput`
-for a portal desktop, where the engine creates its own virtual devices, and
-`xtest` for an X display, where the X server applies the events and nothing the
-engine does can reach another session's keyboard. `capture.backends` lists what
-this build has, not what this machine can necessarily use.
+`input.mechanism` names the build's portal input path, `inputtino/uinput`,
+where the engine creates its own virtual devices. A session opened against an X
+display applies input through XTest instead, where the X server applies the
+events and nothing the engine does can reach another session's keyboard.
+`capture.backends` lists what this build has, not what this machine can
+necessarily use.
 
 Every field describes what this process can *actually* do right now, not what the
-platform might do. `input.unavailable_reason` and `grant.state` are the honest
-degraded modes: without kernel input access the engine still captures and reports
-`input` as unavailable, and the consumer shows a view-only surface. It never
-substitutes another product and never asks for privileges on its own.
+platform might do. `input.unavailable_reason` and `input.grant` (the string
+`"granted"`, or `"missing-device-access"`) are the honest degraded modes: without
+kernel input access the engine still captures and reports `input` as unavailable,
+and the consumer shows a view-only surface. It never substitutes another product
+and never asks for privileges on its own.
 
 `capabilities` is safe to call before any consent has been given and must not
 trigger a capture request.
@@ -118,7 +121,8 @@ trigger a capture request.
 ```
 
 ```jsonc
-{"sources":[{"id":"<opaque>","kind":"monitor","name":"DP-1","width":2560,"height":1440,"scale":1.5,"origin":{"x":0,"y":0}}]}
+{"granted":true,
+ "sources":[{"id":"<opaque>","kind":"monitor","width":2560,"height":1440,"origin":{"x":0,"y":0}}]}
 ```
 
 The portal does not enumerate sources until the user grants one, so an
@@ -145,8 +149,9 @@ Result:
 ```jsonc
 {"sessionId":"<opaque>","generation":1,
  "source":{"kind":"monitor","width":2560,"height":1440,"origin":{"x":0,"y":0}},
- "video":{"width":1280,"height":720,"codec":"vp9","payloadType":98},
- "permissions":["view","control","clipboard"]}
+ "geometry":{"source":{"width":2560,"height":1440},
+             "encoded":{"width":1280,"height":720},
+             "origin":{"x":0,"y":0}}}
 ```
 
 `source` selects the desktop. `portal` (or absent) asks the compositor for a
@@ -192,7 +197,7 @@ A candidate that arrives before the remote description is buffered, not dropped.
 ### State
 
 ```jsonc
-{"event":"session.state","params":{"generation":1,
+{"event":"session.state","params":{
   "capture":"streaming",              // consented|streaming|ended
   "transport":"connected",            // new|connecting|connected|failed|closed
   "firstFrame":true}}                 // false until a frame has been encoded

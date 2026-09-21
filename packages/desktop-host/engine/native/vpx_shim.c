@@ -26,12 +26,10 @@ typedef struct {
     vpx_codec_enc_cfg_t cfg;
     int width;
     int height;
-    int bitrate_kbps;
     int frame_index;
     /* The packet libvpx last produced; valid until the next encode call. */
     const void *packet;
     size_t packet_size;
-    int packet_is_key;
 } dl_vpx_encoder;
 
 /* Returns NULL when libvpx refuses the configuration, which is reported rather
@@ -87,7 +85,6 @@ dl_vpx_encoder *dl_vpx_create(int width, int height, int bitrate_kbps, int fps,
 
     self->width = width;
     self->height = height;
-    self->bitrate_kbps = bitrate_kbps;
     return self;
 }
 
@@ -114,7 +111,6 @@ int dl_vpx_encode(dl_vpx_encoder *self, const uint8_t *i420, int force_keyframe)
 
     self->packet = NULL;
     self->packet_size = 0;
-    self->packet_is_key = 0;
     vpx_codec_iter_t iter = NULL;
     const vpx_codec_cx_pkt_t *pkt;
     while ((pkt = vpx_codec_get_cx_data(&self->ctx, &iter)) != NULL) {
@@ -123,7 +119,6 @@ int dl_vpx_encode(dl_vpx_encoder *self, const uint8_t *i420, int force_keyframe)
         }
         self->packet = pkt->data.frame.buf;
         self->packet_size = pkt->data.frame.sz;
-        self->packet_is_key = (pkt->data.frame.flags & VPX_FRAME_IS_KEY) != 0;
         break;
     }
     return self->packet == NULL ? 0 : 1;
@@ -134,20 +129,6 @@ const uint8_t *dl_vpx_packet_data(const dl_vpx_encoder *self) {
 }
 
 size_t dl_vpx_packet_size(const dl_vpx_encoder *self) { return self->packet_size; }
-
-int dl_vpx_packet_is_key(const dl_vpx_encoder *self) { return self->packet_is_key; }
-
-int dl_vpx_set_bitrate(dl_vpx_encoder *self, int bitrate_kbps) {
-    if (self == NULL || bitrate_kbps <= 0) {
-        return -1;
-    }
-    self->cfg.rc_target_bitrate = (unsigned int)bitrate_kbps;
-    if (vpx_codec_enc_config_set(&self->ctx, &self->cfg) != VPX_CODEC_OK) {
-        return -1;
-    }
-    self->bitrate_kbps = bitrate_kbps;
-    return 0;
-}
 
 void dl_vpx_destroy(dl_vpx_encoder *self) {
     if (self == NULL) {

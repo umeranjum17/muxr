@@ -162,14 +162,6 @@ impl HeldState {
             std::mem::take(&mut self.keys),
         )
     }
-
-    pub fn held(&self) -> usize {
-        self.keys.len() + self.buttons.len()
-    }
-
-    pub fn is_pressing(&self, code: i16) -> bool {
-        self.keys.contains(&code)
-    }
 }
 
 /// A live pair of virtual devices. Dropping this releases anything still held
@@ -300,16 +292,13 @@ mod tests {
         held.key(29, true); // left ctrl
         held.key(46, true); // c
         held.button(Button::Left, true);
-        assert_eq!(held.held(), 3);
         // A repeat press is the same press, not a second one, so the plan still
         // releases it exactly once.
         held.key(29, true);
-        assert_eq!(held.held(), 3);
 
         let (buttons, keys) = held.release_plan();
         assert_eq!(buttons, vec![Button::Left]);
         assert_eq!(keys, vec![29, 46]);
-        assert_eq!(held.held(), 0, "a release plan empties the held state");
         assert!(held.release_plan().1.is_empty(), "releasing twice releases nothing");
     }
 
@@ -319,9 +308,9 @@ mod tests {
         held.key(29, true);
         held.key(46, true);
         held.key(46, false);
-        assert!(held.is_pressing(29));
-        assert!(!held.is_pressing(46));
-        assert_eq!(held.release_plan().1, vec![29]);
+        let (buttons, keys) = held.release_plan();
+        assert!(buttons.is_empty());
+        assert_eq!(keys, vec![29]);
     }
 
     /// Proving the backend is really available here is the point: if this host

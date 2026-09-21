@@ -44,6 +44,13 @@ interface LiveSession extends DesktopSessionRecord {
 /** How many notifications one session keeps for a client that fell behind. */
 const MAX_BACKLOG = 512;
 
+/**
+ * How long one desktop session may stay open before the engine ends it. The
+ * host states this rather than inheriting the engine's default: expiry stops
+ * capture and releases held input, so it is a product decision, not a fallback.
+ */
+const DESKTOP_SESSION_LEASE_SECONDS = 3600;
+
 const UNAVAILABLE_INPUT = 'This computer cannot inject input, so there is nothing to control.';
 
 /**
@@ -124,6 +131,7 @@ export class DesktopSessions {
             ...(request.maxHeight === undefined ? {} : { maxHeight: request.maxHeight }),
             ...(request.bitrateKbps === undefined ? {} : { bitrateKbps: request.bitrateKbps }),
             ...(request.maxFps === undefined ? {} : { maxFps: request.maxFps }),
+            ttlSeconds: DESKTOP_SESSION_LEASE_SECONDS,
         });
         const desktopId = nextDesktopId();
         // The engine serves one session at a time and closes the previous one as

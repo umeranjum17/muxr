@@ -113,5 +113,5 @@ export function explainMissingEngine(configured = process.env.MUXR_DESKLINK_ENGI
         }
         return `The desktop engine at ${configured} is not an executable file.`;
     }
-    return `The desktop engine is not installed for ${platformTag()}. Install @desklink/host-${platformTag()}, or build the engine from source and point MUXR_DESKLINK_ENGINE at it.`;
+    return `The desktop engine is not installed for ${platformTag()}. This version ships no prebuilt engine: see the @desklink/host README for the native build prerequisites, build it from source, and point MUXR_DESKLINK_ENGINE at the built binary. @desklink/host-${platformTag()} is not published yet.`;
 }

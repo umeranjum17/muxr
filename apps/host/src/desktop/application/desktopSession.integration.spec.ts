@@ -131,6 +131,7 @@ describe('desktop sessions, host side', () => {
             max_height: 480,
             bitrate_kbps: 2000,
             max_fps: 15,
+            ttl_seconds: 3600,
         });
         // The answer and candidate carry the engine's own session id, never the
         // host's opaque handle.

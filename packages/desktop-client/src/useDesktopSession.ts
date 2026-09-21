@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 import type { NativeDesklinkModule } from './native';
 import type {
@@ -442,6 +443,16 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
     }, [connect, discardSession, endRemote, snapshot.status, snapshot.failure, update]);
 
     useEffect(() => cancelReconnect, [cancelReconnect]);
+
+    // A phone that goes to the background must not leave a remote button held:
+    // the desktop cannot know the finger left the glass. This is the same
+    // release path a lost control channel takes.
+    useEffect(() => {
+        const subscription = AppState.addEventListener('change', (status) => {
+            if (status !== 'active') releaseHeld();
+        });
+        return () => subscription.remove();
+    }, [releaseHeld]);
 
     return useMemo<DesktopSession>(() => ({
         snapshot,

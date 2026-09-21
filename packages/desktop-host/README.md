@@ -38,6 +38,12 @@ particular application.
 
 ## Install and run
 
+**This version ships no prebuilt engine.** Installing the package does not give
+you a working desktop on its own: the platform packages below are not published
+yet, so the engine must be built from source (prerequisites in the next section)
+and its path given to the package. Nothing here should be read as a one-step
+install today.
+
 The engine is a native binary. Building it from this package:
 
 ```sh

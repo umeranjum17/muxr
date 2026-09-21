@@ -32,15 +32,12 @@ extern "C" {
     ) -> c_int;
     fn dl_vpx_packet_data(encoder: *const NativeEncoder) -> *const u8;
     fn dl_vpx_packet_size(encoder: *const NativeEncoder) -> usize;
-    fn dl_vpx_packet_is_key(encoder: *const NativeEncoder) -> c_int;
-    fn dl_vpx_set_bitrate(encoder: *mut NativeEncoder, bitrate_kbps: c_int) -> c_int;
     fn dl_vpx_destroy(encoder: *mut NativeEncoder);
 }
 
 /// One encoded VP9 frame as libvpx produced it.
 pub struct EncodedFrame {
     pub data: Vec<u8>,
-    pub keyframe: bool,
 }
 
 pub struct Encoder {
@@ -84,22 +81,6 @@ impl Encoder {
         })
     }
 
-    pub fn dimensions(&self) -> (usize, usize) {
-        (self.width, self.height)
-    }
-
-    /// Change the target bitrate without reinitialising, so a bandwidth change
-    /// never costs a key frame.
-    pub fn set_bitrate(&mut self, bitrate_kbps: u32) {
-        if bitrate_kbps == self.bitrate_kbps {
-            return;
-        }
-        let ok = unsafe { dl_vpx_set_bitrate(self.native, bitrate_kbps as c_int) };
-        if ok == 0 {
-            self.bitrate_kbps = bitrate_kbps;
-        }
-    }
-
     pub fn encode(&mut self, frame: &I420, force_keyframe: bool) -> Result<EncodedFrame> {
         if frame.width != self.width || frame.height != self.height {
             anyhow::bail!(
@@ -125,10 +106,7 @@ impl Encoder {
             anyhow::bail!("libvpx reported a zero-length packet");
         }
         let bytes = unsafe { std::slice::from_raw_parts(data, size) }.to_vec();
-        Ok(EncodedFrame {
-            data: bytes,
-            keyframe: unsafe { dl_vpx_packet_is_key(self.native) } != 0,
-        })
+        Ok(EncodedFrame { data: bytes })
     }
 }
 
@@ -160,21 +138,11 @@ mod tests {
     }
 
     #[test]
-    fn encodes_a_key_frame_on_demand_and_then_inter_frames() {
+    fn encodes_successive_frames_and_refuses_a_mismatched_geometry() {
         let (w, h) = (64usize, 64usize);
         let mut encoder = Encoder::new(w, h, 500, 30, 2).expect("encoder should start");
-        let first = encoder.encode(&blank(w, h), true).unwrap();
-        assert!(first.keyframe, "a forced key frame must be reported as one");
-        assert!(!first.data.is_empty());
-
-        let second = encoder.encode(&blank(w, h), false).unwrap();
-        assert!(!second.keyframe, "an unforced frame should not be a key frame");
-        assert!(!second.data.is_empty());
-    }
-
-    #[test]
-    fn refuses_a_frame_that_does_not_match_its_geometry() {
-        let mut encoder = Encoder::new(64, 64, 500, 30, 1).unwrap();
+        assert!(!encoder.encode(&blank(w, h), true).unwrap().data.is_empty());
+        assert!(!encoder.encode(&blank(w, h), false).unwrap().data.is_empty());
         assert!(encoder.encode(&blank(32, 32), false).is_err());
     }
 }
