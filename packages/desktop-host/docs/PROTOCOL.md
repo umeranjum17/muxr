@@ -90,6 +90,7 @@ arrives, every other request is refused the same way; `capabilities` and
     "mechanism": "inputtino/uinput",
     "pointer": true, "wheel": true, "keyboard": true,
     "text": ["latin1", "layout-reachable"],
+    "layout": "us",
     "unavailable_reason": null,
     "grant": "granted"
   },
@@ -101,8 +102,11 @@ arrives, every other request is refused the same way; `capabilities` and
 where the engine creates its own virtual devices. A session opened against an X
 display applies input through XTest instead, where the X server applies the
 events and nothing the engine does can reach another session's keyboard.
-`capture.backends` lists what this build has, not what this machine can
-necessarily use.
+`input.layout` is the keymap the engine compiled for typing, taken from the
+session's `XKB_DEFAULT_*` variables and `us` on `evdev`/`pc105` when it exports
+none. It is not yet the compositor's live layout, so a mismatch with the
+desktop is visible here rather than silent. `capture.backends` lists what this
+build has, not what this machine can necessarily use.
 
 Every field describes what this process can *actually* do right now, not what the
 platform might do. `input.unavailable_reason` and `input.grant` (the string
@@ -257,7 +261,7 @@ are JSON, one per message:
 |---|---|---|
 | `pointer` | `phase`: `move`\|`down`\|`up`\|`cancel`, `x`, `y`, `button` (default 1) | `x`/`y` are integers in the **encoded surface's** own pixels, i.e. `geometry.encoded` |
 | `wheel` | `dx`, `dy` (integer detents) | |
-| `key` | `name` (a named key or modifier) or `character` (one character), `down`, `modifiers` | the engine maps `character` through the desktop's **active layout**, and refuses a character that layout cannot produce |
+| `key` | `name` (a named key or modifier) or `character` (one character), `down`, `modifiers` | the engine maps `character` through the layout it compiled (`input.layout` in `capabilities`), and refuses a character that layout cannot produce |
 | `text` | `text` (≤ 4096 bytes) | applied as real key events, not as a clipboard paste |
 | `release_all` | — | explicit safety net; the engine also does this on close and on channel loss |
 | `clipboard_read` / `clipboard_write` | `request` (echoed back), `text` | explicit, on user action; never polled |
@@ -284,7 +288,7 @@ The engine holds its own pressed-key/button state. `close`, `release_all`,
 control-channel loss and process exit all synthesize releases for exactly the
 keys and buttons this session pressed, so a dropped connection cannot leave a
 modifier stuck down on the desktop. `input.text` in `capabilities` states the
-characters this desktop's layout can actually produce; anything else is refused
+characters the compiled layout can actually produce; anything else is refused
 with `text-unsupported` and the honest workaround is the explicit clipboard.
 
 ## Clipboard over the local protocol

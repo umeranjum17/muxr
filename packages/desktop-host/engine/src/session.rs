@@ -411,6 +411,7 @@ pub fn capabilities() -> serde_json::Value {
             "wheel": input,
             "keyboard": input,
             "text": ["latin1", "layout-reachable"],
+            "layout": keymap::LayoutNames::from_environment().identity(),
             "unavailable_reason": unavailable,
             "grant": grant_state,
         },

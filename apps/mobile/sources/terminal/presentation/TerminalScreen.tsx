@@ -14,6 +14,7 @@ import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMo
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
+import { desktopAvailable } from '@desklink/react-native';
 import { changesList } from '@/catalog/ops';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
@@ -51,6 +52,7 @@ import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, De
 import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
 import { FloatingTerminalControls, RING_CENTER_SIZE, type RingSlot } from './FloatingTerminalControls';
+import { computerRingSlot } from './ringSlots';
 import { TERMINAL_QUICK_REPLIES, TerminalKeyRow } from './TerminalKeyRow';
 import { TerminalControlGrid, type ControlGridCategory } from './TerminalKeyRowEditor';
 import { DEFAULT_ROW_IDS, type RowEntry, type TerminalKeyAction } from '../domain/keyRow';
@@ -872,15 +874,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             run: () => router.push(`/session/${encodeURIComponent(props.id)}/takeover`),
         });
         // The computer action opens this machine's own desktop inside the
-        // conversation. The desktop package supplies both a native surface and
-        // a browser one, so the action is offered on every platform the app runs
-        // on rather than only the ones with a native decoder.
-        slots.push({
-            id: 'computer',
-            label: 'Computer',
-            icon: 'desktop-outline',
-            run: () => router.push(`/session/${encodeURIComponent(props.id)}/desktop`),
-        });
+        // conversation, so it is offered only where the package has a surface:
+        // Android and the web build, not a platform with no backend.
+        const computer = computerRingSlot(
+            desktopAvailable,
+            () => router.push(`/session/${encodeURIComponent(props.id)}/desktop`),
+        );
+        if (computer !== null) slots.push(computer);
         return slots;
     }, [canControl, changesCount, keyboardVisible, openAgentCommands, pasteToDraft, props.id, sendCommand, terminalKeyboardCommand, viewControls]);
 

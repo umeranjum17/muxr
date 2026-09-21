@@ -9,6 +9,7 @@ export * from './protocol';
  * when a desktop is actually opened.
  */
 export type { NativeDesklinkModule, NativeSessionEvent } from './native';
+export { desktopAvailable } from './availability';
 export { DesktopView, type DesktopViewProps } from './DesktopView';
 export {
     useDesktopSession,

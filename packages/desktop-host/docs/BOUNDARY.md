@@ -33,18 +33,20 @@ an account never appears in the protocol or in the engine's state.
 **Boundary:** "given an authorized session description, show the desktop and turn
 local gestures into that session's input".
 
-- `useDesktopSession({ authorize, signaling, onStateChange, onError })` owns
-  connection, negotiation, readiness, reconnect and typed errors.
-- `<DesktopView session style />` owns the live surface and gesture mapping. It
+- `useDesktopSession({ authorize, onStateChange, onError })` owns connection,
+  negotiation, readiness, reconnect and typed errors. `authorize()` returns the
+  session's `signaling` channel and the permissions it may ask for.
+- `<DesktopView sessionId style />` owns the live surface and gesture mapping. It
   owns nothing about layout, chrome, navigation or the conversation it sits in.
-- `session.keyboard.show()/hide()`, `session.clipboard.readRemote()/writeRemote()`
-  are the control primitives the app mounts wherever it wants.
+- `session.showKeyboard()/hideKeyboard()`,
+  `session.copyRemoteToLocal()/pasteLocalToRemote()` are the control primitives
+  the app mounts wherever it wants.
 - Native side owns: the video decoder factory selection (hardware VP9 rather
   than the underlying wrapper's software default), the renderer, the IME/text
   connection, platform clipboard, and the timely release of held remote input on
   background/unmount.
-- The app supplies `authorize()` (a short-lived, engine-scoped capability) and
-  `signaling` (an authenticated message adapter). The package never sees a
+- The app supplies `authorize()` (a short-lived, engine-scoped capability plus
+  the authenticated `signaling` channel it carries). The package never sees a
   pairing blob, a machine id or a token format, and never persists one.
 - Platform files: `.native.ts` uses WebRTC through the app's existing native
   binding; `.web.ts` uses the browser's own `RTCPeerConnection`, so the same

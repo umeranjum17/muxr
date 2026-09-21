@@ -1,11 +1,12 @@
 //! Turning a character or a named key into a Linux key code plus the modifier
-//! presses that reach it on the user's own layout.
+//! presses that reach it on the layout this process compiles.
 //!
-//! The engine does not assume a US layout. It reads the active XKB keymap the
-//! same way the compositor sees it, builds the character → (key code, modifiers)
-//! table from that keymap, and applies text as real key events. A character that
-//! is not reachable on the current layout is refused rather than approximated,
-//! which is why the protocol reports the text capability it actually has.
+//! The layout comes from the session's `XKB_DEFAULT_*` variables when it exports
+//! them, and from xkbcommon's defaults (`us` on `evdev`/`pc105`) otherwise. It is
+//! not yet the compositor's live layout; `capabilities()` reports the identity
+//! actually compiled so the two can be told apart. A character the compiled
+//! layout cannot produce is refused rather than approximated, which is why the
+//! protocol reports the text capability it actually has.
 
 use crate::input::keycode;
 use anyhow::Result;
@@ -96,6 +97,46 @@ pub fn modifier_key(name: &str) -> Option<i16> {
 unsafe impl Send for Layout {}
 unsafe impl Sync for Layout {}
 
+/// The RMLVO names the engine compiles, from the session's `XKB_DEFAULT_*`
+/// variables or xkbcommon's defaults when it exports none.
+pub struct LayoutNames {
+    pub rules: String,
+    pub model: String,
+    pub layout: String,
+    pub variant: String,
+    pub options: Option<String>,
+}
+
+impl LayoutNames {
+    pub fn from_environment() -> Self {
+        Self::from_lookup(|key| std::env::var(key).ok())
+    }
+
+    /// The identity the capability surface reports, e.g. `us` or `de(nodeadkeys)`.
+    pub fn identity(&self) -> String {
+        if self.variant.is_empty() {
+            self.layout.clone()
+        } else {
+            format!("{}({})", self.layout, self.variant)
+        }
+    }
+
+    fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Self {
+        let named = |key: &str, fallback: &str| {
+            lookup(key)
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| String::from(fallback))
+        };
+        Self {
+            rules: named("XKB_DEFAULT_RULES", "evdev"),
+            model: named("XKB_DEFAULT_MODEL", "pc105"),
+            layout: named("XKB_DEFAULT_LAYOUT", "us"),
+            variant: named("XKB_DEFAULT_VARIANT", ""),
+            options: lookup("XKB_DEFAULT_OPTIONS").filter(|value| !value.is_empty()),
+        }
+    }
+}
+
 /// The active keyboard layout, compiled once per session.
 pub struct Layout {
     keymap: xkb::Keymap,
@@ -104,20 +145,24 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// Build from the environment's RMLVO, falling back to the standard
-    /// `evdev`/`pc105` layout when nothing is configured.
+    /// Build from the session's RMLVO, falling back to the standard
+    /// `evdev`/`pc105`/`us` keymap when it exports none.
     pub fn from_environment() -> Result<Self> {
+        Self::from_names(&LayoutNames::from_environment())
+    }
+
+    fn from_names(names: &LayoutNames) -> Result<Self> {
         let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
         let keymap = xkb::Keymap::new_from_names(
             &context,
-            "",
-            "",
-            "",
-            "",
-            None,
+            &names.rules,
+            &names.model,
+            &names.layout,
+            &names.variant,
+            names.options.clone(),
             xkb::KEYMAP_COMPILE_NO_FLAGS,
         )
-        .ok_or_else(|| anyhow::anyhow!("xkbcommon could not compile a keymap"))?;
+        .ok_or_else(|| anyhow::anyhow!("xkbcommon could not compile the {} keymap", names.identity()))?;
         // Level bit 0 is the shift level and bit 1 the AltGr/level-3 shift on
         // every standard XKB layout, and the real modifier index for each name
         // comes from the compiled keymap rather than from an assumption that
@@ -196,7 +241,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_character_is_planned_as_a_real_key_event_on_the_active_layout() {
+    fn a_layout_that_comes_from_the_environment_is_the_one_compiled() {
+        let names = LayoutNames::from_lookup(|key| match key {
+            "XKB_DEFAULT_LAYOUT" => Some(String::from("de")),
+            _ => None,
+        });
+        assert_eq!(names.identity(), "de");
+
+        let layout = Layout::from_names(&names).expect("the German keymap should compile");
+        let (plan, unreachable) = layout.plan_text("z");
+        assert!(unreachable.is_empty(), "z should be reachable: {unreachable:?}");
+        // QWERTZ puts z where a US layout puts y, so the compiled keymap is the
+        // environment's, not the library default.
+        assert_eq!(plan[0][0].code, 21, "z must sit on the y key position");
+    }
+
+    #[test]
+    fn a_session_with_no_layout_variable_reports_the_library_default() {
+        assert_eq!(LayoutNames::from_lookup(|_| None).identity(), "us");
+    }
+
+    #[test]
+    fn a_character_is_planned_as_a_real_key_event_on_the_compiled_layout() {
         let layout = Layout::from_environment().expect("a keymap should compile");
         let (plan, unreachable) = layout.plan_text("aA");
         assert!(unreachable.is_empty(), "ASCII should be reachable: {unreachable:?}");

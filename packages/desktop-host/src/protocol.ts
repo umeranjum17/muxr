@@ -31,6 +31,7 @@ export interface EngineCapabilities {
         wheel: boolean;
         keyboard: boolean;
         text: string[];
+        layout: string;
         unavailable_reason: { reason: string; remedy: string } | null;
         grant: string;
     };
