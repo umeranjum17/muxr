@@ -7,8 +7,7 @@ never plugin HTML.
 
 The full manifest contract (slots, primitives, actions, RPCs, streams,
 capabilities) is NOT duplicated here: run `muxr plugin docs` and read the
-printed PLUGINS.md. Working examples ship in the package's `plugins/`
-directory.
+printed PLUGINS.md.
 
 ## When to use
 
@@ -20,7 +19,6 @@ realtime voice provider.
 ```bash
 muxr plugin docs
 muxr plugin create <name>
-muxr plugin clone <bundled-plugin-id> [destination]
 muxr plugin check <path>
 muxr plugin dev <path> [--web]
 muxr plugin call <path> <contribution-id> [--input '<json>']
@@ -35,8 +33,7 @@ muxr plugin remove <plugin-id>
 1. Run `muxr plugin docs` and read the printed PLUGINS.md before editing. Use
    only public slots, primitives, actions, RPCs, streams, and capabilities
    documented there.
-2. For a new plugin, start with `muxr plugin create <name>`. For a bundled
-   customization, use `muxr plugin clone <plugin-id> [destination]`; never edit
+2. For a new plugin, start with `muxr plugin create <name>`. Never edit
    package-owned files in place because npm updates replace them.
 3. Keep provider policy, secrets, filesystem access, and heavy work in the
    plugin backend. Mobile UI stays declarative and provider-neutral.
@@ -57,13 +54,6 @@ scripts. Enabling a plugin is a trust decision: the plugin backend runs
 unsandboxed as your user on the host machine. Read the source before enabling
 third-party code. The plugin destination must live outside the npm package so
 updates cannot remove it.
-
-## Override a bundled plugin
-
-1. `muxr plugin clone <bundled-plugin-id> <destination>` — copies the source
-   somewhere npm updates cannot touch.
-2. Disable the original, then `muxr plugin dev <destination>`.
-3. Rollback at any time with `herdr plugin enable <original-plugin-id>`.
 
 ## Pitfalls
 

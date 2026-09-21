@@ -29,14 +29,13 @@ There is no `services/` folder. A use case is one camelCase module that exports 
 | Inspect peer Agent status | `inspectPeerAgent` | Lifecycle Event | `muxr peers status` |
 | Watch a peer Agent | `watchPeerAgent` | Agent Watch | `muxr peers watch` |
 
-## Plugin — Plugin Id, Bundled Plugin
+## Plugin — Plugin Id
 
 | Capability | Use case | Domain owner | Adapters |
 |---|---|---|---|
 | Check a plugin | `checkPlugin` | Plugin Id | `muxr plugin check` |
 | Report check result | `reportPluginCheck` | Plugin Id | `muxr plugin check` stdout |
 | Create a plugin | `createPlugin` | Plugin Id | `muxr plugin create` |
-| Clone a Bundled Plugin | `clonePlugin` | Plugin Id | `muxr plugin clone` |
 | Call a plugin RPC | `callPluginAction` | Plugin Id | `muxr plugin call` |
 | Link a plugin for development | `linkPlugin` | Plugin Id | `muxr plugin dev` |
 | Show plugin docs | `showPluginDocs` | — | `muxr plugin docs` |

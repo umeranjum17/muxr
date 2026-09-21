@@ -13,7 +13,6 @@ export interface VoiceProviderCatalog {
 }
 
 export interface VoiceProviderDescription extends VoiceProviderEntry {
-    selectedLabel: string;
     configured: boolean;
     statusLabel: string;
 }

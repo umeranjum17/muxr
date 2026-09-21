@@ -47,7 +47,6 @@ export async function voiceProviderDescribe(id) {
         : await secret.statusPayload();
     return {
         ...providerEntry(provider, selected),
-        selectedLabel: provider.id === selected.id ? 'In use' : 'Not in use',
         configured: readiness.configured === true,
         statusLabel: readiness.statusLabel,
     };

@@ -17,7 +17,7 @@ import { join } from 'node:path';
 const herdrSocket = process.env.HERDR_SOCKET_PATH?.trim()
     || join(process.env.HOME?.trim() || homedir(), '.config', 'herdr', 'herdr.sock');
 const hasHerdr = existsSync(herdrSocket);
-const labHelper = process.env.HERDR_LAB_HELPER?.trim() || '/home/umer/firstmate/bin/fm-herdr-lab.sh';
+const labHelper = process.env.HERDR_LAB_HELPER?.trim();
 
 const checks = [
     ['typecheck: workspace (strict)', 'npx', ['tsc', '--build', '--force']],
@@ -160,11 +160,12 @@ for (const [name, cmd, args, needs, timeoutMs] of checks) {
         process.stdout.write(`SKIP  ${name}  (no herdr server)\n`);
         continue;
     }
-    // The lab gate runs where the guarded helper exists; that wrapper provisions
-    // its own isolated lab session and warms the agent it tests.
-    if (needs === 'herdr-lab' && !existsSync(labHelper)) {
+    // The lab gate needs the guarded herdr lab helper named by HERDR_LAB_HELPER;
+    // that wrapper provisions its own isolated lab session and warms the agent.
+    if (needs === 'herdr-lab' && (labHelper === undefined || !existsSync(labHelper))) {
         skipped += 1;
-        process.stdout.write(`SKIP  ${name}  (guarded herdr lab helper not found at ${labHelper})\n`);
+        const reason = labHelper === undefined ? 'HERDR_LAB_HELPER is unset' : `HERDR_LAB_HELPER=${labHelper} does not exist`;
+        process.stdout.write(`SKIP  ${name}  (${reason}; set HERDR_LAB_HELPER to the guarded herdr lab helper)\n`);
         continue;
     }
     // No settle wait between checks: every relay they spawn now takes a

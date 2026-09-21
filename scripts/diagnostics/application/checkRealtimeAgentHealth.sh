@@ -15,7 +15,14 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)
 cd "$ROOT"
 
-HERDR_LAB_HELPER=${HERDR_LAB_HELPER:-/home/umer/firstmate/bin/fm-herdr-lab.sh}
+if [ -z "${HERDR_LAB_HELPER:-}" ]; then
+  echo "SKIP: HERDR_LAB_HELPER is unset; set it to the guarded herdr lab helper to run this parity check." >&2
+  exit 2
+fi
+if [ ! -e "$HERDR_LAB_HELPER" ]; then
+  echo "SKIP: HERDR_LAB_HELPER=$HERDR_LAB_HELPER does not exist; it must point at the guarded herdr lab helper." >&2
+  exit 2
+fi
 export HERDR_LAB_HELPER
 HERDR_LAB_SESSION=$("$HERDR_LAB_HELPER" name pock-realtime-parity)
 export HERDR_LAB_SESSION

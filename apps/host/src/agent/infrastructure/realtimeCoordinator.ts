@@ -46,6 +46,8 @@ export type RealtimeCodingFailureCode =
 
 export type RealtimePromptOutcome = 'queued' | 'rejected' | 'failed';
 
+type RosterObservation = { failureCode?: RealtimeCatalogFailureCode };
+
 export const REALTIME_FAILURE_MESSAGES: Readonly<Record<RealtimeCodingFailureCode, string>> = {
     'roster-timeout': 'The live agent roster timed out. No action was performed.',
     'roster-unavailable': 'The live agent roster is unavailable. No action was performed.',
@@ -398,13 +400,15 @@ export class RealtimeCodingCoordinator {
         if (existsSync(this.socketPath) && lstatSync(this.socketPath).isSocket()) unlinkSync(this.socketPath);
     }
 
-    private async currentAgents(): Promise<RealtimeAgentCatalog> {
+    private async currentAgents(roster?: RosterObservation): Promise<RealtimeAgentCatalog> {
         try {
             const catalog = await this.handlers.list();
-            return {
+            const bounded = {
                 ...catalog,
                 agents: catalog.agents.filter((agent) => PRIVATE_ID.test(agent.sessionId)),
             };
+            if (roster !== undefined && bounded.freshness === 'last-known') roster.failureCode = bounded.failureCode ?? 'roster-unavailable';
+            return bounded;
         } catch (error) {
             throw Object.assign(error instanceof Error ? error : new Error('roster unavailable'), {
                 code: failureCodeFor('list', error),
@@ -412,8 +416,8 @@ export class RealtimeCodingCoordinator {
         }
     }
 
-    private async resolve(state: CapabilityState, spoken: string | undefined): Promise<{ agent?: RealtimeCodingAgent; clarification?: string }> {
-        const catalog = await this.currentAgents();
+    private async resolve(state: CapabilityState, spoken: string | undefined, roster?: RosterObservation): Promise<{ agent?: RealtimeCodingAgent; clarification?: string }> {
+        const catalog = await this.currentAgents(roster);
         const agents = catalog.agents;
         const unavailable = 'The live agent roster is unavailable. I can only use a last-confirmed exact match; ask me to list agents again before choosing another name.';
         if (spoken === undefined || spoken.trim() === '') {
@@ -461,8 +465,8 @@ export class RealtimeCodingCoordinator {
         });
     }
 
-    private async queuePrompt(state: CapabilityState, requestedAgent: string, prompt: string): Promise<string> {
-        const resolved = await this.resolve(state, requestedAgent).catch((error) => {
+    private async queuePrompt(state: CapabilityState, requestedAgent: string, prompt: string, roster?: RosterObservation): Promise<string> {
+        const resolved = await this.resolve(state, requestedAgent, roster).catch((error) => {
             this.promptDiagnostic(state, requestedAgent, undefined, 'failed');
             throw error;
         });
@@ -508,10 +512,9 @@ export class RealtimeCodingCoordinator {
         return promise;
     }
 
-    private async invoke(state: CapabilityState, request: CodingRequest, roster?: { failureCode?: RealtimeCatalogFailureCode }): Promise<string> {
+    private async invoke(state: CapabilityState, request: CodingRequest, roster?: RosterObservation): Promise<string> {
         if (request.method === 'context') {
-            const agentCatalog = await this.currentAgents();
-            if (roster !== undefined && agentCatalog.freshness === 'last-known') roster.failureCode = agentCatalog.failureCode ?? 'roster-unavailable';
+            const agentCatalog = await this.currentAgents(roster);
             const agents = agentCatalog.agents;
             const selected = agents.find((agent) => agent.sessionId === state.activeSessionId);
             const describe = (agent: RealtimeCodingAgent): string => `${spokenAgentName(agent)}, ${spokenTaskTitle(agent)}; ${agentKindLabel(agent)}; ${agent.agentStatus}`;
@@ -524,8 +527,7 @@ export class RealtimeCodingCoordinator {
         }
         if (request.method === 'list') {
             const requestedKind = request.kind === undefined ? undefined : key(cleanHuman(request.kind, '', 32));
-            const agentCatalog = await this.currentAgents();
-            if (roster !== undefined && agentCatalog.freshness === 'last-known') roster.failureCode = agentCatalog.failureCode ?? 'roster-unavailable';
+            const agentCatalog = await this.currentAgents(roster);
             const catalog = agentCatalog.agents
                 .filter((agent) => requestedKind === undefined || agent.agentKind !== undefined && key(agent.agentKind) === requestedKind)
                 .sort((left, right) => (right.changedAt ?? 0) - (left.changedAt ?? 0) || agentNameLabel(left).localeCompare(agentNameLabel(right)));
@@ -570,7 +572,7 @@ export class RealtimeCodingCoordinator {
             if (taskTitle === undefined || !KIND.test(kind)) {
                 return 'Please give an agent kind and concise task title.';
             }
-            const agentCatalog = await this.currentAgents();
+            const agentCatalog = await this.currentAgents(roster);
             if (agentCatalog.freshness === 'last-known') return REALTIME_FAILURE_MESSAGES['roster-unavailable'];
             const active = agentCatalog.agents.find((agent) => agent.sessionId === state.activeSessionId);
             const cwd = active && isAbsolute(active.cwd) && active.cwd.length <= 4096 ? active.cwd : state.cwd;
@@ -594,25 +596,25 @@ export class RealtimeCodingCoordinator {
         if (request.method === 'key') return this.replay(state, request, async () => {
             const requestedKey = key(request.key);
             if (requestedKey !== 'escape') return 'That agent key is not available. Available key: Escape.';
-            const resolved = await this.resolve(state, request.agent);
+            const resolved = await this.resolve(state, request.agent, roster);
             if (resolved.agent === undefined) return resolved.clarification!;
             await this.handlers.sendKeys(resolved.agent.sessionId, ['escape']);
             this.activate(state, resolved.agent);
             return `Confirmed: Escape was sent to ${spokenAgentName(resolved.agent)}.`;
         });
         if (request.method === 'prompt') {
-            if (!request.agent) return `No prompt sent. ${await this.invoke(state, { method: 'context' })}`;
-            return this.replay(state, request, () => this.queuePrompt(state, request.agent!, request.text));
+            if (!request.agent) return `No prompt sent. ${await this.invoke(state, { method: 'context' }, roster)}`;
+            return this.replay(state, request, () => this.queuePrompt(state, request.agent!, request.text, roster));
         }
         if (request.method === 'focus') return this.replay(state, request, async () => {
-            const resolved = await this.resolve(state, request.agent);
+            const resolved = await this.resolve(state, request.agent, roster);
             if (resolved.agent === undefined) return resolved.clarification!;
             await this.handlers.focus(resolved.agent.sessionId);
             this.activate(state, resolved.agent);
             return `Confirmed: ${spokenAgentName(resolved.agent)} is now in focus.`;
         });
         if (request.method === 'watch') return this.replay(state, request, async () => {
-            const resolved = await this.resolve(state, request.agent);
+            const resolved = await this.resolve(state, request.agent, roster);
             if (resolved.agent === undefined) return resolved.clarification!;
             const timeoutMs = Math.min(Math.max(Math.trunc(request.timeoutMs ?? 30_000), 1_000), 290_000);
             const settlement = await this.handlers.watch(resolved.agent.sessionId, timeoutMs);
@@ -624,7 +626,7 @@ export class RealtimeCodingCoordinator {
             if (status === 'blocked') return `Confirmed: ${spokenAgentName(resolved.agent)} is blocked.`;
             return `The watch for ${spokenAgentName(resolved.agent)} ended without confirmation; its status was ${status}.`;
         });
-        const resolved = await this.resolve(state, request.agent);
+        const resolved = await this.resolve(state, request.agent, roster);
         if (resolved.agent === undefined) return resolved.clarification!;
         if (request.method === 'status') {
             const status = cleanHuman(await this.handlers.status(resolved.agent.sessionId), 'unknown', 32).toLocaleLowerCase();

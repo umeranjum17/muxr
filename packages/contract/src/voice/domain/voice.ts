@@ -22,7 +22,6 @@ export interface VoiceProviderCatalog {
 
 /** One engine's explainer card: what it is, whether it is in use, and whether it is ready. */
 export interface VoiceProviderDescription extends VoiceProviderEntry {
-    selectedLabel: string;
     configured: boolean;
     statusLabel: string;
 }
