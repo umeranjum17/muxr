@@ -37,8 +37,8 @@ export const LocalSettingsSchema = z.object({
         label: z.string().min(1).max(QUICK_REPLY_LABEL_LIMIT),
         text: z.string().min(1).max(QUICK_REPLY_TEXT_LIMIT),
     })).max(QUICK_REPLY_LIMIT).default([]).catch([]).describe('Personal insert-only quick replies (this device only)'),
-    // The terminal command puck is docked in the composer rail; the old drag
-    // rest position is retired with the floating puck it positioned.
+    // Retired with terminalCommandKeyDock: the ring's centre now docks in the
+    // composer rail, so there is no drag-rest position to store.
     terminalModifierIcons: z.boolean().describe('Draw ctrl and shift as modifier glyphs in the terminal key row'),
     vadStandbyEnabled: z.boolean().describe('Persistently wake realtime voice from local speech activity standby'),
     dictationLanguage: z.string().nullable().describe('Spoken dictation language (null for automatic detection)'),

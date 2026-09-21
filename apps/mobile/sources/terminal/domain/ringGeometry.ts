@@ -1,7 +1,7 @@
 /**
- * The command ring's geometry: where the slots fan around the puck's anchor
- * and which slot a swept finger would fire. Pure math, so the component draws
- * exactly what the tests solve.
+ * The command ring's geometry: where the slots fan around the thumb control's
+ * anchor and which slot a swept finger would fire. Pure math, so the component
+ * draws exactly what the tests solve.
  */
 
 /** Slot disc diameter; the geometry's margins and the component's layout agree on it. */

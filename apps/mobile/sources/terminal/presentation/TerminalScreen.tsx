@@ -811,8 +811,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     }, [props.id, siblings, shell]);
 
     const canSend = !dictationActive && !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
-    // The ring needs at least one slot to be worth a puck; view-only keeps
-    // what it can still run, so nothing that was reachable is lost.
+    // The ring needs at least one slot to be worth its control; view-only
+    // keeps what it can still run, so nothing that was reachable is lost.
     const hasTools = viewControls.commands.length > 0 || canControl;
     // The ring's default six, arc order = list order: Continue farthest, the
     // keyboard nearest the thumb. Every slot keeps its permanent route (the

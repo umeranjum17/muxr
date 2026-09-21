@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { RING_DEAD_ZONE, RING_SLOT_SIZE, dockedRingOffsets, ringSlotOffsets, slotUnderFinger } from './ringGeometry';
 
 // The ring's geometry is the contract: slots fan along a thumb arc anchored
-// at the puck, in list order from the anchor's screen edge, and a sweep fires
-// the slot whose wedge holds the finger. Solved here the way the component
-// draws it, so the test fails if the fan or the wedge drifts.
+// at the thumb control, in list order from the anchor's screen edge, and a
+// sweep fires the slot whose wedge holds the finger. Solved here the way the
+// component draws it, so the test fails if the fan or the wedge drifts.
 describe('command ring geometry', () => {
-    // A 390-wide phone with the puck docked bottom-right.
+    // A 390-wide phone with the anchor bottom-right.
     const region = { width: 390, height: 500 };
     const anchor = { x: 326, y: 402 };
 
