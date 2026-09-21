@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { MobileGlassSurface } from '@/components/MobileGlass';
 import { hapticsLight, hapticsSelection } from '@/components/haptics';
-import { RING_SLOT_SIZE, ringSlotOffsets, slotUnderFinger } from '../domain/ringGeometry';
+import { dockedRingOffsets, slotUnderFinger } from '../domain/ringGeometry';
 
 /** Same contract as the old panel strip; the terminal view reports these. */
 export type TerminalCommand = {
@@ -29,10 +29,9 @@ export type RingSlot = {
 // rail (the screen reserves its spot there), the slots bloom over the terminal.
 const CENTER = 40;
 const CENTER_ICON = 17;
-// Slots render at the geometry's disc size; the ring never holds more than
-// six because a longer arc runs out of comfortable thumb angles.
-const SLOT = RING_SLOT_SIZE;
-const SLOT_ICON = 19;
+// Slots render at a disc size that follows the terminal's width: the full
+// 48dp discs on reference-width phones, a 44dp set on narrow PWA panes.
+const slotSize = (width: number): number => (width < 340 ? 44 : 48);
 const RING_CAP = 6;
 const MOVE_THRESHOLD = 8;
 const OPEN_MS = 160;
@@ -71,12 +70,14 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, sl
         x: clamp(anchor.x, CENTER / 2 + 8, Math.max(CENTER / 2 + 8, width - CENTER / 2 - 8)),
         y: clamp(anchor.y, CENTER / 2 + 8, Math.max(CENTER / 2 + 8, height - CENTER / 2 - 8)),
     }), [anchor.x, anchor.y, width, height]);
-    const offsets = React.useMemo(() => {
-        // The fan solves inside the area ABOVE the docked centre: slots stay
-        // over the terminal and never wash back over the composer rail.
-        const fanRegion = { width, height: Math.max(120, center.y - SLOT / 2) };
-        return ringSlotOffsets(center, fanRegion, count);
-    }, [center, width, height, count]);
+    const disc = slotSize(width);
+    const slotIcon = Math.round(disc * 0.4);
+    // The fan solves on an elevation arc above the docked centre: slots stay
+    // over the terminal, ring the thumb, and never wash over the composer.
+    const offsets = React.useMemo(
+        () => dockedRingOffsets(center, { width, height }, count, disc),
+        [center, width, height, count, disc],
+    );
 
     // The ring exists while the parent says open (tap mode) or while a sweep
     // is in flight; one shared progress drives both directions, so closing
@@ -187,6 +188,8 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, sl
                     reduceMotion={reduceMotion === true}
                     visible={visible}
                     highlight={highlight}
+                    disc={disc}
+                    icon={slotIcon}
                     onPress={() => { onOpenChange(false); slot.run(); hapticsSelection(); }}
                 />
             ))}
@@ -260,7 +263,7 @@ function RingGlyph({ open, color }: { open: boolean; color: string }) {
  * anchor to its arc position on open (staggered in arc order) and collapses
  * back together on close; reduced motion fades it in place instead.
  */
-function RingSlotView({ slot, index, offset, anchor, region, progress, reduceMotion, visible, highlight, onPress }: {
+function RingSlotView({ slot, index, offset, anchor, region, progress, reduceMotion, visible, highlight, disc, icon, onPress }: {
     slot: RingSlot;
     index: number;
     /** Slot centre as an offset from the anchor's centre. */
@@ -271,6 +274,8 @@ function RingSlotView({ slot, index, offset, anchor, region, progress, reduceMot
     reduceMotion: boolean;
     visible: boolean;
     highlight: number | null;
+    disc: number;
+    icon: number;
     onPress: () => void;
 }) {
     const { theme } = useUnistyles();
@@ -294,6 +299,8 @@ function RingSlotView({ slot, index, offset, anchor, region, progress, reduceMot
     const chipY = anchor.y + LABEL_RADIUS * Math.sin(chipAngle);
     const chipRight = chipX > region.width / 2;
     const badge = slot.badge !== undefined && slot.badge > 0 ? (slot.badge > 99 ? '99+' : String(slot.badge)) : null;
+    const SLOT = disc;
+    const SLOT_ICON = icon;
     const glass = (accent: boolean): StyleProp<ViewStyle> => ({
         width: SLOT, height: SLOT, borderRadius: SLOT / 2, alignItems: 'center', justifyContent: 'center',
         backgroundColor: accent ? theme.colors.glass.backgroundStrong : theme.colors.glass.backgroundSubtle,

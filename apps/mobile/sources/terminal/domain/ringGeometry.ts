@@ -106,12 +106,59 @@ export function ringSlotOffsets(anchor: { x: number; y: number }, region: { widt
     return placed.map((spot) => ({ x: spot.x - anchor.x, y: spot.y - anchor.y }));
 }
 
+
+/** Elevations, in degrees, of the docked fan's first and last disc. */
+export const DOCKED_ARC_START_DEG = 162;
+export const DOCKED_ARC_END_DEG = 18;
+
 /**
- * Which slot a swept finger would fire: past the dead zone and inside that
- * slot's angular wedge (its bearing ± half the arc's pitch). A single slot
- * owns everything past the dead zone. Offsets are relative to the anchor, the
- * same space `ringSlotOffsets` returns.
+ * The docked ring's fan: `count` discs on an elliptical arc ABOVE the thumb
+ * anchor (the composer rail's dial), rising from both sides of vertical.
+ * The ellipse is narrower on the side with less room and grows until a disc
+ * no longer fits, so every pane width gets the tallest clean arc available.
+ * Offsets are anchor-relative, same space as `ringSlotOffsets`, so
+ * `slotUnderFinger` drives the sweep unchanged.
  */
+export function dockedRingOffsets(
+    anchor: { x: number; y: number },
+    region: { width: number; height: number },
+    count: number,
+    discSize = RING_SLOT_SIZE,
+): { x: number; y: number }[] {
+    if (count <= 0) return [];
+    const margin = discSize / 2 + 6;
+    const pitchDeg = count > 1 ? (DOCKED_ARC_START_DEG - DOCKED_ARC_END_DEG) / (count - 1) : 0;
+    const ALeft = anchor.x - margin;
+    const ARight = region.width - margin - anchor.x;
+    const BMax = anchor.y - margin;
+    const solve = (A: number, B: number): { x: number; y: number }[] =>
+        Array.from({ length: count }, (_, i) => {
+            const rad = ((DOCKED_ARC_START_DEG - i * pitchDeg) * Math.PI) / 180;
+            return { x: A * Math.cos(rad), y: -B * Math.sin(rad) };
+        });
+    const fits = (points: { x: number; y: number }[]): boolean =>
+        points.every((p, i) => {
+            const x = anchor.x + p.x;
+            const y = anchor.y + p.y;
+            const inBounds = x >= margin && x <= region.width - margin && y >= margin && y <= region.height - margin;
+            const clear = points.every((q, j) => j >= i || Math.hypot(p.x - q.x, p.y - q.y) >= discSize);
+            return inBounds && clear;
+        });
+    for (let B = Math.min(150, BMax); B >= 40; B -= 2) {
+        const A = Math.min(1.1 * B, ALeft, ARight);
+        if (A < 36) continue;
+        const points = solve(A, B);
+        if (fits(points)) return points;
+    }
+    const reduced = Math.max(1, count - 1);
+    if (reduced < count) return dockedRingOffsets(anchor, region, reduced, discSize);
+    return solve(Math.min(150, BMax), Math.min(150, BMax));
+}
+
+/** Which slot a swept finger would fire: past the dead zone and inside that
+ *  slot's angular wedge (its bearing ± half the arc's pitch). A single slot
+ *  owns everything past the dead zone. Offsets are relative to the anchor, the
+ *  same space `ringSlotOffsets` returns. */
 export function slotUnderFinger(finger: { x: number; y: number }, slots: readonly { x: number; y: number }[]): number | null {
     if (Math.hypot(finger.x, finger.y) < RING_DEAD_ZONE || slots.length === 0) return null;
     const angle = Math.atan2(finger.y, finger.x);

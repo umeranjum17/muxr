@@ -931,12 +931,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             backgroundColor: 'transparent',
                         }}
                     >
-                        <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Back" hitSlop={6}
-                            style={({ pressed }) => ({ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.glass.backgroundSubtle, opacity: pressed ? 0.7 : 1 })}>
-                            <Ionicons name="arrow-back" size={20} color={theme.colors.text} />
+                        <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Back" hitSlop={10}
+                            style={({ pressed }) => ({ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.glass.backgroundSubtle, opacity: pressed ? 0.7 : 1 })}>
+                            <Ionicons name="arrow-back" size={17} color={theme.colors.text} />
                         </Pressable>
-                        <Pressable onPress={() => setTreeOpen(true)} accessibilityRole="button" accessibilityLabel={`${contextTitle}. ${agentNameLine(labels)}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. ${overlayLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 40, paddingHorizontal: 4 }}>
-                            <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={15} />
+                        <Pressable onPress={() => setTreeOpen(true)} accessibilityRole="button" accessibilityLabel={`${contextTitle}. ${agentNameLine(labels)}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. ${overlayLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
+                            <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />
                             <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600', opacity: 0.92 }}>{contextTitle}</Text>
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
                                 reads differently whether the agent works, needs you, or
@@ -956,7 +956,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             accessibilityRole="button"
                             accessibilityLabel={treeLoaded && located !== undefined ? `Pane ${Math.max(paneIndex, 0) + 1} of ${Math.max(paneTotal, 1)}. Open panes.` : 'Panes loading'}
                             accessibilityState={{ expanded: overviewOpen, disabled: !treeLoaded || located === undefined }}
-                            style={({ pressed }) => ({ minWidth: 40, minHeight: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 1, paddingHorizontal: 4, borderRadius: 12, opacity: pressed ? 0.6 : 1 })}
+                            style={({ pressed }) => ({ minWidth: 32, minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 1, paddingHorizontal: 4, borderRadius: 10, opacity: pressed ? 0.6 : 1 })}
                         >
                             {treeLoaded && located !== undefined
                                 ? <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{Math.max(paneIndex, 0) + 1}/{Math.max(paneTotal, 1)}</Text>
@@ -964,8 +964,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             <Ionicons name="chevron-down" size={10} color={theme.colors.textSecondary} />
                         </Pressable>
                         {!authorityLoading && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel={`Pane actions${artifactsCount !== null && artifactsCount > 0 ? `, ${t('sessionAttachments.title', { count: artifactsCount })}` : ''}`}
-                            accessibilityState={{ expanded: actionsOpen }} style={({ pressed }) => ({ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.glass.backgroundSubtle, opacity: pressed ? 0.7 : 1 })}>
-                            <Ionicons name="ellipsis-vertical" size={19} color={theme.colors.text} />
+                            accessibilityState={{ expanded: actionsOpen }} hitSlop={10} style={({ pressed }) => ({ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.glass.backgroundSubtle, opacity: pressed ? 0.7 : 1 })}>
+                            <Ionicons name="ellipsis-vertical" size={17} color={theme.colors.text} />
                             {artifactsCount !== null && artifactsCount > 0 && <View style={{ position: 'absolute', top: 1, right: 0, minWidth: 16, height: 16, paddingHorizontal: 4, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accent }}>
                                 <Text style={{ color: theme.colors.surface, fontSize: 9, fontWeight: '700' }}>{artifactsCount > 99 ? '99+' : artifactsCount}</Text>
                             </View>}
@@ -1152,8 +1152,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             horizontal
                             showsHorizontalScrollIndicator={false}
                             keyboardShouldPersistTaps="always"
-                            style={{ maxHeight: 40, backgroundColor: 'transparent' }}
-                            contentContainerStyle={{ alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 3 }}
+                            style={{ maxHeight: 30, backgroundColor: 'transparent', opacity: toolsOpen ? 0.25 : 1 }}
+                            contentContainerStyle={{ alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 1 }}
                         >
                             {tabPanes.length > 1 ? tabPanes.map((pane) => {
                                 const active = pane.sessionId === props.id;
@@ -1165,8 +1165,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         style={{
                                             flexDirection: 'row',
                                             alignItems: 'center',
-                                            maxHeight: 32,
-                                            borderRadius: 10,
+                                            maxHeight: 26,
+                                            borderRadius: 8,
                                             overflow: 'hidden',
                                             backgroundColor: active ? theme.colors.glass.backgroundSubtle : 'transparent',
                                             borderWidth: StyleSheet.hairlineWidth,
@@ -1179,13 +1179,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                             accessibilityLabel={`${active ? 'Current pane' : 'Open pane'} ${pl.taskTitle}`}
                                             accessibilityState={{ selected: active }}
                                             style={({ pressed }) => ({
-                                                minHeight: 32,
-                                                maxWidth: 170,
+                                                minHeight: 26,
+                                                maxWidth: 150,
                                                 flexDirection: 'row',
                                                 alignItems: 'center',
-                                                gap: 5,
-                                                paddingLeft: 8,
-                                                paddingRight: active && canControl ? 2 : 8,
+                                                gap: 4,
+                                                paddingLeft: 7,
+                                                paddingRight: active && canControl ? 1 : 7,
                                                 opacity: pressed ? 0.65 : 1,
                                             })}
                                         >
@@ -1200,9 +1200,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                             onPress={stopSession}
                                             accessibilityRole="button"
                                             accessibilityLabel={shell ? 'Close pane' : 'Stop agent'}
-                                            hitSlop={4}
-                                            style={({ pressed }) => ({ width: 24, height: 24, alignItems: 'center', justifyContent: 'center', marginRight: 2, borderRadius: 12, opacity: pressed ? 0.6 : 1 })}>
-                                            <Ionicons name="close" size={13} color={theme.colors.textSecondary} />
+                                            hitSlop={6}
+                                            style={({ pressed }) => ({ width: 20, height: 20, alignItems: 'center', justifyContent: 'center', marginRight: 2, borderRadius: 10, opacity: pressed ? 0.6 : 1 })}>
+                                            <Ionicons name="close" size={12} color={theme.colors.textSecondary} />
                                         </Pressable>}
                                     </View>
                                 );
@@ -1218,8 +1218,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         style={{
                                             flexDirection: 'row',
                                             alignItems: 'center',
-                                            maxHeight: 32,
-                                            borderRadius: 10,
+                                            maxHeight: 26,
+                                            borderRadius: 8,
                                             overflow: 'hidden',
                                             backgroundColor: active ? theme.colors.glass.backgroundSubtle : 'transparent',
                                             borderWidth: StyleSheet.hairlineWidth,
@@ -1233,13 +1233,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                             accessibilityLabel={`${active ? 'Current tab' : 'Open tab'} ${label}, ${tab.panes.length === 1 ? '1 pane' : `${tab.panes.length} panes`}`}
                                             accessibilityState={{ selected: active }}
                                             style={({ pressed }) => ({
-                                                minHeight: 32,
-                                                maxWidth: 170,
+                                                minHeight: 26,
+                                                maxWidth: 150,
                                                 flexDirection: 'row',
                                                 alignItems: 'center',
-                                                gap: 5,
-                                                paddingLeft: 8,
-                                                paddingRight: 8,
+                                                gap: 4,
+                                                paddingLeft: 7,
+                                                paddingRight: 7,
                                                 opacity: pressed ? 0.65 : 1,
                                             })}
                                         >
@@ -1257,13 +1257,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 onPress={() => splitPane('right')}
                                 accessibilityRole="button"
                                 accessibilityLabel="Add pane"
-                                style={({ pressed }) => ({ width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.glass.border, opacity: pressed ? 0.6 : 1 })}>
-                                <Ionicons name="add" size={16} color={theme.colors.textSecondary} />
+                                hitSlop={6}
+                                style={({ pressed }) => ({ width: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.glass.border, opacity: pressed ? 0.6 : 1 })}>
+                                <Ionicons name="add" size={14} color={theme.colors.textSecondary} />
                             </Pressable>}
                         </ScrollView>
                     )}
 
-                    {canControl && <View style={{ backgroundColor: theme.colors.terminal.background }}>
+                    {canControl && <View style={{ backgroundColor: theme.colors.terminal.background, opacity: toolsOpen ? 0.25 : 1 }}>
                         <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction}>
                             <DeclarativeTerminalKeySlot channel={channel} />
                         </TerminalKeyRow>
@@ -1307,12 +1308,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 </Pressable>
                             </> : <>
                                 {attachmentAction}
+                                {composerInput}
+                                {clearAction}
                                 {/* The ring's docked centre: the overlay draws the
                                     control exactly here, so this only reserves the
                                     thumb's spot in the rail. */}
                                 <View ref={ringSlotRef} onLayout={measureRingAnchor} collapsable={false} pointerEvents="none" style={{ width: 36, height: 40 }} />
-                                {composerInput}
-                                {clearAction}
                                 {dictateAction}
                                 {sendAction}
                             </>}

@@ -79,34 +79,27 @@ export function TerminalControlGrid({
     const { height: windowHeight } = useWindowDimensions();
     const [modifierIcons, setModifierIcons] = useLocalSettingMutable('terminalModifierIcons');
     return (
-        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-            <GestureHandlerRootView style={styles.root}>
-                <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-                    <Pressable style={styles.dismiss} onPress={onClose} accessibilityLabel="Close control grid" />
-                    <View style={[styles.sheet, {
-                        backgroundColor: theme.colors.surface,
-                        maxHeight: Math.min(windowHeight * 0.85, windowHeight - insets.top - 24),
-                        paddingBottom: insets.bottom + 12,
-                        borderColor: theme.colors.divider,
-                    }]}>
-                        <View style={styles.header}>
-                            <Text style={[styles.title, { color: theme.colors.text }]}>Controls</Text>
-                            <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Done editing controls" style={styles.closeText}>
-                                <Text style={{ color: theme.colors.accent, fontSize: 14 }}>Done</Text>
-                            </Pressable>
-                        </View>
+        <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+            <GestureHandlerRootView style={[styles.page, { backgroundColor: theme.colors.surface, paddingTop: insets.top }]}>
+                <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                    <View style={styles.header}>
+                        <Text style={[styles.title, { color: theme.colors.text }]}>Controls</Text>
+                        <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Done editing controls" style={styles.closeText}>
+                            <Text style={{ color: theme.colors.accent, fontSize: 15, fontWeight: '600' }}>Done</Text>
+                        </Pressable>
+                    </View>
 
-                        {/* The category tabs: the grid's own switch row. */}
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={{ gap: 6, paddingBottom: 4 }}>
-                            {CATEGORIES.map((entry) => {
-                                const active = entry.id === category;
-                                return <Pressable key={entry.id} onPress={() => { hapticsSelection(); onCategoryChange(entry.id); }}
-                                    accessibilityRole="button" accessibilityLabel={`${entry.label} category`} accessibilityState={{ selected: active }}
-                                    style={[styles.categoryChip, { backgroundColor: active ? theme.colors.accent : theme.colors.surfaceHigh }]}>
-                                    <Text style={{ color: active ? theme.colors.button.primary.tint : theme.colors.text, fontSize: 13, fontWeight: active ? '600' : '400' }}>{entry.label}</Text>
-                                </Pressable>;
-                            })}
-                        </ScrollView>
+                    {/* The category tabs: the grid's own switch row, all five visible. */}
+                    <View style={styles.categoryRow}>
+                        {CATEGORIES.map((entry) => {
+                            const active = entry.id === category;
+                            return <Pressable key={entry.id} onPress={() => { hapticsSelection(); onCategoryChange(entry.id); }}
+                                accessibilityRole="button" accessibilityLabel={`${entry.label} category`} accessibilityState={{ selected: active }}
+                                style={[styles.categoryChip, { backgroundColor: active ? theme.colors.accent : theme.colors.surfaceHigh }]}>
+                                <Text style={{ color: active ? theme.colors.button.primary.tint : theme.colors.text, fontSize: 13, fontWeight: active ? '600' : '400' }}>{entry.label}</Text>
+                            </Pressable>;
+                        })}
+                    </View>
 
                         <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
                             {category === 'keys' && <KeysCategory entries={entries} seed={seed} onChange={onChange} modifierIcons={modifierIcons === true} onChangeModifierIcons={(value) => { hapticsSelection(); setModifierIcons(value); }} />}
@@ -158,9 +151,8 @@ export function TerminalControlGrid({
                                 </View>
                             )}
                         </ScrollView>
-                    </View>
-                </KeyboardAvoidingView>
-            </GestureHandlerRootView>
+                    </KeyboardAvoidingView>
+                </GestureHandlerRootView>
         </Modal>
     );
 }
@@ -506,27 +498,28 @@ function ReplyForm({ entry, onSave, onCancel }: {
 }
 
 const styles = StyleSheet.create({
+    page: { flex: 1, paddingHorizontal: 16 },
     root: { flex: 1 },
-    backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-    dismiss: { flex: 1 },
+    backdrop: { flex: 1 },
     sheet: { flexShrink: 1, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingTop: 12 },
-    body: { flexShrink: 1 },
-    bodyContent: { paddingBottom: 8 },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-    title: { fontSize: 17, fontWeight: '600' },
-    categoryChip: { minHeight: 34, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, borderRadius: 17 },
+    body: { flex: 1 },
+    bodyContent: { paddingBottom: 24, paddingTop: 6 },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4, paddingBottom: 6 },
+    title: { fontSize: 20, fontWeight: '700' },
+    categoryRow: { flexDirection: 'row', gap: 5, paddingBottom: 10 },
+    categoryChip: { flex: 1, minHeight: 34, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderRadius: 17 },
     sectionLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 1.2, color: '#8e8e93' },
     caption: { fontSize: 12, marginTop: 8, marginBottom: 6, color: '#8e8e93' },
     card: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', marginTop: 2 },
-    cardRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: 4 },
-    cardRowMain: { flex: 1, minHeight: 56, justifyContent: 'center' },
+    cardRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: 6 },
+    cardRowMain: { flex: 1, minHeight: 64, justifyContent: 'center' },
     cardRowAction: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     row: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 54, paddingHorizontal: 8, marginTop: 8, borderRadius: ui.radius.control, borderWidth: StyleSheet.hairlineWidth },
     handle: { paddingHorizontal: 10, paddingVertical: 14 },
-    rowLabel: { fontSize: 14, ...Typography.mono() },
-    rowSend: { fontSize: 11, marginTop: 3, ...Typography.mono() },
-    previewBox: { borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, paddingVertical: 8 },
-    previewKey: { minWidth: 40, height: 34, paddingHorizontal: 8, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+    rowLabel: { fontSize: 15, ...Typography.mono() },
+    rowSend: { fontSize: 11.5, marginTop: 3, ...Typography.mono() },
+    previewBox: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 10 },
+    previewKey: { minWidth: 42, height: 30, paddingHorizontal: 9, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
     close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     closeText: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     addRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12, paddingVertical: 12, borderRadius: ui.radius.control, borderWidth: StyleSheet.hairlineWidth },
