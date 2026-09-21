@@ -136,14 +136,15 @@ export class Bridge {
                 socket.send(JSON.stringify({ error: { code: 'malformed', message: 'not JSON' } }));
                 return;
             }
-            if (typeof request.method !== 'string') return;
-            const params = request.method === 'session.open' && this.defaultSource !== undefined
+            const method = request.method;
+            if (typeof method !== 'string') return;
+            const params = method === 'session.open' && this.defaultSource !== undefined
                 ? { source: this.defaultSource, ...(request.params ?? {}) }
                 : request.params;
             void this.engine
-                .request(request.method, params)
+                .request(method, params)
                 .then((result) => {
-                    this.rememberSession(request.method, result);
+                    this.rememberSession(method, result);
                     if (request.id !== undefined && socket.readyState === socket.OPEN) {
                         socket.send(JSON.stringify({ id: request.id, result }));
                     }
