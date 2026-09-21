@@ -141,7 +141,6 @@ Object.assign(env, {
     MUXR_DATA_DIR: dataDir,
     MUXR_RELAY_DATA_DIR: join(dataDir, 'relay'),
     MUXR_HOME: join(dataDir, 'home'),
-    MUXR_PLUGINS_DIR: join(root, 'plugins'),
     HERDR_SOCKET_PATH: sessionSocket,
     HERDR_BIN: shim,
 });

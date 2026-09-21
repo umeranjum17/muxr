@@ -30,7 +30,6 @@ function providerEntry(provider, selected) {
         description: provider.description,
         setup: provider.setup,
         selected: provider.id === selected.id,
-        stateLabel: provider.id === selected.id ? 'In use' : '',
     };
 }
 

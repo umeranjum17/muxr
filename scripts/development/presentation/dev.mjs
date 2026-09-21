@@ -38,7 +38,7 @@ Starts the full local presentation dev loop:
   - Expo Metro (dev client, localhost) with Fast Refresh; the same
     http://localhost:8081 URL previews the web build in a browser
   - attachment preview bundle watcher (regenerates its .bin on edits)
-  - checkout-local bundled plugin projections/RPC scripts via a private socket
+  - checkout-local plugin projections/RPC scripts via a private socket
     adapter; installed native registrations and approvals remain authoritative
 
 Options:

@@ -12,7 +12,6 @@ export interface VoiceProviderEntry {
     /** Native setup surface this provider needs; never a plugin screen id. */
     setup: 'api-key' | 'codex-login';
     selected: boolean;
-    stateLabel: string;
 }
 
 export interface VoiceProviderCatalog {

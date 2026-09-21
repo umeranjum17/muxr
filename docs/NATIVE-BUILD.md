@@ -20,9 +20,8 @@ can silently replace the committed identity.
 
 The first `eas build --local` creates a keystore through your Expo account
 (`eas credentials` in `apps/mobile`). `credentials.json` is gitignored; do not
-commit it. Android launcher shortcuts from bundled plugins are baked into
-`res/xml/shortcuts.xml` at prebuild, so changing `plugins/*/muxr-ui.json`
-shortcuts requires a new APK.
+commit it. Android launcher shortcuts are baked into
+`res/xml/shortcuts.xml` at prebuild, so changing a shortcut requires a new APK.
 
 ## Daily development: Metro, not release APKs
 
@@ -58,8 +57,8 @@ and account setup. It drives the real source host and local Herdr panes, not a
 fake terminal. It is loopback-only, not a secure remote-phone setup or proof of
 production pairing. On first launch, use the local account creation action.
 Herdr and its installed registrations remain shared: don't close or alter
-unrelated panes. The development host projects already-registered bundled
-plugins onto this checkout's `plugins/` paths for local UI projections, RPC and
+unrelated panes. The development host projects already-registered checkout-local
+plugins onto this checkout's local plugin paths for UI projections, RPC and
 stream scripts. It does not register, enable or relink installed plugins, and
 unrelated plugins pass through unchanged. Native Herdr actions still use their
 installed registrations. Terminal binary transport connects directly to Herdr
@@ -107,7 +106,7 @@ control; Home's observe previews never move desktop focus.
 
 Source plugin behavior follows the registered entries, not a separate matching
 catalog: the development host maps only plugins Herdr already has registered and
-enabled onto this checkout's `plugins/` paths for UI projections, RPC and stream
+enabled onto this checkout's local plugin paths for UI projections, RPC and stream
 scripts. It never registers, enables or relinks plugins, so a checkout edit
 reaches the running dev client on the next invocation while installed plugin
 registrations — including native Herdr launches — remain unchanged.

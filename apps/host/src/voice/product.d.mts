@@ -4,7 +4,6 @@ export interface VoiceProviderEntry {
     description: string;
     setup: 'api-key' | 'codex-login';
     selected: boolean;
-    stateLabel: string;
 }
 
 export interface VoiceProviderCatalog {

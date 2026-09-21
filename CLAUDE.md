@@ -26,7 +26,7 @@ behaviour it claims to cover and watch it go red.
 ## Voice
 
 - Realtime voice stays a native streaming speech-to-speech path. Never replace it with an STT+LLM+TTS pipeline.
-- Provider policy stays in backend plugins; the bundled adapter currently uses xAI.
+- Voice adapters are product code under the host voice module: no catalog entry, manifest hash, or per-device plugin approval. Several engines are selectable; the default is Codex Voice (experimental).
 - Never display or speak internal ids (`pp_*`, pane ids, session ids).
 - The microphone foreground service must be running before the realtime mic opens, or Android silently returns a deaf session.
 
