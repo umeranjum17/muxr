@@ -206,12 +206,22 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // The ring's docked centre is measured from the composer rail so the ring
     // blooms over the terminal from exactly where the thumb rests.
     const ringSlotRef = React.useRef<View>(null);
+    // The overlay that draws the centre is positioned in this screen's own
+    // layout space, so the slot has to be measured in that space too.
+    // measureInWindow answers in window coordinates, and on Android those
+    // leave the status bar out while the screen's layout counts it: the two
+    // differed by exactly insets.top and the control drew a row above the rail
+    // it is docked in. measureLayout against the screen root has no such seam.
+    const screenRef = React.useRef<View>(null);
     const [ringCenter, setRingCenter] = React.useState<{ x: number; y: number } | undefined>(undefined);
     const measureRingAnchor = React.useCallback(() => {
-        ringSlotRef.current?.measureInWindow((x, y, w, h) => {
+        const slot = ringSlotRef.current;
+        const root = screenRef.current;
+        if (slot === null || root === null) return;
+        slot.measureLayout(root, (x, y, w, h) => {
             if (w === 0 && h === 0) return;
             setRingCenter((current) => (current !== undefined && Math.abs(current.x - (x + w / 2)) < 0.5 && Math.abs(current.y - (y + h / 2)) < 0.5 ? current : { x: x + w / 2, y: y + h / 2 }));
-        });
+        }, () => undefined);
     }, []);
     React.useEffect(() => { measureRingAnchor(); }, [measureRingAnchor, keyboardVisible, keyboardHeight, terminalBox]);
     // The ring is drawn by an overlay onto the rail's reserved slot, so it may
@@ -933,7 +943,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             // above the IME, and it measures the gap below itself to do it, so a bar
             // that floats over it gets counted as empty space and lands on the output.
                 return (
-                <View style={{ flex: 1, backgroundColor: CANVAS_BLACK, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
+                <View ref={screenRef} collapsable={false} style={{ flex: 1, backgroundColor: CANVAS_BLACK, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
                     {watchingWorkingAgent && <ActiveAgentWakeLock />}
 
                     {/* One quiet line inside the terminal plane: a back circle,

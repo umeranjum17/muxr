@@ -220,7 +220,7 @@ function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifier
             }]}>
             {/* The caps need a step of their own against the rail they sit in,
                 or the toolbar renders as one undifferentiated pill. */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, alignItems: 'center', paddingRight: 4 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 6, alignItems: 'center', paddingRight: 4 }}>
                 {['ctrl', 'shift'].map((label) => <View key={label} style={[styles.previewKey, { backgroundColor: theme.colors.surfaceHighest }]}>
                     <Text style={[styles.rowLabel, { color: theme.colors.textSecondary }]}>{modifierIcons ? (label === 'ctrl' ? '\u2303' : '\u21e7') : label}</Text>
                 </View>)}
@@ -559,7 +559,10 @@ const styles = StyleSheet.create({
     previewStage: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, backgroundColor: '#0c0c0b', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 12, paddingBottom: 16 },
     previewCopyWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     previewCopy: { color: '#8e8e93', fontSize: 15 },
-    previewRail: { minHeight: 48, borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, paddingVertical: 8, maxWidth: '100%' },
+    // A fixed height, not a minimum: on native the scroll view inside grows to
+    // fill whatever the column will give it, and the rail swallowed the whole
+    // stage — copy and all — instead of standing in it as one pill.
+    previewRail: { height: 48, borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, justifyContent: 'center', maxWidth: '100%' },
     previewKey: { minWidth: 44, height: 32, paddingHorizontal: 10, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
     close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     closeText: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
