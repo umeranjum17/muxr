@@ -524,6 +524,7 @@ async function demo(): Promise<void> {
         activity: async () => [],
         start: async () => ({ accepted: false }),
         prompt: async (sessionId, text) => {
+            if (text.startsWith('pre-send failure')) throw Object.assign(new Error('That agent is no longer available.'), { code: 'agent-unavailable' });
             await promptHerdrAgent(herdrPromptClient, { sessionId, paneId: promptTargets[sessionId] ?? 'w1:p1' }, text);
             if (sessionId === 'pp_crane') cranePrompts.push(text);
             else prompts.push(text);
@@ -593,8 +594,13 @@ async function demo(): Promise<void> {
     const malformed = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'malformed receipt', operationId: 'op-malformed' });
     assert(missingTarget.ok === true && missingTarget.data?.startsWith('No prompt sent.') === true
         && missingTarget.data.includes('John, Harden audio') && !missingTarget.data.includes('pp_john')
-        && wrongPane.ok === false && malformed.ok === false && prompts.length === 1,
+        && wrongPane.ok === false && wrongPane.code === 'prompt-outcome-unknown'
+        && malformed.ok === false && malformed.code === 'prompt-outcome-unknown' && prompts.length === 1,
         'missing targets and malformed or wrong-pane Herdr receipts cannot produce a queued confirmation');
+    const preSend = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'pre-send failure', operationId: 'op-pre-send' });
+    assert(preSend.ok === false && preSend.code === 'prompt-not-sent'
+        && preSend.error === 'The prompt was not sent. No action was performed.' && prompts.length === 1,
+        'a pre-send resolve failure reports prompt-not-sent, not an unconfirmed outcome');
     const taskStatus = await ask(socketPath, access.capability, { method: 'status', agent: 'Harden audio' });
     assert(taskStatus.data === 'John is idle.', 'a unique Task Title resolves to its Agent Name');
     const idleWatch = await ask(socketPath, access.capability, { method: 'watch', agent: 'John', operationId: 'watch-idle' });

@@ -215,10 +215,13 @@ const PACKAGED_BUNDLED_ROOTS = packagedBundledRoots();
  * serves them to clients: a stale registration would draw a second copy of what
  * the app already renders itself — terminal-keys drew two key rows, dictation
  * drew a second dictate mic beside the app's own in every composer, and
- * panes/control surfaces must not present as disableable plugins.
+ * panes/control surfaces must not present as disableable plugins. Realtime voice
+ * is product code now too, so its retired registrations are retracted here the
+ * same way.
  * User-authored plugins under their own ids are unaffected.
+ * Keep in step with LEGACY_BUNDLED_PLUGIN_IDS in scripts/setup/infrastructure/herdr.mjs.
  */
-const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys', 'muxr.panes', 'muxr.control', 'muxr.dictation', 'muxr.status']);
+const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys', 'muxr.panes', 'muxr.control', 'muxr.dictation', 'muxr.status', 'muxr.voice', 'muxr.voice-gemini', 'muxr.voice-openai', 'muxr.voice-codex']);
 function fromPackagedRoot(plugin: HerdrPlugin): HerdrPlugin {
     const root = PACKAGED_BUNDLED_ROOTS.get(plugin.plugin_id);
     return root === undefined ? plugin : { ...plugin, plugin_root: root };

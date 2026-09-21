@@ -315,9 +315,16 @@ function errorCode(error: unknown): string | undefined {
     return typeof code === 'string' ? code : undefined;
 }
 
+const PROMPT_NOT_SENT_CODES: ReadonlySet<string> = new Set([
+    'herdr-unavailable', 'agent-unavailable', 'agent-not-ready', 'agent-route-ambiguous',
+]);
+
 function failureCodeFor(method: string | undefined, error: unknown): RealtimeCodingFailureCode {
     const known = errorCode(error);
     if (known !== undefined && known in REALTIME_FAILURE_MESSAGES) return known as RealtimeCodingFailureCode;
+    // These resolve/readiness failures happen before the prompt is handed to
+    // Herdr, so no message can have been queued.
+    if (method === 'prompt' && known !== undefined && PROMPT_NOT_SENT_CODES.has(known)) return 'prompt-not-sent';
     const message = error instanceof Error ? error.message : String(error);
     if (/timed? ?out|timeout/i.test(message)) {
         if (method === 'list' || method === 'context') return 'roster-timeout';
