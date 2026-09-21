@@ -94,7 +94,7 @@ describe('desktop sessions, host side', () => {
         const capabilities = await desktop.capabilities();
         expect(capabilities).toMatchObject({ available: true, input: true, clipboard: true, codec: 'vp9' });
 
-        const opened = await desktop.open({ permissions: ['view', 'control', 'clipboard'] });
+        const opened = await desktop.open({ permissions: ['view', 'control', 'clipboard'], maxWidth: 640, maxHeight: 480, bitrateKbps: 2000, maxFps: 15 });
         expect(opened.geometry.encoded).toEqual({ width: 1280, height: 720 });
         expect(opened.source.width).toBe(2560);
 
@@ -123,11 +123,19 @@ describe('desktop sessions, host side', () => {
             'session.candidate',
             'session.close',
         ]);
-        expect(sent[2]?.params).toMatchObject({ permissions: ['view', 'control', 'clipboard'] });
+        expect(sent[2]?.params).toMatchObject({
+            permissions: ['view', 'control', 'clipboard'],
+            // The engine reads the snake_case wire names; a camelCase key is
+            // ignored, not refused, so this is the only place the drop shows.
+            max_width: 640,
+            max_height: 480,
+            bitrate_kbps: 2000,
+            max_fps: 15,
+        });
         // The answer and candidate carry the engine's own session id, never the
         // host's opaque handle.
         expect(sent[3]?.params).toMatchObject({ session_id: 'engine-session-1', description: { type: 'answer', sdp: 'v=0 answer' } });
-        expect(sent[4]?.params).toMatchObject({ session_id: 'engine-session-1', candidate: 'candidate:2', sdpMid: '0', sdpMLineIndex: 0 });
+        expect(sent[4]?.params).toMatchObject({ session_id: 'engine-session-1', candidate: 'candidate:2', sdp_mid: '0', sdp_m_line_index: 0 });
     }, 20_000);
 
     it('refuses control up front when the machine has no input backend', async () => {
@@ -146,6 +154,30 @@ describe('desktop sessions, host side', () => {
         // The user must be told the desktop is view-only, not handed controls
         // that would silently do nothing.
         await expect(desktop.open({ permissions: ['view', 'control'] })).rejects.toMatchObject({ code: 'input-unavailable' });
+        await desktop.closeAll();
+    }, 20_000);
+
+    it('delivers the engine-death revocation instead of dropping the session', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));
+        const scriptPath = join(directory, 'engine.cjs');
+        const log = join(directory, 'received.jsonl');
+        writeFileSync(
+            scriptPath,
+            STUB.replace(
+                "    case 'session.open':",
+                "    case 'session.open':\n      setTimeout(() => process.exit(3), 50);",
+            ),
+        );
+        writeFileSync(log, '');
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
+
+        const opened = await desktop.open({ permissions: ['view'] });
+        // The engine dies right after it answers. The session record must survive
+        // the exit so the client can be told the desktop is gone.
+        await new Promise((resolve) => setTimeout(resolve, 400));
+
+        const polled = await desktop.poll(opened.desktopId, 0);
+        expect(polled.events).toContainEqual({ kind: 'revoked', reason: 'the desktop engine stopped' });
         await desktop.closeAll();
     }, 20_000);
 });

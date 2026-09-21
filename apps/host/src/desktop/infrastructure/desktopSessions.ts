@@ -263,14 +263,15 @@ export class DesktopSessions {
                     {
                     ...(this.options.onDiagnostic === undefined ? {} : { onDiagnostic: this.options.onDiagnostic }),
                         onExit: () => {
-                            // The engine died: drop every session with it rather
-                            // than leaving the phone attached to a process that is
-                            // gone.
+                            // The engine died: tell every attached client the
+                            // session is gone, and keep the record so the next
+                            // poll can deliver that before it is forgotten.
                             this.client = null;
                             this.capabilitiesCache = null;
-                            for (const [desktopId, session] of this.sessions) {
+                            for (const session of this.sessions.values()) {
+                                session.revoked = true;
+                                session.appended += 1;
                                 session.events.push({ kind: 'revoked', reason: 'the desktop engine stopped' });
-                                this.sessions.delete(desktopId);
                             }
                         },
                     },

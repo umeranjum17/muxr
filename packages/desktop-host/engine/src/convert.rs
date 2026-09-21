@@ -1,10 +1,9 @@
 //! Pixel conversion and downscale into the I420 plane layout libvpx encodes.
 //!
-//! Deliberately dependency-free: the source formats a compositor actually
-//! offers over PipeWire are few (`BGRx`/`RGBx`/`BGRA`/`RGBA` packed 4-byte, plus
-//! `NV12`), and a box downscale is the correct filter when the encoded surface
-//! is smaller than the source — it is the only one that does not alias the
-//! desktop's text.
+//! Deliberately dependency-free: the source format a compositor actually offers
+//! over PipeWire is a packed 4-byte one (`BGRx`/`RGBx`/`BGRA`/`RGBA`), and a box
+//! downscale is the correct filter when the encoded surface is smaller than the
+//! source — it is the only one that does not alias the desktop's text.
 
 use crate::capture::PixelFormat;
 
@@ -52,7 +51,7 @@ fn rgb_to_yuv(r: i32, g: i32, b: i32) -> (u8, u8, u8) {
     (y.clamp(0, 255) as u8, u.clamp(0, 255) as u8, v.clamp(0, 255) as u8)
 }
 
-/// Box-average `src` (a packed/NV12 plane image) down to `dst_w`x`dst_h` of I420.
+/// Box-average `src` (a packed 4-byte image) down to `dst_w`x`dst_h` of I420.
 ///
 /// `src_stride` is in bytes. Returns `None` for a format we cannot read, so the
 /// caller reports an unsupported source instead of encoding noise.
@@ -81,7 +80,7 @@ pub fn to_i420(
     // Source pixel accessors keyed by format.
     let bytes_per_pixel = match format {
         PixelFormat::Bgrx | PixelFormat::Rgbx | PixelFormat::Bgra | PixelFormat::Rgba => 4,
-        PixelFormat::Nv12 | PixelFormat::Bgr | PixelFormat::Rgb => 3,
+        PixelFormat::Bgr | PixelFormat::Rgb => 3,
         PixelFormat::Unsupported => return None,
     };
     if src_stride < src_w * bytes_per_pixel {
@@ -117,10 +116,6 @@ pub fn to_i420(
                         }
                         PixelFormat::Bgr => (src[i + 2] as i32, src[i + 1] as i32, src[i] as i32),
                         PixelFormat::Rgb => (src[i] as i32, src[i + 1] as i32, src[i + 2] as i32),
-                        PixelFormat::Nv12 => {
-                            let (r, g, b) = nv12_to_rgb(src, src_stride, src_w, sx, sy)?;
-                            (r as i32, g as i32, b as i32)
-                        }
                         PixelFormat::Unsupported => return None,
                     };
                     rs += r;
@@ -153,20 +148,6 @@ pub fn to_i420(
         }
     }
     Some(out)
-}
-
-#[inline]
-fn nv12_to_rgb(src: &[u8], stride: usize, w: usize, x: usize, y: usize) -> Option<(u8, u8, u8)> {
-    let yv = *src.get(y * stride + x)? as f32;
-    let uv_base = stride * (y / 2) * 2 + (x / 2) * 2;
-    let u = *src.get(uv_base)? as f32 - 128.0;
-    let v = *src.get(uv_base + 1)? as f32 - 128.0;
-    let _ = w;
-    let c = (yv - 16.0).max(0.0) * 1.164;
-    let r = (c + 1.596 * v).clamp(0.0, 255.0) as u8;
-    let g = (c - 0.391 * u - 0.813 * v).clamp(0.0, 255.0) as u8;
-    let b = (c + 2.018 * u).clamp(0.0, 255.0) as u8;
-    Some((r, g, b))
 }
 
 #[cfg(test)]

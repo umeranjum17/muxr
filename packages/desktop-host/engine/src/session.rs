@@ -367,7 +367,7 @@ pub fn capabilities() -> serde_json::Value {
             // portal is preferred and needs the user's consent, the X display is
             // available whenever DISPLAY points at a server.
             "backends": ["portal-screencast+pipewire", "x11-root"],
-            "formats": ["bgrx", "rgba", "nv12"],
+            "formats": ["bgrx", "bgra", "rgbx", "rgba"],
             "cursor": "embedded",
             "audio": false,
         },

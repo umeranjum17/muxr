@@ -142,7 +142,18 @@ export class EngineClient {
     }
 
     openSession(request: OpenSessionRequest): Promise<OpenedSession> {
-        return this.request<OpenedSession>('session.open', request as unknown as Record<string, unknown>);
+        return this.request<OpenedSession>('session.open', {
+            ...(request.source === undefined ? {} : { source: request.source }),
+            permissions: request.permissions,
+            ...(request.maxWidth === undefined ? {} : { max_width: request.maxWidth }),
+            ...(request.maxHeight === undefined ? {} : { max_height: request.maxHeight }),
+            ...(request.bitrateKbps === undefined ? {} : { bitrate_kbps: request.bitrateKbps }),
+            ...(request.maxFps === undefined ? {} : { max_fps: request.maxFps }),
+            ...(request.iceServers === undefined ? {} : { ice_servers: request.iceServers }),
+            ...(request.relayOnly === undefined ? {} : { relay_only: request.relayOnly }),
+            ...(request.restoreToken === undefined ? {} : { restore_token: request.restoreToken }),
+            ...(request.ttlSeconds === undefined ? {} : { ttl_seconds: request.ttlSeconds }),
+        });
     }
 
     acceptAnswer(sessionId: string, generation: number, sdp: string): Promise<{ accepted: boolean }> {
@@ -164,8 +175,8 @@ export class EngineClient {
             session_id: sessionId,
             generation,
             candidate,
-            sdpMid,
-            sdpMLineIndex,
+            sdp_mid: sdpMid,
+            sdp_m_line_index: sdpMLineIndex,
         });
     }
 

@@ -26,7 +26,6 @@ pub enum PixelFormat {
     Rgba,
     Bgr,
     Rgb,
-    Nv12,
     Unsupported,
 }
 
@@ -39,7 +38,6 @@ impl PixelFormat {
             v if v == spa::param::video::VideoFormat::RGBA.as_raw() => Self::Rgba,
             v if v == spa::param::video::VideoFormat::BGR.as_raw() => Self::Bgr,
             v if v == spa::param::video::VideoFormat::RGB.as_raw() => Self::Rgb,
-            v if v == spa::param::video::VideoFormat::NV12.as_raw() => Self::Nv12,
             _ => Self::Unsupported,
         }
     }
@@ -111,8 +109,8 @@ impl RawKey {
     }
 }
 
-/// Build the `EnumFormat` we can consume: packed 4-byte colour or NV12, at
-/// whatever size the compositor picked.
+/// Build the `EnumFormat` we can consume: packed 4-byte colour, at whatever
+/// size the compositor picked.
 ///
 /// Deliberately carries **no** `modifier` property. A compositor's screen cast
 /// node reads that as "the client wants a DMA-BUF" and hands back a buffer this
@@ -137,8 +135,7 @@ fn format_pod(buffer: &mut Vec<u8>) -> Result<()> {
             VideoFormat::BGRx,
             VideoFormat::BGRA,
             VideoFormat::RGBx,
-            VideoFormat::RGBA,
-            VideoFormat::NV12
+            VideoFormat::RGBA
         ),
         property!(
             FormatProperties::VideoSize,

@@ -12,6 +12,8 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+import { desktopEnginePlan } from './desktopEnginePrereqs.mjs';
+
 // The herdr check drives a live herdr server through the real host. Without one
 // it burns its timeout and reports a misleading failure, so detect and skip.
 const herdrSocket = process.env.HERDR_SOCKET_PATH?.trim()
@@ -34,7 +36,10 @@ const checks = [
     ['unit: setup domain (pairing/connection/crypto)', 'node', ['scripts/setup/domain/dist/selfCheck.js']],
     // The desktop engine is a Rust crate and nothing else compiles it; without
     // this step a build break or a failing engine test is green in every lane.
-    ['unit: desktop engine (cargo test: check + its own tests)', 'cargo', ['test', '--manifest-path', 'packages/desktop-host/engine/Cargo.toml'], undefined, 1800000],
+    // Its native prerequisites are not provisioned here, so the loop checks them
+    // first and skips loudly by name instead of failing as a code break.
+    ['unit: desktop engine (cargo test: check + its own tests)', 'cargo', ['test', '--manifest-path', 'packages/desktop-host/engine/Cargo.toml'], 'desktop-engine', 1800000],
+    ['unit: desktop engine prerequisites detector (skip vs run)', 'node', ['scripts/diagnostics/application/desktopEnginePrereqs.selfcheck.mjs']],
     ['policy: host/relay architecture', 'npx', ['vitest', 'run', 'apps/host/src/architecture.test.ts', 'apps/relay/src/architecture.test.ts']],
     // The load-test flows carry their own generous per-test budgets; the step
     // kill must stay well above them or it SIGKILLs a healthy run first.
@@ -159,6 +164,14 @@ for (const [name, cmd, args, needs, timeoutMs] of checks) {
         process.stdout.write(`SKIP  ${name}  (no herdr server)\n`);
         continue;
     }
+    if (needs === 'desktop-engine') {
+        const plan = desktopEnginePlan();
+        if (!plan.run) {
+            skipped += 1;
+            process.stdout.write(plan.message);
+            continue;
+        }
+    }
     // No settle wait between checks: every relay they spawn now takes a
     // kernel-picked port, so nothing is left holding a number the next one needs.
     await run(name, cmd, args, timeoutMs);
@@ -166,7 +179,7 @@ for (const [name, cmd, args, needs, timeoutMs] of checks) {
 
 const failed = results.filter((r) => r.code !== 0);
 const total = (results.reduce((sum, r) => sum + r.ms, 0) / 1000).toFixed(1);
-const skipNote = skipped > 0 ? `, ${skipped} skipped (no herdr server)` : '';
+const skipNote = skipped > 0 ? `, ${skipped} skipped` : '';
 process.stdout.write(`\n=== ${results.length - failed.length}/${results.length} passed in ${total}s${skipNote} ===\n`);
 if (failed.length > 0) {
     process.stdout.write(`failed: ${failed.map((r) => r.name).join(', ')}\n`);

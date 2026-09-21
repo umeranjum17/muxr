@@ -45,6 +45,9 @@ notifications carry `event` and never an `id`.
 
 `error.code` is a stable machine token; `message` is for logs, not for display.
 
+Request parameters use the engine's own snake_case names (`session_id`,
+`max_width`, `sdp_mid`, …); the examples below are the wire names to send.
+
 ## Handshake
 
 ```jsonc
@@ -77,7 +80,7 @@ arrives, every other request is refused the same way; `capabilities` and
   "capture": {
     "mechanism": "portal-screencast+pipewire",
     "backends": ["portal-screencast+pipewire", "x11-root"],
-    "formats": ["bgrx", "rgba", "nv12"],
+    "formats": ["bgrx", "bgra", "rgbx", "rgba"],
     "cursor": "embedded",
     "audio": false
   },
@@ -128,12 +131,12 @@ opaque and local to this process's lifetime — it is not a portable identity.
 {"id":4,"method":"session.open","params":{
   "source": {"kind":"portal"},          // or {"kind":"x11","display":":99"}
   "permissions": ["view","control","clipboard"],
-  "maxWidth": 1280, "maxHeight": 800,   // encode box; never upscales
-  "bitrateKbps": 4000,
-  "maxFps": 30,
-  "iceServers": [{"urls":["stun:..."],"username":null,"credential":null}],
-  "iceTransportPolicy": "all",          // "all" | "relay"
-  "restoreToken": null                  // from a previous session.restoreToken
+  "max_width": 1280, "max_height": 800, // encode box; never upscales
+  "bitrate_kbps": 4000,
+  "max_fps": 30,
+  "ice_servers": [{"urls":["stun:..."],"username":null,"credential":null}],
+  "relay_only": false,                  // true keeps ICE to relay candidates
+  "restore_token": null                 // from a previous session.restoreToken
 }}
 ```
 
@@ -173,15 +176,15 @@ the SDP and candidates to the client and brings back the answer.
 ```
 
 ```jsonc
-{"id":5,"method":"session.description","params":{"sessionId":"…","generation":1,
+{"id":5,"method":"session.description","params":{"session_id":"…","generation":1,
   "description":{"type":"answer","sdp":"v=0\r\n…"}}}
 ```
 
 ```jsonc
 {"event":"session.candidate","params":{"generation":1,
   "candidate":"candidate:…","sdpMid":"0","sdpMLineIndex":0}}
-{"id":6,"method":"session.candidate","params":{"sessionId":"…","generation":1,
-  "candidate":"candidate:…","sdpMid":"0","sdpMLineIndex":0}}
+{"id":6,"method":"session.candidate","params":{"session_id":"…","generation":1,
+  "candidate":"candidate:…","sdp_mid":"0","sdp_m_line_index":0}}
 ```
 
 A candidate that arrives before the remote description is buffered, not dropped.
@@ -216,7 +219,7 @@ The session ended on the engine's side; there is nothing further to drain.
 Metrics are a request, not a notification:
 
 ```jsonc
-{"id":7,"method":"session.metrics","params":{"sessionId":"…"}}
+{"id":7,"method":"session.metrics","params":{"session_id":"…"}}
 ```
 
 ```jsonc
@@ -286,9 +289,9 @@ The control channel is the path a controller uses (above). A co-located consumer
 instead; both reach the same clipboard:
 
 ```jsonc
-{"id":9,"method":"session.clipboard.read","params":{"sessionId":"…"}}
+{"id":9,"method":"session.clipboard.read","params":{"session_id":"…"}}
 {"id":9,"result":{"text":"…","truncated":false}}
-{"id":10,"method":"session.clipboard.write","params":{"sessionId":"…","text":"…"}}
+{"id":10,"method":"session.clipboard.write","params":{"session_id":"…","text":"…"}}
 {"id":10,"result":{"written":true}}
 ```
 
@@ -299,7 +302,7 @@ when the desktop's clipboard has no text. The size bound is reported in
 ## Close
 
 ```jsonc
-{"id":12,"method":"session.close","params":{"sessionId":"…"}}
+{"id":12,"method":"session.close","params":{"session_id":"…"}}
 ```
 
 Closes are idempotent and terminal for that session: held input is released,

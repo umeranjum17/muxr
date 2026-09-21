@@ -51,6 +51,28 @@ package never searches `PATH` for a same-named program: "a binary called
 desklink-host" is not evidence of which program is about to be given control of
 someone's desktop.
 
+### Build prerequisites
+
+A source build links three system libraries through `pkg-config`, compiles
+`native/vpx_shim.c` against libvpx's headers, and builds the vendored inputtino
+project with CMake. On a clean machine, install:
+
+| Need | Debian/Ubuntu | Fedora | Arch |
+|---|---|---|---|
+| Rust toolchain (`cargo`, `cc`) | `rustup` + `build-essential` | `rustup` + `gcc gcc-c++` | `rustup` + `base-devel` |
+| CMake | `cmake` | `cmake` | `cmake` |
+| `pkg-config` | `pkg-config` | `pkgconf-pkg-config` | `pkgconf` |
+| libvpx (`vpx.pc`) | `libvpx-dev` | `libvpx-devel` | `libvpx` |
+| PipeWire (`libpipewire-0.3`) | `libpipewire-0.3-dev` | `pipewire-devel` | `pipewire` |
+| xkbcommon | `libxkbcommon-dev` | `libxkbcommon-devel` | `libxkbcommon` |
+| Wayland (`wayland-client`) | `libwayland-dev` | `wayland-devel` | `wayland` |
+| libevdev | `libevdev-dev` | `libevdev-devel` | `libevdev` |
+
+Nothing is downloaded by the build itself. `cargo test` — including the engine
+step in `yarn run check` — reports a loud skip that names the missing piece when
+any of these is absent, instead of failing as though the engine's code broke.
+Only a machine with all of them compiles and tests the crate.
+
 ### Kernel input access
 
 Creating virtual input devices needs write access to `/dev/uinput`. That is

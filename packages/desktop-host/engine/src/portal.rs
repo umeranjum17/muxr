@@ -23,8 +23,10 @@ pub struct SelectedSource {
     pub position: Option<(i32, i32)>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_type: Option<String>,
-    /// Absolute origin of the encoded surface in the desktop layout. Input maps
-    /// against this, not against the raw stream size.
+    /// Absolute origin of the selected source in the desktop layout. Reported
+    /// for diagnostics and for geometry consumers only: input is applied in the
+    /// source's own pixels, and nothing here is added to a converted
+    /// coordinate.
     pub origin_x: i32,
     pub origin_y: i32,
 }

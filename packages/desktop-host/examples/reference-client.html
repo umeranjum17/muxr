@@ -246,7 +246,7 @@ async function start() {
   try {
     const session = await request('session.open', {
       permissions: ['view', 'control', 'clipboard'],
-      maxWidth: 1280, maxHeight: 800, maxFps: 30,
+      max_width: 1280, max_height: 800, max_fps: 30,
     });
     surface = session.geometry.encoded;
     // Reference-client diagnostics: enough to see the session from the console
@@ -297,8 +297,8 @@ async function start() {
       void request('session.candidate', {
         session_id: session.sessionId,
         candidate: event.candidate.candidate,
-        sdpMid: event.candidate.sdpMid,
-        sdpMLineIndex: event.candidate.sdpMLineIndex,
+        sdp_mid: event.candidate.sdpMid,
+        sdp_m_line_index: event.candidate.sdpMLineIndex,
       }).catch(() => undefined);
     };
     pc.onconnectionstatechange = () => {
