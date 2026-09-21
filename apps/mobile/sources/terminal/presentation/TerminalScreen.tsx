@@ -1269,10 +1269,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         </ScrollView>
                     )}
 
-                    {canControl && !(dictationActive && keyboardVisible) && <View style={{ backgroundColor: CANVAS_BLACK, opacity: toolsOpen ? 0.25 : 1 }}>
-                        <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction}>
+                    {canControl && <View style={{ backgroundColor: CANVAS_BLACK, opacity: toolsOpen ? 0.25 : 1 }}>
+                        {/* The key strip stands down while dictation owns the footer
+                            with the keyboard up; the composer capsule stays. */}
+                        {!(dictationActive && keyboardVisible) && <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction}>
                             <DeclarativeTerminalKeySlot channel={channel} />
-                        </TerminalKeyRow>
+                        </TerminalKeyRow>}
 
                     <ComposerAttachments
                         images={[...attachedImages, ...selectedImages.filter((image) => !attachedImages.some((attached) => attached.id === image.id))]}
