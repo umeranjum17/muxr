@@ -95,8 +95,8 @@ writeFileSync(join(pluginRoot, 'muxr-ui.json'), `${JSON.stringify({
 writeFileSync(join(pluginRoot, 'entry.mjs'), readFileSync(join(root, 'scripts', 'diagnostics', 'fixtures', 'realtime-parity-entry.mjs')));
 mkdirSync(stateDir, { recursive: true, mode: 0o700 });
 writeFileSync(join(stateDir, 'parity-config.json'), `${JSON.stringify({ agent: agentName, marker }, null, 2)}\n`);
-// The fixture is linked into the isolated lab session only; the default
-// captain fleet never sees it, and teardown removes it with the session.
+// The fixture is linked into the isolated lab session only; no other
+// session sees it, and teardown removes it with the session.
 lab(['plugin', 'link', pluginRoot, '--enabled']);
 cleanups.push(() => { try { lab(['plugin', 'unlink', pluginId]); } catch { /* lab teardown owns it */ } });
 cleanups.push(() => rmSync(pluginRoot, { recursive: true, force: true }));
