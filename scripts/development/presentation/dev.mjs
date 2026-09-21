@@ -382,7 +382,7 @@ muxr dev supervisor
   Relay:               ws://127.0.0.1:${relayPort}      (loopback only)
   Attachment downloads: http://127.0.0.1:${hostHttpPort}
   Host machine:        devbox   (MUXR_HOME=.cache/muxr-dev)
-  Bundled plugins:     local checkout projections/scripts; native registrations stay installed
+  Checkout plugins:    local checkout projections/scripts; native registrations stay installed
                        existing enablement, catalog hashes, and approvals remain authoritative
   Native rebuild:      NOT automatic — run \`yarn dev:android\` after Gradle/
                        native changes. Attachment preview bundle is watched.
