@@ -82,8 +82,9 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
     'usage.report', 'usage.now',
     // Voice readiness is readable by every grant; changing a provider or its
-    // key is a mutation and stays out of this set.
-    'voice.status', 'voice.provider.list', 'voice.provider.describe',
+    // key is a mutation and stays out of this set. The spoken report sentence
+    // is derived without touching host state, so it stays readable too.
+    'voice.status', 'voice.provider.list', 'voice.provider.describe', 'voice.report',
 ]);
 
 

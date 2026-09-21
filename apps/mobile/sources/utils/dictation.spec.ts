@@ -602,6 +602,44 @@ describe('on-device dictation flow', () => {
         expect(deferredAttempts).toBe(2);
     });
 
+    it('speaks an agent-stop report only while realtime watching is active', async () => {
+        const notifyObserver = () => {
+            const observerState = {
+                lifecycleEvents: mocks.lifecycleEvents,
+                prebaselineLifecycleEvents: mocks.prebaselineLifecycleEvents,
+                sessions: mocks.sessions,
+                lifecycleCatalogInitialized: mocks.lifecycleCatalogInitialized,
+                lifecycleCatalogAvailable: mocks.lifecycleCatalogAvailable,
+                voicePendingReports: mocks.voicePending,
+                voiceReportScopeGeneration: 1,
+            };
+            for (const listener of mocks.storageListeners) listener(observerState, observerState);
+        };
+        act(() => { renderer = TestRenderer.create(React.createElement(PluginHarness)); });
+        const working = { eventId: 'settle-working', sessionId: 'session-a', state: 'working', agentName: 'Nia', taskTitle: 'Ship the report' };
+        const settled = (eventId: string) => ({ ...working, eventId, state: 'done' });
+        const reported = (eventId: string) => mocks.voicePending.some((entry) => entry.identity === eventId)
+            || mocks.voiceDelivered.includes(eventId);
+
+        mocks.lifecycleEvents = [working];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        mocks.lifecycleEvents = [settled('settle-idle-done'), working];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(reported('settle-idle-done')).toBe(false);
+
+        startRealtimeSession('session-a');
+        const activeWorking = { ...working, eventId: 'settle-active-working' };
+        mocks.lifecycleEvents = [activeWorking];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        mocks.lifecycleEvents = [settled('settle-active-done'), activeWorking];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(reported('settle-active-done')).toBe(true);
+    });
+
     it('releases ownership when the native recorder cannot start', async () => {
         mocks.liveAudio.start.mockRejectedValue(new Error('No audio input device'));
         const dictation = await renderDictation();

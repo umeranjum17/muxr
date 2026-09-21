@@ -2,12 +2,28 @@ import * as React from 'react';
 import { lifecycleEventAgentName, PLUGIN_CALL_CLIENT_TIMEOUT_MS, type LifecycleEvent, type PluginEventTrigger, type PluginManifestV1, type PluginSummary } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { storage } from '@/catalog/store';
+import { realtimeWatching } from '@/conversation/session';
+import { wakeAndReport } from '@/watch/wakeAndReport';
 import { capabilityFor } from './capabilityRegistry';
 import { firedTriggers } from '../domain/pluginEvents';
 import { pluginSnapshot } from './pluginStore';
 
 const REPORT_LINES = 20;
 const MAX_REPORT_CHARS = 1500;
+
+/** Product-owned agent-stop report. No catalog entry, plugin, or manifest is involved. */
+const PRODUCT_STOP_TRIGGER: PluginEventTrigger = {
+    slot: 'events',
+    id: 'product.report-when-agent-stops',
+    on: 'agent.status',
+    from: 'working',
+    to: ['idle', 'done', 'blocked', 'failed'],
+    action: { type: 'capability', name: 'speech.wake', include: 'pane' },
+};
+
+type TriggerEntry =
+    | { trigger: PluginEventTrigger; plugin: PluginSummary & { manifestHash: string }; manifest: PluginManifestV1 }
+    | { trigger: PluginEventTrigger; product: true };
 
 /**
  * Run manifest-declared triggers. Plugins cannot poll, so this is the kernel
@@ -72,7 +88,7 @@ export function usePluginEvents(): void {
                         if (action.acknowledged || action.inFlight) continue;
                         action.inFlight = true;
                         const capturedEpoch = epoch;
-                        void run(action.trigger, action.plugin, action.manifest, transition.event, transition.from).then(() => {
+                        void run(action, transition.event, transition.from).then(() => {
                             if (capturedEpoch === epoch && backlog.get(transition.event.eventId) === transition) action.acknowledged = true;
                         }).catch((error: unknown) => {
                             if (capturedEpoch !== epoch || backlog.get(transition.event.eventId) !== transition) return;
@@ -80,7 +96,7 @@ export function usePluginEvents(): void {
                                 action.acknowledged = true;
                             }
                             const message = error instanceof Error ? error.message : String(error);
-                            console.warn(`[plugin ${action.plugin.pluginId}] event ${action.trigger.id} failed: ${message.slice(0, 300)}`);
+                            console.warn(`[plugin ${'product' in action ? action.trigger.id : action.plugin.pluginId}] event ${action.trigger.id} failed: ${message.slice(0, 300)}`);
                         }).finally(() => {
                             if (capturedEpoch !== epoch || backlog.get(transition.event.eventId) !== transition) return;
                             action.inFlight = false;
@@ -139,7 +155,8 @@ export function usePluginEvents(): void {
     }, []);
 }
 
-async function run(trigger: PluginEventTrigger, plugin: PluginSummary & { manifestHash: string }, manifest: PluginManifestV1, event: LifecycleEvent, from: string): Promise<void> {
+async function run(entry: TriggerEntry, event: LifecycleEvent, from: string): Promise<void> {
+    const { trigger } = entry;
     const input: {
         sessionId: string;
         status: string;
@@ -167,19 +184,25 @@ async function run(trigger: PluginEventTrigger, plugin: PluginSummary & { manife
         };
     }
     if (trigger.action.type === 'capability') {
+        if ('product' in entry) {
+            if (trigger.action.name === 'speech.wake') await wakeAndReport(input);
+            return;
+        }
         // Unregistered name: an older app meeting a newer manifest. Skip it.
-        await capabilityFor(trigger.action.name, manifest)?.(input);
+        await capabilityFor(trigger.action.name, entry.manifest)?.(input);
         return;
     }
+    if ('product' in entry) return;
     await sync.request('plugin.call', {
-        pluginId: plugin.pluginId,
-        manifestHash: plugin.manifestHash,
+        pluginId: entry.plugin.pluginId,
+        manifestHash: entry.plugin.manifestHash,
         contributionId: trigger.action.contributionId,
         input,
     }, PLUGIN_CALL_CLIENT_TIMEOUT_MS);
 }
 
-function triggers(): { trigger: PluginEventTrigger; plugin: PluginSummary & { manifestHash: string }; manifest: PluginManifestV1 }[] {
-    return pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) =>
-        contribution.slot === 'events' ? [{ trigger: contribution as PluginEventTrigger, plugin: summary, manifest }] : []));
+function triggers(): TriggerEntry[] {
+    const product: TriggerEntry[] = realtimeWatching() ? [{ trigger: PRODUCT_STOP_TRIGGER, product: true }] : [];
+    return [...product, ...pluginSnapshot().flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) =>
+        contribution.slot === 'events' ? [{ trigger: contribution as PluginEventTrigger, plugin: summary, manifest }] : []))];
 }
