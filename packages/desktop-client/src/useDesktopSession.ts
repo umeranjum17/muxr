@@ -13,7 +13,7 @@ import type {
     Signaling,
     SurfaceGeometry,
 } from './protocol';
-import { PROTOCOL_VERSION, controlMessageText, parseControlReply } from './protocol';
+import { PROTOCOL_VERSION, parseControlReply } from './protocol';
 
 /** How long a clipboard round trip may take before it is reported as lost. */
 const CLIPBOARD_TIMEOUT_MS = 4000;
@@ -135,7 +135,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
     const send = useCallback((message: ControlMessage) => {
         const id = nativeRef.current;
         if (id == null || nativeDesklink === null) return;
-        nativeDesklink.sendControl(id, controlMessageText(message, nextSeq()));
+        nativeDesklink.sendControl(id, JSON.stringify(message));
     }, []);
 
     const releaseHeld = useCallback(() => {
@@ -388,7 +388,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
                 if (pendingClipboard.current.delete(request)) resolve({ text: '', error: 'the desktop did not answer' });
             }, CLIPBOARD_TIMEOUT_MS);
         });
-        nativeDesklink.sendControl(id, controlMessageText({ kind: 'clipboard_read', request }, nextSeq()));
+        nativeDesklink.sendControl(id, JSON.stringify({ kind: 'clipboard_read', request }));
         const reply = await answer;
         if (reply.error != null) throw new Error(reply.error);
         return reply.text;
@@ -404,7 +404,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
                 if (pendingClipboard.current.delete(request)) resolve({ text: '', error: 'the desktop did not answer' });
             }, CLIPBOARD_TIMEOUT_MS);
         });
-        nativeDesklink.sendControl(id, controlMessageText({ kind: 'clipboard_write', request, text }, nextSeq()));
+        nativeDesklink.sendControl(id, JSON.stringify({ kind: 'clipboard_write', request, text }));
         const reply = await answer;
         if (reply.error != null) throw new Error(reply.error);
     }, []);
@@ -477,13 +477,6 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         releaseHeld,
         send,
     ]);
-}
-
-let sequence = 0;
-
-function nextSeq(): number {
-    sequence += 1;
-    return sequence;
 }
 
 function serializeIceServers(servers: IceServerConfig[] | undefined): Array<Record<string, unknown>> {

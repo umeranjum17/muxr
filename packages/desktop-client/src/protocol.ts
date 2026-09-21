@@ -132,10 +132,6 @@ export type ControlReply =
     | { kind: 'clipboard'; request: string; text: string; error?: string }
     | { kind: 'revoked'; reason: string };
 
-export function controlMessageText(message: ControlMessage, seq: number): string {
-    return JSON.stringify({ ...message, seq });
-}
-
 export function parseControlReply(raw: string): ControlReply | null {
     try {
         const parsed = JSON.parse(raw) as ControlReply;

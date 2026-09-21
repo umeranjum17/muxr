@@ -49,7 +49,7 @@ class DesklinkModule : Module() {
     }
 
     Function("sendControl") { id: String, message: String ->
-      sessions[id]?.send(message)
+      sessions[id]?.sendStamped(message)
       true
     }
 

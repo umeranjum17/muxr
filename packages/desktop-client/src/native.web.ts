@@ -36,6 +36,8 @@ interface WebSession {
     downY: number;
     lastScrollY: number;
     pointers: number;
+    /** Chorded keys that are down on the desktop, by the character sent for them. */
+    chordsDown: Set<string>;
     detach: (() => void) | null;
 }
 
@@ -235,6 +237,16 @@ function attachGestures(session: WebSession): () => void {
         if (chord) {
             event.preventDefault();
             control(session, { kind: 'key', character: event.key, modifiers, down, seq: seq(session) });
+            if (down) session.chordsDown.add(event.key);
+            else session.chordsDown.delete(event.key);
+            return;
+        }
+        // The modifier can be released before the chord key. The desktop is
+        // still holding the chord key, so its up must go even without the
+        // modifier that made it a chord.
+        if (!down && session.chordsDown.delete(event.key)) {
+            event.preventDefault();
+            control(session, { kind: 'key', character: event.key, modifiers: [], down: false, seq: seq(session) });
         }
     };
     const keyDown = (event: KeyboardEvent): void => keyEvent(event, true);
@@ -307,6 +319,7 @@ export const nativeDesklink: NativeDesklinkModule = {
             downY: 0,
             lastScrollY: 0,
             pointers: 0,
+            chordsDown: new Set<string>(),
             detach: null,
         };
         sessions.set(id, session);
@@ -389,7 +402,8 @@ export const nativeDesklink: NativeDesklinkModule = {
     sendControl(id: string, message: string): boolean {
         const session = sessions.get(id);
         if (session === undefined) return false;
-        control(session, JSON.parse(message) as Record<string, unknown>);
+        // The session owns the one sequence every control message draws from.
+        control(session, { ...(JSON.parse(message) as Record<string, unknown>), seq: seq(session) });
         return true;
     },
 

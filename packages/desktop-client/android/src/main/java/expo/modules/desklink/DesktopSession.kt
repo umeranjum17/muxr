@@ -202,6 +202,13 @@ class DesktopSession(
     active.send(DataChannel.Buffer(ByteBuffer.wrap(message.toByteArray(StandardCharsets.UTF_8)), false))
   }
 
+  /** A control message from the consumer, stamped with this session's next sequence. */
+  fun sendStamped(message: String) {
+    val json = JSONObject(message)
+    json.put("seq", nextSequence())
+    send(json.toString())
+  }
+
   fun nextSequence(): Long = inputSeq.incrementAndGet()
 
   fun sendPointer(phase: String, x: Int, y: Int, seq: Long, withButton: Boolean = false) {

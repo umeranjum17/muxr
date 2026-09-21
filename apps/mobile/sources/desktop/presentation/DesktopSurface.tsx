@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { DesktopView, useDesktopSession, type SessionSnapshot } from '@desklink/react-native';
+import { DesktopView, useDesktopSession } from '@desklink/react-native';
 
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
@@ -12,6 +12,7 @@ import { sync } from '@/catalog';
 import { Modal } from '@/modal';
 import { createDesktopSignaling } from '../application/desktopSignaling';
 import { desktopCopy } from '../model/desktopCopy';
+import { describeDesktopOverlay } from '../model/desktopOverlay';
 
 type DesktopPermission = 'view' | 'control' | 'clipboard';
 
@@ -108,7 +109,7 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
         onExit();
     }, [close, onExit, session]);
 
-    const status = describe(desktopCopy, snapshot);
+    const status = describeDesktopOverlay(snapshot);
     const live = snapshot.status === 'live';
     const clipboardUnavailable = live && !clipboardAvailable;
     const shownNotice = notice ?? (clipboardUnavailable ? desktopCopy.clipboardUnavailable : null);
@@ -202,30 +203,6 @@ function ToolButton({
             <Ionicons name={icon} size={20} color={theme.colors.text} />
         </Pressable>
     );
-}
-
-/** What the overlay says, as one decision, so the states cannot drift apart. */
-function describe(
-    copy: typeof desktopCopy,
-    snapshot: SessionSnapshot,
-): { title: string; detail?: string; spinner: boolean; canRetry: boolean } {
-    if (snapshot.status === 'failed') {
-        return {
-            title: copy.failedTitle,
-            detail: snapshot.failure?.message ?? copy.failedBody,
-            spinner: false,
-            canRetry: true,
-        };
-    }
-    if (snapshot.status === 'ended') {
-        return { title: copy.endedTitle, detail: copy.endedBody, spinner: false, canRetry: true };
-    }
-    return {
-        title: snapshot.status === 'reconnecting' ? copy.reconnectingTitle : copy.startingTitle,
-        detail: snapshot.status === 'reconnecting' ? copy.reconnectingBody : copy.startingBody,
-        spinner: true,
-        canRetry: false,
-    };
 }
 
 const styles = StyleSheet.create({

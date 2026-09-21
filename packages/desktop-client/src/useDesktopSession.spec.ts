@@ -110,6 +110,26 @@ function sentKinds(): string[] {
     return sent.map((message) => (JSON.parse(message) as { kind: string }).kind);
 }
 
+describe('control messages', () => {
+    it('leaves the sequence to the platform so input and app messages share one counter', async () => {
+        const session = await connectedSession();
+        sent.length = 0;
+
+        TestRenderer.act(() => {
+            session.current.send({ kind: 'pointer', phase: 'down', x: 10, y: 10, button: 1 });
+        });
+        TestRenderer.act(() => {
+            session.current.releaseHeld();
+        });
+
+        const messages = sent.map((message) => JSON.parse(message) as Record<string, unknown>);
+        expect(messages.map((message) => message.kind)).toEqual(['pointer', 'release_all']);
+        // A seq stamped here would collide with the native input counter the
+        // engine already holds.
+        expect(messages.every((message) => message.seq === undefined)).toBe(true);
+    });
+});
+
 describe('held input across a background transition', () => {
     it('releases a pointer that is still down when the app leaves the foreground', async () => {
         const session = await connectedSession();

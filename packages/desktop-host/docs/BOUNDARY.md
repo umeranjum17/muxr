@@ -97,8 +97,11 @@ modifier and asks for MemFd, so frames arrive as mapped shared memory. It also
 means the engine has no EGL, GBM or vendor-driver dependency at all — the whole
 capture path is CPU, which is what makes it portable across machine classes. If
 some other compositor ignores the request and produces DMA-BUFs anyway, the
-engine counts those frames and reports `degraded: "source-unreadable: dmabuf"`
-rather than reading garbage.
+engine drops those frames rather than reading garbage: a non-mappable buffer only
+increments the dropped counter, and a source that never yields a readable buffer
+gives up with the capture-start timeout, because capture never reports readiness.
+The negotiated buffer type is visible through `desktop-host capture-probe`, which
+is the only place it is reported.
 
 **2. The Android side reuses the app's WebRTC binding.** The client package
 compiles against the `org.webrtc` classes the installed `react-native-webrtc`

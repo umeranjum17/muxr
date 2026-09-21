@@ -59,6 +59,9 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
   private var dragging = false
   private var pointers = 0
 
+  /** Chorded keys that are down on the desktop, by Android key code. */
+  private val chordKeysDown = mutableSetOf<Int>()
+
   init {
     setBackgroundColor(Color.BLACK)
     clipChildren = true
@@ -100,6 +103,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
   fun setSession(next: DesktopSession?) {
     if (session === next) return
     detachSink()
+    chordKeysDown.clear()
     session = next
     attachSink()
   }
@@ -273,6 +277,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
   override fun onDetachedFromWindow() {
     // Unmounting must not leave a button held on the far desktop.
     runCatching { session?.sendCancel() }
+    chordKeysDown.clear()
     detachSink()
     hideKeyboard()
     super.onDetachedFromWindow()
@@ -300,11 +305,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
       if (forwardModifierOrNamedKey(event)) return true
-      val chord = chordCharacter(event)
-      if (chord != null) {
-        session?.sendCharacter(chord, heldModifiers(event), down = true)
-        return true
-      }
+      if (forwardChord(event)) return true
       val character = event.unicodeChar
       if (character >= 32) {
         session?.sendText(String(Character.toChars(character)))
@@ -315,11 +316,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
       if (forwardModifierOrNamedKey(event)) return true
-      val chord = chordCharacter(event)
-      if (chord != null) {
-        session?.sendCharacter(chord, heldModifiers(event), down = false)
-        return true
-      }
+      if (forwardChord(event)) return true
       return super.onKeyUp(keyCode, event)
     }
 
@@ -341,11 +338,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
         override fun sendKeyEvent(event: KeyEvent): Boolean {
           if (forwardModifierOrNamedKey(event)) return true
-          val chord = chordCharacter(event)
-          if (chord != null) {
-            session?.sendCharacter(chord, heldModifiers(event), down = event.action == KeyEvent.ACTION_DOWN)
-            return true
-          }
+          if (forwardChord(event)) return true
           return super.sendKeyEvent(event)
         }
 
@@ -370,11 +363,37 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
      */
     private fun chordCharacter(event: KeyEvent): String? {
       if (!event.isCtrlPressed && !event.isMetaPressed) return null
-      return when (event.keyCode) {
-        in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z -> ('a' + (event.keyCode - KeyEvent.KEYCODE_A)).toString()
-        in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> ('0' + (event.keyCode - KeyEvent.KEYCODE_0)).toString()
-        else -> null
+      return chordKeyCharacter(event.keyCode)
+    }
+
+    /** The letter or digit a chord key stands for, whatever modifiers are held. */
+    private fun chordKeyCharacter(keyCode: Int): String? = when (keyCode) {
+      in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z -> ('a' + (keyCode - KeyEvent.KEYCODE_A)).toString()
+      in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> ('0' + (keyCode - KeyEvent.KEYCODE_0)).toString()
+      else -> null
+    }
+
+    /**
+     * Forward a chord key down or up. The up is forwarded even when the
+     * modifier that made it a chord was released first; otherwise the desktop
+     * keeps the key held and its own key repeat floods it.
+     */
+    private fun forwardChord(event: KeyEvent): Boolean {
+      val chord = chordCharacter(event)
+      if (chord != null) {
+        val down = event.action == KeyEvent.ACTION_DOWN
+        session?.sendCharacter(chord, heldModifiers(event), down = down)
+        if (down) chordKeysDown.add(event.keyCode) else chordKeysDown.remove(event.keyCode)
+        return true
       }
+      if (event.action == KeyEvent.ACTION_UP && chordKeysDown.remove(event.keyCode)) {
+        val character = chordKeyCharacter(event.keyCode)
+        if (character != null) {
+          session?.sendCharacter(character, emptyList(), down = false)
+          return true
+        }
+      }
+      return false
     }
 
     private fun heldModifiers(event: KeyEvent): List<String> {
