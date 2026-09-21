@@ -4,16 +4,23 @@ import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfa
 import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSession.js';
 
 export interface DesktopEngineOptions {
-    /** Overrides the configured engine path, for a test that owns its own build. */
+    /** Overrides the configured engine executable. */
     enginePath?: string;
+    /** Overrides the arguments passed to it; production always uses `serve`. */
+    engineArguments?: string[];
     onDiagnostic?: (line: string) => void;
 }
 
 interface LiveSession extends DesktopSessionRecord {
     client: EngineClient;
+    /** Retained notifications, oldest first, bounded to [`MAX_BACKLOG`]. */
     events: DesktopEvent[];
-    cursor: number;
+    /** How many notifications this session has ever appended to the backlog. */
+    appended: number;
 }
+
+/** How many notifications one session keeps for a client that fell behind. */
+const MAX_BACKLOG = 512;
 
 const UNAVAILABLE_INPUT = 'This computer cannot inject input, so there is nothing to control.';
 
@@ -102,7 +109,7 @@ export class DesktopSessions {
             openedAt: Date.now(),
             client,
             events: [],
-            cursor: 0,
+            appended: 0,
         });
         // The offer is already queued on the engine client; the first poll
         // delivers it, which keeps one delivery path instead of two.
@@ -128,13 +135,15 @@ export class DesktopSessions {
     async poll(desktopId: string, cursor: number): Promise<{ cursor: number; events: DesktopEvent[] }> {
         const session = this.require(desktopId);
         this.drain(desktopId);
-        // A client that fell behind gets the whole backlog; a client that sends a
-        // cursor from a previous session gets the current one rather than silence.
-        const events = cursor <= session.cursor && session.cursor - cursor <= session.events.length
-            ? session.events.slice(session.events.length - (session.cursor - cursor))
+        // The oldest notification still retained. A client that has seen
+        // everything gets exactly what arrived since; a client whose cursor
+        // predates the backlog (or belongs to an earlier session) is given the
+        // whole backlog rather than silence.
+        const oldest = session.appended - session.events.length;
+        const events = cursor >= oldest && cursor <= session.appended
+            ? session.events.slice(cursor - oldest)
             : session.events.slice();
-        session.cursor = cursor + events.length;
-        return { cursor: session.cursor, events };
+        return { cursor: session.appended, events };
     }
 
     async close(desktopId: string): Promise<{ closed: boolean }> {
@@ -184,8 +193,14 @@ export class DesktopSessions {
         const session = this.sessions.get(desktopId);
         if (session === undefined) return;
         for (const event of session.client.drainEvents()) {
+            session.appended += 1;
             session.events.push(toDesktopEvent(event));
-            if (session.events.length > 512) session.events.splice(0, session.events.length - 512);
+            // A client that fell further behind than the backlog is worth cannot
+            // be served an exact delta, so only the most recent notifications are
+            // kept and its cursor is corrected on the next poll.
+            if (session.events.length > MAX_BACKLOG) {
+                session.events.splice(0, session.events.length - MAX_BACKLOG);
+            }
         }
     }
 
@@ -196,19 +211,24 @@ export class DesktopSessions {
             const resolved = resolveEngine(this.options.enginePath);
             if (resolved === null) return null;
             try {
-                const client = await EngineClient.start(resolved.command, resolved.args, {
+                const client = await EngineClient.start(
+                    resolved.command,
+                    this.options.engineArguments ?? resolved.args,
+                    {
                     ...(this.options.onDiagnostic === undefined ? {} : { onDiagnostic: this.options.onDiagnostic }),
-                    onExit: () => {
-                        // The engine died: drop every session with it rather than
-                        // leaving the phone attached to a process that is gone.
-                        this.client = null;
-                        this.capabilitiesCache = null;
-                        for (const [desktopId, session] of this.sessions) {
-                            session.events.push({ kind: 'revoked', reason: 'the desktop engine stopped' });
-                            this.sessions.delete(desktopId);
-                        }
+                        onExit: () => {
+                            // The engine died: drop every session with it rather
+                            // than leaving the phone attached to a process that is
+                            // gone.
+                            this.client = null;
+                            this.capabilitiesCache = null;
+                            for (const [desktopId, session] of this.sessions) {
+                                session.events.push({ kind: 'revoked', reason: 'the desktop engine stopped' });
+                                this.sessions.delete(desktopId);
+                            }
+                        },
                     },
-                });
+                );
                 this.client = client;
                 return client;
             } catch (error) {
