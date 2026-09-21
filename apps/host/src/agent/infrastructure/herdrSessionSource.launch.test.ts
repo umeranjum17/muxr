@@ -253,6 +253,17 @@ describe('session list on a snapshot failure', () => {
             const duringFailure = await source.list();
             expect(duringFailure.map((session) => session.id)).toContain(started.info.id);
             expect((await source.herdrTree()).connected).toBe(true);
+
+            // A session the event path bound between refreshes is still listed
+            // even though the next snapshot cannot confirm it.
+            herdr.agents.splice(0, herdr.agents.length);
+            herdr.emit('pane.agent_detected', {
+                pane_id: 'w1:p1',
+                agent_status: 'idle',
+                agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
+            });
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            expect((await source.list()).map((session) => session.id)).toContain(started.info.id);
         } finally {
             await source.dispose();
             herdr.close();

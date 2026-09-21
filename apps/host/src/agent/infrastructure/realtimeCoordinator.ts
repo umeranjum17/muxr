@@ -308,7 +308,8 @@ function diagnosticOperation(method: string | undefined): RealtimeCoordinationOp
         key: 'key',
         focus: 'focus',
     };
-    return method === undefined ? 'list' : operations[method] ?? 'list';
+    if (method === undefined || !Object.hasOwn(operations, method)) return 'list';
+    return operations[method]!;
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -319,7 +320,7 @@ function errorCode(error: unknown): string | undefined {
 
 function failureCodeFor(method: string | undefined, error: unknown): RealtimeCodingFailureCode {
     const known = errorCode(error);
-    if (known !== undefined && known in REALTIME_FAILURE_MESSAGES) return known as RealtimeCodingFailureCode;
+    if (known !== undefined && Object.hasOwn(REALTIME_FAILURE_MESSAGES, known)) return known as RealtimeCodingFailureCode;
     const message = error instanceof Error ? error.message : String(error);
     if (/timed? ?out|timeout/i.test(message)) {
         if (method === 'list' || method === 'context') return 'roster-timeout';
