@@ -4,6 +4,18 @@ Scope: the `muxr` npm CLI/host artifact produced by `node scripts/release/applic
 The mobile app, development fixtures, APKs, and repository-only tooling are
 not included in that artifact.
 
+## Not in the published artifact
+
+`packages/desktop-host` and `packages/desktop-client` (the standalone
+remote-desktop engine and its React Native client) are **not** bundled by
+`pack.mjs` and do not change this artifact's dependency set. Their own
+distribution obligations are recorded in their `NOTICE` files: the engine links
+libvpx (BSD-3-Clause) and inputtino (MIT, vendored) and calls the XDG desktop
+portal over D-Bus rather than linking it; the client compiles against the
+`org.webrtc` classes the app's existing `react-native-webrtc` ships. Exact
+prebuilt distribution clearance for those native components remains a release
+gate, not something this inventory clears.
+
 ## Product source ownership
 
 Repository history attributes muxr-authored commits to Umer Anjum. The

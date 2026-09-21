@@ -194,59 +194,77 @@ source's origin in the desktop layout. A source or scale change starts a new
   "rttMs":41,"route":"direct","codec":"vp9"}}
 ```
 
-## Input
+## Input and clipboard: the session's control channel
 
-All input goes through this channel. The consumer is the one that decides the
-request is authorized; the engine checks the session's own permission bits,
-generation and ordering before it mutates anything.
+Input does **not** travel the local protocol. It rides the WebRTC data channel
+the engine creates for the session, which is inside the DTLS/SRTP session that
+was opened for one authorized grant: it inherits that session's identity and dies
+with it, so a client that kept a socket open cannot keep driving a session that
+was revoked, and the consumer's request path never carries a pointer move.
+
+The engine is the offerer and creates a data channel labelled `control`. Messages
+are JSON, one per message:
 
 ```jsonc
-{"id":8,"method":"session.input","params":{"sessionId":"…","generation":1,
-  "seq":44,
-  "action":{"kind":"pointer","phase":"down","x":812,"y":433}}}
+{"kind":"pointer","phase":"down","x":812,"y":433,"button":1,"seq":44}
+{"kind":"wheel","dx":0,"dy":2,"seq":45}
+{"kind":"key","name":"Enter","down":true,"modifiers":["Control"],"seq":46}
+{"kind":"text","text":"hello","seq":47}
+{"kind":"release_all"}
+{"kind":"clipboard_read","request":"<opaque>","seq":48}
+{"kind":"clipboard_write","request":"<opaque>","text":"…","seq":49}
 ```
-
-`action.kind` is one of:
 
 | kind | fields | notes |
 |---|---|---|
-| `pointer` | `phase`: `move`\|`down`\|`up`\|`cancel`, `x`, `y`, `button` (default 1) | `x`/`y` are normalized integers in the encoded surface's own pixels |
-| `wheel` | `dx`, `dy` (integer notches, high-resolution units allowed) | |
-| `key` | `keysym` (Unicode code point or X11 keysym), `down`, `modifiers` | |
-| `text` | `text` | bounded, must be reported by `input.text` in capabilities |
-| `release-all` | — | consumer-driven safety net; the engine also does this on close |
+| `pointer` | `phase`: `move`\|`down`\|`up`\|`cancel`, `x`, `y`, `button` (default 1) | `x`/`y` are integers in the **encoded surface's** own pixels, i.e. `geometry.encoded` |
+| `wheel` | `dx`, `dy` (integer detents) | |
+| `key` | `name` (a named key or modifier) or `character` (one character), `down`, `modifiers` | the engine maps `character` through the desktop's **active layout**, and refuses a character that layout cannot produce |
+| `text` | `text` (≤ 4096 bytes) | applied as real key events, not as a clipboard paste |
+| `release_all` | — | explicit safety net; the engine also does this on close and on channel loss |
+| `clipboard_read` / `clipboard_write` | `request` (echoed back), `text` | explicit, on user action; never polled |
 
-`seq` is monotonic per session and per generation. A repeat or a lower value is
-refused with `error.code = "input-replay"` and no side effect.
-
-Result is always an ack, so the consumer can tell admission from application:
+The engine answers on the same channel:
 
 ```jsonc
-{"id":8,"result":{"accepted":true,"seq":44}}
-{"id":8,"error":{"code":"input-rejected","message":"coordinate outside source"}}
+{"kind":"hello","protocol":1,"geometry":{…}}     // once, when the channel opens
+{"kind":"ack","seq":44}
+{"kind":"rejected","seq":44,"code":"coordinates","message":"(9000,4) is outside the 1280x720 surface"}
+{"kind":"clipboard","request":"…","text":"…"}     // or "error" instead of "text"
+{"kind":"revoked","reason":"…"}
 ```
 
-Refusal codes: `permission`, `generation`, `input-replay`, `coordinates`,
-`text-too-large`, `text-unsupported`, `input-unavailable`.
+Refusal codes: `permission`, `session`, `input-replay`, `coordinates`,
+`text-too-large`, `text-unsupported`, `input-unavailable`, `operation`.
 
-The engine holds the applier's own key/button state. `session.close`,
-`release-all`, generation change and process exit all synthesize releases for
-exactly the codes this session pressed, so a dropped connection cannot leave a
-modifier stuck down on the desktop.
+`seq` is monotonic per session. A repeat or a lower value is refused with
+`input-replay` and **no side effect**, so a replayed message cannot move the
+pointer twice. Validation, permission and ordering checks all run before any
+physical effect.
 
-## Clipboard
+The engine holds its own pressed-key/button state. `close`, `release_all`,
+control-channel loss and process exit all synthesize releases for exactly the
+keys and buttons this session pressed, so a dropped connection cannot leave a
+modifier stuck down on the desktop. `input.text` in `capabilities` states the
+characters this desktop's layout can actually produce; anything else is refused
+with `text-unsupported` and the honest workaround is the explicit clipboard.
 
-Explicit, on user action, never polled and never a hidden typing strategy.
+## Clipboard over the local protocol
+
+The control channel is the path a controller uses (above). A co-located consumer
+— a test harness, or a script on the same machine — can use the local protocol
+instead; both reach the same clipboard:
 
 ```jsonc
-{"id":9,"method":"session.clipboard.read","params":{"sessionId":"…","mime":"text/plain;charset=utf-8"}}
+{"id":9,"method":"session.clipboard.read","params":{"sessionId":"…"}}
 {"id":9,"result":{"text":"…","truncated":false}}
-{"id":10,"method":"session.clipboard.write","params":{"sessionId":"…","mime":"text/plain;charset=utf-8","text":"…"}}
+{"id":10,"method":"session.clipboard.write","params":{"sessionId":"…","text":"…"}}
 {"id":10,"result":{"written":true}}
 ```
 
-Refused with `error.code = "permission"` when the session lacks `clipboard`, and
-`text-too-large` past the engine's bound (reported in `capabilities`).
+Refused with `error.code = "clipboard"` when the session lacks `clipboard`, or
+when the desktop's clipboard has no text. The size bound is reported in
+`capabilities` as `clipboard.maxBytes`.
 
 ## Renew, and close
 

@@ -8,6 +8,16 @@ The name is deliberate. **Contract** says callers depend on an enforced cross-pr
 
 `@muxr/crypto` similarly provides one shared implementation of E2EE envelopes, authenticated context, replay rejection, and device/peer grant rules for the endpoints that seal or open payloads. The relay does not import it: the relay routes on envelope headers while encrypted payloads remain opaque, so it does not own keys, open payloads, or enforce replay and grant policy.
 
+`@desklink/host` and `@desklink/react-native` are a different kind of tenant: a
+standalone, reusable remote-desktop engine and its React Native client, written
+to be extracted into their own project. They are Apache-2.0, they are not part
+of the packed CLI artifact, and **no application concept may enter their public
+surface** — no machine id, account, pane, chat or pairing blob. muxr is an
+ordinary consumer: `apps/host/src/desktop` owns the engine process and
+`apps/mobile/sources/desktop` wires the conversation surface. Their contract is
+`packages/desktop-host/docs/PROTOCOL.md`; their boundary and reuse decisions are
+in `packages/desktop-host/docs/BOUNDARY.md`.
+
 Navigate by intent in [USE_CASES.md](./USE_CASES.md). Glossary: [CONTEXT.md](../CONTEXT.md). Contributor rules: [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Tree

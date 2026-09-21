@@ -86,13 +86,35 @@ local gestures into that session's input".
 Not adopted: libwebrtc (a multi-gigabyte source build with an LGPL/GIO portal
 seam), GStreamer (LGPL), and every GPL/AGPL remote-desktop application.
 
-## Open questions the plan or the first real run has to settle
+## Settled by reading the compositor's own source `[decided]`
 
-1. Whether the compositor's PipeWire node can be asked for CPU-mappable MemFd
-   buffers, or whether every frame arrives as a DMA-BUF and needs an EGL
-   download step. This is the single biggest cost uncertainty in the engine.
-2. Whether the Android side reuses the app's installed WebRTC binding with an
-   explicit decoder-factory configuration, or the package must own a native
-   binding. Reuse is far cheaper; it needs one real device proof.
-3. Where the portal's consent step sits in the product's start state, and
-   whether a persisted restore token can make the second visit silent.
+**1. Capture is CPU-readable, with no GPU download step.** A compositor's screen
+cast node chooses its buffer type from the client's format pod: xdg-desktop-
+portal-hyprland hard-codes `SPA_DATA_MemFd` unless the client's `EnumFormat`
+carries a `SPA_FORMAT_VIDEO_modifier` property, in which case it switches to
+DMA-BUF (and logs `pw requested dmabuf`). This engine deliberately sends no
+modifier and asks for MemFd, so frames arrive as mapped shared memory. It also
+means the engine has no EGL, GBM or vendor-driver dependency at all — the whole
+capture path is CPU, which is what makes it portable across machine classes. If
+some other compositor ignores the request and produces DMA-BUFs anyway, the
+engine counts those frames and reports `degraded: "source-unreadable: dmabuf"`
+rather than reading garbage.
+
+**2. The Android side reuses the app's WebRTC binding.** The client package
+compiles against the `org.webrtc` classes the installed `react-native-webrtc`
+already ships, so one native library serves the whole app, and it builds its own
+`PeerConnectionFactory` with `DefaultVideoDecoderFactory` (hardware-first, VP9
+included). It never touches `WebRTCModule.options`, so the app's shared factory
+and its voice path are unchanged. A second AAR copy was the alternative and was
+rejected: two copies of the JNI library in one app is a worse failure mode than
+one extra factory instance.
+
+## Still open `[open]`
+
+- Whether a persisted portal restore token makes the second visit to the desktop
+  silent, or whether the compositor asks again. The engine returns the token the
+  portal gives it (`session.restoreToken`) and accepts one on `session.open`; the
+  behaviour is the compositor's to decide and is not claimed until observed.
+- Whether a phone-sized encoded surface is the right default width for every
+  source, or whether the consumer should pick per device. The engine takes a
+  `maxWidth`/`maxHeight` box and never upscales; the default is 1280x800.

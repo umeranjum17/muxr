@@ -51,3 +51,6 @@ dist-npm/
 
 # Offline attachment renderer generated from pinned dependencies by yarn build
 apps/mobile/sources/components/attachment/preview.bundle.bin
+
+# desktop proof scratch (relay data, logs, pids)
+.desklink-lab/
