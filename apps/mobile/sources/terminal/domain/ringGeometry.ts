@@ -116,7 +116,9 @@ export const DOCKED_ARC_END_DEG = 30;
  * anchor (the composer rail's dial), rising from both sides of vertical.
  * The ellipse is narrower on the side with less room and grows until a disc
  * no longer fits, so every pane width gets the tallest clean arc available.
- * Offsets are anchor-relative, same space as `ringSlotOffsets`, so
+ * An anchor with no sideways room for any arc (the view-only corner) gets
+ * `ringSlotOffsets`' searched fan instead: every slot, still inside the
+ * region. Offsets are anchor-relative, same space as `ringSlotOffsets`, so
  * `slotUnderFinger` drives the sweep unchanged.
  */
 export function dockedRingOffsets(
@@ -150,9 +152,7 @@ export function dockedRingOffsets(
         const points = solve(A, B);
         if (fits(points)) return points;
     }
-    const reduced = Math.max(1, count - 1);
-    if (reduced < count) return dockedRingOffsets(anchor, region, reduced, discSize);
-    return solve(Math.min(120, BMax), Math.min(120, BMax));
+    return ringSlotOffsets(anchor, region, count);
 }
 
 /** Which slot a swept finger would fire: past the dead zone and inside that

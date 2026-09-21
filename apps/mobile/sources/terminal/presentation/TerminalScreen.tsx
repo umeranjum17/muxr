@@ -10,7 +10,7 @@ import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
-import Animated, { FadeIn, FadeOut, ReduceMotion, useReducedMotion } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMotion, type SharedValue } from 'react-native-reanimated';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
@@ -79,14 +79,21 @@ import { useTerminalQuickReplies } from '@/plugins/ui';
 const INSERT_ONLY_LABEL = 'Inserts into the prompt, never sends.';
 
 // Live recording level as five honest bars; the same fixed weights keep every
-// bar following the real input level, taller through the middle.
+// bar following the real input level, taller through the middle. The level is
+// a shared value read on the UI thread, so a recording chunk never re-renders
+// the screen around the bars.
 const BAR_WEIGHTS = [0.45, 0.7, 1, 0.7, 0.45];
-function DictationBars({ level, color }: { level: number; color: string }) {
+function DictationBars({ level, color }: { level: SharedValue<number>; color: string }) {
     return <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 8 }}>
         {BAR_WEIGHTS.map((weight, index) => (
-            <View key={index} style={{ width: 4, height: 5 + level * 15 * weight, borderRadius: 2, backgroundColor: color, marginLeft: index === 0 ? 0 : 3 }} />
+            <DictationBar key={index} level={level} weight={weight} color={color} first={index === 0} />
         ))}
     </View>;
+}
+
+function DictationBar({ level, weight, color, first }: { level: SharedValue<number>; weight: number; color: string; first: boolean }) {
+    const bar = useAnimatedStyle(() => ({ height: 5 + level.value * 15 * weight }));
+    return <Animated.View style={[{ width: 4, borderRadius: 2, backgroundColor: color, marginLeft: first ? 0 : 3 }, bar]} />;
 }
 
 /** The restrained resolving state: three dots that breathe while text lands. */

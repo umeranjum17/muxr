@@ -9,7 +9,7 @@ import { hapticsSelection } from '@/components/haptics';
 import { Switch } from '@/components/Switch';
 import { ui } from '@/components/ui';
 import { useLocalSettingMutable } from '@/catalog/store';
-import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, TERMINAL_KEY_ROW_LIMIT, bytesToEscape, escapeToBytes, modifiedSend, resolveKeyRow, type RowEntry } from '../domain/keyRow';
+import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, DEFAULT_ROW_IDS, TERMINAL_KEY_ROW_LIMIT, bytesToEscape, escapeToBytes, modifiedSend, resolveKeyRow, type RowEntry } from '../domain/keyRow';
 import { useReorderableList } from './useReorderableList';
 import { randomUUID } from 'expo-crypto';
 import { personalReplyErrors, QUICK_REPLY_LABEL_LIMIT, QUICK_REPLY_LIMIT, QUICK_REPLY_TEXT_LIMIT, type PersonalQuickReply } from '../domain/quickReplies';
@@ -186,7 +186,7 @@ function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifier
 }) {
     const { theme } = useUnistyles();
     const { height: windowHeight } = useWindowDimensions();
-    const { working, drag, commit, removeAt, moveBy, onDrag, isDragging } = useReorderableList<RowEntry>(true, seed, onChange);
+    const { working, drag, commit, reseed, removeAt, moveBy, onDrag, isDragging } = useReorderableList<RowEntry>(true, seed, onChange);
     const [formIndex, setFormIndex] = React.useState<number | null>(null);
 
     const saveKey = (entry: RowEntry) => {
@@ -291,7 +291,12 @@ function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifier
         )}
 
         {entries !== null && (
-            <Pressable onPress={() => { hapticsSelection(); onChange(null); }} accessibilityRole="button" accessibilityLabel="Reset key row to the default row" style={styles.resetRow}>
+            <Pressable onPress={() => {
+                if (isDragging()) return;
+                hapticsSelection();
+                reseed([...DEFAULT_ROW_IDS]);
+                onChange(null);
+            }} accessibilityRole="button" accessibilityLabel="Reset key row to the default row" style={styles.resetRow}>
                 <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the default row</Text>
             </Pressable>
         )}

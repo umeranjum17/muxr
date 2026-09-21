@@ -55,6 +55,15 @@ export function useReorderableList<T>(visible: boolean, seed: T[], onChange: (ne
         onChange(next);
     };
 
+    // A reset is not a commit: the working copy follows the given rows while
+    // the caller decides what the stored value becomes.
+    const reseed = (next: T[]) => {
+        workingRef.current = next;
+        setWorking([...next]);
+        setDrag(null);
+        dragging.current = false;
+    };
+
     const removeAt = (index: number) => {
         if (dragging.current) return;
         hapticsSelection();
@@ -112,5 +121,5 @@ export function useReorderableList<T>(visible: boolean, seed: T[], onChange: (ne
         setDrag({ index: dragIndex.current, translate });
     };
 
-    return { working, drag, commit, removeAt, moveBy, swap, onDrag, isDragging: () => dragging.current };
+    return { working, drag, commit, reseed, removeAt, moveBy, swap, onDrag, isDragging: () => dragging.current };
 }

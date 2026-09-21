@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Platform } from 'react-native';
+import { useSharedValue } from 'react-native-reanimated';
 import LiveAudioStream from 'react-native-live-audio-stream';
 import { Modal } from '@/modal';
 import { requestMicrophonePermission, showMicrophonePermissionDeniedAlert } from '@/utils/microphonePermissions';
@@ -33,7 +34,9 @@ function rmsLevel(chunk: string): number {
 export function useDictation(getText: () => string, setText: (text: string) => void, hint?: string) {
     const [recording, setRecording] = React.useState(false);
     const [transcribing, setTranscribing] = React.useState(false);
-    const [level, setLevel] = React.useState(0);
+    // A reanimated shared value, not state: the level changes ~12 times a
+    // second while recording, and only the bars that read it may re-render.
+    const level = useSharedValue(0);
     const [pending, setPending] = React.useState<string | null>(null);
     const [finished, setFinished] = React.useState<string | null>(null);
     const startedAtRef = React.useRef(0);
@@ -93,7 +96,7 @@ export function useDictation(getText: () => string, setText: (text: string) => v
             LiveAudioStream.on('data', (chunk) => {
                 if (!recordingRef.current) return;
                 chunksRef.current.push(chunk);
-                setLevel(rmsLevel(chunk));
+                level.value = rmsLevel(chunk);
             });
             recordingRef.current = true;
             await LiveAudioStream.start();
@@ -113,7 +116,7 @@ export function useDictation(getText: () => string, setText: (text: string) => v
         stoppingRef.current = true;
         recordingRef.current = false;
         setRecording(false);
-        setLevel(0);
+        level.value = 0;
         const elapsed = Date.now() - startedAtRef.current;
         const signal = transcriptionRef.current?.signal;
         setTranscribing(!signal?.aborted && elapsed >= MIN_RECORDING_MS && chunksRef.current.length > 0);

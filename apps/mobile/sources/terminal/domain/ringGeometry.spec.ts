@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RING_DEAD_ZONE, RING_SLOT_SIZE, ringSlotOffsets, slotUnderFinger } from './ringGeometry';
+import { RING_DEAD_ZONE, RING_SLOT_SIZE, dockedRingOffsets, ringSlotOffsets, slotUnderFinger } from './ringGeometry';
 
 // The ring's geometry is the contract: slots fan along a thumb arc anchored
 // at the puck, in list order from the anchor's screen edge, and a sweep fires
@@ -100,5 +100,35 @@ describe('command ring geometry', () => {
         // Back on the anchor: a lift there cancels, never fires.
         expect(slotUnderFinger({ x: 0, y: 0 }, points)).toBeNull();
         expect(slotUnderFinger({ x: 30, y: -30 }, points)).toBeNull();
+    });
+
+    it('keeps every slot at the view-only corner anchor, inside the region', () => {
+        // The view-only ring's anchor hugs the right edge 44dp in, so no
+        // docked arc has sideways room there: the searched fan must take
+        // over without dropping a slot or leaving the region.
+        for (const region of [{ width: 270, height: 400 }, { width: 270, height: 300 }, { width: 360, height: 500 }]) {
+            const anchor = { x: Math.max(44, region.width - 44), y: Math.max(120, region.height - 84) };
+            const disc = region.width < 340 ? 38 : 48;
+            const count = region.width < 340 ? 5 : 6;
+            const points = dockedRingOffsets(anchor, region, count, disc);
+            const where = `at the view-only anchor in ${region.width}x${region.height}`;
+            expect(points, where).toHaveLength(count);
+            const margin = disc / 2 + 6;
+            points.forEach((point, index) => {
+                const x = anchor.x + point.x;
+                const y = anchor.y + point.y;
+                expect(x, where).toBeGreaterThanOrEqual(margin);
+                expect(x, where).toBeLessThanOrEqual(region.width - margin);
+                expect(y, where).toBeGreaterThanOrEqual(margin);
+                expect(y, where).toBeLessThanOrEqual(region.height - margin);
+                expect(Math.hypot(point.x, point.y), where).toBeGreaterThanOrEqual(RING_DEAD_ZONE);
+                expect(slotUnderFinger(point, points), where).toBe(index);
+            });
+            for (let a = 0; a < points.length; a += 1) {
+                for (let b = a + 1; b < points.length; b += 1) {
+                    expect(Math.hypot(points[a]!.x - points[b]!.x, points[a]!.y - points[b]!.y), where).toBeGreaterThanOrEqual(disc);
+                }
+            }
+        }
     });
 });
