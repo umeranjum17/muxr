@@ -45,9 +45,9 @@ const DOCKED_DISC_GAPS = [2, 1];
  * control is drawn in — instead of the terminal box. Every one of those is
  * still one circle inside RING_SWEEP_DEG, the wedge `slotUnderFinger` solves
  * with. When no circle carries every disc, the widest fan that fits is
- * returned with the count it fits: a caller that must show every slot reads a
- * short fan as "no room here" and takes its own bounded fallback rather than
- * rendering a truncated ring.
+ * returned with the count it fits; the caller keeps working on it — closing
+ * the gap, shrinking the disc, spending the whole overlay — and only renders a
+ * short fan when the pane has no room for the slot at all.
  */
 export function dockedRingOffsets(
     anchor: { x: number; y: number },

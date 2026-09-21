@@ -120,60 +120,60 @@ export function TerminalControlGrid({
                         })}
                     </ScrollView>
 
-                        <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
-                            {category === 'keys' && <KeysCategory entries={entries} seed={seed} onChange={onChange} closeForm={closeForm} modifierIcons={modifierIcons === true} onChangeModifierIcons={(value) => { hapticsSelection(); setModifierIcons(value); }} />}
-                            {category === 'snippets' && <SnippetsCategory replies={replies} onRepliesChange={onRepliesChange} closeForm={closeForm} />}
-                            {category === 'recents' && (
-                                recentLinks.length === 0
-                                    ? <SectionNote>Links printed by the terminal gather here.</SectionNote>
-                                    : <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
-                                        {recentLinks.map((url, index) => (
-                                            <View key={`${url}:${index}`} style={[styles.cardRow, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }]}>
-                                                <Pressable accessibilityRole="button" accessibilityLabel={`Open ${url}`} onPress={() => onRecentLink(url, 'open')} style={styles.cardRowMain}>
-                                                    <Text numberOfLines={1} style={[styles.rowLabel, { color: theme.colors.text }]}>{url}</Text>
-                                                </Pressable>
-                                                <Pressable accessibilityRole="button" accessibilityLabel={`Copy ${url}`} onPress={() => onRecentLink(url, 'copy')} style={styles.cardRowAction}>
-                                                    <Ionicons name="copy-outline" size={18} color={theme.colors.textSecondary} />
-                                                </Pressable>
-                                                <Pressable accessibilityRole="button" accessibilityLabel={`Open link ${url}`} onPress={() => onRecentLink(url, 'open')} style={styles.cardRowAction}>
-                                                    <Ionicons name="open-outline" size={18} color={theme.colors.textSecondary} />
-                                                </Pressable>
-                                            </View>
-                                        ))}
-                                    </View>
-                            )}
-                            {category === 'appearance' && (
-                                <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
-                                    {viewCommands.map((command, index) => (
-                                        <Pressable key={command.label} disabled={command.disabled === true} accessibilityRole="button" accessibilityLabel={command.label} accessibilityState={{ disabled: command.disabled === true }}
-                                            onPress={() => { onClose(); command.run(); }}
-                                            style={[styles.cardRow, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }, command.disabled === true && { opacity: 0.4 }]}>
-                                            <Text style={{ flex: 1, paddingLeft: 8, color: theme.colors.text, fontSize: 16 }}>{command.label}</Text>
-                                            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                                        </Pressable>
+                    <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
+                        {category === 'keys' && <KeysCategory entries={entries} seed={seed} onChange={onChange} closeForm={closeForm} modifierIcons={modifierIcons === true} onChangeModifierIcons={(value) => { hapticsSelection(); setModifierIcons(value); }} />}
+                        {category === 'snippets' && <SnippetsCategory replies={replies} onRepliesChange={onRepliesChange} closeForm={closeForm} />}
+                        {category === 'recents' && (
+                            recentLinks.length === 0
+                                ? <SectionNote>Links printed by the terminal gather here.</SectionNote>
+                                : <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
+                                    {recentLinks.map((url, index) => (
+                                        <View key={`${url}:${index}`} style={[styles.cardRow, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }]}>
+                                            <Pressable accessibilityRole="button" accessibilityLabel={`Open ${url}`} onPress={() => onRecentLink(url, 'open')} style={styles.cardRowMain}>
+                                                <Text numberOfLines={1} style={[styles.rowLabel, { color: theme.colors.text }]}>{url}</Text>
+                                            </Pressable>
+                                            <Pressable accessibilityRole="button" accessibilityLabel={`Copy ${url}`} onPress={() => onRecentLink(url, 'copy')} style={styles.cardRowAction}>
+                                                <Ionicons name="copy-outline" size={18} color={theme.colors.textSecondary} />
+                                            </Pressable>
+                                            <Pressable accessibilityRole="button" accessibilityLabel={`Open link ${url}`} onPress={() => onRecentLink(url, 'open')} style={styles.cardRowAction}>
+                                                <Ionicons name="open-outline" size={18} color={theme.colors.textSecondary} />
+                                            </Pressable>
+                                        </View>
                                     ))}
                                 </View>
-                            )}
-                            {category === 'keyboard' && (
-                                <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
-                                    {/* Identity, not spelling: the ring slot already
-                                        resolves this command by its icon, and a
-                                        substring match emptied the category the
-                                        moment a label was reworded. */}
-                                    {viewCommands.filter((command) => command.icon === 'keyboard').map((command) => (
-                                        <Pressable key={command.label} accessibilityRole="button" accessibilityLabel={command.label} onPress={() => { onClose(); command.run(); }}
-                                            style={[styles.cardRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }]}>
-                                            <Text style={{ flex: 1, paddingLeft: 8, color: theme.colors.text, fontSize: 16 }}>{command.label}</Text>
-                                            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                                        </Pressable>
-                                    ))}
-                                    <View style={[styles.cardRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }]}>
-                                        <Text style={{ flex: 1, paddingLeft: 8, color: theme.colors.text, fontSize: 15 }}>Keyboard opens from the key row only</Text>
-                                        <Switch value={keyboardDisabled} onValueChange={onKeyboardDisabledChange} accessibilityLabel="Keyboard opens from the key row only" />
-                                    </View>
+                        )}
+                        {category === 'appearance' && (
+                            <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
+                                {viewCommands.map((command, index) => (
+                                    <Pressable key={command.label} disabled={command.disabled === true} accessibilityRole="button" accessibilityLabel={command.label} accessibilityState={{ disabled: command.disabled === true }}
+                                        onPress={() => { onClose(); command.run(); }}
+                                        style={[styles.cardRow, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }, command.disabled === true && { opacity: 0.4 }]}>
+                                        <Text style={{ flex: 1, paddingLeft: 8, color: theme.colors.text, fontSize: 16 }}>{command.label}</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>
+                                ))}
+                            </View>
+                        )}
+                        {category === 'keyboard' && (
+                            <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
+                                {/* Identity, not spelling: the ring slot already
+                                    resolves this command by its icon, and a
+                                    substring match emptied the category the
+                                    moment a label was reworded. */}
+                                {viewCommands.filter((command) => command.icon === 'keyboard').map((command) => (
+                                    <Pressable key={command.label} accessibilityRole="button" accessibilityLabel={command.label} onPress={() => { onClose(); command.run(); }}
+                                        style={[styles.cardRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }]}>
+                                        <Text style={{ flex: 1, paddingLeft: 8, color: theme.colors.text, fontSize: 16 }}>{command.label}</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>
+                                ))}
+                                <View style={[styles.cardRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }]}>
+                                    <Text style={{ flex: 1, paddingLeft: 8, color: theme.colors.text, fontSize: 15 }}>Keyboard opens from the key row only</Text>
+                                    <Switch value={keyboardDisabled} onValueChange={onKeyboardDisabledChange} accessibilityLabel="Keyboard opens from the key row only" />
                                 </View>
-                            )}
-                        </ScrollView>
+                            </View>
+                        )}
+                    </ScrollView>
                     </KeyboardAvoidingView>
                 </GestureHandlerRootView>
         </Modal>

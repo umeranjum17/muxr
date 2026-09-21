@@ -32,7 +32,7 @@ export const RING_CENTER_SIZE = 40;
 const CENTER = RING_CENTER_SIZE;
 const CENTER_ICON = 17;
 // Slots render at a disc size that follows the terminal's width: the full
-// 48dp discs on reference-width phones, a 44dp set on narrow PWA panes.
+// 48dp discs on reference-width phones, a 38dp set on narrow PWA panes.
 const slotSize = (width: number): number => (width < 340 ? 38 : 48);
 const RING_CAP = 6;
 const MOVE_THRESHOLD = 8;
@@ -46,7 +46,7 @@ const clamp = (value: number, min: number, max: number): number => Math.max(min,
  * The terminal's quick actions: a thumb-sized centre control docked in the
  * composer rail that blooms into a tight short-radius ring of small circular
  * actions over the terminal. Tap opens and it stays; press and slide to a
- slot and lift fires it in one motion; tap outside, lift on nothing, or
+ * slot and lift fires it in one motion; tap outside, lift on nothing, or
  * hardware back collapses it. The ring never dismisses the keyboard, and it
  * is the only quick-actions overlay at a time.
  */

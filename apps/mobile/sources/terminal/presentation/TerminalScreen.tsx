@@ -821,9 +821,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // The ring needs at least one slot to be worth its control; view-only
     // keeps what it can still run, so nothing that was reachable is lost.
     const hasTools = viewControls.commands.length > 0 || canControl;
-    // The ring's default six, arc order = list order: Continue farthest, the
-    // keyboard nearest the thumb. Every slot keeps its permanent route (the
-    // status row, the ⋯ menu, the composer); the ring is a shortcut layer.
+    // The ring's slots in arc order = list order, running from the anchor's
+    // own edge inward. Every slot keeps its permanent route (the status row,
+    // the ⋯ menu, the composer); the ring is a shortcut layer.
     const terminalKeyboardCommand = viewControls.commands.find((command) => command.icon === 'keyboard');
     const ringSlots = React.useMemo<RingSlot[]>(() => {
         const slots: RingSlot[] = [];
@@ -1197,9 +1197,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         )}
                     </View>
 
-                    {/* The workspace's tabs, but only when there is more than
-                        one: a lone tab's strip was 44dp of chrome saying what
-                        the header already says. */}
                     {/* Session/pane chip rail, inside the terminal plane: one
                         scrollable row of identity chips for the open panes
                         (or, across tabs, the other tabs); the active chip
@@ -1414,7 +1411,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         const docked = canControl && ringCenter !== undefined;
                         // The overlay reaches down over the rail so the docked
                         // centre control sits exactly on its slot; the fan itself
-                        // solves only in the area above it (see fanRegion).
+                        // solves only in the area above it, bounded by `fanHeight`.
                         const regionHeight = docked
                             ? Math.max(terminalBox.height, ringCenter.y + RING_CENTER_SIZE - terminalBox.top)
                             : terminalBox.height;
