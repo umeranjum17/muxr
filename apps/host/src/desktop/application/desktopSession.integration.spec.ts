@@ -181,4 +181,60 @@ describe('desktop sessions, host side', () => {
         expect(polled.events).toContainEqual({ kind: 'revoked', reason: 'the desktop engine stopped' });
         await desktop.closeAll();
     }, 20_000);
+
+    it('allows control on a configured X11 host that has no uinput access', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));
+        const scriptPath = join(directory, 'engine.cjs');
+        const log = join(directory, 'received.jsonl');
+        writeFileSync(
+            scriptPath,
+            STUB.replaceAll('pointer: true, wheel: true, keyboard: true', 'pointer: false, wheel: false, keyboard: false'),
+        );
+        writeFileSync(log, '');
+        // XTest needs no kernel input access, so the engine's uinput probe is
+        // not the whole answer for a host pointed at an X display.
+        const desktop = new DesktopSessions(
+            { enginePath: process.execPath, engineArguments: [scriptPath, log] },
+            { MUXR_DESKTOP_SOURCE: 'x11' },
+        );
+
+        const capabilities = await desktop.capabilities();
+        expect(capabilities).toMatchObject({ available: true, input: true });
+
+        const opened = await desktop.open({ permissions: ['view', 'control'] });
+        expect(opened.geometry.encoded).toEqual({ width: 1280, height: 720 });
+        await desktop.closeAll();
+
+        const sent = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> });
+        expect(sent.find((request) => request.method === 'session.open')?.params).toMatchObject({
+            source: { kind: 'x11' },
+            permissions: ['view', 'control'],
+        });
+    }, 20_000);
+
+    it('forgets the session record once the engine revokes it', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));
+        const scriptPath = join(directory, 'engine.cjs');
+        const log = join(directory, 'received.jsonl');
+        writeFileSync(
+            scriptPath,
+            STUB.replace(
+                "    case 'session.open':",
+                "    case 'session.open':\n      setTimeout(() => out({ event: 'session.revoked', params: { reason: 'the session lease expired' } }), 15);",
+            ),
+        );
+        writeFileSync(log, '');
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
+
+        const opened = await desktop.open({ permissions: ['view'] });
+        await new Promise((resolve) => setTimeout(resolve, 80));
+
+        const polled = await desktop.poll(opened.desktopId, 0);
+        expect(polled.events).toContainEqual({ kind: 'revoked', reason: 'the session lease expired' });
+
+        // The record is gone with the notification, so a later poll is refused
+        // rather than serving an empty backlog forever.
+        await expect(desktop.poll(opened.desktopId, polled.cursor)).rejects.toMatchObject({ code: 'session' });
+        await desktop.closeAll();
+    }, 20_000);
 });

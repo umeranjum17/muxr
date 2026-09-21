@@ -425,16 +425,16 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
     useEffect(() => {
         if (snapshot.status !== 'failed') return;
         if (snapshot.failure?.code !== 'transport') return;
-        if (attempts.current >= MAX_RECONNECT_ATTEMPTS) return;
-        attempts.current += 1;
-        // The failed session is dead on the engine side. Leaving its handle in
-        // place would make the reconnect below return without doing anything,
-        // and leaving the host session open would orphan its capture and its
-        // polling client.
+        // The failed session is dead on the engine side. Drop its handle and
+        // close the remote session whether or not another attempt is left: a
+        // failure the user can retry by hand must not sit behind a stale
+        // native handle that makes `connect()` a no-op.
         const owner = signaling.current;
         const openedRef = opened.current;
         discardSession();
         void endRemote(openedRef, owner);
+        if (attempts.current >= MAX_RECONNECT_ATTEMPTS) return;
+        attempts.current += 1;
         update({ status: 'reconnecting' });
         reconnectTimer.current = setTimeout(() => {
             reconnectTimer.current = null;

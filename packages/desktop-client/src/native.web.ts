@@ -220,7 +220,10 @@ function attachGestures(session: WebSession): () => void {
         const name = NAMED_KEYS[event.key];
         if (name !== undefined) {
             event.preventDefault();
-            control(session, { kind: 'key', name, down, seq: seq(session) });
+            // A modifier the user is holding belongs to this key too, or a
+            // chorded arrow/tab after Ctrl+C would arrive as a plain key once
+            // the chord's own key-up released the shared modifier.
+            control(session, { kind: 'key', name, modifiers: heldModifiers(event), down, seq: seq(session) });
             return;
         }
         // A chorded letter never reaches `beforeinput`: the browser turns Ctrl+C

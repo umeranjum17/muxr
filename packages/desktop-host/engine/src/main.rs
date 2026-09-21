@@ -315,11 +315,6 @@ async fn serve() -> Result<()> {
                 current = None;
             }
         }
-        if !hello_seen && id.is_some() {
-            // The consumer must identify its protocol version first; anything
-            // else is answered with an error above and the loop continues so a
-            // mis-ordered consumer can still recover.
-        }
     }
 
     if let Some(session) = current.take() {

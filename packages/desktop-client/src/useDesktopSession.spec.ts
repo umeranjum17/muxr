@@ -1,18 +1,26 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
 
 import type { Signaling } from './protocol';
 import { useDesktopSession, type DesktopSession } from './useDesktopSession';
 
+/** `act` refuses to flush state updates unless React is told this is a test. */
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
 /**
- * The whole promise the package makes about held state: whatever the desktop is
- * holding is released when the phone stops being in front of the user. The
- * background half of that is observed from React Native's AppState and has to
- * reach the control channel, which is what this drives end to end.
+ * The lifecycle promises the package makes on its own: held input is released
+ * when the phone leaves the foreground, and a transport failure the automatic
+ * reconnect cannot fix still leaves the user able to try again.
  */
 
+type NativeSessionEvent = { sessionId: string; name: string; payload: Record<string, unknown> };
+
 const appStateListeners = new Set<(status: string) => void>();
+const nativeListeners = new Set<(event: NativeSessionEvent) => void>();
+const sent: string[] = [];
+let createdSessions = 0;
+
 vi.mock('react-native', () => ({
     AppState: {
         addEventListener: (_event: string, handler: (status: string) => void) => {
@@ -22,10 +30,9 @@ vi.mock('react-native', () => ({
     },
 }));
 
-const sent: string[] = [];
 vi.mock('./native', () => ({
     nativeDesklink: {
-        createSession: () => 'native-1',
+        createSession: () => `native-${++createdSessions}`,
         setRemoteDescription: () => true,
         addRemoteCandidate: () => true,
         sendControl: (_id: string, message: string) => {
@@ -37,9 +44,19 @@ vi.mock('./native', () => ({
         setSurfaceSize: () => true,
         closeSession: () => true,
         isAvailable: () => true,
-        addListener: () => ({ remove: () => undefined }),
+        addListener: (_name: string, handler: (event: NativeSessionEvent) => void) => {
+            nativeListeners.add(handler);
+            return { remove: () => { nativeListeners.delete(handler); } };
+        },
     },
 }));
+
+beforeEach(() => {
+    appStateListeners.clear();
+    nativeListeners.clear();
+    sent.length = 0;
+    createdSessions = 0;
+});
 
 function signaling(): Signaling {
     return {
@@ -62,7 +79,7 @@ function signaling(): Signaling {
     };
 }
 
-async function connectedSession(): Promise<DesktopSession> {
+async function connectedSession(): Promise<{ current: DesktopSession }> {
     const held: { current: DesktopSession | null } = { current: null };
     function Harness() {
         held.current = useDesktopSession({
@@ -77,7 +94,16 @@ async function connectedSession(): Promise<DesktopSession> {
         await held.current?.connect();
     });
     if (held.current === null) throw new Error('the hook did not mount');
-    return held.current;
+    // The hook returns a new object per render, so tests read the live one.
+    return held as { current: DesktopSession };
+}
+
+function nativeEvent(name: string, sessionId: string | null): void {
+    TestRenderer.act(() => {
+        for (const listener of [...nativeListeners]) {
+            listener({ sessionId: sessionId ?? '', name, payload: {} });
+        }
+    });
 }
 
 function sentKinds(): string[] {
@@ -91,7 +117,7 @@ describe('held input across a background transition', () => {
 
         // A drag in progress: the button is down on the desktop.
         TestRenderer.act(() => {
-            session.send({ kind: 'pointer', phase: 'down', x: 100, y: 120, button: 1 });
+            session.current.send({ kind: 'pointer', phase: 'down', x: 100, y: 120, button: 1 });
         });
         expect(sentKinds()).toEqual(['pointer']);
 
@@ -107,4 +133,34 @@ describe('held input across a background transition', () => {
         });
         expect(sentKinds()).toEqual(['pointer', 'release_all']);
     });
+});
+
+describe('a transport failure the automatic reconnect cannot fix', () => {
+    it('lets the user try again instead of holding a dead session', async () => {
+        const session = await connectedSession();
+        const first = session.current.nativeId;
+        expect(first).not.toBeNull();
+
+        // First failure: the hook retries once on its own.
+        nativeEvent('failure', first);
+        await TestRenderer.act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 900));
+        });
+        await TestRenderer.act(async () => {});
+        expect(session.current.nativeId).not.toBeNull();
+        expect(session.current.nativeId).not.toBe(first);
+
+        // Second failure: the retry is spent and the dead handle must not
+        // survive it, or the overlay's "Try again" would be a no-op.
+        nativeEvent('failure', session.current.nativeId);
+        await TestRenderer.act(async () => {});
+        expect(session.current.snapshot.status).toBe('failed');
+        expect(session.current.nativeId).toBeNull();
+
+        await TestRenderer.act(async () => {
+            await session.current.connect();
+        });
+        expect(session.current.nativeId).not.toBeNull();
+        expect(session.current.snapshot.status).not.toBe('failed');
+    }, 20_000);
 });

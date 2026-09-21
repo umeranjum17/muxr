@@ -220,8 +220,16 @@ class DesktopSession(
     sendJson(mapOf("kind" to "wheel", "dx" to dx, "dy" to dy, "seq" to nextSequence()))
   }
 
-  fun sendKey(name: String, down: Boolean) {
-    sendJson(mapOf("kind" to "key", "name" to name, "down" to down, "seq" to nextSequence()))
+  fun sendKey(name: String, modifiers: List<String>, down: Boolean) {
+    sendJson(
+      mapOf(
+        "kind" to "key",
+        "name" to name,
+        "modifiers" to modifiers,
+        "down" to down,
+        "seq" to nextSequence(),
+      ),
+    )
   }
 
   /**

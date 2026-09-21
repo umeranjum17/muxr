@@ -334,8 +334,8 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
           // Backspace and forward-delete are real keys, not edits to a local
           // buffer: the desktop owns the text.
-          repeat(min(64, beforeLength)) { session?.sendKey("Backspace", true); session?.sendKey("Backspace", false) }
-          repeat(min(64, afterLength)) { session?.sendKey("Delete", true); session?.sendKey("Delete", false) }
+          repeat(min(64, beforeLength)) { session?.sendKey("Backspace", emptyList(), true); session?.sendKey("Backspace", emptyList(), false) }
+          repeat(min(64, afterLength)) { session?.sendKey("Delete", emptyList(), true); session?.sendKey("Delete", emptyList(), false) }
           return super.deleteSurroundingText(beforeLength, afterLength)
         }
 
@@ -353,8 +353,8 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
           if (actionCode == EditorInfo.IME_ACTION_DONE || actionCode == EditorInfo.IME_ACTION_GO ||
             actionCode == EditorInfo.IME_ACTION_SEND || actionCode == EditorInfo.IME_ACTION_NEXT
           ) {
-            session?.sendKey("Enter", true)
-            session?.sendKey("Enter", false)
+            session?.sendKey("Enter", emptyList(), true)
+            session?.sendKey("Enter", emptyList(), false)
             return true
           }
           return super.performEditorAction(actionCode)
@@ -414,7 +414,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         KeyEvent.KEYCODE_PAGE_DOWN -> "PageDown"
         else -> return false
       }
-      session?.sendKey(name, event.action == KeyEvent.ACTION_DOWN)
+      session?.sendKey(name, heldModifiers(event), event.action == KeyEvent.ACTION_DOWN)
       return true
     }
   }

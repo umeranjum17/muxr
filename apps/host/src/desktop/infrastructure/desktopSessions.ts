@@ -84,10 +84,14 @@ export class DesktopSessions {
         }
         try {
             const reported = await client.capabilities();
+            // The engine's input probe only knows about uinput; the X11 backend
+            // injects through XTest and needs none, so the host's own configured
+            // source is the only side that can answer for that machine.
+            const x11 = configuredSource(this.environment)?.kind === 'x11';
             this.capabilitiesCache = {
                 available: true,
-                input: reported.input.pointer && reported.input.keyboard,
-                ...(reported.input.unavailable_reason === null
+                input: x11 || (reported.input.pointer && reported.input.keyboard),
+                ...(x11 || reported.input.unavailable_reason === null
                     ? {}
                     : { inputUnavailableReason: reported.input.unavailable_reason.reason }),
                 clipboard: reported.clipboard.read && reported.clipboard.write,
@@ -247,6 +251,12 @@ export class DesktopSessions {
         for (const event of session.client.drainEvents()) {
             const translated = toDesktopEvent(event);
             if (translated === null) continue;
+            if (translated.kind === 'revoked') {
+                // The engine ended this session on its own (a lease expiry). The
+                // poll delivering this notification must also forget the record,
+                // the same way a replaced session does.
+                session.revoked = true;
+            }
             session.appended += 1;
             session.events.push(translated);
             // A client that fell further behind than the backlog is worth cannot
