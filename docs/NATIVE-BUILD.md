@@ -87,7 +87,7 @@ and pairing checks remain unchanged.
 | Mobile JS/TS, React components and styles | Save; Metro Fast Refresh updates the running dev client |
 | Host/relay/shared TypeScript | Compiler watcher rebuilds; source services restart after a clean build |
 | Attachment preview runtime | Renderer watcher regenerates the offline bundle; Metro sees it |
-| Bundled plugin projection/RPC/stream scripts | Source paths are used on the next invocation; installed registrations remain unchanged |
+| Installed plugin projection/RPC/stream scripts | Source paths are used on the next invocation; installed registrations remain unchanged |
 | Kotlin, C++, native modules/patches or Gradle | Run `yarn dev:android` again |
 | App config, native plugins, dependencies or public environment | Restart Metro; rebuild the dev client when native configuration changes |
 

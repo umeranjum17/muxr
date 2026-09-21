@@ -58,7 +58,7 @@ updates cannot remove it.
 ## Pitfalls
 
 - Exactly one enabled plugin may claim a singleton capability such as
-  `voice.session`.
+  `example.session`.
 - User-owned source should live outside the npm package; direct edits under
   the global package root do not survive updates.
 - Secure prompt values belong in write-RPC input, never declarative state or

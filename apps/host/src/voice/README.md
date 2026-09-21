@@ -24,8 +24,8 @@ This is a bounded coordination tool surface, not unrestricted access to every He
 
 ## Shared tool lifecycle
 
-`toolRuntime.mjs` is the provider-independent voice tool kernel. Every bundled
-adapter uses its `voiceTools` catalog and `createVoiceTools` runtime. The existing
+`toolRuntime.mjs` is the provider-independent voice tool kernel. Every adapter
+uses its `voiceTools` catalog and `createVoiceTools` runtime. The existing
 host coordinator remains the authority for live membership, target resolution,
 reads, mutations and receipts; the mobile semantic controller remains the
 authority for phone navigation. Provider-specific audio and wire events stay in

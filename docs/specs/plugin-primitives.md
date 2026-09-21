@@ -14,9 +14,9 @@ links:
 
 ## Context
 
-muxr called Inbox, Attachments, Changes, Voice, and the rest "plugins" while each still owned a private React component in the APK (`muxr.attachments`, `muxr.inbox-content`, …). That caste is the confusion. There are not two kinds of plugin. Some packages ship in the box as starting points. All of them compose the same compiled primitives. Kernel stays small and snappy; file bytes and git lists are pulled when a pill opens, never pushed down the session event path.
+muxr called Inbox, Attachments, Changes, Voice, and the rest "plugins" while each still owned a private React component in the APK (`muxr.attachments`, `muxr.inbox-content`, …). That caste is the confusion. There are not two kinds of plugin, and muxr ships no add-on packages: every plugin composes the same compiled primitives. Kernel stays small and snappy; file bytes and git lists are pulled when a pill opens, never pushed down the session event path.
 
-The power this unlocks: the bundled xAI, OpenAI Realtime, and Gemini Live plugins each adapt speech-to-speech behind the same provider-neutral `host.stream`. Exactly one is enabled at a time. Every provider uses the same generic PCM channel, `icon-button` controls, overlay, and semantic capability; the phone never names a provider or owns optional Voice policy.
+The power this unlocks: the product-owned xAI, OpenAI Realtime, and Gemini Live adapters each adapt speech-to-speech behind the same provider-neutral `voice.stream`. Exactly one runs at a time. Every provider uses the same generic PCM channel and phone kernel; the phone never names a provider or owns optional Voice policy.
 
 ## Approach
 
@@ -26,7 +26,7 @@ Five public platform concepts, with optional product features outside them:
 2. **Targets and slots**: named attachment points with explicit context, cardinality, ordering, allowed primitives, and failure behavior.
 3. **Primitives**: strongly typed, reusable native components with per-primitive parameter and result schemas. A primitive must not hide an Inbox, Voice, Preview, or other product workflow behind a generic name.
 4. **Actions, events, and capabilities**: a closed host-mediated vocabulary for navigation, refresh, copy, URL/file handoff, composer input, notifications, RPC, and OS effects. Privileged behavior remains kernel-owned.
-5. **Plugins**: `herdr-plugin.toml` + `muxr-ui.json` + optional backend. Bundled packages and third parties use the same public contracts and no private route, renderer, or capability.
+5. **Plugins**: `herdr-plugin.toml` + `muxr-ui.json` + optional backend. Third-party plugins use the same public contracts and no private route, renderer, or capability.
 
 Enabled Herdr plugins remain intentionally trusted and default-on. Enabling or linking the plugin is the user's trust decision; this rework does not add per-device hash reapproval. Explicit disable and revoke remain authoritative.
 
@@ -34,11 +34,11 @@ Enabled Herdr plugins remain intentionally trusted and default-on. Enabling or l
 
 1. Make slot/primitive compatibility, required context, and bounded per-primitive `params` machine-validated instead of accepting impossible combinations that silently render nothing. Both composer slots expose the same draft contract.
 2. Use one closed, phone-validated action vocabulary for rows, buttons, settings, and RPC-backed item lists. Add correct refresh-after-write, cache invalidation, diagnostics, version negotiation, and action/event mode validation.
-3. Keep Android foreground-service/keepalive ownership unconditional in the kernel. Voice, Inbox, Workspace, and Dictation presentation are plugin contributions over generic controls, collection/tree/item-list primitives, bounded host context, and closed kernel actions. The primitive registry contains no product Preview behavior.
+3. Keep Android foreground-service/keepalive ownership unconditional in the kernel. Inbox, Workspace, and Dictation presentation are plugin contributions over generic controls, collection/tree/item-list primitives, bounded host context, and closed kernel actions. The primitive registry contains no product Preview behavior.
 4. Harden RPC process termination, isolate plugin concurrency, and replace repeated full catalog reparsing with stable snapshot caching.
-5. Publish schema/tooling and verify bundled plus adversarial third-party plugins through local Android builds and authentic emulator flows.
+5. Publish schema/tooling and verify adversarial third-party plugins through local Android builds and authentic emulator flows.
 
-`openPluginStream('voice.session')` resolves the single enabled provider and rejects ambiguous claims until the user disables all but one. The phone sends and receives only bounded generic PCM, control, state, and transcript frames over the encrypted stream. Provider URLs, authentication, models, prompts, tools, and event vocabularies stay in the backend adapter. A replacement provider reuses the same controls, overlay, settings actions, capability, and channel; it never requires a React Native branch.
+`voice.stream` attaches muxr's single selected adapter from the host's own runtime: no plugin catalog entry, manifest hash, or per-device approval is involved. The phone sends and receives only bounded generic PCM, control, state, and transcript frames over the encrypted stream. Provider URLs, authentication, models, prompts, tools, and event vocabularies stay in the host adapter. A replacement provider reuses the same controls, overlay, settings actions, and channel; it never requires a React Native branch.
 
 Realtime coordination mutations name their destination explicitly. `prompt_agent` requires a nonempty Agent Name or Task Title, refuses unknown or ambiguous targets without mutation, and reports only a queued receipt after Herdr returns a structurally valid receipt for the same resolved pane. The host journal records only provider, semantic requested/resolved agent names, and queued/rejected/failed outcomes.
 
@@ -77,7 +77,7 @@ Muxr is presentation-only for Agent Name and Task Title. Those values come from 
 
 ## Verification
 
-- `node scripts/diagnostics/application/runSuite.mjs` passes 29/29, including the structured Usage agent-item flow and actionless read-only item-list rows; `node scripts/diagnostics/application/checkBundledPlugins.mjs` validates every bundled plugin and rejects wrong target/primitive/parameter combinations.
+- `node scripts/diagnostics/application/runSuite.mjs` passes, including the structured Usage agent-item flow and actionless read-only item-list rows; `node scripts/diagnostics/application/checkBundledPlugins.mjs` proves no bundled add-on ships and keeps the primitive and launcher-shortcut guards.
 - The mobile typecheck, focused manifest/tokenization flow, web export, and Android production JS bundle all pass with the v11 `code` node.
 - Workspace and mobile typechecks pass; focused Android acceptance checks pass 62/62.
 - Existing host/mobile flow tests cover catalog snapshots, explicit disable/revoke, event/action modes, write refresh, timeout isolation, cache invalidation, and process-group cleanup.
