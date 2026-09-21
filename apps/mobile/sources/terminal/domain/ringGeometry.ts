@@ -144,15 +144,15 @@ export function dockedRingOffsets(
             const clear = points.every((q, j) => j >= i || Math.hypot(p.x - q.x, p.y - q.y) >= discSize);
             return inBounds && clear;
         });
-    for (let B = Math.min(150, BMax); B >= 40; B -= 2) {
-        const A = Math.min(1.1 * B, ALeft, ARight);
+    for (let B = Math.min(120, BMax); B >= 40; B -= 2) {
+        const A = Math.min(84, 0.85 * B, ALeft, ARight);
         if (A < 36) continue;
         const points = solve(A, B);
         if (fits(points)) return points;
     }
     const reduced = Math.max(1, count - 1);
     if (reduced < count) return dockedRingOffsets(anchor, region, reduced, discSize);
-    return solve(Math.min(150, BMax), Math.min(150, BMax));
+    return solve(Math.min(120, BMax), Math.min(120, BMax));
 }
 
 /** Which slot a swept finger would fire: past the dead zone and inside that

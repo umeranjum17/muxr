@@ -25,3 +25,27 @@ export function personalReplyErrors(label: string, text: string): string[] {
     else if (text.length > QUICK_REPLY_TEXT_LIMIT) errors.push(`Keep the text to ${QUICK_REPLY_TEXT_LIMIT.toLocaleString()} characters.`);
     return errors;
 }
+
+
+/** The command palette's projection of a personal reply: insert-only, stable id. */
+export interface PersonalReplyCommand {
+    id: string;
+    title: string;
+    text: string;
+    insertOnly: true;
+}
+
+/**
+ * Reachability contract for the person's own replies: every saved reply is
+ * one palette command that inserts into the visible draft. The insert-only
+ * flag is part of the data, not a per-call-site decision, so a wiring change
+ * that turned a personal reply into a sender cannot pass the flow test.
+ */
+export function personalReplyCommands(replies: readonly PersonalQuickReply[]): PersonalReplyCommand[] {
+    return replies.map((reply) => ({
+        id: `reply:user:${reply.id}`,
+        title: reply.label,
+        text: reply.text,
+        insertOnly: true,
+    }));
+}

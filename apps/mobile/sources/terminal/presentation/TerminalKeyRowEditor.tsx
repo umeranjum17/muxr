@@ -28,7 +28,7 @@ const CATEGORIES: readonly { id: ControlGridCategory; label: string }[] = [
     { id: 'keys', label: 'Keys' },
     { id: 'snippets', label: 'Snippets' },
     { id: 'recents', label: 'Recents' },
-    { id: 'appearance', label: 'Look' },
+    { id: 'appearance', label: 'Appearance' },
     { id: 'keyboard', label: 'Keyboard' },
 ];
 
@@ -163,7 +163,7 @@ function SectionNote({ children }: { children: React.ReactNode }) {
 
 /** Section label in the reference's small-caps voice. */
 function SectionLabel({ children }: { children: React.ReactNode }) {
-    return <Text style={[styles.sectionLabel, { marginTop: 14, marginBottom: 6 }]}>{children}</Text>;
+    return <Text style={[styles.sectionLabel, { marginTop: 20, marginBottom: 8 }]}>{children}</Text>;
 }
 
 function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifierIcons }: {
@@ -508,7 +508,7 @@ const styles = StyleSheet.create({
     title: { fontSize: 20, fontWeight: '700' },
     categoryRow: { flexDirection: 'row', gap: 5, paddingBottom: 10 },
     categoryChip: { flex: 1, minHeight: 34, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderRadius: 17 },
-    sectionLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 1.2, color: '#8e8e93' },
+    sectionLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1.4, color: '#8e8e93' },
     caption: { fontSize: 12, marginTop: 8, marginBottom: 6, color: '#8e8e93' },
     card: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', marginTop: 2 },
     cardRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: 6 },
@@ -518,8 +518,8 @@ const styles = StyleSheet.create({
     handle: { paddingHorizontal: 10, paddingVertical: 14 },
     rowLabel: { fontSize: 15, ...Typography.mono() },
     rowSend: { fontSize: 11.5, marginTop: 3, ...Typography.mono() },
-    previewBox: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 10 },
-    previewKey: { minWidth: 42, height: 30, paddingHorizontal: 9, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
+    previewBox: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingVertical: 14 },
+    previewKey: { minWidth: 46, height: 34, paddingHorizontal: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
     close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     closeText: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     addRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12, paddingVertical: 12, borderRadius: ui.radius.control, borderWidth: StyleSheet.hairlineWidth },

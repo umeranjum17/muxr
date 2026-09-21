@@ -92,8 +92,8 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyboardShouldPersistTaps="always"
-                style={{ flexGrow: 0, maxHeight: 30 }}
-                contentContainerStyle={{ alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 1 }}
+                style={{ flexGrow: 0, maxHeight: 28 }}
+                contentContainerStyle={{ alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 0 }}
             >
             <Pressable
                 onPress={() => { hapticsSelection(); applyMods(cycle(ctrlRef.current), shiftRef.current); }}

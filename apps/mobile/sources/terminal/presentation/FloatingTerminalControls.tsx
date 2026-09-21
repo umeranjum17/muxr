@@ -31,7 +31,7 @@ const CENTER = 40;
 const CENTER_ICON = 17;
 // Slots render at a disc size that follows the terminal's width: the full
 // 48dp discs on reference-width phones, a 44dp set on narrow PWA panes.
-const slotSize = (width: number): number => (width < 340 ? 44 : 48);
+const slotSize = (width: number): number => (width < 340 ? 38 : 48);
 const RING_CAP = 6;
 const MOVE_THRESHOLD = 8;
 const OPEN_MS = 160;
@@ -61,9 +61,7 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, sl
 }) {
     const { theme } = useUnistyles();
     const reduceMotion = useReducedMotion();
-    // A narrow terminal cannot hold the full arc without overlap, so the fan
-    // carries fewer slots there; the wide reference layout keeps all six.
-    const count = Math.min(slots.length, RING_CAP, width < 340 ? 4 : RING_CAP);
+    const count = Math.min(slots.length, RING_CAP);
     // Inside the region, always: a layout race between the rail's measurement
     // and the terminal's box must never park the centre off-screen.
     const center = React.useMemo(() => ({
