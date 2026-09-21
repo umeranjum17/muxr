@@ -195,7 +195,12 @@ function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifier
     }
     return <View>
         <SectionLabel>LIVE PREVIEW</SectionLabel>
-        <View style={[styles.previewBox, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+        <View style={[styles.previewStage, { backgroundColor: '#0c0c0b', borderColor: theme.colors.divider }]}>
+            {/* The actual toolbar staged inside the stage, at natural size. */}
+            <View style={[styles.previewRail, {
+                backgroundColor: theme.colors.glass.backgroundSubtle,
+                borderColor: theme.colors.glass.border,
+            }]}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4, alignItems: 'center' }}>
                 {['ctrl', 'shift'].map((label) => <View key={label} style={[styles.previewKey, { backgroundColor: theme.colors.glass.backgroundSubtle }]}>
                     <Text style={[styles.rowLabel, { color: theme.colors.textSecondary }]}>{modifierIcons ? (label === 'ctrl' ? '\u2303' : '\u21e7') : label}</Text>
@@ -204,6 +209,7 @@ function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifier
                     <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{key.label}</Text>
                 </View>)}
             </ScrollView>
+            </View>
         </View>
 
         <SectionLabel>DISPLAY</SectionLabel>
@@ -520,7 +526,8 @@ const styles = StyleSheet.create({
     handle: { paddingHorizontal: 10, paddingVertical: 14 },
     rowLabel: { fontSize: 15, ...Typography.mono() },
     rowSend: { fontSize: 11.5, marginTop: 3, ...Typography.mono() },
-    previewBox: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingVertical: 14 },
+    previewStage: { minHeight: 300, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, backgroundColor: '#0c0c0b', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 16 },
+    previewRail: { minHeight: 48, borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, paddingVertical: 8, maxWidth: '100%' },
     previewKey: { minWidth: 46, height: 34, paddingHorizontal: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
     close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     closeText: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
