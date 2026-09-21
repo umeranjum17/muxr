@@ -30,7 +30,7 @@ describe('command ring geometry', () => {
         expect(ys[3]).toBe(Math.max(...ys));
     });
 
-    it('mirrors for a left-hand anchor: drag the puck left, the ring fans right', () => {
+    it('mirrors for a left-hand anchor: dock the thumb control left, the ring fans right', () => {
         const leftAnchor = { x: 64, y: anchor.y };
         const points = ringSlotOffsets(leftAnchor, region, 4);
         const xs = points.map((point) => point.x);
