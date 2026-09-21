@@ -222,8 +222,11 @@ function describe(
 }
 
 const styles = StyleSheet.create({
-    screen: { flex: 1 },
-    body: { flex: 1 },
+    // `flex: 1` alone collapses to nothing inside a web route that has no
+    // sized ancestor; the explicit percentage is what gives the live surface a
+    // box on both platforms.
+    screen: { flex: 1, width: '100%', height: '100%' },
+    body: { flex: 1, minHeight: 0 },
     surface: { flex: 1 },
     overlay: {
         position: 'absolute',

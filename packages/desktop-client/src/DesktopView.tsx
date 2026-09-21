@@ -5,7 +5,7 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { desktopAvailable } from './native';
 
 export interface DesktopViewProps {
-    /** The native session handle from `useDesktopSession`. */
+    /** The session handle from `useDesktopSession`. */
     sessionId: string | null;
     style?: StyleProp<ViewStyle>;
     /** Shown until the first desktop frame has actually rendered. */

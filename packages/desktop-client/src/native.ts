@@ -1,8 +1,7 @@
 import { Platform } from 'react-native';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 
-import type { ControlReply } from './protocol';
-import { parseControlReply } from './protocol';
+
 
 /**
  * The native session module.
@@ -52,5 +51,3 @@ export const nativeDesklink: NativeDesklinkModule | null = native;
 /** True when this build can show a live desktop surface at all. */
 export const desktopAvailable = native !== null;
 
-export { parseControlReply };
-export type { ControlReply };

@@ -90,6 +90,27 @@ Restarting the bridge and pressing Reconnect returned a live desktop
    lays out with. The renderer now fills the view, letterboxes itself, and the
    touch mapping computes the same rectangle arithmetically.
 
+## The same journey in the real PWA
+
+The muxr web build (`expo start --web`) against the same lab host, using the
+browser implementation of the desktop client package (`src/native.web.ts`):
+
+- `Pane actions -> Computer` navigated to the desktop route and the surface went
+  live: a `<video>` element at `1280x720`, laid out at 948x533 inside the route.
+- A tap at the expected surface point `(960,180)` produced, in the target's log:
+
+```json
+{"kind":"pointer","x":960,"y":180}
+{"kind":"button","x":960,"y":180,"button":1,"phase":"down"}
+{"kind":"pointer","x":960,"y":180}
+{"kind":"button","x":960,"y":180,"button":1,"phase":"up"}
+```
+
+Three defects were found and fixed getting there: the desktop route had no entry
+in the stack layout and collapsed to zero size inside the web route, the web
+module did not export the availability flag the view checks, and a protocol
+helper was reached through the wrong module.
+
 ## Not covered here
 
 - **Portal consent and `uinput` input**: both need the captain's own session.

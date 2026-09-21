@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { nativeDesklink, parseControlReply } from './native';
+import { nativeDesklink } from './native';
 import type {
     ControlMessage,
     IceServerConfig,
@@ -12,7 +12,7 @@ import type {
     Signaling,
     SurfaceGeometry,
 } from './protocol';
-import { PROTOCOL_VERSION, controlMessageText } from './protocol';
+import { PROTOCOL_VERSION, controlMessageText, parseControlReply } from './protocol';
 
 /** How long a clipboard round trip may take before it is reported as lost. */
 const CLIPBOARD_TIMEOUT_MS = 4000;
