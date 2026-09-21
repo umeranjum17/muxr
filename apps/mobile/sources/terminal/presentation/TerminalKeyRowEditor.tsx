@@ -196,6 +196,11 @@ function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifier
     return <View>
         <SectionLabel>LIVE PREVIEW</SectionLabel>
         <View style={[styles.previewStage, { backgroundColor: '#0c0c0b', borderColor: theme.colors.divider }]}>
+            {/* Restrained copy holds the stage's center; the actual toolbar
+                anchors near the stage bottom, as in the reference. */}
+            <View style={styles.previewCopyWrap}>
+                <Text style={styles.previewCopy}>Live preview of your toolbar.</Text>
+            </View>
             {/* The actual toolbar staged inside the stage, at natural size. */}
             <View style={[styles.previewRail, {
                 backgroundColor: theme.colors.glass.backgroundSubtle,
@@ -526,7 +531,9 @@ const styles = StyleSheet.create({
     handle: { paddingHorizontal: 10, paddingVertical: 14 },
     rowLabel: { fontSize: 15, ...Typography.mono() },
     rowSend: { fontSize: 11.5, marginTop: 3, ...Typography.mono() },
-    previewStage: { minHeight: 300, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, backgroundColor: '#0c0c0b', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 16 },
+    previewStage: { minHeight: 300, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, backgroundColor: '#0c0c0b', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 14, paddingBottom: 16 },
+    previewCopyWrap: { flex: 1, minHeight: 120, justifyContent: 'center', alignItems: 'center' },
+    previewCopy: { color: '#8e8e93', fontSize: 15 },
     previewRail: { minHeight: 48, borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, paddingVertical: 8, maxWidth: '100%' },
     previewKey: { minWidth: 46, height: 34, paddingHorizontal: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
     close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
