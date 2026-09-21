@@ -4,7 +4,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { hapticsSelection } from '@/components/haptics';
-import { ui } from '@/components/ui';
 import { useLocalSetting, useLocalSettingMutable } from '@/catalog/store';
 import { modifiedSend, resolveKeyRow, type TerminalKey, type TerminalKeyAction } from '../domain/keyRow';
 
@@ -56,19 +55,21 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
         hapticsSelection();
     }, [channel]);
     const style = (selected = false, locked = false) => ({
-        minHeight: 26,
+        minHeight: 28,
+        minWidth: 30,
         justifyContent: 'center' as const,
         alignItems: 'center' as const,
-        paddingHorizontal: 8,
+        paddingHorizontal: 9,
         paddingVertical: 3,
-        borderRadius: 7,
+        borderRadius: 8,
         // Subordinate to the terminal: quiet caps that only light up when a
-        // modifier is armed, never a band of chrome.
+        // modifier is armed, never a band of chrome. The gap between them is
+        // what keeps a run of caps reading as keys rather than as one bar.
         backgroundColor: selected || locked ? theme.colors.accentSubtle : theme.colors.glass.backgroundSubtle,
         borderWidth: locked ? 1 : 0,
         borderColor: locked ? theme.colors.accent : 'transparent',
     });
-    const labelStyle = (tint: string) => ({ color: tint, fontSize: 10.5, ...Typography.mono() });
+    const labelStyle = (tint: string) => ({ color: tint, fontSize: 11, ...Typography.mono() });
     const fire = (key: TerminalKey) => {
         if (key.action !== undefined) {
             hapticsSelection();
@@ -92,8 +93,8 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyboardShouldPersistTaps="always"
-                style={{ flexGrow: 0, maxHeight: 28 }}
-                contentContainerStyle={{ alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 0 }}
+                style={{ flexGrow: 0, maxHeight: 30 }}
+                contentContainerStyle={{ alignItems: 'center', gap: 6, paddingLeft: 10, paddingRight: 16, paddingVertical: 0 }}
             >
             <Pressable
                 onPress={() => { hapticsSelection(); applyMods(cycle(ctrlRef.current), shiftRef.current); }}
@@ -144,7 +145,7 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
                         style={({ pressed }) => [style(), unavailable && { opacity: 0.35 }, pressed && { opacity: 0.6 }]}
                     >
                         {ARROWS[key.send] !== undefined
-                            ? <Ionicons name={ARROWS[key.send]} size={13} color={theme.colors.textSecondary} />
+                            ? <Ionicons name={ARROWS[key.send]} size={12} color={theme.colors.textSecondary} />
                             : <Text style={labelStyle(theme.colors.textSecondary)}>{key.label}</Text>}
                     </Pressable>
                 );

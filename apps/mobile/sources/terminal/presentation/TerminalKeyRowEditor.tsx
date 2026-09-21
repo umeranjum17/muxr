@@ -93,13 +93,21 @@ export function TerminalControlGrid({
                         when the pane is narrow so chips never collide. */}
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always"
                         style={{ flexGrow: 0 }}
-                        contentContainerStyle={{ gap: 8, paddingBottom: 10, alignItems: 'center' }}>
+                        contentContainerStyle={{ gap: 8, paddingBottom: 10, paddingRight: 20, alignItems: 'center' }}>
                         {CATEGORIES.map((entry) => {
                             const active = entry.id === category;
+                            // A selected segment, not a call to action: the chosen
+                            // category is raised by a step of surface and a hairline,
+                            // never by a filled accent pill shouting over the content
+                            // it is only a switch for.
                             return <Pressable key={entry.id} onPress={() => { hapticsSelection(); onCategoryChange(entry.id); }}
                                 accessibilityRole="button" accessibilityLabel={`${entry.label} category`} accessibilityState={{ selected: active }}
-                                style={[styles.categoryChip, { backgroundColor: active ? theme.colors.accent : theme.colors.surfaceHigh }]}>
-                                <Text style={{ color: active ? theme.colors.button.primary.tint : theme.colors.text, fontSize: 13, fontWeight: active ? '600' : '400' }}>{entry.label}</Text>
+                                style={[styles.categoryChip, {
+                                    backgroundColor: active ? theme.colors.surfaceHighest : 'transparent',
+                                    borderWidth: StyleSheet.hairlineWidth,
+                                    borderColor: active ? theme.colors.divider : 'transparent',
+                                }]}>
+                                <Text style={{ color: active ? theme.colors.text : theme.colors.textSecondary, fontSize: 13.5, fontWeight: active ? '600' : '400' }}>{entry.label}</Text>
                             </Pressable>;
                         })}
                     </ScrollView>
@@ -110,7 +118,7 @@ export function TerminalControlGrid({
                             {category === 'recents' && (
                                 recentLinks.length === 0
                                     ? <SectionNote>Links printed by the terminal gather here.</SectionNote>
-                                    : <View style={[styles.card, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+                                    : <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
                                         {recentLinks.map((url, index) => (
                                             <View key={`${url}:${index}`} style={[styles.cardRow, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }]}>
                                                 <Pressable accessibilityRole="button" accessibilityLabel={`Open ${url}`} onPress={() => onRecentLink(url, 'open')} style={styles.cardRowMain}>
@@ -127,28 +135,28 @@ export function TerminalControlGrid({
                                     </View>
                             )}
                             {category === 'appearance' && (
-                                <View style={[styles.card, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+                                <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
                                     {viewCommands.map((command, index) => (
                                         <Pressable key={command.label} disabled={command.disabled === true} accessibilityRole="button" accessibilityLabel={command.label} accessibilityState={{ disabled: command.disabled === true }}
                                             onPress={() => { onClose(); command.run(); }}
                                             style={[styles.cardRow, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }, command.disabled === true && { opacity: 0.4 }]}>
-                                            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{command.label}</Text>
+                                            <Text style={{ flex: 1, paddingLeft: 8, color: theme.colors.text, fontSize: 16 }}>{command.label}</Text>
                                             <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                         </Pressable>
                                     ))}
                                 </View>
                             )}
                             {category === 'keyboard' && (
-                                <View style={[styles.card, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+                                <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
                                     {viewCommands.filter((command) => command.label.toLowerCase().includes('keyboard')).map((command) => (
                                         <Pressable key={command.label} accessibilityRole="button" accessibilityLabel={command.label} onPress={() => { onClose(); command.run(); }}
                                             style={[styles.cardRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }]}>
-                                            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{command.label}</Text>
+                                            <Text style={{ flex: 1, paddingLeft: 8, color: theme.colors.text, fontSize: 16 }}>{command.label}</Text>
                                             <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                         </Pressable>
                                     ))}
                                     <View style={[styles.cardRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }]}>
-                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Keyboard opens from the key row only</Text>
+                                        <Text style={{ flex: 1, paddingLeft: 8, color: theme.colors.text, fontSize: 15 }}>Keyboard opens from the key row only</Text>
                                         <Switch value={keyboardDisabled} onValueChange={onKeyboardDisabledChange} accessibilityLabel="Keyboard opens from the key row only" />
                                     </View>
                                 </View>
@@ -166,7 +174,7 @@ function SectionNote({ children }: { children: React.ReactNode }) {
 
 /** Section label in the reference's small-caps voice. */
 function SectionLabel({ children }: { children: React.ReactNode }) {
-    return <Text style={[styles.sectionLabel, { marginTop: 20, marginBottom: 8 }]}>{children}</Text>;
+    return <Text style={[styles.sectionLabel, { marginTop: 26, marginBottom: 10 }]}>{children}</Text>;
 }
 
 function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifierIcons }: {
@@ -177,6 +185,7 @@ function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifier
     onChangeModifierIcons: (value: boolean) => void;
 }) {
     const { theme } = useUnistyles();
+    const { height: windowHeight } = useWindowDimensions();
     const { working, drag, commit, removeAt, moveBy, onDrag, isDragging } = useReorderableList<RowEntry>(true, seed, onChange);
     const [formIndex, setFormIndex] = React.useState<number | null>(null);
 
@@ -195,7 +204,10 @@ function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifier
     }
     return <View>
         <SectionLabel>LIVE PREVIEW</SectionLabel>
-        <View style={[styles.previewStage, { backgroundColor: '#0c0c0b', borderColor: theme.colors.divider }]}>
+        {/* The stage is the dominant first section, but never at the cost of the
+            sections under it: on a short pane a fixed 300dp block would push
+            DISPLAY and the reorder card clean off the screen. */}
+        <View style={[styles.previewStage, { height: Math.min(300, Math.round(windowHeight * 0.34)), backgroundColor: '#0c0c0b', borderColor: theme.colors.divider }]}>
             {/* Restrained copy holds the stage's center; the actual toolbar
                 anchors near the stage bottom, as in the reference. */}
             <View style={styles.previewCopyWrap}>
@@ -203,14 +215,16 @@ function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifier
             </View>
             {/* The actual toolbar staged inside the stage, at natural size. */}
             <View style={[styles.previewRail, {
-                backgroundColor: theme.colors.glass.backgroundSubtle,
+                backgroundColor: theme.colors.glass.backgroundStrong,
                 borderColor: theme.colors.glass.border,
             }]}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4, alignItems: 'center' }}>
-                {['ctrl', 'shift'].map((label) => <View key={label} style={[styles.previewKey, { backgroundColor: theme.colors.glass.backgroundSubtle }]}>
+            {/* The caps need a step of their own against the rail they sit in,
+                or the toolbar renders as one undifferentiated pill. */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, alignItems: 'center', paddingRight: 4 }}>
+                {['ctrl', 'shift'].map((label) => <View key={label} style={[styles.previewKey, { backgroundColor: theme.colors.surfaceHighest }]}>
                     <Text style={[styles.rowLabel, { color: theme.colors.textSecondary }]}>{modifierIcons ? (label === 'ctrl' ? '\u2303' : '\u21e7') : label}</Text>
                 </View>)}
-                {resolveKeyRow(working).map((key, index) => <View key={index} style={[styles.previewKey, { backgroundColor: theme.colors.glass.backgroundSubtle }]}>
+                {resolveKeyRow(working).map((key, index) => <View key={index} style={[styles.previewKey, { backgroundColor: theme.colors.surfaceHighest }]}>
                     <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{key.label}</Text>
                 </View>)}
             </ScrollView>
@@ -218,16 +232,16 @@ function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifier
         </View>
 
         <SectionLabel>DISPLAY</SectionLabel>
-        <View style={[styles.card, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+        <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
             <View style={styles.cardRow}>
-                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Use Icons for Modifier Keys</Text>
+                <Text style={{ flex: 1, paddingLeft: 8, color: theme.colors.text, fontSize: 16 }}>Use Icons for Modifier Keys</Text>
                 <Switch value={modifierIcons} onValueChange={onChangeModifierIcons} accessibilityLabel="Use Icons for Modifier Keys" />
             </View>
         </View>
 
         <SectionLabel>TOOLBAR BUTTONS</SectionLabel>
         <Text style={[styles.caption]}>Tap to edit · hold a handle to reorder</Text>
-        <View style={[styles.card, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+        <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
             {(() => {
                 const occurrence = new Map<string, number>();
                 return working.map((entry, index) => {
@@ -310,7 +324,7 @@ function SnippetsCategory({ replies, onRepliesChange }: {
     return <View>
         <Text style={[styles.caption]}>Your snippets · inserted into the prompt, never sent by themselves</Text>
         {working.length === 0 && <Text style={[styles.caption]}>Nothing here yet. The built-in replies still live in the command palette.</Text>}
-        <View style={[styles.card, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+        <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
             {working.map((reply, index) => {
                 const dragging = drag?.index === index;
                 return (
@@ -420,12 +434,21 @@ export function KeyForm({ entry, onSave, onCancel }: {
     // disable Save: what is hidden cannot block the choice.
     const savedLabel = isAction ? selected.label : label.trim() || (mode === 'key' ? suggestedLabel : '');
     const valid = (isAction || (bytes !== null && bytes.length <= 512)) && savedLabel.length > 0 && savedLabel.length <= 12;
-    const chip = (active: boolean) => [styles.gridChip, { backgroundColor: active ? theme.colors.accent : theme.colors.surfaceHigh }];
+    const chip = (active: boolean) => [styles.gridChip, { backgroundColor: active ? theme.colors.accent : theme.colors.surfaceHighest }];
     const ink = (active: boolean) => ({ color: active ? theme.colors.button.primary.tint : theme.colors.text, fontSize: 13, ...Typography.mono() });
+    // The mode row is a segmented switch, not a choice being made: it wears the
+    // same quiet selection as the category rail so the only filled control on
+    // the form is the key actually picked, and the only accent is Save.
+    const segment = (active: boolean) => [styles.gridChip, {
+        backgroundColor: active ? theme.colors.surfaceHighest : 'transparent',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: active ? theme.colors.divider : 'transparent',
+    }];
+    const segmentInk = (active: boolean) => ({ color: active ? theme.colors.text : theme.colors.textSecondary, fontSize: 13, fontWeight: active ? '600' as const : '400' as const });
     return <View>
         <View style={styles.grid}>
-            {(['key', 'text'] as const).map((value) => <Pressable key={value} onPress={() => setMode(value)} accessibilityRole="button" accessibilityState={{ selected: mode === value }} style={chip(mode === value)}>
-                <Text style={ink(mode === value)}>{value === 'key' ? 'Key combination' : 'Text / escapes'}</Text>
+            {(['key', 'text'] as const).map((value) => <Pressable key={value} onPress={() => setMode(value)} accessibilityRole="button" accessibilityState={{ selected: mode === value }} style={segment(mode === value)}>
+                <Text style={segmentInk(mode === value)}>{value === 'key' ? 'Key combination' : 'Text / escapes'}</Text>
             </Pressable>)}
         </View>
         {!(mode === 'key' && isAction) && <>
@@ -459,7 +482,7 @@ export function KeyForm({ entry, onSave, onCancel }: {
             <TextInput value={sendText} onChangeText={setSendText} multiline autoCapitalize="none" autoCorrect={false} accessibilityLabel="Keys or text to send" placeholder={'e.g. git status\\r'} placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider, ...Typography.mono() }]} />
             <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>{'\\e Escape · \\r Enter · \\t Tab · \\x03 Ctrl+C · \\\\ backslash'}</Text>
         </>}
-        <View style={[styles.sequence, { backgroundColor: theme.colors.surfaceHigh }]}>
+        <View style={[styles.sequence, { backgroundColor: theme.colors.surfaceHighest }]}>
             <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Sends</Text>
             <Text selectable style={[styles.rowLabel, { color: theme.colors.text }]}>{isAction && actionNote !== null ? actionNote : bytes === null ? 'Choose a valid key combination or escape sequence.' : bytesToEscape(bytes)}</Text>
         </View>
@@ -518,24 +541,26 @@ const styles = StyleSheet.create({
     sheet: { flexShrink: 1, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingTop: 12 },
     body: { flex: 1 },
     bodyContent: { paddingBottom: 24, paddingTop: 6 },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4, paddingBottom: 6 },
-    title: { fontSize: 20, fontWeight: '700' },
-    categoryChip: { minHeight: 36, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, borderRadius: 18 },
-    sectionLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1.4, color: '#8e8e93' },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4, paddingTop: 6, paddingBottom: 14 },
+    title: { fontSize: 28, fontWeight: '600', letterSpacing: -0.4 },
+    categoryChip: { minHeight: 34, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 15, borderRadius: 17 },
+    sectionLabel: { fontSize: 12, fontWeight: '600', letterSpacing: 1.4, color: '#8e8e93' },
     caption: { fontSize: 12, marginTop: 8, marginBottom: 6, color: '#8e8e93' },
     card: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', marginTop: 2 },
-    cardRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: 6 },
-    cardRowMain: { flex: 1, minHeight: 64, justifyContent: 'center' },
+    // Every card row earns the reference's height whether or not its content
+    // asks for it; a lone switch row used to collapse to the switch.
+    cardRow: { flexDirection: 'row', alignItems: 'center', minHeight: 56, paddingLeft: 6, paddingRight: 2 },
+    cardRowMain: { flex: 1, minHeight: 64, paddingLeft: 8, justifyContent: 'center' },
     cardRowAction: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     row: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 54, paddingHorizontal: 8, marginTop: 8, borderRadius: ui.radius.control, borderWidth: StyleSheet.hairlineWidth },
     handle: { paddingHorizontal: 10, paddingVertical: 14 },
-    rowLabel: { fontSize: 15, ...Typography.mono() },
-    rowSend: { fontSize: 11.5, marginTop: 3, ...Typography.mono() },
-    previewStage: { minHeight: 300, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, backgroundColor: '#0c0c0b', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 14, paddingBottom: 16 },
-    previewCopyWrap: { flex: 1, minHeight: 120, justifyContent: 'center', alignItems: 'center' },
+    rowLabel: { fontSize: 16, ...Typography.mono() },
+    rowSend: { fontSize: 12, marginTop: 3, ...Typography.mono() },
+    previewStage: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, backgroundColor: '#0c0c0b', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 12, paddingBottom: 16 },
+    previewCopyWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     previewCopy: { color: '#8e8e93', fontSize: 15 },
     previewRail: { minHeight: 48, borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, paddingVertical: 8, maxWidth: '100%' },
-    previewKey: { minWidth: 46, height: 34, paddingHorizontal: 10, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+    previewKey: { minWidth: 44, height: 32, paddingHorizontal: 10, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
     close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     closeText: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     addRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12, paddingVertical: 12, borderRadius: ui.radius.control, borderWidth: StyleSheet.hairlineWidth },

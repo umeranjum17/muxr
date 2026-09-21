@@ -238,23 +238,28 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, sl
     );
 }
 
-/** The centre's own glyph: a dial arc that swings open with the ring. */
+/**
+ * The centre's mark. A broken circle here read as a progress spinner — the one
+ * thing a resting control must never say — and a bespoke arc of dots read as
+ * nothing at all. This is the ordinary "more controls" grid at rest, turning
+ * into the close it actually is once the ring is open, so the same thumb that
+ * opened it knows without looking what a second tap will do.
+ */
 function RingGlyph({ open, color }: { open: boolean; color: string }) {
     const reduceMotion = useReducedMotion();
-    const spin = useSharedValue(0);
+    const bloom = useSharedValue(0);
     React.useEffect(() => {
-        if (reduceMotion) { spin.value = open ? 1 : 0; return; }
-        spin.value = withTiming(open ? 1 : 0, { duration: open ? OPEN_MS : CLOSE_MS, easing: Easing.bezier(0.23, 1, 0.32, 1) });
-    }, [open, reduceMotion, spin]);
-    const style = useAnimatedStyle(() => ({ transform: [{ rotate: `${spin.value * 135 - 45}deg` }] }));
+        if (reduceMotion) { bloom.value = open ? 1 : 0; return; }
+        bloom.value = withTiming(open ? 1 : 0, { duration: open ? OPEN_MS : CLOSE_MS, easing: Easing.bezier(0.23, 1, 0.32, 1) });
+    }, [open, reduceMotion, bloom]);
+    const resting = useAnimatedStyle(() => ({ opacity: 1 - bloom.value, transform: [{ rotate: `${bloom.value * 90}deg` }] }));
+    const opened = useAnimatedStyle(() => ({ opacity: bloom.value, transform: [{ rotate: `${(bloom.value - 1) * 90}deg` }] }));
+    const layer: StyleProp<ViewStyle> = [StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }];
     return (
-        <Animated.View
-            accessible={false}
-            style={[{
-                width: CENTER_ICON, height: CENTER_ICON, borderRadius: CENTER_ICON / 2,
-                borderWidth: 2, borderColor: color, borderRightColor: 'transparent',
-            }, style]}
-        />
+        <View accessible={false} style={{ width: CENTER_ICON, height: CENTER_ICON }}>
+            <Animated.View style={[layer, resting]}><Ionicons name="grid-outline" size={CENTER_ICON} color={color} /></Animated.View>
+            <Animated.View style={[layer, opened]}><Ionicons name="close" size={CENTER_ICON + 4} color={color} /></Animated.View>
+        </View>
     );
 }
 

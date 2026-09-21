@@ -214,6 +214,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         });
     }, []);
     React.useEffect(() => { measureRingAnchor(); }, [measureRingAnchor, keyboardVisible, keyboardHeight, terminalBox]);
+    // The ring is drawn by an overlay onto the rail's reserved slot, so it may
+    // only exist while that slot does. Dictation and a typed draft both take
+    // the slot back, and a stale measurement would otherwise leave the centre
+    // control floating over the capsule it just made way for.
+    const railShowsRing = canControl && !dictationActive && draft === '';
+    React.useEffect(() => { if (!railShowsRing) setToolsOpen(false); }, [railShowsRing]);
     const insertDraft = React.useCallback((value: string) => {
         const next = appendToDraft(draftRef.current, value);
         draftRef.current = next;
@@ -864,7 +870,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
             const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting' && status !== 'unconfirmed';
             const showUnconfirmedStatus = status === 'unconfirmed' && gestureHint === null;
-            const attachmentAction = <Pressable onPress={attachPhotos} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={({ pressed }) => ({ width: 34, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 17, opacity: attaching ? 0.4 : pressed ? 0.6 : 1 })}>
+            const attachmentAction = <Pressable onPress={attachPhotos} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={({ pressed }) => ({ width: 32, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 16, opacity: attaching ? 0.4 : pressed ? 0.6 : 1 })}>
                 <Ionicons name={attaching ? 'hourglass-outline' : 'add'} size={22} color={theme.colors.textSecondary} />
             </Pressable>;
             // One pill that is the composer: idle input, multiline compose,
@@ -881,16 +887,22 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 blurOnSubmit
                 submitBehavior="blurAndSubmit"
                 multiline
+                // Web renders multiline as a textarea and defaults it to two
+                // rows: the rail stood 12dp taller than its own minimum and the
+                // placeholder sat a line above the controls beside it. Native
+                // sizes to content already, and there `numberOfLines` would cap
+                // the growth instead of seeding it.
+                {...(Platform.OS === 'web' ? { rows: 1 } as object : {})}
                 placeholder={windowWidth < 340 ? 'Prompt…' : 'Type a prompt…'}
                 placeholderTextColor={theme.colors.textSecondary}
                 accessibilityLabel="Prompt"
                 // Web: remove the focus ring; the rail is not a browser widget.
-                style={{ flex: 1, minWidth: 0, color: theme.colors.text, paddingHorizontal: 4, paddingVertical: 8, fontSize: 15, maxHeight: 96,
+                style={{ flex: 1, minWidth: 0, color: theme.colors.text, paddingLeft: 4, paddingRight: 2, paddingVertical: 8, fontSize: 15, maxHeight: 120,
                     ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } as any : {}) }}
             />;
-            const clearAction = draft === '' ? null : <Pressable onPress={() => setDraft('')} accessibilityRole="button" accessibilityLabel="Clear prompt" hitSlop={6}
-                style={({ pressed }) => ({ width: 28, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 14, opacity: pressed ? 0.6 : 1 })}>
-                <Ionicons name="close" size={17} color={theme.colors.textSecondary} />
+            const clearAction = draft === '' ? null : <Pressable onPress={() => setDraft('')} accessibilityRole="button" accessibilityLabel="Clear prompt" hitSlop={8}
+                style={({ pressed }) => ({ width: 26, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 13, opacity: pressed ? 0.6 : 1 })}>
+                <Ionicons name="close" size={16} color={theme.colors.textSecondary} />
             </Pressable>;
             const dictateAction = <Pressable onPress={dictation.toggle} disabled={transcribing} accessibilityRole="button"
                 accessibilityLabel={dictating ? 'Stop dictation' : 'Dictate'}
@@ -899,9 +911,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 style={({ pressed }) => ({ width: 34, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 17, opacity: pressed ? 0.6 : 1 })}>
                 <Ionicons name="mic-outline" size={20} color={theme.colors.textSecondary} />
             </Pressable>;
+            // The filled disc and its plane only appear once there is something to
+            // send; unarmed it is a quiet outline, never a second bright control
+            // competing with the send it is not yet.
             const sendAction = <Pressable onPress={sendPrompt} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }}
-                style={({ pressed }) => ({ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', marginLeft: 1, backgroundColor: canSend ? theme.colors.terminal.prompt : 'transparent', borderWidth: StyleSheet.hairlineWidth, borderColor: canSend ? 'transparent' : theme.colors.glass.border, opacity: pressed ? 0.8 : canSend ? 1 : 0.55 })}>
-                <Ionicons name="arrow-up" size={20} color={canSend ? '#101010' : theme.colors.textSecondary} />
+                style={({ pressed }) => ({ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginLeft: 2, backgroundColor: canSend ? theme.colors.terminal.prompt : 'transparent', borderWidth: canSend ? 0 : StyleSheet.hairlineWidth, borderColor: theme.colors.glass.border, opacity: pressed ? 0.8 : canSend ? 1 : 0.6, transform: [{ scale: pressed && canSend ? 0.94 : 1 }] })}>
+                <Ionicons name="send" size={16} color={canSend ? '#101010' : theme.colors.textSecondary} style={{ marginLeft: 1 }} />
             </Pressable>;
             // Only what the channel can vouch for: 'live' means frames flow with
             // nothing known wrong, so it reads as connected, never as health; a known
@@ -1298,30 +1313,39 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             paddingRight: 5,
                             paddingVertical: keyboardVisible ? 5 : 7,
                         }}>
-                            {dictating ? <>
+                            {dictating ? <Animated.View entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                                 <DictationBars level={dictation.level} color={theme.colors.status.error} />
                                 <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15, marginLeft: 10 }}>Dictating…</Text>
                                 <Pressable onPress={dictation.toggle} accessibilityRole="button" accessibilityLabel="Stop dictation"
                                     accessibilityHint="Stops listening and transcribes"
-                                    style={({ pressed }) => ({ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.status.error, opacity: pressed ? 0.8 : 1 })}>
+                                    style={({ pressed }) => ({ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.status.error, opacity: pressed ? 0.8 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] })}>
                                     <Ionicons name="pause" size={19} color={theme.colors.surface} />
                                 </Pressable>
-                            </> : transcribing ? <>
+                            </Animated.View> : transcribing ? <Animated.View entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                                 <TranscribingDots color={theme.colors.textSecondary} />
                                 <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 15, marginLeft: 10 }}>Transcribing…</Text>
                                 <Pressable onPress={dictation.cancel} accessibilityRole="button" accessibilityLabel="Cancel dictation"
-                                    style={({ pressed }) => ({ width: 32, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 16, opacity: pressed ? 0.6 : 1 })}>
+                                    style={({ pressed }) => ({ width: 34, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 17, opacity: pressed ? 0.6 : 1 })}>
                                     <Ionicons name="close" size={19} color={theme.colors.textSecondary} />
                                 </Pressable>
-                            </> : <>
+                            </Animated.View> : <>
                                 {attachmentAction}
                                 {composerInput}
                                 {clearAction}
-                                {/* The ring's docked centre: the overlay draws the
-                                    control exactly here, so this only reserves the
-                                    thumb's spot in the rail. */}
-                                <View ref={ringSlotRef} onLayout={measureRingAnchor} collapsable={false} pointerEvents="none" style={{ width: 36, height: 40 }} />
-                                {dictateAction}
+                                {/* Once there is a prompt the rail is the prompt: the
+                                    thumb control and the microphone stand down so the
+                                    text keeps the reference's full-width measure
+                                    instead of wrapping four words to a line. Clearing
+                                    the field brings both straight back, and every
+                                    action either carries its own permanent route or
+                                    has no meaning with a draft already typed. */}
+                                {railShowsRing && <>
+                                    {/* The ring's docked centre: the overlay draws the
+                                        control exactly here, so this only reserves the
+                                        thumb's spot in the rail. */}
+                                    <View ref={ringSlotRef} onLayout={measureRingAnchor} collapsable={false} pointerEvents="none" style={{ width: 34, height: 40 }} />
+                                    {dictateAction}
+                                </>}
                                 {sendAction}
                             </>}
                         </View>
@@ -1334,7 +1358,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         so the fan can never reach the composer. View-only keeps
                         a resting anchor in the corner; the ring is transient and
                         never touches the keyboard. */}
-                    {hasTools && terminalBox !== undefined && (() => {
+                    {hasTools && terminalBox !== undefined && (!canControl || railShowsRing) && (() => {
                         const docked = canControl && ringCenter !== undefined;
                         // The overlay reaches down over the rail so the docked
                         // centre control sits exactly on its slot; the fan itself
@@ -1412,6 +1436,16 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Find in output</Text>
                                     </Pressable>
+                                    {/* The ring carries this too, but the ring leaves the
+                                        rail while a prompt is being typed — which is
+                                        exactly when a command is most likely wanted. The
+                                        menu is its permanent route. */}
+                                    {canControl && <Pressable onPress={() => { setActionsOpen(false); openAgentCommands(); }} accessibilityRole="button" accessibilityLabel="Agent commands"
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="terminal-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Agent commands</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/takeover`); }} accessibilityRole="button" accessibilityLabel="Browser"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="globe-outline" size={18} color={theme.colors.textSecondary} />
