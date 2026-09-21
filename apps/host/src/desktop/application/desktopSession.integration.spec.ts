@@ -220,7 +220,7 @@ describe('desktop sessions, host side', () => {
             scriptPath,
             STUB.replace(
                 "    case 'session.open':",
-                "    case 'session.open':\n      setTimeout(() => out({ event: 'session.revoked', params: { reason: 'This desktop closed because it reached its time limit.' } }), 15);",
+                "    case 'session.open':\n      setTimeout(() => out({ event: 'session.revoked', params: { reason: 'the session lease expired' } }), 15);",
             ),
         );
         writeFileSync(log, '');
@@ -230,7 +230,7 @@ describe('desktop sessions, host side', () => {
         await new Promise((resolve) => setTimeout(resolve, 80));
 
         const polled = await desktop.poll(opened.desktopId, 0);
-        expect(polled.events).toContainEqual({ kind: 'revoked', reason: 'This desktop closed because it reached its time limit.' });
+        expect(polled.events).toContainEqual({ kind: 'revoked', reason: 'the session lease expired' });
 
         // The record is gone with the notification, so a later poll is refused
         // rather than serving an empty backlog forever.

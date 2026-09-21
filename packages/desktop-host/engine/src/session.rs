@@ -1025,11 +1025,11 @@ fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: std_mpsc::Receiver<I420>, runnin
                         }
                         // The encoder refusing a frame means it is not the size
                         // it was built for, or libvpx rejected it. Both leave a
-                        // permanently black desktop, so end the session with a
-                        // reason a person can read instead of dropping frames in
-                        // silence.
+                        // permanently black desktop, so end the session instead
+                        // of dropping frames in silence; the client turns this
+                        // reason into what it shows the user.
                         eprintln!("the encoder rejected a frame: {error:#}");
-                        let reason = String::from("This desktop stopped because its screen could not be encoded.");
+                        let reason = String::from("the encoder rejected a frame");
                         let _ = inner.events.send(SessionEvent::Revoked { reason: reason.clone() });
                         let target = inner.clone();
                         handle.spawn(async move { target.close(&reason).await; });
@@ -1115,7 +1115,7 @@ fn spawn_lease(inner: &Arc<Inner>, ttl: Duration) {
         if inner.closed.load(Ordering::SeqCst) {
             return;
         }
-        let reason = String::from("This desktop closed because it reached its time limit.");
+        let reason = String::from("the session lease expired");
         let _ = inner.events.send(SessionEvent::Revoked { reason: reason.clone() });
         // An expiry ends the session exactly as an explicit close does; the
         // notification above is not a substitute for stopping the desktop.
@@ -1317,8 +1317,8 @@ mod tests {
         let reason = reason.expect("a refused frame must surface as a revocation");
         assert_eq!(
             reason,
-            "This desktop stopped because its screen could not be encoded.",
-            "the reason is plain product copy, not an internal encoder message",
+            "the encoder rejected a frame",
+            "the reason is a stable token the client can map to copy",
         );
         assert!(inner.revoked_reason().is_some(), "the session is closed, not left black");
     }

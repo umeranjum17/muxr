@@ -14,5 +14,9 @@ export const desktopCopy = {
     failedBody: 'The desktop did not start.',
     endedTitle: 'Desktop closed',
     endedBody: 'The desktop session has ended.',
+    endedTakeover: 'This desktop is open on another device.',
+    endedTimeLimit: 'This desktop closed after an hour. You can open it again.',
+    endedUnencodable: 'This desktop stopped because its screen could not be encoded.',
+    endedEngineStopped: 'The computer stopped sharing this desktop.',
     clipboardUnavailable: 'This computer cannot share its clipboard.',
 } as const;

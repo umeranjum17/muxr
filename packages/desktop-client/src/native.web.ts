@@ -237,14 +237,15 @@ function attachGestures(session: WebSession): () => void {
         if (chord) {
             event.preventDefault();
             control(session, { kind: 'key', character: event.key, modifiers, down, seq: seq(session) });
-            if (down) session.chordsDown.add(event.key);
-            else session.chordsDown.delete(event.key);
+            if (down) session.chordsDown.add(event.key.toLowerCase());
+            else session.chordsDown.delete(event.key.toLowerCase());
             return;
         }
         // The modifier can be released before the chord key. The desktop is
         // still holding the chord key, so its up must go even without the
-        // modifier that made it a chord.
-        if (!down && session.chordsDown.delete(event.key)) {
+        // modifier that made it a chord. The identity is the unshifted key,
+        // because the release event reports whatever modifiers are left.
+        if (!down && session.chordsDown.delete(event.key.toLowerCase())) {
             event.preventDefault();
             control(session, { kind: 'key', character: event.key, modifiers: [], down: false, seq: seq(session) });
         }
