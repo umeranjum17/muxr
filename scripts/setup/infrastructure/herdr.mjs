@@ -173,24 +173,6 @@ async function migrateLegacyVoiceProvider(installed, dryRun) {
     );
 }
 
-function runBundledPluginBackfill(root, binary, enabled, dryRun) {
-    const script = join(root, 'backfill.mjs');
-    if (!enabled || !existsSync(script)) return;
-    if (dryRun) {
-        print(`  would run ${basename(root)} backfill`);
-        return;
-    }
-    const result = spawnSync(process.execPath, [script], {
-        encoding: 'utf8',
-        env: { ...process.env, HERDR_BIN_PATH: binary },
-        timeout: 30_000,
-    });
-    if (result.status !== 0 || result.error) {
-        const detail = result.stderr || result.stdout || (result.error?.code === 'ETIMEDOUT' ? 'timed out after 30 seconds' : result.error?.message);
-        throw new Error(detail || `failed to backfill ${basename(root)}`);
-    }
-}
-
 /**
  * muxr ships no Herdr add-ons. This retracts the add-ons a previous release
  * installed and carries the selected realtime voice engine into muxr's own

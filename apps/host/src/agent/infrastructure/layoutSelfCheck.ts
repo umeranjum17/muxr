@@ -567,6 +567,10 @@ async function demo(): Promise<void> {
     const staleMissing = await ask(socketPath, healthAccess.capability, { method: 'status', agent: 'not-present' });
     assert(staleMissing.ok && staleMissing.data?.includes('live agent roster is unavailable') === true,
         'a last-known roster never claims that a name is absent');
+    const staleList = await ask(socketPath, healthAccess.capability, { method: 'list', limit: 3 });
+    const staleDiagnostic = coordinationDiagnostics.filter((event) => event.operation === 'list').at(-1);
+    assert(staleList.ok && staleDiagnostic?.code === 'roster-unavailable' && staleDiagnostic.outcome === 'unavailable',
+        'a last-known roster journals the degraded outcome with its reason');
     catalogFreshness = 'fresh';
     failRead = true;
     const safeReadFailure = await ask(socketPath, healthAccess.capability, { method: 'read', agent: 'crane' });

@@ -26,15 +26,6 @@ export function pluginReferencePath() {
     return walkFor('skills/muxr/references/plugins.md');
 }
 
-export function bundledPluginsRoot() {
-    // muxr ships no bundled add-ons any more; a checkout that still has a
-    // plugins/ directory is the only place `plugin clone` can read from.
-    const root = walkFor('CONTEXT.md') ?? walkFor('PLUGINS.md');
-    if (root === undefined) return undefined;
-    const plugins = join(dirname(root), 'plugins');
-    return existsSync(plugins) ? plugins : undefined;
-}
-
 export function mobilePackageJson() {
     return walkFor('apps/mobile/package.json');
 }

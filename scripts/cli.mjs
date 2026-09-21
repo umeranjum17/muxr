@@ -37,7 +37,6 @@ import {
 } from './setup/index.mjs';
 import {
     callPluginAction,
-    clonePlugin,
     createPlugin,
     installPlugin,
     linkPlugin,
@@ -87,7 +86,7 @@ Agent instructions
   muxr share <path>               save a file to this pane's Shared Artifacts timeline
 
 Build plugins
-  muxr plugin docs|create|clone|check|dev|call|list|install|update|remove
+  muxr plugin docs|create|check|dev|call|list|install|update|remove
 
 Use “muxr help <command>” for command options.
 `;
@@ -99,12 +98,11 @@ const COMMAND_HELP = {
     daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n\n\`install\` writes or updates the background-service definition without starting it. Normal \`muxr setup\` installs, starts, and verifies the service for you.\n`,
     devices: `muxr devices list\nmuxr devices revoke <number|name>\n`,
     integrations: `muxr integrations sync [--all] [--dry-run]\nmuxr integrations uninstall [--dry-run]\n\nSync Herdr lifecycle integrations only. Agent skills and prompt files are never changed.\n`,
-    plugin: `muxr plugin docs\nmuxr plugin create <name>\nmuxr plugin clone <bundled-plugin-id> [destination]\nmuxr plugin check|dev <path> [--web]\nmuxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\nmuxr plugin list\nmuxr plugin install|update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\nmuxr plugin remove <plugin-id> [--yes]\n`,
+    plugin: `muxr plugin docs\nmuxr plugin create <name>\nmuxr plugin check|dev <path> [--web]\nmuxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\nmuxr plugin list\nmuxr plugin install|update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\nmuxr plugin remove <plugin-id> [--yes]\n`,
     'plugin docs': `muxr plugin docs\n\nPrint absolute paths to the installed authoring guide and agent skill.\n`,
     name: `muxr name [--workspace LABEL] [--pane TITLE] [--provider PROVIDER] [--model MODEL]\n\nName the current Herdr workspace and pane through muxr's authenticated local naming facade.\nThe pane identity comes from HERDR_PANE_ID; names and metadata are passed verbatim within bounds.\n`,
     share: `muxr share <path> [--pane <pane-id>]\n\nSave a file to the given pane's durable Shared Artifacts timeline.\nUses HERDR_PANE_ID when --pane is omitted. Name collisions get a numeric suffix.\n`,
     'plugin create': `muxr plugin create <name>\n\nCreate a minimal three-file settings-screen plugin with a collision-resistant local id.\n`,
-    'plugin clone': `muxr plugin clone <bundled-plugin-id> [destination]\n\nCopy a package-owned plugin to a user-owned folder, assign a new local id, and print the safe replace workflow.\n`,
     'plugin check': `muxr plugin check <path>\n\nValidate Herdr identity, muxr manifest, slots, primitives, actions, RPCs, and streams without linking.\n`,
     'plugin dev': `muxr plugin dev <path> [--web]\n\nValidate and link a local plugin enabled. --web also starts the source-checkout web client.\n`,
     'plugin call': `muxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\n\nRun one declared RPC through the same bounded author contract used by the host.\n`,
@@ -377,10 +375,6 @@ async function dispatchPlugin(command, args = []) {
     if (command === 'docs') {
         if (args.length !== 0) throw new Error('muxr plugin docs takes no arguments');
         return showPluginDocs();
-    }
-    if (command === 'clone') {
-        if (!args[0] || args.length > 2) throw new Error('muxr plugin clone requires a plugin id and optional destination');
-        return clonePlugin(args[0], args[1]);
     }
     if (command === 'call') {
         const positional = [];

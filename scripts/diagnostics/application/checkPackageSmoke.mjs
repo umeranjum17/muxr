@@ -631,7 +631,6 @@ try {
     assert.match(docsOutput, new RegExp(`Agent skill: ${join(installedPackage, 'skills', 'muxr', 'SKILL.md').replaceAll('\\', '\\\\')}`));
     assert.match(docsOutput, new RegExp(`Plugin reference: ${join(installedPackage, 'skills', 'muxr', 'references', 'plugins.md').replaceAll('\\', '\\\\')}`));
     assert.match(run(cli, ['help', 'plugin', 'create'], { cwd: installDir }).stdout, /minimal three-file/);
-    assert.match(run(cli, ['help', 'plugin', 'clone'], { cwd: installDir }).stdout, /package-owned plugin/);
     assert.match(run(cli, ['plugin', '--help'], { cwd: installDir }).stdout, /plugin docs/);
     assert.notEqual(run(cli, ['plugin', 'docs', 'extra'], { cwd: installDir, allowFailure: true }).status, 0);
     const createdPlugin = join(scratch, 'created-plugin');
@@ -645,12 +644,11 @@ try {
     assert.match(createdId ?? '', /^local\.created-plugin-[a-f0-9]{8}$/);
     assert.match(secondCreatedId ?? '', /^local\.created-plugin-[a-f0-9]{8}$/);
     assert.notEqual(secondCreatedId, createdId, 'same-basename plugins received the same global id');
-    // muxr ships no bundled add-ons, so `clone` reads from the checkout's own
-    // plugins/ directory only; a package install legitimately has none.
-    const packageClone = join(installedPackage, 'must-not-survive');
-    assert.notEqual(run(cli, ['plugin', 'clone', createdId, packageClone], { cwd: installDir, allowFailure: true }).status, 0);
-    assert.notEqual(run(cli, ['plugin', 'create', packageClone], { cwd: installDir, allowFailure: true }).status, 0);
-    assert.equal(existsSync(packageClone), false);
+    // A destination inside the npm package is refused, so an install cannot be
+    // edited or survive an update.
+    const packageDestination = join(installedPackage, 'must-not-survive');
+    assert.notEqual(run(cli, ['plugin', 'create', packageDestination], { cwd: installDir, allowFailure: true }).status, 0);
+    assert.equal(existsSync(packageDestination), false);
     const packageAlias = join(scratch, 'package-alias');
     symlinkSync(installedPackage, packageAlias, 'dir');
     assert.notEqual(run(cli, ['plugin', 'create', join(packageAlias, 'alias-create')], { cwd: installDir, allowFailure: true }).status, 0);

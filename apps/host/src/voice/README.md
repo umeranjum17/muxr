@@ -55,7 +55,7 @@ in-flight or completed result, including clarifications and failures. A repeated
 handoff cannot confirm its own pending action or queue the message twice. A new
 user turn remains a new request, even when its words match an earlier one.
 
-Reads have a 15-second deadline; mutations retain the existing 75-second
+Reads have a 20-second deadline; mutations retain the existing 75-second
 coordination budget, and explicit lifecycle watches keep their declared bound. Repeated operation IDs reuse the same result and cannot execute a
 second mutation. The runtime stays thinking while a request is pending or a result
 awaits an answer; if no completed answer arrives within 20 seconds, it exposes an

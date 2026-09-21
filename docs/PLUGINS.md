@@ -78,7 +78,6 @@ Package management keeps Herdr as the only executable registry and runtime:
 ```bash
 muxr plugin docs
 muxr plugin create hello-muxr
-muxr plugin clone <id> ./my-voice
 muxr plugin check ./hello-muxr
 muxr plugin dev ./hello-muxr
 muxr plugin list
@@ -489,7 +488,7 @@ Every extension should explain:
 6. how to disable and unlink it;
 7. supported muxr UI and Herdr versions.
 
-`muxr plugin create` writes a minimal working plugin and is the fastest starting point. A previously installed plugin can be cloned with `muxr plugin clone <id> ./my-plugin` while the checkout that shipped it still has a `plugins/` directory; every plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons are also full examples you can read or install: `muxr plugin install umeranjum17/herdr-files` `muxr plugin install umeranjum17/herdr-attachments`.
+`muxr plugin create` writes a minimal working plugin and is the fastest starting point; every plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons are also full examples you can read or install: `muxr plugin install umeranjum17/herdr-files` `muxr plugin install umeranjum17/herdr-attachments`.
 
 ## Lists of real things
 
@@ -548,21 +547,6 @@ Do not give the screen a `title` unless the title is data: the header already
 shows your navigation label, and an in-body title resolving to the same string
 is dropped. A blank `metric` value prints "—" instead of an empty line, because
 a missing figure is information.
-
-## Cloning an installed plugin
-
-Every plugin is an ordinary plugin linked into Herdr; muxr ships no bundled
-add-ons, so realtime voice and the other product surfaces are product code you
-extend in the app, not by cloning. To start from an existing plugin, clone it
-so package identity is rewritten and your source lives outside npm ownership:
-
-```bash
-muxr plugin clone <id> ./my-plugin
-# edit ./my-plugin/muxr-ui.json
-herdr plugin disable <id>
-muxr plugin dev ./my-plugin
-# if linking fails: herdr plugin enable <id>
-```
 
 The same `terminal.key-row` contribution accepts up to eight `quickReplies`:
 `{"label":"Run tests","text":"Run the relevant tests and report failures."}`.

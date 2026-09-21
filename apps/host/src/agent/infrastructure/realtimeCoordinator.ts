@@ -508,9 +508,10 @@ export class RealtimeCodingCoordinator {
         return promise;
     }
 
-    private async invoke(state: CapabilityState, request: CodingRequest): Promise<string> {
+    private async invoke(state: CapabilityState, request: CodingRequest, roster?: { failureCode?: RealtimeCatalogFailureCode }): Promise<string> {
         if (request.method === 'context') {
             const agentCatalog = await this.currentAgents();
+            if (roster !== undefined && agentCatalog.freshness === 'last-known') roster.failureCode = agentCatalog.failureCode ?? 'roster-unavailable';
             const agents = agentCatalog.agents;
             const selected = agents.find((agent) => agent.sessionId === state.activeSessionId);
             const describe = (agent: RealtimeCodingAgent): string => `${spokenAgentName(agent)}, ${spokenTaskTitle(agent)}; ${agentKindLabel(agent)}; ${agent.agentStatus}`;
@@ -524,6 +525,7 @@ export class RealtimeCodingCoordinator {
         if (request.method === 'list') {
             const requestedKind = request.kind === undefined ? undefined : key(cleanHuman(request.kind, '', 32));
             const agentCatalog = await this.currentAgents();
+            if (roster !== undefined && agentCatalog.freshness === 'last-known') roster.failureCode = agentCatalog.failureCode ?? 'roster-unavailable';
             const catalog = agentCatalog.agents
                 .filter((agent) => requestedKind === undefined || agent.agentKind !== undefined && key(agent.agentKind) === requestedKind)
                 .sort((left, right) => (right.changedAt ?? 0) - (left.changedAt ?? 0) || agentNameLabel(left).localeCompare(agentNameLabel(right)));
@@ -673,12 +675,14 @@ export class RealtimeCodingCoordinator {
                         }
                         throw new RealtimeCodingFailure('request-invalid');
                     }
-                    const data = await this.invoke(state, request);
+                    const roster: { failureCode?: RealtimeCatalogFailureCode } = {};
+                    const data = await this.invoke(state, request, roster);
                     this.onCoordinationDiagnostic?.({
                         provider: state.provider,
                         operation: diagnosticOperation(method),
-                        outcome: 'ok',
+                        outcome: roster.failureCode === undefined ? 'ok' : failureOutcome(roster.failureCode),
                         durationMs: Date.now() - startedAt,
+                        ...(roster.failureCode === undefined ? {} : { code: roster.failureCode }),
                     });
                     if (!socket.destroyed) socket.end(`${JSON.stringify({ id, ok: true, data: boundedProviderText(data) })}\n`);
                 } catch (error) {

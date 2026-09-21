@@ -6,7 +6,6 @@ export {
 export {
     callPluginAction,
     checkPlugin,
-    clonePlugin,
     createPlugin,
     linkPlugin,
     reportPluginCheck,
