@@ -237,4 +237,21 @@ describe('desktop sessions, host side', () => {
         await expect(desktop.poll(opened.desktopId, polled.cursor)).rejects.toMatchObject({ code: 'session' });
         await desktop.closeAll();
     }, 20_000);
+
+    it('re-probes the engine after a failed probe instead of caching the failure', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));
+        const scriptPath = join(directory, 'engine.cjs');
+        const log = join(directory, 'received.jsonl');
+        writeFileSync(log, '');
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
+
+        expect(await desktop.capabilities()).toMatchObject({ available: false });
+
+        // The engine is built (or fixed) while the host keeps running. Tapping
+        // Try again must ask again rather than replay the first answer.
+        writeFileSync(scriptPath, STUB);
+        expect(await desktop.capabilities()).toMatchObject({ available: true, input: true });
+
+        await desktop.closeAll();
+    }, 20_000);
 });

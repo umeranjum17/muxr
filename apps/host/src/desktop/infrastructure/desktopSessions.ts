@@ -79,8 +79,10 @@ export class DesktopSessions {
         if (this.capabilitiesCache !== null) return this.capabilitiesCache;
         const client = await this.ensureClient();
         if (client === null) {
-            this.capabilitiesCache = { available: false, unavailableReason: this.missingEngineReason(), input: false, clipboard: false };
-            return this.capabilitiesCache;
+            // A probe that failed is not cached: the engine may be built or
+            // fixed while the host keeps running, and the next request must ask
+            // again rather than replaying the first answer forever.
+            return { available: false, unavailableReason: this.missingEngineReason(), input: false, clipboard: false };
         }
         try {
             const reported = await client.capabilities();
@@ -98,7 +100,7 @@ export class DesktopSessions {
                 codec: reported.encode.codecs[0] ?? 'unknown',
             };
         } catch (error) {
-            this.capabilitiesCache = {
+            return {
                 available: false,
                 unavailableReason: error instanceof Error ? error.message : 'the desktop engine did not answer',
                 input: false,
