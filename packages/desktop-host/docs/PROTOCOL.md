@@ -48,7 +48,7 @@ notifications carry `event` and never an `id`.
 ## Handshake
 
 ```jsonc
-{"id":1,"method":"hello","params":{"protocol":1,"client":"<free-form label>"}}
+{"id":1,"method":"hello","params":{"protocol":1}}
 ```
 
 Result:
@@ -57,9 +57,10 @@ Result:
 {"protocol":1,"engine":"desklink-host/0.1.0","platform":"linux", /* the rest of Capabilities */ }
 ```
 
-The consumer must send `hello` first. A version the engine does not speak is
-refused with `error.code = "unsupported-protocol"`, and until a supported
-`hello` arrives every other request is refused the same way.
+The consumer must send `hello` first, and a version the engine does not speak is
+refused with `error.code = "unsupported-protocol"`. Until a supported `hello`
+arrives, every other request is refused the same way; `capabilities` and
+`shutdown` are the two that answer without a handshake.
 
 ## Capabilities
 

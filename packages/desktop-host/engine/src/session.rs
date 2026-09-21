@@ -780,9 +780,9 @@ impl Inner {
                 format!("({x},{y}) is outside the {width}x{height} surface"),
             ));
         }
-        // The client sends the encoded surface's own pixels; both input
-        // backends are built for, and apply, the source's pixels at their origin
-        // in the desktop layout. One conversion here keeps every caller honest.
+        // The client sends the encoded surface's own pixels; the applier is
+        // created for, and clamps to, the source's own pixels. One conversion
+        // here keeps every caller honest.
         let (x, y) = to_source_pixels(x, y, (width, height), &self.source);
         self.with_input(|target| match phase {
             PointerPhase::Move => target.move_absolute(x, y),
@@ -1095,9 +1095,9 @@ pub fn fit(width: usize, height: usize, max_width: usize, max_height: usize) -> 
     )
 }
 
-/// Encoded-surface pixels to the source's own pixels, at the source's origin in
-/// the desktop layout. The client aims at what it sees; the backends act on the
-/// source.
+/// Encoded-surface pixels to the source's own pixels. The client aims at what it
+/// sees; the applier is sized and clamped to the source, so the layout origin
+/// must not be added here.
 fn to_source_pixels(
     x: i64,
     y: i64,
@@ -1106,8 +1106,8 @@ fn to_source_pixels(
 ) -> (i64, i64) {
     let (width, height) = encoded;
     (
-        source.origin_x as i64 + x * source.width as i64 / width as i64,
-        source.origin_y as i64 + y * source.height as i64 / height as i64,
+        x * source.width as i64 / width as i64,
+        y * source.height as i64 / height as i64,
     )
 }
 
@@ -1143,19 +1143,19 @@ mod tests {
     fn an_encoded_surface_pixel_maps_to_the_sources_own_pixel() {
         let source = SelectedSource {
             node_id: 0,
-            width: 1920,
-            height: 1080,
-            position: None,
+            width: 2560,
+            height: 1440,
+            position: Some((1920, 0)),
             source_type: None,
-            origin_x: 100,
-            origin_y: 50,
+            origin_x: 1920,
+            origin_y: 0,
         };
-        // A tap at the centre of a 1280x720 surface must reach the centre of a
-        // 1920x1080 desktop at origin (100,50), not two thirds of the way there.
-        assert_eq!(
-            to_source_pixels(640, 360, (1280, 720), &source),
-            (100 + 960, 50 + 540)
-        );
-        assert_eq!(to_source_pixels(0, 0, (1280, 720), &source), (100, 50));
+        // A tap at the centre of a 1280x720 surface must reach the centre of the
+        // 2560x1440 source, not two thirds of the way there; a tap in the right
+        // half must stay source-local rather than land on a layout origin the
+        // applier would clamp away.
+        assert_eq!(to_source_pixels(640, 360, (1280, 720), &source), (1280, 720));
+        assert_eq!(to_source_pixels(1279, 719, (1280, 720), &source), (2558, 1438));
+        assert_eq!(to_source_pixels(0, 0, (1280, 720), &source), (0, 0));
     }
 }

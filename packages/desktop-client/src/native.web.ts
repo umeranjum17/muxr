@@ -223,11 +223,13 @@ function attachGestures(session: WebSession): () => void {
             control(session, { kind: 'key', name, down, seq: seq(session) });
             return;
         }
-        // A chorded character never reaches `beforeinput`: the browser turns
-        // Ctrl+C into a copy command on the hidden textarea. Forward the key
-        // itself and let the engine hold the modifier for that key.
+        // A chorded letter never reaches `beforeinput`: the browser turns Ctrl+C
+        // into a copy command on the hidden textarea. Alt is deliberately not a
+        // chord here — it composes a character with the layout (macOS Option,
+        // Windows AltGr), and that has to stay on the text path.
         const modifiers = heldModifiers(event);
-        if (event.key.length === 1 && modifiers.some((held) => held !== 'Shift')) {
+        const chord = (event.ctrlKey || event.metaKey) && /^[a-zA-Z0-9]$/.test(event.key);
+        if (chord) {
             event.preventDefault();
             control(session, { kind: 'key', character: event.key, modifiers, down, seq: seq(session) });
         }

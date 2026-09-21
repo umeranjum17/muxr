@@ -102,6 +102,12 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
     const nativeRef = useRef<string | null>(null);
     const pendingClipboard = useRef(new Map<string, (reply: { text: string; error?: string }) => void>());
     const attempts = useRef(0);
+    /**
+     * The pending reconnect attempt. It lives here rather than in the effect
+     * that schedules it: that effect's own `reconnecting` update changes one of
+     * its dependencies, so React would run its cleanup and cancel the retry.
+     */
+    const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const diagnostics = useRef<Record<string, string | number | boolean>>({});
     /** Guards every asynchronous callback against a session that already ended. */
     const generationToken = useRef(0);
@@ -402,10 +408,16 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         if (reply.error != null) throw new Error(reply.error);
     }, []);
 
+    const cancelReconnect = useCallback(() => {
+        if (reconnectTimer.current !== null) clearTimeout(reconnectTimer.current);
+        reconnectTimer.current = null;
+    }, []);
+
     const close = useCallback(async (reason = 'closed by the user') => {
+        cancelReconnect();
         attempts.current = 0;
         await teardown(reason, true);
-    }, [teardown]);
+    }, [cancelReconnect, teardown]);
 
     // Reconnect once after a transport failure, with fresh authority: a session
     // that was revoked must not be reopened on the strength of the old grant.
@@ -423,11 +435,13 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         discardSession();
         void endRemote(openedRef, owner);
         update({ status: 'reconnecting' });
-        const timer = setTimeout(() => {
+        reconnectTimer.current = setTimeout(() => {
+            reconnectTimer.current = null;
             void connect();
         }, 800);
-        return () => clearTimeout(timer);
-    }, [endRemote, snapshot.status, snapshot.failure, connect, discardSession, update]);
+    }, [connect, discardSession, endRemote, snapshot.status, snapshot.failure, update]);
+
+    useEffect(() => cancelReconnect, [cancelReconnect]);
 
     return useMemo<DesktopSession>(() => ({
         snapshot,

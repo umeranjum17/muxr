@@ -365,10 +365,11 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     /**
      * The letter or digit a chorded key stands for, or null when it is not a
      * chord. `unicodeChar` cannot be used for these: with Control held it is the
-     * ASCII control character, not the key the desktop has to press.
+     * ASCII control character, not the key the desktop has to press. Alt alone is
+     * not a chord: it is how a hardware keyboard composes a character (AltGr).
      */
     private fun chordCharacter(event: KeyEvent): String? {
-      if (!event.isCtrlPressed && !event.isAltPressed && !event.isMetaPressed) return null
+      if (!event.isCtrlPressed && !event.isMetaPressed) return null
       return when (event.keyCode) {
         in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z -> ('a' + (event.keyCode - KeyEvent.KEYCODE_A)).toString()
         in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> ('0' + (event.keyCode - KeyEvent.KEYCODE_0)).toString()
