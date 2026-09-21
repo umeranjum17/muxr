@@ -37,9 +37,9 @@ export const LocalSettingsSchema = z.object({
         label: z.string().min(1).max(QUICK_REPLY_LABEL_LIMIT),
         text: z.string().min(1).max(QUICK_REPLY_TEXT_LIMIT),
     })).max(QUICK_REPLY_LIMIT).default([]).catch([]).describe('Personal insert-only quick replies (this device only)'),
-    // The terminal command puck rests where the person drags it, as fractions
-    // of its travel range from the terminal's top edge to the composer's top.
-    terminalCommandKeyDock: z.object({ fx: z.number(), fy: z.number() }).nullable().describe('Where the floating terminal command puck rests, as fractions of the terminal surface'),
+    // The terminal command puck is docked in the composer rail; the old drag
+    // rest position is retired with the floating puck it positioned.
+    terminalModifierIcons: z.boolean().describe('Draw ctrl and shift as modifier glyphs in the terminal key row'),
     vadStandbyEnabled: z.boolean().describe('Persistently wake realtime voice from local speech activity standby'),
     dictationLanguage: z.string().nullable().describe('Spoken dictation language (null for automatic detection)'),
     dictationModel: z.string().describe('Selected on-device dictation model'),
@@ -81,7 +81,7 @@ export const localSettingsDefaults: LocalSettings = {
     terminalFontIndex: DEFAULT_FONT_INDEX,
     terminalKeyRow: null,
     terminalQuickReplies: [],
-    terminalCommandKeyDock: null,
+    terminalModifierIcons: false,
     vadStandbyEnabled: false,
     dictationLanguage: null,
     dictationModel: 'base.en-q5_1',

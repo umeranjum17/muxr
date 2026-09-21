@@ -8,35 +8,182 @@ import { Typography } from '@/constants/Typography';
 import { hapticsSelection } from '@/components/haptics';
 import { Switch } from '@/components/Switch';
 import { ui } from '@/components/ui';
+import { useLocalSettingMutable } from '@/catalog/store';
 import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, TERMINAL_KEY_ROW_LIMIT, bytesToEscape, escapeToBytes, modifiedSend, resolveKeyRow, type RowEntry } from '../domain/keyRow';
 import { useReorderableList } from './useReorderableList';
+import { randomUUID } from 'expo-crypto';
+import { personalReplyErrors, QUICK_REPLY_LABEL_LIMIT, QUICK_REPLY_LIMIT, QUICK_REPLY_TEXT_LIMIT, type PersonalQuickReply } from '../domain/quickReplies';
 
 /**
- * Arrange the live row, then edit one shortcut in a dedicated form. The
- * stored format is unchanged: catalog ids or named terminal byte sequences.
+ * The terminal control grid: one dense, categorised sheet for everything the
+ * terminal's controls can become — the key row (with a live preview), the
+ * person's own snippets, recent links, appearance, and keyboard actions.
+ * Arrangement and the stored formats are unchanged: catalog ids or named
+ * terminal byte sequences, and plain { id, label, text } replies.
  */
+
+export type ControlGridCategory = 'keys' | 'snippets' | 'recents' | 'appearance' | 'keyboard';
+
+const CATEGORIES: readonly { id: ControlGridCategory; label: string }[] = [
+    { id: 'keys', label: 'Keys' },
+    { id: 'snippets', label: 'Snippets' },
+    { id: 'recents', label: 'Recents' },
+    { id: 'appearance', label: 'Look' },
+    { id: 'keyboard', label: 'Keyboard' },
+];
+
+/** A screen-owned command the grid can run: zoom, keyboard, and their kind. */
+export type GridCommand = { label: string; run: () => void; disabled?: boolean };
 
 // ponytail: rows live in one ScrollView; a drag cannot autoscroll the list,
 // so a drag that reaches the visible edge stops there. Wrap or autoscroll if
 // a longer row ever needs it.
-const CAP_NOTICE = `The row is full at ${TERMINAL_KEY_ROW_LIMIT} keys. Remove one to add another.`;
+const CAP_NOTICE = `The row is full at ${TERMINAL_KEY_ROW_LIMIT} keys.`;
+const REPLY_CAP_NOTICE = `The list is full at ${QUICK_REPLY_LIMIT} snippets.`;
 
-export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose }: {
+export function TerminalControlGrid({
+    visible,
+    category,
+    onCategoryChange,
+    onClose,
+    entries,
+    seed,
+    onChange,
+    replies,
+    onRepliesChange,
+    recentLinks,
+    onRecentLink,
+    viewCommands,
+    keyboardDisabled,
+    onKeyboardDisabledChange,
+}: {
     visible: boolean;
+    category: ControlGridCategory;
+    onCategoryChange: (category: ControlGridCategory) => void;
+    onClose: () => void;
     /** The stored row, or null while it follows the built-in row. */
     entries: RowEntry[] | null;
     /** The row to start from when nothing is stored yet (the built-in row). */
     seed: RowEntry[];
     onChange: (entries: RowEntry[] | null) => void;
-    onClose: () => void;
+    replies: PersonalQuickReply[];
+    onRepliesChange: (replies: PersonalQuickReply[]) => void;
+    recentLinks: readonly string[];
+    onRecentLink: (url: string, action: 'open' | 'copy') => void;
+    viewCommands: readonly GridCommand[];
+    keyboardDisabled: boolean;
+    onKeyboardDisabledChange: (value: boolean) => void;
 }) {
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
     const { height: windowHeight } = useWindowDimensions();
-    const { working, drag, commit, removeAt, moveBy, onDrag, isDragging } = useReorderableList<RowEntry>(visible, seed, onChange);
+    const [modifierIcons, setModifierIcons] = useLocalSettingMutable('terminalModifierIcons');
+    return (
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+            <GestureHandlerRootView style={styles.root}>
+                <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                    <Pressable style={styles.dismiss} onPress={onClose} accessibilityLabel="Close control grid" />
+                    <View style={[styles.sheet, {
+                        backgroundColor: theme.colors.surface,
+                        maxHeight: Math.min(windowHeight * 0.85, windowHeight - insets.top - 24),
+                        paddingBottom: insets.bottom + 12,
+                        borderColor: theme.colors.divider,
+                    }]}>
+                        <View style={styles.header}>
+                            <Text style={[styles.title, { color: theme.colors.text }]}>Controls</Text>
+                            <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Done editing controls" style={styles.closeText}>
+                                <Text style={{ color: theme.colors.accent, fontSize: 14 }}>Done</Text>
+                            </Pressable>
+                        </View>
+
+                        {/* The category tabs: the grid's own switch row. */}
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={{ gap: 6, paddingBottom: 4 }}>
+                            {CATEGORIES.map((entry) => {
+                                const active = entry.id === category;
+                                return <Pressable key={entry.id} onPress={() => { hapticsSelection(); onCategoryChange(entry.id); }}
+                                    accessibilityRole="button" accessibilityLabel={`${entry.label} category`} accessibilityState={{ selected: active }}
+                                    style={[styles.categoryChip, { backgroundColor: active ? theme.colors.accent : theme.colors.surfaceHigh }]}>
+                                    <Text style={{ color: active ? theme.colors.button.primary.tint : theme.colors.text, fontSize: 13, fontWeight: active ? '600' : '400' }}>{entry.label}</Text>
+                                </Pressable>;
+                            })}
+                        </ScrollView>
+
+                        <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
+                            {category === 'keys' && <KeysCategory entries={entries} seed={seed} onChange={onChange} modifierIcons={modifierIcons === true} onChangeModifierIcons={(value) => { hapticsSelection(); setModifierIcons(value); }} />}
+                            {category === 'snippets' && <SnippetsCategory replies={replies} onRepliesChange={onRepliesChange} />}
+                            {category === 'recents' && (
+                                recentLinks.length === 0
+                                    ? <SectionNote>Links printed by the terminal gather here.</SectionNote>
+                                    : <View style={[styles.card, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+                                        {recentLinks.map((url, index) => (
+                                            <View key={`${url}:${index}`} style={[styles.cardRow, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }]}>
+                                                <Pressable accessibilityRole="button" accessibilityLabel={`Open ${url}`} onPress={() => onRecentLink(url, 'open')} style={styles.cardRowMain}>
+                                                    <Text numberOfLines={1} style={[styles.rowLabel, { color: theme.colors.text }]}>{url}</Text>
+                                                </Pressable>
+                                                <Pressable accessibilityRole="button" accessibilityLabel={`Copy ${url}`} onPress={() => onRecentLink(url, 'copy')} style={styles.cardRowAction}>
+                                                    <Ionicons name="copy-outline" size={18} color={theme.colors.textSecondary} />
+                                                </Pressable>
+                                                <Pressable accessibilityRole="button" accessibilityLabel={`Open link ${url}`} onPress={() => onRecentLink(url, 'open')} style={styles.cardRowAction}>
+                                                    <Ionicons name="open-outline" size={18} color={theme.colors.textSecondary} />
+                                                </Pressable>
+                                            </View>
+                                        ))}
+                                    </View>
+                            )}
+                            {category === 'appearance' && (
+                                <View style={[styles.card, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+                                    {viewCommands.map((command, index) => (
+                                        <Pressable key={command.label} disabled={command.disabled === true} accessibilityRole="button" accessibilityLabel={command.label} accessibilityState={{ disabled: command.disabled === true }}
+                                            onPress={() => { onClose(); command.run(); }}
+                                            style={[styles.cardRow, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }, command.disabled === true && { opacity: 0.4 }]}>
+                                            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{command.label}</Text>
+                                            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                        </Pressable>
+                                    ))}
+                                </View>
+                            )}
+                            {category === 'keyboard' && (
+                                <View style={[styles.card, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+                                    {viewCommands.filter((command) => command.label.toLowerCase().includes('keyboard')).map((command) => (
+                                        <Pressable key={command.label} accessibilityRole="button" accessibilityLabel={command.label} onPress={() => { onClose(); command.run(); }}
+                                            style={[styles.cardRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }]}>
+                                            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{command.label}</Text>
+                                            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                        </Pressable>
+                                    ))}
+                                    <View style={[styles.cardRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }]}>
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Keyboard opens from the key row only</Text>
+                                        <Switch value={keyboardDisabled} onValueChange={onKeyboardDisabledChange} accessibilityLabel="Keyboard opens from the key row only" />
+                                    </View>
+                                </View>
+                            )}
+                        </ScrollView>
+                    </View>
+                </KeyboardAvoidingView>
+            </GestureHandlerRootView>
+        </Modal>
+    );
+}
+
+function SectionNote({ children }: { children: React.ReactNode }) {
+    return <Text style={[styles.caption, { marginTop: 16 }]}>{children}</Text>;
+}
+
+/** Section label in the reference's small-caps voice. */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+    return <Text style={[styles.sectionLabel, { marginTop: 14, marginBottom: 6 }]}>{children}</Text>;
+}
+
+function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifierIcons }: {
+    entries: RowEntry[] | null;
+    seed: RowEntry[];
+    onChange: (entries: RowEntry[] | null) => void;
+    modifierIcons: boolean;
+    onChangeModifierIcons: (value: boolean) => void;
+}) {
+    const { theme } = useUnistyles();
+    const { working, drag, commit, removeAt, moveBy, onDrag, isDragging } = useReorderableList<RowEntry>(true, seed, onChange);
     const [formIndex, setFormIndex] = React.useState<number | null>(null);
-    // The sheet comes back to its list, never to a half-finished edit.
-    React.useEffect(() => { if (visible) setFormIndex(null); }, [visible]);
 
     const saveKey = (entry: RowEntry) => {
         if (formIndex === null || isDragging()) return;
@@ -47,101 +194,158 @@ export function TerminalKeyRowEditor({ visible, entries, seed, onChange, onClose
         commit(next);
         setFormIndex(null);
     };
-    const close = () => { if (formIndex !== null) setFormIndex(null); else onClose(); };
 
-    const sheetHeight = Math.min(windowHeight * 0.85, windowHeight - insets.top - 24);
-    let title = 'Terminal keys';
-    if (formIndex !== null) title = formIndex < working.length ? 'Edit key' : 'New key';
+    if (formIndex !== null) {
+        return <KeyForm entry={working[formIndex]} onSave={saveKey} onCancel={() => setFormIndex(null)} />;
+    }
+    return <View>
+        <SectionLabel>LIVE PREVIEW</SectionLabel>
+        <View style={[styles.previewBox, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 4, alignItems: 'center' }}>
+                {['ctrl', 'shift'].map((label) => <View key={label} style={[styles.previewKey, { backgroundColor: theme.colors.glass.backgroundSubtle }]}>
+                    <Text style={[styles.rowLabel, { color: theme.colors.textSecondary }]}>{modifierIcons ? (label === 'ctrl' ? '\u2303' : '\u21e7') : label}</Text>
+                </View>)}
+                {resolveKeyRow(working).map((key, index) => <View key={index} style={[styles.previewKey, { backgroundColor: theme.colors.glass.backgroundSubtle }]}>
+                    <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{key.label}</Text>
+                </View>)}
+            </ScrollView>
+        </View>
 
-    return (
-        <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
-            <GestureHandlerRootView style={styles.root}>
-            <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-                <Pressable style={styles.dismiss} onPress={close} accessibilityLabel="Close key row editor" />
-                <View style={[styles.sheet, {
-                    backgroundColor: theme.colors.surface,
-                    maxHeight: sheetHeight,
-                    paddingBottom: insets.bottom + 12,
-                    borderColor: theme.colors.divider,
-                }]}>
-                    <View style={styles.header}>
-                        <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
-                        <Pressable onPress={close} accessibilityRole="button" accessibilityLabel={formIndex === null ? 'Done editing keys' : 'Cancel key changes'} style={styles.close}>
-                            <Text style={{ color: theme.colors.accent, fontSize: 14 }}>{formIndex === null ? 'Done' : 'Cancel'}</Text>
-                        </Pressable>
-                    </View>
+        <SectionLabel>DISPLAY</SectionLabel>
+        <View style={[styles.card, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+            <View style={styles.cardRow}>
+                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Use Icons for Modifier Keys</Text>
+                <Switch value={modifierIcons} onValueChange={onChangeModifierIcons} accessibilityLabel="Use Icons for Modifier Keys" />
+            </View>
+        </View>
 
-                    <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
-                    {formIndex !== null ? <KeyForm entry={working[formIndex]} onSave={saveKey} onCancel={() => setFormIndex(null)} /> : <>
-                    <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Your key row · scroll to preview</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 3 }}>
-                        {resolveKeyRow(working).map((key, index) => <View key={index} style={[styles.previewKey, { backgroundColor: theme.colors.surfaceHigh }]}>
-                            <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{key.label}</Text>
-                        </View>)}
-                    </ScrollView>
-                    <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Tap to edit · hold a handle to reorder</Text>
-                    {(() => {
-                        const occurrence = new Map<string, number>();
-                        return working.map((entry, index) => {
-                            // Content identity, not position: a stable key keeps the dragged
-                            // row's GestureDetector alive across the swaps it causes.
-                            const id = typeof entry === 'string' ? entry : JSON.stringify([entry.label, entry.send]);
-                            const nth = occurrence.get(id) ?? 0;
-                            occurrence.set(id, nth + 1);
-                            const label = typeof entry === 'string' ? BUILTIN_KEY_CATALOG[entry]?.label ?? entry : entry.label;
-                            const send = typeof entry === 'string' ? BUILTIN_KEY_CATALOG[entry]?.send ?? '' : entry.send;
-                            const isDragging = drag?.index === index;
-                            return (
-                                <View
-                                    key={`${id}:${nth}`}
-                                    style={[
-                                        styles.row,
-                                        { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider },
-                                        isDragging && { transform: [{ translateY: drag.translate }], zIndex: 10, borderColor: theme.colors.accent },
-                                    ]}
-                                >
-                                    <Handle index={index} label={label} onDrag={onDrag} onMove={moveBy} tint={theme.colors.textSecondary} />
-                                    <Pressable onPress={() => setFormIndex(index)} accessibilityRole="button" accessibilityLabel={`Edit ${label}`} style={{ flex: 1, minHeight: 44, justifyContent: 'center' }}>
-                                        <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{label}</Text>
-                                        <Text style={[styles.rowSend, { color: theme.colors.textSecondary }]} numberOfLines={1}>{bytesToEscape(send)}</Text>
-                                    </Pressable>
-                                    <Pressable onPress={() => removeAt(index)} accessibilityRole="button" accessibilityLabel={`Remove ${label}`} style={styles.close}>
-                                        <Ionicons name="remove-circle-outline" size={22} color={theme.colors.textSecondary} />
-                                    </Pressable>
-                                </View>
-                            );
-                        });
-                    })()}
-
-                    {working.length >= TERMINAL_KEY_ROW_LIMIT ? (
-                        <Text style={[styles.caption, { color: theme.colors.warningCritical }]}>{CAP_NOTICE}</Text>
-                    ) : (
-                        <Pressable
-                            onPress={() => setFormIndex(working.length)}
-                            accessibilityRole="button"
-                            accessibilityLabel="Add a key"
-                            style={[styles.addRow, { borderColor: theme.colors.accent }]}
+        <SectionLabel>TOOLBAR BUTTONS</SectionLabel>
+        <Text style={[styles.caption]}>Tap to edit · hold a handle to reorder</Text>
+        <View style={[styles.card, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+            {(() => {
+                const occurrence = new Map<string, number>();
+                return working.map((entry, index) => {
+                    // Content identity, not position: a stable key keeps the dragged
+                    // row's GestureDetector alive across the swaps it causes.
+                    const id = typeof entry === 'string' ? entry : JSON.stringify([entry.label, entry.send]);
+                    const nth = occurrence.get(id) ?? 0;
+                    occurrence.set(id, nth + 1);
+                    const label = typeof entry === 'string' ? BUILTIN_KEY_CATALOG[entry]?.label ?? entry : entry.label;
+                    const send = typeof entry === 'string' ? BUILTIN_KEY_CATALOG[entry]?.send ?? '' : entry.send;
+                    const dragging = drag?.index === index;
+                    return (
+                        <View
+                            key={`${id}:${nth}`}
+                            style={[
+                                styles.cardRow,
+                                index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider },
+                                dragging && { transform: [{ translateY: drag.translate }], zIndex: 10, borderColor: theme.colors.accent },
+                            ]}
                         >
-                            <Ionicons name="add" size={18} color={theme.colors.accent} />
-                            <Text style={{ color: theme.colors.accent, fontSize: 14 }}>Add a key</Text>
-                        </Pressable>
-                    )}
+                            <Pressable onPress={() => removeAt(index)} accessibilityRole="button" accessibilityLabel={`Remove ${label}`} style={styles.cardRowAction}>
+                                <Ionicons name="remove-circle-outline" size={22} color={theme.colors.status.error} />
+                            </Pressable>
+                            <Pressable onPress={() => setFormIndex(index)} accessibilityRole="button" accessibilityLabel={`Edit ${label}`} style={{ flex: 1, minHeight: 56, justifyContent: 'center' }}>
+                                <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{label}</Text>
+                                <Text style={[styles.rowSend, { color: theme.colors.textSecondary }]} numberOfLines={1}>{bytesToEscape(send)}</Text>
+                            </Pressable>
+                            <Handle index={index} label={label} onDrag={onDrag} onMove={moveBy} tint={theme.colors.textSecondary} />
+                        </View>
+                    );
+                });
+            })()}
+        </View>
 
-                    {entries !== null && (
-                        <Pressable onPress={() => { hapticsSelection(); onChange(null); onClose(); }} accessibilityRole="button" accessibilityLabel="Reset key row to the default row" style={styles.resetRow}>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the default row</Text>
-                        </Pressable>
-                    )}
-                    </>}
-                    </ScrollView>
-                </View>
-            </KeyboardAvoidingView>
-            </GestureHandlerRootView>
-        </Modal>
-    );
+        {working.length >= TERMINAL_KEY_ROW_LIMIT ? (
+            <Text style={[styles.caption, { color: theme.colors.warningCritical }]}>{CAP_NOTICE}</Text>
+        ) : (
+            <Pressable
+                onPress={() => setFormIndex(working.length)}
+                accessibilityRole="button"
+                accessibilityLabel="Add a key"
+                style={[styles.addRow, { borderColor: theme.colors.accent }]}
+            >
+                <Ionicons name="add" size={18} color={theme.colors.accent} />
+                <Text style={{ color: theme.colors.accent, fontSize: 14 }}>Add a key</Text>
+            </Pressable>
+        )}
+
+        {entries !== null && (
+            <Pressable onPress={() => { hapticsSelection(); onChange(null); }} accessibilityRole="button" accessibilityLabel="Reset key row to the default row" style={styles.resetRow}>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the default row</Text>
+            </Pressable>
+        )}
+    </View>;
 }
 
-/** Hold the handle to lift the row, then drag; the list swaps underneath. Shared by the key-row and quick-reply editors. */
+// The toggle lives in local settings; the grid owns it and passes it down.
+
+function SnippetsCategory({ replies, onRepliesChange }: {
+    replies: PersonalQuickReply[];
+    onRepliesChange: (replies: PersonalQuickReply[]) => void;
+}) {
+    const { theme } = useUnistyles();
+    const { working, drag, commit, removeAt, onDrag, moveBy, isDragging } = useReorderableList<PersonalQuickReply>(true, replies, onRepliesChange);
+    const [formIndex, setFormIndex] = React.useState<number | null>(null);
+
+    const saveReply = (reply: PersonalQuickReply) => {
+        if (formIndex === null || isDragging()) return;
+        const next = [...working];
+        if (formIndex === next.length && next.length >= QUICK_REPLY_LIMIT) return;
+        next[formIndex] = reply;
+        hapticsSelection();
+        commit(next);
+        setFormIndex(null);
+    };
+
+    if (formIndex !== null) {
+        return <ReplyForm entry={working[formIndex]} onSave={saveReply} onCancel={() => setFormIndex(null)} />;
+    }
+    return <View>
+        <Text style={[styles.caption]}>Your snippets · inserted into the prompt, never sent by themselves</Text>
+        {working.length === 0 && <Text style={[styles.caption]}>Nothing here yet. The built-in replies still live in the command palette.</Text>}
+        <View style={[styles.card, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+            {working.map((reply, index) => {
+                const dragging = drag?.index === index;
+                return (
+                    <View
+                        key={reply.id}
+                        style={[
+                            styles.cardRow,
+                            index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider },
+                            dragging && { transform: [{ translateY: drag.translate }], zIndex: 10, borderColor: theme.colors.accent },
+                        ]}
+                    >
+                        <Pressable onPress={() => removeAt(index)} accessibilityRole="button" accessibilityLabel={`Remove ${reply.label}`} style={styles.cardRowAction}>
+                            <Ionicons name="remove-circle-outline" size={22} color={theme.colors.status.error} />
+                        </Pressable>
+                        <Pressable onPress={() => setFormIndex(index)} accessibilityRole="button" accessibilityLabel={`Edit ${reply.label}`} style={{ flex: 1, minHeight: 56, justifyContent: 'center' }}>
+                            <Text style={[styles.rowLabel, { color: theme.colors.text }]} numberOfLines={1}>{reply.label}</Text>
+                            <Text style={[styles.rowSend, { color: theme.colors.textSecondary }]} numberOfLines={1}>{reply.text}</Text>
+                        </Pressable>
+                        <Handle index={index} label={reply.label} onDrag={onDrag} onMove={moveBy} tint={theme.colors.textSecondary} />
+                    </View>
+                );
+            })}
+        </View>
+
+        {working.length >= QUICK_REPLY_LIMIT ? (
+            <Text style={[styles.caption, { color: theme.colors.warningCritical }]}>{REPLY_CAP_NOTICE}</Text>
+        ) : (
+            <Pressable
+                onPress={() => setFormIndex(working.length)}
+                accessibilityRole="button"
+                accessibilityLabel="Add a reply"
+                style={[styles.addRow, { borderColor: theme.colors.accent }]}
+            >
+                <Ionicons name="add" size={18} color={theme.colors.accent} />
+                <Text style={{ color: theme.colors.accent, fontSize: 14 }}>Add a snippet</Text>
+            </Pressable>
+        )}
+    </View>;
+}
+
+/** Hold the handle to lift the row, then drag; the list swaps underneath. Shared by the key-row and snippet reorder cards. */
 export function Handle({ index, label, onDrag, onMove, tint }: {
     index: number;
     label: string;
@@ -275,6 +479,32 @@ export function KeyForm({ entry, onSave, onCancel }: {
     </View>;
 }
 
+function ReplyForm({ entry, onSave, onCancel }: {
+    entry: PersonalQuickReply | undefined;
+    onSave: (reply: PersonalQuickReply) => void;
+    onCancel: () => void;
+}) {
+    const { theme } = useUnistyles();
+    const [label, setLabel] = React.useState(entry?.label ?? '');
+    const [text, setText] = React.useState(entry?.text ?? '');
+    const errors = personalReplyErrors(label, text);
+    const valid = errors.length === 0;
+    return <View>
+        <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Name on the list</Text>
+        <TextInput value={label} onChangeText={setLabel} maxLength={QUICK_REPLY_LABEL_LIMIT} accessibilityLabel="Reply name" placeholder="e.g. Ship it" placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider }]} />
+        <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Text inserted into the prompt</Text>
+        <TextInput value={text} onChangeText={setText} multiline maxLength={QUICK_REPLY_TEXT_LIMIT} autoCapitalize="none" autoCorrect={false} accessibilityLabel="Reply text" placeholder="What should be inserted when this reply is tapped" placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider, minHeight: 96, textAlignVertical: 'top' }]} />
+        {errors.map((error) => <Text key={error} style={{ color: theme.colors.warningCritical, fontSize: 13, marginTop: 4 }}>{error}</Text>)}
+        <View style={styles.formActions}>
+            <Pressable onPress={onCancel} accessibilityRole="button" style={styles.customDone}><Text style={{ color: theme.colors.textSecondary }}>Cancel</Text></Pressable>
+            <Pressable disabled={!valid} accessibilityRole="button" accessibilityLabel="Save reply" accessibilityState={{ disabled: !valid }} style={[styles.customAdd, { backgroundColor: theme.colors.accent, opacity: valid ? 1 : 0.4 }]} onPress={() => {
+                if (!valid) return;
+                onSave({ id: entry?.id ?? randomUUID(), label: label.trim(), text });
+            }}><Text style={{ color: theme.colors.button.primary.tint, fontSize: 14, fontWeight: '600' }}>Save reply</Text></Pressable>
+        </View>
+    </View>;
+}
+
 const styles = StyleSheet.create({
     root: { flex: 1 },
     backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
@@ -282,16 +512,24 @@ const styles = StyleSheet.create({
     sheet: { flexShrink: 1, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingTop: 12 },
     body: { flexShrink: 1 },
     bodyContent: { paddingBottom: 8 },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
     title: { fontSize: 17, fontWeight: '600' },
-    caption: { fontSize: 12, marginTop: 10, marginBottom: 6 },
+    categoryChip: { minHeight: 34, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, borderRadius: 17 },
+    sectionLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 1.2, color: '#8e8e93' },
+    caption: { fontSize: 12, marginTop: 8, marginBottom: 6, color: '#8e8e93' },
+    card: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', marginTop: 2 },
+    cardRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: 4 },
+    cardRowMain: { flex: 1, minHeight: 56, justifyContent: 'center' },
+    cardRowAction: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     row: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 54, paddingHorizontal: 8, marginTop: 8, borderRadius: ui.radius.control, borderWidth: StyleSheet.hairlineWidth },
-    handle: { paddingHorizontal: 6, paddingVertical: 12 },
+    handle: { paddingHorizontal: 10, paddingVertical: 14 },
     rowLabel: { fontSize: 14, ...Typography.mono() },
     rowSend: { fontSize: 11, marginTop: 3, ...Typography.mono() },
-    previewKey: { minWidth: 44, height: 44, paddingHorizontal: 8, borderRadius: ui.radius.control, alignItems: 'center', justifyContent: 'center' },
+    previewBox: { borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, paddingVertical: 8 },
+    previewKey: { minWidth: 40, height: 34, paddingHorizontal: 8, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
     close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-    addRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12, paddingVertical: 10, borderRadius: ui.radius.control, borderWidth: StyleSheet.hairlineWidth },
+    closeText: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    addRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12, paddingVertical: 12, borderRadius: ui.radius.control, borderWidth: StyleSheet.hairlineWidth },
 
     grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
     gridChip: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: ui.radius.control },
