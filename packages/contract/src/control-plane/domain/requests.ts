@@ -588,10 +588,10 @@ export interface RequestMap extends PeerRequestMap {
     'voice.provider.set': { params: { providerId: string }; result: VoiceProviderCatalog };
     /** Explainer card for one adapter, or the selected one when omitted. */
     'voice.provider.describe': { params: { providerId?: string }; result: VoiceProviderDescription };
-    /** Store the selected adapter's machine-held API key. */
-    'voice.key.set': { params: { key: string }; result: null };
-    /** Remove the selected adapter's machine-held API key. */
-    'voice.key.clear': { params: Record<string, never>; result: null };
+    /** Store one adapter's machine-held API key; the selected adapter when omitted. */
+    'voice.key.set': { params: { key: string; provider?: string }; result: null };
+    /** Remove one adapter's machine-held API key; the selected adapter when omitted. */
+    'voice.key.clear': { params: { provider?: string }; result: null };
     /** Speak one bounded agent-stop outcome; the sentence is derived by the host. */
     'voice.report': {
         params: { displayName: string; taskTitle: string; status: string; outcome: string; tail?: string };

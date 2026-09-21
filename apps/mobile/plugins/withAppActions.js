@@ -43,6 +43,8 @@ const PRODUCT_SHORTCUTS = [{
     label: 'Jarvis',
     longLabel: 'Talk to the muxr voice agent',
     synonyms: ['Jarvis', 'voice agent', 'talk', 'live voice'],
+    // Resolve a shortcut pinned before the id was canonicalized.
+    aliases: ['muxr.voice.jarvis'],
     localized: {},
     action: { type: 'capability', name: 'voice.start' },
 }];
@@ -97,6 +99,7 @@ function bundledShortcutData(shortcuts = bundledShortcuts()) {
         action: shortcut.action,
         // Keep aliases so old deep links still resolve to the canonical id.
         aliases: dedupe([
+            ...(shortcut.aliases ?? []),
             ...shortcut.synonyms,
             ...Object.values(shortcut.localized).flatMap((value) => value.synonyms),
         ]),

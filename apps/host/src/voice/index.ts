@@ -67,12 +67,12 @@ export async function voiceProviderDescribe(id?: unknown): Promise<VoiceProvider
     return (await load()).voiceProviderDescribe(id);
 }
 
-export async function voiceKeySet(key: unknown): Promise<void> {
-    await (await load()).voiceKeySet(key);
+export async function voiceKeySet(key: unknown, providerId?: unknown): Promise<void> {
+    await (await load()).voiceKeySet(key, providerId);
 }
 
-export async function voiceKeyClear(): Promise<void> {
-    await (await load()).voiceKeyClear();
+export async function voiceKeyClear(providerId?: unknown): Promise<void> {
+    await (await load()).voiceKeyClear(providerId);
 }
 
 export async function voiceReport(input: unknown): Promise<{ say: string }> {

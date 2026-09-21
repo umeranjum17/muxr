@@ -54,14 +54,14 @@ export default function VoiceProviderSetupScreen() {
         if (key === null || key.trim() === '') return;
         setBusy(true);
         try {
-            await voiceKeySet(key.trim());
+            await voiceKeySet(key.trim(), providerId);
             await load();
         } catch (cause) {
             Modal.alert('Could not save the key', cause instanceof Error ? cause.message : String(cause));
         } finally {
             setBusy(false);
         }
-    }, [busy, load]);
+    }, [busy, load, providerId]);
 
     const clearKey = React.useCallback(async () => {
         if (busy) return;
@@ -72,14 +72,14 @@ export default function VoiceProviderSetupScreen() {
         )) return;
         setBusy(true);
         try {
-            await voiceKeyClear();
+            await voiceKeyClear(providerId);
             await load();
         } catch (cause) {
             Modal.alert('Could not clear the key', cause instanceof Error ? cause.message : String(cause));
         } finally {
             setBusy(false);
         }
-    }, [busy, load]);
+    }, [busy, load, providerId]);
 
     if (!loaded) {
         return (

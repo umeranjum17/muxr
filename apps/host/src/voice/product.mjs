@@ -74,15 +74,23 @@ export async function voiceProviderSet(providerId) {
     return { selected: next.id, providers: PROVIDERS.map((entry) => providerEntry(entry, next)) };
 }
 
-export async function voiceKeySet(key) {
-    const provider = selectedProvider();
+/** The engine a key operation targets: the named one, or the selected one. */
+function keyProvider(providerId) {
+    if (providerId === undefined || providerId === null || String(providerId).trim() === '') return selectedProvider();
+    const provider = providerById(String(providerId).trim());
+    if (provider === undefined) throw new Error('unknown realtime voice provider');
+    return provider;
+}
+
+export async function voiceKeySet(key, providerId) {
+    const provider = keyProvider(providerId);
     const secret = secretFor(provider);
     if (secret === undefined) throw new Error(`${provider.name} does not use an API key`);
     await secret.writeKey(key);
 }
 
-export async function voiceKeyClear() {
-    const secret = secretFor(selectedProvider());
+export async function voiceKeyClear(providerId) {
+    const secret = secretFor(keyProvider(providerId));
     if (secret !== undefined) await secret.clearKey();
 }
 

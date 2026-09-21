@@ -31,12 +31,12 @@ export function voiceProviderDescribe(providerId?: string) {
     return call('voice.provider.describe', { ...(providerId === undefined ? {} : { providerId }) });
 }
 
-export function voiceKeySet(key: string) {
-    return call('voice.key.set', { key });
+export function voiceKeySet(key: string, providerId?: string) {
+    return call('voice.key.set', { key, ...(providerId === undefined ? {} : { provider: providerId }) });
 }
 
-export function voiceKeyClear() {
-    return call('voice.key.clear', {});
+export function voiceKeyClear(providerId?: string) {
+    return call('voice.key.clear', { ...(providerId === undefined ? {} : { provider: providerId }) });
 }
 
 /** Speak one bounded agent-stop outcome. The sentence is derived by the host. */

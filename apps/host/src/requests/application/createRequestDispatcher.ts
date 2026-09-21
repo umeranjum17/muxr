@@ -285,8 +285,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'voice.provider.list': () => voiceProviderList(),
         'voice.provider.set': (params) => voiceProviderSet(params.providerId),
         'voice.provider.describe': (params) => voiceProviderDescribe(params.providerId),
-        'voice.key.set': async (params) => { await voiceKeySet(params.key); return null; },
-        'voice.key.clear': async () => { await voiceKeyClear(); return null; },
+        'voice.key.set': async (params) => { await voiceKeySet(params.key, params.provider); return null; },
+        'voice.key.clear': async (params) => { await voiceKeyClear(params.provider); return null; },
         // The spoken sentence is derived from the outcome here, never by the caller.
         'voice.report': async (params) => voiceReport(params),
         // Voice is product code: a paired control device is the only gate, and

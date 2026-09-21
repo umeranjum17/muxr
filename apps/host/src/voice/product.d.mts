@@ -30,6 +30,6 @@ export function voiceStatus(): Promise<VoiceStatus>;
 export function voiceProviderList(): Promise<VoiceProviderCatalog>;
 export function voiceProviderSet(providerId: unknown): Promise<VoiceProviderCatalog>;
 export function voiceProviderDescribe(id?: unknown): Promise<VoiceProviderDescription>;
-export function voiceKeySet(key: unknown): Promise<void>;
-export function voiceKeyClear(): Promise<void>;
+export function voiceKeySet(key: unknown, providerId?: unknown): Promise<void>;
+export function voiceKeyClear(providerId?: unknown): Promise<void>;
 export function voiceReport(input: unknown): { say: string };

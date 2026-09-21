@@ -291,7 +291,7 @@ if (typeof truth.sessionFile === 'string') {
     if (turns.length !== 1) fail(`Pi's own session recorded ${turns.length} prompts for one Realtime prompt_agent; exactly one was sent`);
 }
 
-const diagnosticsPath = join(dataDir, 'home', '.muxr', 'host', 'diagnostics.json');
+const diagnosticsPath = join(dataDir, 'diagnostics.json');
 try {
     const events = JSON.parse(readFileSync(diagnosticsPath, 'utf8')).events ?? JSON.parse(readFileSync(diagnosticsPath, 'utf8'));
     const prompts = events.filter((event) => event.event === 'realtime.prompt');

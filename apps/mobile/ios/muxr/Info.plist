@@ -111,7 +111,7 @@
         <key>UIApplicationShortcutItemTitle</key>
         <string>Jarvis</string>
         <key>UIApplicationShortcutItemType</key>
-        <string>muxr.voice.jarvis</string>
+        <string>voice.jarvis</string>
       </dict>
     </array>
     <key>UILaunchStoryboardName</key>

@@ -71,14 +71,26 @@ assert.equal(existsSync(victim), true, 'a symlinked key path never deletes its t
 await voice.voiceProviderSet('codex');
 await assert.rejects(() => voice.voiceKeySet('unused'), /does not use an API key/);
 
-// 5. Agent-stop reporting keeps its bounded, product-owned sentence shape.
+// 5. A key operation carries the engine the screen shows, never the selection.
+await voice.voiceKeySet('openai-per-engine', 'openai');
+await voice.voiceKeySet('gemini-per-engine', 'gemini');
+assert.equal(readFileSync(join(home, 'openai.key'), 'utf8').trim(), 'openai-per-engine');
+assert.equal(readFileSync(join(home, 'gemini.key'), 'utf8').trim(), 'gemini-per-engine');
+assert.equal((await voice.voiceProviderList()).selected, 'codex', 'targeting another engine never changes the selection');
+await voice.voiceKeyClear('gemini');
+assert.equal(existsSync(join(home, 'gemini.key')), false, 'clearing one engine removes only that engine key');
+assert.equal(readFileSync(join(home, 'openai.key'), 'utf8').trim(), 'openai-per-engine', 'clearing one engine leaves the other engine key untouched');
+await assert.rejects(() => voice.voiceKeySet('unused', 'codex'), /does not use an API key/);
+await assert.rejects(() => voice.voiceKeySet('unused', 'unknown'), /unknown realtime voice provider/);
+
+// 6. Agent-stop reporting keeps its bounded, product-owned sentence shape.
 const report = voice.voiceReport({ displayName: 'Maria', taskTitle: 'Stabilize voice', status: 'blocked', outcome: 'blocked', tail: 'raw pane text' });
 assert.equal(typeof report.say, 'string');
 assert.match(report.say, /Host-confirmed report/);
 assert.match(report.say, /<untrusted-agent-output>[\s\S]*raw pane text[\s\S]*<\/untrusted-agent-output>/);
 assert.match(voice.voiceReport({ displayName: 'Maria', taskTitle: 'Stabilize voice', status: 'idle', outcome: 'done' }).say, /Host-confirmed report/);
 
-// 6. Retirement policy scan, not behavioural proof: voice must stay product
+// 7. Retirement policy scan, not behavioural proof: voice must stay product
 //    code and never return as a plugin. The parity gate that drives voice.stream
 //    with no catalog entry or approval is the behavioural proof.
 for (const file of ['stream.mjs', 'provider.mjs', 'product.mjs', 'toolRuntime.mjs']) {

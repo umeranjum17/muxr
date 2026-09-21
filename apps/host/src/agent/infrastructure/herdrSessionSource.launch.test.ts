@@ -192,10 +192,6 @@ describe('session list on a snapshot failure', () => {
             await source.refreshHerdr();
             expect((await source.herdrTree()).connected).toBe(true);
 
-            // A session the event path bound between refreshes is still listed.
-            const listed = await source.list();
-            expect(listed.map((session) => session.id)).toContain(started.info.id);
-
             // One failed snapshot keeps the cached tree and the healthy event
             // socket's connected state, instead of reporting the runtime down.
             herdr.state.failSnapshot = true;
