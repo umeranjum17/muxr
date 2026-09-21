@@ -14,4 +14,5 @@ export const desktopCopy = {
     failedBody: 'The desktop did not start.',
     endedTitle: 'Desktop closed',
     endedBody: 'The desktop session has ended.',
+    clipboardUnavailable: 'This computer cannot share its clipboard.',
 } as const;

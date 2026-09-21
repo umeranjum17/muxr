@@ -8,9 +8,12 @@ import { DesktopView, useDesktopSession, type SessionSnapshot } from '@desklink/
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { ui } from '@/components/ui';
+import { sync } from '@/catalog';
 import { Modal } from '@/modal';
 import { createDesktopSignaling } from '../application/desktopSignaling';
 import { desktopCopy } from '../model/desktopCopy';
+
+type DesktopPermission = 'view' | 'control' | 'clipboard';
 
 export interface DesktopSurfaceProps {
     onExit: () => void;
@@ -29,16 +32,24 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
     const [clipboardBusy, setClipboardBusy] = React.useState(false);
     const [notice, setNotice] = React.useState<string | null>(null);
     const [keyboardOpen, setKeyboardOpen] = React.useState(false);
+    const [clipboardAvailable, setClipboardAvailable] = React.useState(false);
 
     const session = useDesktopSession({
-        authorize: React.useCallback(async () => ({
-            signaling: createDesktopSignaling({
-                permissions: ['view', 'control', 'clipboard'],
-                maxWidth: 1280,
-                maxHeight: 800,
-            }),
-            session: { permissions: ['view', 'control', 'clipboard'], maxWidth: 1280, maxHeight: 800 },
-        }), []),
+        // Ask the host what it can actually do before requesting scope: a host
+        // whose clipboard backend is absent must not be asked for a permission
+        // whose every use would fail.
+        authorize: React.useCallback(async () => {
+            const capabilities = await sync.request('desktop.capabilities', {}).catch(() => null);
+            const canClipboard = capabilities?.clipboard === true;
+            setClipboardAvailable(canClipboard);
+            const permissions: DesktopPermission[] = canClipboard
+                ? ['view', 'control', 'clipboard']
+                : ['view', 'control'];
+            return {
+                signaling: createDesktopSignaling({ permissions, maxWidth: 1280, maxHeight: 800 }),
+                session: { permissions, maxWidth: 1280, maxHeight: 800 },
+            };
+        }, []),
         onError: (failure) => setNotice(failure.message),
     });
 
@@ -99,6 +110,8 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
 
     const status = describe(desktopCopy, snapshot);
     const live = snapshot.status === 'live';
+    const clipboardUnavailable = live && !clipboardAvailable;
+    const shownNotice = notice ?? (clipboardUnavailable ? desktopCopy.clipboardUnavailable : null);
 
     return (
         <View style={[styles.screen, { backgroundColor: theme.colors.groupped.background }]}>
@@ -125,13 +138,13 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
                 )}
             </View>
 
-            {notice !== null && (
+            {shownNotice !== null && (
                 <Text
                     accessibilityLiveRegion="polite"
                     numberOfLines={2}
                     style={[styles.notice, { color: theme.colors.textSecondary, borderTopColor: theme.colors.divider }]}
                 >
-                    {notice}
+                    {shownNotice}
                 </Text>
             )}
 
@@ -151,13 +164,13 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
                 <ToolButton
                     icon="download-outline"
                     label="Copy from desktop"
-                    disabled={!live || clipboardBusy}
+                    disabled={!live || clipboardBusy || !clipboardAvailable}
                     onPress={() => void copyFromDesktop()}
                 />
                 <ToolButton
                     icon="cloud-upload-outline"
                     label="Paste to desktop"
-                    disabled={!live || clipboardBusy}
+                    disabled={!live || clipboardBusy || !clipboardAvailable}
                     onPress={() => void pasteToDesktop()}
                 />
             </View>

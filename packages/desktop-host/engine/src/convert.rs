@@ -51,6 +51,21 @@ fn rgb_to_yuv(r: i32, g: i32, b: i32) -> (u8, u8, u8) {
     (y.clamp(0, 255) as u8, u.clamp(0, 255) as u8, v.clamp(0, 255) as u8)
 }
 
+/// Fit a source into a box without upscaling and with even dimensions, because
+/// I420 chroma is subsampled and the encoder refuses a frame whose size is not
+/// the one it was built for. This is the single definition of that rule: the
+/// encoder's geometry, the portal frames and the X11 frames all call it.
+pub fn fit(width: usize, height: usize, max_width: usize, max_height: usize) -> (usize, usize) {
+    if max_width == 0 || max_height == 0 || (width <= max_width && height <= max_height) {
+        return (width & !1, height & !1);
+    }
+    let scale = f64::min(max_width as f64 / width as f64, max_height as f64 / height as f64);
+    (
+        (((width as f64 * scale) as usize) & !1).max(2),
+        (((height as f64 * scale) as usize) & !1).max(2),
+    )
+}
+
 /// Box-average `src` (a packed 4-byte image) down to `dst_w`x`dst_h` of I420.
 ///
 /// `src_stride` is in bytes. Returns `None` for a format we cannot read, so the

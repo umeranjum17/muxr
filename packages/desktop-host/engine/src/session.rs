@@ -7,7 +7,7 @@
 
 use crate::capture::{self, Capture};
 use crate::clipboard;
-use crate::convert::I420;
+use crate::convert::{fit, I420};
 use crate::encoder::Encoder;
 use crate::input::{Button, HeldState, InputDevices};
 use crate::keymap::{self, Layout};
@@ -1019,11 +1019,19 @@ fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: std_mpsc::Receiver<I420>, runnin
                 };
                 let packet = match packet {
                     Ok(packet) => packet,
-                    Err(_) => {
+                    Err(error) => {
                         if let Ok(mut m) = inner.metrics.lock() {
                             m.dropped_frames += 1;
                         }
-                        continue;
+                        // The encoder refusing a frame means it is not the size
+                        // it was built for, or libvpx rejected it. Both leave a
+                        // permanently black desktop, so end the session with
+                        // the reason instead of dropping frames in silence.
+                        let reason = format!("the encoder rejected a frame: {error:#}");
+                        let _ = inner.events.send(SessionEvent::Revoked { reason: reason.clone() });
+                        let target = inner.clone();
+                        handle.spawn(async move { target.close(&reason).await; });
+                        break;
                     }
                 };
                 first_frame_sent = true;
@@ -1118,19 +1126,6 @@ fn available_parallelism() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
-}
-
-/// Fit a source into a box without upscaling, keeping even dimensions because
-/// I420 chroma is subsampled.
-pub fn fit(width: usize, height: usize, max_width: usize, max_height: usize) -> (usize, usize) {
-    if max_width == 0 || max_height == 0 || (width <= max_width && height <= max_height) {
-        return (width & !1, height & !1);
-    }
-    let scale = f64::min(max_width as f64 / width as f64, max_height as f64 / height as f64);
-    (
-        (((width as f64 * scale) as usize) & !1).max(2),
-        (((height as f64 * scale) as usize) & !1).max(2),
-    )
 }
 
 /// Encoded-surface pixels to the source's own pixels. The client aims at what it
@@ -1292,5 +1287,34 @@ mod tests {
             rejected + 1,
             "a control message after expiry must be refused",
         );
+    }
+
+    #[tokio::test]
+    async fn a_frame_the_encoder_refuses_ends_the_session_with_a_reason() {
+        let (events, mut received) = tokio_mpsc::unbounded_channel();
+        let (inner, _recorded) = test_inner(events).await;
+        let (frame_tx, frame_rx) = std_mpsc::sync_channel::<I420>(2);
+        spawn_pipeline(&inner, frame_rx, Arc::new(AtomicBool::new(true)));
+
+        // The encoder is 64x64; a 32x32 frame is the dimension mismatch that
+        // used to be counted and dropped behind a permanently black picture.
+        frame_tx
+            .send(I420 {
+                width: 32,
+                height: 32,
+                data: vec![128u8; 32 * 32 + 2 * 16 * 16],
+            })
+            .expect("the pipeline is reading");
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        let mut reason = None;
+        while let Ok(event) = received.try_recv() {
+            if let SessionEvent::Revoked { reason: why } = event {
+                reason = Some(why);
+            }
+        }
+        let reason = reason.expect("a refused frame must surface as a revocation");
+        assert!(reason.contains("encoder"), "the reason names the encoder: {reason}");
+        assert!(inner.revoked_reason().is_some(), "the session is closed, not left black");
     }
 }

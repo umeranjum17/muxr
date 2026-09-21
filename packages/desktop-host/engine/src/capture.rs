@@ -5,7 +5,7 @@
 //! Everything PipeWire lives on this module's own thread because its objects are
 //! not `Send`; frames and state changes leave through channels.
 
-use crate::convert::{to_i420, I420};
+use crate::convert::{fit, to_i420, I420};
 use crate::portal::{PortalSession, SelectedSource};
 use anyhow::{Context, Result};
 use pipewire as pw;
@@ -209,12 +209,15 @@ pub fn start(
         let frames = frames.clone();
         let dropped = dropped.clone();
         let quit = quit.clone();
+        let ready = ready_tx.clone();
         std::thread::Builder::new()
             .name("desklink-capture".into())
             .spawn(move || {
-                let result = run_loop(fd, node_id, encoded_width, encoded_height, sink, geometry, frames, dropped, quit.clone())
+                let result = run_loop(fd, node_id, encoded_width, encoded_height, sink, geometry, frames, dropped, quit.clone(), ready.clone())
                     .map_err(|e| format!("{e:#}"));
-                let _ = ready_tx.send(result);
+                // A readiness already sent from inside the loop makes this a
+                // no-op; a setup failure has to reach `start` either way.
+                let _ = ready.send(result);
             })
             .context("failed to spawn capture thread")?
     };
@@ -252,6 +255,7 @@ fn run_loop(
     frames: Arc<AtomicU64>,
     dropped: Arc<AtomicU64>,
     quit: Arc<AtomicUsize>,
+    ready: mpsc::Sender<Result<(), String>>,
 ) -> Result<()> {
     pw::init();
     let main_loop =
@@ -286,6 +290,7 @@ fn run_loop(
         logical_h: 0,
     };
 
+    let mut ready = Some(ready);
     let _listener = stream
         .add_local_listener_with_user_data(&mut state)
         .param_changed(|_, state, id, param| {
@@ -311,7 +316,7 @@ fn run_loop(
             state.logical_w = info.size().width as usize;
             state.logical_h = info.size().height as usize;
         })
-        .process(|stream, state| {
+        .process(move |stream, state| {
             let Some(mut buffer) = stream.dequeue_buffer() else {
                 return;
             };
@@ -339,7 +344,7 @@ fn run_loop(
             };
             let stride = if stride == 0 { w * 4 } else { stride };
             let used = if size == 0 { bytes.len() } else { size.min(bytes.len()) };
-            let (dw, dh) = encoded_dims(w, h, state.box_w, state.box_h);
+            let (dw, dh) = fit(w, h, state.box_w, state.box_h);
             let seq = state.frames.load(Ordering::Relaxed);
             match to_i420(&bytes[..used], w, h, stride, format, dw, dh) {
                 Some(i420) => {
@@ -357,6 +362,13 @@ fn run_loop(
                     }
                     state.frames.fetch_add(1, Ordering::Relaxed);
                     (state.sink)(i420, seq);
+                    // The first frame the loop actually delivers is the only
+                    // proof capture started; sending this when `run_loop`
+                    // returns would be after the main loop quits, too late for
+                    // `start` to wait on.
+                    if let Some(sender) = ready.take() {
+                        let _ = sender.send(Ok(()));
+                    }
                 }
                 None => {
                     state.dropped.fetch_add(1, Ordering::Relaxed);
@@ -386,18 +398,6 @@ fn run_loop(
 
     main_loop.run();
     Ok(())
-}
-
-/// Fit the source into the requested encoded box, never upscaling and keeping
-/// even dimensions because I420 chroma is subsampled.
-fn encoded_dims(w: usize, h: usize, max_w: usize, max_h: usize) -> (usize, usize) {
-    if max_w == 0 || max_h == 0 || (w <= max_w && h <= max_h) {
-        return (w & !1, h & !1);
-    }
-    let scale = f64::min(max_w as f64 / w as f64, max_h as f64 / h as f64);
-    let dw = ((w as f64 * scale) as usize) & !1;
-    let dh = ((h as f64 * scale) as usize) & !1;
-    (dw.max(2), dh.max(2))
 }
 
 struct StreamState {

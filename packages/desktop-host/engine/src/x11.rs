@@ -11,7 +11,7 @@
 //! keyboard**: XTest is scoped to the X server it is connected to, unlike
 //! `uinput`, which the kernel delivers to whatever holds the seat.
 
-use crate::convert::{to_i420, I420};
+use crate::convert::{fit, to_i420, I420};
 use anyhow::{Context, Result};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{ConnectionExt as _, ImageFormat, Screen};
@@ -198,19 +198,6 @@ impl X11Desktop {
             y.clamp(0, self.height.saturating_sub(1) as i64),
         )
     }
-}
-
-/// Fit a source into a box without upscaling and with even dimensions, so the
-/// encoded frame matches the geometry the client is told about.
-fn fit(width: usize, height: usize, max_width: usize, max_height: usize) -> (usize, usize) {
-    if max_width == 0 || max_height == 0 || (width <= max_width && height <= max_height) {
-        return (width & !1, height & !1);
-    }
-    let scale = f64::min(max_width as f64 / width as f64, max_height as f64 / height as f64);
-    (
-        (((width as f64 * scale) as usize) & !1).max(2),
-        (((height as f64 * scale) as usize) & !1).max(2),
-    )
 }
 
 #[cfg(test)]
