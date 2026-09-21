@@ -197,10 +197,14 @@ export function dockedRingOffsets(
             }
         }
     }
-    // Nothing fits at any radius. Keep the circle and keep it upright: an arc
-    // that grazes the region's edge is still one control opening in place,
-    // which a scattered fan never was. The overlay clamps what is left.
-    return place(floor, 0);
+    // No radius and no rotation fits this many discs here. Deforming the arc
+    // or handing back discs outside the region are both worse than carrying
+    // one fewer: drop the last slot and solve again, so whatever comes back is
+    // still a circle, still evenly spaced, and still inside. The component
+    // renders `slots.slice(0, offsets.length)`, so the arc and its actions stay
+    // in step.
+    if (count > 1) return dockedRingOffsets(anchor, region, count - 1, discSize);
+    return [{ x: 0, y: -Math.max(RING_DEAD_ZONE + 4, margin) }];
 }
 
 /** Which slot a swept finger would fire: past the dead zone and inside that

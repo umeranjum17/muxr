@@ -54,22 +54,23 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
         channel?.sendText(text);
         hapticsSelection();
     }, [channel]);
+    // Marks on the terminal's own plane, not keycaps on a strip. A run of
+    // filled caps at a single grey was most of what read as a band of chrome
+    // under the terminal; unboxed, the row disappears until it is wanted and
+    // an armed modifier is the only thing that takes colour.
     const style = (selected = false, locked = false) => ({
-        minHeight: 28,
-        minWidth: 30,
+        minHeight: 34,
+        minWidth: 34,
         justifyContent: 'center' as const,
         alignItems: 'center' as const,
-        paddingHorizontal: 9,
-        paddingVertical: 3,
+        paddingHorizontal: 6,
         borderRadius: 8,
-        // Subordinate to the terminal: quiet caps that only light up when a
-        // modifier is armed, never a band of chrome. The gap between them is
-        // what keeps a run of caps reading as keys rather than as one bar.
-        backgroundColor: selected || locked ? theme.colors.accentSubtle : theme.colors.glass.backgroundSubtle,
-        borderWidth: locked ? 1 : 0,
-        borderColor: locked ? theme.colors.accent : 'transparent',
+        backgroundColor: locked ? theme.colors.accentSubtle : 'transparent',
+        borderWidth: 0,
+        borderColor: 'transparent',
+        ...(selected && !locked ? {} : {}),
     });
-    const labelStyle = (tint: string) => ({ color: tint, fontSize: 11, ...Typography.mono() });
+    const labelStyle = (tint: string) => ({ color: tint, fontSize: 12, ...Typography.mono() });
     const fire = (key: TerminalKey) => {
         if (key.action !== undefined) {
             hapticsSelection();
@@ -93,8 +94,8 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyboardShouldPersistTaps="always"
-                style={{ flexGrow: 0, maxHeight: 30 }}
-                contentContainerStyle={{ alignItems: 'center', gap: 6, paddingLeft: 10, paddingRight: 16, paddingVertical: 0 }}
+                style={{ flexGrow: 0, maxHeight: 36 }}
+                contentContainerStyle={{ alignItems: 'center', gap: 10, paddingLeft: 8, paddingRight: 18, paddingVertical: 0 }}
             >
             <Pressable
                 onPress={() => { hapticsSelection(); applyMods(cycle(ctrlRef.current), shiftRef.current); }}

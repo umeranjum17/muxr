@@ -33,7 +33,7 @@ const CATEGORIES: readonly { id: ControlGridCategory; label: string }[] = [
 ];
 
 /** A screen-owned command the grid can run: zoom, keyboard, and their kind. */
-export type GridCommand = { label: string; run: () => void; disabled?: boolean };
+export type GridCommand = { label: string; run: () => void; disabled?: boolean; icon?: string };
 
 // ponytail: rows live in one ScrollView; a drag cannot autoscroll the list,
 // so a drag that reaches the visible edge stops there. Wrap or autoscroll if
@@ -78,8 +78,16 @@ export function TerminalControlGrid({
     const insets = useSafeAreaInsets();
     const { height: windowHeight } = useWindowDimensions();
     const [modifierIcons, setModifierIcons] = useLocalSettingMutable('terminalModifierIcons');
+    // Whichever category has a form open registers the way back to its list.
+    const closeForm = React.useRef<(() => void) | null>(null);
     return (
-        <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+        <Modal visible={visible} animationType="slide" onRequestClose={() => {
+            // Back comes out of a half-finished edit before it comes out of the
+            // grid: losing a form and the sheet to one press is not a choice
+            // anyone made deliberately.
+            if (closeForm.current !== null) { closeForm.current(); return; }
+            onClose();
+        }}>
             <GestureHandlerRootView style={[styles.page, { backgroundColor: theme.colors.surface, paddingTop: insets.top }]}>
                 <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
                     <View style={styles.header}>
@@ -113,8 +121,8 @@ export function TerminalControlGrid({
                     </ScrollView>
 
                         <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
-                            {category === 'keys' && <KeysCategory entries={entries} seed={seed} onChange={onChange} modifierIcons={modifierIcons === true} onChangeModifierIcons={(value) => { hapticsSelection(); setModifierIcons(value); }} />}
-                            {category === 'snippets' && <SnippetsCategory replies={replies} onRepliesChange={onRepliesChange} />}
+                            {category === 'keys' && <KeysCategory entries={entries} seed={seed} onChange={onChange} closeForm={closeForm} modifierIcons={modifierIcons === true} onChangeModifierIcons={(value) => { hapticsSelection(); setModifierIcons(value); }} />}
+                            {category === 'snippets' && <SnippetsCategory replies={replies} onRepliesChange={onRepliesChange} closeForm={closeForm} />}
                             {category === 'recents' && (
                                 recentLinks.length === 0
                                     ? <SectionNote>Links printed by the terminal gather here.</SectionNote>
@@ -148,7 +156,11 @@ export function TerminalControlGrid({
                             )}
                             {category === 'keyboard' && (
                                 <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
-                                    {viewCommands.filter((command) => command.label.toLowerCase().includes('keyboard')).map((command) => (
+                                    {/* Identity, not spelling: the ring slot already
+                                        resolves this command by its icon, and a
+                                        substring match emptied the category the
+                                        moment a label was reworded. */}
+                                    {viewCommands.filter((command) => command.icon === 'keyboard').map((command) => (
                                         <Pressable key={command.label} accessibilityRole="button" accessibilityLabel={command.label} onPress={() => { onClose(); command.run(); }}
                                             style={[styles.cardRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }]}>
                                             <Text style={{ flex: 1, paddingLeft: 8, color: theme.colors.text, fontSize: 16 }}>{command.label}</Text>
@@ -177,10 +189,11 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     return <Text style={[styles.sectionLabel, { marginTop: 26, marginBottom: 10 }]}>{children}</Text>;
 }
 
-function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifierIcons }: {
+function KeysCategory({ entries, seed, onChange, closeForm, modifierIcons, onChangeModifierIcons }: {
     entries: RowEntry[] | null;
     seed: RowEntry[];
     onChange: (entries: RowEntry[] | null) => void;
+    closeForm: React.MutableRefObject<(() => void) | null>;
     modifierIcons: boolean;
     onChangeModifierIcons: (value: boolean) => void;
 }) {
@@ -199,6 +212,7 @@ function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifier
         setFormIndex(null);
     };
 
+    closeForm.current = formIndex === null ? null : () => setFormIndex(null);
     if (formIndex !== null) {
         return <KeyForm entry={working[formIndex]} onSave={saveKey} onCancel={() => setFormIndex(null)} />;
     }
@@ -305,9 +319,10 @@ function KeysCategory({ entries, seed, onChange, modifierIcons, onChangeModifier
 
 // The toggle lives in local settings; the grid owns it and passes it down.
 
-function SnippetsCategory({ replies, onRepliesChange }: {
+function SnippetsCategory({ replies, onRepliesChange, closeForm }: {
     replies: PersonalQuickReply[];
     onRepliesChange: (replies: PersonalQuickReply[]) => void;
+    closeForm: React.MutableRefObject<(() => void) | null>;
 }) {
     const { theme } = useUnistyles();
     const { working, drag, commit, removeAt, onDrag, moveBy, isDragging } = useReorderableList<PersonalQuickReply>(true, replies, onRepliesChange);
@@ -323,6 +338,7 @@ function SnippetsCategory({ replies, onRepliesChange }: {
         setFormIndex(null);
     };
 
+    closeForm.current = formIndex === null ? null : () => setFormIndex(null);
     if (formIndex !== null) {
         return <ReplyForm entry={working[formIndex]} onSave={saveReply} onCancel={() => setFormIndex(null)} />;
     }

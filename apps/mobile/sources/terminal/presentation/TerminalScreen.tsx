@@ -896,8 +896,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
             const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting' && status !== 'unconfirmed';
             const showUnconfirmedStatus = status === 'unconfirmed' && gestureHint === null;
-            const attachmentAction = <Pressable onPress={attachPhotos} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={({ pressed }) => ({ width: 32, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 16, opacity: attaching ? 0.4 : pressed ? 0.6 : 1 })}>
-                <Ionicons name={attaching ? 'hourglass-outline' : 'add'} size={22} color={theme.colors.textSecondary} />
+            // 31669's leading control: its own circle, outside the field, so the
+            // field is the only container on the rail.
+            const attachmentAction = <Pressable onPress={attachPhotos} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }}
+                style={({ pressed }) => ({ width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 19, backgroundColor: withAlpha(theme.colors.text, 0.06), opacity: attaching ? 0.4 : pressed ? 0.6 : 1 })}>
+                <Ionicons name={attaching ? 'hourglass-outline' : 'add'} size={20} color={theme.colors.textSecondary} />
             </Pressable>;
             // One pill that is the composer: idle input, multiline compose,
             // Dictating…, Transcribing… — same geometry, same material, only
@@ -923,7 +926,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 placeholderTextColor={theme.colors.textSecondary}
                 accessibilityLabel="Prompt"
                 // Web: remove the focus ring; the rail is not a browser widget.
-                style={{ flex: 1, minWidth: 0, color: theme.colors.text, paddingLeft: 4, paddingRight: 2, paddingVertical: 8, fontSize: 15, maxHeight: 120,
+                style={{ flex: 1, minWidth: 0, color: theme.colors.text, paddingLeft: 12, paddingRight: 2, paddingVertical: 8, fontSize: 15, maxHeight: 120,
                     ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } as any : {}) }}
             />;
             const clearAction = draft === '' ? null : <Pressable onPress={() => setDraft('')} accessibilityRole="button" accessibilityLabel="Clear prompt" hitSlop={8}
@@ -934,16 +937,27 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 accessibilityLabel={dictating ? 'Stop dictation' : 'Dictate'}
                 accessibilityHint={dictating ? 'Stops listening and transcribes' : undefined}
                 accessibilityState={{ busy: transcribing, selected: dictating, disabled: transcribing }}
-                style={({ pressed }) => ({ width: 34, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 17, opacity: pressed ? 0.6 : 1 })}>
-                <Ionicons name="mic-outline" size={20} color={theme.colors.textSecondary} />
+                style={({ pressed }) => ({ width: 32, height: 38, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+                <Ionicons name="mic-outline" size={19} color={theme.colors.textSecondary} />
             </Pressable>;
             // The filled disc and its plane only appear once there is something to
             // send; unarmed it is a quiet outline, never a second bright control
             // competing with the send it is not yet.
             const sendAction = <Pressable onPress={sendPrompt} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }}
-                style={({ pressed }) => ({ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginLeft: 2, backgroundColor: canSend ? theme.colors.terminal.prompt : 'transparent', opacity: pressed ? 0.8 : canSend ? 1 : 0.55, transform: [{ scale: pressed && canSend ? 0.94 : 1 }] })}>
-                <Ionicons name="send" size={16} color={canSend ? '#101010' : theme.colors.textSecondary} style={{ marginLeft: 1 }} />
+                style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: canSend ? theme.colors.terminal.prompt : withAlpha(theme.colors.text, 0.06), opacity: pressed ? 0.8 : canSend ? 1 : 0.55, transform: [{ scale: pressed && canSend ? 0.94 : 1 }] })}>
+                <Ionicons name="send" size={17} color={canSend ? '#101010' : theme.colors.textSecondary} style={{ marginLeft: 1 }} />
             </Pressable>;
+            // 31669's trailing control: one circle at the rail's end. With an
+            // empty field it is the realtime agent, beside the microphone the
+            // way every other app puts it; the moment there is something to
+            // send it gives way to send. The plugin owns its own glyph and its
+            // own availability — only the circle around it is ours.
+            const showRealtimeTrailing = draft === '' && attachedPaths.length === 0 && composerContributions.length > 0 && canControl;
+            const trailingAction = showRealtimeTrailing
+                ? <View style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: withAlpha(theme.colors.accent, 0.16), borderWidth: StyleSheet.hairlineWidth, borderColor: withAlpha(theme.colors.accent, 0.35) }}>
+                    <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
+                </View>
+                : sendAction;
             // Only what the channel can vouch for: 'live' means frames flow with
             // nothing known wrong, so it reads as connected, never as health; a known
             // timeout or lost route reads unconfirmed until the host answers again.
@@ -1199,8 +1213,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             horizontal
                             showsHorizontalScrollIndicator={false}
                             keyboardShouldPersistTaps="always"
-                            style={{ maxHeight: 27, backgroundColor: 'transparent', opacity: toolsOpen ? 0.25 : 1 }}
-                            contentContainerStyle={{ alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 0 }}
+                            style={{ maxHeight: 30, backgroundColor: 'transparent', opacity: toolsOpen ? 0.25 : 1 }}
+                            contentContainerStyle={{ alignItems: 'center', gap: 8, paddingHorizontal: 8, paddingVertical: 0 }}
                         >
                             {tabPanes.length > 1 ? tabPanes.map((pane) => {
                                 const active = pane.sessionId === props.id;
@@ -1212,12 +1226,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         style={{
                                             flexDirection: 'row',
                                             alignItems: 'center',
-                                            maxHeight: 24,
-                                            borderRadius: 7,
+                                            maxHeight: 26,
+                                            borderRadius: 8,
                                             overflow: 'hidden',
-                                            backgroundColor: active ? theme.colors.glass.backgroundSubtle : 'transparent',
-                                            borderWidth: StyleSheet.hairlineWidth,
-                                            borderColor: active ? theme.colors.glass.border : 'transparent',
+                                            // Names on the plane, not tabs in a strip: the
+                                            // current pane is the brighter one, and nothing
+                                            // here draws a box around itself.
+                                            backgroundColor: active ? withAlpha(theme.colors.text, 0.07) : 'transparent',
+                                            borderWidth: 0,
+                                            borderColor: 'transparent',
                                         }}
                                     >
                                         <Pressable
@@ -1265,12 +1282,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         style={{
                                             flexDirection: 'row',
                                             alignItems: 'center',
-                                            maxHeight: 24,
-                                            borderRadius: 7,
+                                            maxHeight: 26,
+                                            borderRadius: 8,
                                             overflow: 'hidden',
-                                            backgroundColor: active ? theme.colors.glass.backgroundSubtle : 'transparent',
-                                            borderWidth: StyleSheet.hairlineWidth,
-                                            borderColor: active ? theme.colors.glass.border : 'transparent',
+                                            // Names on the plane, not tabs in a strip: the
+                                            // current pane is the brighter one, and nothing
+                                            // here draws a box around itself.
+                                            backgroundColor: active ? withAlpha(theme.colors.text, 0.07) : 'transparent',
+                                            borderWidth: 0,
+                                            borderColor: 'transparent',
                                         }}
                                     >
                                         <Pressable
@@ -1305,8 +1325,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 accessibilityRole="button"
                                 accessibilityLabel="Add pane"
                                 hitSlop={6}
-                                style={({ pressed }) => ({ width: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.glass.border, opacity: pressed ? 0.6 : 1 })}>
-                                <Ionicons name="add" size={14} color={theme.colors.textSecondary} />
+                                style={({ pressed }) => ({ width: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+                                <Ionicons name="add" size={15} color={theme.colors.textSecondary} />
                             </Pressable>}
                         </ScrollView>
                     )}
@@ -1327,22 +1347,23 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         send; while the microphone is live the same pill reads
                         Dictating…, then Transcribing…, and commits into the draft.
                         One geometry, one material, every state. */}
-                    <View style={{ paddingHorizontal: 10, paddingTop: 2, paddingBottom: (keyboardVisible ? 8 : insets.bottom + 8) }}>
-                        {/* The rail is a surface the prompt sits on, not a
-                            widget: barely-there fill, one hairline, and the
-                            accessories bare until they are used. Only the armed
-                            send earns a shape. */}
+                    {/* The rail is three things with air between them, not one
+                        slab carrying five: a leading circle, the field — the
+                        only container here — and one trailing circle that is
+                        the realtime agent while the field is empty and becomes
+                        send the moment there is something to send. */}
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, paddingHorizontal: 10, paddingTop: 4, paddingBottom: (keyboardVisible ? 8 : insets.bottom + 8) }}>
+                        {!dictationActive && attachmentAction}
                         <View style={{
-                            minHeight: keyboardVisible ? 46 : 52,
-                            borderRadius: keyboardVisible ? 23 : 26,
-                            backgroundColor: withAlpha(theme.colors.text, 0.045),
-                            borderWidth: StyleSheet.hairlineWidth,
-                            borderColor: withAlpha(theme.colors.text, 0.10),
+                            flex: 1,
+                            minHeight: keyboardVisible ? 44 : 48,
+                            borderRadius: keyboardVisible ? 22 : 24,
+                            backgroundColor: withAlpha(theme.colors.text, 0.05),
                             flexDirection: 'row',
                             alignItems: 'center',
-                            paddingLeft: 2,
-                            paddingRight: 6,
-                            paddingVertical: keyboardVisible ? 5 : 7,
+                            paddingLeft: 0,
+                            paddingRight: 4,
+                            paddingVertical: keyboardVisible ? 3 : 5,
                         }}>
                             {/* Listening is a state, not an alarm: the level and
                                 the stop carry the one red between them, and the
@@ -1364,28 +1385,19 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     <Ionicons name="close" size={19} color={theme.colors.textSecondary} />
                                 </Pressable>
                             </Animated.View> : <>
-                                {attachmentAction}
                                 {composerInput}
                                 {clearAction}
-                                {/* Once there is a prompt the rail is the prompt: the
-                                    thumb control stands down so the text keeps the
-                                    reference's full-width measure instead of wrapping
-                                    four words to a line. It comes straight back when
-                                    the field is cleared, and every action either keeps
-                                    its own permanent route or is a menu row away —
-                                    dictation appends to a draft rather than replacing
-                                    it, so it stays reachable from the ⋯ menu while the
-                                    rail belongs to the text. */}
+                                {/* The trigger the arc opens around lives in the
+                                    field beside the microphone, so the ring blooms
+                                    from something that belongs to the composer
+                                    rather than from a puck parked on the terminal. */}
                                 {railShowsRing && <>
-                                    {/* The ring's docked centre: the overlay draws the
-                                        control exactly here, so this only reserves the
-                                        thumb's spot in the rail. */}
-                                    <View ref={ringSlotRef} onLayout={measureRingAnchor} collapsable={false} pointerEvents="none" style={{ width: 34, height: 40 }} />
+                                    <View ref={ringSlotRef} onLayout={measureRingAnchor} collapsable={false} pointerEvents="none" style={{ width: 30, height: 38 }} />
                                     {dictateAction}
                                 </>}
-                                {sendAction}
                             </>}
                         </View>
+                        {!dictationActive && trailingAction}
                     </View>
                     </View>}
 
@@ -1395,7 +1407,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         so the fan can never reach the composer. View-only keeps
                         a resting anchor in the corner; the ring is transient and
                         never touches the keyboard. */}
-                    {hasTools && terminalBox !== undefined && (!canControl || railShowsRing) && (() => {
+                    {/* With control authority the ring belongs to the rail, so it
+                        waits for its own measurement rather than flashing once in
+                        the terminal's corner on the frame between the two layout
+                        commits. View-only has no rail to dock in and keeps the
+                        corner anchor. */}
+                    {hasTools && terminalBox !== undefined && (!canControl || (railShowsRing && ringCenter !== undefined)) && (() => {
                         const docked = canControl && ringCenter !== undefined;
                         // The overlay reaches down over the rail so the docked
                         // centre control sits exactly on its slot; the fan itself

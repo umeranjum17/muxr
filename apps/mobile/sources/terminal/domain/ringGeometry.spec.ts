@@ -143,22 +143,35 @@ describe('command ring geometry', () => {
             const count = region.width < 340 ? 5 : 6;
             // Every anchor the composer rail can hand it, edge to edge.
             for (let x = 40; x <= region.width - 40; x += 20) {
-                const anchor = { x, y: region.height - 30 };
+                // The screen anchors the trigger on the composer rail, below the
+                // fan's own bounds, and solves the arc against the terminal.
+                const anchor = { x, y: region.height + 40 };
                 const points = dockedRingOffsets(anchor, region, count, disc);
                 const where = `anchored at (${x}, ${anchor.y}) in ${region.width}x${region.height}`;
-                expect(points, where).toHaveLength(count);
+                expect(points.length, `${where}: carries its slots`).toBeGreaterThan(0);
+                expect(points.length, where).toBeLessThanOrEqual(count);
 
                 const radii = points.map((point) => Math.hypot(point.x, point.y));
                 const spread = Math.max(...radii) - Math.min(...radii);
                 expect(spread, `${where}: one radius, not an ellipse`).toBeLessThanOrEqual(0.5);
 
-                const gaps = points.slice(1).map((point, index) => Math.hypot(point.x - points[index]!.x, point.y - points[index]!.y));
-                expect(Math.max(...gaps) - Math.min(...gaps), `${where}: one gap between neighbours`).toBeLessThanOrEqual(0.5);
-                expect(Math.min(...gaps), `${where}: neighbours never touch`).toBeGreaterThanOrEqual(disc);
+                if (points.length > 1) {
+                    const gaps = points.slice(1).map((point, index) => Math.hypot(point.x - points[index]!.x, point.y - points[index]!.y));
+                    expect(Math.max(...gaps) - Math.min(...gaps), `${where}: one gap between neighbours`).toBeLessThanOrEqual(0.5);
+                    expect(Math.min(...gaps), `${where}: neighbours never touch`).toBeGreaterThanOrEqual(disc);
+                }
 
                 // Anchored in place: the arc opens around its own control, so
                 // no disc may sit below the control it came out of.
-                points.forEach((point) => expect(point.y, `${where}: the fan opens upward`).toBeLessThanOrEqual(0));
+                const margin = disc / 2 + 6;
+                points.forEach((point) => {
+                    expect(point.y, `${where}: the fan opens upward`).toBeLessThanOrEqual(0);
+                    const x = anchor.x + point.x;
+                    const y = anchor.y + point.y;
+                    expect(x, `${where}: stays in the region`).toBeGreaterThanOrEqual(margin);
+                    expect(x, `${where}: stays in the region`).toBeLessThanOrEqual(region.width - margin);
+                    expect(y, `${where}: stays in the region`).toBeGreaterThanOrEqual(margin);
+                });
             }
         }
     });
