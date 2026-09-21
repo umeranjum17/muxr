@@ -18,10 +18,10 @@ scripts/plugin/
 
 **Plugin Id** keys each installed package, not its folder name. muxr ships no bundled add-ons: every product surface, including realtime voice, is product code.
 
-Setup removes registrations that still point at deleted direct children of its own bundle directory; plugins linked from elsewhere are untouched.
+Setup retracts a previous release's bundled add-ons by id: only ids in its legacy bundled list whose registration still points at a `plugins/` directory. A plugin linked from elsewhere, and an id muxr never shipped, are left untouched.
 
 ## Invariants
 
 - Clone destinations stay outside the packed npm artifact.
 - Clone output stays self-contained.
-- Provider choice remains plugin-owned state across setup and package upgrades.
+- Provider choice is preserved across setup and package upgrades.

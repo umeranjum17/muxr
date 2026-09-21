@@ -17,7 +17,7 @@ function fakeHerdr(dir: string, cwd: string) {
     const panes: Record<string, unknown>[] = [];
     const agents: Record<string, unknown>[] = [];
     const subscribers = new Set<Socket>();
-    const state = { failSnapshot: false };
+    const state = { failSnapshot: false, failSnapshotAfterPrompt: false };
     let next = 1;
     const handleSnapshot = () => ({ snapshot: { workspaces, tabs, panes, agents } });
     const handlePluginList = () => ({ plugins: [] });
@@ -37,6 +37,21 @@ function fakeHerdr(dir: string, cwd: string) {
     const handleAgentWait = (params: Record<string, unknown>) => ({
         agent: agents.find((agent) => agent.pane_id === params.target),
     });
+    const handleAgentPrompt = (params: Record<string, unknown>) => {
+        if (state.failSnapshotAfterPrompt) state.failSnapshot = true;
+        return {
+            type: 'agent_prompted',
+            agent: {
+                terminal_id: 'terminal-one',
+                agent_status: 'idle',
+                workspace_id: 'w1',
+                tab_id: (tabs[0]?.tab_id as string) ?? 'w1:t1',
+                pane_id: params.target,
+                focused: false,
+                revision: 1,
+            },
+        };
+    };
     const handlePaneClose = () => ({});
     const server = createServer((socket) => {
         let buffer = '';
@@ -74,6 +89,9 @@ function fakeHerdr(dir: string, cwd: string) {
                         break;
                     case 'agent.wait':
                         reply = { id, result: handleAgentWait(p) };
+                        break;
+                    case 'agent.prompt':
+                        reply = { id, result: handleAgentPrompt(p) };
                         break;
                     case 'pane.close':
                         reply = { id, result: handlePaneClose() };
@@ -168,6 +186,43 @@ describe('phone launch before herdr detects the agent', () => {
         } finally {
             unsubscribe();
             vi.restoreAllMocks();
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+});
+
+describe('realtime prompt boundary', () => {
+    it('reports a pre-send failure as not sent and a post-send read failure as unknown', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-prompt-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            attachmentsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            const started = await source.start({ cwd, kind: 'claude' });
+            if (!('info' in started)) throw new Error('launch rejected');
+            Object.assign(herdr.agents[0]!, {
+                agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
+            });
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p1' });
+            await source.refreshHerdr();
+
+            // The route never resolved, so nothing could have been sent.
+            await expect(source.prompt({ sessionId: 'pp_missing', text: 'hello' }))
+                .rejects.toMatchObject({ code: 'prompt-not-sent' });
+            await expect(source.prompt({ sessionId: started.info.id, text: 'hello' })).resolves.toBeUndefined();
+
+            // The receipt was accepted, so a failed confirmation read is ambiguous.
+            herdr.state.failSnapshotAfterPrompt = true;
+            await expect(source.prompt({ sessionId: started.info.id, text: 'again' }))
+                .rejects.toMatchObject({ code: 'prompt-outcome-unknown' });
+        } finally {
             await source.dispose();
             herdr.close();
             rmSync(dir, { recursive: true, force: true });

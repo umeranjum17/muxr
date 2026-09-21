@@ -418,6 +418,12 @@ function agentRouteError(code: 'agent-unavailable' | 'agent-not-ready' | 'agent-
     return Object.assign(new Error(message), { code });
 }
 
+/** Nothing reached the agent, so no message can have been queued. */
+function promptNotSent(cause: unknown): Error {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    return Object.assign(new Error(detail), { code: 'prompt-not-sent', cause });
+}
+
 /** Listed-agent gate. Omitted interactive_ready is ready when lifecycle is live. Starting stays closed. */
 export function herdrAgentIsPromptable(
     agent: Pick<AgentRecord, 'interactive_ready' | 'launch_pending'>,
@@ -2006,23 +2012,35 @@ export async function createHerdrSessionSource(
      * message the phone already accepted.
      */
     async function promptSession(sessionId: string, text: string): Promise<void> {
-        let session = await resolvePane(sessionId);
-        if (!agentPromptable(session)) {
-            // Cheap event-driven wait first, then a short poll for the route
-            // rebind that adoption performs a beat later.
-            await waitForInteractiveAgent(session.paneId, PROMPT_READY_TIMEOUT_MS).catch(() => undefined);
-            const deadline = Date.now() + PROMPT_REBIND_TIMEOUT_MS;
-            do {
-                session = await resolvePane(sessionId);
-                if (agentPromptable(session)) break;
-                await sleep(500);
-            } while (Date.now() < deadline);
+        let session: CurrentSession;
+        try {
+            session = await resolvePane(sessionId);
+            if (!agentPromptable(session)) {
+                // Cheap event-driven wait first, then a short poll for the route
+                // rebind that adoption performs a beat later.
+                await waitForInteractiveAgent(session.paneId, PROMPT_READY_TIMEOUT_MS).catch(() => undefined);
+                const deadline = Date.now() + PROMPT_REBIND_TIMEOUT_MS;
+                do {
+                    session = await resolvePane(sessionId);
+                    if (agentPromptable(session)) break;
+                    await sleep(500);
+                } while (Date.now() < deadline);
+            }
+            if (!agentPromptable(session)) {
+                options.onAgentReadinessDiagnostic?.('not-promptable', false, readinessDetail(session));
+                throw agentRouteError('agent-not-ready');
+            }
+        } catch (error) {
+            throw promptNotSent(error);
         }
         const generation = sessionGenerationKey(session);
-        const promptable = agentPromptable(session);
-        if (!promptable) options.onAgentReadinessDiagnostic?.('not-promptable', false, readinessDetail(session));
-        await promptPromptableHerdrAgent(client, session, promptable, text);
-        const current = await resolvePane(sessionId);
+        await promptHerdrAgent(client, session, text);
+        let current: CurrentSession;
+        try {
+            current = await resolvePane(sessionId);
+        } catch (cause) {
+            throw Object.assign(new Error('The prompt outcome could not be confirmed.'), { code: 'prompt-outcome-unknown', cause });
+        }
         if (sessionGenerationKey(current) !== generation) {
             throw Object.assign(new Error('The prompt generation changed before its receipt could be confirmed.'), { code: 'prompt-outcome-unknown' });
         }
