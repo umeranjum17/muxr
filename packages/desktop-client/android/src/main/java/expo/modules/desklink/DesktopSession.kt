@@ -224,6 +224,22 @@ class DesktopSession(
     sendJson(mapOf("kind" to "key", "name" to name, "down" to down, "seq" to nextSequence()))
   }
 
+  /**
+   * A chorded character (Ctrl+C). The engine presses the key through the
+   * desktop's own layout and holds the named modifiers for that key alone.
+   */
+  fun sendCharacter(character: String, modifiers: List<String>, down: Boolean) {
+    sendJson(
+      mapOf(
+        "kind" to "key",
+        "character" to character,
+        "modifiers" to modifiers,
+        "down" to down,
+        "seq" to nextSequence(),
+      ),
+    )
+  }
+
   fun sendText(text: String) {
     sendJson(mapOf("kind" to "text", "text" to text, "seq" to nextSequence()))
   }

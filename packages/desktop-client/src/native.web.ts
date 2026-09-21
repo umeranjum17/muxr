@@ -67,6 +67,16 @@ const NAMED_KEYS: Record<string, string> = {
     Meta: 'Meta',
 };
 
+/** The modifiers a keyboard event says are held, in the engine's own names. */
+function heldModifiers(event: KeyboardEvent): string[] {
+    const modifiers: string[] = [];
+    if (event.ctrlKey) modifiers.push('Control');
+    if (event.altKey) modifiers.push('Alt');
+    if (event.metaKey) modifiers.push('Meta');
+    if (event.shiftKey) modifiers.push('Shift');
+    return modifiers;
+}
+
 function createSessionElements(): { video: HTMLVideoElement; keyboard: HTMLTextAreaElement } {
     const video = document.createElement('video');
     video.autoplay = true;
@@ -205,18 +215,25 @@ function attachGestures(session: WebSession): () => void {
             control(session, { kind: 'key', name: 'Enter', down: false, seq: seq(session) });
         }
     };
-    const keyDown = (event: KeyboardEvent): void => {
+    const keyEvent = (event: KeyboardEvent, down: boolean): void => {
+        if (composing) return;
         const name = NAMED_KEYS[event.key];
-        if (composing || name === undefined) return;
-        event.preventDefault();
-        control(session, { kind: 'key', name, down: true, seq: seq(session) });
+        if (name !== undefined) {
+            event.preventDefault();
+            control(session, { kind: 'key', name, down, seq: seq(session) });
+            return;
+        }
+        // A chorded character never reaches `beforeinput`: the browser turns
+        // Ctrl+C into a copy command on the hidden textarea. Forward the key
+        // itself and let the engine hold the modifier for that key.
+        const modifiers = heldModifiers(event);
+        if (event.key.length === 1 && modifiers.some((held) => held !== 'Shift')) {
+            event.preventDefault();
+            control(session, { kind: 'key', character: event.key, modifiers, down, seq: seq(session) });
+        }
     };
-    const keyUp = (event: KeyboardEvent): void => {
-        const name = NAMED_KEYS[event.key];
-        if (composing || name === undefined) return;
-        event.preventDefault();
-        control(session, { kind: 'key', name, down: false, seq: seq(session) });
-    };
+    const keyDown = (event: KeyboardEvent): void => keyEvent(event, true);
+    const keyUp = (event: KeyboardEvent): void => keyEvent(event, false);
 
     video.addEventListener('pointerdown', pointerDown);
     video.addEventListener('pointermove', pointerMove);

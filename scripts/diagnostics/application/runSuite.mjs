@@ -32,6 +32,9 @@ const checks = [
     ['unit: relay pairing (expiry, cap, validation)', 'node', ['apps/relay/dist/selfCheck.js']],
     ['unit: layout snapshot round-trip', 'node', ['apps/host/dist/agent/infrastructure/layoutSelfCheck.js']],
     ['unit: setup domain (pairing/connection/crypto)', 'node', ['scripts/setup/domain/dist/selfCheck.js']],
+    // The desktop engine is a Rust crate and nothing else compiles it; without
+    // this step a build break or a failing engine test is green in every lane.
+    ['unit: desktop engine (cargo test: check + its own tests)', 'cargo', ['test', '--manifest-path', 'packages/desktop-host/engine/Cargo.toml'], undefined, 1800000],
     ['policy: host/relay architecture', 'npx', ['vitest', 'run', 'apps/host/src/architecture.test.ts', 'apps/relay/src/architecture.test.ts']],
     // The load-test flows carry their own generous per-test budgets; the step
     // kill must stay well above them or it SIGKILLs a healthy run first.

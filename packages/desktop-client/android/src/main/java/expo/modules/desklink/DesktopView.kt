@@ -300,8 +300,13 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
       if (forwardModifierOrNamedKey(event)) return true
+      val chord = chordCharacter(event)
+      if (chord != null) {
+        session?.sendCharacter(chord, heldModifiers(event), down = true)
+        return true
+      }
       val character = event.unicodeChar
-      if (character >= 32 && !event.isCtrlPressed) {
+      if (character >= 32) {
         session?.sendText(String(Character.toChars(character)))
         return true
       }
@@ -310,6 +315,11 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
       if (forwardModifierOrNamedKey(event)) return true
+      val chord = chordCharacter(event)
+      if (chord != null) {
+        session?.sendCharacter(chord, heldModifiers(event), down = false)
+        return true
+      }
       return super.onKeyUp(keyCode, event)
     }
 
@@ -331,6 +341,11 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
         override fun sendKeyEvent(event: KeyEvent): Boolean {
           if (forwardModifierOrNamedKey(event)) return true
+          val chord = chordCharacter(event)
+          if (chord != null) {
+            session?.sendCharacter(chord, heldModifiers(event), down = event.action == KeyEvent.ACTION_DOWN)
+            return true
+          }
           return super.sendKeyEvent(event)
         }
 
@@ -345,6 +360,29 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
           return super.performEditorAction(actionCode)
         }
       }
+    }
+
+    /**
+     * The letter or digit a chorded key stands for, or null when it is not a
+     * chord. `unicodeChar` cannot be used for these: with Control held it is the
+     * ASCII control character, not the key the desktop has to press.
+     */
+    private fun chordCharacter(event: KeyEvent): String? {
+      if (!event.isCtrlPressed && !event.isAltPressed && !event.isMetaPressed) return null
+      return when (event.keyCode) {
+        in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z -> ('a' + (event.keyCode - KeyEvent.KEYCODE_A)).toString()
+        in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> ('0' + (event.keyCode - KeyEvent.KEYCODE_0)).toString()
+        else -> null
+      }
+    }
+
+    private fun heldModifiers(event: KeyEvent): List<String> {
+      val modifiers = mutableListOf<String>()
+      if (event.isCtrlPressed) modifiers.add("Control")
+      if (event.isAltPressed) modifiers.add("Alt")
+      if (event.isMetaPressed) modifiers.add("Meta")
+      if (event.isShiftPressed) modifiers.add("Shift")
+      return modifiers
     }
 
     /**

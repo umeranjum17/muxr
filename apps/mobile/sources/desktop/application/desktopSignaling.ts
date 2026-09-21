@@ -15,11 +15,6 @@ export interface OpenDesktopOptions {
     maxFps?: number;
 }
 
-interface OpenedDesktop {
-    desktopId: string;
-    geometry: SessionEvent extends never ? never : unknown;
-}
-
 /**
  * The desktop client package's `Signaling`, carried over muxr's own
  * authenticated request path.
@@ -70,7 +65,15 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
             cursor = result.cursor;
             for (const raw of result.events) {
                 const mapped = toClientEvent(raw);
-                if (mapped !== null) emit(mapped);
+                if (mapped === null) continue;
+                emit(mapped);
+                if (mapped.kind === 'revoked') {
+                    // The session is over: every later poll would only fail against
+                    // a desktopId the host has already dropped.
+                    stopPolling();
+                    desktopId = null;
+                    return;
+                }
             }
         } catch {
             // A poll failure is not fatal by itself: the media connection has its
@@ -149,5 +152,3 @@ function requireDesktopId(id: string | null): string {
     if (id === null) throw new Error('no desktop session is open');
     return id;
 }
-
-export type { OpenedDesktop };

@@ -51,8 +51,6 @@ pub struct Event {
 pub struct HelloParams {
     #[serde(default)]
     pub protocol: u32,
-    #[serde(default)]
-    pub client: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

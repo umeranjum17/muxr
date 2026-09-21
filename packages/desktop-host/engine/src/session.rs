@@ -337,6 +337,10 @@ pub fn capabilities() -> serde_json::Value {
     } else {
         "none"
     };
+    // The clipboard backend is wl-clipboard-rs, so it needs a Wayland
+    // compositor: on an X11-only host every transfer would fail after the
+    // surface had already offered it.
+    let clipboard = session_kind == "wayland";
     let x11 = crate::x11::X11Desktop::connect(None)
         .map(|desktop| serde_json::json!([desktop.screen_size().0, desktop.screen_size().1]))
         .unwrap_or(serde_json::Value::Null);
@@ -377,7 +381,7 @@ pub fn capabilities() -> serde_json::Value {
             "unavailable_reason": unavailable,
             "grant": grant_state,
         },
-        "clipboard": { "read": true, "write": true, "mime": ["text/plain;charset=utf-8"],
+        "clipboard": { "read": clipboard, "write": clipboard, "mime": ["text/plain;charset=utf-8"],
                        "maxBytes": clipboard::MAX_CLIPBOARD_BYTES },
     })
 }
@@ -776,6 +780,10 @@ impl Inner {
                 format!("({x},{y}) is outside the {width}x{height} surface"),
             ));
         }
+        // The client sends the encoded surface's own pixels; both input
+        // backends are built for, and apply, the source's pixels at their origin
+        // in the desktop layout. One conversion here keeps every caller honest.
+        let (x, y) = to_source_pixels(x, y, (width, height), &self.source);
         self.with_input(|target| match phase {
             PointerPhase::Move => target.move_absolute(x, y),
             PointerPhase::Down => {
@@ -967,7 +975,11 @@ fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: std_mpsc::Receiver<I420>, runnin
                         Ok(encoder) => encoder,
                         Err(_) => break,
                     };
-                    encoder.encode(&frame, !first_frame_sent)
+                    // The first frame is a key frame, but the far end is not
+                    // receiving yet, so a request from the peer (transport
+                    // connected, control channel opened) forces a fresh one.
+                    let force = !first_frame_sent || inner.peer.take_keyframe_request();
+                    encoder.encode(&frame, force)
                 };
                 let packet = match packet {
                     Ok(packet) => packet,
@@ -1083,6 +1095,22 @@ pub fn fit(width: usize, height: usize, max_width: usize, max_height: usize) -> 
     )
 }
 
+/// Encoded-surface pixels to the source's own pixels, at the source's origin in
+/// the desktop layout. The client aims at what it sees; the backends act on the
+/// source.
+fn to_source_pixels(
+    x: i64,
+    y: i64,
+    encoded: (usize, usize),
+    source: &SelectedSource,
+) -> (i64, i64) {
+    let (width, height) = encoded;
+    (
+        source.origin_x as i64 + x * source.width as i64 / width as i64,
+        source.origin_y as i64 + y * source.height as i64 / height as i64,
+    )
+}
+
 fn opaque_id() -> String {
     use rand::Rng;
     let mut rng = rand::thread_rng();
@@ -1109,5 +1137,25 @@ mod tests {
     #[test]
     fn fit_keeps_the_aspect_ratio_when_the_box_is_the_constraint() {
         assert_eq!(fit(2560, 1440, 1200, 600), (1066, 600));
+    }
+
+    #[test]
+    fn an_encoded_surface_pixel_maps_to_the_sources_own_pixel() {
+        let source = SelectedSource {
+            node_id: 0,
+            width: 1920,
+            height: 1080,
+            position: None,
+            source_type: None,
+            origin_x: 100,
+            origin_y: 50,
+        };
+        // A tap at the centre of a 1280x720 surface must reach the centre of a
+        // 1920x1080 desktop at origin (100,50), not two thirds of the way there.
+        assert_eq!(
+            to_source_pixels(640, 360, (1280, 720), &source),
+            (100 + 960, 50 + 540)
+        );
+        assert_eq!(to_source_pixels(0, 0, (1280, 720), &source), (100, 50));
     }
 }

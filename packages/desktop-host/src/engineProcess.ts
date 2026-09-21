@@ -39,7 +39,6 @@ export class EngineClient {
     private readonly queue: EngineEvent[] = [];
     private nextId = 1;
     private closed = false;
-    private exitDetail: { code: number | null; signal: NodeJS.Signals | null } | null = null;
     private readonly timeoutMs: number;
 
     private constructor(child: ChildProcessWithoutNullStreams, options: EngineClientOptions) {
@@ -51,7 +50,6 @@ export class EngineClient {
         const stderr = createInterface({ input: child.stderr });
         stderr.on('line', (line) => options.onDiagnostic?.(line));
         child.on('exit', (code, signal) => {
-            this.exitDetail = { code, signal };
             this.closed = true;
             for (const [id, pending] of this.pending) {
                 this.pending.delete(id);
@@ -190,10 +188,6 @@ export class EngineClient {
     /** Drain notifications received so far, in order. */
     drainEvents(): EngineEvent[] {
         return this.queue.splice(0, this.queue.length);
-    }
-
-    get exited(): { code: number | null; signal: NodeJS.Signals | null } | null {
-        return this.exitDetail;
     }
 
     async stop(): Promise<void> {

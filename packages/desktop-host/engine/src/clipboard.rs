@@ -8,7 +8,7 @@
 use anyhow::{Context, Result};
 use std::io::Read;
 use wl_clipboard_rs::copy::{MimeType, Options, Source};
-use wl_clipboard_rs::paste::{ClipboardType, Error as PasteError, MimeType as PasteMime, Seat};
+use wl_clipboard_rs::paste::{ClipboardType, MimeType as PasteMime, Seat};
 
 /// The engine's bound on a single clipboard transfer. Larger than any real
 /// paste of text, small enough that a hostile client cannot use it as a file
@@ -55,9 +55,4 @@ pub fn read_or_explain() -> Result<String, String> {
             }
         }
     }
-}
-
-/// True when a paste failure was simply an empty clipboard.
-pub fn is_empty_clipboard(error: &PasteError) -> bool {
-    matches!(error, PasteError::NoMimeType | PasteError::NoSeats)
 }

@@ -21,6 +21,14 @@ const CLIPBOARD_TIMEOUT_MS = 4000;
 const MAX_RECONNECT_ATTEMPTS = 1;
 
 /**
+ * Without a relay there is no route between two networks: ICE only ever finds
+ * host candidates. A client that cannot reach the desktop is told that plainly
+ * rather than left on a spinner.
+ */
+const UNREACHABLE_DESKTOP =
+    'The desktop could not be reached. Connecting from outside the desktop\'s own network is not supported in this version.';
+
+/**
  * The platform module, loaded the first time a desktop is opened.
  *
  * It holds the session, the renderer and the input bridge — the largest thing in
@@ -137,31 +145,43 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         if (id != null) nativeDesklink?.hideKeyboard(id);
     }, []);
 
-    const teardown = useCallback(async (reason: string, closeRemote: boolean) => {
+    /** Drop everything this process holds for a session the engine has ended. */
+    const discardSession = useCallback(() => {
         generationToken.current += 1;
         const id = nativeRef.current;
         nativeRef.current = null;
         for (const resolve of pendingClipboard.current.values()) resolve({ text: '', error: 'the session ended' });
         pendingClipboard.current.clear();
-        const openedRef = opened.current;
-        const owner = signaling.current;
         opened.current = null;
         signaling.current = null;
         setNativeId(null);
         if (id != null) nativeDesklink?.closeSession(id);
-        if (closeRemote && openedRef != null && owner != null) {
-            try {
-                await owner.request('session.close', {
-                    session_id: openedRef.sessionId,
-                    generation: openedRef.generation,
-                });
-            } catch {
-                // The engine already dropped it; nothing useful to report.
-            }
+    }, []);
+
+    /** Tell the host a session is over; a failure is nothing the user can act on. */
+    const endRemote = useCallback(async (
+        openedRef: SessionOpenResult | null,
+        owner: Signaling | null,
+    ): Promise<void> => {
+        if (openedRef == null || owner == null) return;
+        try {
+            await owner.request('session.close', {
+                session_id: openedRef.sessionId,
+                generation: openedRef.generation,
+            });
+        } catch {
+            // The engine already dropped it; nothing useful to report.
         }
+    }, []);
+
+    const teardown = useCallback(async (reason: string, closeRemote: boolean) => {
+        const openedRef = opened.current;
+        const owner = signaling.current;
+        discardSession();
+        if (closeRemote) await endRemote(openedRef, owner);
         update({ status: 'ended', presented: false, failure: null });
         void reason;
-    }, [update]);
+    }, [endRemote, discardSession, update]);
 
     const connect = useCallback(async () => {
         if (!(await loadPlatform())) {
@@ -253,84 +273,101 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
 
     // Native events: answer, candidates, control replies, presentation, failure.
     useEffect(() => {
-        if (nativeDesklink?.addListener == null) return;
         let dropped = false;
-        const subscription = nativeDesklink.addListener('onSessionEvent', (event) => {
+        let subscription: { remove: () => void } | null = null;
+        const subscribe = async (): Promise<void> => {
+            // The platform module is loaded on first use, which may be after this
+            // effect runs; subscribing before it resolves would drop the listener.
+            if (!(await loadPlatform())) return;
             if (dropped) return;
-            if (event.sessionId !== nativeRef.current) return;
-            const openedRef = opened.current;
-            const channel = signaling.current;
-            switch (event.name) {
-                case 'answer': {
-                    const sdp = String(event.payload.sdp ?? '');
-                    if (openedRef == null || channel == null || sdp === '') return;
-                    channel.request('session.description', {
-                        session_id: openedRef.sessionId,
-                        generation: openedRef.generation,
-                        description: { type: 'answer', sdp },
-                    }).catch(() => refuse('the desktop refused our answer', 'transport'));
-                    return;
-                }
-                case 'candidate': {
-                    if (openedRef == null || channel == null) return;
-                    channel.request('session.candidate', {
-                        session_id: openedRef.sessionId,
-                        generation: openedRef.generation,
-                        candidate: String(event.payload.candidate ?? ''),
-                        sdpMid: (event.payload.sdpMid as string | null) ?? null,
-                        sdpMLineIndex: (event.payload.sdpMLineIndex as number | null) ?? null,
-                    }).catch(() => undefined);
-                    return;
-                }
-                case 'track':
-                    // Readiness is not "a track arrived": it is a frame on screen.
-                    return;
-                case 'presented':
-                    attempts.current = 0;
-                    update({ status: 'live', presented: true, failure: null });
-                    return;
-                case 'control': {
-                    const reply = parseControlReply(String(event.payload.message ?? ''));
-                    if (reply == null) return;
-                    if (reply.kind === 'hello') {
-                        diagnostics.current.protocol = reply.protocol;
-                        if (reply.protocol !== PROTOCOL_VERSION) {
-                            refuse('this app and the host engine speak different protocol versions', 'incompatible-version');
-                            void teardown('protocol mismatch', true);
+            const platform = nativeDesklink;
+            if (platform?.addListener == null) return;
+            subscription = platform.addListener('onSessionEvent', (event) => {
+                if (dropped) return;
+                if (event.sessionId !== nativeRef.current) return;
+                const openedRef = opened.current;
+                const channel = signaling.current;
+                switch (event.name) {
+                    case 'answer': {
+                        const sdp = String(event.payload.sdp ?? '');
+                        if (openedRef == null || channel == null || sdp === '') return;
+                        channel.request('session.description', {
+                            session_id: openedRef.sessionId,
+                            generation: openedRef.generation,
+                            description: { type: 'answer', sdp },
+                        }).catch(() => refuse('the desktop refused our answer', 'transport'));
+                        return;
+                    }
+                    case 'candidate': {
+                        if (openedRef == null || channel == null) return;
+                        channel.request('session.candidate', {
+                            session_id: openedRef.sessionId,
+                            generation: openedRef.generation,
+                            candidate: String(event.payload.candidate ?? ''),
+                            sdpMid: (event.payload.sdpMid as string | null) ?? null,
+                            sdpMLineIndex: (event.payload.sdpMLineIndex as number | null) ?? null,
+                        }).catch(() => undefined);
+                        return;
+                    }
+                    case 'track':
+                        // Readiness is not "a track arrived": it is a frame on screen.
+                        return;
+                    case 'presented':
+                        attempts.current = 0;
+                        update({ status: 'live', presented: true, failure: null });
+                        return;
+                    case 'control': {
+                        const reply = parseControlReply(String(event.payload.message ?? ''));
+                        if (reply == null) return;
+                        if (reply.kind === 'hello') {
+                            diagnostics.current.protocol = reply.protocol;
+                            if (reply.protocol !== PROTOCOL_VERSION) {
+                                refuse('this app and the host engine speak different protocol versions', 'incompatible-version');
+                                void teardown('protocol mismatch', true);
+                                return;
+                            }
+                            update({ geometry: reply.geometry });
+                            // The native view needs the surface size to map touches.
+                            const id = nativeRef.current;
+                            if (id != null) {
+                                nativeDesklink?.setSurfaceSize(id, reply.geometry.encoded.width, reply.geometry.encoded.height);
+                            }
                             return;
                         }
-                        update({ geometry: reply.geometry });
-                        // The native view needs the surface size to map touches.
-                        const id = nativeRef.current;
-                        if (id != null) {
-                            nativeDesklink?.setSurfaceSize(id, reply.geometry.encoded.width, reply.geometry.encoded.height);
+                        if (reply.kind === 'clipboard') {
+                            pendingClipboard.current.get(reply.request)?.({ text: reply.text, error: reply.error });
+                            pendingClipboard.current.delete(reply.request);
+                            return;
+                        }
+                        if (reply.kind === 'rejected') {
+                            diagnostics.current.lastRejection = `${reply.code}: ${reply.message}`;
+                            update({ diagnostics: { ...diagnostics.current } });
+                            return;
+                        }
+                        if (reply.kind === 'revoked') {
+                            // The engine ends the data channel with a revocation when
+                            // the session is replaced or closed; it is the only notice
+                            // the client gets, so it has to end the session here.
+                            void teardown(reply.reason, false);
+                            update({ status: 'ended', failure: { code: 'revoked', message: reply.reason } });
+                            return;
                         }
                         return;
                     }
-                    if (reply.kind === 'clipboard') {
-                        pendingClipboard.current.get(reply.request)?.({ text: reply.text, error: reply.error });
-                        pendingClipboard.current.delete(reply.request);
+                    case 'failure':
+                        refuse(UNREACHABLE_DESKTOP, 'transport');
                         return;
-                    }
-                    if (reply.kind === 'rejected') {
-                        diagnostics.current.lastRejection = `${reply.code}: ${reply.message}`;
-                        update({ diagnostics: { ...diagnostics.current } });
+                    case 'closed':
                         return;
-                    }
-                    return;
+                    default:
+                        return;
                 }
-                case 'failure':
-                    refuse(String(event.payload.message ?? 'the desktop connection failed'), 'transport');
-                    return;
-                case 'closed':
-                    return;
-                default:
-                    return;
-            }
-        });
+            });
+        };
+        void subscribe();
         return () => {
             dropped = true;
-            subscription.remove();
+            subscription?.remove();
         };
     }, [refuse, teardown, update]);
 
@@ -377,12 +414,20 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         if (snapshot.failure?.code !== 'transport') return;
         if (attempts.current >= MAX_RECONNECT_ATTEMPTS) return;
         attempts.current += 1;
+        // The failed session is dead on the engine side. Leaving its handle in
+        // place would make the reconnect below return without doing anything,
+        // and leaving the host session open would orphan its capture and its
+        // polling client.
+        const owner = signaling.current;
+        const openedRef = opened.current;
+        discardSession();
+        void endRemote(openedRef, owner);
         update({ status: 'reconnecting' });
         const timer = setTimeout(() => {
             void connect();
         }, 800);
         return () => clearTimeout(timer);
-    }, [snapshot.status, snapshot.failure, connect, update]);
+    }, [endRemote, snapshot.status, snapshot.failure, connect, discardSession, update]);
 
     return useMemo<DesktopSession>(() => ({
         snapshot,

@@ -248,16 +248,12 @@ export interface RequestMap extends PeerRequestMap {
             maxHeight?: number;
             bitrateKbps?: number;
             maxFps?: number;
-            relayToken?: string;
-            relayExpiresAt?: number;
         };
         result: {
             desktopId: string;
             generation: number;
             geometry: DesktopSurfaceGeometry;
             source: { kind: string; width: number; height: number; origin: { x: number; y: number } };
-            /** Short-lived TURN credentials when the session must relay. */
-            iceServers?: Array<{ urls: string[]; username?: string; credential?: string }>;
         };
     };
     /** Carry the client's answer back to the engine. */

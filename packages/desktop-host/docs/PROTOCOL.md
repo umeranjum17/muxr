@@ -54,12 +54,12 @@ notifications carry `event` and never an `id`.
 Result:
 
 ```jsonc
-{"protocol":1,"engine":"desklink-host/0.1.0","capabilities":{ /* see below */ }}
+{"protocol":1,"engine":"desklink-host/0.1.0","platform":"linux", /* the rest of Capabilities */ }
 ```
 
 The consumer must send `hello` first. A version the engine does not speak is
-refused with `error.code = "unsupported-protocol"`; the engine then exits rather
-than guessing.
+refused with `error.code = "unsupported-protocol"`, and until a supported
+`hello` arrives every other request is refused the same way.
 
 ## Capabilities
 
@@ -167,7 +167,7 @@ The engine is the media offerer; the consumer's authenticated signaling carries
 the SDP and candidates to the client and brings back the answer.
 
 ```jsonc
-{"event":"session.description","params":{"sessionId":"…","generation":1,
+{"event":"session.description","params":{"generation":1,
   "description":{"type":"offer","sdp":"v=0\r\n…"}}}
 ```
 
@@ -177,7 +177,7 @@ the SDP and candidates to the client and brings back the answer.
 ```
 
 ```jsonc
-{"event":"session.candidate","params":{"sessionId":"…","generation":1,
+{"event":"session.candidate","params":{"generation":1,
   "candidate":"candidate:…","sdpMid":"0","sdpMLineIndex":0}}
 {"id":6,"method":"session.candidate","params":{"sessionId":"…","generation":1,
   "candidate":"candidate:…","sdpMid":"0","sdpMLineIndex":0}}
@@ -188,25 +188,39 @@ A candidate that arrives before the remote description is buffered, not dropped.
 ### State
 
 ```jsonc
-{"event":"session.state","params":{"sessionId":"…","generation":1,
-  "capture":"streaming",              // idle|consented|streaming|ended
+{"event":"session.state","params":{"generation":1,
+  "capture":"streaming",              // consented|streaming|ended
   "transport":"connected",            // new|connecting|connected|failed|closed
-  "firstFrameAt":1789000000123,       // ms since engine start, null until presented
-  "geometry":{"source":{"width":2560,"height":1440},
-              "encoded":{"width":1280,"height":720},
-              "origin":{"x":0,"y":0}},
-  "degraded":null}}                   // e.g. "source-unreadable: dmabuf"
+  "firstFrame":true}}                 // false until a frame has been encoded
 ```
 
-`geometry` is what the client maps touch against: the encoded surface plus the
-source's origin in the desktop layout. A source or scale change starts a new
-`generation`; input carrying an older generation is refused, never remapped.
+The `geometry` a client maps touch against is the one `session.open` returned,
+and the one the control channel's `hello` repeats. A source or scale change
+starts a new `generation`; input carrying an older generation is refused, never
+remapped.
 
 ```jsonc
-{"event":"session.metrics","params":{"sessionId":"…","generation":1,
-  "capturedFrames":812,"droppedFrames":3,"encodedFrames":809,
-  "encodedBytes":12345678,"inputApplied":44,"inputRejected":0,
-  "rttMs":41,"route":"direct","codec":"vp9"}}
+{"event":"session.restoreToken","params":{"token":"…"}}
+```
+
+The portal handed back a restore token for a later `session.open`. A consumer
+that does not persist one can ignore this notification.
+
+```jsonc
+{"event":"session.revoked","params":{"reason":"…"}}
+```
+
+The session ended on the engine's side; there is nothing further to drain.
+
+Metrics are a request, not a notification:
+
+```jsonc
+{"id":7,"method":"session.metrics","params":{"sessionId":"…"}}
+```
+
+```jsonc
+{"id":7,"result":{"captured_frames":812,"dropped_frames":3,"encoded_frames":809,
+  "encoded_bytes":12345678,"input_applied":44,"input_rejected":0}}
 ```
 
 ## Input and clipboard: the session's control channel
@@ -281,13 +295,7 @@ Refused with `error.code = "clipboard"` when the session lacks `clipboard`, or
 when the desktop's clipboard has no text. The size bound is reported in
 `capabilities` as `clipboard.maxBytes`.
 
-## Renew, and close
-
-```jsonc
-{"id":11,"method":"session.renew","params":{"sessionId":"…","generation":1,"ttlSeconds":600}}
-```
-
-Bumps the session's lease without touching capture, transport or input state.
+## Close
 
 ```jsonc
 {"id":12,"method":"session.close","params":{"sessionId":"…"}}

@@ -45,17 +45,6 @@ impl PixelFormat {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct CaptureStats {
-    pub frames: u64,
-    pub dropped: u64,
-    pub encode_failures: u64,
-    pub negotiated_format: String,
-    pub buffer_type: String,
-    pub source_width: usize,
-    pub source_height: usize,
-}
-
 /// Everything we learned about the negotiated stream, reported to the consumer
 /// so it can map input against the real surface.
 #[derive(Debug, Clone, serde::Serialize)]

@@ -14,10 +14,4 @@ export const desktopCopy = {
     failedBody: 'The desktop did not start.',
     endedTitle: 'Desktop closed',
     endedBody: 'The desktop session has ended.',
-    unavailableTitle: 'This computer cannot show a desktop',
 } as const;
-
-/** The engine's own reason, translated only in tone, never in substance. */
-export function desktopUnavailableMessage(reason: string): string {
-    return reason;
-}

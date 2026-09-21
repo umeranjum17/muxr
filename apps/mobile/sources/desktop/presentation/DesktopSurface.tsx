@@ -10,11 +10,9 @@ import { Typography } from '@/constants/Typography';
 import { ui } from '@/components/ui';
 import { Modal } from '@/modal';
 import { createDesktopSignaling } from '../application/desktopSignaling';
-import { desktopCopy, desktopUnavailableMessage } from '../model/desktopCopy';
+import { desktopCopy } from '../model/desktopCopy';
 
 export interface DesktopSurfaceProps {
-    /** Falls back to the plain-language reason from `desktopCapabilities`. */
-    unavailableReason?: string;
     onExit: () => void;
 }
 
@@ -26,7 +24,7 @@ export interface DesktopSurfaceProps {
  * keyboard toggle, the two explicit clipboard directions, and returning to the
  * conversation. Everything else is the desktop.
  */
-export function DesktopSurface({ unavailableReason, onExit }: DesktopSurfaceProps) {
+export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
     const { theme } = useUnistyles();
     const [clipboardBusy, setClipboardBusy] = React.useState(false);
     const [notice, setNotice] = React.useState<string | null>(null);
@@ -99,7 +97,7 @@ export function DesktopSurface({ unavailableReason, onExit }: DesktopSurfaceProp
         onExit();
     }, [close, onExit, session]);
 
-    const status = describe(desktopCopy, snapshot, unavailableReason);
+    const status = describe(desktopCopy, snapshot);
     const live = snapshot.status === 'live';
 
     return (
@@ -197,21 +195,17 @@ function ToolButton({
 function describe(
     copy: typeof desktopCopy,
     snapshot: SessionSnapshot,
-    unavailableReason: string | undefined,
 ): { title: string; detail?: string; spinner: boolean; canRetry: boolean } {
     if (snapshot.status === 'failed') {
         return {
             title: copy.failedTitle,
-            detail: snapshot.failure?.message ?? unavailableReason ?? copy.failedBody,
+            detail: snapshot.failure?.message ?? copy.failedBody,
             spinner: false,
             canRetry: true,
         };
     }
     if (snapshot.status === 'ended') {
         return { title: copy.endedTitle, detail: copy.endedBody, spinner: false, canRetry: true };
-    }
-    if (unavailableReason !== undefined) {
-        return { title: copy.unavailableTitle, detail: desktopUnavailableMessage(unavailableReason), spinner: false, canRetry: false };
     }
     return {
         title: snapshot.status === 'reconnecting' ? copy.reconnectingTitle : copy.startingTitle,

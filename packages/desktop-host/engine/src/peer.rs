@@ -150,7 +150,6 @@ pub struct VideoPeer {
     ssrc: u32,
     control: Arc<dyn DataChannel>,
     payload_type: PayloadType,
-    started: Instant,
     runtime: Arc<dyn Runtime>,
 }
 
@@ -273,7 +272,6 @@ impl VideoPeer {
                 ssrc,
                 control,
                 payload_type,
-                started: Instant::now(),
                 runtime,
             },
             offer.sdp,
@@ -321,14 +319,6 @@ impl VideoPeer {
             })
             .await
             .context("failed to hand a frame to the track")
-    }
-
-    pub fn payload_type(&self) -> PayloadType {
-        self.payload_type
-    }
-
-    pub fn uptime(&self) -> Duration {
-        self.started.elapsed()
     }
 
     /// Take the pending "the far end needs a reference frame" request, if any.

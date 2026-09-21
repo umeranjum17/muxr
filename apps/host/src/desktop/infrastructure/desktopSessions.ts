@@ -37,6 +37,8 @@ interface LiveSession extends DesktopSessionRecord {
     events: DesktopEvent[];
     /** How many notifications this session has ever appended to the backlog. */
     appended: number;
+    /** The engine closed this session because another one replaced it. */
+    revoked: boolean;
 }
 
 /** How many notifications one session keeps for a client that fell behind. */
@@ -124,6 +126,14 @@ export class DesktopSessions {
             ...(request.maxFps === undefined ? {} : { maxFps: request.maxFps }),
         });
         const desktopId = nextDesktopId();
+        // The engine serves one session at a time and closes the previous one as
+        // `replaced`. The replaced client is told once, and from here on the
+        // engine's notifications belong to the new session alone.
+        for (const existing of this.sessions.values()) {
+            existing.revoked = true;
+            existing.appended += 1;
+            existing.events.push({ kind: 'revoked', reason: 'another device opened this computer' });
+        }
         this.sessions.set(desktopId, {
             desktopId,
             engineSessionId: opened.sessionId,
@@ -135,6 +145,7 @@ export class DesktopSessions {
             client,
             events: [],
             appended: 0,
+            revoked: false,
         });
         // The offer is already queued on the engine client; the first poll
         // delivers it, which keeps one delivery path instead of two.
@@ -168,7 +179,13 @@ export class DesktopSessions {
         const events = cursor >= oldest && cursor <= session.appended
             ? session.events.slice(cursor - oldest)
             : session.events.slice();
-        return { cursor: session.appended, events };
+        const answer = { cursor: session.appended, events };
+        if (session.revoked) {
+            // The replaced client has now been told; nothing further is owed to
+            // it, and its record must not outlive the notification.
+            this.sessions.delete(desktopId);
+        }
+        return answer;
     }
 
     async close(desktopId: string): Promise<{ closed: boolean }> {
@@ -216,10 +233,14 @@ export class DesktopSessions {
     /** Move everything the engine queued into this session's event list. */
     private drain(desktopId: string): void {
         const session = this.sessions.get(desktopId);
-        if (session === undefined) return;
+        // The engine's queue belongs to the session it is currently serving; a
+        // replaced session must never drain another session's notifications.
+        if (session === undefined || session.revoked) return;
         for (const event of session.client.drainEvents()) {
+            const translated = toDesktopEvent(event);
+            if (translated === null) continue;
             session.appended += 1;
-            session.events.push(toDesktopEvent(event));
+            session.events.push(translated);
             // A client that fell further behind than the backlog is worth cannot
             // be served an exact delta, so only the most recent notifications are
             // kept and its cursor is corrected on the next poll.
@@ -267,7 +288,7 @@ export class DesktopSessions {
     }
 }
 
-function toDesktopEvent(event: { event: string; params: Record<string, unknown> }): DesktopEvent {
+function toDesktopEvent(event: { event: string; params: Record<string, unknown> }): DesktopEvent | null {
     switch (event.event) {
         case 'session.description':
             return {
@@ -290,7 +311,11 @@ function toDesktopEvent(event: { event: string; params: Record<string, unknown> 
                 transport: String(event.params.transport ?? 'unknown'),
                 firstFrame: event.params.firstFrame === true,
             };
-        default:
+        case 'session.revoked':
             return { kind: 'revoked', reason: String(event.params.reason ?? 'the desktop session ended') };
+        default:
+            // A notification this host does not know — a restore token, or a
+            // newer engine's addition — is not a reason to end the session.
+            return null;
     }
 }

@@ -381,6 +381,18 @@ async fn dispatch(
 ) -> std::result::Result<serde_json::Value, ErrorBody> {
     match request.method.as_str() {
         "hello" => {
+            let params: protocol::HelloParams = serde_json::from_value(request.params.clone())
+                .map_err(|error| ErrorBody::new("malformed", error.to_string()))?;
+            if params.protocol != protocol::PROTOCOL_VERSION {
+                return Err(ErrorBody::new(
+                    "unsupported-protocol",
+                    format!(
+                        "this engine speaks protocol {} but the consumer asked for {}",
+                        protocol::PROTOCOL_VERSION,
+                        params.protocol
+                    ),
+                ));
+            }
             *hello_seen = true;
             Ok(session::capabilities())
         }
@@ -547,4 +559,42 @@ fn check_session(
         return Err(ErrorBody::new("session", "that session has ended"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_consumer_speaking_another_protocol_version_is_refused() {
+        let mut hello_seen = false;
+        let mut current = None;
+        let (events, _received) = tokio_mpsc::unbounded_channel();
+        let request = Request {
+            id: Some(1),
+            method: String::from("hello"),
+            params: serde_json::json!({ "protocol": 99, "client": "test" }),
+        };
+        let error = dispatch(&request, &mut hello_seen, &mut current, &events)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "unsupported-protocol");
+        assert!(!hello_seen, "a refused handshake must not open the gate");
+    }
+
+    #[tokio::test]
+    async fn the_state_notification_carries_exactly_what_the_document_promises() {
+        let line = render_event(session::SessionEvent::State {
+            capture: "streaming",
+            transport: String::from("connected"),
+            first_frame: true,
+        })
+        .expect("a state event is renderable");
+        let parsed: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(parsed["event"], "session.state");
+        assert_eq!(
+            parsed["params"],
+            serde_json::json!({ "capture": "streaming", "transport": "connected", "firstFrame": true })
+        );
+    }
 }
