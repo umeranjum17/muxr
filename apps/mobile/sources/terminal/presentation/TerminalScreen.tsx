@@ -42,6 +42,7 @@ import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { useDraft } from '@/hooks/useDraft';
 import { ComposerAttachments, type ComposerAttachment } from '@/components/ComposerAttachments';
+import { withAlpha } from '@/components/ui';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
 import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
@@ -84,7 +85,7 @@ const INSERT_ONLY_LABEL = 'Inserts into the prompt, never sends.';
 // the screen around the bars.
 const BAR_WEIGHTS = [0.45, 0.7, 1, 0.7, 0.45];
 function DictationBars({ level, color }: { level: SharedValue<number>; color: string }) {
-    return <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 8 }}>
+    return <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 10 }}>
         {BAR_WEIGHTS.map((weight, index) => (
             <DictationBar key={index} level={level} weight={weight} color={color} first={index === 0} />
         ))}
@@ -92,8 +93,8 @@ function DictationBars({ level, color }: { level: SharedValue<number>; color: st
 }
 
 function DictationBar({ level, weight, color, first }: { level: SharedValue<number>; weight: number; color: string; first: boolean }) {
-    const bar = useAnimatedStyle(() => ({ height: 5 + level.value * 15 * weight }));
-    return <Animated.View style={[{ width: 4, borderRadius: 2, backgroundColor: color, marginLeft: first ? 0 : 3 }, bar]} />;
+    const bar = useAnimatedStyle(() => ({ height: 4 + level.value * 11 * weight }));
+    return <Animated.View style={[{ width: 2.5, borderRadius: 1.25, backgroundColor: color, marginLeft: first ? 0 : 3 }, bar]} />;
 }
 
 /** The restrained resolving state: three dots that breathe while text lands. */
@@ -441,6 +442,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     }, [actionsOpen, overviewOpen, treeOpen, findOpen, controlGrid.open, menu]);
     const editKeys = React.useCallback(() => { setToolsOpen(false); setActionsOpen(false); setControlGrid({ open: true, category: 'keys' }); }, []);
     const overlayContributions = useSlotContributions('session.overlay');
+    // The composer slot is one icon, and an unlabelled icon dropped into a list
+    // of labelled rows reads as something broken rather than something offered.
+    // The contribution already names itself for assistive tech; the row shows
+    // that same name.
+    const composerContributions = useSlotContributions('session.composer.trailing');
+    const composerSlotLabel = composerContributions.length === 1 && composerContributions[0]?.type === 'native' && composerContributions[0].accessibilityLabel !== undefined
+        ? resolvePluginText(composerContributions[0].accessibilityLabel)
+        : undefined;
     // The workspace tree is product and always opens from the header;
     // third-party overlays mount beside it when they contribute.
     const overlayLabel = overlayContributions[0]?.type === 'native' && overlayContributions[0].title !== undefined
@@ -932,7 +941,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             // send; unarmed it is a quiet outline, never a second bright control
             // competing with the send it is not yet.
             const sendAction = <Pressable onPress={sendPrompt} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }}
-                style={({ pressed }) => ({ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginLeft: 2, backgroundColor: canSend ? theme.colors.terminal.prompt : 'transparent', borderWidth: canSend ? 0 : StyleSheet.hairlineWidth, borderColor: theme.colors.glass.border, opacity: pressed ? 0.8 : canSend ? 1 : 0.6, transform: [{ scale: pressed && canSend ? 0.94 : 1 }] })}>
+                style={({ pressed }) => ({ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginLeft: 2, backgroundColor: canSend ? theme.colors.terminal.prompt : 'transparent', opacity: pressed ? 0.8 : canSend ? 1 : 0.55, transform: [{ scale: pressed && canSend ? 0.94 : 1 }] })}>
                 <Ionicons name="send" size={16} color={canSend ? '#101010' : theme.colors.textSecondary} style={{ marginLeft: 1 }} />
             </Pressable>;
             // Only what the channel can vouch for: 'live' means frames flow with
@@ -974,7 +983,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         </Pressable>
                         <Pressable onPress={() => setTreeOpen(true)} accessibilityRole="button" accessibilityLabel={`${contextTitle}. ${agentNameLine(labels)}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. ${overlayLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
                             <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />
-                            <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600', opacity: 0.92 }}>{contextTitle}</Text>
+                            <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, fontWeight: '500', opacity: 0.88 }}>{contextTitle}</Text>
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
                                 reads differently whether the agent works, needs you, or
                                 is gone; the dot carries the same colour (scout §4.1).
@@ -982,7 +991,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 shell is not "Offline". */}
                             {headerLifecycleLabel !== undefined && <View accessible={false} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                                 <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: headerStatus.color }} />
-                                <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '600' }}>{headerLifecycleLabel}</Text>
+                                <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>
                             </View>}
                         </Pressable>
                         {/* Position in the tab and the way into the pane overview:
@@ -995,10 +1004,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             accessibilityState={{ expanded: overviewOpen, disabled: !treeLoaded || located === undefined }}
                             style={({ pressed }) => ({ minWidth: 32, minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 1, paddingHorizontal: 4, borderRadius: 10, opacity: pressed ? 0.6 : 1 })}
                         >
+                            {/* The count is the affordance; a chevron beside it
+                                only made the header look like it carried a menu. */}
                             {treeLoaded && located !== undefined
-                                ? <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{Math.max(paneIndex, 0) + 1}/{Math.max(paneTotal, 1)}</Text>
+                                ? <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', fontVariant: ['tabular-nums'] }}>{Math.max(paneIndex, 0) + 1}/{Math.max(paneTotal, 1)}</Text>
                                 : <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
-                            <Ionicons name="chevron-down" size={10} color={theme.colors.textSecondary} />
                         </Pressable>
                         {!authorityLoading && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel={`Pane actions${artifactsCount !== null && artifactsCount > 0 ? `, ${t('sessionAttachments.title', { count: artifactsCount })}` : ''}`}
                             accessibilityState={{ expanded: actionsOpen }} hitSlop={12} style={({ pressed }) => ({ minWidth: 30, minHeight: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
@@ -1318,25 +1328,33 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         Dictating…, then Transcribing…, and commits into the draft.
                         One geometry, one material, every state. */}
                     <View style={{ paddingHorizontal: 10, paddingTop: 2, paddingBottom: (keyboardVisible ? 8 : insets.bottom + 8) }}>
+                        {/* The rail is a surface the prompt sits on, not a
+                            widget: barely-there fill, one hairline, and the
+                            accessories bare until they are used. Only the armed
+                            send earns a shape. */}
                         <View style={{
-                            minHeight: keyboardVisible ? 48 : 54,
-                            borderRadius: keyboardVisible ? 24 : 27,
-                            backgroundColor: theme.colors.glass.backgroundSubtle,
+                            minHeight: keyboardVisible ? 46 : 52,
+                            borderRadius: keyboardVisible ? 23 : 26,
+                            backgroundColor: withAlpha(theme.colors.text, 0.045),
                             borderWidth: StyleSheet.hairlineWidth,
-                            borderColor: theme.colors.glass.border,
+                            borderColor: withAlpha(theme.colors.text, 0.10),
                             flexDirection: 'row',
                             alignItems: 'center',
                             paddingLeft: 2,
-                            paddingRight: 5,
+                            paddingRight: 6,
                             paddingVertical: keyboardVisible ? 5 : 7,
                         }}>
+                            {/* Listening is a state, not an alarm: the level and
+                                the stop carry the one red between them, and the
+                                stop is a tinted target rather than a solid disc
+                                the size of the send. */}
                             {dictating ? <Animated.View entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                                 <DictationBars level={dictation.level} color={theme.colors.status.error} />
                                 <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15, marginLeft: 10 }}>Dictating…</Text>
                                 <Pressable onPress={dictation.toggle} accessibilityRole="button" accessibilityLabel="Stop dictation"
                                     accessibilityHint="Stops listening and transcribes"
-                                    style={({ pressed }) => ({ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.status.error, opacity: pressed ? 0.8 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] })}>
-                                    <Ionicons name="pause" size={19} color={theme.colors.surface} />
+                                    style={({ pressed }) => ({ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: withAlpha(theme.colors.status.error, pressed ? 0.28 : 0.18), transform: [{ scale: pressed ? 0.94 : 1 }] })}>
+                                    <Ionicons name="stop" size={13} color={theme.colors.status.error} />
                                 </Pressable>
                             </Animated.View> : transcribing ? <Animated.View entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                                 <TranscribingDots color={theme.colors.textSecondary} />
@@ -1390,7 +1408,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             : { x: Math.max(44, terminalBox.width - 44), y: Math.max(120, terminalBox.height - 84) };
                         return <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: terminalBox.top, height: regionHeight }}>
                             <FloatingTerminalControls open={toolsOpen} onOpenChange={setToolsOpen}
-                                width={terminalBox.width} height={regionHeight} slots={ringSlots} anchor={anchor} />
+                                width={terminalBox.width} height={regionHeight} fanHeight={terminalBox.height}
+                                slots={ringSlots} anchor={anchor} />
                         </View>;
                     })()}
 
@@ -1544,7 +1563,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                             <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                         </Pressable>
                                     </>}
-                                    {canControl && <View style={{ paddingHorizontal: 14, paddingVertical: 8 }}>
+                                    {canControl && composerContributions.length > 0 && <View style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 14, paddingRight: 8, paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{composerSlotLabel ?? 'Session tools'}</Text>
                                         <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
                                     </View>}
                                     <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>View</Text>

@@ -107,18 +107,32 @@ export function ringSlotOffsets(anchor: { x: number; y: number }, region: { widt
 }
 
 
-/** Elevations, in degrees, of the docked fan's first and last disc. */
-export const DOCKED_ARC_START_DEG = 162;
-export const DOCKED_ARC_END_DEG = 30;
+/** The docked fan never dips below this many degrees above the anchor's own
+ *  horizon, so its ends clear the rails the thumb control sits in. */
+export const DOCKED_END_LIFT_DEG = 10;
+/** Past this the arc stops being one thumb's reach, but a cornered anchor may
+ *  still need it: a wider circle spans the same chord over a narrower sweep,
+ *  which is what lets the fan fold into a quadrant. */
+const DOCKED_RADIUS_MAX = 208;
+/** Clear air between two neighbouring discs, measured along the chord. */
+const DOCKED_DISC_GAP = 6;
 
 /**
- * The docked ring's fan: `count` discs on an elliptical arc ABOVE the thumb
- * anchor (the composer rail's dial), rising from both sides of vertical.
- * The ellipse is narrower on the side with less room and grows until a disc
- * no longer fits, so every pane width gets the tallest clean arc available.
- * An anchor with no sideways room for any arc (the view-only corner) gets
- * `ringSlotOffsets`' searched fan instead: every slot, still inside the
- * region. Offsets are anchor-relative, same space as `ringSlotOffsets`, so
+ * The docked ring's fan: `count` discs on a TRUE CIRCLE around the thumb
+ * anchor, opening upward over the terminal and leaning away from whichever
+ * side edge the thumb rests against.
+ *
+ * One radius and one chord for every disc, so the ring reads as an arc struck
+ * from the control rather than a spray of buttons: the angular pitch is
+ * derived from the disc's own width, which keeps the visual gap between
+ * neighbours identical at any radius. A region too tight for the roomiest
+ * radius gets a smaller circle (a wider angular spread at the same chord),
+ * never a squashed one — the previous ellipse solved independent horizontal
+ * and vertical semi-axes, so its discs sat at different distances, and an
+ * anchor near the right edge collapsed it into a scattered fallback.
+ *
+ * The whole arc rotates as a rigid body to find room. Offsets are
+ * anchor-relative, the same space `ringSlotOffsets` returns, so
  * `slotUnderFinger` drives the sweep unchanged.
  */
 export function dockedRingOffsets(
@@ -129,30 +143,64 @@ export function dockedRingOffsets(
 ): { x: number; y: number }[] {
     if (count <= 0) return [];
     const margin = discSize / 2 + 6;
-    const pitchDeg = count > 1 ? (DOCKED_ARC_START_DEG - DOCKED_ARC_END_DEG) / (count - 1) : 0;
-    const ALeft = anchor.x - margin;
-    const ARight = region.width - margin - anchor.x;
-    const BMax = anchor.y - margin;
-    const solve = (A: number, B: number): { x: number; y: number }[] =>
-        Array.from({ length: count }, (_, i) => {
-            const rad = ((DOCKED_ARC_START_DEG - i * pitchDeg) * Math.PI) / 180;
-            return { x: A * Math.cos(rad), y: -B * Math.sin(rad) };
+    const chord = discSize + DOCKED_DISC_GAP;
+    // Ends lifted clear of the rails caps how far the fan may span.
+    const sweepCap = ((180 - 2 * DOCKED_END_LIFT_DEG) * Math.PI) / 180;
+    // A circle tighter than this either overlaps its own discs at that sweep
+    // or sits inside the sweep's dead zone, where a lift cannot fire it.
+    const floor = Math.max(
+        RING_DEAD_ZONE + 4,
+        chord / 2 + 1,
+        count > 1 ? chord / (2 * Math.sin(sweepCap / (2 * (count - 1)))) : discSize,
+    );
+    // Lean away from the edge the thumb rests against: the room is inboard.
+    const lean = anchor.x > region.width / 2 ? -1 : 1;
+    const place = (radius: number, turn: number): { x: number; y: number }[] => {
+        const pitch = count > 1 ? 2 * Math.asin(Math.min(1, chord / (2 * radius))) : 0;
+        const spread = pitch * (count - 1);
+        const bearing = -Math.PI / 2 + turn;
+        return Array.from({ length: count }, (_, index) => {
+            // Arc order is list order, running from the anchor's own edge inward.
+            const from = lean < 0 ? spread / 2 - index * pitch : -(spread / 2 - index * pitch);
+            const angle = bearing + from;
+            return { x: radius * Math.cos(angle), y: radius * Math.sin(angle) };
         });
+    };
     const fits = (points: { x: number; y: number }[]): boolean =>
-        points.every((p, i) => {
-            const x = anchor.x + p.x;
-            const y = anchor.y + p.y;
-            const inBounds = x >= margin && x <= region.width - margin && y >= margin && y <= region.height - margin;
-            const clear = points.every((q, j) => j >= i || Math.hypot(p.x - q.x, p.y - q.y) >= discSize);
-            return inBounds && clear;
+        points.every((point) => {
+            const x = anchor.x + point.x;
+            const y = anchor.y + point.y;
+            return x >= margin && x <= region.width - margin && y >= margin && y <= region.height - margin;
         });
-    for (let B = Math.min(120, BMax); B >= 40; B -= 2) {
-        const A = Math.min(84, 0.85 * B, ALeft, ARight);
-        if (A < 36) continue;
-        const points = solve(A, B);
-        if (fits(points)) return points;
+    // Tightest circle first: the ring should sit in the thumb's reach, and a
+    // smaller radius spends the same chord over a wider sweep, which wraps the
+    // control the way the references do. Growing the radius is the escape for
+    // an anchor with no room to either side (the view-only corner): the same
+    // discs then span a narrower sweep and fold into the free quadrant.
+    for (let radius = floor; radius <= DOCKED_RADIUS_MAX; radius += 2) {
+        // How far this circle may rotate before an end drops onto the rails
+        // the control sits in. A wider circle spans less sweep, so it buys its
+        // own room to lean; the fan never tilts its way below the horizon.
+        const spreadDeg = (180 / Math.PI) * 2 * Math.asin(Math.min(1, chord / (2 * radius))) * (count - 1);
+        const maxTurn = Math.max(0, (180 - 2 * DOCKED_END_LIFT_DEG - spreadDeg) / 2);
+        // Smallest turns first, so the fan stays upright when it can.
+        for (let step = 0; step <= maxTurn; step += 6) {
+            for (const turn of step === 0 ? [0] : [lean * step, -lean * step]) {
+                const points = place(radius, (turn * Math.PI) / 180);
+                if (fits(points)) return points;
+            }
+        }
+        if (maxTurn > 0 && maxTurn % 6 !== 0) {
+            for (const turn of [lean * maxTurn, -lean * maxTurn]) {
+                const points = place(radius, (turn * Math.PI) / 180);
+                if (fits(points)) return points;
+            }
+        }
     }
-    return ringSlotOffsets(anchor, region, count);
+    // Nothing fits at any radius. Keep the circle and keep it upright: an arc
+    // that grazes the region's edge is still one control opening in place,
+    // which a scattered fan never was. The overlay clamps what is left.
+    return place(floor, 0);
 }
 
 /** Which slot a swept finger would fire: past the dead zone and inside that

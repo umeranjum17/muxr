@@ -131,4 +131,35 @@ describe('command ring geometry', () => {
             }
         }
     });
+
+    // The rejected build opened this ring as a spray: the fan solved an
+    // ellipse with independent semi-axes, so its discs sat at different
+    // distances from the control and an anchor near the right edge collapsed
+    // into a scattered fallback. The ring must read as one arc struck from the
+    // control it opened from, at every width, count and dockable anchor.
+    it('opens in place: every disc the same distance from the control and the same gap apart', () => {
+        for (const region of [{ width: 270, height: 400 }, { width: 270, height: 200 }, { width: 360, height: 520 }, { width: 360, height: 180 }]) {
+            const disc = region.width < 340 ? 38 : 48;
+            const count = region.width < 340 ? 5 : 6;
+            // Every anchor the composer rail can hand it, edge to edge.
+            for (let x = 40; x <= region.width - 40; x += 20) {
+                const anchor = { x, y: region.height - 30 };
+                const points = dockedRingOffsets(anchor, region, count, disc);
+                const where = `anchored at (${x}, ${anchor.y}) in ${region.width}x${region.height}`;
+                expect(points, where).toHaveLength(count);
+
+                const radii = points.map((point) => Math.hypot(point.x, point.y));
+                const spread = Math.max(...radii) - Math.min(...radii);
+                expect(spread, `${where}: one radius, not an ellipse`).toBeLessThanOrEqual(0.5);
+
+                const gaps = points.slice(1).map((point, index) => Math.hypot(point.x - points[index]!.x, point.y - points[index]!.y));
+                expect(Math.max(...gaps) - Math.min(...gaps), `${where}: one gap between neighbours`).toBeLessThanOrEqual(0.5);
+                expect(Math.min(...gaps), `${where}: neighbours never touch`).toBeGreaterThanOrEqual(disc);
+
+                // Anchored in place: the arc opens around its own control, so
+                // no disc may sit below the control it came out of.
+                points.forEach((point) => expect(point.y, `${where}: the fan opens upward`).toBeLessThanOrEqual(0));
+            }
+        }
+    });
 });

@@ -48,13 +48,18 @@ const clamp = (value: number, min: number, max: number): number => Math.max(min,
  * hardware back collapses it. The ring never dismisses the keyboard, and it
  * is the only quick-actions overlay at a time.
  */
-export function FloatingTerminalControls({ open, onOpenChange, width, height, slots, anchor }: {
+export function FloatingTerminalControls({ open, onOpenChange, width, height, fanHeight, slots, anchor }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     /** Region width (the terminal surface): the ring stays inside it. */
     width: number;
     /** Region height: terminal top down past the composer's top. */
     height: number;
+    /** How much of that region the fan may occupy, measured from the top. The
+     *  overlay reaches down over the rails so the centre lands on its slot, but
+     *  the discs belong over the terminal: letting them settle on the key caps
+     *  is what made the ring read as spilled rather than opened. */
+    fanHeight?: number;
     slots: readonly RingSlot[];
     /** Centre control position in region coordinates. */
     anchor: { x: number; y: number };
@@ -74,9 +79,12 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, sl
     const slotIcon = Math.round(disc * 0.4);
     // The fan solves on an elevation arc above the docked centre: slots stay
     // over the terminal, ring the thumb, and never wash over the composer.
+    // The fan solves against the terminal alone; the centre keeps the full
+    // region so it stays on the rail slot it is docked in.
+    const fanBounds = Math.max(disc + 16, Math.min(fanHeight ?? height, height));
     const offsets = React.useMemo(
-        () => dockedRingOffsets(center, { width, height }, count, disc),
-        [center, width, height, count, disc],
+        () => dockedRingOffsets(center, { width, height: fanBounds }, count, disc),
+        [center, width, fanBounds, count, disc],
     );
 
     // The ring exists while the parent says open (tap mode) or while a sweep
@@ -213,25 +221,32 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, sl
                         opacity: pressed ? 0.78 : 1,
                     })}
                 >
-                    {Platform.OS === 'web'
-                        ? <View style={{
-                            width: CENTER, height: CENTER, borderRadius: CENTER / 2,
-                            alignItems: 'center', justifyContent: 'center',
-                            backgroundColor: visible ? theme.colors.glass.backgroundStrong : theme.colors.glass.backgroundSubtle,
-                            borderWidth: StyleSheet.hairlineWidth,
-                            borderColor: visible ? theme.colors.accent : theme.colors.glass.border,
-                        }}>
-                            <RingGlyph open={visible} color={visible ? theme.colors.accent : theme.colors.text} />
+                    {/* At rest this is a bare mark sitting in the rail beside
+                        the microphone, not a widget parked on top of it: the
+                        disc arrives with the ring it opens, and leaves with it. */}
+                    {!visible
+                        ? <View style={{ width: CENTER, height: CENTER, alignItems: 'center', justifyContent: 'center' }}>
+                            <RingGlyph open={false} color={theme.colors.textSecondary} />
                         </View>
-                        : <MobileGlassSurface intensity={76} interactive={false} style={{
-                            width: CENTER, height: CENTER, borderRadius: CENTER / 2,
-                            alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                            backgroundColor: visible ? theme.colors.glass.backgroundStrong : theme.colors.glass.backgroundSubtle,
-                            borderWidth: StyleSheet.hairlineWidth,
-                            borderColor: visible ? theme.colors.accent : theme.colors.glass.border,
-                        }}>
-                            <RingGlyph open={visible} color={visible ? theme.colors.accent : theme.colors.text} />
-                        </MobileGlassSurface>}
+                        : Platform.OS === 'web'
+                            ? <View style={{
+                                width: CENTER, height: CENTER, borderRadius: CENTER / 2,
+                                alignItems: 'center', justifyContent: 'center',
+                                backgroundColor: theme.colors.glass.backgroundStrong,
+                                borderWidth: StyleSheet.hairlineWidth,
+                                borderColor: theme.colors.accent,
+                            }}>
+                                <RingGlyph open color={theme.colors.accent} />
+                            </View>
+                            : <MobileGlassSurface intensity={76} interactive={false} style={{
+                                width: CENTER, height: CENTER, borderRadius: CENTER / 2,
+                                alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                                backgroundColor: theme.colors.glass.backgroundStrong,
+                                borderWidth: StyleSheet.hairlineWidth,
+                                borderColor: theme.colors.accent,
+                            }}>
+                                <RingGlyph open color={theme.colors.accent} />
+                            </MobileGlassSurface>}
                 </Pressable>
             </Animated.View>
         </View>
