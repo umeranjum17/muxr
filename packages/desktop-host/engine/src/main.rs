@@ -16,6 +16,7 @@ mod peer;
 mod portal;
 mod protocol;
 mod session;
+mod x11;
 
 use anyhow::{Context, Result};
 use protocol::{ErrorBody, Event, Request, Response};
@@ -49,6 +50,7 @@ fn main() {
         "serve" => report(runtime.block_on(serve())),
         "capture-probe" => report(runtime.block_on(probe(
             args.get(1).and_then(|value| value.parse().ok()),
+            args.get(2).map(String::as_str),
         ))),
         "setup-input" => {
             print_input_setup();
@@ -84,8 +86,10 @@ fn print_help() {
 USAGE:
   desklink-host serve            speak the local control protocol on stdin/stdout
   desklink-host capabilities     print what this machine can do right now
-  desklink-host capture-probe [seconds]
-                                 open the portal, capture frames, report the stream
+  desklink-host capture-probe [seconds] [display]
+                                 capture frames and report the stream; with a
+                                 display argument it reads that X display's root
+                                 window instead of asking the portal
   desklink-host setup-input      explain the one-time input-access step (changes nothing)
   desklink-host version
 
@@ -134,8 +138,60 @@ fn print_input_setup() {
 
 /// Start the portal session, capture a few frames, and print what actually
 /// arrived. This is the diagnostic to run when the picture does not appear.
-async fn probe(seconds: Option<u64>) -> Result<()> {
+async fn probe(seconds: Option<u64>, display: Option<&str>) -> Result<()> {
     let seconds = seconds.unwrap_or(3);
+    match display {
+        Some(display) => probe_x11(display, seconds),
+        None => probe_portal(seconds).await,
+    }
+}
+
+/// Read a named X display's root window for a few seconds. The frame shape is
+/// reported as a coarse checksum so a flat or unreadable screen is visible.
+fn probe_x11(display: &str, seconds: u64) -> Result<()> {
+    let mut desktop = crate::x11::X11Desktop::connect(Some(display))?;
+    let (width, height) = desktop.screen_size();
+    let deadline = std::time::Instant::now() + Duration::from_secs(seconds);
+    let mut frames = 0u64;
+    let mut shapes = std::collections::BTreeSet::new();
+    let mut encoded = (0usize, 0usize);
+    while std::time::Instant::now() < deadline {
+        let frame = desktop.capture(0, 0)?;
+        encoded = (frame.width, frame.height);
+        shapes.insert(frame_shape(&frame));
+        frames += 1;
+        std::thread::sleep(Duration::from_millis(33));
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "source": { "kind": "x11-root", "display": display, "width": width, "height": height },
+            "frames": frames,
+            "encoded": { "width": encoded.0, "height": encoded.1 },
+            "distinct_frames": shapes.len(),
+        }))?
+    );
+    if frames == 0 {
+        anyhow::bail!("no frames arrived from {display}");
+    }
+    Ok(())
+}
+
+/// A cheap fingerprint of a frame, enough to tell "the screen changed" from
+/// "the screen is one flat colour".
+fn frame_shape(frame: &crate::convert::I420) -> u64 {
+    frame
+        .y_plane()
+        .iter()
+        .enumerate()
+        .fold(0u64, |accumulator, (index, byte)| {
+            accumulator
+                .wrapping_mul(31)
+                .wrapping_add((*byte as u64) ^ (index as u64 & 0xff))
+        })
+}
+
+async fn probe_portal(seconds: u64) -> Result<()> {
     let portal = portal::open(None).await?;
     eprintln!("portal source: {:?}", portal.source);
 
@@ -346,6 +402,7 @@ async fn dispatch(
             let params: protocol::OpenParams = serde_json::from_value(request.params.clone())
                 .map_err(|error| ErrorBody::new("malformed", error.to_string()))?;
             let open = session::OpenRequest {
+                source: params.source,
                 permissions: params.permissions,
                 max_width: params.max_width,
                 max_height: params.max_height,
@@ -428,6 +485,7 @@ async fn dispatch(
             check_session(session, &params.session_id, None)?;
             let text = session
                 .read_clipboard()
+                .await
                 .map_err(|reason| ErrorBody::new("clipboard", reason))?;
             Ok(serde_json::json!({ "text": text, "truncated": false }))
         }
@@ -436,9 +494,9 @@ async fn dispatch(
             let params: protocol::ClipboardParams = serde_json::from_value(request.params.clone())
                 .map_err(|error| ErrorBody::new("malformed", error.to_string()))?;
             check_session(session, &params.session_id, None)?;
-            let text = params.text.unwrap_or_default();
             session
-                .write_clipboard(&text)
+                .write_clipboard(params.text.unwrap_or_default())
+                .await
                 .map_err(|reason| ErrorBody::new("clipboard", reason))?;
             Ok(serde_json::json!({ "written": true }))
         }

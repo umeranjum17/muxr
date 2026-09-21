@@ -73,8 +73,27 @@ pub struct IceServerParam {
     pub credential: Option<String>,
 }
 
+/// Which desktop to capture.
+///
+/// The portal is the default because on a Wayland desktop it is what carries the
+/// user's consent. An explicit X display is the other supported backend: a
+/// machine with no working screen-cast portal, a headless X server, or a remote
+/// X session. Asking for one is a deployment choice, not a test switch.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SourceRequest {
+    Portal,
+    X11 {
+        #[serde(default)]
+        display: Option<String>,
+    },
+}
+
 #[derive(Debug, Deserialize)]
 pub struct OpenParams {
+    /// Absent means "the portal, with the user's consent".
+    #[serde(default)]
+    pub source: Option<SourceRequest>,
     #[serde(default)]
     pub permissions: Vec<Permission>,
     #[serde(default = "default_max_width")]

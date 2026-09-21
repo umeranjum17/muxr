@@ -12,6 +12,7 @@
 
 use anyhow::{Context, Result};
 use bytes::Bytes;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use rtc::interceptor::Registry;
@@ -71,6 +72,40 @@ pub struct TransportOptions {
 
 struct Handler {
     events: tokio::sync::mpsc::UnboundedSender<PeerEvent>,
+    wants_keyframe: Arc<AtomicBool>,
+}
+
+/// Watch the control channel the engine created.
+///
+/// The engine is the offerer, so it is the side that creates this channel, and
+/// `on_data_channel` only fires for a channel the *remote* opened. Serving our
+/// own channel is what makes the session two-way: a client that creates its own
+/// channel with the same label gets an unrelated stream, its requests arrive
+/// here and every reply lands on a channel nobody is reading.
+async fn serve_control(
+    channel: Arc<dyn DataChannel>,
+    events: tokio::sync::mpsc::UnboundedSender<PeerEvent>,
+    wants_keyframe: Arc<AtomicBool>,
+) {
+    while let Some(event) = channel.poll().await {
+        match event {
+            DataChannelEvent::OnOpen => {
+                wants_keyframe.store(true, Ordering::SeqCst);
+                let _ = events.send(PeerEvent::ControlOpen);
+            }
+            DataChannelEvent::OnMessage(message) => {
+                if let Ok(text) = String::from_utf8(message.data.to_vec()) {
+                    let _ = events.send(PeerEvent::ControlMessage(text));
+                }
+            }
+            DataChannelEvent::OnClose => {
+                let _ = events.send(PeerEvent::ControlClosed);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let _ = events.send(PeerEvent::ControlClosed);
 }
 
 #[async_trait::async_trait]
@@ -86,31 +121,31 @@ impl PeerConnectionEventHandler for Handler {
     }
 
     async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
+        if matches!(state, RTCPeerConnectionState::Connected) {
+            self.wants_keyframe.store(true, Ordering::SeqCst);
+        }
         let _ = self.events.send(PeerEvent::State(state));
     }
 
-    async fn on_data_channel(&self, channel: Arc<dyn DataChannel>) {
-        let events = self.events.clone();
-        let _ = events.send(PeerEvent::ControlOpen);
-        tokio::spawn(async move {
-            loop {
-                let Some(event) = channel.poll().await else { break };
-                match event {
-                    DataChannelEvent::OnMessage(message) => {
-                        let _ = String::from_utf8(message.data.to_vec())
-                            .map(|text| events.send(PeerEvent::ControlMessage(text)));
-                    }
-                    DataChannelEvent::OnClose => break,
-                    _ => {}
-                }
-            }
-            let _ = events.send(PeerEvent::ControlClosed);
-        });
+    async fn on_data_channel(&self, _channel: Arc<dyn DataChannel>) {
+        // The engine's own channel is served by `serve_control`. A channel the
+        // remote opens is a second, unrelated stream and is deliberately not
+        // adopted: two control channels would mean two ways to drive one
+        // desktop, which is the ambiguity this protocol exists to avoid.
     }
 }
 
 pub struct VideoPeer {
     peer: Arc<dyn PeerConnection>,
+    /// Set when the far end needs a fresh reference frame.
+    ///
+    /// The encoder's first frame is a key frame, but the far end is not
+    /// receiving yet: ICE is still negotiating, and the decoder therefore starts
+    /// mid-stream without the reference the following inter frames need. Asking
+    /// for a key frame *when the transport connects* is what makes the picture
+    /// appear at all; without it the browser reports frames received and zero
+    /// frames decoded, which is exactly the failure this was.
+    wants_keyframe: Arc<AtomicBool>,
     track: Arc<TrackLocalStaticSample>,
     ssrc: u32,
     control: Arc<dyn DataChannel>,
@@ -166,12 +201,21 @@ impl VideoPeer {
             );
         }
 
+        let wants_keyframe = Arc::new(AtomicBool::new(true));
+        let control_events = events.clone();
         let peer = PeerConnectionBuilder::<std::net::SocketAddr>::new()
             .with_configuration(builder.build())
             .with_media_engine(media_engine)
             .with_interceptor_registry(registry)
-            .with_handler(Arc::new(Handler { events }))
+            .with_handler(Arc::new(Handler {
+                events,
+                wants_keyframe: wants_keyframe.clone(),
+            }))
             .with_runtime(runtime.clone())
+            // An ephemeral port on every interface: ICE needs a socket to gather
+            // candidates from, and the peer needs no fixed port because the
+            // consumer's authenticated channel carries the candidates.
+            .with_udp_addrs(vec![std::net::SocketAddr::from(([0, 0, 0, 0], 0))])
             .build()
             .await
             .context("failed to create the peer connection")?;
@@ -212,6 +256,11 @@ impl VideoPeer {
             .create_data_channel("control", None)
             .await
             .context("failed to create the control channel")?;
+        tokio::spawn(serve_control(
+            Arc::clone(&control),
+            control_events,
+            wants_keyframe.clone(),
+        ));
 
         let offer = peer.create_offer(None).await?;
         peer.set_local_description(offer.clone()).await?;
@@ -219,6 +268,7 @@ impl VideoPeer {
         Ok((
             Self {
                 peer,
+                wants_keyframe,
                 track,
                 ssrc,
                 control,
@@ -279,6 +329,11 @@ impl VideoPeer {
 
     pub fn uptime(&self) -> Duration {
         self.started.elapsed()
+    }
+
+    /// Take the pending "the far end needs a reference frame" request, if any.
+    pub fn take_keyframe_request(&self) -> bool {
+        self.wants_keyframe.swap(false, Ordering::SeqCst)
     }
 
     /// Send a control message back to the client (clipboard replies, revocation).

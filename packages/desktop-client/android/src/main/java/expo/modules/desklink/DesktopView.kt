@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Color
 import android.text.InputType
 import android.util.Log
-import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.inputmethod.EditorInfo
@@ -12,7 +11,7 @@ import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputConnectionWrapper
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
-import android.widget.FrameLayout
+import android.view.ViewGroup.LayoutParams
 import expo.modules.kotlin.AppContext
 import expo.modules.kotlin.views.ExpoView
 import org.webrtc.EglBase
@@ -64,10 +63,13 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     setBackgroundColor(Color.BLACK)
     clipChildren = true
     renderer = buildRenderer()
-    addView(renderer, FrameLayout.LayoutParams(0, 0))
-    addView(keyboard, FrameLayout.LayoutParams(dp(1f), dp(1f), Gravity.BOTTOM or Gravity.START))
+    // The renderer fills the view and letterboxes the picture itself; the touch
+    // mapping works out the letterbox rectangle arithmetically. Positioning the
+    // renderer with layout params instead would depend on the parent's layout
+    // class, which is not this view's business to assume.
+    addView(renderer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+    addView(keyboard, LayoutParams(dp(1f), dp(1f)))
     setOnTouchListener { _, event -> handleTouch(event) }
-    addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> layoutRenderer() }
   }
 
   private fun buildRenderer(): SurfaceViewRenderer {
@@ -85,7 +87,6 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
           if (surfaceWidth == 0 || surfaceHeight == 0) {
             surfaceWidth = if (rotation % 180 == 0) width else height
             surfaceHeight = if (rotation % 180 == 0) height else width
-            post { layoutRenderer() }
           }
           session?.markPresented()
         }
@@ -101,22 +102,26 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     detachSink()
     session = next
     attachSink()
-    post { layoutRenderer() }
   }
 
   /** Geometry from the engine, in encoded-surface pixels. */
   fun setSurfaceSize(width: Int, height: Int) {
     if (width <= 0 || height <= 0) return
     if (surfaceWidth == width && surfaceHeight == height) return
+    // A new surface size invalidates any held drag: releasing it at coordinates
+    // the user never pointed at is worse than letting go.
+    if (dragging) session?.sendCancel(draggingSequence())
+    dragging = false
+    pointers = 0
     surfaceWidth = width
     surfaceHeight = height
-    post { layoutRenderer() }
   }
+
+  private fun draggingSequence(): Long = session?.nextSequence() ?: 0L
 
   /** Called when props are (re)applied, so a late session still gets a renderer. */
   fun requestGeometryRefresh() {
     attachSink()
-    post { layoutRenderer() }
   }
 
   fun showKeyboard() {
@@ -147,45 +152,38 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     session?.frameSink = null
   }
 
-  /** Letterbox the renderer inside the view: the picture never stretches. */
-  private fun layoutRenderer() {
-    val view = renderer ?: return
-    val width = width
-    val height = height
-    if (width == 0 || height == 0 || surfaceWidth == 0 || surfaceHeight == 0) return
-    val scale = min(width.toFloat() / surfaceWidth, height.toFloat() / surfaceHeight)
-    val renderedWidth = Math.round(surfaceWidth * scale)
-    val renderedHeight = Math.round(surfaceHeight * scale)
-    val params = view.layoutParams as FrameLayout.LayoutParams
-    val left = (width - renderedWidth) / 2
-    val top = (height - renderedHeight) / 2
-    if (params.width == renderedWidth && params.height == renderedHeight &&
-      params.leftMargin == left && params.topMargin == top
-    ) {
-      return
-    }
-    // A relayout changes the coordinate mapping, so anything held must be let go
-    // rather than released at coordinates the user never pointed at.
-    if (dragging) releaseAll()
-    pointers = 0
-    params.width = renderedWidth
-    params.height = renderedHeight
-    params.leftMargin = left
-    params.topMargin = top
-    view.layoutParams = params
+  /**
+   * Where the picture actually is, inside a view that fills the screen.
+   *
+   * The renderer letterboxes with `SCALE_ASPECT_FIT`; this is the same rectangle
+   * computed from the two sizes, so a touch maps through the picture rather than
+   * through the padded view.
+   */
+  private fun contentRect(): FloatArray? {
+    val viewWidth = width
+    val viewHeight = height
+    if (viewWidth == 0 || viewHeight == 0 || surfaceWidth == 0 || surfaceHeight == 0) return null
+    val scale = min(viewWidth.toFloat() / surfaceWidth, viewHeight.toFloat() / surfaceHeight)
+    val renderedWidth = surfaceWidth * scale
+    val renderedHeight = surfaceHeight * scale
+    return floatArrayOf(
+      (viewWidth - renderedWidth) / 2f,
+      (viewHeight - renderedHeight) / 2f,
+      renderedWidth,
+      renderedHeight,
+    )
   }
 
   private fun dp(value: Float): Int = Math.round(value * resources.displayMetrics.density)
 
   /** Touch → encoded-surface coordinates, or null when the touch is off the picture. */
   private fun point(x: Float, y: Float): Pair<Int, Int>? {
-    val view = renderer ?: return null
-    if (view.width == 0 || view.height == 0) return null
-    val localX = x - view.left
-    val localY = y - view.top
-    if (localX < 0 || localY < 0 || localX >= view.width || localY >= view.height) return null
-    val mappedX = Math.floor(localX * surfaceWidth / view.width.toDouble()).toInt()
-    val mappedY = Math.floor(localY * surfaceHeight / view.height.toDouble()).toInt()
+    val rect = contentRect() ?: return null
+    val localX = x - rect[0]
+    val localY = y - rect[1]
+    if (localX < 0 || localY < 0 || localX >= rect[2] || localY >= rect[3]) return null
+    val mappedX = Math.floor(localX * surfaceWidth / rect[2].toDouble()).toInt()
+    val mappedY = Math.floor(localY * surfaceHeight / rect[3].toDouble()).toInt()
     if (mappedX < 0 || mappedY < 0 || mappedX >= surfaceWidth || mappedY >= surfaceHeight) return null
     return mappedX to mappedY
   }

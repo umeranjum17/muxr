@@ -1,7 +1,27 @@
 import { EngineClient, EngineRefused, explainMissingEngine, resolveEngine } from '@desklink/host';
+import type { SourceRequest } from '@desklink/host';
 import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfaceGeometry } from '@muxr/contract';
 
 import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSession.js';
+
+/**
+ * Which desktop this host offers.
+ *
+ * The portal is the default: on a Wayland desktop it is the backend that carries
+ * the user's consent, and nothing else can substitute for that. `x11` exists for
+ * a host whose screen-cast portal does not work — a headless or remote X session
+ * — and is an operator setting rather than something a client may choose,
+ * because a client asking for a different desktop must not be able to reach one
+ * the host did not offer.
+ */
+function configuredSource(env: NodeJS.ProcessEnv): SourceRequest | undefined {
+    const kind = env.MUXR_DESKTOP_SOURCE?.trim();
+    if (kind === 'x11') {
+        const display = env.MUXR_DESKTOP_X11_DISPLAY?.trim();
+        return display === undefined || display === '' ? { kind: 'x11' } : { kind: 'x11', display };
+    }
+    return undefined;
+}
 
 export interface DesktopEngineOptions {
     /** Overrides the configured engine executable. */
@@ -39,8 +59,11 @@ export class DesktopSessions {
     private sessions = new Map<string, LiveSession>();
     private starting: Promise<EngineClient | null> | null = null;
 
-    constructor(options: DesktopEngineOptions = {}) {
+    private readonly environment: NodeJS.ProcessEnv;
+
+    constructor(options: DesktopEngineOptions = {}, environment: NodeJS.ProcessEnv = process.env) {
         this.options = options;
+        this.environment = environment;
     }
 
     async capabilities(): Promise<DesktopCapabilities> {
@@ -91,8 +114,10 @@ export class DesktopSessions {
         if (client === null) {
             throw new EngineRefused('desktop-unavailable', this.missingEngineReason());
         }
+        const source = configuredSource(this.environment);
         const opened = await client.openSession({
             permissions: request.permissions,
+            ...(source === undefined ? {} : { source }),
             ...(request.maxWidth === undefined ? {} : { maxWidth: request.maxWidth }),
             ...(request.maxHeight === undefined ? {} : { maxHeight: request.maxHeight }),
             ...(request.bitrateKbps === undefined ? {} : { bitrateKbps: request.bitrateKbps }),

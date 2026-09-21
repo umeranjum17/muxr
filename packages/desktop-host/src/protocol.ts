@@ -43,7 +43,18 @@ export interface SurfaceGeometry {
     origin: { x: number; y: number };
 }
 
+/**
+ * Which desktop to capture. Absent means the portal, which is the only backend
+ * that carries a Wayland user's consent; an explicit X display is the supported
+ * alternative for a machine whose screen-cast portal does not work, and it is
+ * what a host with no Wayland session uses.
+ */
+export type SourceRequest =
+    | { kind: 'portal' }
+    | { kind: 'x11'; display?: string };
+
 export interface OpenSessionRequest {
+    source?: SourceRequest;
     /** `view` alone is capture-only; `control` needs a working input backend. */
     permissions: Array<'view' | 'control' | 'clipboard'>;
     maxWidth?: number;

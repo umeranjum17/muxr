@@ -71,7 +71,10 @@ dl_vpx_encoder *dl_vpx_create(int width, int height, int bitrate_kbps, int fps,
     self->cfg.rc_undershoot_pct = 100;
     self->cfg.rc_overshoot_pct = 15;
     self->cfg.kf_mode = VPX_KF_AUTO;
-    self->cfg.kf_max_dist = 300;
+    /* A recovery key frame every four seconds at 30fps: on a desktop stream an
+     * inter frame is tiny, so bounding the damage of a lost reference costs
+     * almost nothing and stops a decoder from staying blank indefinitely. */
+    self->cfg.kf_max_dist = 120;
     self->cfg.kf_min_dist = 0;
 
     if (vpx_codec_enc_init(&self->ctx, iface, &self->cfg, 0) != VPX_CODEC_OK) {

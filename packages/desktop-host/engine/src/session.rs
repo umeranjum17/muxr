@@ -9,16 +9,38 @@ use crate::capture::{self, Capture};
 use crate::clipboard;
 use crate::convert::I420;
 use crate::encoder::Encoder;
-use crate::input::{Button, InputDevices, InputUnavailable};
+use crate::input::{Button, HeldState, InputDevices, InputUnavailable};
 use crate::keymap::{self, Layout};
 use crate::peer::{PeerEvent, TransportOptions, VideoPeer};
 use crate::portal::{self, SelectedSource};
-use crate::protocol::{ControlMessage, ControlReply, Permission, PointerPhase};
+use crate::protocol::{ControlMessage, ControlReply, Permission, PointerPhase, SourceRequest};
+use crate::x11::X11Desktop;
 use anyhow::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc as std_mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc as tokio_mpsc;
+
+/// How long a clipboard operation may take before it is reported as unanswered.
+///
+/// A compositor with no clipboard service must produce an error the user can
+/// read, not a request that never returns.
+const CLIPBOARD_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Run a clipboard operation off the async runtime and bounded.
+///
+/// Both halves matter. The clipboard backends block, and running one inline on
+/// a runtime thread stalls the session's own input and lifecycle events; and a
+/// desktop whose clipboard cannot answer must fail visibly rather than hang.
+async fn clipboard_task(
+    operation: impl FnOnce() -> std::result::Result<String, String> + Send + 'static,
+) -> std::result::Result<String, String> {
+    match tokio::time::timeout(CLIPBOARD_TIMEOUT, tokio::task::spawn_blocking(operation)).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(join)) => Err(format!("the clipboard operation failed: {join}")),
+        Err(_) => Err(String::from("the desktop clipboard did not answer")),
+    }
+}
 
 /// How the capture → encode → send path is doing, reported to the consumer.
 #[derive(Debug, Default, Clone, serde::Serialize)]
@@ -29,6 +51,207 @@ pub struct Metrics {
     pub encoded_bytes: u64,
     pub input_applied: u64,
     pub input_rejected: u64,
+}
+
+/// Which desktop is being captured.
+///
+/// Dropping either variant stops its capture: the portal variant drops the
+/// PipeWire stream, which is what releases the compositor's consent, and the X11
+/// variant stops reading the server.
+enum FrameSource {
+    Portal(Capture),
+    X11(X11Capture),
+}
+
+/// Root-window capture on an X display this engine was pointed at.
+struct X11Capture {
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for X11Capture {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// What a chosen capture backend gives the session.
+struct Selected {
+    source: SelectedSource,
+    capture: FrameSource,
+    /// Present only on the X11 path, where the same connection applies input.
+    x11: Option<Arc<Mutex<X11Desktop>>>,
+}
+
+/// Open an X display, start reading its root window, and hand back the same
+/// shape the portal path produces.
+fn select_x11(
+    display: Option<&str>,
+    max_width: usize,
+    max_height: usize,
+    metrics: Arc<Mutex<Metrics>>,
+    sink: capture::FrameSink,
+) -> Result<Selected> {
+    let desktop = Arc::new(Mutex::new(X11Desktop::connect(display)?));
+    let (width, height) = {
+        let desktop = lock(&desktop);
+        desktop.screen_size()
+    };
+    let source = SelectedSource {
+        node_id: 0,
+        width,
+        height,
+        position: Some((0, 0)),
+        source_type: Some(String::from("x11-root")),
+        origin_x: 0,
+        origin_y: 0,
+    };
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let captured = metrics.clone();
+    let thread = {
+        let desktop = desktop.clone();
+        let stop = stop.clone();
+        std::thread::Builder::new()
+            .name("desklink-x11-capture".into())
+            .spawn(move || {
+                // Roughly the frame rate a phone can use; the encoder's pacing is
+                // driven by the frames themselves, not by this loop.
+                let interval = Duration::from_millis(33);
+                let mut sequence = 0u64;
+                while !stop.load(Ordering::SeqCst) {
+                    let started = Instant::now();
+                    let frame = {
+                        let mut desktop = lock(&desktop);
+                        desktop.capture(max_width, max_height)
+                    };
+                    match frame {
+                        Ok(frame) => {
+                            if let Ok(mut m) = captured.lock() {
+                                m.captured_frames += 1;
+                            }
+                            sink(frame, sequence);
+                            sequence += 1;
+                        }
+                        Err(error) => {
+                            if let Ok(mut m) = captured.lock() {
+                                m.dropped_frames += 1;
+                            }
+                            // A display that has gone away is not recoverable by
+                            // retrying, so stop rather than spin on the error.
+                            if error
+                                .to_string()
+                                .contains("the X11 connection dropped")
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    let elapsed = started.elapsed();
+                    if elapsed < interval {
+                        std::thread::sleep(interval - elapsed);
+                    }
+                }
+            })
+            .ok()
+    };
+
+    Ok(Selected {
+        source,
+        capture: FrameSource::X11(X11Capture { stop, thread }),
+        x11: Some(desktop),
+    })
+}
+
+/// Where input goes. One controller, one applier, one held-state record.
+struct InputTarget {
+    applier: Applier,
+    held: HeldState,
+}
+
+enum Applier {
+    Uinput(InputDevices),
+    X11(Arc<Mutex<X11Desktop>>),
+}
+
+impl InputTarget {
+    fn move_absolute(&mut self, x: i64, y: i64) -> Result<()> {
+        match &mut self.applier {
+            Applier::Uinput(devices) => {
+                devices.move_absolute(x, y);
+                Ok(())
+            }
+            Applier::X11(desktop) => lock(desktop).move_pointer(x, y),
+        }
+    }
+
+    fn button(&mut self, button: Button, down: bool) -> Result<()> {
+        self.held.button(button, down);
+        match &mut self.applier {
+            Applier::Uinput(devices) => {
+                devices.button(button, down);
+                Ok(())
+            }
+            Applier::X11(desktop) => lock(desktop).button(x11_button(button), down),
+        }
+    }
+
+    fn scroll(&mut self, dx: i64, dy: i64) -> Result<()> {
+        match &mut self.applier {
+            Applier::Uinput(devices) => {
+                devices.scroll(dx, dy);
+                Ok(())
+            }
+            Applier::X11(desktop) => lock(desktop).scroll(dx, dy),
+        }
+    }
+
+    fn key(&mut self, code: i16, down: bool) -> Result<()> {
+        self.held.key(code, down);
+        match &mut self.applier {
+            Applier::Uinput(devices) => {
+                devices.key(code, down);
+                Ok(())
+            }
+            Applier::X11(desktop) => lock(desktop).key(code, down),
+        }
+    }
+
+    /// Release exactly what this session pressed, once, buttons before keys.
+    fn release_all(&mut self) -> Result<()> {
+        let (buttons, keys) = self.held.release_plan();
+        for button in buttons {
+            match &mut self.applier {
+                Applier::Uinput(devices) => devices.button(button, false),
+                Applier::X11(desktop) => lock(desktop).button(x11_button(button), false)?,
+            }
+        }
+        for code in keys {
+            match &mut self.applier {
+                Applier::Uinput(devices) => devices.key(code, false),
+                Applier::X11(desktop) => lock(desktop).key(code, false)?,
+            }
+        }
+        Ok(())
+    }
+}
+
+fn x11_button(button: Button) -> u8 {
+    match button {
+        Button::Left => crate::x11::button::LEFT,
+        Button::Middle => crate::x11::button::MIDDLE,
+        Button::Right => crate::x11::button::RIGHT,
+    }
+}
+
+fn lock<T>(mutex: &Arc<Mutex<T>>) -> std::sync::MutexGuard<'_, T> {
+    // A poisoned lock means a previous input call panicked while applying; the
+    // desktop is then in unknown state, so the session is closed rather than
+    // continuing to drive it.
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Why a session could not do what was asked, in the protocol's own vocabulary.
@@ -47,6 +270,8 @@ impl SessionError {
 }
 
 pub struct OpenRequest {
+    /** Which desktop to capture; absent means the portal. */
+    pub source: Option<SourceRequest>,
     pub permissions: Vec<Permission>,
     pub max_width: usize,
     pub max_height: usize,
@@ -88,8 +313,8 @@ struct Inner {
     metrics: Arc<Mutex<Metrics>>,
     peer: Arc<VideoPeer>,
     encoder: Mutex<Encoder>,
-    input: Mutex<Option<InputDevices>>,
-    capture: Mutex<Option<Capture>>,
+    input: Mutex<Option<InputTarget>>,
+    capture: Mutex<Option<FrameSource>>,
     layout: Mutex<Layout>,
     last_seq: Mutex<u64>,
     control_open: AtomicBool,
@@ -112,6 +337,9 @@ pub fn capabilities() -> serde_json::Value {
     } else {
         "none"
     };
+    let x11 = crate::x11::X11Desktop::connect(None)
+        .map(|desktop| serde_json::json!([desktop.screen_size().0, desktop.screen_size().1]))
+        .unwrap_or(serde_json::Value::Null);
     let (input, grant_state, unavailable) = match crate::input::probe() {
         Ok(()) => (serde_json::json!(true), "granted", serde_json::Value::Null),
         Err(unavailable) => (
@@ -128,8 +356,13 @@ pub fn capabilities() -> serde_json::Value {
         "engine": format!("desklink-host/{}", env!("CARGO_PKG_VERSION")),
         "platform": "linux",
         "session": { "kind": session_kind },
+        "x11": { "available": x11.is_array(), "size": x11 },
         "capture": {
             "mechanism": "portal-screencast+pipewire",
+            // Backends this build has, not a claim that both are usable here; the
+            // portal is preferred and needs the user's consent, the X display is
+            // available whenever DISPLAY points at a server.
+            "backends": ["portal-screencast+pipewire", "x11-root"],
             "formats": ["bgrx", "rgba", "nv12"],
             "cursor": "embedded",
             "audio": false,
@@ -155,7 +388,11 @@ impl Session {
         events: tokio_mpsc::UnboundedSender<SessionEvent>,
     ) -> std::result::Result<Self, SessionError> {
         let wants_control = request.permissions.contains(&Permission::Control);
-        if wants_control {
+        let wants_x11 = matches!(request.source, Some(SourceRequest::X11 { .. }));
+        // Which desktop decides which input path is even available: an X display
+        // takes XTest, which cannot reach any other session, while a portal
+        // desktop needs kernel input access.
+        if wants_control && !wants_x11 {
             // Refuse up front rather than presenting a control surface that
             // silently does nothing.
             if let Err(unavailable) = crate::input::probe() {
@@ -166,39 +403,55 @@ impl Session {
             }
         }
 
-        let portal = portal::open(request.restore_token.as_deref())
-            .await
-            .map_err(|error| SessionError::new("source", format!("{error:#}")))?;
-        if let Some(token) = &portal.restore_token {
-            let _ = events.send(SessionEvent::RestoreToken(token.clone()));
-        }
-
-        let source = portal.source.clone();
-        let source_w = source.width.max(1) as usize;
-        let source_h = source.height.max(1) as usize;
-        let (width, height) = fit(source_w, source_h, request.max_width, request.max_height);
-
         let metrics = Arc::new(Mutex::new(Metrics::default()));
         let (frame_tx, frame_rx) = std_mpsc::sync_channel::<I420>(2);
         let captured = metrics.clone();
-        let capture = capture::start(
-            portal,
-            width,
-            height,
-            Box::new(move |frame, _seq| {
+        let sink = Box::new(move |frame: I420, _seq: u64| {
+            if let Ok(mut m) = captured.lock() {
+                m.captured_frames += 1;
+            }
+            // A full queue means the far end is behind. Dropping the frame is the
+            // correct backpressure: a desktop stream is live, not a file.
+            if frame_tx.try_send(frame).is_err() {
                 if let Ok(mut m) = captured.lock() {
-                    m.captured_frames += 1;
+                    m.dropped_frames += 1;
                 }
-                // A full queue means the far end is behind. Dropping the frame is
-                // the correct backpressure: a desktop stream is live, not a file.
-                if frame_tx.try_send(frame).is_err() {
-                    if let Ok(mut m) = captured.lock() {
-                        m.dropped_frames += 1;
-                    }
+            }
+        });
+
+        let Selected {
+            source,
+            capture,
+            x11,
+        } = match request.source.clone() {
+            Some(SourceRequest::X11 { display }) => {
+                select_x11(display.as_deref(), request.max_width, request.max_height, metrics.clone(), sink)
+                    .map_err(|error| SessionError::new("source", format!("{error:#}")))?
+            }
+            _ => {
+                let portal = portal::open(request.restore_token.as_deref())
+                    .await
+                    .map_err(|error| SessionError::new("source", format!("{error:#}")))?;
+                if let Some(token) = &portal.restore_token {
+                    let _ = events.send(SessionEvent::RestoreToken(token.clone()));
                 }
-            }),
-        )
-        .map_err(|error| SessionError::new("source", format!("{error:#}")))?;
+                let source = portal.source.clone();
+                let source_w = source.width.max(1) as usize;
+                let source_h = source.height.max(1) as usize;
+                let (width, height) = fit(source_w, source_h, request.max_width, request.max_height);
+                let capture = capture::start(portal, width, height, sink)
+                    .map_err(|error| SessionError::new("source", format!("{error:#}")))?;
+                Selected {
+                    source,
+                    capture: FrameSource::Portal(capture),
+                    x11: None,
+                }
+            }
+        };
+
+        let source_w = source.width.max(1) as usize;
+        let source_h = source.height.max(1) as usize;
+        let (width, height) = fit(source_w, source_h, request.max_width, request.max_height);
 
         let encoder = Encoder::new(
             width,
@@ -227,13 +480,23 @@ impl Session {
             "origin": { "x": source.origin_x, "y": source.origin_y },
         });
 
-        let input = if wants_control {
-            Some(
-                InputDevices::create(source_w as i32, source_h as i32)
-                    .map_err(|error| SessionError::new("input-unavailable", format!("{error:#}")))?,
-            )
-        } else {
+        let input = if !wants_control {
             None
+        } else {
+            Some(match &x11 {
+                Some(desktop) => InputTarget {
+                    applier: Applier::X11(desktop.clone()),
+                    held: HeldState::default(),
+                },
+                None => InputTarget {
+                    applier: Applier::Uinput(
+                        InputDevices::create(source_w as i32, source_h as i32).map_err(|error| {
+                            SessionError::new("input-unavailable", format!("{error:#}"))
+                        })?,
+                    ),
+                    held: HeldState::default(),
+                },
+            })
         };
 
         let inner = Arc::new(Inner {
@@ -320,18 +583,24 @@ impl Session {
     }
 
     /// Read the desktop clipboard for the consumer. Explicit, never polled.
-    pub fn read_clipboard(&self) -> std::result::Result<String, String> {
+    pub async fn read_clipboard(&self) -> std::result::Result<String, String> {
         if !self.inner.permissions.contains(&Permission::Clipboard) {
             return Err(String::from("this session has no clipboard permission"));
         }
-        clipboard::read_or_explain()
+        clipboard_task(move || clipboard::read_or_explain()).await
     }
 
-    pub fn write_clipboard(&self, text: &str) -> std::result::Result<(), String> {
+    pub async fn write_clipboard(&self, text: String) -> std::result::Result<(), String> {
         if !self.inner.permissions.contains(&Permission::Clipboard) {
             return Err(String::from("this session has no clipboard permission"));
         }
-        clipboard::write(text).map_err(|error| format!("{error:#}"))
+        clipboard_task(move || {
+            clipboard::write(&text)
+                .map(|()| String::new())
+                .map_err(|error| format!("{error:#}"))
+        })
+        .await
+        .map(|_written| ())
     }
 
     pub fn mark_closed_reason(&self) -> Option<String> {
@@ -351,8 +620,8 @@ impl Session {
         // Release first, then tear down: a stuck modifier is the one failure the
         // user cannot undo by reconnecting.
         if let Ok(mut input) = self.inner.input.lock() {
-            if let Some(devices) = input.as_mut() {
-                devices.release_all();
+            if let Some(target) = input.as_mut() {
+                let _ = target.release_all();
             }
             *input = None;
         }
@@ -415,7 +684,7 @@ impl Inner {
     /// Admit one client action. Validation, permission and ordering checks all
     /// happen before any physical effect, so a refused action leaves the desktop
     /// exactly as it was.
-    fn apply(&self, message: ControlMessage) {
+    fn apply(self: &Arc<Self>, message: ControlMessage) {
         let seq = message.seq();
         if !self.control_open.load(Ordering::Relaxed) {
             self.reject(seq, "session", "the control channel is not open");
@@ -452,17 +721,19 @@ impl Inner {
             ControlMessage::Text { text, .. } => self.text(&text, seq),
             ControlMessage::ReleaseAll { .. } => {
                 if let Ok(mut input) = self.input.lock() {
-                    if let Some(devices) = input.as_mut() {
-                        devices.release_all();
+                    if let Some(target) = input.as_mut() {
+                        let _ = target.release_all();
                     }
                 }
                 Ok(())
             }
             ControlMessage::ClipboardRead { request, .. } => {
-                return self.clipboard_read(&request)
+                self.clipboard_read(request);
+                return;
             }
             ControlMessage::ClipboardWrite { request, text, .. } => {
-                return self.clipboard_write(&request, &text)
+                self.clipboard_write(request, text);
+                return;
             }
         };
         match outcome {
@@ -478,15 +749,15 @@ impl Inner {
 
     fn with_input<T>(
         &self,
-        action: impl FnOnce(&mut InputDevices) -> T,
+        action: impl FnOnce(&mut InputTarget) -> Result<T>,
     ) -> std::result::Result<T, (&'static str, String)> {
         let mut input = self
             .input
             .lock()
             .map_err(|_| ("session", String::from("the input device is unavailable")))?;
         match input.as_mut() {
-            Some(devices) => Ok(action(devices)),
-            None => Err(("input-unavailable", String::from("no virtual input device"))),
+            Some(target) => action(target).map_err(|error| ("input", format!("{error:#}"))),
+            None => Err(("input-unavailable", String::from("no input backend"))),
         }
     }
 
@@ -505,17 +776,17 @@ impl Inner {
                 format!("({x},{y}) is outside the {width}x{height} surface"),
             ));
         }
-        self.with_input(|devices| match phase {
-            PointerPhase::Move => devices.move_absolute(x, y),
+        self.with_input(|target| match phase {
+            PointerPhase::Move => target.move_absolute(x, y),
             PointerPhase::Down => {
-                devices.move_absolute(x, y);
-                devices.button(Button::from_number(button), true);
+                target.move_absolute(x, y)?;
+                target.button(Button::from_number(button), true)
             }
             PointerPhase::Up => {
-                devices.move_absolute(x, y);
-                devices.button(Button::from_number(button), false);
+                target.move_absolute(x, y)?;
+                target.button(Button::from_number(button), false)
             }
-            PointerPhase::Cancel => devices.release_all(),
+            PointerPhase::Cancel => target.release_all(),
         })
     }
 
@@ -523,7 +794,7 @@ impl Inner {
         if dx.abs() > 100 || dy.abs() > 100 {
             return Err(("coordinates", String::from("scroll delta is out of range")));
         }
-        self.with_input(|devices| devices.scroll(dx, dy))
+        self.with_input(|target| target.scroll(dx, dy))
     }
 
     fn key(
@@ -538,7 +809,7 @@ impl Inner {
         // would press, and it does not depend on the layout.
         if let Some(name) = &name {
             if let Some(code) = keymap::modifier_key(name) {
-                return self.with_input(|devices| devices.key(code, down));
+                return self.with_input(|target| target.key(code, down));
             }
         }
 
@@ -571,18 +842,19 @@ impl Inner {
             .collect();
         requested.extend(stroke.modifiers());
 
-        self.with_input(|devices| {
+        self.with_input(|target| {
             if down {
                 for modifier in &requested {
-                    devices.key(*modifier, true);
+                    target.key(*modifier, true)?;
                 }
             }
-            devices.key(stroke.code, down);
+            target.key(stroke.code, down)?;
             if !down {
                 for modifier in requested.iter().rev() {
-                    devices.key(*modifier, false);
+                    target.key(*modifier, false)?;
                 }
             }
+            Ok(())
         })
     }
 
@@ -603,52 +875,61 @@ impl Inner {
             ));
         }
         let _ = seq;
-        self.with_input(|devices| {
+        self.with_input(|target| {
             for keystroke in plan {
                 for stroke in keystroke {
                     let modifiers = stroke.modifiers();
                     for modifier in &modifiers {
-                        devices.key(*modifier, true);
+                        target.key(*modifier, true)?;
                     }
-                    devices.key(stroke.code, true);
-                    devices.key(stroke.code, false);
+                    target.key(stroke.code, true)?;
+                    target.key(stroke.code, false)?;
                     for modifier in modifiers.iter().rev() {
-                        devices.key(*modifier, false);
+                        target.key(*modifier, false)?;
                     }
                 }
             }
+            Ok(())
         })
     }
 
-    fn clipboard_read(&self, request: &str) {
+    fn clipboard_read(self: &Arc<Self>, request: String) {
         if !self.has(Permission::Clipboard) {
             self.reject(0, "permission", "this session has no clipboard permission");
             return;
         }
-        let (text, error) = match clipboard::read_or_explain() {
-            Ok(text) => (text, None),
-            Err(reason) => (String::new(), Some(reason)),
-        };
-        let payload = ControlReply::Clipboard {
-            request,
-            text,
-            error: error.as_deref(),
-        };
-        let _ = self.reply(&payload);
+        let inner = Arc::clone(self);
+        tokio::spawn(async move {
+            let (text, error) = match clipboard_task(clipboard::read_or_explain).await {
+                Ok(text) => (text, None),
+                Err(reason) => (String::new(), Some(reason)),
+            };
+            let _ = inner.reply(&ControlReply::Clipboard {
+                request: &request,
+                text,
+                error: error.as_deref(),
+            });
+        });
     }
 
-    fn clipboard_write(&self, request: &str, text: &str) {
+    fn clipboard_write(self: &Arc<Self>, request: String, text: String) {
         if !self.has(Permission::Clipboard) {
             self.reject(0, "permission", "this session has no clipboard permission");
             return;
         }
-        let failure = clipboard::write(text).err().map(|error| error.to_string());
-        let payload = ControlReply::Clipboard {
-            request,
-            text: String::new(),
-            error: failure.as_deref(),
-        };
-        let _ = self.reply(&payload);
+        let inner = Arc::clone(self);
+        tokio::spawn(async move {
+            let error = clipboard_task(move || {
+                clipboard::write(&text).map(|()| String::new()).map_err(|error| format!("{error:#}"))
+            })
+            .await
+            .err();
+            let _ = inner.reply(&ControlReply::Clipboard {
+                request: &request,
+                text: String::new(),
+                error: error.as_deref(),
+            });
+        });
     }
 
     fn encoded_size(&self) -> (usize, usize) {
@@ -754,8 +1035,8 @@ fn spawn_peer_events(inner: &Arc<Inner>, mut events: tokio_mpsc::UnboundedReceiv
                     inner.control_open.store(false, Ordering::SeqCst);
                     // A client that vanished must not leave a button held.
                     if let Ok(mut input) = inner.input.lock() {
-                        if let Some(devices) = input.as_mut() {
-                            devices.release_all();
+                        if let Some(target) = input.as_mut() {
+                            let _ = target.release_all();
                         }
                     }
                 }

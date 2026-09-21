@@ -111,7 +111,14 @@ export class EngineClient {
         pending.resolve(parsed.result);
     }
 
-    private request<T>(method: string, params?: Record<string, unknown>): Promise<T> {
+    /**
+     * One request on the engine's protocol.
+     *
+     * Public because the protocol *is* the contract: a consumer that wants to
+     * add a capability the typed helpers do not cover should send it rather than
+     * patch this package.
+     */
+    request<T>(method: string, params?: Record<string, unknown>): Promise<T> {
         if (this.closed) {
             return Promise.reject(new Error('the desktop engine is not running'));
         }

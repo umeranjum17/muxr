@@ -119,13 +119,64 @@ pub fn probe() -> Result<(), InputUnavailable> {
     }
 }
 
+/// What one session is currently holding down.
+///
+/// Kept separately from the device that applies it so the release rule — release
+/// exactly what this session pressed, in a defined order, once — is one piece of
+/// testable logic rather than a habit of each backend. A key released that this
+/// session never pressed is the failure mode this prevents: on a shared virtual
+/// keyboard it would lift a modifier someone else is holding.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct HeldState {
+    keys: Vec<i16>,
+    buttons: Vec<Button>,
+}
+
+impl HeldState {
+    pub fn key(&mut self, code: i16, down: bool) {
+        if down {
+            if !self.keys.contains(&code) {
+                self.keys.push(code);
+            }
+            return;
+        }
+        self.keys.retain(|held| *held != code);
+    }
+
+    pub fn button(&mut self, button: Button, down: bool) {
+        if down {
+            if !self.buttons.contains(&button) {
+                self.buttons.push(button);
+            }
+            return;
+        }
+        self.buttons.retain(|held| *held != button);
+    }
+
+    /// Everything to release, and nothing this session did not press. Buttons
+    /// first: on a desktop, a pointer button released after a modifier is the
+    /// order the user's own hand would produce.
+    pub fn release_plan(&mut self) -> (Vec<Button>, Vec<i16>) {
+        (
+            std::mem::take(&mut self.buttons),
+            std::mem::take(&mut self.keys),
+        )
+    }
+
+    pub fn held(&self) -> usize {
+        self.keys.len() + self.buttons.len()
+    }
+
+    pub fn is_pressing(&self, code: i16) -> bool {
+        self.keys.contains(&code)
+    }
+}
+
 /// A live pair of virtual devices. Dropping this releases anything still held
 /// and removes the devices, which is what makes a dropped connection safe.
 pub struct InputDevices {
     mouse: *mut Mouse,
     keyboard: *mut Keyboard,
-    pressed_keys: Vec<i16>,
-    pressed_buttons: Vec<Button>,
     screen_width: i32,
     screen_height: i32,
 }
@@ -172,8 +223,6 @@ impl InputDevices {
         Ok(Self {
             mouse,
             keyboard,
-            pressed_keys: Vec::new(),
-            pressed_buttons: Vec::new(),
             screen_width,
             screen_height,
         })
@@ -187,12 +236,8 @@ impl InputDevices {
 
     pub fn button(&mut self, button: Button, down: bool) {
         if down {
-            if !self.pressed_buttons.contains(&button) {
-                self.pressed_buttons.push(button);
-            }
             unsafe { inputtino_mouse_press_button(self.mouse, button as c_int) };
         } else {
-            self.pressed_buttons.retain(|held| *held != button);
             unsafe { inputtino_mouse_release_button(self.mouse, button as c_int) };
         }
     }
@@ -212,35 +257,20 @@ impl InputDevices {
 
     pub fn key(&mut self, code: i16, down: bool) {
         if down {
-            if !self.pressed_keys.contains(&code) {
-                self.pressed_keys.push(code);
-            }
             unsafe { inputtino_keyboard_press(self.keyboard, code) };
         } else {
-            self.pressed_keys.retain(|held| *held != code);
             unsafe { inputtino_keyboard_release(self.keyboard, code) };
         }
     }
 
-    /// Release everything this session pressed. Called on close, on revoke and
-    /// on drop, so a dropped connection cannot leave a modifier stuck down.
-    pub fn release_all(&mut self) {
-        for button in std::mem::take(&mut self.pressed_buttons) {
-            unsafe { inputtino_mouse_release_button(self.mouse, button as c_int) };
-        }
-        for code in std::mem::take(&mut self.pressed_keys) {
-            unsafe { inputtino_keyboard_release(self.keyboard, code) };
-        }
-    }
 
-    pub fn held(&self) -> usize {
-        self.pressed_keys.len() + self.pressed_buttons.len()
-    }
 }
 
 impl Drop for InputDevices {
     fn drop(&mut self) {
-        self.release_all();
+        // Held state is released by the session before it drops the devices; a
+        // device removed without that would still leave the kernel-side release
+        // to chance.
         if !self.keyboard.is_null() {
             unsafe { inputtino_keyboard_destroy(self.keyboard) };
             self.keyboard = std::ptr::null_mut();
@@ -264,16 +294,43 @@ mod tests {
         assert_eq!(Button::from_number(9), Button::Left);
     }
 
+    #[test]
+    fn held_state_releases_exactly_what_this_session_pressed() {
+        let mut held = HeldState::default();
+        held.key(29, true); // left ctrl
+        held.key(46, true); // c
+        held.button(Button::Left, true);
+        assert_eq!(held.held(), 3);
+        // A repeat press is the same press, not a second one, so the plan still
+        // releases it exactly once.
+        held.key(29, true);
+        assert_eq!(held.held(), 3);
+
+        let (buttons, keys) = held.release_plan();
+        assert_eq!(buttons, vec![Button::Left]);
+        assert_eq!(keys, vec![29, 46]);
+        assert_eq!(held.held(), 0, "a release plan empties the held state");
+        assert!(held.release_plan().1.is_empty(), "releasing twice releases nothing");
+    }
+
+    #[test]
+    fn an_explicit_release_leaves_only_what_is_still_pressed() {
+        let mut held = HeldState::default();
+        held.key(29, true);
+        held.key(46, true);
+        held.key(46, false);
+        assert!(held.is_pressing(29));
+        assert!(!held.is_pressing(46));
+        assert_eq!(held.release_plan().1, vec![29]);
+    }
+
     /// Proving the backend is really available here is the point: if this host
     /// cannot create the devices, the engine must say so rather than offer a
     /// control surface that does nothing.
     #[test]
     fn this_host_can_create_and_destroy_the_virtual_devices() {
         match InputDevices::create(2560, 1440) {
-            Ok(mut devices) => {
-                assert_eq!(devices.held(), 0);
-                devices.release_all();
-            }
+            Ok(_devices) => {}
             Err(error) => {
                 let unavailable = probe().unwrap_err();
                 assert!(

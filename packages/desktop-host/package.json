@@ -18,6 +18,7 @@
         "engine/src",
         "engine/vendor",
         "docs",
+        "examples",
         "README.md"
     ],
     "scripts": {
@@ -25,5 +26,8 @@
     },
     "engines": {
         "node": ">=22"
+    },
+    "dependencies": {
+        "ws": "^8.18.0"
     }
 }

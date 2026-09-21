@@ -20,9 +20,10 @@ ashpd = { version = "0.11", default-features = false, features = ["tokio"] }
 pipewire = { version = "0.10", features = ["v0_3_44"] }
 libc = "0.2"
 bytes = "1"
-webrtc = { version = "0.21", default-features = false, features = ["crypto-ring"] }
+webrtc = { version = "0.21", default-features = false, features = ["runtime-tokio", "crypto-ring"] }
 rtc = { version = "0.21", default-features = false, features = ["crypto-ring"] }
 xkbcommon = "0.8"
+x11rb = { version = "0.14", default-features = false, features = ["allow-unsafe-code", "xtest"] }
 wl-clipboard-rs = "0.9"
 log = "0.4"
 async-trait = "0.1"
