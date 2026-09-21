@@ -40,6 +40,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('react-native', () => ({ Platform: { OS: 'android' }, AppState: { addEventListener: vi.fn() } }));
+// The level is a reanimated shared value so chunks never re-render the screen;
+// here it only needs to be a readable holder.
+vi.mock('react-native-reanimated', () => ({ useSharedValue: (initial: number) => ({ value: initial }) }));
 vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
 vi.mock('@/utils/localTranscription', () => ({ transcribePcm16: mocks.transcribe }));
 vi.mock('@/catalog/sync', () => ({ sync: { request: mocks.syncRequest } }));
