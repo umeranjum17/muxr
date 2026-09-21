@@ -202,6 +202,12 @@ function KeysCategory({ entries, seed, onChange, closeForm, modifierIcons, onCha
     const { working, drag, commit, reseed, removeAt, moveBy, onDrag, isDragging } = useReorderableList<RowEntry>(true, seed, onChange);
     const [formIndex, setFormIndex] = React.useState<number | null>(null);
 
+    // The way back to this list must not outlive the list: a stale closer would
+    // make hardware back a no-op on a component that is no longer mounted. The
+    // layout effect clears it in the same commit that removes the list, so no
+    // back press can land on the stale one.
+    React.useLayoutEffect(() => () => { closeForm.current = null; }, [closeForm]);
+
     const saveKey = (entry: RowEntry) => {
         if (formIndex === null || isDragging()) return;
         const next = [...working];
@@ -327,6 +333,9 @@ function SnippetsCategory({ replies, onRepliesChange, closeForm }: {
     const { theme } = useUnistyles();
     const { working, drag, commit, removeAt, onDrag, moveBy, isDragging } = useReorderableList<PersonalQuickReply>(true, replies, onRepliesChange);
     const [formIndex, setFormIndex] = React.useState<number | null>(null);
+
+    // Same rule as the key list: the closer goes away with its owner.
+    React.useLayoutEffect(() => () => { closeForm.current = null; }, [closeForm]);
 
     const saveReply = (reply: PersonalQuickReply) => {
         if (formIndex === null || isDragging()) return;

@@ -58,7 +58,7 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
     // filled caps at a single grey was most of what read as a band of chrome
     // under the terminal; unboxed, the row disappears until it is wanted and
     // an armed modifier is the only thing that takes colour.
-    const style = (selected = false, locked = false) => ({
+    const style = (locked = false) => ({
         minHeight: 34,
         minWidth: 34,
         justifyContent: 'center' as const,
@@ -68,7 +68,6 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
         backgroundColor: locked ? theme.colors.accentSubtle : 'transparent',
         borderWidth: 0,
         borderColor: 'transparent',
-        ...(selected && !locked ? {} : {}),
     });
     const labelStyle = (tint: string) => ({ color: tint, fontSize: 12, ...Typography.mono() });
     const fire = (key: TerminalKey) => {
@@ -106,7 +105,7 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
                 accessibilityLabel={`Control${ctrl === 'lock' ? ', locked' : ''}`}
                 accessibilityHint="Tap for the next key, double tap to lock. Hold to edit terminal keys."
                 accessibilityState={{ selected: active(ctrl) }}
-                style={({ pressed }) => [style(active(ctrl), ctrl === 'lock'), pressed && { opacity: 0.6 }]}
+                style={({ pressed }) => [style(ctrl === 'lock'), pressed && { opacity: 0.6 }]}
             >
                 <Text style={labelStyle(active(ctrl) ? theme.colors.accent : theme.colors.textSecondary)}>{modifierIcons === true ? '⌃' : 'ctrl'}</Text>
             </Pressable>
@@ -119,7 +118,7 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
                 accessibilityActions={[{ name: 'edit', label: 'Edit key row' }]}
                 onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'edit') openEditor(); }}
                 accessibilityState={{ selected: active(shift) }}
-                style={({ pressed }) => [style(active(shift), shift === 'lock'), pressed && { opacity: 0.6 }]}
+                style={({ pressed }) => [style(shift === 'lock'), pressed && { opacity: 0.6 }]}
             >
                 <Text style={labelStyle(active(shift) ? theme.colors.accent : theme.colors.textSecondary)}>{modifierIcons === true ? '⇧' : 'shift'}</Text>
             </Pressable>

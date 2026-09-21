@@ -26,8 +26,10 @@ export type RingSlot = {
 };
 
 // The docked centre control and its ring: the centre lives in the composer's
-// rail (the screen reserves its spot there), the slots bloom over the terminal.
-const CENTER = 40;
+// rail (the screen reserves exactly this spot there, so the drawn control
+// never covers a neighbouring target), the slots bloom over the terminal.
+export const RING_CENTER_SIZE = 40;
+const CENTER = RING_CENTER_SIZE;
 const CENTER_ICON = 17;
 // Slots render at a disc size that follows the terminal's width: the full
 // 48dp discs on reference-width phones, a 44dp set on narrow PWA panes.
@@ -76,16 +78,26 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, fa
         y: clamp(anchor.y, CENTER / 2 + 8, Math.max(CENTER / 2 + 8, height - CENTER / 2 - 8)),
     }), [anchor.x, anchor.y, width, height]);
     const disc = slotSize(width);
-    const slotIcon = Math.round(disc * 0.4);
     // The fan solves on an elevation arc above the docked centre: slots stay
     // over the terminal, ring the thumb, and never wash over the composer.
     // The fan solves against the terminal alone; the centre keeps the full
     // region so it stays on the rail slot it is docked in.
     const fanBounds = Math.max(disc + 16, Math.min(fanHeight ?? height, height));
-    const offsets = React.useMemo(
-        () => dockedRingOffsets(center, { width, height: fanBounds }, count, disc),
-        [center, width, fanBounds, count, disc],
-    );
+    const fan = React.useMemo(() => {
+        // Every slot stays, and the discs stay over the terminal while they can:
+        // the fan closes its gap and the discs step down a size before a box
+        // too short for any of them lets the arc use the whole overlay instead.
+        let last = { offsets: [] as { x: number; y: number }[], disc };
+        for (const reach of [fanBounds, height]) {
+            for (const size of [disc, Math.round(disc * 0.85), Math.round(disc * 0.7), Math.round(disc * 0.6)]) {
+                last = { offsets: dockedRingOffsets(center, { width, height: fanBounds }, count, size, reach), disc: size };
+                if (last.offsets.length === count) return last;
+            }
+        }
+        return last;
+    }, [center, width, height, fanBounds, count, disc]);
+    const offsets = fan.offsets;
+    const slotIcon = Math.round(fan.disc * 0.4);
 
     // The ring exists while the parent says open (tap mode) or while a sweep
     // is in flight; one shared progress drives both directions, so closing
@@ -196,7 +208,7 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, fa
                     reduceMotion={reduceMotion === true}
                     visible={visible}
                     highlight={highlight}
-                    disc={disc}
+                    disc={fan.disc}
                     icon={slotIcon}
                     onPress={() => { onOpenChange(false); slot.run(); hapticsSelection(); }}
                 />
@@ -214,7 +226,9 @@ export function FloatingTerminalControls({ open, onOpenChange, width, height, fa
                     accessibilityHint="Quick actions around your thumb. Tap to open, or press and slide to one."
                     accessibilityState={{ expanded: open }}
                     onPress={() => { hapticsLight(); onOpenChange(!open); }}
-                    hitSlop={6}
+                    // Room above and below only: sideways slack would cover the
+                    // microphone the centre is docked beside.
+                    hitSlop={{ top: 6, bottom: 6 }}
                     style={({ pressed }) => ({
                         width: CENTER, height: CENTER, borderRadius: CENTER / 2,
                         alignItems: 'center', justifyContent: 'center',

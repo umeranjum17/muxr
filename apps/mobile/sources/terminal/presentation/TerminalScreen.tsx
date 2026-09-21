@@ -50,7 +50,7 @@ import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
-import { FloatingTerminalControls, type RingSlot } from './FloatingTerminalControls';
+import { FloatingTerminalControls, RING_CENTER_SIZE, type RingSlot } from './FloatingTerminalControls';
 import { TERMINAL_QUICK_REPLIES, TerminalKeyRow } from './TerminalKeyRow';
 import { TerminalControlGrid, type ControlGridCategory } from './TerminalKeyRowEditor';
 import { DEFAULT_ROW_IDS, type RowEntry, type TerminalKeyAction } from '../domain/keyRow';
@@ -70,7 +70,6 @@ import { CommandPalette } from '@/components/CommandPalette';
 import type { Command } from '@/components/CommandPalette/types';
 import { CUSTOM_CATEGORY } from '@/components/CommandPalette/types';
 import { agentCommands, type AgentCommand } from '../domain/agentCommands';
-import { personalReplyCommands } from '../domain/quickReplies';
 import { agentKindLabel } from '@/herd';
 import { t } from '@/text';
 import { FindOutputSheet } from './FindOutputSheet';
@@ -572,15 +571,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 };
             }),
             // Personal replies are insert-only: a tap lands in the visible
-            // draft and only an explicit Send sends anything. The projection
-            // lives in the domain so the reachability contract is testable.
-            ...personalReplyCommands(personalReplies).map((command): Command => ({
-                id: command.id,
-                title: command.title,
+            // draft and only an explicit Send sends anything.
+            ...personalReplies.map((reply): Command => ({
+                id: `reply:user:${reply.id}`,
+                title: reply.label,
                 category: t('commandPalette.commonReplies'),
-                action: () => insertDraft(command.text),
+                action: () => insertDraft(reply.text),
                 actionLabel: INSERT_ONLY_LABEL,
-                secondaryAction: () => insertDraft(command.text),
+                secondaryAction: () => insertDraft(reply.text),
             })),
             ...known.filter((entry) => entry.common === true && entry.dangerous !== true).map((entry) => toEntry(entry, t('commandPalette.common'))),
             ...known.filter((entry) => entry.common !== true && entry.dangerous !== true).map((entry) => toEntry(entry, t('commandPalette.allCommands', { kind: kindLabel ?? '' }))),
@@ -1392,7 +1390,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     from something that belongs to the composer
                                     rather than from a puck parked on the terminal. */}
                                 {railShowsRing && <>
-                                    <View ref={ringSlotRef} onLayout={measureRingAnchor} collapsable={false} pointerEvents="none" style={{ width: 30, height: 38 }} />
+                                    <View ref={ringSlotRef} onLayout={measureRingAnchor} collapsable={false} pointerEvents="none" style={{ width: RING_CENTER_SIZE, height: 38 }} />
                                     {dictateAction}
                                 </>}
                             </>}
@@ -1418,7 +1416,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         // centre control sits exactly on its slot; the fan itself
                         // solves only in the area above it (see fanRegion).
                         const regionHeight = docked
-                            ? Math.max(terminalBox.height, ringCenter.y + 40 - terminalBox.top)
+                            ? Math.max(terminalBox.height, ringCenter.y + RING_CENTER_SIZE - terminalBox.top)
                             : terminalBox.height;
                         const anchor = docked
                             ? { x: ringCenter.x, y: ringCenter.y - terminalBox.top }
