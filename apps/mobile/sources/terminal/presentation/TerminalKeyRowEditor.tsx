@@ -89,8 +89,9 @@ export function TerminalControlGrid({
                         </Pressable>
                     </View>
 
-                    {/* The category tabs: the grid's own switch row, all five visible. */}
-                    <View style={styles.categoryRow}>
+                    {/* The category tabs: the grid's own switch row. It scrolls
+                        when the pane is narrow so chips never collide. */}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={{ gap: 8, paddingBottom: 10 }}>
                         {CATEGORIES.map((entry) => {
                             const active = entry.id === category;
                             return <Pressable key={entry.id} onPress={() => { hapticsSelection(); onCategoryChange(entry.id); }}
@@ -99,7 +100,7 @@ export function TerminalControlGrid({
                                 <Text style={{ color: active ? theme.colors.button.primary.tint : theme.colors.text, fontSize: 13, fontWeight: active ? '600' : '400' }}>{entry.label}</Text>
                             </Pressable>;
                         })}
-                    </View>
+                    </ScrollView>
 
                         <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
                             {category === 'keys' && <KeysCategory entries={entries} seed={seed} onChange={onChange} modifierIcons={modifierIcons === true} onChangeModifierIcons={(value) => { hapticsSelection(); setModifierIcons(value); }} />}
@@ -506,8 +507,7 @@ const styles = StyleSheet.create({
     bodyContent: { paddingBottom: 24, paddingTop: 6 },
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4, paddingBottom: 6 },
     title: { fontSize: 20, fontWeight: '700' },
-    categoryRow: { flexDirection: 'row', gap: 5, paddingBottom: 10 },
-    categoryChip: { flex: 1, minHeight: 34, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderRadius: 17 },
+    categoryChip: { minHeight: 36, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, borderRadius: 18 },
     sectionLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1.4, color: '#8e8e93' },
     caption: { fontSize: 12, marginTop: 8, marginBottom: 6, color: '#8e8e93' },
     card: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', marginTop: 2 },
