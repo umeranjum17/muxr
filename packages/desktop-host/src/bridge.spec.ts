@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -149,5 +149,61 @@ describe('the bridge', () => {
         });
         await requestOn(socket, 1, 'session.open');
         expect(await seen).toEqual({ source: { kind: 'x11', display: ':99' } });
+    }, 20_000);
+
+    it('closes the engine session when its last consumer goes away, and only then', async () => {
+        // A consumer that dies mid-gesture — a closed tab, a lost phone, a
+        // killed process — must not leave the desktop holding synthetic input
+        // until the engine's one-hour lease expires.
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-bridge-'));
+        const script = join(directory, 'engine.cjs');
+        const log = join(directory, 'engine.log');
+        writeFileSync(script, `
+const fs = require('node:fs');
+const readline = require('node:readline');
+const out = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
+readline.createInterface({ input: process.stdin }).on('line', (line) => {
+  const request = JSON.parse(line);
+  fs.appendFileSync(${JSON.stringify(log)}, request.method + ' ' + JSON.stringify(request.params ?? {}) + '\\n');
+  if (request.method === 'hello') return out({ id: request.id, result: { protocol: 1 } });
+  if (request.method === 'session.open') return out({ id: request.id, result: { sessionId: 'engine-1', generation: 7 } });
+  if (request.method === 'session.close') return out({ id: request.id, result: { closed: true } });
+  if (request.method === 'shutdown') { out({ id: request.id, result: {} }); process.exit(0); }
+  return out({ id: request.id, error: { code: 'operation', message: 'unknown' } });
+});
+`);
+        const sent = (): string[] => {
+            try {
+                return readFileSync(log, 'utf8').split('\n').filter((line) => line !== '');
+            } catch {
+                return [];
+            }
+        };
+
+        const bridge = await Bridge.start({
+            listen: '127.0.0.1:0',
+            token: 't',
+            engineCommand: process.execPath,
+            engineArgs: [script],
+            serveExample: false,
+        });
+        bridges.push(bridge);
+        const first = await connect(bridge.port, 'token=t');
+        await requestOn(first, 1, 'session.open');
+        const second = await connect(bridge.port, 'token=t');
+
+        // The session outlives the consumer that opened it while another one is
+        // still attached: the bridge closes it only when nobody is left.
+        first.close();
+        await requestOn(second, 2, 'session.metrics');
+        expect(sent()).toContain('session.open {}');
+        expect(sent().filter((line) => line.startsWith('session.close'))).toEqual([]);
+
+        second.close();
+        const deadline = Date.now() + 5000;
+        while (!sent().some((line) => line.startsWith('session.close')) && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(sent()).toContain('session.close {"session_id":"engine-1","generation":7}');
     }, 20_000);
 });

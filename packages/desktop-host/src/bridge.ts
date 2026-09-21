@@ -61,6 +61,8 @@ function examplePage(): string {
 
 export class Bridge {
     private closing = false;
+    /** The session the engine holds, so a consumer that vanishes can release it. */
+    private session: { sessionId: string; generation?: number } | undefined;
 
     private constructor(
         private readonly server: Server,
@@ -141,6 +143,7 @@ export class Bridge {
             void this.engine
                 .request(request.method, params)
                 .then((result) => {
+                    this.rememberSession(request.method, result);
                     if (request.id !== undefined && socket.readyState === socket.OPEN) {
                         socket.send(JSON.stringify({ id: request.id, result }));
                     }
@@ -156,6 +159,40 @@ export class Bridge {
                     }));
                 });
         });
+
+        // A consumer that disappears mid-gesture — a closed tab, a lost phone,
+        // a killed process — must not leave the desktop holding synthetic input
+        // until the engine's lease expires. Nothing keeps the session for a
+        // consumer that might reconnect: a reconnect opens a fresh one.
+        const release = (): void => this.releaseSessionIfDetached();
+        socket.on('close', release);
+        socket.on('error', release);
+    }
+
+    private rememberSession(method: string, result: unknown): void {
+        if (method === 'session.close') {
+            this.session = undefined;
+            return;
+        }
+        if (method !== 'session.open') return;
+        const opened = result as { sessionId?: unknown; generation?: unknown } | null;
+        if (typeof opened?.sessionId !== 'string') return;
+        this.session = typeof opened.generation === 'number'
+            ? { sessionId: opened.sessionId, generation: opened.generation }
+            : { sessionId: opened.sessionId };
+    }
+
+    private releaseSessionIfDetached(): void {
+        if (this.closing || this.sockets.clients.size > 0) return;
+        const session = this.session;
+        this.session = undefined;
+        if (session === undefined) return;
+        void this.engine
+            .request('session.close', {
+                session_id: session.sessionId,
+                ...(session.generation !== undefined ? { generation: session.generation } : {}),
+            })
+            .catch(() => undefined);
     }
 
     async close(): Promise<void> {
