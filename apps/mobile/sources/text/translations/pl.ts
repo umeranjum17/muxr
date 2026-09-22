@@ -116,6 +116,7 @@ export const pl: TranslationStructure = {
             refreshing: 'Odświeżanie…',
             refreshFailed: 'Nie udało się odświeżyć · dotknij, aby ponowić',
             refreshNow: 'Odśwież użycie teraz',
+            refreshThrottled: ({ seconds }: { seconds: number }) => `Odświeżanie dostępne za ${seconds} s`,
             notConnected: 'Limity planu nie są połączone',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `odnowienie za ${time}`,

@@ -107,6 +107,7 @@ export const zhHans: TranslationStructure = {
             refreshing: '正在刷新…',
             refreshFailed: '无法刷新 · 点按重试',
             refreshNow: '立即刷新用量',
+            refreshThrottled: ({ seconds }: { seconds: number }) => `${seconds} 秒后可刷新`,
             notConnected: '未连接套餐限额',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `${time}后重置`,

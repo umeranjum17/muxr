@@ -16,6 +16,7 @@ import { AgentGlyph } from '@/components/AgentGlyph';
 import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
+import { forcedReadWait } from '../application/forcedRead';
 
 /** Screen payloads survive a close: reopening renders at once, then refreshes. */
 const reportCache = new Map<string, UsageReport>();
@@ -52,9 +53,11 @@ export function UsageScreen() {
     // the refresh control, never the figures: what is on screen stays there
     // until a newer answer lands.
     const [busy, setBusy] = React.useState(false);
+    const [throttledSeconds, setThrottledSeconds] = React.useState<number>();
     const version = React.useRef(0);
     const staleRef = React.useRef(false);
     const inFlight = React.useRef(false);
+    const lastForced = React.useRef(0);
 
     const report = fetched.key === provider ? fetched.value : reportCache.get(provider);
     const tabs = report?.providers ?? [];
@@ -116,15 +119,33 @@ export function UsageScreen() {
         hapticsSelection();
         setProvider(id);
     };
-    const onRefresh = () => { setRefreshing(true); load(provider, true); };
     // The header control and the pull gesture are the same instruction: ask
-    // past the cache, now. A tap while a read is already running joins it
-    // rather than stacking a second ask on rate-limited providers.
+    // past the cache, now. One rule for both, shared with the Home card: a tap
+    // is honoured unless the last forced read is too recent, recovery from a
+    // failure is exempt, and a tap that cannot run says when. A tap while a
+    // read is already running joins it rather than stacking a second ask on
+    // rate-limited providers.
+    const askNow = (): boolean => {
+        if (inFlight.current) return false;
+        const now = Date.now();
+        const waitSeconds = forcedReadWait(lastForced.current, error !== undefined, now);
+        if (waitSeconds !== undefined) { setThrottledSeconds(waitSeconds); return false; }
+        lastForced.current = now;
+        setThrottledSeconds(undefined);
+        return true;
+    };
+    const onRefresh = () => { if (askNow()) { setRefreshing(true); load(provider, true); } };
     const refreshNow = () => {
-        if (inFlight.current) return;
+        if (!askNow()) return;
         hapticsSelection();
         void load(provider, true);
     };
+
+    React.useEffect(() => {
+        if (throttledSeconds === undefined) return;
+        const timer = setTimeout(() => setThrottledSeconds(undefined), throttledSeconds * 1_000);
+        return () => clearTimeout(timer);
+    }, [throttledSeconds]);
 
     const empty = report !== undefined && report.providers.length === 0;
     return (
@@ -152,7 +173,8 @@ export function UsageScreen() {
                     figure being replaced by a spinner. The rail keeps its
                     height when idle, so nothing below it moves. */}
                 <LoadingHairline active={busy} />
-                {error !== undefined && <Pressable onPress={() => load(provider)} accessibilityRole="button" accessibilityLabel={`${error}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
+                {throttledSeconds !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginBottom: 8 }}>{t('plugins.rightNow.refreshThrottled', { seconds: throttledSeconds })}</Text>}
+                {error !== undefined && <Pressable onPress={() => { if (askNow()) load(provider, true); }} accessibilityRole="button" accessibilityLabel={`${error}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
                     <Notice tone="danger" text={error} style={{ marginBottom: 0 }} />
                     <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4, marginLeft: 14 }}>{t('plugins.retry')}</Text>
                 </Pressable>}

@@ -30,7 +30,7 @@ export function RightNowCard() {
     const router = useRouter();
     // The last-known card survives a transient failure; only a load with
     // nothing to show becomes the retry card.
-    const { value: payload, failed, refreshing, refresh } = useUsageNow();
+    const { value: payload, failed, refreshing, throttledSeconds, refresh } = useUsageNow();
 
     const open = () => router.push('/usage');
     const label = <SectionLabel style={{ marginTop: 20, marginBottom: 8, marginHorizontal: 16 }}>{t('plugins.rightNow.title')}</SectionLabel>;
@@ -105,7 +105,7 @@ export function RightNowCard() {
             <Pressable onPress={stalled ? refresh : open} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(payload, failed)}>
                 <CardBody limit={limit} line={line} quiet={quietLine(payload)} />
             </Pressable>
-            <FreshnessRow payload={payload} failed={failed} refreshing={refreshing} onRefresh={refresh} />
+            <FreshnessRow payload={payload} failed={failed} refreshing={refreshing} throttledSeconds={throttledSeconds} onRefresh={refresh} />
         </View>
     </View>;
 }
@@ -125,17 +125,24 @@ function CardBody({ limit, line, quiet }: { limit?: UsageLimitsWindow; line: Rea
  * want to ask again, so the line that says it is also the control that does
  * it. A card whose figures are current stays a card, not a toolbar.
  */
-function FreshnessRow({ payload, failed, refreshing, onRefresh }: {
-    payload: UsageNow; failed: boolean; refreshing: boolean; onRefresh: () => void;
+function FreshnessRow({ payload, failed, refreshing, throttledSeconds, onRefresh }: {
+    payload: UsageNow; failed: boolean; refreshing: boolean; throttledSeconds?: number; onRefresh: () => void;
 }) {
     const { theme } = useUnistyles();
     const agedFor = disclosedAge(payload);
+    // A tap the throttle refused is said out loud, with when it can run: showing
+    // the refreshing state for a read that never started is the lie this line
+    // exists to avoid. A read that is running, or one that failed, is more
+    // current than that tap and speaks first.
     const word = refreshing
         ? t('plugins.rightNow.refreshing')
         : failed
             ? t('plugins.rightNow.refreshFailed')
-            : agedFor === undefined ? undefined : t('components.sessionStatusBar.limitAsOf', { age: agedFor });
+            : throttledSeconds !== undefined
+                ? t('plugins.rightNow.refreshThrottled', { seconds: throttledSeconds })
+                : agedFor === undefined ? undefined : t('components.sessionStatusBar.limitAsOf', { age: agedFor });
     if (word === undefined) return null;
+    const alarm = failed && !refreshing;
     return (
         <Pressable onPress={onRefresh} disabled={refreshing} accessibilityRole="button"
             accessibilityLabel={`${word}. ${t('plugins.rightNow.refreshNow')}`}
@@ -143,9 +150,9 @@ function FreshnessRow({ payload, failed, refreshing, onRefresh }: {
             // change, so a refresh is visible without anything being taken away.
             style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, paddingVertical: 4 }}>
             <Ionicons name="refresh" size={12}
-                color={failed && !refreshing ? theme.colors.textDestructive : withAlpha(theme.colors.textSecondary, refreshing ? 0.5 : 1)} />
+                color={alarm ? theme.colors.textDestructive : withAlpha(theme.colors.textSecondary, refreshing ? 0.5 : 1)} />
             <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 11.5, lineHeight: 15, ...Typography.mono('regular'),
-                color: failed && !refreshing ? theme.colors.textDestructive : withAlpha(theme.colors.textSecondary, refreshing ? 0.5 : 1) }}>
+                color: alarm ? theme.colors.textDestructive : withAlpha(theme.colors.textSecondary, refreshing ? 0.5 : 1) }}>
                 {word}
             </Text>
         </Pressable>

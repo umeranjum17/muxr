@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type UsageNow } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
+import { forcedReadWait } from './forcedRead';
 import { useForegroundRefresh } from './useForegroundRefresh';
 
 /** How long a collected answer stays good enough to show as it is. Quota
@@ -22,12 +23,6 @@ const COLLECTING_RETRY_MS = 6_000;
  *  to be collecting for as long as the app is open. */
 const COLLECTING_ATTEMPTS = 6;
 
-/** A forced read skips the host's cache, so it costs a whole collection and
- *  asks every connected provider again. An intentional tap is always worth
- *  honouring, but a run of them must not hammer services that are themselves
- *  rate limited -- and that the card exists to report on. */
-const FORCED_MIN_INTERVAL_MS = 10_000;
-
 export interface UsageNowRead {
     value?: UsageNow;
     /** The last read did not produce figures. Whatever `value` holds is still
@@ -35,6 +30,9 @@ export interface UsageNowRead {
     failed: boolean;
     /** A read is in flight behind the figures currently shown. */
     refreshing: boolean;
+    /** An explicit ask could not run yet: whole seconds until it can. The
+     *  surface says so rather than report a refresh it did not perform. */
+    throttledSeconds?: number;
     /** Ask now, past the host's cache. */
     refresh: () => void;
 }
@@ -51,30 +49,41 @@ export interface UsageNowRead {
  */
 export function useUsageNow(): UsageNowRead {
     const [state, setState] = React.useState<{ value?: UsageNow; failed: boolean; refreshing: boolean }>({ failed: false, refreshing: false });
+    const [throttledSeconds, setThrottledSeconds] = React.useState<number>();
     const version = React.useRef(0);
     const loading = React.useRef(false);
     const collecting = React.useRef(0);
     const lastForced = React.useRef(0);
+    const failed = React.useRef(false);
     const followUp = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    const latest = React.useRef<(forced: boolean) => void>(() => {});
+    const latest = React.useRef<(force: boolean) => void>(() => {});
     const shown = React.useRef<UsageNow | undefined>(undefined);
     shown.current = state.value;
+    failed.current = state.failed;
 
-    const load = React.useCallback((forced: boolean) => {
+    const load = React.useCallback((force: boolean) => {
         // One read at a time. A tap during a background read is the same read,
         // so it joins it rather than stacking a second ask -- and still turns
         // the control on, because the tap did do something.
         if (loading.current) { setState((current) => ({ ...current, refreshing: true })); return; }
         if (followUp.current !== undefined) { clearTimeout(followUp.current); followUp.current = undefined; }
-        const force = forced && Date.now() - lastForced.current >= FORCED_MIN_INTERVAL_MS;
-        if (force) lastForced.current = Date.now();
+        // A follow-up asks the cache-respecting question on purpose: forcing it
+        // again would start a second collection behind the one the read that
+        // opened the burst already left running.
+        const following = !force && collecting.current > 0;
+        const replaced = following ? shown.current : undefined;
         loading.current = true;
         const request = ++version.current;
         setState((current) => ({ ...current, refreshing: true }));
         void sync.request('usage.now', force ? { refresh: true } : {}, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((result) => {
                 if (request !== version.current) return;
-                if (result.collecting !== true) {
+                // Only a newer payload, or an explicit failure, ends a read. The
+                // host's cache replays any same-day payload, so a follow-up can
+                // be answered by the very figures this read set out to replace:
+                // that is not the collection finishing, and the read keeps
+                // waiting rather than settling on what it already had.
+                if (result.collecting !== true && (replaced === undefined || isNewer(result, replaced))) {
                     collecting.current = 0;
                     setState({ value: result, failed: false, refreshing: false });
                     return;
@@ -104,15 +113,42 @@ export function useUsageNow(): UsageNowRead {
     }, []);
     latest.current = load;
 
-    // A tap is a fresh start, not one more of the follow-ups that just ran out.
-    const refresh = React.useCallback(() => { collecting.current = 0; latest.current(true); }, []);
+    // An explicit tap is a fresh start, not one more of the follow-ups that
+    // just ran out, and it is always worth honouring -- but not so often that
+    // it hammers rate-limited providers. A tap that cannot run says when, and
+    // recovery from a failed read consumes no provider quota, so it is exempt.
+    const refresh = React.useCallback(() => {
+        if (loading.current) { setState((current) => ({ ...current, refreshing: true })); return; }
+        const now = Date.now();
+        const waitSeconds = forcedReadWait(lastForced.current, failed.current, now);
+        if (waitSeconds !== undefined) { setThrottledSeconds(waitSeconds); return; }
+        lastForced.current = now;
+        setThrottledSeconds(undefined);
+        collecting.current = 0;
+        load(true);
+    }, [load]);
+
+    React.useEffect(() => {
+        if (throttledSeconds === undefined) return;
+        const timer = setTimeout(() => setThrottledSeconds(undefined), throttledSeconds * 1_000);
+        return () => clearTimeout(timer);
+    }, [throttledSeconds]);
 
     useForegroundRefresh(React.useCallback(() => {
+        // A new read cycle begins here, and the attempt budget bounds one
+        // contiguous burst rather than the session: without this reset a single
+        // exhausted burst would disarm every later cycle.
+        collecting.current = 0;
         // Only figures already known to be past their window are worth a whole
-        // collection; anything newer is served from the host's cache.
+        // collection; anything newer is served from the host's cache. The same
+        // throttle guards this cycle, which falls back to the cheap ask rather
+        // than skipping the moment.
         const age = shown.current?.ageSeconds;
-        latest.current(age !== undefined && age * 1_000 >= FRESH_MS);
-    }, []), FRESH_MS);
+        const now = Date.now();
+        const force = age !== undefined && age * 1_000 >= FRESH_MS && forcedReadWait(lastForced.current, failed.current, now) === undefined;
+        if (force) lastForced.current = now;
+        load(force);
+    }, [load]), FRESH_MS);
 
     React.useEffect(() => () => {
         version.current += 1;
@@ -120,5 +156,14 @@ export function useUsageNow(): UsageNowRead {
         if (followUp.current !== undefined) { clearTimeout(followUp.current); followUp.current = undefined; }
     }, []);
 
-    return { value: state.value, failed: state.failed, refreshing: state.refreshing, refresh };
+    return { value: state.value, failed: state.failed, refreshing: state.refreshing, throttledSeconds, refresh };
+}
+
+/** Whether an answer is newer than the figures it would replace: a same-day
+ *  cache replay keeps the old capture and its age only grows, while a fresh
+ *  collection starts near zero. With no age to compare there is nothing to
+ *  hold the read open for. */
+function isNewer(next: UsageNow, previous: UsageNow): boolean {
+    if (previous.ageSeconds === undefined || next.ageSeconds === undefined) return true;
+    return next.ageSeconds < previous.ageSeconds;
 }

@@ -108,6 +108,7 @@ export const ja: TranslationStructure = {
             refreshing: '更新中…',
             refreshFailed: '更新できません · タップで再試行',
             refreshNow: '使用量を今すぐ更新',
+            refreshThrottled: ({ seconds }: { seconds: number }) => `${seconds} 秒後に更新できます`,
             notConnected: 'プラン制限に未接続',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `リセットまで ${time}`,

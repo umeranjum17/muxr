@@ -105,6 +105,7 @@ export const it: TranslationStructure = {
             refreshing: 'Aggiornamento…',
             refreshFailed: 'Impossibile aggiornare · tocca per riprovare',
             refreshNow: 'Aggiorna l’utilizzo ora',
+            refreshThrottled: ({ seconds }: { seconds: number }) => `Aggiornamento disponibile tra ${seconds} s`,
             notConnected: 'Limiti del piano non connessi',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `si rinnova tra ${time}`,

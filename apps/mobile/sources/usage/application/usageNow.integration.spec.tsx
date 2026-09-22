@@ -182,4 +182,37 @@ describe('the Home card read path', () => {
         });
         expect(request).toHaveBeenCalledTimes(2);
     });
+
+    it('says a tap the throttle refused is throttled, and starts no read for it', async () => {
+        request.mockResolvedValue(collected());
+        const card = mount();
+        await tick();
+        TestRenderer.act(() => { card.latest().refresh(); });
+        await tick();
+        const read = request.mock.calls.length;
+
+        // The second tap lands inside the window the first one claimed: it is
+        // told when it can run, and issues no cache-bypassing read of its own.
+        TestRenderer.act(() => { card.latest().refresh(); });
+        await tick();
+        expect(card.latest().throttledSeconds).toBeGreaterThan(0);
+        expect(request).toHaveBeenCalledTimes(read);
+        expect(card.latest().refreshing).toBe(false);
+    });
+
+    it('lets a tap re-collect straight after a failure, inside the throttle window', async () => {
+        request.mockResolvedValueOnce(collected(FRESH_MS / 1_000 + 60)).mockRejectedValueOnce(new Error('host unreachable')).mockResolvedValue(collected());
+        const card = mount();
+        await tick();
+        TestRenderer.act(() => { card.latest().refresh(); });
+        await tick(1_000);
+        expect(card.latest().failed).toBe(true);
+
+        // Someone already looking at an error is being told to try again: that
+        // tap always bypasses the cache, even one second after the last read.
+        TestRenderer.act(() => { card.latest().refresh(); });
+        await tick();
+        expect(request).toHaveBeenLastCalledWith('usage.now', { refresh: true }, expect.any(Number));
+        expect(request).toHaveBeenCalledTimes(3);
+    });
 });
