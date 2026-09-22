@@ -30,12 +30,12 @@ extern "C" {
         threads: c_int,
         cpu_used: c_int,
     ) -> *mut NativeEncoder;
-    fn dl_vpx_encode(
+    fn dl_vpx_encode(encoder: *mut NativeEncoder, i420: *const u8, force_keyframe: c_int) -> c_int;
+    fn dl_vpx_reconfigure(
         encoder: *mut NativeEncoder,
-        i420: *const u8,
-        force_keyframe: c_int,
+        bitrate_kbps: c_int,
+        max_quantizer: c_int,
     ) -> c_int;
-    fn dl_vpx_reconfigure(encoder: *mut NativeEncoder, bitrate_kbps: c_int, max_quantizer: c_int) -> c_int;
     fn dl_vpx_motion_max_q() -> c_int;
     fn dl_vpx_packet_data(encoder: *const NativeEncoder) -> *const u8;
     fn dl_vpx_packet_size(encoder: *const NativeEncoder) -> usize;
@@ -102,7 +102,11 @@ impl Encoder {
     /// Change the rate target for the frames that follow.
     pub fn set_bitrate(&mut self, bitrate_kbps: u32) -> Result<()> {
         let status = unsafe {
-            dl_vpx_reconfigure(self.native, bitrate_kbps.max(1) as c_int, dl_vpx_motion_max_q())
+            dl_vpx_reconfigure(
+                self.native,
+                bitrate_kbps.max(1) as c_int,
+                dl_vpx_motion_max_q(),
+            )
         };
         if status != 0 {
             anyhow::bail!("libvpx refused a {bitrate_kbps} kbps target");
@@ -136,9 +140,8 @@ impl Encoder {
                 frame.height
             );
         }
-        let status = unsafe {
-            dl_vpx_encode(self.native, frame.data.as_ptr(), force_keyframe as c_int)
-        };
+        let status =
+            unsafe { dl_vpx_encode(self.native, frame.data.as_ptr(), force_keyframe as c_int) };
         if status < 0 {
             anyhow::bail!("libvpx rejected a {}x{} frame", self.width, self.height);
         }
@@ -152,7 +155,10 @@ impl Encoder {
         }
         let bytes = unsafe { std::slice::from_raw_parts(data, size) }.to_vec();
         let keyframe = unsafe { dl_vpx_packet_is_key(self.native) } != 0;
-        Ok(EncodedFrame { data: bytes, keyframe })
+        Ok(EncodedFrame {
+            data: bytes,
+            keyframe,
+        })
     }
 }
 
@@ -167,7 +173,11 @@ impl Drop for Encoder {
 
 impl std::fmt::Debug for Encoder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Encoder({}x{}, {}kbps)", self.width, self.height, self.bitrate_kbps)
+        write!(
+            f,
+            "Encoder({}x{}, {}kbps)",
+            self.width, self.height, self.bitrate_kbps
+        )
     }
 }
 
@@ -192,4 +202,3 @@ mod tests {
         assert!(encoder.encode(&blank(32, 32), false).is_err());
     }
 }
-

@@ -60,7 +60,10 @@ extern "C" {
 /// Convert the engine's physical key identity at the native injector boundary.
 pub fn native_keycode(code: i16) -> Result<i16> {
     let native = unsafe { dl_inputtino_keycode(code) };
-    anyhow::ensure!(native >= 0, "the input backend cannot emit physical key {code}");
+    anyhow::ensure!(
+        native >= 0,
+        "the input backend cannot emit physical key {code}"
+    );
     Ok(native)
 }
 
@@ -231,7 +234,9 @@ impl InputDevices {
     pub fn move_absolute(&mut self, x: i64, y: i64) {
         let x = x.clamp(0, self.screen_width as i64 - 1) as c_int;
         let y = y.clamp(0, self.screen_height as i64 - 1) as c_int;
-        unsafe { inputtino_mouse_move_absolute(self.mouse, x, y, self.screen_width, self.screen_height) };
+        unsafe {
+            inputtino_mouse_move_absolute(self.mouse, x, y, self.screen_width, self.screen_height)
+        };
     }
 
     pub fn button(&mut self, button: Button, down: bool) {
@@ -266,8 +271,6 @@ impl InputDevices {
         }
         Ok(())
     }
-
-
 }
 
 impl Drop for InputDevices {
@@ -311,7 +314,10 @@ mod tests {
         let (buttons, keys) = held.release_plan();
         assert_eq!(buttons, vec![Button::Left]);
         assert_eq!(keys, vec![29, 46]);
-        assert!(held.release_plan().1.is_empty(), "releasing twice releases nothing");
+        assert!(
+            held.release_plan().1.is_empty(),
+            "releasing twice releases nothing"
+        );
     }
 
     #[test]

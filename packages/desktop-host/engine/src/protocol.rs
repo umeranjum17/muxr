@@ -293,7 +293,13 @@ mod tests {
             serde_json::from_str(r#"{"kind":"pointer","phase":"down","x":10,"y":20,"seq":3}"#)
                 .unwrap();
         match parsed {
-            ControlMessage::Pointer { phase, x, y, seq, button } => {
+            ControlMessage::Pointer {
+                phase,
+                x,
+                y,
+                seq,
+                button,
+            } => {
                 assert!(matches!(phase, PointerPhase::Down));
                 assert_eq!((x, y, seq, button), (10, 20, 3, 1));
             }
@@ -308,10 +314,14 @@ mod tests {
 
     #[test]
     fn open_defaults_keep_the_desktops_own_pixels_up_to_4k() {
-        let params: OpenParams = serde_json::from_str(r#"{"permissions":["view","control"]}"#).unwrap();
+        let params: OpenParams =
+            serde_json::from_str(r#"{"permissions":["view","control"]}"#).unwrap();
         assert_eq!(params.max_width, 3840);
         assert_eq!(params.max_height, 2160);
-        assert_eq!(params.bitrate_kbps, 0, "the engine sizes the rate to the surface");
+        assert_eq!(
+            params.bitrate_kbps, 0,
+            "the engine sizes the rate to the surface"
+        );
         assert_eq!(params.max_fps, 30);
     }
 }

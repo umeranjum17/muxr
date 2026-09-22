@@ -49,7 +49,9 @@ impl X11Desktop {
         let (connection, screen_number) = match display {
             Some(display) => RustConnection::connect(Some(display))
                 .with_context(|| format!("cannot open X display {display}"))?,
-            None => RustConnection::connect(None).context("cannot open the X display in DISPLAY")?,
+            None => {
+                RustConnection::connect(None).context("cannot open the X display in DISPLAY")?
+            }
         };
         let screen: &Screen = connection
             .setup()
@@ -161,12 +163,40 @@ impl X11Desktop {
     /// control channel's convention.
     pub fn scroll(&self, dx: i64, dy: i64) -> Result<()> {
         for _ in 0..dy.abs().min(20) {
-            self.button(if dy > 0 { button::WHEEL_DOWN } else { button::WHEEL_UP }, true)?;
-            self.button(if dy > 0 { button::WHEEL_DOWN } else { button::WHEEL_UP }, false)?;
+            self.button(
+                if dy > 0 {
+                    button::WHEEL_DOWN
+                } else {
+                    button::WHEEL_UP
+                },
+                true,
+            )?;
+            self.button(
+                if dy > 0 {
+                    button::WHEEL_DOWN
+                } else {
+                    button::WHEEL_UP
+                },
+                false,
+            )?;
         }
         for _ in 0..dx.abs().min(20) {
-            self.button(if dx > 0 { button::WHEEL_RIGHT } else { button::WHEEL_LEFT }, true)?;
-            self.button(if dx > 0 { button::WHEEL_RIGHT } else { button::WHEEL_LEFT }, false)?;
+            self.button(
+                if dx > 0 {
+                    button::WHEEL_RIGHT
+                } else {
+                    button::WHEEL_LEFT
+                },
+                true,
+            )?;
+            self.button(
+                if dx > 0 {
+                    button::WHEEL_RIGHT
+                } else {
+                    button::WHEEL_LEFT
+                },
+                false,
+            )?;
         }
         Ok(())
     }

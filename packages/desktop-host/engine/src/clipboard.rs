@@ -42,7 +42,9 @@ fn bounded_text(raw: &[u8], limit: usize) -> Result<(String, bool)> {
             let valid = error.valid_up_to();
             Ok((String::from_utf8_lossy(&bytes[..valid]).into_owned(), true))
         }
-        Err(_) => Err(anyhow::anyhow!("the clipboard contents are not valid UTF-8 text")),
+        Err(_) => Err(anyhow::anyhow!(
+            "the clipboard contents are not valid UTF-8 text"
+        )),
     }
 }
 
@@ -59,7 +61,11 @@ pub fn write(text: &str) -> Result<()> {
         .stderr(Stdio::null())
         .spawn()
         .context("wl-clipboard is required to write the desktop clipboard")?;
-    let written = child.stdin.take().expect("piped clipboard input").write_all(text.as_bytes());
+    let written = child
+        .stdin
+        .take()
+        .expect("piped clipboard input")
+        .write_all(text.as_bytes());
     let status = child.wait().context("the clipboard writer did not exit")?;
     written.context("the clipboard writer did not accept the text")?;
     anyhow::ensure!(status.success(), "the compositor refused a clipboard write");
@@ -100,9 +106,13 @@ mod tests {
         let mut raw = vec![b'a'; 4];
         raw.extend_from_slice("\u{e9}".as_bytes());
         raw.extend_from_slice(b"zzzz");
-        let (text, truncated) = bounded_text(&raw, 5).expect("a character-boundary cut is valid text");
+        let (text, truncated) =
+            bounded_text(&raw, 5).expect("a character-boundary cut is valid text");
         assert!(truncated, "a cut past the limit must be reported");
-        assert_eq!(text, "aaaa", "the partial character is dropped, not invented");
+        assert_eq!(
+            text, "aaaa",
+            "the partial character is dropped, not invented"
+        );
 
         // A byte that is not valid UTF-8 before the cut is not a partial
         // character; the whole read is refused.

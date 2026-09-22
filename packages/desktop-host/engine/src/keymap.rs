@@ -162,7 +162,12 @@ impl Layout {
             names.options.clone(),
             xkb::KEYMAP_COMPILE_NO_FLAGS,
         )
-        .ok_or_else(|| anyhow::anyhow!("xkbcommon could not compile the {} keymap", names.identity()))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "xkbcommon could not compile the {} keymap",
+                names.identity()
+            )
+        })?;
         // Level bit 0 is the shift level and bit 1 the AltGr/level-3 shift on
         // every standard XKB layout, and the real modifier index for each name
         // comes from the compiled keymap rather than from an assumption that
@@ -236,7 +241,6 @@ impl Layout {
         }
         (plan, unreachable)
     }
-
 }
 
 #[cfg(test)]
@@ -253,7 +257,10 @@ mod tests {
 
         let layout = Layout::from_names(&names).expect("the German keymap should compile");
         let (plan, unreachable) = layout.plan_text("z");
-        assert!(unreachable.is_empty(), "z should be reachable: {unreachable:?}");
+        assert!(
+            unreachable.is_empty(),
+            "z should be reachable: {unreachable:?}"
+        );
         // QWERTZ puts z where a US layout puts y, so the compiled keymap is the
         // environment's, not the library default.
         assert_eq!(plan[0][0].code, 21, "z must sit on the y key position");
@@ -269,19 +276,33 @@ mod tests {
         let layout = Layout::from_names(&LayoutNames::from_lookup(|_| None))
             .expect("a keymap should compile");
         let (plan, unreachable) = layout.plan_text("aA.\n");
-        assert!(unreachable.is_empty(), "ASCII should be reachable: {unreachable:?}");
+        assert!(
+            unreachable.is_empty(),
+            "ASCII should be reachable: {unreachable:?}"
+        );
         assert_eq!(plan.len(), 4);
         assert!(!plan[0][0].shift, "lower-case a needs no shift");
-        assert!(plan[1][0].shift, "upper-case A needs shift on any normal layout");
+        assert!(
+            plan[1][0].shift,
+            "upper-case A needs shift on any normal layout"
+        );
         assert_eq!(plan[0][0].code, plan[1][0].code, "both letters share a key");
         // The plan is evdev, but the real injector expects Moonlight/VK codes.
         // Passing Linux N (49) straight through instead presses VK_1.
-        let native: Vec<_> = plan.iter().flatten()
+        let native: Vec<_> = plan
+            .iter()
+            .flatten()
             .map(|stroke| crate::input::native_keycode(stroke.code).unwrap())
             .collect();
         assert_eq!(native, [0x41, 0x41, 0xBE, 0x0D]);
-        assert_eq!(crate::input::native_keycode(plan[1][0].modifiers()[0]).unwrap(), 0x10);
-        assert_eq!(crate::input::native_keycode(modifier_key("Control").unwrap()).unwrap(), 0x11);
+        assert_eq!(
+            crate::input::native_keycode(plan[1][0].modifiers()[0]).unwrap(),
+            0x10
+        );
+        assert_eq!(
+            crate::input::native_keycode(modifier_key("Control").unwrap()).unwrap(),
+            0x11
+        );
     }
 
     #[test]

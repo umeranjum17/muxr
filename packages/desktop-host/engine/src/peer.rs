@@ -11,15 +11,9 @@
 //! it — a revoked session cannot be driven by a client that kept a socket open.
 
 use anyhow::{Context, Result};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use rtc::interceptor::{Attribute, Interceptor, Packet, PacerBuilder, Registry, Slot, StreamInfo, TaggedPacket};
-use rtc::rtcp::payload_feedbacks::full_intra_request::FullIntraRequest;
-use rtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
-use rtc::rtcp::receiver_report::ReceiverReport;
-use rtc::sansio::Protocol;
-use std::collections::VecDeque;
+use rtc::interceptor::{
+    Attribute, Interceptor, PacerBuilder, Packet, Registry, Slot, StreamInfo, TaggedPacket,
+};
 use rtc::media_stream::MediaStreamTrack;
 use rtc::peer_connection::configuration::interceptor_registry::register_default_interceptors;
 use rtc::peer_connection::configuration::media_engine::{MediaEngine, MIME_TYPE_VP9};
@@ -27,11 +21,19 @@ use rtc::peer_connection::configuration::RTCConfigurationBuilder;
 use rtc::peer_connection::event::RTCPeerConnectionIceEvent;
 use rtc::peer_connection::sdp::RTCSessionDescription;
 use rtc::peer_connection::transport::{RTCIceCandidateInit, RTCIceServer};
+use rtc::rtcp::payload_feedbacks::full_intra_request::FullIntraRequest;
+use rtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
+use rtc::rtcp::receiver_report::ReceiverReport;
 use rtc::rtp_transceiver::rtp_sender::{
     RTCRtpCodec, RTCRtpCodecParameters, RTCRtpCodingParameters, RTCRtpEncodingParameters,
     RtpCodecKind,
 };
 use rtc::rtp_transceiver::PayloadType;
+use rtc::sansio::Protocol;
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use webrtc::data_channel::{DataChannel, DataChannelEvent};
 use webrtc::media_stream::track_local::static_rtp::TrackLocalStaticRTP;
 use webrtc::media_stream::track_local::{TrackLocal, TrackLocalEvent};
@@ -172,7 +174,9 @@ struct FeedbackForwarder {
 
 fn is_feedback(packet: &Box<dyn rtc::rtcp::Packet>) -> bool {
     let packet = packet.as_any();
-    packet.is::<PictureLossIndication>() || packet.is::<FullIntraRequest>() || packet.is::<ReceiverReport>()
+    packet.is::<PictureLossIndication>()
+        || packet.is::<FullIntraRequest>()
+        || packet.is::<ReceiverReport>()
 }
 
 impl Protocol<TaggedPacket, TaggedPacket, ()> for FeedbackForwarder {
@@ -184,8 +188,11 @@ impl Protocol<TaggedPacket, TaggedPacket, ()> for FeedbackForwarder {
 
     fn handle_read(&mut self, mut msg: TaggedPacket) -> std::result::Result<(), Self::Error> {
         if let Packet::Rtcp(packets) = &msg.message.packet {
-            let wanted: Vec<Box<dyn rtc::rtcp::Packet>> =
-                packets.iter().filter(|packet| is_feedback(packet)).cloned().collect();
+            let wanted: Vec<Box<dyn rtc::rtcp::Packet>> = packets
+                .iter()
+                .filter(|packet| is_feedback(packet))
+                .cloned()
+                .collect();
             if wanted.is_empty() {
                 return Ok(());
             }
@@ -240,7 +247,13 @@ async fn serve_feedback(
                 wants_keyframe.store(true, Ordering::SeqCst);
             } else if let Some(report) = packet.downcast_ref::<ReceiverReport>() {
                 let mut queue = lock(&loss);
-                queue.extend(report.reports.iter().filter(|r| r.ssrc == ssrc).map(|r| r.fraction_lost));
+                queue.extend(
+                    report
+                        .reports
+                        .iter()
+                        .filter(|r| r.ssrc == ssrc)
+                        .map(|r| r.fraction_lost),
+                );
                 let excess = queue.len().saturating_sub(64);
                 queue.drain(..excess);
             }
@@ -279,11 +292,21 @@ impl Vp9Packetizer {
         }
     }
 
-    fn packetize(&mut self, frame: &[u8], keyframe: bool, captured: Instant, ssrc: u32, payload_type: PayloadType) -> Vec<rtc::rtp::Packet> {
+    fn packetize(
+        &mut self,
+        frame: &[u8],
+        keyframe: bool,
+        captured: Instant,
+        ssrc: u32,
+        payload_type: PayloadType,
+    ) -> Vec<rtc::rtp::Packet> {
         // The RTP clock is the capture clock, so the receiver paces playout by
         // when frames were taken, not by when they happened to be sent.
         // Wraps, as the RTP clock does, rather than saturating after 13 hours.
-        let ticks = (captured.saturating_duration_since(self.started).as_secs_f64() * VP9_CLOCK_RATE as f64) as u64 as u32;
+        let ticks = (captured
+            .saturating_duration_since(self.started)
+            .as_secs_f64()
+            * VP9_CLOCK_RATE as f64) as u64 as u32;
         let timestamp = self.timestamp_base.wrapping_add(ticks);
         let descriptor = if keyframe { 3 } else { 4 };
         let chunks: Vec<&[u8]> = frame.chunks(RTP_MTU - RTP_HEADER - descriptor).collect();
@@ -305,7 +328,11 @@ impl Vp9Packetizer {
                 if index == last {
                     first |= 0x04;
                 }
-                payload.extend_from_slice(&[first, 0x80 | (self.picture_id >> 8) as u8, self.picture_id as u8]);
+                payload.extend_from_slice(&[
+                    first,
+                    0x80 | (self.picture_id >> 8) as u8,
+                    self.picture_id as u8,
+                ]);
                 if !keyframe {
                     // One reference: the previous picture (P_DIFF 1, N 0).
                     payload.extend_from_slice(&[1 << 1]);
@@ -378,17 +405,16 @@ impl VideoPeer {
         media_engine
             .register_codec(video_codec.clone(), RtpCodecKind::Video)
             .context("failed to offer VP9")?;
-        let registry =
-            register_default_interceptors(Registry::new(), &mut media_engine)?
-                .with(
-                    Slot::Pacer,
-                    PacerBuilder::new()
-                        .with_target_bitrate(options.pace_bps)
-                        .with_burst_bits(PACE_BURST_BITS)
-                        .build(),
-                )
-                // Last, so every interceptor has seen the whole of the inbound RTCP.
-                .with(Slot::from(14_000), FeedbackForwarder::default());
+        let registry = register_default_interceptors(Registry::new(), &mut media_engine)?
+            .with(
+                Slot::Pacer,
+                PacerBuilder::new()
+                    .with_target_bitrate(options.pace_bps)
+                    .with_burst_bits(PACE_BURST_BITS)
+                    .build(),
+            )
+            // Last, so every interceptor has seen the whole of the inbound RTCP.
+            .with(Slot::from(14_000), FeedbackForwarder::default());
 
         let mut builder = RTCConfigurationBuilder::new();
         if !options.ice_servers.is_empty() {
@@ -427,8 +453,8 @@ impl VideoPeer {
         let peer: Arc<dyn PeerConnection> = Arc::new(peer);
 
         let ssrc = rand::random::<u32>();
-        let track: Arc<TrackLocalStaticRTP> = Arc::new(TrackLocalStaticRTP::new(
-            MediaStreamTrack::new(
+        let track: Arc<TrackLocalStaticRTP> =
+            Arc::new(TrackLocalStaticRTP::new(MediaStreamTrack::new(
                 String::from("desklink"),
                 String::from("desktop"),
                 String::from("desktop"),
@@ -441,8 +467,7 @@ impl VideoPeer {
                     codec: video_codec.rtp_codec.clone(),
                     ..Default::default()
                 }],
-            ),
-        ));
+            )));
         let sender = peer
             .add_track(Arc::clone(&track) as Arc<dyn TrackLocal>)
             .await
@@ -553,7 +578,13 @@ impl VideoPeer {
     /// Packetize one encoded frame and hand it to the track, paced by the
     /// interceptor chain. `captured` is when its picture was taken.
     pub async fn send_frame(&self, data: &[u8], keyframe: bool, captured: Instant) -> Result<()> {
-        let packets = lock(&self.packetizer).packetize(data, keyframe, captured, self.ssrc, self.payload_type);
+        let packets = lock(&self.packetizer).packetize(
+            data,
+            keyframe,
+            captured,
+            self.ssrc,
+            self.payload_type,
+        );
         for packet in packets {
             self.track
                 .write_rtp_with_extensions(packet, &[])
@@ -595,7 +626,9 @@ impl Drop for VideoPeer {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[cfg(test)]

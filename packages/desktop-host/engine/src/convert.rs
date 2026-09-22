@@ -63,7 +63,10 @@ pub fn fit(width: usize, height: usize, max_width: usize, max_height: usize) -> 
     if max_width == 0 || max_height == 0 || (width <= max_width && height <= max_height) {
         return (width & !1, height & !1);
     }
-    let scale = f64::min(max_width as f64 / width as f64, max_height as f64 / height as f64);
+    let scale = f64::min(
+        max_width as f64 / width as f64,
+        max_height as f64 / height as f64,
+    );
     (
         (((width as f64 * scale) as usize) & !1).max(2),
         (((height as f64 * scale) as usize) & !1).max(2),
@@ -85,7 +88,10 @@ fn layout(format: PixelFormat) -> Option<(usize, [usize; 3])> {
 /// one core converts in tens of milliseconds, the whole budget of a frame; a few
 /// bands bring that under the encoder's own cost without taking the machine.
 fn bands() -> usize {
-    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, 8)
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .clamp(1, 8)
 }
 
 /// Convert `src` (packed RGB of some byte order) to `dst_w`x`dst_h` I420.
@@ -119,7 +125,9 @@ pub fn to_i420(
         return None;
     }
     let (bytes_per_pixel, order) = layout(format)?;
-    if src_stride < src_w * bytes_per_pixel || src.len() < src_stride * (src_h - 1) + src_w * bytes_per_pixel {
+    if src_stride < src_w * bytes_per_pixel
+        || src.len() < src_stride * (src_h - 1) + src_w * bytes_per_pixel
+    {
         return None;
     }
     let mut out = I420::new(dst_w, dst_h);
@@ -130,7 +138,14 @@ pub fn to_i420(
     let pairs = dst_h / 2;
     let per_band = pairs.div_ceil(bands());
     let cw = dst_w / 2;
-    let source = Source { data: src, width: src_w, height: src_h, stride: src_stride, bytes_per_pixel, order };
+    let source = Source {
+        data: src,
+        width: src_w,
+        height: src_h,
+        stride: src_stride,
+        bytes_per_pixel,
+        order,
+    };
     std::thread::scope(|scope| {
         let y_bands = y_plane.chunks_mut(per_band * 2 * dst_w);
         let u_bands = u_plane.chunks_mut(per_band * cw);
@@ -141,7 +156,8 @@ pub fn to_i420(
                 let first_pair = band * per_band;
                 for pair in 0..u.len() / cw {
                     let dy = (first_pair + pair) * 2;
-                    let (top, bottom) = y[pair * 2 * dst_w..(pair + 1) * 2 * dst_w].split_at_mut(dst_w);
+                    let (top, bottom) =
+                        y[pair * 2 * dst_w..(pair + 1) * 2 * dst_w].split_at_mut(dst_w);
                     let u_row = &mut u[pair * cw..(pair + 1) * cw];
                     let v_row = &mut v[pair * cw..(pair + 1) * cw];
                     source.row_pair(dy, dst_w, dst_h, top, bottom, u_row, v_row);
@@ -166,7 +182,11 @@ impl Source<'_> {
     fn rgb(&self, x: usize, y: usize) -> (i32, i32, i32) {
         let i = y * self.stride + x * self.bytes_per_pixel;
         let p = &self.data[i..i + 3];
-        (p[self.order[0]] as i32, p[self.order[1]] as i32, p[self.order[2]] as i32)
+        (
+            p[self.order[0]] as i32,
+            p[self.order[1]] as i32,
+            p[self.order[2]] as i32,
+        )
     }
 
     /// The average colour of the source pixels destination pixel (dx, dy) covers.
@@ -176,9 +196,13 @@ impl Source<'_> {
             return self.rgb(dx, dy);
         }
         let x0 = dx * self.width / dst_w;
-        let x1 = ((dx + 1) * self.width).div_ceil(dst_w).clamp(x0 + 1, self.width);
+        let x1 = ((dx + 1) * self.width)
+            .div_ceil(dst_w)
+            .clamp(x0 + 1, self.width);
         let y0 = dy * self.height / dst_h;
-        let y1 = ((dy + 1) * self.height).div_ceil(dst_h).clamp(y0 + 1, self.height);
+        let y1 = ((dy + 1) * self.height)
+            .div_ceil(dst_h)
+            .clamp(y0 + 1, self.height);
         let (mut r, mut g, mut b) = (0i32, 0i32, 0i32);
         for y in y0..y1 {
             for x in x0..x1 {
@@ -194,7 +218,16 @@ impl Source<'_> {
 
     /// Two destination rows and the chroma row they share.
     #[allow(clippy::too_many_arguments)]
-    fn row_pair(&self, dy: usize, dst_w: usize, dst_h: usize, top: &mut [u8], bottom: &mut [u8], u: &mut [u8], v: &mut [u8]) {
+    fn row_pair(
+        &self,
+        dy: usize,
+        dst_w: usize,
+        dst_h: usize,
+        top: &mut [u8],
+        bottom: &mut [u8],
+        u: &mut [u8],
+        v: &mut [u8],
+    ) {
         for cx in 0..dst_w / 2 {
             let dx = cx * 2;
             let a = self.sample(dx, dy, dst_w, dst_h);
@@ -232,7 +265,10 @@ mod tests {
         }
         let out = to_i420(&src, 4, 4, 16, PixelFormat::Bgrx, 2, 2).unwrap();
         assert_eq!(out.data.len(), 4 + 2 * 1);
-        assert!(out.y_plane().iter().all(|&y| y > 70), "red luma should be high");
+        assert!(
+            out.y_plane().iter().all(|&y| y > 70),
+            "red luma should be high"
+        );
         assert!(out.u_plane().iter().all(|&u| u < 128), "red has low Cb");
         assert!(out.v_plane().iter().all(|&v| v > 200), "red has high Cr");
     }

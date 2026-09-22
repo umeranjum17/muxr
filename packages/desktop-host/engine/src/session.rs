@@ -157,10 +157,7 @@ fn select_x11(
                             }
                             // A display that has gone away is not recoverable by
                             // retrying, so stop rather than spin on the error.
-                            if error
-                                .to_string()
-                                .contains("the X11 connection dropped")
-                            {
+                            if error.to_string().contains("the X11 connection dropped") {
                                 break;
                             }
                         }
@@ -274,28 +271,52 @@ impl InputTarget {
     }
 
     fn modifier(&mut self, code: i16, down: bool, explicit: bool) -> Result<()> {
-        let own = if explicit { &self.explicit_modifiers } else { &self.chord_modifiers };
-        let other = if explicit { &self.chord_modifiers } else { &self.explicit_modifiers };
-        if down {
-            if explicit && own.contains(&code) { return Ok(()); }
-            if !own.contains(&code) && !other.contains(&code) { self.key(code, true)?; }
+        let own = if explicit {
+            &self.explicit_modifiers
         } else {
-            let Some(index) = own.iter().position(|held| *held == code) else { return Ok(()); };
+            &self.chord_modifiers
+        };
+        let other = if explicit {
+            &self.chord_modifiers
+        } else {
+            &self.explicit_modifiers
+        };
+        if down {
+            if explicit && own.contains(&code) {
+                return Ok(());
+            }
+            if !own.contains(&code) && !other.contains(&code) {
+                self.key(code, true)?;
+            }
+        } else {
+            let Some(index) = own.iter().position(|held| *held == code) else {
+                return Ok(());
+            };
             if own.iter().filter(|held| **held == code).count() == 1 && !other.contains(&code) {
                 self.key(code, false)?;
             }
-            let own = if explicit { &mut self.explicit_modifiers } else { &mut self.chord_modifiers };
+            let own = if explicit {
+                &mut self.explicit_modifiers
+            } else {
+                &mut self.chord_modifiers
+            };
             own.remove(index);
             return Ok(());
         }
-        let own = if explicit { &mut self.explicit_modifiers } else { &mut self.chord_modifiers };
+        let own = if explicit {
+            &mut self.explicit_modifiers
+        } else {
+            &mut self.chord_modifiers
+        };
         own.push(code);
         Ok(())
     }
 
     fn chord(&mut self, code: i16, modifiers: Vec<i16>, down: bool) -> Result<()> {
         if down {
-            if self.chord_keys.iter().any(|(held, _)| *held == code) { return Ok(()); }
+            if self.chord_keys.iter().any(|(held, _)| *held == code) {
+                return Ok(());
+            }
             self.check_keys(modifiers.iter().copied().chain(std::iter::once(code)))?;
             for modifier in &modifiers {
                 self.modifier(*modifier, true, false)?;
@@ -358,7 +379,9 @@ fn lock<T>(mutex: &Arc<Mutex<T>>) -> std::sync::MutexGuard<'_, T> {
     // A poisoned lock means a previous input call panicked while applying; the
     // desktop is then in unknown state, so the session is closed rather than
     // continuing to drive it.
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Why a session could not do what was asked, in the protocol's own vocabulary.
@@ -392,7 +415,10 @@ pub struct OpenRequest {
 /// Events a session raises for its consumer.
 #[derive(Debug)]
 pub enum SessionEvent {
-    Description { generation: u64, sdp: String },
+    Description {
+        generation: u64,
+        sdp: String,
+    },
     Candidate {
         generation: u64,
         candidate: String,
@@ -405,7 +431,9 @@ pub enum SessionEvent {
         first_frame: bool,
     },
     RestoreToken(String),
-    Revoked { reason: String },
+    Revoked {
+        reason: String,
+    },
 }
 
 /// One notification plus the session it belongs to. The engine serves one
@@ -550,10 +578,15 @@ impl Session {
             capture,
             x11,
         } = match request.source.clone() {
-            Some(SourceRequest::X11 { display }) => {
-                select_x11(display.as_deref(), request.max_width, request.max_height, request.max_fps, metrics.clone(), sink)
-                    .map_err(|error| SessionError::new("source", format!("{error:#}")))?
-            }
+            Some(SourceRequest::X11 { display }) => select_x11(
+                display.as_deref(),
+                request.max_width,
+                request.max_height,
+                request.max_fps,
+                metrics.clone(),
+                sink,
+            )
+            .map_err(|error| SessionError::new("source", format!("{error:#}")))?,
             _ => {
                 let portal = portal::open(request.restore_token.as_deref())
                     .await
@@ -567,7 +600,8 @@ impl Session {
                 let source = portal.source.clone();
                 let source_w = source.width.max(1) as usize;
                 let source_h = source.height.max(1) as usize;
-                let (width, height) = fit(source_w, source_h, request.max_width, request.max_height);
+                let (width, height) =
+                    fit(source_w, source_h, request.max_width, request.max_height);
                 let capture = capture::start(portal, width, height, sink)
                     .map_err(|error| SessionError::new("source", format!("{error:#}")))?;
                 Selected {
@@ -612,9 +646,9 @@ impl Session {
                 },
                 None => InputTarget {
                     applier: Applier::Uinput(
-                        InputDevices::create(source_w as i32, source_h as i32).map_err(|error| {
-                            SessionError::new("input-unavailable", format!("{error:#}"))
-                        })?,
+                        InputDevices::create(source_w as i32, source_h as i32).map_err(
+                            |error| SessionError::new("input-unavailable", format!("{error:#}")),
+                        )?,
                     ),
                     held: HeldState::default(),
                     explicit_modifiers: Vec::new(),
@@ -625,8 +659,9 @@ impl Session {
             })
         };
 
-        let layout = Layout::from_environment()
-            .map_err(|error| SessionError::new("input", format!("no keyboard layout: {error:#}")))?;
+        let layout = Layout::from_environment().map_err(|error| {
+            SessionError::new("input", format!("no keyboard layout: {error:#}"))
+        })?;
 
         let (peer_events_tx, peer_events_rx) = tokio_mpsc::unbounded_channel::<PeerEvent>();
         let (peer, offer) = VideoPeer::offer(
@@ -752,7 +787,11 @@ impl Session {
 
     /// The source kind this session captures, e.g. `monitor`.
     pub fn restore_source(&self) -> String {
-        self.inner.source.source_type.clone().unwrap_or_else(|| String::from("monitor"))
+        self.inner
+            .source
+            .source_type
+            .clone()
+            .unwrap_or_else(|| String::from("monitor"))
     }
 
     pub async fn close(&self, reason: &str) {
@@ -785,10 +824,13 @@ impl Inner {
             }
             *input = None;
         }
-        let _ = self.peer.send_control(
-            &serde_json::to_string(&ControlReply::Revoked { reason })
-                .unwrap_or_else(|_| String::from(r#"{"kind":"revoked","reason":"closed"}"#)),
-        ).await;
+        let _ = self
+            .peer
+            .send_control(
+                &serde_json::to_string(&ControlReply::Revoked { reason })
+                    .unwrap_or_else(|_| String::from(r#"{"kind":"revoked","reason":"closed"}"#)),
+            )
+            .await;
         self.peer.close().await;
         // Dropping the capture stops the PipeWire stream and joins its thread,
         // which is what releases the compositor's consent for this session. It
@@ -816,9 +858,12 @@ impl Inner {
     }
 
     fn clipboard_refusal(&self) -> Option<(&'static str, &'static str)> {
-        if self.source.source_type.as_deref() == Some("x11-root")
-            || !wayland_clipboard_available() {
-            return Some(("clipboard-unsupported", "clipboard is unavailable for this desktop source"));
+        if self.source.source_type.as_deref() == Some("x11-root") || !wayland_clipboard_available()
+        {
+            return Some((
+                "clipboard-unsupported",
+                "clipboard is unavailable for this desktop source",
+            ));
         }
         if !self.has(Permission::Clipboard) {
             return Some(("permission", "this session has no clipboard permission"));
@@ -876,7 +921,11 @@ impl Inner {
         }
         let outcome = match message {
             ControlMessage::Pointer {
-                phase, x, y, button, ..
+                phase,
+                x,
+                y,
+                button,
+                ..
             } => self.pointer(phase, x, y, button, seq),
             ControlMessage::Wheel { dx, dy, .. } => self.wheel(dx, dy, seq),
             ControlMessage::Key {
@@ -962,7 +1011,12 @@ impl Inner {
         })
     }
 
-    fn wheel(&self, dx: f64, dy: f64, _seq: u64) -> std::result::Result<(), (&'static str, String)> {
+    fn wheel(
+        &self,
+        dx: f64,
+        dy: f64,
+        _seq: u64,
+    ) -> std::result::Result<(), (&'static str, String)> {
         if !dx.is_finite() || !dy.is_finite() || dx.abs() > 100.0 || dy.abs() > 100.0 {
             return Err(("coordinates", String::from("scroll delta is out of range")));
         }
@@ -1039,9 +1093,11 @@ impl Inner {
         self.with_input(|target| {
             // Refuse an unsupported physical key before typing any prefix or
             // holding a modifier. X11 already consumes evdev identities.
-            target.check_keys(plan.iter().flatten().flat_map(|stroke| {
-                std::iter::once(stroke.code).chain(stroke.modifiers())
-            }))?;
+            target.check_keys(
+                plan.iter()
+                    .flatten()
+                    .flat_map(|stroke| std::iter::once(stroke.code).chain(stroke.modifiers())),
+            )?;
             for keystroke in plan {
                 for stroke in keystroke {
                     let modifiers = stroke.modifiers();
@@ -1087,7 +1143,9 @@ impl Inner {
         let inner = Arc::clone(self);
         tokio::spawn(async move {
             let error = clipboard_task(move || {
-                clipboard::write(&text).map(|()| String::new()).map_err(|error| format!("{error:#}"))
+                clipboard::write(&text)
+                    .map(|()| String::new())
+                    .map_err(|error| format!("{error:#}"))
             })
             .await
             .err();
@@ -1127,14 +1185,21 @@ struct FrameSender(Arc<FrameSlot>);
 struct FrameReceiver(Arc<FrameSlot>);
 
 fn latest_frame() -> (FrameSender, FrameReceiver) {
-    let slot = Arc::new(FrameSlot { frame: Mutex::new((None, false)), ready: Condvar::new() });
+    let slot = Arc::new(FrameSlot {
+        frame: Mutex::new((None, false)),
+        ready: Condvar::new(),
+    });
     (FrameSender(slot.clone()), FrameReceiver(slot))
 }
 
 impl FrameSender {
     /// Hand over a frame; true when it replaced one the encoder never took.
     fn put(&self, frame: I420) -> bool {
-        let mut held = self.0.frame.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut held = self
+            .0
+            .frame
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let replaced = held.0.replace(frame).is_some();
         self.0.ready.notify_one();
         replaced
@@ -1144,7 +1209,11 @@ impl FrameSender {
 impl Drop for FrameSender {
     /// The capture stopped: the encoder ends once it has taken what is left.
     fn drop(&mut self) {
-        let mut held = self.0.frame.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut held = self
+            .0
+            .frame
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         held.1 = true;
         self.0.ready.notify_one();
     }
@@ -1158,7 +1227,11 @@ enum Taken {
 
 impl FrameReceiver {
     fn take(&self, wait: Duration) -> Taken {
-        let held = self.0.frame.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let held = self
+            .0
+            .frame
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let (mut held, _) = self
             .0
             .ready
@@ -1201,13 +1274,20 @@ struct RateControl {
 
 impl RateControl {
     fn new(ceiling: u32) -> Self {
-        Self { ceiling, target: ceiling, last_change: None }
+        Self {
+            ceiling,
+            target: ceiling,
+            last_change: None,
+        }
     }
 
     /// The new target when these reports move it, at most once a second.
     fn update(&mut self, reports: &[u8], now: Instant) -> Option<u32> {
         let worst = *reports.iter().max()?;
-        if self.last_change.is_some_and(|at| now.duration_since(at) < Duration::from_secs(1)) {
+        if self
+            .last_change
+            .is_some_and(|at| now.duration_since(at) < Duration::from_secs(1))
+        {
             return None;
         }
         let loss = worst as f64 / 256.0;
@@ -1229,7 +1309,9 @@ impl RateControl {
 }
 
 enum Pass {
-    Motion { keyframe: bool },
+    Motion {
+        keyframe: bool,
+    },
     Refine,
     /// The same picture again, so a still stream never looks stalled.
     Keepalive,
@@ -1244,7 +1326,13 @@ enum Pass {
 /// interval, so the phone never shows a state older than the desktop's; the
 /// rate cap delays a frame rather than dropping the last one of a burst. When
 /// the desktop goes still the last frame is coded once more, sharp.
-fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: FrameReceiver, running: Arc<AtomicBool>, max_fps: u32, bitrate_kbps: u32) {
+fn spawn_pipeline(
+    inner: &Arc<Inner>,
+    frame_rx: FrameReceiver,
+    running: Arc<AtomicBool>,
+    max_fps: u32,
+    bitrate_kbps: u32,
+) {
     let inner = inner.clone();
     let handle = tokio::runtime::Handle::current();
     std::thread::Builder::new()
@@ -1265,7 +1353,9 @@ fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: FrameReceiver, running: Arc<Atom
             let mut last_sent: Option<Instant> = None;
             loop {
                 let now = Instant::now();
-                let slot = last_sent.map_or(Duration::ZERO, |at| interval.saturating_sub(now.duration_since(at)));
+                let slot = last_sent.map_or(Duration::ZERO, |at| {
+                    interval.saturating_sub(now.duration_since(at))
+                });
                 let connected = inner.peer.is_connected();
                 let wait = if !connected {
                     // Nothing sent before the transport connects arrives; the
@@ -1274,9 +1364,14 @@ fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: FrameReceiver, running: Arc<Atom
                 } else if pending {
                     slot
                 } else if !refined {
-                    REFINE_AFTER.saturating_sub(now.duration_since(still_since)).max(slot)
+                    REFINE_AFTER
+                        .saturating_sub(now.duration_since(still_since))
+                        .max(slot)
                 } else {
-                    last_sent.map_or(Duration::from_millis(100), |at| KEEPALIVE_AFTER.saturating_sub(now.duration_since(at)))
+                    last_sent
+                        .map_or(Duration::from_millis(100), |at| {
+                            KEEPALIVE_AFTER.saturating_sub(now.duration_since(at))
+                        })
                         .clamp(Duration::from_millis(10), Duration::from_millis(100))
                 };
                 match frame_rx.take(wait) {
@@ -1302,14 +1397,19 @@ fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: FrameReceiver, running: Arc<Atom
                 }
                 let reports = inner.peer.take_loss_reports();
                 if let Some(kbps) = rate.update(&reports, Instant::now()) {
-                    let applied = inner.encoder.lock().map(|mut encoder| encoder.set_bitrate(kbps));
+                    let applied = inner
+                        .encoder
+                        .lock()
+                        .map(|mut encoder| encoder.set_bitrate(kbps));
                     if matches!(applied, Ok(Ok(()))) {
                         if let Ok(mut m) = inner.metrics.lock() {
                             m.target_kbps = kbps;
                         }
                     }
                 }
-                let Some(frame) = latest.as_ref() else { continue };
+                let Some(frame) = latest.as_ref() else {
+                    continue;
+                };
                 if !connected {
                     continue;
                 }
@@ -1321,7 +1421,9 @@ fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: FrameReceiver, running: Arc<Atom
                     Pass::Motion { keyframe }
                 } else if !refined && now.duration_since(still_since) >= REFINE_AFTER {
                     Pass::Refine
-                } else if refined && last_sent.is_some_and(|at| now.duration_since(at) >= KEEPALIVE_AFTER) {
+                } else if refined
+                    && last_sent.is_some_and(|at| now.duration_since(at) >= KEEPALIVE_AFTER)
+                {
                     Pass::Keepalive
                 } else {
                     continue;
@@ -1352,9 +1454,13 @@ fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: FrameReceiver, running: Arc<Atom
                         // reason into what it shows the user.
                         eprintln!("the encoder rejected a frame: {error:#}");
                         let reason = String::from("the encoder rejected a frame");
-                        inner.notify(SessionEvent::Revoked { reason: reason.clone() });
+                        inner.notify(SessionEvent::Revoked {
+                            reason: reason.clone(),
+                        });
                         let target = inner.clone();
-                        handle.spawn(async move { target.close(&reason).await; });
+                        handle.spawn(async move {
+                            target.close(&reason).await;
+                        });
                         break;
                     }
                 };
@@ -1380,14 +1486,20 @@ fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: FrameReceiver, running: Arc<Atom
                 }
                 last_sent = Some(now);
                 let peer = inner.peer.clone();
-                if let Err(error) = handle.block_on(peer.send_frame(&packet.data, packet.keyframe, now)) {
+                if let Err(error) =
+                    handle.block_on(peer.send_frame(&packet.data, packet.keyframe, now))
+                {
                     // The transport is gone. End the session rather than leave
                     // the desktop captured behind a picture that stopped.
                     eprintln!("the video track refused an encoded frame: {error:#}");
                     let reason = String::from("the connection to the phone was lost");
-                    inner.notify(SessionEvent::Revoked { reason: reason.clone() });
+                    inner.notify(SessionEvent::Revoked {
+                        reason: reason.clone(),
+                    });
                     let target = inner.clone();
-                    handle.spawn(async move { target.close(&reason).await; });
+                    handle.spawn(async move {
+                        target.close(&reason).await;
+                    });
                     break;
                 }
             }
@@ -1428,18 +1540,22 @@ fn spawn_peer_events(inner: &Arc<Inner>, mut events: tokio_mpsc::UnboundedReceiv
                     }
                     if matches!(state, State::Failed | State::Closed) {
                         let reason = String::from("the connection to the phone was lost");
-                        inner.notify(SessionEvent::Revoked { reason: reason.clone() });
+                        inner.notify(SessionEvent::Revoked {
+                            reason: reason.clone(),
+                        });
                         inner.close(&reason).await;
                         continue;
                     }
                     inner.notify(SessionEvent::State {
-                        capture: if inner.metrics.lock().map(|m| m.encoded_frames).unwrap_or(0) > 0 {
+                        capture: if inner.metrics.lock().map(|m| m.encoded_frames).unwrap_or(0) > 0
+                        {
                             "streaming"
                         } else {
                             "consented"
                         },
                         transport: format!("{state}").to_lowercase(),
-                        first_frame: inner.metrics.lock().map(|m| m.encoded_frames).unwrap_or(0) > 0,
+                        first_frame: inner.metrics.lock().map(|m| m.encoded_frames).unwrap_or(0)
+                            > 0,
                     });
                 }
                 PeerEvent::ControlOpen => {
@@ -1459,11 +1575,12 @@ fn spawn_peer_events(inner: &Arc<Inner>, mut events: tokio_mpsc::UnboundedReceiv
                         }
                     }
                 }
-                PeerEvent::ControlMessage(text) => match serde_json::from_str::<ControlMessage>(&text)
-                {
-                    Ok(message) => inner.apply(message),
-                    Err(_) => inner.reject(0, "operation", "unrecognised control message"),
-                },
+                PeerEvent::ControlMessage(text) => {
+                    match serde_json::from_str::<ControlMessage>(&text) {
+                        Ok(message) => inner.apply(message),
+                        Err(_) => inner.reject(0, "operation", "unrecognised control message"),
+                    }
+                }
             }
         }
     });
@@ -1477,7 +1594,9 @@ fn spawn_lease(inner: &Arc<Inner>, ttl: Duration) {
             return;
         }
         let reason = String::from("the session lease expired");
-        inner.notify(SessionEvent::Revoked { reason: reason.clone() });
+        inner.notify(SessionEvent::Revoked {
+            reason: reason.clone(),
+        });
         // An expiry ends the session exactly as an explicit close does; the
         // notification above is not a substitute for stopping the desktop.
         inner.close(&reason).await;
@@ -1549,12 +1668,20 @@ mod tests {
         // 2560x1440 source, not two thirds of the way there; a tap in the right
         // half must stay source-local rather than land on a layout origin the
         // applier would clamp away.
-        assert_eq!(to_source_pixels(640, 360, (1280, 720), &source), (1280, 720));
-        assert_eq!(to_source_pixels(1279, 719, (1280, 720), &source), (2558, 1438));
+        assert_eq!(
+            to_source_pixels(640, 360, (1280, 720), &source),
+            (1280, 720)
+        );
+        assert_eq!(
+            to_source_pixels(1279, 719, (1280, 720), &source),
+            (2558, 1438)
+        );
         assert_eq!(to_source_pixels(0, 0, (1280, 720), &source), (0, 0));
     }
 
-    async fn test_inner(events: tokio_mpsc::UnboundedSender<Notice>) -> (Arc<Inner>, Arc<Mutex<Vec<(i16, bool)>>>) {
+    async fn test_inner(
+        events: tokio_mpsc::UnboundedSender<Notice>,
+    ) -> (Arc<Inner>, Arc<Mutex<Vec<(i16, bool)>>>) {
         let (peer_events, _peer_events_rx) = tokio_mpsc::unbounded_channel();
         let (peer, _offer) = VideoPeer::offer(
             TransportOptions {
@@ -1628,7 +1755,10 @@ mod tests {
         spawn_lease(&inner, Duration::from_millis(20));
         tokio::time::sleep(Duration::from_millis(150)).await;
 
-        assert!(inner.revoked_reason().is_some(), "an expired lease must end the session");
+        assert!(
+            inner.revoked_reason().is_some(),
+            "an expired lease must end the session"
+        );
         assert!(
             !inner.pipeline.load(Ordering::SeqCst),
             "an expired lease must stop capture",
@@ -1638,7 +1768,13 @@ mod tests {
             "an expired lease must release what the session pressed",
         );
         assert!(
-            matches!(received.try_recv(), Ok(Notice { event: SessionEvent::Revoked { .. }, .. })),
+            matches!(
+                received.try_recv(),
+                Ok(Notice {
+                    event: SessionEvent::Revoked { .. },
+                    ..
+                })
+            ),
             "the consumer is still told why the session ended",
         );
 
@@ -1664,89 +1800,190 @@ mod tests {
         let (inner, recorded) = test_inner(events).await;
         for (seq, name) in ["Control", "Shift", "Alt", "Meta"].iter().enumerate() {
             inner.apply(ControlMessage::Key {
-                name: Some((*name).into()), character: None, down: true,
-                modifiers: Vec::new(), seq: seq as u64 + 1,
+                name: Some((*name).into()),
+                character: None,
+                down: true,
+                modifiers: Vec::new(),
+                seq: seq as u64 + 1,
             });
         }
         inner.apply(ControlMessage::Key {
-            name: None, character: Some(String::from("C")), down: true,
-            modifiers: vec![String::from("Control"), String::from("Shift")], seq: 5,
+            name: None,
+            character: Some(String::from("C")),
+            down: true,
+            modifiers: vec![String::from("Control"), String::from("Shift")],
+            seq: 5,
         });
         inner.apply(ControlMessage::Key {
-            name: None, character: Some(String::from("C")), down: false,
-            modifiers: vec![String::from("Control"), String::from("Shift")], seq: 6,
+            name: None,
+            character: Some(String::from("C")),
+            down: false,
+            modifiers: vec![String::from("Control"), String::from("Shift")],
+            seq: 6,
         });
         inner.apply(ControlMessage::Key {
-            name: Some(String::from("ArrowLeft")), character: None, down: true,
-            modifiers: vec![String::from("Alt"), String::from("Meta")], seq: 7,
+            name: Some(String::from("ArrowLeft")),
+            character: None,
+            down: true,
+            modifiers: vec![String::from("Alt"), String::from("Meta")],
+            seq: 7,
         });
         inner.apply(ControlMessage::Key {
-            name: Some(String::from("ArrowLeft")), character: None, down: false,
-            modifiers: vec![String::from("Alt"), String::from("Meta")], seq: 8,
+            name: Some(String::from("ArrowLeft")),
+            character: None,
+            down: false,
+            modifiers: vec![String::from("Alt"), String::from("Meta")],
+            seq: 8,
         });
-        inner.apply(ControlMessage::Text { text: String::from("C"), seq: 9 });
-        let modifiers = [keycode::LEFT_CTRL, keycode::LEFT_SHIFT, keycode::LEFT_ALT, keycode::LEFT_META];
+        inner.apply(ControlMessage::Text {
+            text: String::from("C"),
+            seq: 9,
+        });
+        let modifiers = [
+            keycode::LEFT_CTRL,
+            keycode::LEFT_SHIFT,
+            keycode::LEFT_ALT,
+            keycode::LEFT_META,
+        ];
         let strokes = recorded.lock().unwrap().clone();
         for code in modifiers {
-            assert_eq!(strokes.iter().filter(|stroke| **stroke == (code, true)).count(), 1);
-            assert!(!strokes.contains(&(code, false)), "the separate key still holds {code}");
+            assert_eq!(
+                strokes
+                    .iter()
+                    .filter(|stroke| **stroke == (code, true))
+                    .count(),
+                1
+            );
+            assert!(
+                !strokes.contains(&(code, false)),
+                "the separate key still holds {code}"
+            );
         }
         for (seq, name) in ["Control", "Shift", "Alt", "Meta"].iter().enumerate() {
             inner.apply(ControlMessage::Key {
-                name: Some((*name).into()), character: None, down: false,
-                modifiers: Vec::new(), seq: seq as u64 + 10,
+                name: Some((*name).into()),
+                character: None,
+                down: false,
+                modifiers: Vec::new(),
+                seq: seq as u64 + 10,
             });
         }
         {
             let strokes = recorded.lock().unwrap();
             for code in modifiers {
-                assert_eq!(strokes.iter().filter(|stroke| **stroke == (code, false)).count(), 1);
+                assert_eq!(
+                    strokes
+                        .iter()
+                        .filter(|stroke| **stroke == (code, false))
+                        .count(),
+                    1
+                );
             }
         }
         inner.apply(ControlMessage::Key {
-            name: Some(String::from("ArrowLeft")), character: None, down: true,
-            modifiers: vec![String::from("Control")], seq: 14,
+            name: Some(String::from("ArrowLeft")),
+            character: None,
+            down: true,
+            modifiers: vec![String::from("Control")],
+            seq: 14,
         });
         inner.apply(ControlMessage::Key {
-            name: Some(String::from("ArrowLeft")), character: None, down: false,
-            modifiers: vec![String::from("Control")], seq: 15,
+            name: Some(String::from("ArrowLeft")),
+            character: None,
+            down: false,
+            modifiers: vec![String::from("Control")],
+            seq: 15,
         });
         {
             let strokes = recorded.lock().unwrap();
-            assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_CTRL, true)).count(), 2);
-            assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_CTRL, false)).count(), 2);
+            assert_eq!(
+                strokes
+                    .iter()
+                    .filter(|stroke| **stroke == (keycode::LEFT_CTRL, true))
+                    .count(),
+                2
+            );
+            assert_eq!(
+                strokes
+                    .iter()
+                    .filter(|stroke| **stroke == (keycode::LEFT_CTRL, false))
+                    .count(),
+                2
+            );
         }
         inner.apply(ControlMessage::Key {
-            name: Some(String::from("Control")), character: None, down: true,
-            modifiers: Vec::new(), seq: 16,
+            name: Some(String::from("Control")),
+            character: None,
+            down: true,
+            modifiers: Vec::new(),
+            seq: 16,
         });
         for seq in [17, 18] {
             inner.apply(ControlMessage::Key {
-                name: None, character: Some(String::from("c")), down: true,
-                modifiers: vec![String::from("Control")], seq,
+                name: None,
+                character: Some(String::from("c")),
+                down: true,
+                modifiers: vec![String::from("Control")],
+                seq,
             });
         }
         inner.apply(ControlMessage::Key {
-            name: Some(String::from("Control")), character: None, down: false,
-            modifiers: Vec::new(), seq: 19,
+            name: Some(String::from("Control")),
+            character: None,
+            down: false,
+            modifiers: Vec::new(),
+            seq: 19,
         });
-        assert!(!recorded.lock().unwrap().iter().rev().take(2).any(|event| *event == (keycode::LEFT_CTRL, false)));
+        assert!(!recorded
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .take(2)
+            .any(|event| *event == (keycode::LEFT_CTRL, false)));
         inner.apply(ControlMessage::Key {
-            name: None, character: Some(String::from("c")), down: false,
-            modifiers: Vec::new(), seq: 20,
+            name: None,
+            character: Some(String::from("c")),
+            down: false,
+            modifiers: Vec::new(),
+            seq: 20,
         });
         inner.apply(ControlMessage::Key {
-            name: Some(String::from("ArrowLeft")), character: None, down: true,
-            modifiers: vec![String::from("Shift")], seq: 21,
+            name: Some(String::from("ArrowLeft")),
+            character: None,
+            down: true,
+            modifiers: vec![String::from("Shift")],
+            seq: 21,
         });
         inner.apply(ControlMessage::Key {
-            name: Some(String::from("ArrowLeft")), character: None, down: false,
-            modifiers: Vec::new(), seq: 22,
+            name: Some(String::from("ArrowLeft")),
+            character: None,
+            down: false,
+            modifiers: Vec::new(),
+            seq: 22,
         });
         let strokes = recorded.lock().unwrap();
-        assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_CTRL, true)).count(), 3);
-        assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_CTRL, false)).count(), 3);
-        assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_SHIFT, false)).count(), 2);
+        assert_eq!(
+            strokes
+                .iter()
+                .filter(|stroke| **stroke == (keycode::LEFT_CTRL, true))
+                .count(),
+            3
+        );
+        assert_eq!(
+            strokes
+                .iter()
+                .filter(|stroke| **stroke == (keycode::LEFT_CTRL, false))
+                .count(),
+            3
+        );
+        assert_eq!(
+            strokes
+                .iter()
+                .filter(|stroke| **stroke == (keycode::LEFT_SHIFT, false))
+                .count(),
+            2
+        );
     }
 
     #[tokio::test]
@@ -1756,9 +1993,19 @@ mod tests {
         let owned = Arc::get_mut(&mut inner).unwrap();
         owned.source.source_type = Some(String::from("x11-root"));
         owned.permissions.push(Permission::Clipboard);
-        let session = Session { inner: inner.clone() };
-        assert!(session.read_clipboard().await.unwrap_err().contains("unavailable"));
-        assert!(session.write_clipboard(String::from("secret")).await.unwrap_err().contains("unavailable"));
+        let session = Session {
+            inner: inner.clone(),
+        };
+        assert!(session
+            .read_clipboard()
+            .await
+            .unwrap_err()
+            .contains("unavailable"));
+        assert!(session
+            .write_clipboard(String::from("secret"))
+            .await
+            .unwrap_err()
+            .contains("unavailable"));
         inner.clipboard_read(String::from("read"));
         inner.clipboard_write(String::from("write"), String::from("secret"));
         assert_eq!(inner.metrics.lock().unwrap().input_rejected, 2);
@@ -1792,11 +2039,13 @@ mod tests {
         }
         let reason = reason.expect("a refused frame must surface as a revocation");
         assert_eq!(
-            reason,
-            "the encoder rejected a frame",
+            reason, "the encoder rejected a frame",
             "the reason is a stable token the client can map to copy",
         );
-        assert!(inner.revoked_reason().is_some(), "the session is closed, not left black");
+        assert!(
+            inner.revoked_reason().is_some(),
+            "the session is closed, not left black"
+        );
     }
 
     #[tokio::test]
@@ -1816,20 +2065,35 @@ mod tests {
         let (peer_tx, peer_rx) = tokio_mpsc::unbounded_channel();
         spawn_peer_events(&inner, peer_rx);
         peer_tx.send(PeerEvent::State(State::Disconnected)).unwrap();
-        tokio::time::timeout(Duration::from_secs(2), received.recv()).await.unwrap();
-        assert!(recorded.lock().unwrap().iter().any(|(_, down)| !*down),
-            "a disconnected transport must release held input without SCTP OnClose");
-        assert!(inner.revoked_reason().is_none(), "a transient loss may recover");
+        tokio::time::timeout(Duration::from_secs(2), received.recv())
+            .await
+            .unwrap();
+        assert!(
+            recorded.lock().unwrap().iter().any(|(_, down)| !*down),
+            "a disconnected transport must release held input without SCTP OnClose"
+        );
+        assert!(
+            inner.revoked_reason().is_none(),
+            "a transient loss may recover"
+        );
 
         peer_tx.send(PeerEvent::State(State::Failed)).unwrap();
         tokio::time::timeout(Duration::from_secs(2), async {
             while let Some(notice) = received.recv().await {
-                if matches!(notice.event, SessionEvent::State { capture: "ended", .. }) {
+                if matches!(
+                    notice.event,
+                    SessionEvent::State {
+                        capture: "ended",
+                        ..
+                    }
+                ) {
                     return;
                 }
             }
             panic!("failed transport did not end capture");
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
         assert!(inner.revoked_reason().is_some());
         assert!(!inner.pipeline.load(Ordering::SeqCst));
         assert!(inner.input.lock().unwrap().is_none());
@@ -1852,24 +2116,40 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
         let motion = inner.metrics.lock().unwrap().encoded_frames;
-        assert!(motion <= 7, "the requested rate is a cap, got {motion} of 40");
-        assert!(motion >= 2, "the pipeline must still emit frames, got {motion}");
+        assert!(
+            motion <= 7,
+            "the requested rate is a cap, got {motion} of 40"
+        );
+        assert!(
+            motion >= 2,
+            "the pipeline must still emit frames, got {motion}"
+        );
 
         // Still for longer than a refinement takes: the last frame of the burst
         // is coded (a refinement only follows a coded frame), then refined once.
         tokio::time::sleep(Duration::from_millis(450)).await;
         let metrics = inner.metrics.lock().unwrap().clone();
-        assert_eq!(metrics.refined_frames, 1, "a still desktop is refined exactly once");
+        assert_eq!(
+            metrics.refined_frames, 1,
+            "a still desktop is refined exactly once"
+        );
         assert_eq!(metrics.key_frames, 1, "only the first frame is a key frame");
         tokio::time::sleep(Duration::from_millis(300)).await;
-        assert_eq!(inner.metrics.lock().unwrap().encoded_frames, metrics.encoded_frames, "nothing is sent while still");
+        assert_eq!(
+            inner.metrics.lock().unwrap().encoded_frames,
+            metrics.encoded_frames,
+            "nothing is sent while still"
+        );
 
         // A still stream is kept alive, so a receiver never waits long enough
         // to ask for a key frame; the keepalive is neither a key frame nor
         // another refinement.
         tokio::time::sleep(Duration::from_millis(900)).await;
         let later = inner.metrics.lock().unwrap().clone();
-        assert!(later.encoded_frames > metrics.encoded_frames, "a still stream still sends");
+        assert!(
+            later.encoded_frames > metrics.encoded_frames,
+            "a still stream still sends"
+        );
         assert_eq!((later.key_frames, later.refined_frames), (1, 1));
     }
 }

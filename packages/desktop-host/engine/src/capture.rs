@@ -137,9 +137,18 @@ fn format_pod(buffer: &mut Vec<u8>) -> Result<()> {
             Choice,
             Range,
             Rectangle,
-            Rectangle { width: 2560, height: 1440 },
-            Rectangle { width: 1, height: 1 },
-            Rectangle { width: 7680, height: 4320 }
+            Rectangle {
+                width: 2560,
+                height: 1440
+            },
+            Rectangle {
+                width: 1,
+                height: 1
+            },
+            Rectangle {
+                width: 7680,
+                height: 4320
+            }
         ),
         property!(
             FormatProperties::VideoFramerate,
@@ -148,7 +157,10 @@ fn format_pod(buffer: &mut Vec<u8>) -> Result<()> {
             Fraction,
             Fraction { num: 30, denom: 1 },
             Fraction { num: 0, denom: 1 },
-            Fraction { num: 1000, denom: 1 }
+            Fraction {
+                num: 1000,
+                denom: 1
+            }
         ),
     );
     PodSerializer::serialize(Cursor::new(buffer), &Value::Object(obj))
@@ -159,8 +171,8 @@ fn format_pod(buffer: &mut Vec<u8>) -> Result<()> {
 /// Ask for CPU-mappable buffers first. A compositor that only produces
 /// DMA-BUFs will ignore the choice and we report that instead of reading garbage.
 fn buffer_pod(buffer: &mut Vec<u8>) -> Result<()> {
-    use spa::pod::{object, property, Value};
     use spa::pod::ChoiceValue;
+    use spa::pod::{object, property, Value};
     use spa::utils::{Choice, ChoiceEnum, ChoiceFlags, SpaTypes};
     let obj = object!(
         SpaTypes::ObjectParamBuffers,
@@ -207,10 +219,23 @@ pub fn start(
         std::thread::Builder::new()
             .name("desklink-capture".into())
             .spawn(move || {
-                let result = run_loop(fd, node_id, encoded_width, encoded_height, sink, geometry, frames, dropped, stop, ready.clone());
+                let result = run_loop(
+                    fd,
+                    node_id,
+                    encoded_width,
+                    encoded_height,
+                    sink,
+                    geometry,
+                    frames,
+                    dropped,
+                    stop,
+                    ready.clone(),
+                );
                 // Only a delivered frame means ready. A loop that ended without
                 // one must not turn an early exit into a successful start.
-                let error = result.err().map(|e| format!("{e:#}"))
+                let error = result
+                    .err()
+                    .map(|e| format!("{e:#}"))
                     .unwrap_or_else(|| String::from("capture ended before its first frame"));
                 let _ = ready.send(Err(error));
             })
@@ -251,15 +276,14 @@ fn run_loop(
     ready: mpsc::Sender<Result<(), String>>,
 ) -> Result<()> {
     pw::init();
-    let main_loop =
-        pw::main_loop::MainLoopRc::new(None).context("pw_main_loop_new failed")?;
+    let main_loop = pw::main_loop::MainLoopRc::new(None).context("pw_main_loop_new failed")?;
     let _stop = stop.attach(main_loop.loop_(), {
         let main_loop = main_loop.clone();
         move |_| main_loop.quit()
     });
 
-    let context = pw::context::ContextBox::new(main_loop.loop_(), None)
-        .context("pw_context_new failed")?;
+    let context =
+        pw::context::ContextBox::new(main_loop.loop_(), None).context("pw_context_new failed")?;
     let core = context
         .connect_fd(fd, None)
         .context("pw_context_connect_fd failed")?;
@@ -440,15 +464,23 @@ mod tests {
             let timer = main_loop.loop_().add_timer(move |_| {
                 let _ = ready_tx.send(());
             });
-            timer.update_timer(Some(Duration::from_millis(1)), None).into_result().unwrap();
+            timer
+                .update_timer(Some(Duration::from_millis(1)), None)
+                .into_result()
+                .unwrap();
             main_loop.run();
         });
         let capture = Capture {
             quit,
             thread: Some(thread),
             source: SelectedSource {
-                node_id: 0, width: 2, height: 2, position: None,
-                source_type: None, origin_x: 0, origin_y: 0,
+                node_id: 0,
+                width: 2,
+                height: 2,
+                position: None,
+                source_type: None,
+                origin_x: 0,
+                origin_y: 0,
             },
             geometry: Arc::new(Mutex::new(None)),
             frames: Arc::new(AtomicU64::new(0)),
@@ -456,13 +488,17 @@ mod tests {
             encoded_width: 2,
             encoded_height: 2,
         };
-        ready_rx.recv_timeout(Duration::from_secs(2)).expect("the loop is running");
+        ready_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the loop is running");
         // Keep a broken join bounded so a missing stop is a failed check rather
         // than a test process that hangs forever.
         std::thread::spawn(move || {
             drop(capture);
             ended_tx.send(()).unwrap();
         });
-        ended_rx.recv_timeout(Duration::from_secs(2)).expect("capture stopped and joined");
+        ended_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("capture stopped and joined");
     }
 }

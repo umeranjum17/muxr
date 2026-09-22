@@ -44,7 +44,10 @@ fn main() {
             0
         }
         "capabilities" => {
-            println!("{}", serde_json::to_string_pretty(&session::capabilities()).unwrap());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&session::capabilities()).unwrap()
+            );
             0
         }
         "serve" => report(runtime.block_on(serve())),
@@ -110,10 +113,15 @@ fn print_input_setup() {
             println!("for the duration of a session and destroy them when it ends.");
         }
         Err(unavailable) => {
-            println!("Kernel input access is NOT available: {}", unavailable.reason);
+            println!(
+                "Kernel input access is NOT available: {}",
+                unavailable.reason
+            );
             println!();
             println!("This engine injects pointer and keyboard events by creating its own virtual");
-            println!("devices through the kernel's uinput interface. That is whole-desktop control");
+            println!(
+                "devices through the kernel's uinput interface. That is whole-desktop control"
+            );
             println!("of the logged-in session, not control of one application, and it is not");
             println!("something an installation is allowed to grant for you.");
             println!();
@@ -124,13 +132,21 @@ fn print_input_setup() {
             println!();
             println!("  sudo groupadd --system desklink-input");
             println!("  sudo usermod -aG desklink-input \"$USER\"");
-            println!("  sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=uinput");
+            println!(
+                "  sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=uinput"
+            );
             println!();
-            println!("That is deliberately narrower than joining the `input` group, which would also");
-            println!("expose the physical keyboards and mice. Group membership usually needs a fresh");
+            println!(
+                "That is deliberately narrower than joining the `input` group, which would also"
+            );
+            println!(
+                "expose the physical keyboards and mice. Group membership usually needs a fresh"
+            );
             println!("login before this process sees it.");
             println!();
-            println!("To undo it: remove the rule, remove the user from the group, reload the rules.");
+            println!(
+                "To undo it: remove the rule, remove the user from the group, reload the rules."
+            );
             println!("Without it the engine still captures the desktop and reports view-only.");
         }
     }
@@ -356,12 +372,14 @@ fn render_event(notice: session::Notice) -> Option<String> {
             "session.state",
             serde_json::json!({ "sessionId": session_id, "capture": capture, "transport": transport, "firstFrame": first_frame }),
         ),
-        session::SessionEvent::RestoreToken(token) => {
-            ("session.restoreToken", serde_json::json!({ "sessionId": session_id, "token": token }))
-        }
-        session::SessionEvent::Revoked { reason } => {
-            ("session.revoked", serde_json::json!({ "sessionId": session_id, "reason": reason }))
-        }
+        session::SessionEvent::RestoreToken(token) => (
+            "session.restoreToken",
+            serde_json::json!({ "sessionId": session_id, "token": token }),
+        ),
+        session::SessionEvent::Revoked { reason } => (
+            "session.revoked",
+            serde_json::json!({ "sessionId": session_id, "reason": reason }),
+        ),
     };
     serde_json::to_string(&Event {
         event: name.to_owned(),
