@@ -2,6 +2,7 @@ package expo.modules.desklink
 
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The client half of the desktop package.
@@ -11,7 +12,7 @@ import expo.modules.kotlin.modules.ModuleDefinition
  * open → negotiate → show → drive → close.
  */
 class DesklinkModule : Module() {
-  private val sessions = mutableMapOf<String, DesktopSession>()
+  private val sessions = ConcurrentHashMap<String, DesktopSession>()
   private var nextId = 0
 
   private val eglContext = lazy {
@@ -54,17 +55,17 @@ class DesklinkModule : Module() {
     }
 
     Function("showKeyboard") { id: String ->
-      views[id]?.showKeyboard()
+      postToView(id) { it.showKeyboard() }
       true
     }
 
     Function("hideKeyboard") { id: String ->
-      views[id]?.hideKeyboard()
+      postToView(id) { it.hideKeyboard() }
       true
     }
 
     Function("setSurfaceSize") { id: String, width: Int, height: Int ->
-      views[id]?.setSurfaceSize(width, height)
+      postToView(id) { it.setSurfaceSize(width, height) }
       true
     }
 
@@ -101,7 +102,15 @@ class DesklinkModule : Module() {
     }
   }
 
-  private val views = mutableMapOf<String, DesktopView>()
+  private val views = ConcurrentHashMap<String, DesktopView>()
+
+  // Synchronous module functions run on JS, not Android's UI thread. Ignore
+  // queued work if the session/view was closed or replaced in the meantime.
+  private fun postToView(id: String, action: (DesktopView) -> Unit) {
+    views[id]?.let { view ->
+      view.post { if (views[id] === view) action(view) }
+    }
+  }
 
   private fun emit(name: String, id: String, payload: Map<String, Any?>) {
     sendEvent(
