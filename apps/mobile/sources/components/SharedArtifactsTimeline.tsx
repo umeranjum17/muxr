@@ -73,6 +73,7 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
     const [visibleTextIds, setVisibleTextIds] = React.useState<string[]>([]);
     const [snippets, setSnippets] = React.useState<Record<string, string>>({});
     const attemptedSnippets = React.useRef(new Set<string>());
+    const snippetSession = React.useRef(sessionId);
     const requestGeneration = React.useRef(0);
     const liveRevision = React.useRef(0);
 
@@ -110,6 +111,7 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
     const artifacts = listing?.artifacts ?? EMPTY_ARTIFACTS;
     React.useEffect(() => {
         attemptedSnippets.current.clear();
+        snippetSession.current = sessionId;
         setSnippets({});
         setVisibleTextIds([]);
     }, [sessionId]);
@@ -119,7 +121,6 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
     // and decoded on mount for rows that were never on screen.
     const visibleTextSet = React.useMemo(() => new Set(visibleTextIds), [visibleTextIds]);
     React.useEffect(() => {
-        let cancelled = false;
         const unique = new Map<string, SessionArtifact>();
         for (const artifact of artifacts) {
             if (artifact.mimeType.startsWith('text/') && visibleTextSet.has(artifact.id) && !attemptedSnippets.current.has(artifact.id)) unique.set(artifact.id, artifact);
@@ -132,14 +133,13 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
                 if (healed === null) return;
                 const text = new TextDecoder().decode(decodeBase64(healed.data));
                 const firstLine = text.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim().replace(/\s+/g, ' ').slice(0, 160);
-                if (firstLine !== undefined && firstLine.length > 0 && !cancelled) {
+                if (firstLine !== undefined && firstLine.length > 0 && snippetSession.current === sessionId) {
                     setSnippets((current) => ({ ...current, [artifact.id]: firstLine }));
                 }
             } catch {
                 attemptedSnippets.current.delete(artifact.id);
             }
         }));
-        return () => { cancelled = true; };
     }, [artifacts, sessionId, visibleTextSet]);
     const rows = React.useMemo(() => buildSharedArtifactTimeline(artifacts), [artifacts]);
     const galleryImages = React.useMemo<GalleryImage[]>(() => artifacts.flatMap((artifact) => (

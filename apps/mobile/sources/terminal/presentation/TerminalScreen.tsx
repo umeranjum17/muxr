@@ -8,7 +8,7 @@
 
 import { RealtimeTalkButton } from '@/conversation/ui';
 import * as React from 'react';
-import { ActivityIndicator, AppState, BackHandler, InteractionManager, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMotion, type SharedValue } from 'react-native-reanimated';
@@ -176,20 +176,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         changesList(props.id)
             .then((badge) => { if (!cancelled) setChangesCount(badge.count); })
             .catch(() => { if (!cancelled) setChangesCount(null); });
-        // The artifact count is a badge; the terminal is why this screen was
-        // opened. Asking the host to enumerate a pane's whole history while it
-        // is still answering this pane's attach put a directory walk in front
-        // of the first frame, so it waits until the open has settled.
-        const counting = InteractionManager.runAfterInteractions(() => {
-            if (cancelled) return;
-            sync.artifactList(props.id)
-                .then((result) => { if (!cancelled) setArtifactsCount(result.total); })
-                .catch(() => { if (!cancelled) setArtifactsCount(null); });
-        });
         const unsubscribe = registerArtifactUpdateHandler((sessionId, event) => {
             if (!cancelled && sessionId === props.id) setArtifactsCount(event.total);
         });
-        return () => { cancelled = true; counting.cancel(); unsubscribe(); };
+        return () => { cancelled = true; unsubscribe(); };
     }, [props.id]));
     const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
     const [pluginActionBusy, setExtensionActionBusy] = React.useState<string>();
@@ -419,6 +409,21 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // before a re-render would both pass a state check, producing two alerts
     // and two router.back() calls (the second pops an extra screen).
     const goneRef = React.useRef(false);
+    // The artifact count is a badge; the terminal is why this screen was
+    // opened. Asking the host to enumerate a pane's whole history while it is
+    // still answering this pane's attach put a directory walk in front of the
+    // first frame, so it waits until the pane is actually live.
+    const countedSession = React.useRef<string | undefined>(undefined);
+    const liveSession = React.useRef(props.id);
+    liveSession.current = props.id;
+    React.useEffect(() => {
+        const sessionId = props.id;
+        if (!isFocused || status !== 'live' || countedSession.current === sessionId) return;
+        countedSession.current = sessionId;
+        sync.artifactList(sessionId)
+            .then((result) => { if (liveSession.current === sessionId) setArtifactsCount(result.total); })
+            .catch(() => { if (liveSession.current === sessionId) setArtifactsCount(null); });
+    }, [isFocused, status, props.id]);
     const onStatus = React.useCallback(
         (next: string) => {
             setStatus(next);

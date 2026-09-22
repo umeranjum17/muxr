@@ -42,10 +42,12 @@ import { threadBusyShare, transitionFrameSummary } from './lib/paneOpenMetrics.m
 const PACKAGE = 'com.trymuxr.app';
 /** The terminal surface publishes this name and no internal id; see TerminalView. */
 const TERMINAL_SURFACE = 'Terminal surface';
-// Both copies TerminalScreen renders while nothing has arrived: the connecting
-// pill, and the stalled one it hands over to after CONNECT_DEADLINE_MS. The
-// terminal surface label sits over either, so arrival is "surface and no pill".
 const CONNECTING_PILL = /text="(still connecting|connecting)"/;
+// Every pill TerminalScreen paints over the surface while the pane is not
+// live: the two connecting copies, the unconfirmed copy, and the retry pill it
+// shows for every other status. The terminal surface label sits under all of
+// them, so arrival is "surface and no status pill".
+const STATUS_PILL = /text="(still connecting|connecting|Connection unconfirmed)"|content-desc="Reconnect terminal/;
 const MAX_SECONDS = 600;
 
 function parseArgs(argv) {
@@ -185,7 +187,7 @@ async function main() {
         record.paneOpens.push(await measureTransition({
             pkg: args.pkg, hz, name: `open ${index + 1}`,
             act: () => tapTimed(target.x, target.y),
-            settled: (screen) => screen.includes(TERMINAL_SURFACE) && !CONNECTING_PILL.test(screen),
+            settled: (screen) => screen.includes(TERMINAL_SURFACE) && !STATUS_PILL.test(screen),
             budgetMs: 20_000, settleMs: 2000,
         }));
         await backToHerd();
