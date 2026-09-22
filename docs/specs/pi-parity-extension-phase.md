@@ -17,7 +17,7 @@ muxr has the secure Pi-like extension skeleton: Herdr owns executable plugins, t
 
 The work ships as four serial milestones. Each milestone must compile and pass its focused flow before the next begins.
 
-The authoring rework closes the remaining human/agent usability gap: installed docs must be discoverable from the CLI, bundled plugins must be safely cloneable outside npm ownership, subcommand help must explain the real operation, and setup must install a managed authoring skill reference without giving agents private APIs.
+The authoring rework closes the remaining human/agent usability gap: installed docs must be discoverable from the CLI, plugin creation must keep user source outside npm ownership, subcommand help must explain the real operation, and setup must install a managed authoring skill reference without giving agents private APIs.
 
 ## Decisions
 
@@ -64,7 +64,7 @@ Likely files:
 - `apps/mobile/sources/extensions/DeclarativeScreen.tsx`
 - `apps/mobile/sources/extensions/ExtensionSlot.tsx`
 - `apps/mobile/sources/extensions/useSlotContributions.ts`
-- `plugins/voice/muxr-ui.json`
+- the native realtime voice screens under `apps/mobile/sources/app/(app)/settings/voice*.tsx`
 - `scripts/plugin/application/checkPlugin.mjs`
 
 ## Milestone 2: Package Management
@@ -186,6 +186,7 @@ Likely files:
 
 ## Revisions
 
+- 2026-09-22: `muxr plugin clone` and the bundled add-on packages are retired; every product surface, including realtime voice, is product code (see `../PLUGINS.md`). Earlier milestone entries record the authoring phase as it shipped.
 - 2026-08-20: Reopened authoring DX after a fresh-agent npm gauntlet. Add `muxr plugin docs`, safe bundled-plugin cloning with rewritten local identity, detailed subcommand help, a packaged/managed authoring skill, truthful validator wording, and isolated install/clone/update survival proof.
 - 2026-08-14: Added exact attachment/file-review anti-hang caps and corrected machine-frame dispatch, all-cache invalidation, complete-manifest hashing, npm provenance/transactionality/archive limits, pre-enable authority confirmation, full RPC response bounds, write idempotency, action context, Herdr 0.8 polling fallback, frame limits, and aggregate patch bounds.
 - 2026-08-14: Milestone 3 uses a bounded authoritative `plugin.list` poll and the additive encrypted `extensions.invalidated` machine frame; no watcher or lifecycle subscription is required.

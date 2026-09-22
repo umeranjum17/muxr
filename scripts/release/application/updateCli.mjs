@@ -131,7 +131,7 @@ export async function updateCli(command = {}) {
             `  • install ${PACKAGE}@${latest}`,
             installedMode === 'relay'
                 ? '  • leave Herdr and agent integrations unchanged on this relay-only server'
-                : '  • ensure the Herdr server is running and relink bundled plugins',
+                : '  • ensure the Herdr server is running and retract retired plugin registrations',
             '  • restart the muxr relay and host if they are running',
             '',
         ].join('\n'));

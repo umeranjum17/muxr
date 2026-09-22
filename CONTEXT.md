@@ -127,7 +127,7 @@ _Avoid_: audio focus, recorder lock
 ## Setup and plugins
 
 **Bundled Plugin**:
-A Herdr plugin folder shipped with muxr and linked during setup. Optional provider adapters stay disabled until chosen.
+A Herdr add-on a previous muxr release shipped and linked during setup. Current releases ship none — every product surface, including realtime voice, is product code — and setup retracts the retired registrations.
 _Avoid_: extension, package, add-on
 
 **Coordinator Policy**:
@@ -175,7 +175,7 @@ How phones reach this Machine's relay: mode, location, role, advertised URL, and
 _Avoid_: network settings, advertise bag, selfhost state
 
 **Plugin Id**:
-The stable identity of a bundled or installed plugin. Folder names are filesystem paths only.
+The stable identity of an installed plugin. Folder names are filesystem paths only.
 _Avoid_: plugin folder, plugin name, package name
 
 **Provider Secret**:

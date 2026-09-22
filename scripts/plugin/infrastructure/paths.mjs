@@ -26,13 +26,6 @@ export function pluginReferencePath() {
     return walkFor('skills/muxr/references/plugins.md');
 }
 
-export function bundledPluginsRoot() {
-    // Anchored on voice, the remaining bundled add-on (see setup paths).
-    const toml = walkFor('plugins/voice/herdr-plugin.toml');
-    if (toml === undefined) return undefined;
-    return dirname(dirname(toml));
-}
-
 export function mobilePackageJson() {
     return walkFor('apps/mobile/package.json');
 }

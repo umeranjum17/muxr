@@ -17,6 +17,7 @@ import { join } from 'node:path';
 const herdrSocket = process.env.HERDR_SOCKET_PATH?.trim()
     || join(process.env.HOME?.trim() || homedir(), '.config', 'herdr', 'herdr.sock');
 const hasHerdr = existsSync(herdrSocket);
+const labHelper = process.env.HERDR_LAB_HELPER?.trim();
 
 const checks = [
     ['typecheck: workspace (strict)', 'npx', ['tsc', '--build', '--force']],
@@ -27,7 +28,7 @@ const checks = [
     ['unit: naming boundary (auth/target/failure/restart)', 'node', ['scripts/naming/naming.selfcheck.mjs']],
     ['policy: plugin bridge types in RequestMap', 'node', ['scripts/diagnostics/application/checkPluginBridge.mjs']],
     ['policy: package architecture (module boundaries, domain purity, no nested ternaries)', 'node', ['packages/checkArchitecture.mjs']],
-    ['policy: bundled plugin manifests', 'node', ['scripts/diagnostics/application/checkBundledPlugins.mjs']],
+    ['policy: no bundled add-ons, product-owned voice', 'node', ['scripts/diagnostics/application/checkBundledPlugins.mjs']],
     ['policy: terminal text face is bundled and monospaced', 'node', ['scripts/diagnostics/application/checkTerminalFont.mjs']],
     ['unit: relay pairing (expiry, cap, validation)', 'node', ['apps/relay/dist/selfCheck.js']],
     ['unit: layout snapshot round-trip', 'node', ['apps/host/dist/agent/infrastructure/layoutSelfCheck.js']],
@@ -50,12 +51,15 @@ const checks = [
     ['e2e: multi-provider usage aggregation', 'node', ['scripts/diagnostics/application/checkUsageStatus.mjs']],
     ['e2e: tailscale ingress ownership', 'node', ['scripts/diagnostics/application/checkTailscaleIngress.mjs']],
     ['unit: selfhost state survives garbage JSON', 'node', ['scripts/diagnostics/application/checkSelfhostState.mjs']],
-    ['e2e: voice plugin secret lifecycle', 'node', ['scripts/diagnostics/application/checkVoicePlugin.mjs']],
+    ['e2e: realtime voice product lifecycle (selection, key store)', 'node', ['scripts/diagnostics/application/checkVoicePlugin.mjs']],
     ['e2e: strict auth (local fixture exposure)', 'node', ['scripts/diagnostics/application/checkStrictAuth.mjs']],
     ['e2e: second host retires the first', 'node', ['scripts/diagnostics/application/checkHostTakeover.mjs']],
     ['e2e: wire + RPC (all event types)', 'node', ['scripts/diagnostics/application/runSkeletonCheck.mjs']],
     ['e2e: graphical takeover tunnel', 'node', ['scripts/diagnostics/application/checkPreviewTunnel.mjs']],
     ['e2e: herdr backend loop (live server)', 'node', ['scripts/diagnostics/application/checkHerdrE2E.mjs'], 'herdr', 180000],
+    // The warmed-agent parity proof owns its own lab session, so it only runs
+    // where the guarded lab helper exists; it never touches the default fleet.
+    ['e2e: realtime voice warmed-agent parity (isolated lab herdr)', 'bash', ['scripts/diagnostics/application/checkRealtimeAgentHealth.sh'], 'herdr-lab', 900000],
     ['e2e: worktree session (live stack)', 'node', ['scripts/diagnostics/application/checkWorktreeE2E.mjs'], 'herdr'],
     ['package: curl installer wrapper', 'node', ['scripts/diagnostics/application/checkInstallScript.mjs']],
     // The lifecycle flow needs a packed tree, so the package smoke drives it
@@ -156,6 +160,14 @@ for (const [name, cmd, args, needs, timeoutMs] of checks) {
         process.stdout.write(`SKIP  ${name}  (no herdr server)\n`);
         continue;
     }
+    // The lab gate needs the guarded herdr lab helper named by HERDR_LAB_HELPER;
+    // that wrapper provisions its own isolated lab session and warms the agent.
+    if (needs === 'herdr-lab' && (labHelper === undefined || !existsSync(labHelper))) {
+        skipped += 1;
+        const reason = labHelper === undefined ? 'HERDR_LAB_HELPER is unset' : `HERDR_LAB_HELPER=${labHelper} does not exist`;
+        process.stdout.write(`SKIP  ${name}  (${reason}; set HERDR_LAB_HELPER to the guarded herdr lab helper)\n`);
+        continue;
+    }
     // No settle wait between checks: every relay they spawn now takes a
     // kernel-picked port, so nothing is left holding a number the next one needs.
     await run(name, cmd, args, timeoutMs);
@@ -163,7 +175,7 @@ for (const [name, cmd, args, needs, timeoutMs] of checks) {
 
 const failed = results.filter((r) => r.code !== 0);
 const total = (results.reduce((sum, r) => sum + r.ms, 0) / 1000).toFixed(1);
-const skipNote = skipped > 0 ? `, ${skipped} skipped (no herdr server)` : '';
+const skipNote = skipped > 0 ? `, ${skipped} skipped` : '';
 process.stdout.write(`\n=== ${results.length - failed.length}/${results.length} passed in ${total}s${skipNote} ===\n`);
 if (failed.length > 0) {
     process.stdout.write(`failed: ${failed.map((r) => r.name).join(', ')}\n`);

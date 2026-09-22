@@ -59,15 +59,12 @@ Application operations: [apps/mobile/sources/USE_CASES.md](./apps/mobile/sources
 
 
 - [Setup](./scripts/setup/README.md): Machine identity, pairing, Self-host Connection, Ingress, daemon, wizard, doctor
-- [Plugin](./scripts/plugin/README.md): Plugin Id, bundled catalog, clone, npm registry, `muxr plugin`
+- [Plugin](./scripts/plugin/README.md): Plugin Id, npm registry, `muxr plugin`
 - [Release](./scripts/release/README.md): pack the npm CLI and update an installed package
 - [Diagnostics](./scripts/diagnostics/README.md): flow checks, doctor entry, diagnostics dump
-- Bundled Herdr plugins (`plugins/*`): voice and status. Herdr invokes `rpc.mjs` / `stream.mjs` at the plugin root.
-
 ## Relationships
 
 - **CLI → named use cases**: `scripts/cli.mjs` is a composition root. It parses argv/menus and calls named application functions through each feature's public index.
-- **Setup → Plugin (public)**: linking bundled plugins reads Plugin Id from the plugin public index
+- **Setup → Plugin (public)**: linking plugins reads Plugin Id from the plugin public index
 - **Release → Setup / Plugin trees**: pack copies compiled context folders into the npm artifact
 - **Diagnostics → Setup (public)**: self-host and Tailscale checks call setup use cases through the public index
-- **Plugin clone → Voice**: cloned adapters vendor `../voice/*` files so they stay self-contained

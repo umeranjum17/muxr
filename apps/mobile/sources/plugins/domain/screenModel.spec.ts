@@ -542,38 +542,7 @@ describe('declarative screen identity platform', () => {
         expect(contentMountTitle(usage, 'usage.unknown', 'Status', resolve)).toBe('Status');
     });
 
-    it('carries every shipped manifest through the new parser with nothing dropped, and ignores unknown fields', () => {
-        const dir = fileURLToPath(new URL('../../../../../plugins', import.meta.url));
-        // Every user-visible string on a shipped screen must flow through the
-        // new binder without throwing; paths and ids are data, not templates.
-        const TEMPLATE_KEYS = new Set(['text', 'title', 'subtitle', 'meta', 'value', 'label', 'message', 'emptyText', 'valueLabel', 'placeholder']);
-        const bound: string[] = [];
-        const walk = (value: unknown): void => {
-            if (typeof value === 'string') return;
-            if (Array.isArray(value)) { for (const entry of value) walk(entry); return; }
-            if (typeof value !== 'object' || value === null) return;
-            for (const [key, entry] of Object.entries(value)) {
-                if (TEMPLATE_KEYS.has(key) && (typeof entry === 'string' || (typeof entry === 'object' && entry !== null && 'default' in entry))) {
-                    const template = typeof entry === 'string' ? entry : (entry as { default: string }).default;
-                    bound.push(bindText(template, {}));
-                } else walk(entry);
-            }
-        };
-        let screens = 0;
-        for (const name of ['voice']) {
-            const raw = JSON.parse(readFileSync(join(dir, name, 'muxr-ui.json'), 'utf8'));
-            const { manifest, skippedScreenNodes } = parseManifestWithMeta(raw);
-            expect(skippedScreenNodes).toEqual([]);
-            for (const contribution of manifest.contributions) {
-                if (!('type' in contribution) || contribution.type !== 'screen') continue;
-                screens += 1;
-                walk(contribution);
-                expect(initialFieldValues(contribution, {})).toBeTypeOf('object');
-            }
-        }
-        // Every screen that ships in the bundle must survive the new parser.
-        expect(screens).toBeGreaterThan(0);
-        expect(bound.length).toBeGreaterThan(0);
+    it('ignores manifest fields this app does not know', () => {
         // An app that does not know a new field ignores it rather than breaking.
         const unknown = parseManifest({
             schemaVersion: 1, pluginId: 'you.future',

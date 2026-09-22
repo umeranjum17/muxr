@@ -29,14 +29,13 @@ There is no `services/` folder. A use case is one camelCase module that exports 
 | Inspect peer Agent status | `inspectPeerAgent` | Lifecycle Event | `muxr peers status` |
 | Watch a peer Agent | `watchPeerAgent` | Agent Watch | `muxr peers watch` |
 
-## Plugin — Plugin Id, Bundled Plugin
+## Plugin — Plugin Id
 
 | Capability | Use case | Domain owner | Adapters |
 |---|---|---|---|
 | Check a plugin | `checkPlugin` | Plugin Id | `muxr plugin check` |
 | Report check result | `reportPluginCheck` | Plugin Id | `muxr plugin check` stdout |
 | Create a plugin | `createPlugin` | Plugin Id | `muxr plugin create` |
-| Clone a Bundled Plugin | `clonePlugin` | Plugin Id | `muxr plugin clone` |
 | Call a plugin RPC | `callPluginAction` | Plugin Id | `muxr plugin call` |
 | Link a plugin for development | `linkPlugin` | Plugin Id | `muxr plugin dev` |
 | Show plugin docs | `showPluginDocs` | — | `muxr plugin docs` |
@@ -59,8 +58,8 @@ Herdr keeps `rpc.mjs` / `stream.mjs` at the plugin root. Those files are adapter
 | Watch Agent lifecycle | `watchAgentLifecycle` | Agent Watch | voice `watch_agent` |
 | Focus an Agent | `focusAgent` | Agent Route | voice `focus_agent` |
 | Report Agent outcome | `reportAgentOutcome` | Voice Report | voice `report` RPC |
-| Start realtime conversation | `plugins/voice/stream.mjs` | Realtime Playback, Stream Generation | `host.stream` |
-| Interrupt playback | `plugins/voice/stream.mjs` | Realtime Playback, Stream Generation | provider interrupt / `realtime.audio.clear` |
+| Start realtime conversation | `apps/host/src/voice/stream.mjs` | Realtime Playback, Stream Generation | `voice.stream` |
+| Interrupt playback | `apps/host/src/voice/stream.mjs` | Realtime Playback, Stream Generation | provider interrupt / `realtime.audio.clear` |
 | Store a Provider Secret | `providerSecret` | Provider Secret | voice `key.set` / `key.clear` |
 
 Dictation and the terminal key row are product code in the phone app, not host use cases.

@@ -78,16 +78,15 @@ talks `plugin.list` / `plugin.manifest` / `plugin.call` / `plugin.invoke`. Proto
 v1 ships settings sections, session toolbar actions, approved host RPC, generic
 native slots, declarative terminal keys/navigation/settings/data cards, shortcuts,
 and a central primitive registry. The phone is a dumb translator of `muxr-ui.json`:
-it mounts slots and draws widgets. Voice is an
-ordinary plugin that composes those widgets and calls host backends.
-Usage and machine health, dictation, the terminal key row, the workspace tree,
-and Panes are product code. Preview transport is kernel substrate for
-browser takeover; plugins do not expose a preview action.
+it mounts slots and draws widgets. Realtime voice, usage and machine health,
+dictation, the terminal key row, the workspace tree, and Panes are product code,
+not plugins. Preview transport is kernel substrate for browser takeover; plugins
+do not expose a preview action.
 Navigation destinations open `/plugin`.
 
-Bundled extensions compose the same primitives as any other plugin. The app
-registers widgets (`item-list`, `collection`, `icon-button`, `realtime-session-overlay`, …), not plugin ids. External
-extensions use those widgets too. Neither path permits downloaded React.
+The app registers widgets (`item-list`, `collection`, `icon-button`, …), not
+plugin ids, and plugins compose only those widgets. No path permits downloaded
+React.
 
 The normative protocol, trust chain, failure cases, rollback, and extraction
 boundary are in [decision 0005](decisions/0005-pi-like-extension-runtime.md).

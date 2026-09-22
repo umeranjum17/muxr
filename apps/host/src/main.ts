@@ -635,6 +635,13 @@ async function main(): Promise<void> {
                     event.resolvedAgentName,
                     event.outcome,
                 ),
+                onRealtimeCoordinationDiagnostic: (event) => diagnostics.realtimeCoordination(
+                    event.provider,
+                    event.operation,
+                    event.outcome,
+                    event.durationMs,
+                    event.code,
+                ),
                 onAgentReadinessDiagnostic: (reason, promptable, detail) =>
                     diagnostics.agentReadiness(reason, promptable, detail),
                 onAgentLaunchDiagnostic: (outcome, detail) =>

@@ -309,3 +309,10 @@ export type {
     UsageVitals,
     UsageNow,
 } from './usage/index.js';
+export type {
+    VoiceProviderEntry,
+    VoiceProviderCatalog,
+    VoiceProviderDescription,
+    VoiceStatus,
+    VoiceReport,
+} from './voice/index.js';

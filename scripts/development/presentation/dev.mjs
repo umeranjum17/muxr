@@ -38,7 +38,7 @@ Starts the full local presentation dev loop:
   - Expo Metro (dev client, localhost) with Fast Refresh; the same
     http://localhost:8081 URL previews the web build in a browser
   - attachment preview bundle watcher (regenerates its .bin on edits)
-  - checkout-local bundled plugin projections/RPC scripts via a private socket
+  - checkout-local plugin projections/RPC scripts via a private socket
     adapter; installed native registrations and approvals remain authoritative
 
 Options:
@@ -382,7 +382,7 @@ muxr dev supervisor
   Relay:               ws://127.0.0.1:${relayPort}      (loopback only)
   Attachment downloads: http://127.0.0.1:${hostHttpPort}
   Host machine:        devbox   (MUXR_HOME=.cache/muxr-dev)
-  Bundled plugins:     local checkout projections/scripts; native registrations stay installed
+  Checkout plugins:    local checkout projections/scripts; native registrations stay installed
                        existing enablement, catalog hashes, and approvals remain authoritative
   Native rebuild:      NOT automatic — run \`yarn dev:android\` after Gradle/
                        native changes. Attachment preview bundle is watched.

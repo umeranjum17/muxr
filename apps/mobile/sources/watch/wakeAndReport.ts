@@ -1,7 +1,7 @@
-import { callPlugin } from '@/plugins/callPlugin';
 import { sanitizePersistedVoiceReport, type VoiceReport } from './voiceReport';
 import { reportAgentOutcome } from './reportAgentOutcome';
 import { storage } from '@/catalog/store';
+import { voiceReport } from '@/conversation/session';
 import {
     realtimeGeneration,
     realtimeSessionSnapshot,
@@ -208,7 +208,7 @@ async function drain(): Promise<void> {
                 }
                 activeReportGeneration = realtimeGeneration();
                 const response = await Promise.race([
-                    callPlugin<{ say: string }>('voice.report', {
+                    voiceReport({
                         displayName: clean.agentName, taskTitle: clean.taskTitle,
                         status: clean.status, outcome: clean.status, ...(tail ? { tail } : {}),
                     }),

@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
         return { remove: () => undefined };
     }),
     syncRequest: vi.fn(),
-    callPlugin: vi.fn(),
+    voiceReports: () => mocks.syncRequest.mock.calls.filter((call) => call[0] === 'voice.report'),
     voicePending: [] as Array<Record<string, unknown> & { identity: string; attempts: number; readyAt: number }>,
     voiceDelivered: [] as string[],
     lifecycleEvents: [] as Array<Record<string, unknown> & { eventId: string }>,
@@ -47,7 +47,6 @@ vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
 vi.mock('@/utils/localTranscription', () => ({ transcribePcm16: mocks.transcribe }));
 vi.mock('@/catalog/sync', () => ({ sync: { request: mocks.syncRequest } }));
 vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ machineId: '' }) }));
-vi.mock('@/plugins/callPlugin', () => ({ callPlugin: mocks.callPlugin }));
 vi.mock('@/modal', () => ({ Modal: { alert: mocks.modalAlert } }));
 vi.mock('../plugins/application/pluginStore', () => ({ pluginSnapshot: () => mocks.pluginSnapshot }));
 vi.mock('../plugins/application/capabilityRegistry', () => ({ capabilityFor: () => mocks.capability }));
@@ -162,8 +161,10 @@ beforeEach(() => {
         const target = await resolveRealtimeTarget();
         if (target !== null) startRealtimeSession(target);
     });
-    mocks.syncRequest.mockResolvedValue({ text: 'unused' });
-    mocks.callPlugin.mockResolvedValue({ say: 'The agent finished.' });
+    // Realtime voice reporting is a product request now, not a plugin call.
+    mocks.syncRequest.mockImplementation(async (method: string) => method === 'voice.report'
+        ? { say: 'The agent finished.' }
+        : { text: 'unused' });
     mocks.voicePending = [];
     mocks.voiceDelivered = [];
     mocks.lifecycleEvents = [];
@@ -397,11 +398,15 @@ describe('on-device dictation flow', () => {
             .mockReturnValueOnce(rearmed)
             .mockReturnValueOnce(reporting);
         let failFirst!: (error: Error) => void;
-        mocks.callPlugin
-            .mockImplementationOnce(() => new Promise((_resolve, reject) => { failFirst = reject; }))
-            .mockImplementation(async (_id: string, input: { displayName: string; status: string }) => ({
-                say: `${input.displayName}: ${input.status}`,
-            }));
+        let failVoiceReport = true;
+        mocks.syncRequest.mockImplementation(async (method: string, input: { displayName: string; status: string }) => {
+            if (method !== 'voice.report') return { text: 'unused' };
+            if (failVoiceReport) {
+                failVoiceReport = false;
+                return new Promise((_resolve, reject) => { failFirst = reject; });
+            }
+            return { say: `${input.displayName}: ${input.status}` };
+        });
 
         startRealtimeSession('session-a');
         expect(realtimeWatchTarget()).toBe('session-a');
@@ -430,8 +435,8 @@ describe('on-device dictation flow', () => {
         await vi.advanceTimersByTimeAsync(0);
         expect(mocks.startRealtimeSession).toHaveBeenCalledTimes(2);
         expect(mocks.startRealtimeSession.mock.calls[1]![0]).toMatchObject({ target: { sessionId: 'three' } });
-        expect(mocks.callPlugin).toHaveBeenCalledTimes(1);
-        expect(mocks.callPlugin).toHaveBeenNthCalledWith(1, 'voice.report', {
+        expect(mocks.voiceReports()).toHaveLength(1);
+        expect(mocks.voiceReports()[0]![1]).toEqual({
             displayName: 'Cara', taskTitle: 'Unblock three', status: 'blocked', outcome: 'blocked',
         });
         expect(rejectTail).toHaveBeenCalledOnce();
@@ -441,7 +446,7 @@ describe('on-device dictation flow', () => {
         failFirst(new Error('provider unavailable'));
         await vi.advanceTimersByTimeAsync(30_000);
         expect(mocks.startRealtimeSession).toHaveBeenCalledTimes(2);
-        expect(mocks.callPlugin).toHaveBeenCalledTimes(1);
+        expect(mocks.voiceReports()).toHaveLength(1);
 
         // A later legitimate watch activation resumes retained work without resubmission.
         startRealtimeSession('session-a');
@@ -451,7 +456,7 @@ describe('on-device dictation flow', () => {
         rearmProvider.onStatus('connected');
         await vi.advanceTimersByTimeAsync(0);
         expect(mocks.startRealtimeSession).toHaveBeenCalledTimes(3);
-        expect(mocks.callPlugin).toHaveBeenCalledTimes(2);
+        expect(mocks.voiceReports()).toHaveLength(2);
 
         expect(rearmed.speak).toHaveBeenLastCalledWith('Cara: blocked');
         // Thinking then connected is a complete no-audio response.
@@ -470,7 +475,7 @@ describe('on-device dictation flow', () => {
         await vi.advanceTimersByTimeAsync(0);
         await reportsDone;
         await vi.advanceTimersByTimeAsync(0);
-        expect(mocks.callPlugin.mock.calls.map((call) => (call[1] as { displayName: string }).displayName)).toEqual(['Cara', 'Cara', 'Alex', 'Bea']);
+        expect(mocks.voiceReports().map((call) => (call[1] as { displayName: string }).displayName)).toEqual(['Cara', 'Cara', 'Alex', 'Bea']);
         expect(rearmed.speak.mock.calls.map((call) => call[0])).toEqual(['Cara: blocked', 'Alex: done', 'Bea: done']);
         expect(rearmed.stop).not.toHaveBeenCalled();
         cancelRealtimeReportWait(realtimeGeneration());
@@ -593,6 +598,44 @@ describe('on-device dictation flow', () => {
         finishNew();
         await vi.advanceTimersByTimeAsync(1_500);
         expect(deferredAttempts).toBe(2);
+    });
+
+    it('speaks an agent-stop report only while realtime watching is active', async () => {
+        const notifyObserver = () => {
+            const observerState = {
+                lifecycleEvents: mocks.lifecycleEvents,
+                prebaselineLifecycleEvents: mocks.prebaselineLifecycleEvents,
+                sessions: mocks.sessions,
+                lifecycleCatalogInitialized: mocks.lifecycleCatalogInitialized,
+                lifecycleCatalogAvailable: mocks.lifecycleCatalogAvailable,
+                voicePendingReports: mocks.voicePending,
+                voiceReportScopeGeneration: 1,
+            };
+            for (const listener of mocks.storageListeners) listener(observerState, observerState);
+        };
+        act(() => { renderer = TestRenderer.create(React.createElement(PluginHarness)); });
+        const working = { eventId: 'settle-working', sessionId: 'session-a', state: 'working', agentName: 'Nia', taskTitle: 'Ship the report' };
+        const settled = (eventId: string) => ({ ...working, eventId, state: 'done' });
+        const reported = (eventId: string) => mocks.voicePending.some((entry) => entry.identity === eventId)
+            || mocks.voiceDelivered.includes(eventId);
+
+        mocks.lifecycleEvents = [working];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        mocks.lifecycleEvents = [settled('settle-idle-done'), working];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(reported('settle-idle-done')).toBe(false);
+
+        startRealtimeSession('session-a');
+        const activeWorking = { ...working, eventId: 'settle-active-working' };
+        mocks.lifecycleEvents = [activeWorking];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        mocks.lifecycleEvents = [settled('settle-active-done'), activeWorking];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(reported('settle-active-done')).toBe(true);
     });
 
     it('releases ownership when the native recorder cannot start', async () => {

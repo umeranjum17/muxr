@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { voiceTools } from './toolRuntime.mjs';
-import { appControlInstructions, cleanProviderProse, voiceCoordinationInstructions } from './coordinatorPolicy.mjs';
+import { appControlInstructions, cleanProviderProse, safeVoiceToolFailure, voiceCoordinationInstructions } from './coordinatorPolicy.mjs';
 
 /**
  * Client-side Codex delegation over the Codex subscription Responses API.
@@ -234,7 +234,9 @@ export function createCodexDelegation({ getCredential, runTool } = {}) {
             try {
                 output = await runTool(call.name, JSON.parse(call.arguments), id, signal);
             } catch (error) {
-                output = signal.aborted ? 'The work request was cancelled.' : 'The work request could not be completed. No action was confirmed.';
+                output = signal.aborted
+                    ? 'The work request was cancelled. No action was performed.'
+                    : `${safeVoiceToolFailure(error, call.name)} Tell the user this directly instead of promising to check again.`;
             }
         }
         output = String(output).slice(0, TOOL_OUTPUT_MAX_BYTES);
@@ -316,8 +318,10 @@ export function createCodexDelegation({ getCredential, runTool } = {}) {
                 const combined = AbortSignal.any([lifetime.signal, deadline, ...(signal ? [signal] : [])]);
                 try {
                     return String(await runTool(structured.name, structured.arguments ?? {}, operationId, combined));
-                } catch {
-                    return combined.aborted ? 'The work request was cancelled.' : 'The work request could not be completed. No action was confirmed.';
+                } catch (error) {
+                    return combined.aborted
+                        ? 'The work request was cancelled. No action was performed.'
+                        : `${safeVoiceToolFailure(error, structured.name)} Tell the user this directly instead of promising to check again.`;
                 }
             }
             try {

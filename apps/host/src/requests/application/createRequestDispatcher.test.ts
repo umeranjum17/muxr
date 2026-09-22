@@ -280,6 +280,32 @@ describe('plugin device authority', () => {
     });
 });
 
+describe('voice device authority', () => {
+    it('lets a view-only grant read the spoken report but never change voice state', async () => {
+        const { dispatch } = createRequestDispatcher({
+            source: createFakeSessionSource() as unknown as SessionSource,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+            canMutateDevice: (deviceId) => deviceId !== 'viewer-1',
+        });
+        const report = await dispatch({
+            type: 'voice.report',
+            requestId: 'report',
+            params: { displayName: 'Nia', taskTitle: 'Ship the report', status: 'done', outcome: 'done' },
+        } as never, 'viewer-1');
+        expect(report).toMatchObject({ ok: true });
+        expect((report as { data: { say: string } }).data.say).toContain('Host-confirmed report');
+
+        const key = await dispatch({
+            type: 'voice.key.set',
+            requestId: 'key',
+            params: { key: 'not-a-real-key', provider: 'xai' },
+        } as never, 'viewer-1');
+        expect(key).toMatchObject({ ok: false, error: expect.stringContaining('view-only') });
+    });
+});
+
 describe('unknown request type guard', () => {
     it('answers a stable host-contract-mismatch result instead of throwing', async () => {
         const { dispatch } = dispatcherWithSpy();

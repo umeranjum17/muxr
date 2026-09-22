@@ -36,7 +36,6 @@ apps/mobile/sources/
     presentation/               declarative screens and slots
     index.ts                    domain + use cases
     ui.ts                       screens
-    callPlugin.ts               frozen public port for voice
     openPluginStream.ts         frozen public port for voice
   terminal/
     domain/                     TerminalLink, file links, status bar

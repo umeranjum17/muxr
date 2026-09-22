@@ -16,6 +16,8 @@ export type DiagnosticPeerConnectionPhase = 'grant-refresh' | 'ticket-issue' | '
 export type DiagnosticPeerIngressOutcome = 'received' | 'decrypt-rejected' | 'decoded';
 export type DiagnosticClientRejectOutcome = 'decrypt-rejected' | 'malformed';
 export type DiagnosticRealtimePromptOutcome = 'queued' | 'rejected' | 'failed';
+export type DiagnosticRealtimeOperation = 'list' | 'status' | 'read' | 'prompt' | 'watch' | 'start' | 'key' | 'focus' | 'context';
+export type DiagnosticRealtimeCoordinationOutcome = 'ok' | 'rejected' | 'timeout' | 'unavailable';
 export type DiagnosticReadinessGate = 'ready' | 'starting' | 'not-interactive' | 'unbound' | 'no-agent' | 'unnamed' | 'no-session';
 
 type ClientCounts = Record<DiagnosticClientKind, number>;
@@ -32,6 +34,7 @@ export type HostDiagnosticEvent =
     | { at: string; event: 'peer.ingress'; direction: 'inbound'; outcome: DiagnosticPeerIngressOutcome }
     | { at: string; event: 'peer.broker'; operation: DiagnosticBrokerOperation; outcome: DiagnosticOutcome; durationMs: number; code?: string }
     | { at: string; event: 'realtime.prompt'; provider: string; action: 'prompt'; requestedAgentName: string; resolvedAgentName: string | null; outcome: DiagnosticRealtimePromptOutcome }
+    | { at: string; event: 'realtime.coordination'; provider: string; operation: DiagnosticRealtimeOperation; outcome: DiagnosticRealtimeCoordinationOutcome; durationMs: number; code?: string }
     | { at: string; event: 'agent.readiness'; reason: 'starting' | 'ready' | 'not-promptable'; promptable: boolean; kind?: string; lifecycle?: string; gate?: DiagnosticReadinessGate }
     | { at: string; event: 'agent.launch'; outcome: DiagnosticOutcome; kind?: string; detected?: string; gate?: DiagnosticReadinessGate };
 
@@ -88,10 +91,24 @@ const safeCodes: Record<string, true> = {
     takeover: true,
     replaced: true,
     'start-launch-failed': true,
+    'roster-timeout': true,
+    'roster-unavailable': true,
+    'status-unavailable': true,
+    'output-unavailable': true,
+    'prompt-not-sent': true,
+    'prompt-outcome-unknown': true,
+    'capability-revoked': true,
+    'request-invalid': true,
+    'operation-timeout': true,
+    'operation-unavailable': true,
 };
 const loggedRequests = new Set<RequestType>([
     'machines.list', 'herdr.tree', 'terminal.attach', 'terminal.detach',
     'session.list', 'session.start', 'session.open', 'session.prompt', 'session.status', 'agent.watch',
+    // Realtime voice is product code, so its attach and its credential changes
+    // are the only host-side trace that a voice turn was ever attempted. Without
+    // them a failed voice turn leaves no evidence of why it failed.
+    'voice.stream', 'voice.provider.set', 'voice.key.set', 'voice.key.clear',
     'peer.prepare', 'peer.authorize', 'peer.install', 'peer.list', 'peer.revoke',
     'peer.remote.list', 'peer.remote.read', 'peer.remote.status', 'peer.remote.watch', 'peer.remote.prompt', 'peer.remote.start',
 ]);
@@ -273,6 +290,25 @@ export class HostDiagnosticsJournal {
             requestedAgentName: safeSemanticName(requestedAgentName, 'unspecified')!,
             resolvedAgentName: safeSemanticName(resolvedAgentName, 'unknown'),
             outcome,
+        });
+    }
+
+    realtimeCoordination(
+        provider: string,
+        operation: DiagnosticRealtimeOperation,
+        outcome: DiagnosticRealtimeCoordinationOutcome,
+        durationMs: number,
+        code?: string,
+    ): void {
+        const normalizedCode = safeCode(code);
+        this.record({
+            at: this.timestamp(),
+            event: 'realtime.coordination',
+            provider: /^[a-z0-9.-]{1,80}$/.test(provider) ? provider : 'unknown',
+            operation,
+            outcome,
+            durationMs: diagnosticInt(durationMs, 10 * 60_000),
+            ...(normalizedCode === undefined ? {} : { code: normalizedCode }),
         });
     }
 

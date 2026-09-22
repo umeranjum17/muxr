@@ -171,7 +171,12 @@ if (!existsSync(join(out, 'plugin', 'domain', 'dist', 'index.js'))) {
 const extensionSource = readFileSync(join(out, 'plugin', 'application', 'checkPlugin.mjs'), 'utf8');
 if (!extensionSource.includes("from '@muxr/contract'")) throw new Error('plugin validator import changed; update the package rewrite');
 writeFileSync(join(out, 'plugin', 'application', 'checkPlugin.mjs'), extensionSource.replace("from '@muxr/contract'", "from '../../contract.mjs'"));
-cpSync(join(root, 'plugins'), join(out, 'plugins'), { recursive: true });
+// The realtime voice adapters are product code, so they ship beside the host
+// bundle rather than as a Herdr add-on.
+cpSync(join(root, 'apps', 'host', 'dist', 'voice'), join(out, 'voice'), {
+    recursive: true,
+    filter: (path) => !path.endsWith('.spec.mjs'),
+});
 cpSync(join(root, 'resources'), join(out, 'resources'), { recursive: true });
 cpSync(join(root, 'skills', 'muxr'), join(out, 'skills', 'muxr'), { recursive: true });
 const webDist = join(root, 'apps', 'mobile', 'dist');
@@ -209,7 +214,6 @@ copyFileSync(join(root, 'docs', 'npm-readme.md'), join(out, 'README.md'));
 // The tarball is the only documentation a plugin author reaches offline, so the
 // authoring guide ships with it rather than living behind a URL.
 const pluginGuide = readFileSync(join(root, 'docs', 'PLUGINS.md'), 'utf8')
-    .replaceAll('](../plugins/', '](plugins/')
     .replaceAll('](decisions/', '](https://github.com/umeranjum17/muxr/blob/main/docs/decisions/');
 writeFileSync(join(out, 'PLUGINS.md'), pluginGuide);
 for (const file of ['LICENSE', 'NOTICE']) copyFileSync(join(root, file), join(out, file));
@@ -243,7 +247,7 @@ const pkg = {
         'NOTICE',
         'LICENSES/',
         'THIRD_PARTY_LICENSES.json',
-        'plugins/',
+        'voice/',
         'resources/',
         'skills/',
         'web/',

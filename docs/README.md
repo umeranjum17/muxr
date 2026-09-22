@@ -12,7 +12,6 @@ Start here, then follow one path.
 ## Extend it
 
 - [Build a muxr plugin](PLUGINS.md)
-- [Bundled plugins](../plugins/README.md)
 - [Host/client contract gate](HOST-CONTRACT-COMPATIBILITY.md)
 
 ## Understand it

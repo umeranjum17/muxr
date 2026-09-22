@@ -7,6 +7,9 @@ import path from 'node:path';
  * inherited module the app never loads.
  */
 export default defineConfig({
+    // Metro defines this global; a spec that reaches an Expo module would
+    // otherwise fail at import time on an environment detail, not on behaviour.
+    define: { __DEV__: 'false' },
     resolve: {
         alias: [{ find: /^@\//, replacement: path.join(__dirname, 'sources/') }],
     },

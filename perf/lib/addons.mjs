@@ -39,7 +39,7 @@ export function bundledPlusAddons(sourceRoot) {
         const dir = join(root, 'fixture-plugins');
         mkdirSync(dir, { recursive: true });
         const bundled = join(sourceRoot, 'plugins');
-        for (const entry of readdirSync(bundled, { withFileTypes: true })) {
+        if (existsSync(bundled)) for (const entry of readdirSync(bundled, { withFileTypes: true })) {
             if (!entry.isDirectory()) continue;
             try {
                 symlinkSync(join(bundled, entry.name), join(dir, entry.name));

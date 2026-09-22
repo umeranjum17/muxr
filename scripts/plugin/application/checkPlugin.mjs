@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -7,7 +7,6 @@ import { homedir, tmpdir } from 'node:os';
 import { MAX_PLUGIN_CONTEXT_BYTES, MAX_RPC_INPUT_BYTES, MAX_RPC_STDOUT_BYTES, boundRpcDisplay, parseManifestWithMeta } from '@muxr/contract';
 import { isPluginId } from '../domain/dist/index.js';
 import {
-    bundledPluginsRoot,
     mobilePackageJson,
     packedCliRoot,
     pluginDocsPath,
@@ -67,62 +66,6 @@ function localPluginId(target, canonical = target) {
     const slug = basename(target).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[^a-z0-9]+/, '') || 'plugin';
     const suffix = createHash('sha256').update(canonical).digest('hex').slice(0, 8);
     return `local.${slug.slice(0, 48)}-${suffix}`;
-}
-
-export function clonePlugin(pluginId, destination) {
-    if (!id(pluginId)) fail('muxr plugin clone requires a valid bundled plugin id');
-    const plugins = bundledPluginsRoot();
-    if (plugins === undefined) fail('bundled plugins are missing from this muxr install');
-    const source = readdirSync(plugins, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => join(plugins, entry.name))
-        .find((root) => existsSync(join(root, 'herdr-plugin.toml'))
-            && readFileSync(join(root, 'herdr-plugin.toml'), 'utf8').match(/^id\s*=\s*"([^"]+)"/m)?.[1] === pluginId);
-    if (!source) fail(`no bundled plugin ${pluginId}`);
-    const { target, canonical } = pluginDestination(destination ?? `${basename(source)}-custom`);
-    if (existsSync(target)) fail(`${target}: already exists`);
-    mkdirSync(dirname(target), { recursive: true });
-    const temporary = `${target}.tmp-${process.pid}-${Date.now()}`;
-    const clonedId = localPluginId(target, canonical);
-    try {
-        cpSync(source, temporary, { recursive: true });
-        const pluginPath = join(temporary, 'herdr-plugin.toml');
-        writeFileSync(pluginPath, readFileSync(pluginPath, 'utf8')
-            .replace(/^id\s*=\s*"[^"]+"/m, `id = "${clonedId}"`)
-            .replace(/^name\s*=\s*"([^"]+)"/m, (_line, name) => `name = "${name} custom"`));
-        const uiPath = join(temporary, 'muxr-ui.json');
-        if (existsSync(uiPath)) {
-            const manifest = JSON.parse(readFileSync(uiPath, 'utf8'));
-            manifest.pluginId = clonedId;
-            writeFileSync(uiPath, `${JSON.stringify(manifest, null, 2)}\n`);
-        }
-        const readmePath = join(temporary, 'README.md');
-        if (existsSync(readmePath)) writeFileSync(readmePath, readFileSync(readmePath, 'utf8').replaceAll(pluginId, clonedId));
-        const voiceImport = /from '\.\.\/voice\/([^']+)'/g;
-        for (const name of ['stream.mjs', 'rpc.mjs']) {
-            const path = join(temporary, name);
-            if (!existsSync(path)) continue;
-            let text = readFileSync(path, 'utf8');
-            const needed = [...text.matchAll(voiceImport)].map((match) => match[1]);
-            if (needed.length === 0) continue;
-            for (const relativePath of new Set(needed)) {
-                const destName = relativePath.split('/').pop();
-                cpSync(join(plugins, 'voice', relativePath), join(temporary, destName));
-                text = text.replaceAll(`from '../voice/${relativePath}'`, `from './${destName}'`);
-            }
-            writeFileSync(path, text);
-        }
-        checkPlugin(temporary);
-        renameSync(temporary, target);
-    } finally {
-        rmSync(temporary, { recursive: true, force: true });
-    }
-    process.stdout.write(`cloned ${pluginId} -> ${target} (${clonedId})\n`);
-    process.stdout.write('edit it, then replace safely:\n');
-    process.stdout.write(`  herdr plugin disable ${pluginId}\n`);
-    process.stdout.write(`  muxr plugin dev ${target}\n`);
-    process.stdout.write(`if linking fails, restore with: herdr plugin enable ${pluginId}\n`);
-    return 0;
 }
 
 // Validation is delegated to the single shared manifest parser from

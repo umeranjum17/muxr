@@ -130,13 +130,13 @@ The journal retains at most 512 allowlisted events for seven days and is capped 
 
 ## Realtime voice
 
-Voice state changes from a session-only target to `{ machineId, sessionId }`. Starting a call captures an immutable target machine, relay URL, grant, plugin snapshot, and provider. Reconnect uses that captured target even if global Settings changes.
+Voice state changes from a session-only target to `{ machineId, sessionId }`. Starting a call captures an immutable target machine, relay URL, grant, and provider. Reconnect uses that captured target even if global Settings changes.
 
 - One microphone owner and one direct provider stream remain invariant.
 - The call stays on the host/session where it started.
 - Switching the app's active computer during a call requires **End voice and switch**.
 - Cross-machine requests use a host-owned constrained peer broker with tools for listing machines and agents, prompting, reading output, and watching completion.
-- Provider plugins receive neither peer credentials nor unrestricted remote CLI access. An approved `voice.session` child receives one revocable per-stream broker token as least-ambient routing; enabled backends remain trusted unsandboxed local code, so this token is not a hostile same-user isolation boundary.
+- The voice stream receives neither peer credentials nor unrestricted remote CLI access. Its child process receives one revocable per-stream broker token as least-ambient routing; the product adapters remain trusted unsandboxed local code, so this token is not a hostile same-user isolation boundary.
 - Peer pane output stays untrusted data and cannot authorize actions.
 - Ambiguous spoken machine or agent names trigger a short clarification.
 - The overlay may say `Voice on Linux · working with Mac / iOS builder`, never internal ids.
@@ -191,7 +191,7 @@ The work lands as one cohesive feature PR.
 - `apps/mobile/sources/plugins/openPluginStream.ts`
 - `apps/mobile/sources/realtime/realtimeSessionState.ts`
 - `apps/mobile/sources/voice/realtimeSession.ts`
-- bundled voice provider stream adapters under `plugins/voice*/`
+- the product-owned realtime voice adapters under `apps/host/src/voice/`
 
 ## Revisions
 

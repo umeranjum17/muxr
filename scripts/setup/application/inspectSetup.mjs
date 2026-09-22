@@ -41,7 +41,7 @@ import {
 import { parseHostedAuth, pairingIntentFromHostedFlags } from '../domain/dist/index.js';
 import {
     detectedLifecycleTargets,
-    ensureBundledPlugins,
+    retireBundledPlugins,
     ensureHerdr,
     ensureHerdrServer,
     herdrBin,
@@ -94,6 +94,7 @@ const FULL_UNINSTALL_ENTRIES = [
     'extensions',
     'plugin-state',
     'plugin-sync.json',
+    'voice',
     'operations',
     'xai.key',
     'gemini.key',
@@ -343,7 +344,7 @@ export async function applyHostedSetup(args = []) {
         });
         if (binary) {
             await ensureHerdrServer(binary, dryRun);
-            await ensureBundledPlugins(binary, dryRun);
+            await retireBundledPlugins(binary, dryRun);
             const integrationArgs = ['sync', ...(dryRun ? ['--dry-run'] : []), ...(args.includes('--force') ? ['--force'] : [])];
             if (args.includes('--all')) integrationArgs.push('--all');
             if ((await runIntegrations(integrationArgs)) !== 0) throw new Error('integration sync failed');
@@ -357,7 +358,7 @@ export async function applyHostedSetup(args = []) {
         if (!dryRun && process.env.MUXR_SKIP_HOSTED_AUTH !== '1' && (await runAccount('pair')) !== 0) {
             throw new Error('secure device pairing failed');
         }
-        print('  Live Voice is optional; configure it from the muxr Voice plugin pane.');
+        print('  Live Voice is optional; configure it from Voice & dictation in the app.');
         print('Ready — open muxr.');
         return 0;
     } catch (cause) {

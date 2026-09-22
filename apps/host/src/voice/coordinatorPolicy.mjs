@@ -145,11 +145,69 @@ export const appControlInstructions = `- Use inspect_app before app navigation o
 
 const text = (value) => String(value ?? '').trim();
 
+export const coordinatorFailureMessages = Object.freeze({
+    'roster-timeout': 'The live agent roster timed out. No action was performed.',
+    'roster-unavailable': 'The live agent roster is unavailable. No action was performed.',
+    'status-unavailable': 'The agent status could not be confirmed. No action was performed.',
+    'output-unavailable': 'The agent output could not be read. No action was performed.',
+    'prompt-not-sent': 'The prompt was not sent. No action was performed.',
+    'prompt-outcome-unknown': 'The prompt outcome is unconfirmed. Do not repeat it automatically.',
+    'capability-revoked': 'Voice coordination is no longer authorized. No action was performed.',
+    'request-invalid': 'That work request is invalid. No action was performed.',
+    'operation-timeout': 'The work request timed out. Its outcome is unconfirmed; do not repeat an action automatically.',
+    'operation-unavailable': 'The work request is unavailable. No action was performed.',
+});
+
+class VoiceCoordinatorError extends Error {
+    constructor(code, message = coordinatorFailureMessages[code] ?? coordinatorFailureMessages['operation-unavailable']) {
+        super(message);
+        this.name = 'VoiceCoordinatorError';
+        this.code = code;
+    }
+}
+
+const operationFailureCode = (method, timeout = false) => {
+    if (timeout) {
+        if (method === 'list' || method === 'context') return 'roster-timeout';
+        if (method === 'prompt' || method === 'start' || method === 'key' || method === 'focus') return 'prompt-outcome-unknown';
+        return 'operation-timeout';
+    }
+    if (method === 'list' || method === 'context') return 'roster-unavailable';
+    if (method === 'status') return 'status-unavailable';
+    if (method === 'read') return 'output-unavailable';
+    if (method === 'prompt') return 'prompt-outcome-unknown';
+    return 'operation-unavailable';
+};
+
+const safeCoordinatorFailure = (error, method, timeout = false) => {
+    const code = typeof error?.code === 'string' && Object.hasOwn(coordinatorFailureMessages, error.code)
+        ? error.code
+        : operationFailureCode(method, timeout);
+    return new VoiceCoordinatorError(code);
+};
+
+export function safeVoiceToolFailure(error, method, timeout = false) {
+    const operation = {
+        read_work_context: 'context',
+        agent_context: 'context',
+        list_agents: 'list',
+        recent_agent_activity: 'list',
+        read_agent_output: 'read',
+        agent_status: 'status',
+        prompt_agent: 'prompt',
+        watch_agent: 'watch',
+        start_agent: 'start',
+        send_agent_keybinding: 'key',
+        focus_agent: 'focus',
+    }[method] ?? method;
+    return safeCoordinatorFailure(error, operation, timeout).message;
+}
+
 async function requestCoordinator(request, signal) {
-    if (signal?.aborted) throw new Error('Voice coordination cancelled.');
+    if (signal?.aborted) throw Object.assign(new Error('Voice coordination cancelled.'), { name: 'AbortError' });
     const socketPath = process.env.MUXR_VOICE_COORDINATOR_SOCKET;
     const capability = process.env.MUXR_VOICE_COORDINATOR_CAPABILITY;
-    if (!socketPath || !capability) throw new Error('Voice coding coordination is unavailable.');
+    if (!socketPath || !capability) throw safeCoordinatorFailure(undefined, request?.method);
     const id = randomUUID();
     return new Promise((resolve, reject) => {
         const socket = createConnection(socketPath);
@@ -167,23 +225,29 @@ async function requestCoordinator(request, signal) {
         const timeoutMs = request?.method === 'watch'
             ? Math.min(Math.max(Math.trunc(Number(request.timeoutMs) || 30_000), 1_000), 290_000) + 15_000
             : 75_000;
-        socket.setTimeout(timeoutMs, () => finish(new Error('Voice coordination timed out.')));
+        socket.setTimeout(timeoutMs, () => finish(safeCoordinatorFailure(undefined, request?.method, true)));
         socket.on('connect', () => socket.write(`${JSON.stringify({ id, capability, request })}\n`));
         socket.on('data', (chunk) => {
             input += chunk.toString('utf8');
-            if (input.length > 32 * 1024) return finish(new Error('Voice coordination reply was invalid.'));
+            if (input.length > 32 * 1024) return finish(safeCoordinatorFailure(undefined, request?.method));
             const newline = input.indexOf('\n');
             if (newline === -1) return;
             try {
                 const response = JSON.parse(input.slice(0, newline));
-                if (response.id !== id || response.ok !== true || typeof response.data !== 'string') {
-                    throw new Error('Voice coordination request failed.');
+                if (response.id !== id) throw safeCoordinatorFailure(undefined, request?.method);
+                if (response.ok !== true || typeof response.data !== 'string') {
+                    const code = typeof response.code === 'string' && Object.hasOwn(coordinatorFailureMessages, response.code)
+                        ? response.code
+                        : operationFailureCode(request?.method);
+                    throw new VoiceCoordinatorError(code);
                 }
                 finish(undefined, response.data);
-            } catch { finish(new Error('Voice coordination request failed.')); }
+            } catch (error) {
+                finish(error instanceof VoiceCoordinatorError ? error : safeCoordinatorFailure(undefined, request?.method));
+            }
         });
-        socket.on('error', () => finish(new Error('Voice coordination is unavailable.')));
-        socket.on('close', () => finish(new Error('Voice coordination closed before replying.')));
+        socket.on('error', () => finish(safeCoordinatorFailure(undefined, request?.method)));
+        socket.on('close', () => finish(safeCoordinatorFailure(undefined, request?.method)));
     });
 }
 
@@ -331,7 +395,7 @@ const safeTail = (value) => redactCredentials(value)
     .trim().slice(-1500);
 
 export function parseVoiceReport(value) {
-    const agentName = cleanProviderProse(value?.agentName, 'The watched agent', 80);
+    const agentName = cleanProviderProse(value?.displayName ?? value?.agentName, 'The watched agent', 80);
     const taskTitle = cleanProviderProse(value?.taskTitle, 'coding task', 120);
     const status = cleanProviderProse(value?.outcome ?? value?.status, 'settled', 32).toLocaleLowerCase();
     if (status === 'idle') {

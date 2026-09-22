@@ -18,4 +18,4 @@ It fails closed unless:
 - every client request type has a built host handler;
 - the immutable plugin bridge (`plugin.list`, `plugin.manifest`, `plugin.approve`, `plugin.invoke`, `plugin.call`) exists on both sides.
 
-Unknown request types return the structured `host-contract-mismatch` code rather than a JavaScript handler error. Provider-specific features live behind plugins and do not add host request types.
+Unknown request types return the structured `host-contract-mismatch` code rather than a JavaScript handler error. Provider-specific features live behind plugins; muxr's own product features, such as realtime voice, add typed host request types that the client and host must both ship.

@@ -12,10 +12,10 @@ import Animated, {
     withSpring,
     withTiming,
 } from 'react-native-reanimated';
-import { RealtimeConversation } from '@/conversation/ui';
-import { RealtimeSessionVisual } from '@/conversation/ui';
+import { RealtimeConversation } from './RealtimeConversation';
+import { RealtimeSessionVisual } from './RealtimeSessionVisual';
 import { useUnistyles } from 'react-native-unistyles';
-import { mountPrimitive } from '../../application/primitivePresence';
+import { mountPrimitive } from '@/plugins';
 import { t } from '@/text';
 import {
     closeRealtimeConversation,

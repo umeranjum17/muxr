@@ -110,7 +110,7 @@ call started, across reconnects.
 
 - One microphone owner and one direct provider stream, always.
 - Remote work happens through constrained host-owned tools: list machines and
-  agents, prompt, read output, watch completion. Voice provider plugins receive
+  agents, prompt, read output, watch completion. The voice stream receives
   neither peer credentials nor unrestricted remote CLI access.
 - Switching the app's active computer during a call requires **End voice and
   switch** — there is no silent handoff.

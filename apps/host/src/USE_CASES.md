@@ -23,6 +23,6 @@ Navigate by intent. Socket handlers in `host.ts` / `createRequestDispatcher.ts` 
 | Admit an inbound peer request | `peer/application/admitPeerRequest.ts` | Peer start surface, mutation receipt | PeerRuntime inbound |
 | Attach Preview Tunnel | `requests/application/attachPreviewTunnel.ts` | — | `preview.attach` |
 
-Not in this process: StartDictation, StartRealtimeConversation, InterruptPlayback — those live on the phone. Host only lists/selects voice providers through `SessionSource`.
+Not in this process: StartDictation, StartRealtimeConversation, InterruptPlayback — those live on the phone. Voice selection, keys, readiness, and report wording are product use cases in `voice/`, called directly by the dispatcher; only the realtime stream itself is a `SessionSource` method.
 
 Herd layout, attachments, herdr CLI, and worktree land stay as thin `SessionSource` / infrastructure ports with no extra policy.

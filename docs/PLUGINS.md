@@ -78,7 +78,6 @@ Package management keeps Herdr as the only executable registry and runtime:
 ```bash
 muxr plugin docs
 muxr plugin create hello-muxr
-muxr plugin clone muxr.voice ./my-voice
 muxr plugin check ./hello-muxr
 muxr plugin dev ./hello-muxr
 muxr plugin list
@@ -162,7 +161,7 @@ Every slot below is shipped. **JSON** means you edit `muxr-ui.json` and the chan
 | `home.composer.leading` / `home.composer.trailing` | buttons beside the home prompt | primitive |
 | `session.composer.trailing` | the composer rail's trailing control while the prompt is empty and nothing is attached, and the header's three-dot pane menu | primitive |
 
-Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships named widgets and validates each widget's allowed slots, required context, and bounded `params`. Unknown primitive names are ignored for forward compatibility; known primitives reject wrong slots, missing or unknown parameters, and invalid values. Bundled plugins use the same table as anyone else.
+Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships named widgets and validates each widget's allowed slots, required context, and bounded `params`. Unknown primitive names are ignored for forward compatibility; known primitives reject wrong slots, missing or unknown parameters, and invalid values.
 
 | Primitive | Allowed slots | Required context | Parameters |
 |---|---|---|---|
@@ -172,6 +171,8 @@ Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships n
 | `realtime-session-overlay` | `app.overlay` | none | none |
 | `tree-sheet` | `session.overlay` | `sessionId`, `visible`, `onClose`, `openMenu` | required read `source`; optional `title` |
 | `dictate` | home and session composer trailing | `getText`, `setText` | none |
+
+Declaring `realtime-session-overlay` records that a capability needs the product's voice surface; the product mounts that overlay itself, so the declaration paints nothing.
 
 Primitive parameters live under `params`. An `item-list` with `refreshIntervalMs` refreshes only while its screen and the app are active, stops its timer when unfocused/unmounted, and always force-refreshes when the user opens it. Returning zero items hides the control.
 
@@ -223,7 +224,9 @@ a capability instead:
 A capability name exists only because code compiled into the app claims it, the
 same rule as a primitive, so a downloaded manifest references behaviour but never
 ships it. An unregistered name is skipped, not fatal, so a newer manifest never
-breaks an older app. The boxed Voice plugin is the worked example: the manifest decides *when* it wakes, its own `voice.report` RPC decides *what it says*, and a generic native PCM stream captures and plays audio. Provider authentication, models, prompts, tools, and event translation stay in the backend `host.stream` adapter.
+breaks an older app. The `speech.wake` capability is the worked example: the
+manifest decides *when* the trigger fires, and the app's compiled handler decides
+*what happens next*; the plugin supplies the timing, never the behaviour.
 
 ## Components
 
@@ -407,7 +410,7 @@ Allowed values are `"sessions"` and `"workspace-tree"`. Immediately before spawn
 
 When a phone calls an RPC from a real session-scoped slot, the host enriches that call's **stdin input** with the current `paneId` and `cwd`. This is caller context for that one session action, not part of the broad `MUXR_PLUGIN_CONTEXT_JSON` snapshot. Machine/global screens cannot synthesize it from screen params, and the app never displays internal pane ids.
 
-`item-list` read RPCs return bounded `items` and optional sheet-level `actions`; rows may carry an icon and up to three compact metadata values with the same bounded tones. Metadata is display guidance, not an accounting ledger: the bundled Changes plugin sums staged and unstaged numstats, so a line edited in both views may be represented twice. `collection` read RPCs return bounded groups (`title`, `id`, `items`). Items have `id`, `title`, optional `subtitle`, `icon`, `glyph`, `status` (`primary`, `secondary`, `positive`, `warning`, `danger`), `pulsing`, ISO `timestamp`, and a validated `action`. `tree-sheet` read RPCs return `title` plus recursive `nodes` with `id`, `title`, optional `subtitle`, `icon`, `glyph`, `status`, `pulsing`, `current`, `action`, bounded long-press `actions`, and `children`. The phone validates and sanitizes every response and action before rendering.
+`item-list` read RPCs return bounded `items` and optional sheet-level `actions`; rows may carry an icon and up to three compact metadata values with the same bounded tones. Metadata is display guidance, not an accounting ledger: Changes sums staged and unstaged numstats, so a line edited in both views may be represented twice. `collection` read RPCs return bounded groups (`title`, `id`, `items`). Items have `id`, `title`, optional `subtitle`, `icon`, `glyph`, `status` (`primary`, `secondary`, `positive`, `warning`, `danger`), `pulsing`, ISO `timestamp`, and a validated `action`. `tree-sheet` read RPCs return `title` plus recursive `nodes` with `id`, `title`, optional `subtitle`, `icon`, `glyph`, `status`, `pulsing`, `current`, `action`, bounded long-press `actions`, and `children`. The phone validates and sanitizes every response and action before rendering.
 
 ## Actions
 
@@ -440,7 +443,7 @@ Plugins do not own OS permission or foreground-service lifetime. A future notifi
 
 A Herdr backend runs unsandboxed as your computer user. Installing one is equivalent to trusting local code. muxr's declarative UI limits what reaches the phone; it does not sandbox the backend.
 
-Approved `voice.session` children receive one short-lived broker token for that stream. The token is least-ambient routing: unapproved and non-voice plugins do not receive direct broker access, active calls are aborted when the stream exits, and peer credentials never enter the provider protocol or environment. It is not isolation from malicious code explicitly enabled as the same host user, which can read user files and inspect other same-user processes. Hostile-local-plugin isolation requires a separate OS sandbox architecture.
+Approved `host.stream` children receive one short-lived broker token for that stream. The token is least-ambient routing: unapproved plugins, and plugins without a stream contribution, do not receive direct broker access, active calls are aborted when the stream exits, and peer credentials never enter the provider protocol or environment. It is not isolation from malicious code explicitly enabled as the same host user, which can read user files and inspect other same-user processes. Hostile-local-plugin isolation requires a separate OS sandbox architecture.
 
 Enabling or linking a Herdr plugin is the user's trust decision. Every enabled plugin is available to connected phones by default; a phone can explicitly disable it, and disable/revoke remains authoritative. Manifest or authority changes refresh the immutable snapshot and hash but do not trigger per-device reapproval.
 
@@ -487,7 +490,7 @@ Every extension should explain:
 6. how to disable and unlink it;
 7. supported muxr UI and Herdr versions.
 
-`muxr plugin create` writes a minimal working plugin and is the fastest starting point. For a richer list/detail/form/RPC/chart example, clone a bundled one with `muxr plugin clone muxr.voice ./my-plugin`; every bundled plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons are also full examples you can read or install: `muxr plugin install umeranjum17/herdr-files` `muxr plugin install umeranjum17/herdr-attachments`.
+`muxr plugin create` writes a minimal working plugin and is the fastest starting point; every plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons are also full examples you can read or install: `muxr plugin install umeranjum17/herdr-files` `muxr plugin install umeranjum17/herdr-attachments`.
 
 ## Lists of real things
 
@@ -547,20 +550,6 @@ shows your navigation label, and an in-body title resolving to the same string
 is dropped. A blank `metric` value prints "—" instead of an empty line, because
 a missing figure is information.
 
-## Overriding a bundled plugin
-
-Bundled plugins have no special status: they are ordinary plugins linked from
-the muxr install. To override a bundled surface, use the clone command so
-package identity is rewritten and your source lives outside npm ownership:
-
-```bash
-muxr plugin clone muxr.voice ./my-voice
-# edit ./my-voice/muxr-ui.json
-herdr plugin disable muxr.voice
-muxr plugin dev ./my-voice
-# if linking fails: herdr plugin enable muxr.voice
-```
-
 The same `terminal.key-row` contribution accepts up to eight `quickReplies`:
 `{"label":"Run tests","text":"Run the relevant tests and report failures."}`.
 Each phrase appears in the agent command palette (the composer's `/` button)
@@ -570,15 +559,13 @@ sends only validated terminal control sequences. The built-in key row is product
 code; author your own replies and keys with a `terminal.key-row` contribution in
 your own plugin (see `muxr plugin create`).
 
-Dictation, terminal keys, the workspace tree, and Panes are no longer bundled plugins — they are product code in the app, so there is nothing left to clone or override. This is a **breaking change** if you cloned `muxr.workspace-hierarchy`, `muxr.panes`, `muxr.control`, or `muxr.status` under the previously documented path: the clone keeps running after you upgrade, and because muxr never lets one plugin suppress another, you will see the surface twice — a duplicated workspace tree, a second Applications chip beside the product Panes screen, or the retired Usage screen beside the product Right-now card. Disable the clone after upgrading (`herdr plugin disable <your-clone-id>`); author your own version with the `dictate`/`tree-sheet` primitives in your own plugin instead.
+Realtime voice, Dictation, terminal keys, the workspace tree, and Panes are no longer bundled plugins — they are product code in the app, so there is nothing left to clone or override. This is a **breaking change** if you cloned `muxr.workspace-hierarchy`, `muxr.panes`, `muxr.control`, or `muxr.status` under the previously documented path: the clone keeps running after you upgrade, and because muxr never lets one plugin suppress another, you will see the surface twice — a duplicated workspace tree, a second Applications chip beside the product Panes screen, or the retired Usage screen beside the product Right-now card. Disable the clone after upgrading (`herdr plugin disable <your-clone-id>`); author your own version with the `dictate`/`tree-sheet` primitives in your own plugin instead.
 
-`muxr.terminal-keys`, `muxr.panes`, `muxr.control`, `muxr.dictation`, and `muxr.status` are retired ids: the host no longer serves those exact ids to any device, so a registration still carrying one does not double a surface — a stale dictation registration adds no second dictate button — but none appears in Settings > Plugins, so you cannot see or disable them from the phone. Disable one on the machine instead (`herdr plugin disable <id>`); `muxr setup` retracts a stale in-bundle registration, and `muxr integrations uninstall` unlinks retired ids. Re-register your copy under an id of your own to keep it, adding your keys with a `terminal.key-row` contribution.
+`muxr.terminal-keys`, `muxr.panes`, `muxr.control`, `muxr.dictation`, `muxr.status`, and the retired realtime voice ids `muxr.voice`, `muxr.voice-gemini`, `muxr.voice-openai`, and `muxr.voice-codex` are retired ids: the host no longer serves those exact ids to any device, so a registration still carrying one does not double a surface — a stale dictation registration adds no second dictate button, and a stale voice registration adds no second voice screen or overlay — but none appears in Settings > Plugins, so you cannot see or disable them from the phone. Disable one on the machine instead (`herdr plugin disable <id>`); `muxr setup` retracts a stale in-bundle registration, and `muxr integrations uninstall` unlinks retired ids. Re-register your copy under an id of your own to keep it (a dictation or terminal-key copy adds its keys with a `terminal.key-row` contribution).
 
-Direct edits under the global npm package work live but are replaced by the next npm install. A cloned folder and its Herdr registration survive package upgrades; subsequent `muxr setup` runs preserve both plugins' explicit enabled/disabled states.
+Direct edits under the global npm package work live but are replaced by the next npm install. A plugin you link yourself with `muxr plugin dev` survives package upgrades with its Herdr registration; subsequent `muxr setup` runs preserve its explicit enabled/disabled state.
 
-Both stay enabled if you do not disable the bundled one, and both render — muxr
-does not let one plugin suppress another, because a manifest that could hide a
-different plugin's UI would be a way to hide trusted surfaces. Disabling is an explicit per-device decision that stays with you.
+muxr does not let one plugin suppress another, because a manifest that could hide a different plugin's UI would be a way to hide trusted surfaces. Disabling is an explicit per-device decision that stays with you.
 
 A button on a detail screen sends its declared `fields` **plus the params the
 screen was opened with**, so it can act on the record you tapped without making
@@ -633,7 +620,7 @@ validates shape; `plugin call` proves wiring.
 
 ```json
 "capabilities": {
-  "voice.session": "session"
+  "example.session": "session"
 }
 ```
 
@@ -659,13 +646,9 @@ The backend reads fresh Herdr topology before every mutation. Pane close needs n
 
 A stream process receives one private `realtime.open` line followed by bounded provider-neutral NDJSON frames. A PCM provider exchanges ready/audio/state/transcript/control frames and keeps its provider socket on the host. A WebRTC signaling provider exchanges bounded offer/answer SDP plus opaque data-channel control while the mobile kernel owns the peer and direct media. The host enforces approval revocation, admission, process cleanup, frame bounds, and encrypted relay transport.
 
-The package ships one voice plugin (`plugins/voice`) with four adapters under `plugins/voice/providers/`: xAI (default), Gemini Live, OpenAI Realtime, and experimental Codex Voice. Choose one under **Settings → Voice & dictation**; the selection is the plugin's own state, read by its `voice.provider.list` and `voice.provider.set` capabilities. PCM providers keep their host-relayed stream; Codex adds only the generic WebRTC transport kind.
+Realtime voice is **not** a plugin: it is product code. The four adapters under `apps/host/src/voice/providers/` (xAI, Gemini Live, OpenAI Realtime, and experimental Codex Voice) are internal and swappable behind the typed `voice.*` host methods. Choose one under **Settings → Voice & dictation**. PCM providers keep their host-relayed stream; Codex adds only the generic WebRTC transport kind.
 
-Voice uses this without knowing any provider plugin id. Its one-shot semantic RPC aliases remain:
-
-- `voice.status`: input `null`, output `{ "configured": boolean }`;
-- `voice.key.set`: input `{ "key": string }`, output `null` (write mode; reached through attributed secure prompt);
-- `voice.report`: input `{ "status": string, "pane": string }`, output `{ "say": string }`.
+Realtime voice does not use this capability map: its `voice.*` surface is a typed product host request, so no plugin id, capability name, or manifest hash is involved. See [Voice setup](VOICE-SETUP.md).
 
 Names are dotted ids; values must be contribution ids that exist in the same manifest. This semantic map resolves backend RPCs and streams. It is not a phone effect. Phone effects (`speech.wake`, `voice.start`) are
 compiled into the app and referenced from events or shortcuts as
@@ -706,7 +689,7 @@ Contribute Android launcher entries with the `shortcuts` slot:
 
 The app runs the same closed action union events use (`capability` or `plugin.call`). A cold shortcut first refreshes the enabled catalog and resolves the live contribution before any capability or RPC runs. If the host is unavailable or the plugin is disabled, the shortcut does nothing.
 
-The app projects every currently enabled runtime contribution into Android's dynamic launcher shortcuts with `ShortcutManagerCompat`; disabling or uninstalling the plugin removes it on the next catalog refresh. Build-bundled plugins are also baked into `res/xml/shortcuts.xml` by `apps/mobile/plugins/withAppActions.js`, using the same public manifest contribution and localized resources. Both paths deep-link through `muxr://shortcut/<id>` and re-check the live enabled catalog before acting.
+The app projects every currently enabled runtime contribution into Android's dynamic launcher shortcuts with `ShortcutManagerCompat`; disabling or uninstalling the plugin removes it on the next catalog refresh. Product shortcuts and any build-bundled plugin contributions are baked into `res/xml/shortcuts.xml` by `apps/mobile/plugins/withAppActions.js`, using the same public manifest contribution and localized resources. Both paths deep-link through `muxr://shortcut/<id>` and re-check the live enabled catalog before acting.
 
 `synonyms` remain accepted as legacy aliases for deep links made by older builds. The Play build intentionally omits optional Assistant App Actions capability metadata because Google Play rejects those resources unless its separate Actions terms entitlement is active.
 
@@ -715,4 +698,4 @@ The app projects every currently enabled runtime contribution into Android's dyn
 1. Install the release build on a phone.
 2. Long-press the launcher icon and tap the contributed shortcut.
 3. Or test the deep link directly:
-   `adb shell am start -a android.intent.action.VIEW -d "muxr://shortcut/muxr.voice.jarvis"`
+   `adb shell am start -a android.intent.action.VIEW -d "muxr://shortcut/voice.jarvis"`

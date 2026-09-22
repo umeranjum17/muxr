@@ -1,10 +1,10 @@
-# muxr Voice plugin
+# muxr realtime voice
 
-One backend plugin provides native realtime speech-to-speech through Codex Voice, Grok, Gemini Live, or OpenAI Realtime. Provider policy and credentials stay on the connected machine; the phone uses generic PCM or WebRTC realtime transport.
+Realtime voice is product code. `product.mjs` is the surface the host and the app call; the adapters under `providers/` provide native realtime speech-to-speech through Codex Voice, Grok, Gemini Live, or OpenAI Realtime. Provider policy and credentials stay on the connected machine; the phone uses generic PCM or WebRTC realtime transport.
 
-Settings → Voice & dictation is the single provider picker. A machine with no saved choice defaults to Codex Voice (experimental); explicit saved choices and migrated legacy choices remain selected. Configure opens the selected provider’s backend-declared setup screen. Codex uses the machine’s ChatGPT CLI login (`codex login`), not an API key. Login readiness does not guarantee realtime subscription entitlement. Other providers use owner-only API key files and secure prompts.
+Settings → Voice & dictation is the single provider picker. A machine with no saved choice defaults to Codex Voice (experimental); explicit saved choices and migrated legacy choices remain selected. Configure opens the selected provider’s setup screen. Codex uses the machine’s ChatGPT CLI login (`codex login`), not an API key. Login readiness does not guarantee realtime subscription entitlement. Other providers use owner-only API key files and secure prompts.
 
-`rpc.mjs` lists/selects providers and reports readiness. `stream.mjs` dispatches to the selected adapter. The native microphone foreground service must be ready before capture starts. No transcription/LLM/TTS fallback is used.
+`product.mjs` lists/selects providers and reports readiness. `stream.mjs` dispatches to the selected adapter. The native microphone foreground service must be ready before capture starts. No transcription/LLM/TTS fallback is used.
 
 ## Realtime work context and tools
 
@@ -24,8 +24,8 @@ This is a bounded coordination tool surface, not unrestricted access to every He
 
 ## Shared tool lifecycle
 
-`toolRuntime.mjs` is the provider-independent voice tool kernel. Every bundled
-adapter uses its `voiceTools` catalog and `createVoiceTools` runtime. The existing
+`toolRuntime.mjs` is the provider-independent voice tool kernel. Every adapter
+uses its `voiceTools` catalog and `createVoiceTools` runtime. The existing
 host coordinator remains the authority for live membership, target resolution,
 reads, mutations and receipts; the mobile semantic controller remains the
 authority for phone navigation. Provider-specific audio and wire events stay in
@@ -55,7 +55,7 @@ in-flight or completed result, including clarifications and failures. A repeated
 handoff cannot confirm its own pending action or queue the message twice. A new
 user turn remains a new request, even when its words match an earlier one.
 
-Reads have a 15-second deadline; mutations retain the existing 75-second
+Reads have a 20-second deadline; mutations retain the existing 75-second
 coordination budget, and explicit lifecycle watches keep their declared bound. Repeated operation IDs reuse the same result and cannot execute a
 second mutation. The runtime stays thinking while a request is pending or a result
 awaits an answer; if no completed answer arrives within 20 seconds, it exposes an

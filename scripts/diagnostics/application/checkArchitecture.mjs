@@ -61,7 +61,6 @@ function importedPath(file, specifier) {
 
 const toolingDirs = [
     join(ROOT, 'scripts'),
-    join(ROOT, 'plugins'),
     join(ROOT, 'apps', 'mobile', 'plugins'),
 ];
 const files = toolingDirs.flatMap((dir) => walk(dir));

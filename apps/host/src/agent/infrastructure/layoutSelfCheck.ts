@@ -13,7 +13,7 @@ import {
 import { lifecycleReasonForObservation } from '../domain/lifecycle.js';
 import { AgentRouteStore, isMuxrLaunchSession, shouldAdoptPublishedLaunch, type HerdrAgentSessionRef } from './agentRouteStore.js';
 import { closeAgent, isRetryableHerdr } from './agentClose.js';
-import { RealtimeCodingCoordinator } from './realtimeCoordinator.js';
+import { RealtimeCodingCoordinator, type RealtimeCoordinationDiagnostic } from './realtimeCoordinator.js';
 import { closeExactPane, closeExactTab, closeExactWorkspace, herdrAgentIsPromptable, isRetryableCloseFailure, mergeHerdrAgentEvent, promptHerdrAgent, promptPromptableHerdrAgent, resolveClosePaneId, sendKeysToLiveAgent } from './herdrSessionSource.js';
 import { createConnection } from 'node:net';
 import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
@@ -28,13 +28,13 @@ async function ask(
     socketPath: string,
     capability: string,
     request: Record<string, unknown>,
-): Promise<{ ok: boolean; data?: string }> {
+): Promise<{ ok: boolean; data?: string; code?: string; error?: string }> {
     return new Promise((resolve, reject) => {
         const socket = createConnection(socketPath);
         let buf = '';
         socket.on('data', (chunk) => { buf += chunk.toString('utf8'); });
         socket.on('end', () => {
-            try { resolve(JSON.parse(buf) as { ok: boolean; data?: string }); } catch (error) { reject(error); }
+            try { resolve(JSON.parse(buf) as { ok: boolean; data?: string; code?: string; error?: string }); } catch (error) { reject(error); }
         });
         socket.on('error', reject);
         socket.write(`${JSON.stringify({ id: '1', capability, request })}\n`);
@@ -486,11 +486,18 @@ async function demo(): Promise<void> {
     const socketDir = mkdtempSync(join(tmpdir(), 'pph-coord-check-'));
     const socketPath = join(socketDir, 'realtime-coding.sock');
     const prompts: string[] = [];
+    const cranePrompts: string[] = [];
+    const coordinationDiagnostics: RealtimeCoordinationDiagnostic[] = [];
     const sentKeys: Array<{ sessionId: string; keys: string[] }> = [];
+    const promptTargets: Record<string, string> = { pp_john: 'w1:p1', pp_crane: 'w1:p3' };
     const herdrPromptClient = {
         call: async <T>(_method: string, params: Record<string, unknown> = {}): Promise<T> => {
             const prompt = String(params.text ?? '');
-            if (prompt.startsWith('malformed')) return { type: 'agent_prompted', agent: { pane_id: 'w1:p1' } } as T;
+            const target = String(params.target ?? '');
+            const paneId = prompt.startsWith('wrong pane')
+                ? 'w1:p2'
+                : target || 'w1:p1';
+            if (prompt.startsWith('malformed')) return { type: 'agent_prompted', agent: { pane_id: paneId } } as T;
             return {
                 type: 'agent_prompted',
                 agent: {
@@ -498,7 +505,7 @@ async function demo(): Promise<void> {
                     agent_status: 'idle',
                     workspace_id: 'w1',
                     tab_id: 'w1:t1',
-                    pane_id: prompt.startsWith('wrong pane') ? 'w1:p2' : 'w1:p1',
+                    pane_id: paneId,
                     focused: false,
                     revision: 1,
                 },
@@ -508,23 +515,78 @@ async function demo(): Promise<void> {
     const coordinatorAgents = [
         { sessionId: 'pp_john', cwd: '/repo', agentName: 'John', taskTitle: 'Harden audio', agentKind: 'pi', agentStatus: 'idle' as const, promptable: true },
         { sessionId: 'pp_maria', cwd: '/repo', agentName: 'Maria', taskTitle: 'Ship settings', agentKind: 'pi', agentStatus: 'working' as const, promptable: true },
+        { sessionId: 'pp_crane', cwd: '/repo', agentName: 'crane', taskTitle: 'Health check', agentKind: 'pi', agentStatus: 'working' as const, promptable: true },
     ];
+    let catalogFreshness: 'fresh' | 'last-known' = 'fresh';
+    let failRead = false;
     const coordinator = new RealtimeCodingCoordinator(socketPath, {
-        list: async () => coordinatorAgents,
+        list: async () => ({ agents: coordinatorAgents, freshness: catalogFreshness, ...(catalogFreshness === 'last-known' ? { failureCode: 'roster-unavailable' as const } : {}) }),
         activity: async () => [],
         start: async () => ({ accepted: false }),
-        prompt: async (_sessionId, text) => {
-            await promptHerdrAgent(herdrPromptClient, { sessionId: 'pp_john', paneId: 'w1:p1' }, text);
-            prompts.push(text);
+        prompt: async (sessionId, text) => {
+            await promptHerdrAgent(herdrPromptClient, { sessionId, paneId: promptTargets[sessionId] ?? 'w1:p1' }, text);
+            if (sessionId === 'pp_crane') cranePrompts.push(text);
+            else prompts.push(text);
         },
         sendKeys: async (sessionId, keys) => { sentKeys.push({ sessionId, keys }); },
-        read: async () => ({ text: '', truncated: false }),
-        status: async () => 'idle',
+        read: async (sessionId) => {
+            if (failRead) throw new Error('secret=bad-token /private/path pp_hidden');
+            return { text: sessionId === 'pp_crane' ? 'health marker: no code changes' : '', truncated: false };
+        },
+        status: async (sessionId) => sessionId === 'pp_crane' ? 'working' : 'idle',
         watch: async () => ({ status: 'idle', detail: 'John is idle' }),
         focus: async () => undefined,
-    });
+    }, undefined, (event) => { coordinationDiagnostics.push(event); });
     await coordinator.start();
+    try {
     const access = coordinator.issueCapability({ cwd: '/repo', sessionId: 'pp_john', provider: 'gemini' });
+    const healthAccess = coordinator.issueCapability({ cwd: '/repo', sessionId: 'pp_john', provider: 'gemini' });
+    const roster = await ask(socketPath, healthAccess.capability, { method: 'list' });
+    assert(roster.ok && roster.data?.includes(`of ${coordinatorAgents.length} agents`) === true
+        && roster.data.includes('crane'), 'fresh Realtime roster lists the dynamic agent count and crane label');
+    const craneStatus = await ask(socketPath, healthAccess.capability, { method: 'status', agent: 'crane' });
+    const craneRead = await ask(socketPath, healthAccess.capability, { method: 'read', agent: 'crane', lines: 40 });
+    const cranePrompt = await ask(socketPath, healthAccess.capability, {
+        method: 'prompt', agent: 'crane', text: 'health check only; no code changes', operationId: 'op-crane',
+    });
+    assert(craneStatus.data === 'crane is working.'
+        && craneRead.data?.includes('health marker: no code changes') === true
+        && cranePrompt.data === 'Queued: instruction for crane.'
+        && cranePrompts.length === 1
+        && cranePrompts[0] === 'health check only; no code changes\n\ncame from a real-time agent',
+    'crane status, untrusted output, and one stamped prompt use the exact resolved Agent Route');
+    const absent = await ask(socketPath, healthAccess.capability, { method: 'status', agent: 'not-present' });
+    assert(absent.ok && absent.data?.includes('could not find') === true && cranePrompts.length === 1,
+        'a fresh absent name is honest and does not mutate');
+    coordinatorAgents.push({ ...coordinatorAgents[2]!, sessionId: 'pp_crane_duplicate' });
+    const ambiguous = await ask(socketPath, healthAccess.capability, { method: 'prompt', agent: 'crane', text: 'must not send', operationId: 'op-crane-ambiguous' });
+    assert(ambiguous.ok && ambiguous.data?.includes('More than one') === true && cranePrompts.length === 1,
+        'duplicate visible names ask for clarification without mutation');
+    coordinatorAgents.pop();
+    catalogFreshness = 'last-known';
+    const staleMissing = await ask(socketPath, healthAccess.capability, { method: 'status', agent: 'not-present' });
+    assert(staleMissing.ok && staleMissing.data?.includes('live agent roster is unavailable') === true,
+        'a last-known roster never claims that a name is absent');
+    const staleList = await ask(socketPath, healthAccess.capability, { method: 'list', limit: 3 });
+    const staleDiagnostic = coordinationDiagnostics.filter((event) => event.operation === 'list').at(-1);
+    assert(staleList.ok && staleDiagnostic?.code === 'roster-unavailable' && staleDiagnostic.outcome === 'unavailable',
+        'a last-known roster journals the degraded outcome with its reason');
+    catalogFreshness = 'fresh';
+    failRead = true;
+    const safeReadFailure = await ask(socketPath, healthAccess.capability, { method: 'read', agent: 'crane' });
+    failRead = false;
+    const readDiagnostic = coordinationDiagnostics.filter((event) => event.operation === 'read').at(-1);
+    assert(!safeReadFailure.ok && safeReadFailure.code === 'output-unavailable'
+        && safeReadFailure.error === 'The agent output could not be read. No action was performed.'
+        && readDiagnostic?.code === 'output-unavailable'
+        && !JSON.stringify(safeReadFailure).includes('bad-token')
+        && !JSON.stringify(safeReadFailure).includes('/private/path')
+        && !JSON.stringify(safeReadFailure).includes('pp_hidden')
+        && !JSON.stringify(readDiagnostic).includes('bad-token')
+        && !JSON.stringify(readDiagnostic).includes('/private/path')
+        && !JSON.stringify(readDiagnostic).includes('pp_hidden'),
+    'host failures retain only a closed safe output code and copy');
+    coordinator.revokeCapability(healthAccess.capability);
     const first = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'Keep going.', operationId: 'op-0' });
     const replayed = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'Keep going.', operationId: 'op-0' });
     assert(first.data === 'Queued: instruction for John.' && replayed.data === first.data && prompts.length === 1,
@@ -535,7 +597,8 @@ async function demo(): Promise<void> {
     const malformed = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'malformed receipt', operationId: 'op-malformed' });
     assert(missingTarget.ok === true && missingTarget.data?.startsWith('No prompt sent.') === true
         && missingTarget.data.includes('John, Harden audio') && !missingTarget.data.includes('pp_john')
-        && wrongPane.ok === false && malformed.ok === false && prompts.length === 1,
+        && wrongPane.ok === false && wrongPane.code === 'prompt-outcome-unknown'
+        && malformed.ok === false && malformed.code === 'prompt-outcome-unknown' && prompts.length === 1,
         'missing targets and malformed or wrong-pane Herdr receipts cannot produce a queued confirmation');
     const taskStatus = await ask(socketPath, access.capability, { method: 'status', agent: 'Harden audio' });
     assert(taskStatus.data === 'John is idle.', 'a unique Task Title resolves to its Agent Name');
@@ -559,8 +622,16 @@ async function demo(): Promise<void> {
     assert(overflow.ok === true && overflow.data !== undefined && overflow.data.includes('Too many') && prompts.length === 127, 'a full replay fence rejects new mutations instead of evicting an accepted id');
     const stillHeld = await ask(socketPath, access.capability, { method: 'prompt', agent: 'John', text: 'Keep going.', operationId: 'op-0' });
     assert(stillHeld.ok === true && prompts.length === 127, 'the first accepted operation id still replays after the fence is full');
+    const revokedAccess = coordinator.issueCapability({ cwd: '/repo', sessionId: 'pp_john', provider: 'gemini' });
+    coordinator.revokeCapability(revokedAccess.capability);
+    const revoked = await ask(socketPath, revokedAccess.capability, { method: 'list' });
+    assert(!revoked.ok && revoked.code === 'capability-revoked'
+        && revoked.error === 'Voice coordination is no longer authorized. No action was performed.',
+    'revoked Realtime capability fails closed before any roster action');
     coordinator.revokeCapability(access.capability);
-    await coordinator.close();
+    } finally {
+        await coordinator.close();
+    }
 
     console.log('layout snapshot self-check passed');
 }

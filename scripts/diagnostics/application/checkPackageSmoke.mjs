@@ -442,9 +442,10 @@ try {
     assert.ok(!listing.includes('package/plugins/code/'), 'extracted Code plugin still shipped in npm artifact');
     assert.ok(!listing.includes('package/plugins/attachments/'), 'extracted Attachments plugin still shipped in npm artifact');
     assert.ok(!listing.includes('package/plugins/panes/'), 'de-plugined panes plugin still shipped in npm artifact');
-    assert.ok(listing.includes('package/plugins/voice/rpc.mjs'), 'Voice plugin missing from npm artifact');
+    assert.ok(listing.includes('package/voice/product.mjs'), 'Realtime voice product module missing from npm artifact');
+    assert.ok(listing.includes('package/voice/stream.mjs'), 'Realtime voice adapter runtime missing from npm artifact');
     for (const provider of ['xai', 'gemini', 'openai', 'codex']) {
-        assert.ok(listing.includes(`package/plugins/voice/providers/${provider}.mjs`), `${provider} voice adapter missing from npm artifact`);
+        assert.ok(listing.includes(`package/voice/providers/${provider}.mjs`), `${provider} voice adapter missing from npm artifact`);
     }
     assert.ok(listing.includes('package/skills/muxr/SKILL.md'), 'muxr skill missing from npm artifact');
     assert.deepEqual(listing.filter((file) => /^package\/skills\/.*\/SKILL\.md$/.test(file)), ['package/skills/muxr/SKILL.md'], 'npm artifact must ship exactly one public skill');
@@ -569,7 +570,7 @@ try {
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
     const installedPlugins = join(installedPackage, 'plugins');
-    assert.equal(existsSync(join(installedPlugins, 'code')), false, 'installed package still ships the extracted Code plugin');
+    assert.equal(existsSync(installedPlugins), false, 'installed package must ship no bundled add-ons');
     assert.match(readFileSync(join(installedPackage, 'README.md'), 'utf8'), /muxr --skill\s+# print the compact agent skill/);
     const rootHelp = run(cli, ['--help'], { cwd: installDir }).stdout;
     assert.match(rootHelp, /muxr --skill \| muxr skill\s+print the compact muxr agent skill/);
@@ -630,7 +631,6 @@ try {
     assert.match(docsOutput, new RegExp(`Agent skill: ${join(installedPackage, 'skills', 'muxr', 'SKILL.md').replaceAll('\\', '\\\\')}`));
     assert.match(docsOutput, new RegExp(`Plugin reference: ${join(installedPackage, 'skills', 'muxr', 'references', 'plugins.md').replaceAll('\\', '\\\\')}`));
     assert.match(run(cli, ['help', 'plugin', 'create'], { cwd: installDir }).stdout, /minimal three-file/);
-    assert.match(run(cli, ['help', 'plugin', 'clone'], { cwd: installDir }).stdout, /package-owned plugin/);
     assert.match(run(cli, ['plugin', '--help'], { cwd: installDir }).stdout, /plugin docs/);
     assert.notEqual(run(cli, ['plugin', 'docs', 'extra'], { cwd: installDir, allowFailure: true }).status, 0);
     const createdPlugin = join(scratch, 'created-plugin');
@@ -644,44 +644,37 @@ try {
     assert.match(createdId ?? '', /^local\.created-plugin-[a-f0-9]{8}$/);
     assert.match(secondCreatedId ?? '', /^local\.created-plugin-[a-f0-9]{8}$/);
     assert.notEqual(secondCreatedId, createdId, 'same-basename plugins received the same global id');
-    const clonedPlugin = join(scratch, 'cloned-voice');
-    run(cli, ['plugin', 'clone', 'muxr.voice', clonedPlugin], { cwd: installDir });
-    const clonedId = readFileSync(join(clonedPlugin, 'herdr-plugin.toml'), 'utf8').match(/^id = "([^"]+)"/m)?.[1];
-    assert.match(clonedId ?? '', /^local\.cloned-voice-[a-f0-9]{8}$/);
-    assert.equal(JSON.parse(readFileSync(join(clonedPlugin, 'muxr-ui.json'))).pluginId, clonedId);
-    assert.match(run(cli, ['plugin', 'check', clonedPlugin], { cwd: installDir }).stdout, /muxr UI manifest/);
-    const packageClone = join(installedPackage, 'must-not-survive');
-    assert.notEqual(run(cli, ['plugin', 'clone', 'muxr.voice', packageClone], { cwd: installDir, allowFailure: true }).status, 0);
-    assert.notEqual(run(cli, ['plugin', 'create', packageClone], { cwd: installDir, allowFailure: true }).status, 0);
-    assert.equal(existsSync(packageClone), false);
+    // A destination inside the npm package is refused, so an install cannot be
+    // edited or survive an update.
+    const packageDestination = join(installedPackage, 'must-not-survive');
+    assert.notEqual(run(cli, ['plugin', 'create', packageDestination], { cwd: installDir, allowFailure: true }).status, 0);
+    assert.equal(existsSync(packageDestination), false);
     const packageAlias = join(scratch, 'package-alias');
     symlinkSync(installedPackage, packageAlias, 'dir');
-    assert.notEqual(run(cli, ['plugin', 'clone', 'muxr.voice', join(packageAlias, 'alias-clone')], { cwd: installDir, allowFailure: true }).status, 0);
     assert.notEqual(run(cli, ['plugin', 'create', join(packageAlias, 'alias-create')], { cwd: installDir, allowFailure: true }).status, 0);
-    assert.equal(existsSync(join(installedPackage, 'alias-clone')), false);
     assert.equal(existsSync(join(installedPackage, 'alias-create')), false);
+    // Realtime voice is product code in the packaged artifact: the runtime ships
+    // beside host.js and the host resolves it from there.
     const providerHome = join(scratch, 'provider-home');
     const providerRoot = join(providerHome, '.muxr');
-    const voicePlugin = join(installedPlugins, 'voice');
+    const packagedVoice = join(installedPackage, 'voice');
     const providerEnv = { ...cliEnv(providerHome), MUXR_HOME: providerRoot };
-    const packagedProviders = JSON.parse(run(cli, ['plugin', 'call', voicePlugin, 'provider-list'], { cwd: installDir, env: providerEnv }).stdout);
+    const packagedProviders = JSON.parse(run(process.execPath, ['-e', `const voice = await import(${JSON.stringify(join(packagedVoice, 'product.mjs'))});process.stdout.write(JSON.stringify(await voice.voiceProviderList()));`], { cwd: installDir, env: providerEnv }).stdout);
     assert.equal(packagedProviders.selected, 'codex', 'packaged voice must default to Codex');
     assert.equal(packagedProviders.providers.find((provider) => provider.id === 'codex').selected, true);
-    // The diagnostic CLI gives each call a fresh state directory. Select the
-    // API-key adapter inside that boundary, then run the installed RPC unchanged.
-    const keyFixture = join(scratch, 'voice-key-fixture');
-    cpSync(voicePlugin, keyFixture, { recursive: true });
-    writeFileSync(join(keyFixture, 'rpc.mjs'), `const { selectProvider } = await import(${JSON.stringify(join(voicePlugin, 'provider.mjs'))});\nselectProvider('xai');\nawait import(${JSON.stringify(join(voicePlugin, 'rpc.mjs'))});\n`);
-    run(cli, ['plugin', 'call', keyFixture, 'key-set', '--input', '{"key":"smoke-key"}'], { cwd: installDir, env: providerEnv });
-    assert.equal(statSync(providerRoot).mode & 0o777, 0o700);
+    for (const id of ['xai', 'gemini', 'openai', 'codex']) {
+        assert.ok(existsSync(join(packagedVoice, 'providers', `${id}.mjs`)), `${id} adapter missing from the packaged voice runtime`);
+    }
+    run(process.execPath, ['-e', `const { voiceProviderSet, voiceKeySet } = await import(${JSON.stringify(join(packagedVoice, 'product.mjs'))});await voiceProviderSet('xai');await voiceKeySet('smoke-key');`], { cwd: installDir, env: providerEnv });
+    assert.equal(statSync(join(providerRoot, 'voice')).mode & 0o777, 0o700);
     assert.equal(statSync(join(providerRoot, 'xai.key')).mode & 0o777, 0o600);
-    assert.match(run(cli, ['plugin', 'call', keyFixture, 'status'], { cwd: installDir, env: providerEnv }).stdout, /"configured": true/);
-    run(cli, ['plugin', 'call', keyFixture, 'key-clear', '--input', 'null'], { cwd: installDir, env: providerEnv });
+    assert.match(run(process.execPath, ['-e', `const { voiceStatus } = await import(${JSON.stringify(join(packagedVoice, 'product.mjs'))});process.stdout.write(JSON.stringify(await voiceStatus()));`], { cwd: installDir, env: providerEnv }).stdout, /"configured":true/);
+    run(process.execPath, ['-e', `const { voiceKeyClear } = await import(${JSON.stringify(join(packagedVoice, 'product.mjs'))});await voiceKeyClear();`], { cwd: installDir, env: providerEnv });
     const symlinkTarget = join(scratch, 'provider-symlink-target');
     const symlinkRoot = join(scratch, 'provider-symlink-root');
     mkdirSync(symlinkTarget);
     symlinkSync(symlinkTarget, symlinkRoot, 'dir');
-    const symlinkWrite = run(cli, ['plugin', 'call', keyFixture, 'key-set', '--input', '{"key":"must-not-write"}'], {
+    const symlinkWrite = run(process.execPath, ['-e', `const { voiceKeySet } = await import(${JSON.stringify(join(packagedVoice, 'product.mjs'))});await voiceKeySet('must-not-write');`], {
         cwd: installDir, env: { ...cliEnv(providerHome), MUXR_HOME: symlinkRoot }, allowFailure: true,
     });
     assert.notEqual(symlinkWrite.status, 0, 'provider key write followed a symlinked MUXR_HOME');
@@ -819,50 +812,80 @@ try {
     assert.equal(existsSync(join(home, '.muxr', 'integrations', 'muxr')), false, 'fresh setup copied the muxr skill');
     assert.equal(Object.entries(freshManifest.entries).some(([path, entry]) => entry.kind === 'block' || path.includes(`${join('.muxr', 'integrations')}`)), false, 'fresh setup claimed prompt files');
     assert.equal(readdirSync(join(home, '.pi', 'agent')).some((name) => name.startsWith('AGENTS.md.muxr-backup-')), false, 'fresh setup backed up an instruction file it should not touch');
-    const pluginRoot = join(installDir, 'node_modules', '@trymuxr', 'cli', 'plugins');
+    const legacyPluginRoot = join(installDir, 'node_modules', '@trymuxr', 'cli', 'plugins');
+    const voiceState = join(home, '.muxr', 'voice');
     const firstSetupLinks = readFileSync(fakeLog, 'utf8');
-    // One voice plugin ships now; the adapters live inside it.
-    assert.match(firstSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --enabled`));
-    assert.doesNotMatch(firstSetupLinks, /plugins[/\\]voice-(?:codex|gemini|openai)/, 'setup linked a merged voice adapter as its own plugin');
-    const voiceState = join(home, '.muxr', 'plugin-state', 'muxr.voice');
+    // muxr ships no bundled add-ons, so a fresh setup links none of them.
+    assert.doesNotMatch(firstSetupLinks, /plugin link .*[/\\]plugins[/\\]/, 'setup linked a bundled add-on muxr no longer ships');
+    // The selection a previous release made under the voice plugin is carried
+    // into muxr's own voice state, and the retired registration is retracted.
     for (const provider of ['gemini', 'openai', 'codex']) {
         rmSync(voiceState, { recursive: true, force: true });
         const logBeforeMigration = readFileSync(fakeLog, 'utf8');
         run(cli, ['setup', ...setupArgs], {
             cwd: installDir,
             env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify({ result: { plugins: [
-                { plugin_id: 'muxr.voice', plugin_root: join(pluginRoot, 'voice'), version: '0.1.0', enabled: false },
-                { plugin_id: `muxr.voice-${provider}`, plugin_root: join(pluginRoot, `voice-${provider}`), version: '0.1.0', enabled: true },
+                { plugin_id: 'muxr.voice', plugin_root: join(legacyPluginRoot, 'voice'), version: '0.1.0', enabled: false },
+                { plugin_id: `muxr.voice-${provider}`, plugin_root: join(legacyPluginRoot, `voice-${provider}`), version: '0.1.0', enabled: true },
             ] } }) },
         });
         const migrationLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeMigration.length);
-        assert.match(migrationLinks, new RegExp(`plugin unlink muxr\\.voice-${provider}`));
-        assert.match(migrationLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --enabled`));
-        assert.equal(statSync(voiceState).mode & 0o777, 0o700);
-        assert.equal(statSync(join(voiceState, 'provider')).mode & 0o777, 0o600);
+        assert.match(migrationLinks, new RegExp(`plugin unlink muxr\\.voice-${provider}`), 'setup kept a retired voice adapter registered');
+        assert.doesNotMatch(migrationLinks, /plugin link .*[/\\]plugins[/\\]/, 'setup relinked a retired bundled add-on');
+        assert.equal(statSync(voiceState).mode & 0o777, 0o700, 'voice state directory is not owner-only');
+        assert.equal(statSync(join(voiceState, 'provider')).mode & 0o777, 0o600, 'voice selection is not owner-only');
         assert.equal(readFileSync(join(voiceState, 'provider'), 'utf8'), `${provider}\n`, `setup reset the selected ${provider} voice provider`);
     }
+    // The retired single voice plugin stored its choice in plugin state, including
+    // xai, which never had a per-provider plugin of its own.
+    const retiredVoiceState = join(home, '.muxr', 'plugin-state', 'muxr.voice');
+    for (const provider of ['xai', 'gemini']) {
+        rmSync(voiceState, { recursive: true, force: true });
+        mkdirSync(retiredVoiceState, { recursive: true, mode: 0o700 });
+        writeFileSync(join(retiredVoiceState, 'provider'), `${provider}\n`, { mode: 0o600 });
+        run(cli, ['setup', ...setupArgs], {
+            cwd: installDir,
+            env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify({ result: { plugins: [
+                { plugin_id: 'muxr.voice', plugin_root: join(legacyPluginRoot, 'voice'), version: '0.1.0', enabled: true },
+            ] } }) },
+        });
+        assert.equal(readFileSync(join(voiceState, 'provider'), 'utf8'), `${provider}\n`, `setup dropped the ${provider} selection the retired voice plugin stored`);
+    }
+    // muxr's own selection is authoritative: a stale plugin-state value never
+    // overwrites it.
+    mkdirSync(voiceState, { recursive: true, mode: 0o700 });
+    writeFileSync(join(voiceState, 'provider'), 'gemini\n', { mode: 0o600 });
+    writeFileSync(join(retiredVoiceState, 'provider'), 'xai\n', { mode: 0o600 });
+    run(cli, ['setup', ...setupArgs], {
+        cwd: installDir,
+        env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify({ result: { plugins: [
+            { plugin_id: 'muxr.voice', plugin_root: join(legacyPluginRoot, 'voice'), version: '0.1.0', enabled: true },
+        ] } }) },
+    });
+    assert.equal(readFileSync(join(voiceState, 'provider'), 'utf8'), 'gemini\n', 'setup overwrote the product voice selection from retired plugin state');
     rmSync(voiceState, { recursive: true, force: true });
+    rmSync(retiredVoiceState, { recursive: true, force: true });
     const existingProviders = {
         result: {
             plugins: [
-                { plugin_id: 'muxr.panes', plugin_root: join(pluginRoot, 'panes'), version: '0.1.0', enabled: true },
+                { plugin_id: 'muxr.panes', plugin_root: join(legacyPluginRoot, 'panes'), version: '0.1.0', enabled: true },
                 // The management pane pack under its pre-product location: setup
                 // must retract this registration and link the pack from
                 // resources/control instead.
-                { plugin_id: 'muxr.control', plugin_root: join(pluginRoot, 'control'), version: '0.1.0', enabled: true },
-                { plugin_id: 'muxr.voice', plugin_root: join(pluginRoot, 'voice'), version: '0.1.0', enabled: false },
-                // Any stale direct child of our bundle directory must be retracted;
-                // this deliberately names no historical plugin or retirement map.
-                { plugin_id: 'muxr.removed-package-smoke', plugin_root: join(pluginRoot, 'removed-package-smoke'), version: '0.1.0', enabled: true },
+                { plugin_id: 'muxr.control', plugin_root: join(legacyPluginRoot, 'control'), version: '0.1.0', enabled: true },
+                { plugin_id: 'muxr.voice', plugin_root: join(legacyPluginRoot, 'voice'), version: '0.1.0', enabled: false },
+                // muxr retracts only the add-ons it actually shipped. An id it
+                // never shipped is left alone even under a directory named
+                // `plugins`, so setup can never unlink a stranger's plugin.
+                { plugin_id: 'local.never-shipped', plugin_root: join(legacyPluginRoot, 'never-shipped'), version: '0.1.0', enabled: true },
             ],
         },
     };
     const logBeforeSecondSetup = readFileSync(fakeLog, 'utf8');
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(existingProviders) } });
     const secondSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeSecondSetup.length);
-    assert.doesNotMatch(secondSetupLinks, /plugin link .*plugins[/\\]voice(?:\s|[/\\])/, 'setup relinked an existing provider and changed its enabled state');
-    assert.match(secondSetupLinks, /plugin unlink muxr\.removed-package-smoke/, 'setup kept a bundled plugin it no longer ships');
+    assert.match(secondSetupLinks, /plugin unlink muxr\.voice/, 'setup kept the retired voice add-on registered');
+    assert.doesNotMatch(secondSetupLinks, /plugin unlink local\.never-shipped/, 'setup unlinked a plugin muxr never shipped');
     assert.match(secondSetupLinks, /plugin unlink muxr\.control/, 'setup kept the old in-bundle management pane pack registration');
     assert.match(secondSetupLinks, new RegExp(`plugin link ${join(installedPackage, 'resources', 'control').replaceAll('\\', '\\\\')} --enabled`), 'setup did not install the product management pane pack');
     const failedUnlink = run(cli, ['setup', ...setupArgs], {
@@ -880,11 +903,10 @@ try {
     const logBeforeMovedSetup = readFileSync(fakeLog, 'utf8');
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(movedProviders) } });
     const movedSetupLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeMovedSetup.length);
-    assert.match(movedSetupLinks, new RegExp(`plugin link ${join(pluginRoot, 'voice').replaceAll('\\', '\\\\')} --disabled`));
-    // The pack re-links from its product location even while a stale
-    // out-of-bundle registration exists; retraction never touches those.
+    // The pack re-links from its product location even while stale
+    // out-of-install registrations exist; retraction never touches those.
     assert.match(movedSetupLinks, new RegExp(`plugin link ${join(installedPackage, 'resources', 'control').replaceAll('\\', '\\\\')} --enabled`));
-    assert.doesNotMatch(movedSetupLinks, /plugin unlink/, 'setup unlinked a plugin outside its own bundle directory');
+    assert.doesNotMatch(movedSetupLinks, /plugin unlink/, 'setup unlinked a plugin outside its own install directory');
     assert.equal(readFileSync(join(home, '.muxr', 'setup-manifest.json'), 'utf8'), manifestAfterFirst);
     if (process.platform === 'darwin') {
         stopRelayFor(join(home, '.muxr', 'relay'));

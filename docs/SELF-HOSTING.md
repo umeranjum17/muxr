@@ -166,6 +166,6 @@ Plugin and agent changes sync live and do not require pairing again.
 ## Updating
 
 Run `muxr` and choose **Update muxr**, or use `muxr update --yes` in automation.
-The updater installs the latest npm release, refreshes bundled plugins, and
+The updater installs the latest npm release, retracts retired plugin registrations, and
 restarts a running local relay and host. Source checkouts can instead pull, run
 `yarn install --frozen-lockfile && yarn build`, and restart the relay and host.

@@ -32,6 +32,12 @@ import type {
 } from '../../herd/index.js';
 import type { PluginManifestV1, PluginSource, PluginSummary } from '../../plugins/index.js';
 import type { UsageNow, UsageReport } from '../../usage/index.js';
+import type {
+    VoiceProviderCatalog,
+    VoiceProviderDescription,
+    VoiceReport,
+    VoiceStatus,
+} from '../../voice/index.js';
 import type { LandWorktreeResult } from '../../worktree/index.js';
 import type { AttentionCatalog, CloseResult, CloseScope, HerdrTreeWorkspace, LifecycleCatalog, SessionAttachmentMetadata, SessionInfo, SessionShellOutcome, SessionStatus } from '../../herd/index.js';
 import type {
@@ -569,6 +575,30 @@ export interface RequestMap extends PeerRequestMap {
     'usage.report': { params: { provider?: string; refresh?: boolean }; result: UsageReport };
     /** The Home "Right now" card payload: the binding limit window plus vitals. */
     'usage.now': { params: Record<string, never>; result: UsageNow };
+
+    // --- realtime voice -------------------------------------------------------
+    // Product-owned. The provider adapters are internal host modules, so these
+    // are typed host methods rather than plugin capabilities: there is no
+    // catalog entry, manifest hash, or per-device plugin approval in this path.
+    /** Selected provider readiness plus the credential label it uses. */
+    'voice.status': { params: Record<string, never>; result: VoiceStatus };
+    /** Every installed adapter, exactly one selected. */
+    'voice.provider.list': { params: Record<string, never>; result: VoiceProviderCatalog };
+    /** Select the adapter this machine runs. */
+    'voice.provider.set': { params: { providerId: string }; result: VoiceProviderCatalog };
+    /** Explainer card for one adapter, or the selected one when omitted. */
+    'voice.provider.describe': { params: { providerId?: string }; result: VoiceProviderDescription };
+    /** Store one adapter's machine-held API key; the selected adapter when omitted. */
+    'voice.key.set': { params: { key: string; provider?: string }; result: null };
+    /** Remove one adapter's machine-held API key; the selected adapter when omitted. */
+    'voice.key.clear': { params: { provider?: string }; result: null };
+    /** Speak one bounded agent-stop outcome; the sentence is derived by the host. */
+    'voice.report': {
+        params: { displayName: string; taskTitle: string; status: string; outcome: string; tail?: string };
+        result: VoiceReport;
+    };
+    /** Attach one realtime voice stream to a relay channel. */
+    'voice.stream': { params: { channel: string; sessionId?: string }; result: null };
 }
 
 export type RequestType = keyof RequestMap;

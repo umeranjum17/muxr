@@ -9,7 +9,6 @@ export * from './application/primitivePresence';
 export * from './application/usePluginEvents';
 export * from './application/useSessionPlugins';
 export * from './application/useSlotContributions';
-export * from './callPlugin';
 export * from './domain/chartModel';
 export * from './domain/collectionModel';
 export * from './domain/fileIcon';

@@ -97,11 +97,12 @@ export async function iosAppIdentity(path) {
 
 export function runtimeIdentity(cwd = '.') {
     const root = resolve(cwd);
+    const pluginsRoot = join(root, 'plugins');
     const roots = [
         join(root, 'apps/host/dist'),
         join(root, 'apps/relay/dist'),
         ...readdirSync(join(root, 'packages'), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => join(root, 'packages', entry.name, 'dist')),
-        ...readdirSync(join(root, 'plugins'), { withFileTypes: true }).filter((entry) => entry.isDirectory()).flatMap((entry) => filesUnder(join(root, 'plugins', entry.name)).filter((path) => /\.(?:mjs|json|toml)$/.test(path))),
+        ...(existsSync(pluginsRoot) ? readdirSync(pluginsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).flatMap((entry) => filesUnder(join(pluginsRoot, entry.name)).filter((path) => /\.(?:mjs|json|toml)$/.test(path))) : []),
     ];
     return digestFiles(root, roots);
 }

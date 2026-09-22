@@ -55,12 +55,21 @@ export interface ConnectionSettings {
 }
 
 /*
- * Build-time overrides so one export can point at a remote relay without a
+ * Build-time overrides so one local build can point at a remote relay without a
  * settings screen. Stored settings still win once the user edits them.
  * Static process.env.EXPO_PUBLIC_* references only: Expo inlines them at
  * bundle time, so a dynamic template lookup silently bakes undefined.
+ *
+ * A browser export bakes none of them. It is served by the host it pairs with
+ * and takes its connection from that pairing, so a published web bundle must
+ * never carry a machine id, a relay URL, or an account token that was merely
+ * set in the build environment. Metro folds `Platform.OS` per platform, so the
+ * `web` branch is dropped before the literals can be baked.
  */
+const BUILD_ENV_APPLIES = Platform.OS !== 'web';
+
 function buildEnv(suffix: 'MODE' | 'RELAY_URL' | 'MACHINE_ID' | 'TOKEN'): string | undefined {
+    if (!BUILD_ENV_APPLIES) return undefined;
     switch (suffix) {
         case 'MODE': return process.env.EXPO_PUBLIC_MUXR_MODE;
         case 'RELAY_URL': return process.env.EXPO_PUBLIC_MUXR_RELAY_URL;

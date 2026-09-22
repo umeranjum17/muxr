@@ -30,7 +30,7 @@ Primary gate: clean Linux VM plus a fresh API 36 Android emulator. Follow-up doc
    - Browse Files as a hierarchy and open a file.
    - Review Changes with status and +/- metadata.
    - Open/download an attachment and verify its bytes/SHA.
-   - Disable and re-enable a bundled plugin; create/check/install one minimal third-party plugin through documented commands.
+   - Create/check/install one minimal third-party plugin through documented commands, and confirm realtime voice works from product Settings with no plugin installed.
 7. **Resilience and authority**
    - Restart host and relay; verify reconnect and cumulative state recovery.
    - Interrupt a terminal and realtime synthetic stream; verify bounded reconnect.
