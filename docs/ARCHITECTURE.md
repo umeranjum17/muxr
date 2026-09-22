@@ -215,7 +215,7 @@ purpose, because nothing on the other side can be told to change:
   `/v1/attachment-download` route with its `attachmentId` query key, and the
   plugin vocabulary (`muxr.attachments`, plugin action `type: "attachment"`)
   are contracts with installed tooling, the cleartext envelope, and approved
-  plugin manifests. See [CONTEXT.md](./CONTEXT.md).
+  plugin manifests. See [CONTEXT.md](../CONTEXT.md).
 
 The extracted attachments plugin remains wire-compatible during migration. The
 changes surface separately runs host-owned git requests in the session cwd.

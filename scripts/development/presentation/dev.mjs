@@ -1,7 +1,7 @@
 /**
  * yarn dev — one command for the full local presentation loop:
  *
- *   1. `yarn build` once (workspace tsc outputs + attachment preview bundle).
+ *   1. `yarn build` once (workspace tsc outputs + artifact preview bundle).
  *   2. `tsc --build --watch` for incremental workspace recompilation.
  *   3. `yarn up`-style real relay + host under an isolated MUXR_HOME in
  *      `.cache/muxr-dev`, restarted whenever the watcher finishes a clean
@@ -11,7 +11,7 @@
  *      dev client (`exp+muxr-dev://`) gets Fast Refresh from source.
  *
  * Native (Gradle) changes are NOT rebuilt here — run `yarn dev:android` for
- * that. The offline attachment renderer is watched separately by esbuild.
+ * that. The offline artifact renderer is watched separately by esbuild.
  */
 import { spawn } from 'node:child_process';
 import { connect } from 'node:net';
@@ -37,7 +37,7 @@ Starts the full local presentation dev loop:
     isolated MUXR_HOME at .cache/muxr-dev, restarted on each clean recompile
   - Expo Metro (dev client, localhost) with Fast Refresh; the same
     http://localhost:8081 URL previews the web build in a browser
-  - attachment preview bundle watcher (regenerates its .bin on edits)
+  - artifact preview bundle watcher (regenerates its .bin on edits)
   - checkout-local plugin projections/RPC scripts via a private socket
     adapter; installed native registrations and approvals remain authoritative
 
@@ -299,7 +299,7 @@ mkdirSync(muxrHome, { recursive: true });
 
 // ---------------------------------------------------------------- initial build
 
-process.stdout.write('dev | initial yarn build (workspace outputs + attachment preview bundle)\n');
+process.stdout.write('dev | initial yarn build (workspace outputs + artifact preview bundle)\n');
 if ((await runOnce('build', 'yarn', ['build'], devEnvBase, root)) !== 0) {
     process.stderr.write('dev | initial build failed; fix the errors and rerun `yarn dev`.\n');
     process.exit(1);
@@ -380,12 +380,12 @@ muxr dev supervisor
   Metro (dev client):  http://localhost:${metroPort}   (exp+muxr-dev://)
   Web preview:         http://localhost:${metroPort} in a browser (same isolated fixture; relay already allows this origin)
   Relay:               ws://127.0.0.1:${relayPort}      (loopback only)
-  Attachment downloads: http://127.0.0.1:${hostHttpPort}
+  Artifact downloads:  http://127.0.0.1:${hostHttpPort}
   Host machine:        devbox   (MUXR_HOME=.cache/muxr-dev)
   Checkout plugins:    local checkout projections/scripts; native registrations stay installed
                        existing enablement, catalog hashes, and approvals remain authoritative
   Native rebuild:      NOT automatic — run \`yarn dev:android\` after Gradle/
-                       native changes. Attachment preview bundle is watched.
+                       native changes. Artifact preview bundle is watched.
   Stop:                Ctrl-C (stops owned children, then removes the private plugin socket).
 
 muxr dev: READY — open the muxr Dev app on the emulator (exp+muxr-dev://)
