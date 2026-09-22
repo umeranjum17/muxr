@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import type { UsageNow, UsageReport } from '@muxr/contract';
+import { FRESH_MS, noteAsked } from './freshnessWindow';
 
 /**
  * The Home card's whole read path, end to end against a scripted host.
@@ -96,7 +97,6 @@ const { useUsageNow } = await import('./useUsageNow');
 const { RightNowCard } = await import('../presentation/RightNowCard');
 const { UsageScreen } = await import('../presentation/UsageScreen');
 
-const FRESH_MS = 15 * 60_000;
 const VITALS = { memoryUsed: 8, memoryTotal: 16, load1: 1.2, uptimeSeconds: 90_000 };
 /** What the host sends while its usage cache is cold: the figures it already
  *  measured, and the flag that says the plan half is still being collected. */
@@ -305,6 +305,31 @@ describe('the Home card read path', () => {
         expect(screenText(card)).not.toContain('plugins.rightNow.refreshing');
     });
 
+    it('opens its window even when no answer ever paints, so a focus asks nothing more', async () => {
+        // A host whose readings cannot be persisted never gives the card
+        // figures at all -- only the cold word. The ask is still ours, recorded
+        // at the instant we take the decision, so the window closes over that
+        // burst instead of every focus and foreground event starting a fresh
+        // one.
+        request.mockResolvedValue(COLLECTING);
+        mount();
+        await tick();
+        for (let follow = 0; follow < 5; follow += 1) await tick(6_000);
+        expect(request).toHaveBeenCalledTimes(6);
+
+        // Focus and foreground events inside the window ask nothing further.
+        for (let event = 0; event < 3; event += 1) {
+            await tick(60_000);
+            TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
+            await tick();
+        }
+        expect(request).toHaveBeenCalledTimes(6);
+
+        // The window is ours, and it opens: the cycle after it asks again.
+        await tick(FRESH_MS);
+        expect(request).toHaveBeenCalledTimes(7);
+    });
+
     it('never takes figures off the screen to refresh them, and says plainly when it could not', async () => {
         request.mockResolvedValueOnce(collected()).mockResolvedValueOnce(collected()).mockResolvedValueOnce(COLLECTING).mockRejectedValue(new Error('host unreachable'));
         const card = mount();
@@ -436,11 +461,12 @@ describe('the Home card read path', () => {
         const card = mount();
         await tick();
 
-        // A foreground return lands mid-burst and must not hand it a fresh
-        // budget: the six attempts stay six.
+        // A foreground return lands mid-burst. It must not hand the burst a
+        // fresh budget -- and inside the window it asks nothing of its own --
+        // so the six attempts stay six.
         TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
         await tick();
-        for (let follow = 0; follow < 4; follow += 1) await tick(6_000);
+        for (let follow = 0; follow < 5; follow += 1) await tick(6_000);
         expect(request).toHaveBeenCalledTimes(6);
         expect(card.latest().failed).toBe(true);
 
@@ -512,24 +538,29 @@ describe('the Home card read path', () => {
         expect(forcedReads()).toHaveLength(3);
     });
 
-    it('runs a failed tap past the cache once the read already in flight settles', async () => {
-        request.mockRejectedValueOnce(new Error('host unreachable')).mockResolvedValue(collected());
+    it('runs a tap refused by a read in flight past the cache once that read settles', async () => {
+        let release: (value: UsageNow) => void = () => undefined;
+        request.mockRejectedValueOnce(new Error('host unreachable'))
+            .mockImplementationOnce(() => new Promise<UsageNow>((resolve) => { release = resolve; }))
+            .mockResolvedValue(collected());
         const card = renderCard();
         await tick();
         // The first read failed with nothing to show, so the card offers a retry.
         expect(screenText(card)).toContain('plugins.rightNow.unavailable');
-        const beforeTap = forcedReads().length;
 
-        // A background read starts behind that retry, and the tap lands while
-        // it is still in flight.
-        TestRenderer.act(() => { appState.listeners.forEach((listener) => listener('active')); });
+        // The retry asks past the cache, and is still in flight when a second
+        // tap lands on it.
         press(card, 'plugins.rightNow.unavailable');
-        expect(forcedReads()).toHaveLength(beforeTap);
+        const inFlight = forcedReads().length;
+        expect(inFlight).toBe(1);
+        press(card, 'plugins.rightNow.unavailable');
+        expect(forcedReads()).toHaveLength(inFlight);
 
         // It is not answered by that read: it runs past the cache the moment
         // the read settles.
+        await TestRenderer.act(async () => { release(collected()); });
         await tick();
-        expect(forcedReads()).toHaveLength(beforeTap + 1);
+        expect(forcedReads()).toHaveLength(inFlight + 1);
         expect(request).toHaveBeenLastCalledWith('usage.now', { refresh: true }, expect.any(Number));
     });
 });
@@ -621,6 +652,33 @@ describe('the usage screen read path', () => {
         await tick();
 
         expect(forcedReads()).toHaveLength(1);
+    });
+
+    it('does not spend a pending collection on a tab whose window has not opened', async () => {
+        // Both tabs were asked by an earlier visit: claude's window opens now,
+        // opencode's is minutes away. The screen opens on the default tab, whose
+        // read is still in flight when the reader taps the other one.
+        noteAsked('claude', Date.now() - FRESH_MS);
+        noteAsked('opencode', Date.now() - 60_000);
+        request.mockImplementation((_method: string, params?: { provider?: string }) => {
+            if (params?.provider === 'opencode') return Promise.resolve(report('opencode', 60));
+            if (params?.provider === 'claude') return Promise.resolve(report('claude', 60));
+            return new Promise<UsageReport>(() => undefined);
+        });
+        const screen = renderScreen();
+        await tick();
+
+        // Switching tabs mid-read collects nothing for the tab whose window has
+        // not opened...
+        press(screen, 'OpenCode');
+        await tick();
+        expect(forcedReads()).toHaveLength(0);
+
+        // ...and leaves that tab's window untouched: its own next ask collects.
+        press(screen, 'Claude');
+        await tick();
+        expect(forcedReads()).toHaveLength(1);
+        expect(forcedReads()[0]?.[1]).toMatchObject({ provider: 'claude' });
     });
 
     it('refreshes once per window against a host that reports no age at all', async () => {

@@ -59,12 +59,13 @@ export function UsageScreen() {
     const report = fetched.key === provider ? fetched.value : reportCache.get(provider);
     const tabs = report?.providers ?? [];
 
-    /** A collection our own window authorized, owed from the instant it was
-     *  decided: the report the host already holds paints first and this runs
-     *  behind it, so nothing is ever withheld to decide whether to refresh it.
-     *  Every forced read on this screen goes through the one budget in
-     *  `forcedReadWait`, whether a person asked or a cadence cycle did. */
-    const collectAfter = React.useRef<number | undefined>(undefined);
+    /** The tab a collection our own window authorized was authorized for, and
+     *  the instant it was decided: the report the host already holds paints
+     *  first and this runs behind it, so nothing is ever withheld to decide
+     *  whether to refresh it. Every forced read on this screen goes through the
+     *  one budget in `forcedReadWait`, whether a person asked or a cadence
+     *  cycle did. */
+    const collectAfter = React.useRef<{ target: string; at: number } | undefined>(undefined);
 
     /**
      * `refresh` asks the host to collect past its cache; such a read claims our
@@ -100,12 +101,14 @@ export function UsageScreen() {
                 setLoading(false);
                 setRefreshing(false);
                 // The report the host already held has painted, so the one
-                // collection our own window authorized runs behind it.
-                const claimedAt = collectAfter.current;
-                if (claimedAt === undefined) return;
+                // collection our own window authorized runs behind it -- for the
+                // tab that window belonged to, and no other.
+                const owed = collectAfter.current;
+                if (owed === undefined) return;
                 collectAfter.current = undefined;
+                if (owed.target !== target) return;
                 if (forcedReadWait(lastForced.current, rejected.current, Date.now()) !== undefined) return;
-                void load(target, true, true, claimedAt);
+                void load(target, true, true, owed.at);
             });
     }, []);
 
@@ -119,7 +122,7 @@ export function UsageScreen() {
     const loadIfDue = React.useCallback((target: string, quiet: boolean, replace = false): void => {
         if (inFlight.current && !replace) return;
         const now = Date.now();
-        if (collectionDue(target, now) && forcedReadWait(lastForced.current, rejected.current, now) === undefined) collectAfter.current = now;
+        if (collectionDue(target, now)) collectAfter.current = { target, at: now };
         void load(target, false, quiet);
     }, [load]);
 

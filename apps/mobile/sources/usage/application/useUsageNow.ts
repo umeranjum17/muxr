@@ -147,13 +147,13 @@ export function useUsageNow(): UsageNowRead {
                     return;
                 }
                 // The figures the host already had have painted, so the one
-                // collection our own window authorized runs now.
+                // collection our own window authorized runs now. A cold answer
+                // means the host is already collecting for us: the burst below
+                // is following that up, and asking again would only join a
+                // collection already running.
                 const claimedAt = collectAfter.current;
                 if (claimedAt === undefined) return;
                 collectAfter.current = undefined;
-                // A cold answer means the host was already collecting: the
-                // burst below is following that up, and asking again would only
-                // start a second collection behind it.
                 if (!painted) return;
                 if (forcedReadWait(lastForced.current, rejected.current, Date.now()) !== undefined) return;
                 collecting.current = 0;
@@ -197,12 +197,15 @@ export function useUsageNow(): UsageNowRead {
         // restart the burst's budget: bounded means bounded even across a focus.
         // Once the burst has settled this is a new cycle, and it starts whole.
         if (!bursting.current) collecting.current = 0;
-        // What the host already holds paints first, always. Our own per-tab
-        // record -- decided, and recorded, at this instant -- says whether a
-        // collection runs behind those figures; the host's word on their age is
-        // what the card says about them, never what opens or closes the window.
+        // Inside our window a cycle asks nothing at all: the figures on screen
+        // are what that window's ask produced. Once it has passed the ask is
+        // ours -- noted here, at the instant we take it, whatever the answer
+        // turns out to be -- and the figures the host already holds paint first
+        // with the one collection running behind them.
         const now = Date.now();
-        if (collectionDue(READ_TAB, now) && forcedReadWait(lastForced.current, rejected.current, now) === undefined) collectAfter.current = now;
+        if (!collectionDue(READ_TAB, now)) return;
+        noteAsked(READ_TAB, now);
+        collectAfter.current = now;
         void load(false);
     }, [load]), FRESH_MS);
 
