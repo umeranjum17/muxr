@@ -1069,7 +1069,7 @@ export async function createHerdrSessionSource(
         // Pre-rename apps register for the legacy event name and field only, so
         // the live timeline keeps updating on a phone that has not been rebuilt.
         publish(session.sessionId, { type: 'attachments.update', attachments: entries, total, truncated });
-    });
+    }, undefined, () => currentSessions().map((session) => session.paneId));
     artifacts.start();
 
     /** One-time tickets + byte streaming for downloads too big for the ws link. */

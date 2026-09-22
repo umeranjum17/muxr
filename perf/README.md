@@ -116,6 +116,42 @@ deliberately absent: the gfxinfo ledger is frozen for acceptance, so the probe
 reports CPU and memory as diagnostics and proves behaviour from captures,
 movement candidates and host records.
 
+## The pane-open probe (not acceptance either)
+
+The gate measures gestures on surfaces that are already up. `perf/paneOpenProbe.mjs`
+measures the transition into one, because that is where a profile put the thread
+time and the dropped frames: an idle herd is nearly free and a live terminal is
+nearly free, while routing into a pane saturates the JS thread long enough to
+drop frames a person sees. It also measures opening Shared Artifacts, and
+records what a pane that has not started says and whether it offers a way out.
+
+```bash
+node perf/paneOpenProbe.mjs --serial <serial> --label before --out <dir>
+node perf/paneOpenProbe.mjs --serial <serial> --label after  --out <dir> --opens 5 --artifacts 3
+```
+
+One run measures **one installed build** and labels it; a before/after is two
+runs with different labels. That is deliberate: it lets one borrowed-device
+window cover a build carrying more than one branch's changes, which a single
+runner that installed both halves itself could not.
+
+It installs nothing, pairs nothing and clears nothing, so a device already
+paired to its owner keeps its pairing and its data. Restoring whatever build was
+installed first is the operator's job, not the probe's.
+
+Per transition it reports time to the screen that proves arrival, JS-thread busy
+share from `/proc` either side of the window, and gfxinfo's own counters after a
+`resetGfxWindow`: frames, janky share, the 50/90/95/99th percentiles, missed
+vsync and the over-one/over-four-frame counts. The percentiles come from the
+dump rather than the framestats ring, because dumpsys writes 4950 ms into every
+percentile of an empty histogram; a window that drew nothing reports
+`unavailable` with that reason instead of one slow frame. A restarted runtime,
+a dead JS thread and a zero-length window each report why rather than a number.
+The reductions are pure and live in `perf/lib/paneOpenMetrics.mjs`.
+
+Like the surface probe, every record carries `"partial": true` and
+`"acceptance": false`. It is a development signal, never a release result.
+
 ## The scenario contract
 
 `perf/lib/scenario.mjs` is the one definition of the world both platforms

@@ -11,8 +11,6 @@ import { join, resolve, sep } from 'node:path';
 import type { SessionArtifact, SessionArtifactMetadata } from '@muxr/contract';
 
 export const MAX_ARTIFACTS = 50;
-// Large images stay metadata-only instead of crossing the relay inline.
-export const MAX_INLINE_BYTES = 8 * 1024 * 1024;
 /** Whole-file fetch is only the small healing path; larger files use chunks/download. */
 export const MAX_FETCH_BYTES = 2 * 1024 * 1024;
 const DEBOUNCE_MS = 300;
@@ -46,11 +44,6 @@ const TEXT_EXTS = new Set([
     'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'xml', 'html', 'htm', 'css',
     'scss', 'sql', 'csv', 'tsv', 'env', 'gitignore', 'editorconfig',
 ]);
-
-/** Text inlines whole (no compression) up to this; bigger stays a named row. */
-const MAX_TEXT_BYTES = 256 * 1024;
-/** Screen recordings are chunky; 32MiB covers typical clips, base64'd once per id. */
-const MAX_VIDEO_BYTES = 32 * 1024 * 1024;
 
 /**
  * Hash a big file without buffering it: reading a 250MB APK at once blocks
@@ -113,8 +106,9 @@ export interface CachedArtifact extends Omit<SessionArtifact, 'data'> {
 
 /**
  * Newest 50 files in rootDir/paneId, files only. Every entry carries a sha256
- * content hash as its id; small previews are inlined as base64. Never throws:
- * a missing or half-written pane scans as whatever is readable.
+ * content hash as its id, and nothing else: the scan is a listing, not a
+ * transfer. Never throws: a missing or half-written pane scans as whatever is
+ * readable.
  */
 export interface ArtifactScan {
     artifacts: SessionArtifact[];
@@ -154,35 +148,13 @@ export async function scanPaneWithAttribution(rootDir: string, paneId: string, c
                 continue;
             }
             const entry: SessionArtifact = { id: '', name, mimeType, size, at };
-            if (size > MAX_FETCH_BYTES) {
-                // Larger files cannot use the whole-file heal path and the
-                // metadata-only session event never carries bytes anyway.
-                // Stream only the hash; download/read stays chunked.
-                entry.id = await hashFileStream(path);
-                cache?.set(name, { ...metaOnly(entry), signature });
-                out.push(entry);
-                continue;
-            }
-            const content = await readFile(path);
-            entry.id = createHash('sha256').update(content).digest('hex');
-            const wire = content;
-            const isText = mimeType.startsWith('text/');
-            const isImage = entry.mimeType.startsWith('image/');
-            const isVideo = mimeType.startsWith('video/');
-            const isPdf = mimeType === 'application/pdf';
-            // Text rides whole (empty files too: a real artifact with nothing
-            // in it, rendered as an empty state on the phone); images ride
-            // raw; videos and PDFs inline up to their own caps; anything
-            // bigger stays a named row.
-            if (isText && wire.length <= MAX_TEXT_BYTES) {
-                entry.data = wire.toString('base64');
-            } else if (isImage && wire.length > 0 && wire.length <= MAX_INLINE_BYTES) {
-                entry.data = wire.toString('base64');
-            } else if (isVideo && wire.length > 0 && wire.length <= MAX_VIDEO_BYTES) {
-                entry.data = wire.toString('base64');
-            } else if (isPdf && wire.length > 0 && wire.length <= MAX_INLINE_BYTES) {
-                entry.data = wire.toString('base64');
-            }
+            // Identity only, never bytes. `artifact.list` strips `data`, the
+            // session event is metadata, and the cache below keeps metadata --
+            // so base64 encoded here was read, allocated and discarded on every
+            // cold scan of a pane. `fetch` reads the one file a phone opens.
+            entry.id = size > MAX_FETCH_BYTES
+                ? await hashFileStream(path)
+                : createHash('sha256').update(await readFile(path)).digest('hex');
             cache?.set(name, { ...metaOnly(entry), signature });
             out.push(entry);
         } catch {
@@ -217,6 +189,13 @@ export class ArtifactWatcher {
         private readonly rootDir: string,
         private readonly emit: (paneId: string, artifacts: SessionArtifactMetadata[], total?: number, truncated?: boolean) => void,
         private readonly rescanMs: number = RESCAN_MS,
+        /**
+         * The panes this host currently serves. The backstop sweeps only those:
+         * every other directory under the root is scanned for an update that
+         * has no session to publish it to, and a machine keeps the artifacts of
+         * every pane it ever ran. Omitted: sweep everything, as before.
+         */
+        private readonly servedPanes?: () => Iterable<string>,
     ) {}
 
     start(): void {
@@ -263,15 +242,19 @@ export class ArtifactWatcher {
         }
     }
 
-    /** Backstop for missed fs.watch events: re-scan every pane dir under rootDir now. */
+    /** Backstop for missed fs.watch events: re-scan the served pane dirs now. */
     async rescanAll(): Promise<void> {
         let names: string[];
-        try {
-            names = readdirSync(this.rootDir, { withFileTypes: true })
-                .filter((entry) => entry.isDirectory())
-                .map((entry) => entry.name);
-        } catch {
-            return; // root missing/unreadable: nothing to rescan.
+        if (this.servedPanes !== undefined) {
+            names = [...new Set(this.servedPanes())];
+        } else {
+            try {
+                names = readdirSync(this.rootDir, { withFileTypes: true })
+                    .filter((entry) => entry.isDirectory())
+                    .map((entry) => entry.name);
+            } catch {
+                return; // root missing/unreadable: nothing to rescan.
+            }
         }
         // Two panes may scan concurrently, and a fast pane releases its slot
         // immediately instead of waiting behind a huge sibling in its batch.
@@ -350,13 +333,13 @@ export class ArtifactWatcher {
         const found = scan.artifacts.find((entry) => entry.id === artifactId);
         if (found === undefined) return null;
         if (found.size > MAX_FETCH_BYTES) return null;
-        if (found.data !== undefined) return found;
         try {
             // Check size BEFORE reading: reading+base64+JSON-stringifying a
             // 250MB file OOM-crashed the host in production. Big files use the
-            // bounded artifact.read chunks below.
+            // bounded artifact.read chunks below. An empty file is a real
+            // artifact with nothing in it and heals as an empty string.
             const info = await stat(join(this.rootDir, paneId, found.name));
-            if (info.size === 0 || info.size > MAX_FETCH_BYTES) return null;
+            if (info.size > MAX_FETCH_BYTES) return null;
             const data = await readFile(join(this.rootDir, paneId, found.name));
             if (createHash('sha256').update(data).digest('hex') !== artifactId) return null;
             return { ...found, data: data.toString('base64') };

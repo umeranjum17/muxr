@@ -14,7 +14,8 @@ import { samplePhase } from './androidSignals.mjs';
 import { summarize } from './gestures.mjs';
 import { sleep } from './iosSignals.mjs';
 import { artifactMismatch, acquireOwnerLock, childProcessesHealthy, cropScreenshot, judgeProbeMovement, processCpuPercent, processStartIdentity, provenanceMismatch, sampleValidity, screenshotsComplete, validateDeadline, validateFixtureProof, validateSession, worldIdentity } from './surfaceProbe.mjs';
-import { knownRowKey, treePosition, validPixelCrop } from './gestureMetrics.mjs';
+import { knownRowKey, parseFrameStatsDump, parseJankDump, treePosition, validPixelCrop } from './gestureMetrics.mjs';
+import { threadBusyShare, transitionFrameSummary } from './paneOpenMetrics.mjs';
 import { documentContract, documentPayload, scenarioDescriptor } from './scenario.mjs';
 
 const root = new URL('../..', import.meta.url).pathname;
@@ -220,4 +221,19 @@ test('the prepared descriptor survives serialization and the probe callers judge
     // per-profile guard is what decides whether it was delivered.
     assert.deepEqual(summarize([{ profile: 'fling', velocityPxPerSecond: 1000, intendedVelocityPxPerSecond: 6600 }]).slowProfiles, ['fling']);
     assert.deepEqual(summarize([{ profile: 'fling', velocityPxPerSecond: 6000, intendedVelocityPxPerSecond: 6600 }]).slowProfiles, []);
+
+    // A measured transition reads a real dump, and every way of measuring
+    // nothing says so instead of returning a number that reads like health.
+    const dump = readFileSync(join(root, 'perf/fixtures/gfxinfo-after.txt'), 'utf8');
+    const summary = transitionFrameSummary({ jank: parseJankDump(dump, { hz: 60 }), rows: parseFrameStatsDump(dump) }, 60);
+    assert.deepEqual({ frames: summary.frames, jankyPercent: summary.jankyPercent, p99: summary.frameMs.p99, missedVsync: summary.missedVsync },
+        { frames: 156, jankyPercent: 26.3, p99: 250, missedVsync: 2 });
+    assert.equal(transitionFrameSummary({ jank: parseJankDump('Total frames rendered: 0', { hz: 60 }) }, 60).unavailable, 'no frames in the window; nothing was drawn to judge');
+    assert.equal(transitionFrameSummary({}, 60).unavailable, 'no frames in the window; nothing was drawn to judge');
+
+    const open = { pid: '1', tid: '2', ticks: 100, atMs: 0 };
+    assert.deepEqual(threadBusyShare(open, { ...open, ticks: 160, atMs: 2000 }), { percent: 30, windowSeconds: 2 });
+    assert.equal(threadBusyShare(open, { ...open, pid: '9', ticks: 5, atMs: 2000 }).unavailable, 'the runtime restarted inside the window');
+    assert.equal(threadBusyShare(open, { unavailable: 'no JS thread; the runtime is down' }).unavailable, 'no JS thread; the runtime is down');
+    assert.equal(threadBusyShare(open, { ...open, ticks: 160, atMs: 0 }).unavailable, 'the window had no duration');
 });

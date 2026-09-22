@@ -82,11 +82,33 @@ type StateListener = (state: ConnectionState) => void;
 type PluginInvalidationListener = (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void;
 const MAX_PENDING_REQUESTS = 128;
 // A backend that never answers is retried on a widening backoff, then given
-// up on: past this many consecutive failures with no host frame the client
-// fails closed to 'stale' (surfaced as an error) instead of reconnecting for
-// ever. A successful host frame resets the count; a manual reconnect (new
-// client) starts fresh. With the 1.5s→30s backoff this is ~75s of trying.
-const MAX_RECONNECT_ATTEMPTS = 6;
+// up on: after this much consecutive wall-clock failure with no host frame the
+// client fails closed to 'stale' (surfaced as an error) instead of reconnecting
+// for ever. A successful host frame resets the budget; a manual reconnect (new
+// client) starts fresh.
+//
+// A time budget and not an attempt count, on purpose. An attempt can cost far
+// more than its own delay -- a relay that accepts the socket while no host
+// answers spends the whole liveness timeout before the next dial -- so a count
+// would multiply every such cost, and patience would grow with the very slow
+// path it exists to bound.
+const RECONNECT_BUDGET_MS = 75_000;
+/**
+ * The longest this client will ignore a network that has already come back.
+ * Nothing here can be told that it returned -- there is no connectivity signal
+ * on this platform -- so the ceiling is the whole of what the phone waits
+ * through, and the old 30s one was measured doing exactly that: after a ten
+ * second outage the app stayed unusable for up to five more seconds with the
+ * link already restored, purely waiting out its own timer. A dial is one
+ * handshake; waiting is not free.
+ *
+ * It bounds the widening, and only the widening. A caller that configured a
+ * slower base asked for that cadence on purpose -- `scopedMachineClient` asks
+ * for 30s inside a 12s deadline, which is a way of asking for one attempt --
+ * so the base is kept as a floor below. Shortening it would turn one dial
+ * against an unreachable machine into a dial every four seconds.
+ */
+const RECONNECT_CEILING_MS = 4000;
 
 export class MuxrClient {
     private socket: WebSocket | undefined;
@@ -100,6 +122,8 @@ export class MuxrClient {
     private readonly clientId = nextRequestId('client');
     private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     private reconnectAttempt = 0;
+    /** When the current run of failures began; cleared the moment a host frame lands. */
+    private reconnectSince: number | undefined;
     /** Valid host traffic observed on the current socket. Request timers use it as a liveness fence. */
     private hostFrameRevision = 0;
     private livenessTimer: ReturnType<typeof setTimeout> | undefined;
@@ -311,20 +335,23 @@ export class MuxrClient {
 
     /**
      * Schedule one reconnect on a widening backoff, or fail closed. Past
-     * MAX_RECONNECT_ATTEMPTS consecutive failures with no host frame the client
+     * RECONNECT_BUDGET_MS of consecutive failures with no host frame the client
      * stops the internal loop and settles on 'stale' (surfaced as an error) so
      * the UI can show an actionable "can't reach your computer" instead of
-     * spinning for ever. A successful host frame resets reconnectAttempt; a
-     * fresh client (sync.reconnect) starts the count over.
+     * spinning for ever. The budget is wall-clock, so a slow attempt cannot
+     * stretch patience past it. A successful host frame resets the budget and
+     * the backoff; a fresh client (sync.reconnect) starts over.
      */
     private scheduleReconnect(floorMs?: number): void {
         if (this.closed) return;
-        if (this.reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+        const now = Date.now();
+        if (this.reconnectSince === undefined) this.reconnectSince = now;
+        if (now - this.reconnectSince >= RECONNECT_BUDGET_MS) {
             this.setState('stale');
             return;
         }
         const base = this.options.reconnectDelayMs ?? 1500;
-        const delay = Math.max(floorMs ?? 0, Math.min(base * 2 ** this.reconnectAttempt++, 30_000));
+        const delay = Math.max(floorMs ?? 0, base, Math.min(base * 2 ** this.reconnectAttempt++, RECONNECT_CEILING_MS));
         this.reconnectTimer = setTimeout(() => this.connect(), delay);
     }
 
@@ -460,6 +487,7 @@ export class MuxrClient {
         // survives the machine's E2EE context proves the host is really there.
         this.hostFrameRevision += 1;
         this.reconnectAttempt = 0;
+        this.reconnectSince = undefined;
         clearTimeout(this.livenessTimer);
         this.livenessTimer = undefined;
         if (this.state !== 'open') this.setState('open');

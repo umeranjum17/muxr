@@ -1,8 +1,8 @@
 export interface ArtifactHealPlan<T extends { id: string; size: number }> {
     candidates: T[];
-    /** Permanently ineligible for whole-file healing during this mount. */
+    /** Too large for whole-file healing at all; chunked transports own these. */
     unavailableIds: string[];
-    /** Eligible on a later sheet opening after this opening's budget resets. */
+    /** Over this batch's budget; eligible again in the next batch. */
     deferredIds: string[];
 }
 
