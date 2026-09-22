@@ -21,6 +21,7 @@ import { FRESH_MS, noteAsked } from './freshnessWindow';
 
 const request = vi.fn();
 const hapticsSelection = vi.fn();
+const connection = { machineId: 'machine-1' };
 const appState = { currentState: 'active' as string, listeners: new Set<(next: string) => void>() };
 const theme = {
     colors: {
@@ -38,6 +39,9 @@ const theme = {
 };
 
 vi.mock('@/catalog/sync', () => ({ sync: { request } }));
+// Figures, windows and last-known readings are all per machine: a test is one
+// machine, so nothing another test asked or held can reach it.
+vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => connection }));
 vi.mock('expo-router', async () => {
     const react = await import('react');
     // The real one runs its effect while the screen is focused; the probe is
@@ -188,12 +192,14 @@ async function tick(ms = 0) {
 }
 
 let testEpoch = Date.now();
+let machineCount = 0;
 beforeEach(() => {
     vi.useFakeTimers();
     // The per-tab window outlives a screen and a test, so each one starts a day
     // on: a previous test's ask cannot close this one's window.
     testEpoch += 24 * 60 * 60_000;
     vi.setSystemTime(testEpoch);
+    connection.machineId = `machine-${machineCount += 1}`;
     request.mockReset();
     hapticsSelection.mockClear();
     appState.currentState = 'active';
@@ -207,13 +213,12 @@ describe('the Home card read path', () => {
         const card = mount();
 
         await tick();
-        // A cold answer is shown -- the vitals in it are measured and must not
-        // be withheld -- but it is not the end of the read.
-        expect(card.latest().value?.collecting).toBe(true);
-        expect(card.latest().value?.vitals).toEqual(VITALS);
-        expect(card.latest().failed).toBe(false);
-        expect(card.latest().refreshing).toBe(true);
-        expect(request).toHaveBeenCalledTimes(1);
+        // The cold answer is not the end of the read: the same cycle asked the
+        // host to collect, and that answer is the figures.
+        expect(card.latest().value?.collecting).toBeUndefined();
+        expect(card.latest().value?.limits.windows).toHaveLength(1);
+        expect(card.latest().refreshing).toBe(false);
+        expect(request).toHaveBeenCalledTimes(2);
 
         // Nobody touches the card. It asks again on its own, and applies the
         // answer that finally carries the plan windows.
@@ -305,29 +310,68 @@ describe('the Home card read path', () => {
         expect(screenText(card)).not.toContain('plugins.rightNow.refreshing');
     });
 
-    it('opens its window even when no answer ever paints, so a focus asks nothing more', async () => {
-        // A host whose readings cannot be persisted never gives the card
-        // figures at all -- only the cold word. The ask is still ours, recorded
-        // at the instant we take the decision, so the window closes over that
-        // burst instead of every focus and foreground event starting a fresh
-        // one.
+    it('still reads inside the window, but collects only once', async () => {
+        // A host that cannot persist a reading never gives the card figures at
+        // all -- only the cold word. The window opened when we decided keeps it
+        // to one collection; the read itself is never held back.
         request.mockResolvedValue(COLLECTING);
         mount();
         await tick();
-        for (let follow = 0; follow < 5; follow += 1) await tick(6_000);
-        expect(request).toHaveBeenCalledTimes(6);
+        for (let follow = 0; follow < 6; follow += 1) await tick(6_000);
+        expect(forcedReads()).toHaveLength(1);
 
-        // Focus and foreground events inside the window ask nothing further.
+        // Focus and foreground events still read -- that read is what paints --
+        // but ask for no further collection.
         for (let event = 0; event < 3; event += 1) {
             await tick(60_000);
             TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
             await tick();
         }
-        expect(request).toHaveBeenCalledTimes(6);
+        expect(forcedReads()).toHaveLength(1);
+    });
 
-        // The window is ours, and it opens: the cycle after it asks again.
-        await tick(FRESH_MS);
-        expect(request).toHaveBeenCalledTimes(7);
+    it('paints the last known figures on a remount inside the window, and still reads', async () => {
+        request.mockResolvedValue(collected(undefined, 20, '2026-09-22T18:00:00.000Z'));
+        let card = renderCard();
+        await tick();
+        expect(screenText(card)).toContain('80%');
+        TestRenderer.act(() => { card.unmount(); });
+
+        // A minute later -- well inside the window -- the card comes back, and
+        // the read it issues is left unanswered: only the memory can paint.
+        await tick(60_000);
+        request.mockClear();
+        request.mockImplementation(() => new Promise<UsageNow>(() => undefined));
+        card = renderCard();
+
+        // The figures it held are there at once rather than a skeleton...
+        expect(screenText(card)).toContain('80%');
+        // ...the cache-respecting read is still issued...
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(request.mock.calls[0]?.[1]).toEqual({});
+        // ...and inside our window it asks for no collection.
+        expect(forcedReads()).toHaveLength(0);
+    });
+
+    it('asks immediately on the first view after switching machines', async () => {
+        request.mockResolvedValue(collected(undefined, 100, '2026-09-22T15:00:00.000Z'));
+        let card = renderCard();
+        await tick();
+        expect(screenText(card)).toContain('0%');
+        expect(forcedReads()).toHaveLength(1);
+        TestRenderer.act(() => { card.unmount(); });
+
+        // Another machine is a different measurement: neither what we asked nor
+        // what we held for the first one may carry over.
+        connection.machineId = 'machine-two';
+        request.mockClear();
+        await tick(60_000);
+        card = renderCard();
+
+        expect(screenText(card)).not.toContain('0%');
+        await tick();
+        expect(forcedReads()).toHaveLength(1);
+        expect(request).toHaveBeenCalledTimes(2);
     });
 
     it('never takes figures off the screen to refresh them, and says plainly when it could not', async () => {
@@ -363,8 +407,10 @@ describe('the Home card read path', () => {
         await tick();
         for (let follow = 0; follow < 5; follow += 1) await tick(6_000);
 
-        // Six honest attempts, then it says so rather than collecting forever.
-        expect(request).toHaveBeenCalledTimes(6);
+        // Two asks open the burst -- the cache-respecting read and the
+        // collection it authorized -- then five follow-ups: it says so rather
+        // than collecting forever.
+        expect(request).toHaveBeenCalledTimes(7);
         expect(card.latest().failed).toBe(true);
         // The measured figures it did receive stay on screen behind that word.
         expect(card.latest().value?.vitals).toEqual(VITALS);
@@ -454,26 +500,6 @@ describe('the Home card read path', () => {
         await tick(6_000);
         expect(card.latest().value?.capturedAt).toBe('2026-09-22T10:20:00.000Z');
         expect(card.latest().refreshing).toBe(false);
-    });
-
-    it('does not restart a collecting burst from a cycle event, but a later cycle starts whole', async () => {
-        request.mockResolvedValue(COLLECTING);
-        const card = mount();
-        await tick();
-
-        // A foreground return lands mid-burst. It must not hand the burst a
-        // fresh budget -- and inside the window it asks nothing of its own --
-        // so the six attempts stay six.
-        TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
-        await tick();
-        for (let follow = 0; follow < 5; follow += 1) await tick(6_000);
-        expect(request).toHaveBeenCalledTimes(6);
-        expect(card.latest().failed).toBe(true);
-
-        // The burst has settled: the next cadence cycle gets its own budget.
-        await tick(FRESH_MS);
-        for (let follow = 0; follow < 5; follow += 1) await tick(6_000);
-        expect(request).toHaveBeenCalledTimes(12);
     });
 
     it('does not stack a cycle behind a read already in flight', async () => {
@@ -655,30 +681,46 @@ describe('the usage screen read path', () => {
     });
 
     it('does not spend a pending collection on a tab whose window has not opened', async () => {
-        // Both tabs were asked by an earlier visit: claude's window opens now,
-        // opencode's is minutes away. The screen opens on the default tab, whose
-        // read is still in flight when the reader taps the other one.
-        noteAsked('claude', Date.now() - FRESH_MS);
+        // Both tabs were asked by an earlier visit, so neither asks for a
+        // collection while the screen is opened and moved around.
+        noteAsked('claude', Date.now() - 60_000);
         noteAsked('opencode', Date.now() - 60_000);
+        let hanging = false;
         request.mockImplementation((_method: string, params?: { provider?: string }) => {
-            if (params?.provider === 'opencode') return Promise.resolve(report('opencode', 60));
-            if (params?.provider === 'claude') return Promise.resolve(report('claude', 60));
-            return new Promise<UsageReport>(() => undefined);
+            if (hanging && params?.provider === 'opencode') return new Promise<UsageReport>(() => undefined);
+            return Promise.resolve(report(params?.provider ?? 'claude', 60));
         });
+        const forcedProviders = () => forcedReads().map((call) => (call[1] as { provider?: string }).provider);
         const screen = renderScreen();
         await tick();
-
-        // Switching tabs mid-read collects nothing for the tab whose window has
-        // not opened...
-        press(screen, 'OpenCode');
-        await tick();
-        expect(forcedReads()).toHaveLength(0);
-
-        // ...and leaves that tab's window untouched: its own next ask collects.
         press(screen, 'Claude');
         await tick();
-        expect(forcedReads()).toHaveLength(1);
-        expect(forcedReads()[0]?.[1]).toMatchObject({ provider: 'claude' });
+        press(screen, 'OpenCode');
+        await tick();
+        press(screen, 'Claude');
+        await tick();
+        expect(forcedProviders()).toEqual([undefined]);
+
+        // opencode's window opens, and its cache-respecting read is in flight
+        // when the reader taps the other tab...
+        noteAsked('opencode', Date.now() - FRESH_MS);
+        hanging = true;
+        press(screen, 'OpenCode');
+        await tick();
+        press(screen, 'Claude');
+        await tick();
+
+        // ...and nothing is collected for it: the abandoned claim is spent, not
+        // handed to the tab that settled.
+        expect(forcedProviders()).toEqual([undefined]);
+
+        // Its own window is untouched, so its next ask still collects -- once
+        // the shared forced-read budget under it is free again.
+        await tick(11_000);
+        hanging = false;
+        press(screen, 'OpenCode');
+        await tick();
+        expect(forcedProviders()).toEqual([undefined, 'opencode']);
     });
 
     it('refreshes once per window against a host that reports no age at all', async () => {

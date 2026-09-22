@@ -17,9 +17,11 @@ import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
-import { FRESH_MS, collectionDue, noteAsked } from '../application/freshnessWindow';
+import { FRESH_MS, collectionDue, machineKey, noteAsked } from '../application/freshnessWindow';
 
-/** Screen payloads survive a close: reopening renders at once, then refreshes. */
+/** Screen payloads survive a close: reopening renders at once, then refreshes.
+ *  Keyed per machine as well as per tab, because another machine's figures are
+ *  not this one's. */
 const reportCache = new Map<string, UsageReport>();
 const MAX_CACHED_REPORTS = 16;
 
@@ -41,10 +43,10 @@ export function UsageScreen() {
     const routeParams = useLocalSearchParams<{ provider?: string }>();
     const requestedProvider = typeof routeParams.provider === 'string' ? routeParams.provider.slice(0, 32) : '';
     const [provider, setProvider] = React.useState(requestedProvider);
-    const [fetched, setFetched] = React.useState<{ key: string; value?: UsageReport }>(() => ({ key: provider, value: reportCache.get(provider) }));
+    const [fetched, setFetched] = React.useState<{ key: string; value?: UsageReport }>(() => ({ key: provider, value: reportCache.get(machineKey(provider)) }));
     const [error, setError] = React.useState<string>();
     const [refreshing, setRefreshing] = React.useState(false);
-    const [loading, setLoading] = React.useState(!reportCache.has(provider));
+    const [loading, setLoading] = React.useState(!reportCache.has(machineKey(provider)));
     // Any read in flight, including the quiet ones. It drives the hairline and
     // the refresh control, never the figures: what is on screen stays there
     // until a newer answer lands.
@@ -56,7 +58,7 @@ export function UsageScreen() {
     const rejected = React.useRef(false);
     rejected.current = error !== undefined;
 
-    const report = fetched.key === provider ? fetched.value : reportCache.get(provider);
+    const report = fetched.key === provider ? fetched.value : reportCache.get(machineKey(provider));
     const tabs = report?.providers ?? [];
 
     /** The tab a collection our own window authorized was authorized for, and
@@ -86,7 +88,7 @@ export function UsageScreen() {
         return sync.request('usage.report', { ...(target === '' ? {} : { provider: target }), ...(refresh ? { refresh: true } : {}) }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((value) => {
                 if (request !== version.current) return;
-                reportCache.set(target, value);
+                reportCache.set(machineKey(target), value);
                 while (reportCache.size > MAX_CACHED_REPORTS) reportCache.delete(reportCache.keys().next().value!);
                 setFetched({ key: target, value });
             })

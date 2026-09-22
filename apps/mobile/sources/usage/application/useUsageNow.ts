@@ -2,7 +2,7 @@ import * as React from 'react';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type UsageNow } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { forcedReadWait } from './forcedRead';
-import { FRESH_MS, collectionDue, noteAsked } from './freshnessWindow';
+import { FRESH_MS, collectionDue, lastKnownReading, noteAsked, rememberReading } from './freshnessWindow';
 import { useForegroundRefresh } from './useForegroundRefresh';
 
 /** The tab the card's read answers for: `usage.now` collects the default one,
@@ -45,7 +45,7 @@ export interface UsageNowRead {
  * failed one ever takes good figures off the screen.
  */
 export function useUsageNow(): UsageNowRead {
-    const [state, setState] = React.useState<{ value?: UsageNow; failed: boolean; refreshing: boolean }>({ failed: false, refreshing: false });
+    const [state, setState] = React.useState<{ value?: UsageNow; failed: boolean; refreshing: boolean }>(() => ({ value: lastKnownReading(READ_TAB), failed: false, refreshing: false }));
     const [throttledSeconds, setThrottledSeconds] = React.useState<number>();
     const version = React.useRef(0);
     const loading = React.useRef(false);
@@ -60,6 +60,9 @@ export function useUsageNow(): UsageNowRead {
     const shown = React.useRef<UsageNow | undefined>(undefined);
     const shownAt = React.useRef(0);
     if (shown.current !== state.value) { shown.current = state.value; shownAt.current = Date.now(); }
+    // What is on screen is what a remount should find, so the memory beside the
+    // ask record never lags the figures a reader was shown.
+    React.useEffect(() => { if (state.value !== undefined) rememberReading(READ_TAB, state.value); }, [state.value]);
 
     /**
      * `force` asks the host to collect past its cache; such a read claims our
@@ -85,7 +88,6 @@ export function useUsageNow(): UsageNowRead {
         const following = !force && collecting.current > 0;
         const replaced = following ? shown.current : undefined;
         const replacedAt = following ? shownAt.current : 0;
-        let painted = false;
         loading.current = true;
         const request = ++version.current;
         setState((current) => ({ ...current, refreshing: true }));
@@ -95,7 +97,6 @@ export function useUsageNow(): UsageNowRead {
                 // The host answered, so the last read was not rejected: whether
                 // it produced figures is a different question (`failed`).
                 rejected.current = false;
-                painted = result.collecting !== true;
                 // Only a newer payload, or an explicit failure, ends a read. The
                 // host's cache replays any same-day payload, so a follow-up can
                 // be answered by the very figures this read set out to replace:
@@ -147,14 +148,10 @@ export function useUsageNow(): UsageNowRead {
                     return;
                 }
                 // The figures the host already had have painted, so the one
-                // collection our own window authorized runs now. A cold answer
-                // means the host is already collecting for us: the burst below
-                // is following that up, and asking again would only join a
-                // collection already running.
+                // collection our own window authorized runs now.
                 const claimedAt = collectAfter.current;
                 if (claimedAt === undefined) return;
                 collectAfter.current = undefined;
-                if (!painted) return;
                 if (forcedReadWait(lastForced.current, rejected.current, Date.now()) !== undefined) return;
                 collecting.current = 0;
                 bursting.current = false;
@@ -197,15 +194,17 @@ export function useUsageNow(): UsageNowRead {
         // restart the burst's budget: bounded means bounded even across a focus.
         // Once the burst has settled this is a new cycle, and it starts whole.
         if (!bursting.current) collecting.current = 0;
-        // Inside our window a cycle asks nothing at all: the figures on screen
-        // are what that window's ask produced. Once it has passed the ask is
-        // ours -- noted here, at the instant we take it, whatever the answer
-        // turns out to be -- and the figures the host already holds paint first
-        // with the one collection running behind them.
+        // The read is issued on every mount, focus and foreground, and it is
+        // always cache-respecting: what the host already holds is what paints,
+        // and nothing holds that back. Our own per-machine window decides one
+        // thing only -- whether that read also asks the host to collect fresh --
+        // noted here, at the instant we take the decision, whatever the answer
+        // turns out to be.
         const now = Date.now();
-        if (!collectionDue(READ_TAB, now)) return;
-        noteAsked(READ_TAB, now);
-        collectAfter.current = now;
+        if (collectionDue(READ_TAB, now)) {
+            noteAsked(READ_TAB, now);
+            collectAfter.current = now;
+        }
         void load(false);
     }, [load]), FRESH_MS);
 
