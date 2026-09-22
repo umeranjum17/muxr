@@ -82,6 +82,10 @@ export function UsageScreen() {
                 // by name -- and swaps in place. The revalidation never chains.
                 if (value.stale === true && !staleRef.current) {
                     staleRef.current = true;
+                    // An automatic revalidation is a whole collection too, so
+                    // its budget is visible to the controls even though the
+                    // revalidation itself is never throttled.
+                    lastForced.current = Date.now();
                     void load(target, true).finally(() => { staleRef.current = false; });
                 } else {
                     staleRef.current = false;

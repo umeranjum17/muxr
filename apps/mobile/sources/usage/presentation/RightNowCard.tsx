@@ -119,21 +119,18 @@ function CardBody({ limit, line, quiet }: { limit?: UsageLimitsWindow; line: Rea
 }
 
 /**
- * The card's only chrome, and only when it has something to say: that the
- * figures above are old enough to mention, that a read is running behind them,
- * or that the last one failed. Each of those is exactly when someone would
- * want to ask again, so the line that says it is also the control that does
- * it. A card whose figures are current stays a card, not a toolbar.
+ * The card's refresh control, always present: a tap asks the host to collect
+ * now, past its cache, whether the figures are current, aging, refreshing or
+ * failed. The word beside the icon says what the last ask did -- how old the
+ * figures are, that a read is running, that it failed, or that the throttle
+ * refused this tap -- and is absent while the figures are current, so the
+ * control stays quiet chrome rather than a toolbar.
  */
 function FreshnessRow({ payload, failed, refreshing, throttledSeconds, onRefresh }: {
     payload: UsageNow; failed: boolean; refreshing: boolean; throttledSeconds?: number; onRefresh: () => void;
 }) {
     const { theme } = useUnistyles();
     const agedFor = disclosedAge(payload);
-    // A tap the throttle refused is said out loud, with when it can run: showing
-    // the refreshing state for a read that never started is the lie this line
-    // exists to avoid. A read that is running, or one that failed, is more
-    // current than that tap and speaks first.
     const word = refreshing
         ? t('plugins.rightNow.refreshing')
         : failed
@@ -141,20 +138,18 @@ function FreshnessRow({ payload, failed, refreshing, throttledSeconds, onRefresh
             : throttledSeconds !== undefined
                 ? t('plugins.rightNow.refreshThrottled', { seconds: throttledSeconds })
                 : agedFor === undefined ? undefined : t('components.sessionStatusBar.limitAsOf', { age: agedFor });
-    if (word === undefined) return null;
     const alarm = failed && !refreshing;
+    const tint = alarm ? theme.colors.textDestructive : withAlpha(theme.colors.textSecondary, refreshing ? 0.5 : 1);
     return (
         <Pressable onPress={onRefresh} disabled={refreshing} accessibilityRole="button"
-            accessibilityLabel={`${word}. ${t('plugins.rightNow.refreshNow')}`}
+            accessibilityLabel={word === undefined ? t('plugins.rightNow.refreshNow') : `${word}. ${t('plugins.rightNow.refreshNow')}`}
             // The numbers above never move for this: only the mark and the word
             // change, so a refresh is visible without anything being taken away.
             style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, paddingVertical: 4 }}>
-            <Ionicons name="refresh" size={12}
-                color={alarm ? theme.colors.textDestructive : withAlpha(theme.colors.textSecondary, refreshing ? 0.5 : 1)} />
-            <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 11.5, lineHeight: 15, ...Typography.mono('regular'),
-                color: alarm ? theme.colors.textDestructive : withAlpha(theme.colors.textSecondary, refreshing ? 0.5 : 1) }}>
+            <Ionicons name="refresh" size={12} color={tint} />
+            {word !== undefined && <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 11.5, lineHeight: 15, ...Typography.mono('regular'), color: tint }}>
                 {word}
-            </Text>
+            </Text>}
         </Pressable>
     );
 }

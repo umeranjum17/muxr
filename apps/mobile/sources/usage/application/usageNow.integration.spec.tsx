@@ -15,18 +15,35 @@ import type { UsageNow } from '@muxr/contract';
  * So this drives what was wrong and what replaced it: a cold answer is followed
  * up rather than kept, a host that never finishes is reported instead of waited
  * on forever, figures already on screen are never taken away to refresh them,
- * and nothing is read for a card nobody is looking at.
+ * and the refresh control a person presses is the one these taps go through.
  */
 
 const request = vi.fn();
 const appState = { currentState: 'active' as string, listeners: new Set<(next: string) => void>() };
+const theme = {
+    colors: {
+        text: '#fff',
+        textSecondary: '#999',
+        textDestructive: '#f55',
+        surfaceHigh: '#222',
+        surface: '#111',
+        accent: '#0af',
+        divider: '#333',
+        surfacePressed: '#333',
+        textLink: '#0af',
+        header: { tint: '#fff' },
+    },
+};
 
 vi.mock('@/catalog/sync', () => ({ sync: { request } }));
 vi.mock('expo-router', async () => {
     const react = await import('react');
     // The real one runs its effect while the screen is focused; the probe is
     // always focused, so an ordinary effect is the same contract here.
-    return { useFocusEffect: (callback: () => void | (() => void)) => react.useEffect(callback, [callback]) };
+    return {
+        useFocusEffect: (callback: () => void | (() => void)) => react.useEffect(callback, [callback]),
+        useRouter: () => ({ push: () => undefined }),
+    };
 });
 vi.mock('react-native', () => ({
     AppState: {
@@ -36,9 +53,26 @@ vi.mock('react-native', () => ({
             return { remove: () => appState.listeners.delete(listener) };
         },
     },
+    Pressable: 'Pressable',
+    Text: 'Text',
+    View: 'View',
 }));
+vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme }) }));
+vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+vi.mock('@/components/ui', () => ({
+    cardStyle: () => ({}),
+    Meter: 'Meter',
+    SectionLabel: 'SectionLabel',
+    withAlpha: () => '#000',
+}));
+vi.mock('@/components/AgentGlyph', () => ({ AgentGlyph: 'AgentGlyph' }));
+vi.mock('@/constants/Typography', () => ({ Typography: { mono: () => ({}), default: () => ({}) } }));
+vi.mock('@/plugins', () => ({ toneColor: () => '#000' }));
+vi.mock('@/plugins/ui', () => ({ VERDICT_KEYS: { limited: 'plugins.limits.limited' }, verdictTone: () => undefined }));
+vi.mock('@/text', () => ({ t: (key: string) => key }));
 
 const { useUsageNow } = await import('./useUsageNow');
+const { RightNowCard } = await import('../presentation/RightNowCard');
 
 const FRESH_MS = 15 * 60_000;
 const VITALS = { memoryUsed: 8, memoryTotal: 16, load1: 1.2, uptimeSeconds: 90_000 };
@@ -63,6 +97,36 @@ function mount() {
     TestRenderer.act(() => { TestRenderer.create(<Probe />); });
     return { seen, latest: () => seen[seen.length - 1]! };
 }
+
+function renderCard() {
+    let renderer: any;
+    TestRenderer.act(() => { renderer = TestRenderer.create(<RightNowCard />); });
+    return renderer!;
+}
+
+/** Press the card's own refresh control, the way a person reaches it. */
+function pressRefresh(renderer: any, label = 'plugins.rightNow.refreshNow') {
+    const control = renderer.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
+        && node.props?.disabled !== true
+        && typeof node.props?.accessibilityLabel === 'string'
+        && node.props.accessibilityLabel.endsWith(label))[0];
+    if (control === undefined) throw new Error('the card has no refresh control to press');
+    TestRenderer.act(() => { control.props.onPress(); });
+}
+
+const screenText = (renderer: any): string => renderer.root.findAllByType('Text')
+    .map((node: any) => (typeof node.props.children === 'string' ? node.props.children : ''))
+    .join(' ');
+
+/** Press any control by its label, for the card states that offer one. */
+function press(renderer: any, label: string) {
+    const control = renderer.root.findAll((node: any) => node.props?.accessibilityLabel === label && node.props?.onPress !== undefined)[0];
+    if (control === undefined) throw new Error(`no control labelled ${label}`);
+    TestRenderer.act(() => { control.props.onPress(); });
+}
+
+/** Every read that asked the host to collect past its cache. */
+const forcedReads = () => request.mock.calls.filter((call) => (call[1] as { refresh?: boolean } | undefined)?.refresh === true);
 
 /** Let the pending usage.now settle and any timer it armed come due. */
 async function tick(ms = 0) {
@@ -183,36 +247,81 @@ describe('the Home card read path', () => {
         expect(request).toHaveBeenCalledTimes(2);
     });
 
-    it('says a tap the throttle refused is throttled, and starts no read for it', async () => {
-        request.mockResolvedValue(collected());
+    it('accepts a genuinely newer payload whose age is larger than the one it replaces', async () => {
+        // The replaced figures were painted at age 3s; the collection the tap
+        // started answers six seconds later, so its capture is newer even
+        // though its age is larger. Comparing raw ages alone would discard it
+        // and exhaust the read into a false failure.
+        request.mockResolvedValueOnce(collected(3)).mockResolvedValueOnce(COLLECTING).mockResolvedValue(collected(6));
         const card = mount();
         await tick();
-        TestRenderer.act(() => { card.latest().refresh(); });
-        await tick();
-        const read = request.mock.calls.length;
 
-        // The second tap lands inside the window the first one claimed: it is
-        // told when it can run, and issues no cache-bypassing read of its own.
         TestRenderer.act(() => { card.latest().refresh(); });
         await tick();
-        expect(card.latest().throttledSeconds).toBeGreaterThan(0);
-        expect(request).toHaveBeenCalledTimes(read);
+        expect(card.latest().refreshing).toBe(true);
+
+        await tick(6_000);
+        expect(card.latest().value?.ageSeconds).toBe(6);
         expect(card.latest().refreshing).toBe(false);
+
+        const settled = request.mock.calls.length;
+        await tick(60_000);
+        expect(request).toHaveBeenCalledTimes(settled);
     });
 
-    it('lets a tap re-collect straight after a failure, inside the throttle window', async () => {
-        request.mockResolvedValueOnce(collected(FRESH_MS / 1_000 + 60)).mockRejectedValueOnce(new Error('host unreachable')).mockResolvedValue(collected());
-        const card = mount();
+    it('says a throttled tap is throttled when a person presses the card control', async () => {
+        request.mockResolvedValue(collected());
+        const card = renderCard();
         await tick();
-        TestRenderer.act(() => { card.latest().refresh(); });
+
+        // The first tap is honoured, past the host's cache.
+        pressRefresh(card);
+        await tick();
+        expect(forcedReads()).toHaveLength(1);
+        const read = request.mock.calls.length;
+
+        // The next tap lands inside the window the first claimed: it is told
+        // when it can run, and issues no cache-bypassing read of its own.
+        pressRefresh(card);
+        await tick();
+        expect(screenText(card)).toContain('plugins.rightNow.refreshThrottled');
+        expect(request.mock.calls.length).toBe(read);
+        expect(forcedReads()).toHaveLength(1);
+    });
+
+    it('lets a tap on the card control re-collect straight after a failure', async () => {
+        request.mockResolvedValueOnce(collected(FRESH_MS / 1_000 + 60)).mockRejectedValueOnce(new Error('host unreachable')).mockResolvedValue(collected());
+        const card = renderCard();
+        await tick();
+
+        pressRefresh(card);
         await tick(1_000);
-        expect(card.latest().failed).toBe(true);
+        expect(screenText(card)).toContain('plugins.rightNow.refreshFailed');
 
         // Someone already looking at an error is being told to try again: that
-        // tap always bypasses the cache, even one second after the last read.
-        TestRenderer.act(() => { card.latest().refresh(); });
+        // tap bypasses the cache, even one second after the last read.
+        pressRefresh(card);
         await tick();
+        expect(forcedReads()).toHaveLength(2);
+    });
+
+    it('runs a failed tap past the cache once the read already in flight settles', async () => {
+        request.mockRejectedValueOnce(new Error('host unreachable')).mockResolvedValue(collected());
+        const card = renderCard();
+        await tick();
+        // The first read failed with nothing to show, so the card offers a retry.
+        expect(screenText(card)).toContain('plugins.rightNow.unavailable');
+
+        // A background read starts behind that retry, and the tap lands while
+        // it is still in flight.
+        TestRenderer.act(() => { appState.listeners.forEach((listener) => listener('active')); });
+        press(card, 'plugins.rightNow.unavailable');
+        expect(forcedReads()).toHaveLength(0);
+
+        // It is not answered by that read: it runs past the cache the moment
+        // the read settles.
+        await tick();
+        expect(forcedReads()).toHaveLength(1);
         expect(request).toHaveBeenLastCalledWith('usage.now', { refresh: true }, expect.any(Number));
-        expect(request).toHaveBeenCalledTimes(3);
     });
 });
