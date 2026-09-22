@@ -92,6 +92,7 @@ fn select_x11(
     display: Option<&str>,
     max_width: usize,
     max_height: usize,
+    max_fps: u32,
     metrics: Arc<Mutex<Metrics>>,
     sink: capture::FrameSink,
 ) -> Result<Selected> {
@@ -118,9 +119,7 @@ fn select_x11(
         std::thread::Builder::new()
             .name("desklink-x11-capture".into())
             .spawn(move || {
-                // Roughly the frame rate a phone can use; the encoder's pacing is
-                // driven by the frames themselves, not by this loop.
-                let interval = Duration::from_millis(33);
+                let interval = frame_interval(max_fps);
                 let mut sequence = 0u64;
                 while !stop.load(Ordering::SeqCst) {
                     let started = Instant::now();
@@ -470,7 +469,7 @@ impl Session {
             x11,
         } = match request.source.clone() {
             Some(SourceRequest::X11 { display }) => {
-                select_x11(display.as_deref(), request.max_width, request.max_height, metrics.clone(), sink)
+                select_x11(display.as_deref(), request.max_width, request.max_height, request.max_fps, metrics.clone(), sink)
                     .map_err(|error| SessionError::new("source", format!("{error:#}")))?
             }
             _ => {
@@ -580,7 +579,7 @@ impl Session {
             first_frame: false,
         });
 
-        spawn_pipeline(&inner, frame_rx, pipeline);
+        spawn_pipeline(&inner, frame_rx, pipeline, request.max_fps);
         spawn_peer_events(&inner, peer_events_rx);
         spawn_lease(&inner, request.ttl.unwrap_or(Duration::from_secs(3600)));
 
@@ -652,7 +651,7 @@ impl Session {
         self.inner.revoked_reason()
     }
 
-    /// Stop everything and release whatever input this session held. Idempotent.
+    /// The source kind this session captures, e.g. `monitor`.
     pub fn restore_source(&self) -> String {
         self.inner.source.source_type.clone().unwrap_or_else(|| String::from("monitor"))
     }
@@ -1006,26 +1005,67 @@ impl Inner {
     }
 }
 
+/// The interval between frames at `max_fps`. The requested rate is a cap, so the
+/// pipeline and the X11 capture loop derive their cadence from the same rule.
+fn frame_interval(max_fps: u32) -> Duration {
+    Duration::from_secs_f64(1.0 / max_fps.max(1) as f64)
+}
+
+/// Caps the pipeline at the requested frame rate. One gate for both capture
+/// backends: a frame that arrives before its turn is dropped here, not encoded
+/// or sent.
+struct Pacer {
+    interval: Duration,
+    last: Option<Instant>,
+}
+
+impl Pacer {
+    fn new(max_fps: u32) -> Self {
+        Self {
+            interval: frame_interval(max_fps),
+            last: None,
+        }
+    }
+
+    /// The interval a frame arriving at `now` covers, or `None` when it is early
+    /// enough to drop.
+    fn due(&mut self, now: Instant) -> Option<Duration> {
+        if let Some(last) = self.last {
+            let elapsed = now.saturating_duration_since(last);
+            if elapsed < self.interval {
+                return None;
+            }
+            self.last = Some(now);
+            return Some(elapsed);
+        }
+        self.last = Some(now);
+        Some(self.interval)
+    }
+}
+
 /// Encode and send frames off the async runtime: libvpx blocks for the duration
 /// of a frame and the send is asynchronous, so a plain thread driving the
 /// runtime handle keeps both honest.
-fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: std_mpsc::Receiver<I420>, running: Arc<AtomicBool>) {
+fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: std_mpsc::Receiver<I420>, running: Arc<AtomicBool>, max_fps: u32) {
     let inner = inner.clone();
     let handle = tokio::runtime::Handle::current();
     std::thread::Builder::new()
         .name("desklink-encode".into())
         .spawn(move || {
-            let mut last = Instant::now();
+            let mut pacer = Pacer::new(max_fps);
             let mut first_frame_sent = false;
             while let Ok(frame) = frame_rx.recv() {
                 if !running.load(Ordering::Relaxed) {
                     break;
                 }
-                let now = Instant::now();
-                let duration = now
-                    .duration_since(last)
-                    .clamp(Duration::from_millis(8), Duration::from_millis(500));
-                last = now;
+                let Some(duration) = pacer.due(Instant::now()) else {
+                    // The capture is ahead of the requested cadence; the frame is
+                    // redundant, not an error.
+                    if let Ok(mut m) = inner.metrics.lock() {
+                        m.dropped_frames += 1;
+                    }
+                    continue;
+                };
 
                 let packet = {
                     let mut encoder = match inner.encoder.lock() {
@@ -1316,7 +1356,7 @@ mod tests {
         let (events, mut received) = tokio_mpsc::unbounded_channel();
         let (inner, _recorded) = test_inner(events).await;
         let (frame_tx, frame_rx) = std_mpsc::sync_channel::<I420>(2);
-        spawn_pipeline(&inner, frame_rx, Arc::new(AtomicBool::new(true)));
+        spawn_pipeline(&inner, frame_rx, Arc::new(AtomicBool::new(true)), 30);
 
         // The encoder is 64x64; a 32x32 frame is the dimension mismatch that
         // used to be counted and dropped behind a permanently black picture.
@@ -1346,5 +1386,44 @@ mod tests {
             "the reason is a stable token the client can map to copy",
         );
         assert!(inner.revoked_reason().is_some(), "the session is closed, not left black");
+    }
+
+    #[test]
+    fn the_pacer_drops_frames_that_arrive_faster_than_the_requested_rate() {
+        let mut pacer = Pacer::new(20);
+        let start = Instant::now();
+
+        assert_eq!(pacer.due(start), Some(frame_interval(20)), "the first frame is due");
+        assert!(pacer.due(start + Duration::from_millis(10)).is_none());
+        assert!(pacer.due(start + Duration::from_millis(45)).is_none());
+        assert_eq!(
+            pacer.due(start + Duration::from_millis(55)),
+            Some(Duration::from_millis(55)),
+            "the frame that is due covers the real interval",
+        );
+        assert!(pacer.due(start + Duration::from_millis(60)).is_none());
+    }
+
+    #[tokio::test]
+    async fn the_pipeline_emits_at_the_requested_rate_not_every_captured_frame() {
+        let (events, _events_rx) = tokio_mpsc::unbounded_channel();
+        let (inner, _recorded) = test_inner(events).await;
+        let (frame_tx, frame_rx) = std_mpsc::sync_channel::<I420>(64);
+        spawn_pipeline(&inner, frame_rx, Arc::new(AtomicBool::new(true)), 20);
+
+        // 40 frames over 200 ms is 200 fps; the requested 20 fps caps what leaves.
+        for _ in 0..40 {
+            let _ = frame_tx.try_send(I420 {
+                width: 64,
+                height: 64,
+                data: vec![128u8; 64 * 64 + 2 * 32 * 32],
+            });
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(80)).await;
+
+        let encoded = inner.metrics.lock().unwrap().encoded_frames;
+        assert!(encoded <= 12, "the requested rate is a cap, got {encoded} of 40");
+        assert!(encoded >= 2, "the pipeline must still emit frames, got {encoded}");
     }
 }
