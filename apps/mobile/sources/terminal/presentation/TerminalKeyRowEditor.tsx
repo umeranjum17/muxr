@@ -12,7 +12,7 @@ import { useLocalSettingMutable } from '@/catalog/store';
 import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, DEFAULT_ROW_IDS, TERMINAL_KEY_ROW_LIMIT, bytesToEscape, escapeToBytes, modifiedSend, resolveKeyRow, type RowEntry } from '../domain/keyRow';
 import { useReorderableList } from './useReorderableList';
 import { randomUUID } from 'expo-crypto';
-import { DEFAULT_QUICK_ACTIONS, quickActionErrors, quickActionSends, QUICK_ACTION_LABEL_LIMIT, QUICK_ACTION_LIMIT, QUICK_ACTION_TEXT_LIMIT, type QuickAction, type QuickActionKind } from '../domain/quickActions';
+import { DEFAULT_QUICK_ACTIONS, quickActionErrors, QUICK_ACTION_LABEL_LIMIT, QUICK_ACTION_LIMIT, QUICK_ACTION_TEXT_LIMIT, type QuickAction, type QuickActionKind } from '../domain/quickActions';
 
 /**
  * The terminal control grid: one dense, categorised sheet for everything the
@@ -27,7 +27,7 @@ export type ControlGridCategory = 'keys' | 'snippets' | 'recents' | 'appearance'
 
 const CATEGORIES: readonly { id: ControlGridCategory; label: string }[] = [
     { id: 'keys', label: 'Keys' },
-    { id: 'snippets', label: 'Snippets' },
+    { id: 'snippets', label: 'Replies and commands' },
     { id: 'recents', label: 'Recents' },
     { id: 'appearance', label: 'Appearance' },
     { id: 'keyboard', label: 'Keyboard' },
@@ -359,7 +359,6 @@ function SnippetsCategory({ actions, seed, onChange, closeForm }: {
     }
     return <View>
         <Text style={[styles.caption]}>Your replies and commands · a tap in the command palette sends one</Text>
-        <Text style={[styles.caption]}>Leave a {'{placeholder}'} in the text and a tap fills the prompt instead, so you can finish it first.</Text>
         {working.length === 0 && <Text style={[styles.caption]}>Nothing here. The command palette shows the agent&apos;s own commands only.</Text>}
         <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
             {working.map((action, index) => {
@@ -569,7 +568,6 @@ function ActionForm({ entry, onSave, onCancel }: {
     const [text, setText] = React.useState(entry?.text ?? '');
     const errors = quickActionErrors(label, text);
     const valid = errors.length === 0;
-    const sends = quickActionSends(text);
     // The same quiet segmented switch the key form uses for its own modes.
     const segment = (active: boolean) => [styles.gridChip, {
         backgroundColor: active ? theme.colors.surfaceHighest : 'transparent',
@@ -590,10 +588,6 @@ function ActionForm({ entry, onSave, onCancel }: {
         <TextInput value={label} onChangeText={setLabel} maxLength={QUICK_ACTION_LABEL_LIMIT} accessibilityLabel="Name" placeholder={kind === 'command' ? 'e.g. Compact' : 'e.g. Ship it'} placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider }]} />
         <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>What gets sent</Text>
         <TextInput value={text} onChangeText={setText} multiline maxLength={QUICK_ACTION_TEXT_LIMIT} autoCapitalize="none" autoCorrect={false} accessibilityLabel="Text to send" placeholder={kind === 'command' ? 'e.g. /compact' : 'What should be sent when this is tapped'} placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider, minHeight: 96, textAlignVertical: 'top' }]} />
-        <View style={[styles.sequence, { backgroundColor: theme.colors.surfaceHighest }]}>
-            <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>On tap</Text>
-            <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{sends ? 'Sends this straight to the agent.' : 'Fills the prompt, so the placeholder can be finished first.'}</Text>
-        </View>
         {errors.map((error) => <Text key={error} style={{ color: theme.colors.warningCritical, fontSize: 13, marginTop: 4 }}>{error}</Text>)}
         <View style={styles.formActions}>
             <Pressable onPress={onCancel} accessibilityRole="button" style={styles.customDone}><Text style={{ color: theme.colors.textSecondary }}>Cancel</Text></Pressable>

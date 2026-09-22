@@ -114,11 +114,12 @@ export function localSettingsParse(settings: unknown): LocalSettings {
 }
 
 /**
- * A device that only ever had the old insert-only snippet list keeps exactly
- * what it saw: the three seeds it was shown unconditionally, then its own
- * snippets. Nothing to carry over means the seeds alone, which is the same
- * null every fresh device starts from. Pure, so re-reading settings before the
- * next write lands on the same answer every time.
+ * A device that only ever had the old insert-only snippet list keeps every
+ * entry of its own, and the seeds fill only the room left over rather than
+ * pushing the person's last entries off the end. Nothing of their own to carry
+ * over means the seeds alone, which is the same null every fresh device starts
+ * from. Pure, so re-reading settings before the next write lands on the same
+ * answer every time.
  */
 function migratedQuickActions(legacy: unknown): QuickAction[] | null {
     if (!Array.isArray(legacy) || legacy.length === 0) return null;
@@ -130,7 +131,7 @@ function migratedQuickActions(legacy: unknown): QuickAction[] | null {
         return [{ id, kind: 'reply', label, text }];
     });
     if (carried.length === 0) return null;
-    return [...DEFAULT_QUICK_ACTIONS, ...carried].slice(0, QUICK_ACTION_LIMIT);
+    return [...carried, ...DEFAULT_QUICK_ACTIONS].slice(0, QUICK_ACTION_LIMIT);
 }
 
 //

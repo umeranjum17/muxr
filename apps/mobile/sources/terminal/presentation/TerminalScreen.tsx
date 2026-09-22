@@ -55,7 +55,8 @@ import { FloatingTerminalControls, RING_CENTER_SIZE, type RingSlot } from './Flo
 import { TerminalKeyRow } from './TerminalKeyRow';
 import { TerminalControlGrid, type ControlGridCategory } from './TerminalKeyRowEditor';
 import { DEFAULT_ROW_IDS, type RowEntry, type TerminalKeyAction } from '../domain/keyRow';
-import { quickActionSends, resolveQuickActions } from '../domain/quickActions';
+import { resolveQuickActions, type QuickAction } from '../domain/quickActions';
+import { quickActionCommand } from '../application/quickActionCommands';
 import { appendToDraft, clearDraftInsertion, consumeDraftInsertion } from '../application/draftInsertion';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
@@ -71,7 +72,7 @@ import { humanError } from '@/utils/errors';
 import { CommandPalette } from '@/components/CommandPalette';
 import type { Command } from '@/components/CommandPalette/types';
 import { CUSTOM_CATEGORY } from '@/components/CommandPalette/types';
-import { agentCommands, type AgentCommand } from '../domain/agentCommands';
+import { agentCommands, destructiveCommand, type AgentCommand } from '../domain/agentCommands';
 import { agentKindLabel } from '@/herd';
 import { t } from '@/text';
 import { FindOutputSheet } from './FindOutputSheet';
@@ -79,8 +80,6 @@ import { useTerminalQuickReplies } from '@/plugins/ui';
 
 /** What a reply row's primary tap really does, for replies that never send. */
 const INSERT_ONLY_LABEL = 'Inserts into the prompt, never sends.';
-/** The same, for an action still carrying a placeholder to finish. */
-const PLACEHOLDER_LABEL = 'Fills the prompt so the placeholder can be finished, never sends.';
 /** The editor row is the one Custom row that opens a sheet rather than typing. */
 const OPENS_EDITOR_LABEL = 'Opens the controls editor.';
 
@@ -539,41 +538,37 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             sendCommand(entry.command);
             return true;
         };
-        const toEntry = (entry: AgentCommand, category: string): Command => ({
-            id: entry.command,
-            title: entry.command,
-            hint: entry.arguments,
-            subtitle: entry.description,
-            destructive: entry.dangerous === true || undefined,
-            category,
-            action: entry.dangerous === true
-                ? () => sendDangerous(entry)
-                : () => {
-                    showGestureHintRef.current(t('commandPalette.sent', { command: entry.command }));
-                    sendCommand(entry.command);
-                },
-            secondaryAction: () => insertDraft(`${entry.command} `),
-        });
-        // The person's own actions are the same promise the slash rows make:
-        // a tap sends. The pencil beside every row is the way to fill the
-        // prompt instead, and text still carrying a {placeholder} takes that
-        // route on a plain tap too rather than going out half-written.
-        const toQuickAction = (action: { id: string; label: string; text: string }, category: string): Command => {
-            const sends = quickActionSends(action.text);
+        const toEntry = (entry: AgentCommand, category: string): Command => {
+            const asksFirst = destructiveCommand(paneKind, entry.command) !== undefined;
             return {
-                id: `quick:${action.id}`,
-                title: action.label,
+                id: entry.command,
+                title: entry.command,
+                hint: entry.arguments,
+                subtitle: entry.description,
+                destructive: asksFirst || undefined,
                 category,
-                action: sends
-                    ? () => {
-                        showGestureHintRef.current(t('commandPalette.sent', { command: action.label }));
-                        sendCommand(action.text);
-                    }
-                    : () => insertDraft(action.text),
-                ...(sends ? {} : { actionLabel: PLACEHOLDER_LABEL }),
-                secondaryAction: () => insertDraft(action.text),
+                action: asksFirst
+                    ? () => sendDangerous(entry)
+                    : () => {
+                        showGestureHintRef.current(t('commandPalette.sent', { command: entry.command }));
+                        sendCommand(entry.command);
+                    },
+                secondaryAction: () => insertDraft(`${entry.command} `),
             };
         };
+        // One policy for both routes: a command asks before sending because of
+        // its text, not because of where it was authored. The person's own
+        // actions send on tap; only one naming a destructive command asks the
+        // same question its catalogue row asks, and the pencil is the way to
+        // fill the prompt instead.
+        const toQuickAction = (action: QuickAction, category: string): Command =>
+            quickActionCommand(action, category, {
+                agentKind: paneKind,
+                sentHint: (label) => showGestureHintRef.current(t('commandPalette.sent', { command: label })),
+                send: sendCommand,
+                confirmDangerous: sendDangerous,
+                insert: insertDraft,
+            });
         const entries: Command[] = [
             // Replies live in the slash catalogue, at the top, so the canned
             // prompts have one home with the commands (report §8).
@@ -1611,10 +1606,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Edit terminal keys</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>}
-                                    {canControl && <Pressable onPress={() => { setActionsOpen(false); setControlGrid({ open: true, category: 'snippets' }); }} accessibilityRole="button" accessibilityLabel="Edit quick replies"
+                                    {canControl && <Pressable onPress={() => { setActionsOpen(false); setControlGrid({ open: true, category: 'snippets' }); }} accessibilityRole="button" accessibilityLabel="Edit replies and commands"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="chatbubbles-outline" size={18} color={theme.colors.textSecondary} />
-                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Edit quick replies</Text>
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Edit replies and commands</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>}
                                     {viewControls.commands.map((command) => (

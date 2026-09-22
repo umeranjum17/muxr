@@ -47,16 +47,6 @@ export function resolveQuickActions(stored: readonly QuickAction[] | null | unde
     return [...stored];
 }
 
-/**
- * Whether a tap on this action sends it. Text still carrying a {placeholder}
- * is not finished, so it lands in the prompt with the keyboard up instead of
- * going out half-written. Every action can be filled rather than sent through
- * the row's own edit control, so this rule only picks what a plain tap means.
- */
-export function quickActionSends(text: string): boolean {
-    return !/\{[^{}\n]+\}/.test(text);
-}
-
 /** Human-readable reasons an action would be rejected; empty means it may save. */
 export function quickActionErrors(label: string, text: string): string[] {
     const errors: string[] = [];

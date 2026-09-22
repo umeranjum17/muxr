@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { appendToDraft, clearDraftInsertion, consumeDraftInsertion, requestDraftInsertion } from './draftInsertion';
-import { DEFAULT_QUICK_ACTIONS, quickActionErrors, quickActionSends, resolveQuickActions, QUICK_ACTION_LABEL_LIMIT, QUICK_ACTION_LIMIT, QUICK_ACTION_TEXT_LIMIT } from '../domain/quickActions';
+import { quickActionCommand } from './quickActionCommands';
+import { quickActionErrors, resolveQuickActions, QUICK_ACTION_LABEL_LIMIT, QUICK_ACTION_LIMIT, QUICK_ACTION_TEXT_LIMIT, type QuickAction } from '../domain/quickActions';
+import type { AgentCommand } from '../domain/agentCommands';
 import { localSettingsParse } from '@/catalog/application/localSettings';
 
 /**
@@ -8,8 +10,8 @@ import { localSettingsParse } from '@/catalog/application/localSettings';
  * rides the one-shot handoff into a mounted terminal's nonempty draft with its
  * exact bytes, a stale or vanished target drops it, and nothing in that path
  * can send — only an explicit Send ever touches the wire. Quick actions are
- * the deliberate exception: a tap on one of the person's own actions sends it,
- * and this file pins which taps send and which still only fill the prompt.
+ * the deliberate exception: a tap sends whatever the text holds, and only a
+ * destructive command asks first.
  */
 
 const SESSION = 'session-1';
@@ -76,15 +78,33 @@ describe('quick actions are the person\'s own, removable, and send on tap', () =
         expect(quickActionErrors('x'.repeat(QUICK_ACTION_LABEL_LIMIT), 'x'.repeat(QUICK_ACTION_TEXT_LIMIT))).toEqual([]);
     });
 
-    it('sends a finished action on tap and only fills the prompt for an unfinished one', () => {
-        // Every seed is finished text, so every one of them sends on a tap.
-        for (const action of DEFAULT_QUICK_ACTIONS) expect(quickActionSends(action.text)).toBe(true);
-        expect(quickActionSends('/compact')).toBe(true);
-        // A placeholder still to complete is the one case that fills instead.
-        expect(quickActionSends('Review {file} and report back.')).toBe(false);
-        expect(quickActionSends('/review {instructions}')).toBe(false);
-        // Braces that are not a placeholder are ordinary text and still send.
-        expect(quickActionSends('Return {} when empty.')).toBe(true);
+    it('sends on a tap whatever the text holds, and asks first only for a destructive command', () => {
+        const calls: string[] = [];
+        const palette = {
+            agentKind: 'claude',
+            sentHint: (label: string) => calls.push(`hint:${label}`),
+            send: (text: string) => calls.push(`send:${text}`),
+            confirmDangerous: (entry: AgentCommand) => calls.push(`confirm:${entry.command}`),
+            insert: (text: string) => calls.push(`insert:${text}`),
+        };
+        const row = (action: QuickAction): ReturnType<typeof quickActionCommand> => quickActionCommand(action, 'Common replies', palette);
+
+        // Braces are ordinary text: a tap sends the action, it never fills.
+        row({ id: 'a', kind: 'reply', label: 'Review', text: 'Review {file} and report back.' }).action();
+        expect(calls).toEqual(['hint:Review', 'send:Review {file} and report back.']);
+
+        // A personal action naming a destructive command is the catalogue row
+        // for it: marked destructive, and confirmed before anything is sent.
+        calls.length = 0;
+        const clear = row({ id: 'b', kind: 'command', label: 'Clear', text: '/clear' });
+        expect(clear.destructive).toBe(true);
+        clear.action();
+        expect(calls).toEqual(['confirm:/clear']);
+
+        // An ordinary command still goes out on the first tap.
+        calls.length = 0;
+        row({ id: 'c', kind: 'command', label: 'Compact', text: '/compact' }).action();
+        expect(calls).toEqual(['hint:Compact', 'send:/compact']);
     });
 
     it('seeds a new device, lets every seed be removed, and survives a bad list', () => {
@@ -105,11 +125,21 @@ describe('quick actions are the person\'s own, removable, and send on tap', () =
         ];
         expect(localSettingsParse({ terminalQuickActions: stored }).terminalQuickActions).toEqual(stored);
 
-        // A device that only ever had the old insert-only snippets keeps what
-        // it saw: the seeds it was shown unconditionally, then its own.
+        // A device that only ever had the old insert-only snippets keeps every
+        // entry of its own, and the seeds fill only the room left over rather
+        // than pushing the person's last entries off the end.
         const migrated = localSettingsParse({ terminalQuickReplies: [{ id: 'old', label: 'Ship it', text: 'Ship it when green.' }] }).terminalQuickActions;
-        expect(migrated?.map((action) => action.label)).toEqual(['Continue', 'Run tests', 'Summarize', 'Ship it']);
+        expect(migrated?.map((action) => action.label)).toEqual(['Ship it', 'Continue', 'Run tests', 'Summarize']);
         expect(migrated?.every((action) => action.kind === 'reply')).toBe(true);
+
+        // A device at the old cap keeps all of its own entries and none of the
+        // seeds: losing the person's own data to make room for the seeds would
+        // be unrecoverable once the next write replaces the legacy list.
+        const legacy = Array.from({ length: QUICK_ACTION_LIMIT }, (_, i) => ({ id: `old${i}`, label: `old${i}`, text: 't' }));
+        const atCap = localSettingsParse({ terminalQuickReplies: legacy }).terminalQuickActions;
+        expect(atCap).toHaveLength(QUICK_ACTION_LIMIT);
+        expect(atCap?.map((action) => action.id)).toEqual(legacy.map((entry) => entry.id));
+        expect(atCap?.some((action) => action.id.startsWith('seed-'))).toBe(false);
 
         // A bad edit never strands the device: an over-cap or malformed list
         // falls back to the seeds, and costs nothing else that was stored.
