@@ -43,11 +43,13 @@ const PACKAGE = 'com.trymuxr.app';
 /** The terminal surface publishes this name and no internal id; see TerminalView. */
 const TERMINAL_SURFACE = 'Terminal surface';
 const CONNECTING_PILL = /text="(still connecting|connecting)"/;
+const RETRY_PILL = /content-desc="(Reconnect terminal|Use this terminal here)/;
 // Every pill TerminalScreen paints over the surface while the pane is not
 // live: the two connecting copies, the unconfirmed copy, and the retry pill it
-// shows for every other status. The terminal surface label sits under all of
-// them, so arrival is "surface and no status pill".
-const STATUS_PILL = /text="(still connecting|connecting|Connection unconfirmed)"|content-desc="Reconnect terminal/;
+// shows for every other status, including the takeover copy another client's
+// attach earns. The terminal surface label sits under all of them, so arrival
+// is "surface and no status pill".
+const STATUS_PILL = new RegExp(`text="(still connecting|connecting|Connection unconfirmed|Open on another device)|${RETRY_PILL.source}`);
 const MAX_SECONDS = 600;
 
 function parseArgs(argv) {
@@ -234,7 +236,7 @@ async function main() {
                 marks.push({
                     atSeconds: at,
                     pill: (CONNECTING_PILL.exec(screen) ?? [])[1] ?? null,
-                    retryOffered: /content-desc="Reconnect terminal/.test(screen),
+                    retryOffered: RETRY_PILL.test(screen),
                     terminalPresent: screen.includes(TERMINAL_SURFACE),
                 });
             }
