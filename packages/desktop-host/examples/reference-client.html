@@ -133,16 +133,14 @@ video.addEventListener('pointerdown', (event) => {
     // A second finger makes this a scroll gesture; release anything the drag
     // already pressed, and never turn the lift into a click.
     if (gesture?.dragging) {
-      const at = point(event);
-      if (at !== null) sendPointer('up', at.x, at.y, 1);
-      else sendPointer('cancel', gesture.at.x, gesture.at.y);
+      sendPointer('up', gesture.current.x, gesture.current.y, 1);
     }
     gesture = null;
     return;
   }
   const at = point(event);
   if (at === null) return;
-  gesture = { startX: event.clientX, startY: event.clientY, at, dragging: false, pointerId: event.pointerId };
+  gesture = { startX: event.clientX, startY: event.clientY, at, current: at, dragging: false, pointerId: event.pointerId };
   sendPointer('move', at.x, at.y);
 });
 video.addEventListener('pointermove', (event) => {
@@ -153,7 +151,10 @@ video.addEventListener('pointermove', (event) => {
     gesture.dragging = true;
   }
   const at = point(event);
-  if (gesture.dragging && at !== null) sendPointer('move', at.x, at.y, 1);
+  if (gesture.dragging && at !== null) {
+    sendPointer('move', at.x, at.y, 1);
+    gesture.current = at;
+  }
 });
 for (const name of ['pointerup', 'pointercancel']) {
   video.addEventListener(name, (event) => {

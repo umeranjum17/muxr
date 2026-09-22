@@ -34,6 +34,8 @@ interface WebSession {
     dragging: boolean;
     downX: number;
     downY: number;
+    dragX: number;
+    dragY: number;
     lastScrollY: number;
     pointers: number;
     /** True once the active gesture became two-finger, so its end is not a tap. */
@@ -152,9 +154,7 @@ function attachGestures(session: WebSession): () => void {
         // A second finger makes this a scroll: release anything the drag already
         // pressed and stop driving the pointer.
         if (session.dragging) {
-            const at = surfacePoint(session, event.clientX, event.clientY);
-            if (at !== null) control(session, { kind: 'pointer', phase: 'up', x: at.x, y: at.y, button: 1, seq: seq(session) });
-            else control(session, { kind: 'pointer', phase: 'cancel', x: 0, y: 0, seq: seq(session) });
+            control(session, { kind: 'pointer', phase: 'up', x: session.dragX, y: session.dragY, button: 1, seq: seq(session) });
             session.dragging = false;
         }
         session.pointers += 1;
@@ -177,11 +177,17 @@ function attachGestures(session: WebSession): () => void {
             const start = surfacePoint(session, session.downX, session.downY);
             if (start === null) return;
             control(session, { kind: 'pointer', phase: 'down', x: start.x, y: start.y, button: 1, seq: seq(session) });
+            session.dragX = start.x;
+            session.dragY = start.y;
             session.dragging = true;
         }
         if (session.dragging) {
             const at = surfacePoint(session, event.clientX, event.clientY);
-            if (at !== null) control(session, { kind: 'pointer', phase: 'move', x: at.x, y: at.y, button: 1, seq: seq(session) });
+            if (at !== null) {
+                control(session, { kind: 'pointer', phase: 'move', x: at.x, y: at.y, button: 1, seq: seq(session) });
+                session.dragX = at.x;
+                session.dragY = at.y;
+            }
         }
     };
 
@@ -342,6 +348,8 @@ export const nativeDesklink: NativeDesklinkModule = {
             dragging: false,
             downX: 0,
             downY: 0,
+            dragX: 0,
+            dragY: 0,
             lastScrollY: 0,
             pointers: 0,
             multiPointer: false,
