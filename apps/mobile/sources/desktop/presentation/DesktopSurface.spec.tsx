@@ -49,16 +49,20 @@ import { DesktopSurface } from './DesktopSurface';
 it('hides both clipboard actions unless the captured desktop supports them', async () => {
     available = false;
     let view!: ReturnType<typeof TestRenderer.create>;
+    const root = () => view.root as {
+        findAllByProps(props: { accessibilityLabel: string }): unknown[];
+        findByProps(props: { accessibilityLabel: string }): { props: { onPress(): void } };
+    };
     await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface onExit={() => undefined} />); });
-    expect(view.root.findAllByProps({ accessibilityLabel: 'Clipboard' })).toHaveLength(0);
-    expect(view.root.findAllByProps({ accessibilityLabel: 'Copy to Phone' })).toHaveLength(0);
-    expect(view.root.findAllByProps({ accessibilityLabel: 'Paste from Phone' })).toHaveLength(0);
+    expect(root().findAllByProps({ accessibilityLabel: 'Clipboard' })).toHaveLength(0);
+    expect(root().findAllByProps({ accessibilityLabel: 'Copy to Phone' })).toHaveLength(0);
+    expect(root().findAllByProps({ accessibilityLabel: 'Paste from Phone' })).toHaveLength(0);
     await TestRenderer.act(async () => view.unmount());
 
     available = true;
     await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface onExit={() => undefined} />); });
-    await TestRenderer.act(async () => view.root.findByProps({ accessibilityLabel: 'Clipboard' }).props.onPress());
-    expect(view.root.findAllByProps({ accessibilityLabel: 'Copy to Phone' })).toHaveLength(1);
-    expect(view.root.findAllByProps({ accessibilityLabel: 'Paste from Phone' })).toHaveLength(1);
+    await TestRenderer.act(async () => root().findByProps({ accessibilityLabel: 'Clipboard' }).props.onPress());
+    expect(root().findAllByProps({ accessibilityLabel: 'Copy to Phone' })).toHaveLength(1);
+    expect(root().findAllByProps({ accessibilityLabel: 'Paste from Phone' })).toHaveLength(1);
     await TestRenderer.act(async () => view.unmount());
 });

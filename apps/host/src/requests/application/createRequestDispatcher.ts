@@ -141,7 +141,7 @@ function fromUseCase(requestId: string, result: UseCaseResult<unknown>): Request
 }
 
 export function createRequestDispatcher(options: RequestDispatcherOptions): {
-    dispatch(request: ClientRequest, authenticatedSenderId?: string): Promise<RequestResponse>;
+    dispatch(request: ClientRequest, authenticatedSenderId?: string, connectionId?: string): Promise<RequestResponse>;
 } {
     const { source, domain, machineId, hostVersion } = options;
 

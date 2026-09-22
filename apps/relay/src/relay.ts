@@ -1246,8 +1246,12 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 sessionOwner.set(envelope.header.sessionId, envelope.header.machineId);
             }
             if (config.developmentApi && peer.role === 'machine' && settlePushAction(envelope)) return;
+            if (peer.role === 'client') {
+                if (peer.connectionId === undefined) return;
+                envelope = { ...envelope, header: { ...envelope.header, connectionId: peer.connectionId } };
+            }
             routeEnvelope(
-                peer.role === 'client' ? { ...envelope, header: { ...envelope.header, connectionId: peer.connectionId } } : envelope,
+                envelope,
                 peer,
                 peers,
                 offline,
