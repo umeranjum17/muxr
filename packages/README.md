@@ -9,14 +9,14 @@ The name is deliberate. **Contract** says callers depend on an enforced cross-pr
 `@muxr/crypto` similarly provides one shared implementation of E2EE envelopes, authenticated context, replay rejection, and device/peer grant rules for the endpoints that seal or open payloads. The relay does not import it: the relay routes on envelope headers while encrypted payloads remain opaque, so it does not own keys, open payloads, or enforce replay and grant policy.
 
 `@desklink/host` and `@desklink/react-native` are a different kind of tenant: a
-standalone, reusable remote-desktop engine and its React Native client, written
-to be extracted into their own project. They are Apache-2.0, they are not part
-of the packed CLI artifact, and **no application concept may enter their public
-surface** — no machine id, account, pane, chat or pairing blob. muxr is an
-ordinary consumer: `apps/host/src/desktop` owns the engine process and
-`apps/mobile/sources/desktop` wires the conversation surface. Their contract is
-`packages/desktop-host/docs/PROTOCOL.md`; their boundary and reuse decisions are
-in `packages/desktop-host/docs/BOUNDARY.md`.
+standalone, reusable remote-desktop engine and its React Native client, written to
+be extracted into their own project. They are Apache-2.0, and **no application
+concept may enter their public surface** — no machine id, account, pane, chat or
+pairing blob. muxr is an ordinary consumer: `apps/host/src/desktop` owns the
+engine process, `apps/mobile/sources/desktop` wires the conversation surface, and
+`docs/license-inventory.md` owns what the published artifact does and does not
+carry from them. Their contract is `packages/desktop-host/docs/PROTOCOL.md`; their
+boundary and reuse decisions are in `packages/desktop-host/docs/BOUNDARY.md`.
 
 Navigate by intent in [USE_CASES.md](./USE_CASES.md). Glossary: [CONTEXT.md](../CONTEXT.md). Contributor rules: [CONTRIBUTING.md](../CONTRIBUTING.md).
 
@@ -40,9 +40,11 @@ packages/
     index.ts                         public barrel
     selfCheck.ts
     e2ee/{index.ts,domain/,application/,infrastructure/}
+  desktop-host/{bin,src,docs,engine}  engine, its Rust crate, its protocol and boundary
+  desktop-client/{src,android}        React Native session and view (iOS deferred)
 ```
 
-No presentation layer: these packages have no React or controllers. Application exists only for named operations the package owns. There is no `services/` folder. `issueWsTicket` stays infrastructure because it uses HTTP.
+No presentation layer in `contract` and `crypto`: no React or controllers. Application exists only for named operations the package owns. There is no `services/` folder. `issueWsTicket` stays infrastructure because it uses HTTP.
 
 Dependency direction: domain is pure TypeScript; application may import same-module domain and infrastructure; infrastructure may import same-module domain; a module may import another module only through its `index.ts`. Contract never imports crypto. `packages/checkArchitecture.mjs` rejects the reverse, nested ternaries, fake DDD types, and new import cycles between modules.
 

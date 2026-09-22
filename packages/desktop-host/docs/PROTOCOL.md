@@ -144,7 +144,8 @@ opaque and local to this process's lifetime — it is not a portable identity.
   "max_fps": 30,
   "ice_servers": [{"urls":["stun:..."],"username":null,"credential":null}],
   "relay_only": false,                  // true keeps ICE to relay candidates
-  "restore_token": null                 // from a previous session.restoreToken
+  "restore_token": null,                // from a previous session.restoreToken
+  "ttl_seconds": 3600                  // session lease; default 3600
 }}
 ```
 
@@ -272,7 +273,7 @@ The engine answers on the same channel:
 {"kind":"hello","protocol":1,"geometry":{…}}     // once, when the channel opens
 {"kind":"ack","seq":44}
 {"kind":"rejected","seq":44,"code":"coordinates","message":"(9000,4) is outside the 1280x720 surface"}
-{"kind":"clipboard","request":"…","text":"…"}     // or "error" instead of "text"
+{"kind":"clipboard","request":"…","text":"…"}     // "error" alongside an empty "text" when the read failed
 {"kind":"revoked","reason":"…"}
 ```
 

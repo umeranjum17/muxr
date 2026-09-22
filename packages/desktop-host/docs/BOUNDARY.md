@@ -50,9 +50,10 @@ local gestures into that session's input".
   pairing blob, a machine id or a token format, and never persists one.
 - Platform files: `.native.ts` uses WebRTC through the app's existing native
   binding; `.web.ts` uses the browser's own `RTCPeerConnection`, so the same
-  screen works in the PWA. `[open]` whether the browser shim can share the whole
-  gesture/readiness layer or needs its own; that is decided by the first real
-  PWA journey, not assumed.
+  screen works in the PWA. `[decided]` the browser shim shares the
+  readiness/state layer (`useDesktopSession`) and carries its own gesture layer
+  in `src/native.web.ts`, exactly as the native view does; observed on an owned
+  display, not on the phone journey.
 
 ## What the consumer (this application) keeps
 

@@ -18,7 +18,7 @@ mod protocol;
 mod session;
 mod x11;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use protocol::{ErrorBody, Event, Request, Response};
 use std::sync::mpsc as std_mpsc;
 use std::time::Duration;

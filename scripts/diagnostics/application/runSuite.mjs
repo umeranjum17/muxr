@@ -12,7 +12,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { desktopEnginePlan } from './desktopEnginePrereqs.mjs';
+import { desktopEnginePlan } from './checkDesktopEnginePrereqs.mjs';
 
 // The herdr check drives a live herdr server through the real host. Without one
 // it burns its timeout and reports a misleading failure, so detect and skip.
@@ -39,7 +39,7 @@ const checks = [
     // Its native prerequisites are not provisioned here, so the loop checks them
     // first and skips loudly by name instead of failing as a code break.
     ['unit: desktop engine (cargo test: check + its own tests)', 'cargo', ['test', '--manifest-path', 'packages/desktop-host/engine/Cargo.toml'], 'desktop-engine', 1800000],
-    ['unit: desktop engine prerequisites detector (skip vs run)', 'node', ['scripts/diagnostics/application/desktopEnginePrereqs.selfcheck.mjs']],
+    ['unit: desktop engine prerequisites detector (skip vs run)', 'node', ['scripts/diagnostics/application/checkDesktopEnginePrereqs.selfcheck.mjs']],
     ['policy: host/relay architecture', 'npx', ['vitest', 'run', 'apps/host/src/architecture.test.ts', 'apps/relay/src/architecture.test.ts']],
     // The load-test flows carry their own generous per-test budgets; the step
     // kill must stay well above them or it SIGKILLs a healthy run first.

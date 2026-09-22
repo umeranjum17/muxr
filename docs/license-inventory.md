@@ -30,9 +30,10 @@ under an earlier license keep the rights that accompanied those copies.
 
 ## Published artifact
 
-`pack.mjs` bundles `apps/host` plus the muxr contract and crypto workspaces,
-and also bundles the relay entry (`apps/relay/dist/main.js`) so `muxr self-host`
-can run from the packed CLI. It declares these external runtime packages:
+`pack.mjs` bundles `apps/host` plus the muxr contract, crypto and desklink-host
+workspaces, and also bundles the relay entry (`apps/relay/dist/main.js`) so
+`muxr self-host` can run from the packed CLI. It declares these external runtime
+packages:
 
 | Package | License | Native binary | Distribution |
 |---|---|---:|---|

@@ -907,7 +907,7 @@ impl Inner {
         if text.len() > 4096 {
             return Err(("text-too-large", String::from("text exceeds 4096 bytes")));
         }
-        let mut layout = self
+        let layout = self
             .layout
             .lock()
             .map_err(|_| ("session", String::from("no keyboard layout")))?;

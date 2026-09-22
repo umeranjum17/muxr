@@ -16,7 +16,7 @@ use wl_clipboard_rs::paste::{ClipboardType, MimeType as PasteMime, Seat};
 pub const MAX_CLIPBOARD_BYTES: usize = 256 * 1024;
 
 pub fn read() -> Result<String> {
-    let mut options = wl_clipboard_rs::paste::get_contents(
+    let options = wl_clipboard_rs::paste::get_contents(
         ClipboardType::Regular,
         Seat::Unspecified,
         PasteMime::Text,

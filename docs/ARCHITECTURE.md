@@ -101,8 +101,9 @@ exist.
 
 **The host owns**: the translation (herdr socket ⇄ app contract), stable session
 ids (herdr pane ids change on cross-workspace moves), the attention/inbox
-derivation, plugin RPC execution, attachment files on disk, and push triggers. It
-manages no processes and keeps no lifecycle ledger — a closed pane simply
+derivation, plugin RPC execution, attachment files on disk, push triggers, and the
+on-demand desktop engine process it starts and stops for one authorized session. It
+manages no agent processes and keeps no lifecycle ledger — a closed pane simply
 disappears from the app.
 
 **The relay core owns**: envelope routing by header, one-use scoped tickets,

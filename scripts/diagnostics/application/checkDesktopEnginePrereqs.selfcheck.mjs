@@ -9,7 +9,7 @@
  */
 import assert from 'node:assert/strict';
 
-import { DESKTOP_ENGINE_PREREQUISITES, desktopEnginePlan } from './desktopEnginePrereqs.mjs';
+import { DESKTOP_ENGINE_PREREQUISITES, desktopEnginePlan } from './checkDesktopEnginePrereqs.mjs';
 
 assert.ok(DESKTOP_ENGINE_PREREQUISITES.length > 0, 'the gate must have prerequisites to check');
 
