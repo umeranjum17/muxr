@@ -6,8 +6,8 @@
  * edit rather than three.
  */
 export const desktopCopy = {
-    startingTitle: 'Opening this computer…',
-    startingBody: 'Your desktop will appear here. Nothing on it is being recorded.',
+    startingTitle: 'Starting desktop…',
+    startingBody: undefined,
     reconnectingTitle: 'Reconnecting…',
     reconnectingBody: 'The desktop connection dropped. Trying once more.',
     failedTitle: "Couldn't open this computer",

@@ -1,5 +1,7 @@
 import * as React from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { useKeyboardState } from 'react-native-keyboard-controller';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -9,7 +11,6 @@ import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { ui } from '@/components/ui';
 import { sync } from '@/catalog';
-import { Modal } from '@/modal';
 import { createDesktopSignaling } from '../application/desktopSignaling';
 import { desktopCopy } from '../model/desktopCopy';
 import { describeDesktopOverlay } from '../model/desktopOverlay';
@@ -34,6 +35,9 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
     const [notice, setNotice] = React.useState<string | null>(null);
     const [keyboardOpen, setKeyboardOpen] = React.useState(false);
     const [clipboardAvailable, setClipboardAvailable] = React.useState(false);
+    const [clipboardOpen, setClipboardOpen] = React.useState(false);
+    const keyboard = useKeyboardState();
+    const insets = useSafeAreaInsets();
 
     const session = useDesktopSession({
         // Ask the host what it can actually do before requesting scope: a host
@@ -54,16 +58,20 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
         onError: (failure) => setNotice(failure.message),
     });
 
-    const { connect, close, snapshot } = session;
+    const { connect, close, snapshot, releaseHeld, hideKeyboard } = session;
 
     // Opening is a user action: this screen is on screen because the user asked
     // for the desktop, and the host still has to consent to the capture.
     React.useEffect(() => {
         void connect();
         return () => {
+            releaseHeld();
+            hideKeyboard();
             void close('left the desktop');
         };
-    }, [connect, close]);
+    }, [connect, close, releaseHeld, hideKeyboard]);
+
+    React.useEffect(() => setKeyboardOpen(keyboard.isVisible), [keyboard.isVisible]);
 
     const toggleKeyboard = React.useCallback(() => {
         if (keyboardOpen) {
@@ -105,23 +113,28 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
         }
     }, [session]);
 
-    const leave = React.useCallback(() => {
-        session.releaseHeld();
-        void close('returned to the conversation');
-        onExit();
-    }, [close, onExit, session]);
+    React.useEffect(() => {
+        if (Platform.OS !== 'android') return;
+        const back = BackHandler.addEventListener('hardwareBackPress', () => {
+            if (clipboardOpen) setClipboardOpen(false);
+            else onExit();
+            return true;
+        });
+        return () => back.remove();
+    }, [clipboardOpen, onExit]);
 
     const status = describeDesktopOverlay(snapshot);
     const live = snapshot.status === 'live';
     const clipboardUnavailable = live && !clipboardAvailable;
-    const shownNotice = notice ?? (clipboardUnavailable ? desktopCopy.clipboardUnavailable : null);
+    const shownNotice = live ? notice ?? (clipboardUnavailable ? desktopCopy.clipboardUnavailable : null) : null;
+    const buttonBottom = keyboard.isVisible ? 12 : Math.max(insets.bottom, 8) + 12;
 
     return (
-        <View style={[styles.screen, { backgroundColor: theme.colors.groupped.background }]}>
+        <View style={styles.screen}>
             <View style={styles.body}>
                 <DesktopView sessionId={session.nativeId} style={styles.surface} />
                 {!live && (
-                    <View style={[styles.overlay, { backgroundColor: theme.colors.groupped.background }]}>
+                    <View style={styles.overlay}>
                         {status.spinner && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
                         <Text style={[styles.overlayTitle, { color: theme.colors.text }]}>{status.title}</Text>
                         {status.detail !== undefined && (
@@ -145,65 +158,32 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
                 <Text
                     accessibilityLiveRegion="polite"
                     numberOfLines={2}
-                    style={[styles.notice, { color: theme.colors.textSecondary, borderTopColor: theme.colors.divider }]}
+                    style={[styles.notice, { color: theme.colors.textSecondary, bottom: buttonBottom + 60 }]}
                 >
                     {shownNotice}
                 </Text>
             )}
 
-            <View style={[styles.tools, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.divider }]}>
-                <ToolButton
-                    icon="chevron-back"
-                    label="Conversation"
-                    disabled={false}
-                    onPress={leave}
-                />
-                <ToolButton
-                    icon={keyboardOpen ? 'keypad' : 'keypad-outline'}
-                    label="Keyboard"
-                    disabled={!live}
-                    onPress={toggleKeyboard}
-                />
-                <ToolButton
-                    icon="download-outline"
-                    label="Copy from desktop"
-                    disabled={!live || clipboardBusy || !clipboardAvailable}
-                    onPress={() => void copyFromDesktop()}
-                />
-                <ToolButton
-                    icon="cloud-upload-outline"
-                    label="Paste to desktop"
-                    disabled={!live || clipboardBusy || !clipboardAvailable}
-                    onPress={() => void pasteToDesktop()}
-                />
-            </View>
+            {live && <>
+                {clipboardOpen && <>
+                    <Pressable style={StyleSheet.absoluteFill} onPress={() => setClipboardOpen(false)} accessibilityLabel="Close clipboard options" />
+                    <View style={[styles.clipboardCard, { backgroundColor: theme.colors.surface, bottom: buttonBottom + 56 }]}>
+                    <Pressable onPress={() => { setClipboardOpen(false); void copyFromDesktop(); }} disabled={clipboardBusy || !clipboardAvailable} accessibilityRole="button" accessibilityLabel="Copy to Phone" style={styles.clipboardRow}>
+                        <Ionicons name="copy-outline" size={22} color={theme.colors.textSecondary} /><Text style={[styles.clipboardLabel, { color: theme.colors.text }]}>Copy to Phone</Text>
+                    </Pressable>
+                    <Pressable onPress={() => { setClipboardOpen(false); void pasteToDesktop(); }} disabled={clipboardBusy || !clipboardAvailable} accessibilityRole="button" accessibilityLabel="Paste from Phone" style={styles.clipboardRow}>
+                        <Ionicons name="clipboard-outline" size={22} color={theme.colors.textSecondary} /><Text style={[styles.clipboardLabel, { color: theme.colors.text }]}>Paste from Phone</Text>
+                    </Pressable>
+                    </View>
+                </>}
+                <Pressable onPress={() => setClipboardOpen((open) => !open)} disabled={!clipboardAvailable} accessibilityRole="button" accessibilityLabel="Clipboard" accessibilityState={{ disabled: !clipboardAvailable, expanded: clipboardOpen, busy: clipboardBusy }} style={[styles.floatingButton, styles.clipboardButton, { bottom: buttonBottom }, !clipboardAvailable && styles.toolDisabled]}>
+                    <Ionicons name="clipboard-outline" size={24} color={theme.colors.text} />
+                </Pressable>
+                <Pressable onPress={toggleKeyboard} accessibilityRole="button" accessibilityLabel="Keyboard" style={[styles.floatingButton, styles.keyboardButton, { bottom: buttonBottom }]}>
+                    <Ionicons name={keyboardOpen ? 'keypad' : 'keypad-outline'} size={24} color={theme.colors.text} />
+                </Pressable>
+            </>}
         </View>
-    );
-}
-
-function ToolButton({
-    icon,
-    label,
-    disabled,
-    onPress,
-}: {
-    icon: React.ComponentProps<typeof Ionicons>['name'];
-    label: string;
-    disabled: boolean;
-    onPress: () => void;
-}) {
-    const { theme } = useUnistyles();
-    return (
-        <Pressable
-            onPress={onPress}
-            disabled={disabled}
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            accessibilityState={{ disabled }}
-            style={[styles.tool, disabled && styles.toolDisabled]}
-        >
-            <Ionicons name={icon} size={20} color={theme.colors.text} />
-        </Pressable>
     );
 }
 
@@ -211,10 +191,11 @@ const styles = StyleSheet.create({
     // `flex: 1` alone collapses to nothing inside a web route that has no
     // sized ancestor; the explicit percentage is what gives the live surface a
     // box on both platforms.
-    screen: { flex: 1, width: '100%', height: '100%' },
+    screen: { flex: 1, width: '100%', height: '100%', backgroundColor: '#000' },
     body: { flex: 1, minHeight: 0 },
     surface: { flex: 1 },
     overlay: {
+        backgroundColor: '#000',
         position: 'absolute',
         left: 0,
         right: 0,
@@ -241,17 +222,16 @@ const styles = StyleSheet.create({
         ...Typography.default(),
         fontSize: 13,
         lineHeight: 18,
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderTopWidth: StyleSheet.hairlineWidth,
+        position: 'absolute',
+        left: 18,
+        right: 18,
+        textAlign: 'center',
     },
-    tools: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-around',
-        height: 56,
-        borderTopWidth: StyleSheet.hairlineWidth,
-    },
-    tool: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
+    floatingButton: { position: 'absolute', width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: '#29292d', borderWidth: StyleSheet.hairlineWidth, borderColor: '#55555a' },
+    clipboardButton: { left: 18 },
+    keyboardButton: { right: 18 },
+    clipboardCard: { position: 'absolute', left: 18, width: 246, maxWidth: '90%', borderRadius: 18, paddingVertical: 7, zIndex: 3 },
+    clipboardRow: { height: 52, flexDirection: 'row', alignItems: 'center', gap: 18, paddingHorizontal: 18 },
+    clipboardLabel: { ...Typography.default(), fontSize: 15 },
     toolDisabled: { opacity: 0.4 },
 });

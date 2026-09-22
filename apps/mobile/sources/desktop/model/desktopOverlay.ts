@@ -53,7 +53,7 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot): DesktopOverla
     }
     return {
         title: snapshot.status === 'reconnecting' ? desktopCopy.reconnectingTitle : desktopCopy.startingTitle,
-        detail: snapshot.status === 'reconnecting' ? desktopCopy.reconnectingBody : desktopCopy.startingBody,
+        detail: snapshot.status === 'reconnecting' ? desktopCopy.reconnectingBody : undefined,
         spinner: true,
         canRetry: false,
     };
