@@ -36,6 +36,8 @@ interface WebSession {
     downY: number;
     lastScrollY: number;
     pointers: number;
+    /** True once the active gesture became two-finger, so its end is not a tap. */
+    multiPointer: boolean;
     /** Chorded keys that are down on the desktop, by the character sent for them. */
     chordsDown: Set<string>;
     /** Candidates that arrived before the offer; applied once it is set. */
@@ -140,6 +142,7 @@ function attachGestures(session: WebSession): () => void {
         if (session.pointers === 0) {
             const at = surfacePoint(session, event.clientX, event.clientY);
             session.pointers = 1;
+            session.multiPointer = false;
             session.downX = event.clientX;
             session.downY = event.clientY;
             session.dragging = false;
@@ -147,6 +150,7 @@ function attachGestures(session: WebSession): () => void {
             return;
         }
         session.pointers += 1;
+        session.multiPointer = true;
         session.lastScrollY = event.clientY;
     };
 
@@ -175,6 +179,14 @@ function attachGestures(session: WebSession): () => void {
     const pointerUp = (event: PointerEvent): void => {
         if (session.pointers > 1) {
             session.pointers -= 1;
+            return;
+        }
+        if (session.multiPointer) {
+            // The gesture was a two-finger scroll; the last finger lifting must
+            // not turn it into a click.
+            session.pointers = 0;
+            session.multiPointer = false;
+            session.dragging = false;
             return;
         }
         session.pointers = 0;
@@ -323,6 +335,7 @@ export const nativeDesklink: NativeDesklinkModule = {
             downY: 0,
             lastScrollY: 0,
             pointers: 0,
+            multiPointer: false,
             chordsDown: new Set<string>(),
             remoteDescriptionSet: false,
             pendingCandidates: [],

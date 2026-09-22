@@ -229,3 +229,57 @@ describe('a refusal the host makes', () => {
         expect(authorizations).toBe(1);
     }, 20_000);
 });
+
+describe('a session that finishes opening after the screen was torn down', () => {
+    it('closes what the host opened instead of leaving it capturing', async () => {
+        const requests: string[] = [];
+        let releaseOpen: (() => void) | null = null;
+        const held: { current: DesktopSession | null } = { current: null };
+        const signaling: Signaling = {
+            async request<T>(method: string): Promise<T> {
+                requests.push(method);
+                if (method === 'session.open') {
+                    await new Promise<void>((resolve) => { releaseOpen = resolve; });
+                    return {
+                        sessionId: 'engine-1',
+                        generation: 1,
+                        source: { kind: 'monitor', width: 2560, height: 1440, origin: { x: 0, y: 0 } },
+                        geometry: {
+                            source: { width: 2560, height: 1440 },
+                            encoded: { width: 1280, height: 720 },
+                            origin: { x: 0, y: 0 },
+                        },
+                    } as T;
+                }
+                return { accepted: true } as T;
+            },
+            subscribe: () => () => undefined,
+        };
+
+        function Harness() {
+            held.current = useDesktopSession({
+                authorize: async () => ({ signaling, session: { permissions: ['view', 'control'] } }),
+            });
+            return null;
+        }
+
+        await TestRenderer.act(async () => {
+            TestRenderer.create(React.createElement(Harness));
+        });
+
+        let opening: Promise<void> | undefined;
+        await TestRenderer.act(async () => {
+            opening = held.current!.connect();
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        });
+        expect(releaseOpen).not.toBeNull();
+
+        await TestRenderer.act(async () => {
+            await held.current!.close('left the desktop');
+        });
+        releaseOpen!();
+        await TestRenderer.act(async () => { await opening; });
+
+        expect(requests).toContain('session.close');
+    }, 20_000);
+});

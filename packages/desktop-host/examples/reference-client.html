@@ -122,11 +122,19 @@ function point(event) {
 // The slop threshold is what separates a tap from a drag on a touch screen.
 const SLOP = 6;
 let gesture = null;
+let pointers = 0;
 
 video.addEventListener('pointerdown', (event) => {
   // Capture keeps a drag alive when the finger leaves the picture. A synthetic
   // event has no real pointer behind it, so a refusal here is not fatal.
+  pointers += 1;
   try { video.setPointerCapture(event.pointerId); } catch { /* no real pointer */ }
+  if (pointers > 1) {
+    // A second finger makes this a scroll gesture; lifting either finger must
+    // not click the desktop.
+    gesture = null;
+    return;
+  }
   const at = point(event);
   if (at === null) return;
   gesture = { startX: event.clientX, startY: event.clientY, at, dragging: false, pointerId: event.pointerId };
@@ -144,6 +152,7 @@ video.addEventListener('pointermove', (event) => {
 });
 for (const name of ['pointerup', 'pointercancel']) {
   video.addEventListener(name, (event) => {
+    pointers = Math.max(0, pointers - 1);
     if (gesture === null || gesture.pointerId !== event.pointerId) return;
     const at = point(event);
     if (gesture.dragging) {

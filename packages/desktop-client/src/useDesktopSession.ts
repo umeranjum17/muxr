@@ -254,7 +254,13 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
             refuse(message, classifyOpenFailure(error));
             return;
         }
-        if (token !== generationToken.current) return;
+        if (token !== generationToken.current) {
+            // The screen was torn down while the host was still opening; close
+            // what it opened rather than leaving it capturing with nothing able
+            // to stop it.
+            void endRemote(openedResult, authorization.signaling);
+            return;
+        }
         opened.current = openedResult;
         update({ geometry: openedResult.geometry, status: 'connecting' });
 

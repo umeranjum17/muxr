@@ -36,9 +36,9 @@ fn bounded_text(raw: &[u8], limit: usize) -> Result<(String, bool)> {
     let bytes = if truncated { &raw[..limit] } else { raw };
     match std::str::from_utf8(bytes) {
         Ok(text) => Ok((text.to_owned(), truncated)),
-        Err(error) if truncated => {
-            // The cut landed inside a multi-byte character; the bytes before it
-            // are the text the desktop held.
+        Err(error) if truncated && error.error_len().is_none() => {
+            // The invalid sequence is an incomplete one at the cut, so the bytes
+            // before it are the text the desktop held.
             let valid = error.valid_up_to();
             Ok((String::from_utf8_lossy(&bytes[..valid]).into_owned(), true))
         }
@@ -86,6 +86,13 @@ mod tests {
         let (text, truncated) = bounded_text(&raw, 5).expect("a character-boundary cut is valid text");
         assert!(truncated, "a cut past the limit must be reported");
         assert_eq!(text, "aaaa", "the partial character is dropped, not invented");
+
+        // A byte that is not valid UTF-8 before the cut is not a partial
+        // character; the whole read is refused.
+        let mut invalid = vec![b'a'; 4];
+        invalid.push(0xff);
+        invalid.extend_from_slice(b"zzzz");
+        assert!(bounded_text(&invalid, 5).is_err());
 
         let (text, truncated) = bounded_text(b"hello", 5).unwrap();
         assert!(!truncated);
