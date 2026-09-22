@@ -125,6 +125,7 @@ export interface SessionSnapshot {
  */
 export type ControlMessage =
     | { kind: 'pointer'; phase: 'move' | 'down' | 'up' | 'cancel'; x: number; y: number; button?: number }
+    /** Detents; a fraction is a smooth partial scroll where the desktop supports it. */
     | { kind: 'wheel'; dx: number; dy: number }
     | { kind: 'key'; name?: string; character?: string; down: boolean; modifiers?: string[] }
     | { kind: 'text'; text: string }

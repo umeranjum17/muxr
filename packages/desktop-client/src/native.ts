@@ -44,6 +44,10 @@ export interface NativeDesklinkModule {
      */
     captureKeyboard(id: string, captured: boolean): boolean;
     setSurfaceSize(id: string, width: number, height: number): boolean;
+    /** Show the whole desktop again after the user zoomed in. */
+    fitToView(id: string): boolean;
+    /** Hold the screen in landscape while the desktop is shown, or follow the phone again. */
+    setOrientation(mode: 'landscape' | 'auto'): boolean;
     closeSession(id: string): boolean;
     isAvailable(): boolean;
     addListener?(name: 'onSessionEvent', handler: (event: NativeSessionEvent) => void): { remove: () => void };

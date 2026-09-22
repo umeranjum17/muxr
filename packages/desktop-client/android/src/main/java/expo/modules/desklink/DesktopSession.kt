@@ -239,8 +239,9 @@ class DesktopSession(
     }
   }
 
-  fun sendWheel(dx: Int, dy: Int) {
-    sendJson(mapOf("kind" to "wheel", "dx" to dx, "dy" to dy))
+  /** Wheel detents; fractions are smooth scrolling on desktops that support it. */
+  fun sendWheel(dx: Float, dy: Float) {
+    sendJson(mapOf("kind" to "wheel", "dx" to Math.round(dx * 1000) / 1000.0, "dy" to Math.round(dy * 1000) / 1000.0))
   }
 
   fun sendKey(name: String, modifiers: List<String>, down: Boolean) {
@@ -360,16 +361,21 @@ class DesktopSession(
       ) {
         // Bounded debug-build evidence: reception/decoding is not presentation.
         // Never include SDP, addresses, credentials or control payloads.
-        for (delay in listOf(2000L, 10000L)) ui.postDelayed({
-          if (closed || target != epoch) return@postDelayed
-          peer?.getStats { report ->
-            val fields = setOf("kind", "packetsReceived", "bytesReceived", "framesReceived",
-              "framesDecoded", "keyFramesDecoded", "framesDropped", "framesPerSecond")
-            val video = report.statsMap.values.filter { it.type == "inbound-rtp" }
-              .map { JSONObject(it.members.filterKeys { key -> key in fields }) }
-            Log.i(TAG, "video receive stats: ${org.json.JSONArray(video)}")
+        val fields = setOf("kind", "packetsReceived", "packetsLost", "bytesReceived", "framesReceived",
+          "framesDecoded", "keyFramesDecoded", "framesDropped", "framesPerSecond", "frameWidth", "frameHeight",
+          "nackCount", "pliCount", "firCount", "totalDecodeTime", "decoderImplementation", "jitterBufferDelay")
+        val sample = object : Runnable {
+          override fun run() {
+            if (closed || target != epoch) return
+            peer?.getStats { report ->
+              val video = report.statsMap.values.filter { it.type == "inbound-rtp" }
+                .map { JSONObject(it.members.filterKeys { key -> key in fields }) }
+              Log.i(TAG, "video receive stats: ${org.json.JSONArray(video)}")
+            }
+            ui.postDelayed(this, 5000)
           }
-        }, delay)
+        }
+        ui.postDelayed(sample, 2000)
       }
       if (state == PeerConnection.IceConnectionState.FAILED) {
         fail("transport", "the connection to the desktop was lost")

@@ -118,6 +118,10 @@ export interface DesktopSession {
     pasteLocalToRemote: (text: string) => Promise<void>;
     /** Release anything the desktop is holding, without ending the session. */
     releaseHeld: () => void;
+    /** Show the whole desktop again after the user zoomed in. */
+    fitToView: () => void;
+    /** Hold the screen in landscape while the desktop is shown, or follow the phone again. */
+    setOrientation: (mode: 'landscape' | 'auto') => void;
     send: (message: ControlMessage) => void;
     /** Ctrl and Shift as sticky keys: off, armed for the next key, or locked. */
     modifiers: StickyModifiers;
@@ -239,6 +243,15 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
     const hideKeyboard = useCallback(() => {
         const id = nativeRef.current;
         if (id != null) nativeDesklink?.hideKeyboard(id);
+    }, []);
+
+    const fitToView = useCallback(() => {
+        const id = nativeRef.current;
+        if (id != null) nativeDesklink?.fitToView(id);
+    }, []);
+
+    const setOrientation = useCallback((mode: 'landscape' | 'auto') => {
+        nativeDesklink?.setOrientation(mode);
     }, []);
 
     /** Drop everything this process holds for a session the engine has ended. */
@@ -568,6 +581,8 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         copyRemoteToLocal,
         pasteLocalToRemote,
         releaseHeld,
+        fitToView,
+        setOrientation,
         send,
         modifiers,
         tapModifier,
@@ -582,6 +597,8 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         copyRemoteToLocal,
         pasteLocalToRemote,
         releaseHeld,
+        fitToView,
+        setOrientation,
         send,
         modifiers,
         tapModifier,

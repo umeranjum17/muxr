@@ -1,5 +1,6 @@
 package expo.modules.desklink
 
+import android.content.pm.ActivityInfo
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.util.concurrent.ConcurrentHashMap
@@ -66,6 +67,23 @@ class DesklinkModule : Module() {
 
     Function("captureKeyboard") { id: String, captured: Boolean ->
       postToView(id) { it.captureKeyboard(captured) }
+      true
+    }
+
+    Function("setOrientation") { mode: String ->
+      val activity = appContext.currentActivity ?: return@Function false
+      activity.runOnUiThread {
+        activity.requestedOrientation = if (mode == "landscape") {
+          ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+          ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+      }
+      true
+    }
+
+    Function("fitToView") { id: String ->
+      postToView(id) { it.fitToView() }
       true
     }
 

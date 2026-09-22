@@ -10,11 +10,15 @@ export interface DesktopViewProps {
     style?: StyleProp<ViewStyle>;
     /** Shown until the first desktop frame has actually rendered. */
     placeholder?: React.ReactNode;
+    /** What a screen reader calls the surface. */
+    accessibilityLabel?: string;
 }
 
 interface NativeSurfaceProps {
     sessionId: string | null;
     style?: StyleProp<ViewStyle>;
+    accessible?: boolean;
+    accessibilityLabel?: string;
 }
 
 // The Expo view is resolved at module load; on a platform without it the
@@ -30,7 +34,7 @@ const NativeSurface: React.ComponentType<NativeSurfaceProps> | null = desktopAva
  * surrounding chrome, the start state and the return navigation belong to the
  * application, which mounts this wherever it wants the desktop to appear.
  */
-export function DesktopView({ sessionId, style, placeholder }: DesktopViewProps) {
+export function DesktopView({ sessionId, style, placeholder, accessibilityLabel }: DesktopViewProps) {
     if (NativeSurface == null || sessionId == null) {
         return (
             <View style={[styles.surface, style]}>
@@ -38,7 +42,7 @@ export function DesktopView({ sessionId, style, placeholder }: DesktopViewProps)
             </View>
         );
     }
-    return <NativeSurface style={[styles.surface, style]} sessionId={sessionId} />;
+    return <NativeSurface style={[styles.surface, style]} sessionId={sessionId} accessible={accessibilityLabel !== undefined} accessibilityLabel={accessibilityLabel} />;
 }
 
 const styles = StyleSheet.create({

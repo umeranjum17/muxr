@@ -43,6 +43,7 @@ await desktop.connect();
 
 <DesktopView sessionId={desktop.nativeId} style={{ flex: 1 }} />;
 desktop.showKeyboard();
+desktop.setOrientation('landscape');   // Android: hold the screen on its side; 'auto' to follow the phone
 await desktop.pasteLocalToRemote(await Clipboard.getStringAsync());
 ```
 
@@ -63,14 +64,22 @@ import { desktopAvailable } from '@desklink/react-native/availability';
   hardware-first decoder factory, so a VP9 desktop decodes on the phone's video
   hardware rather than on the CPU, and no other WebRTC user in the app is
   affected.
-- **Contained geometry.** Touch maps through the engine's reported surface
-  rectangle. A touch outside the picture is not a desktop coordinate, and a
-  letterboxed surface never sends a click to the wrong pixel.
-- **One decision per gesture.** Tap, double-tap, drag and long-press are
-  decided natively, with a slop threshold. A still hold is a right click where
-  the finger rests, so every desktop app's context menu is one gesture away; a
-  drag that leaves the surface is cancelled rather than released at a
-  coordinate the user never pointed at.
+- **A sharp, zoomable picture.** The desktop fits the view by default; a pinch
+  zooms up to 2.5 view pixels per desktop pixel and one finger moves around the
+  zoomed desktop. On Android the decoded frame is copied once into the view's
+  own texture and drawn with a multi-tap filter when it is shown smaller than
+  its size, so a fitted 4K desktop does not alias and a pinch redraws at once.
+  `fitToView()` shows the whole desktop again.
+- **Contained geometry.** Touch maps through the picture's actual placement.
+  A touch in the letterbox is not a desktop coordinate, and a drag that leaves
+  the picture is held to its edge rather than released somewhere unseen.
+- **The gestures remote-desktop viewers settled on,** decided natively with a
+  slop threshold: tap to click, and a second tap close by is a double click on
+  the same point; hold and release for a right click where the finger rested
+  (every desktop app's context menu); hold then drag for the left button
+  (select text, move a window); two fingers scroll the desktop under them, or
+  pinch; a quick two-finger tap is a right click too. Scrolling is fractional
+  wheel steps, smooth where the desktop supports high-resolution wheels.
 - **The keys a phone lacks.** `modifiers`, `tapModifier` and `pressKey` give
   sticky Ctrl and Shift: tap arms one for the next key, tap again locks it.
   While one is armed, the next key or character the phone's keyboard types is

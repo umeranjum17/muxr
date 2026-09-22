@@ -118,8 +118,10 @@ async function liveDesktop() {
         close(): void {},
     };
     FakePeer.last?.ondatachannel?.({ channel });
-    const [video, keyboard] = created;
-    attachSurface(session.current.nativeId!, new FakeElement() as unknown as HTMLElement);
+    const [, keyboard] = created;
+    // Gestures land on the surface the picture is placed in, letterbox included.
+    const video = new FakeElement();
+    attachSurface(session.current.nativeId!, video as unknown as HTMLElement);
     // The engine's hello carries the geometry every touch is mapped through.
     const reply = (message: Record<string, unknown>) => TestRenderer.act(() => {
         channel.onmessage?.({ data: JSON.stringify(message) });
@@ -144,44 +146,80 @@ const click = (x: number, y: number, button: number) => [
 ];
 
 describe('touch on the desktop', () => {
-    it('taps a left click, drags a held left button, and turns a still hold into a right click', async () => {
+    it('taps a click, holds for a right click or a drag, and keeps a moving finger for the view', async () => {
         vi.useFakeTimers();
         const { video } = await liveDesktop();
 
         touch(video, 'pointerdown', 100, 100);
         touch(video, 'pointerup', 100, 100);
-        expect(sent).toEqual([{ kind: 'pointer', phase: 'move', x: 100, y: 100 }, ...click(100, 100, 1)]);
+        expect(sent).toEqual(click(100, 100, 1));
 
-        // Moving past the slop before the hold is up is a drag, and stays one
-        // however long the finger then rests: selecting text must not open a menu.
+        // A second tap close by is a double click on the first tap's point.
         sent = [];
-        touch(video, 'pointerdown', 100, 100);
-        touch(video, 'pointermove', 110, 100);
+        touch(video, 'pointerdown', 104, 102);
+        touch(video, 'pointerup', 104, 102);
+        expect(sent).toEqual(click(100, 100, 1));
+
+        // A finger that moves at once moves the view, never the desktop's pointer:
+        // at the whole-desktop fit there is nowhere to go, and nothing is sent.
+        sent = [];
         vi.advanceTimersByTime(1000);
-        touch(video, 'pointerup', 110, 100);
-        expect(sent).toEqual([
-            { kind: 'pointer', phase: 'move', x: 100, y: 100 },
-            { kind: 'pointer', phase: 'down', x: 100, y: 100, button: 1 },
-            { kind: 'pointer', phase: 'move', x: 110, y: 100, button: 1 },
-            { kind: 'pointer', phase: 'up', x: 110, y: 100, button: 1 },
-        ]);
+        touch(video, 'pointerdown', 100, 100);
+        touch(video, 'pointermove', 140, 100);
+        vi.advanceTimersByTime(1000);
+        touch(video, 'pointerup', 140, 100);
+        expect(sent).toEqual([]);
 
-        // A hold that only trembles is a right click where the finger rests.
-        // Nothing after it is a drag or a tap: the menu it opened takes the next tap.
-        sent = [];
+        // Hold, then drag: the left button is held from where the finger rested.
         touch(video, 'pointerdown', 300, 200);
         touch(video, 'pointermove', 303, 202);
-        vi.advanceTimersByTime(399);
+        vi.advanceTimersByTime(400);
         expect(sent).toEqual([{ kind: 'pointer', phase: 'move', x: 300, y: 200 }]);
-        vi.advanceTimersByTime(1);
         touch(video, 'pointermove', 360, 200);
         touch(video, 'pointerup', 360, 200);
-        expect(sent).toEqual([{ kind: 'pointer', phase: 'move', x: 300, y: 200 }, ...click(300, 200, 3)]);
+        expect(sent).toEqual([
+            { kind: 'pointer', phase: 'move', x: 300, y: 200 },
+            { kind: 'pointer', phase: 'down', x: 300, y: 200, button: 1 },
+            { kind: 'pointer', phase: 'move', x: 360, y: 200, button: 1 },
+            { kind: 'pointer', phase: 'up', x: 360, y: 200, button: 1 },
+        ]);
+
+        // Hold and let go without moving: a right click where the finger rested.
+        sent = [];
+        touch(video, 'pointerdown', 500, 400);
+        vi.advanceTimersByTime(400);
+        touch(video, 'pointerup', 500, 400);
+        expect(sent).toEqual([{ kind: 'pointer', phase: 'move', x: 500, y: 400 }, ...click(500, 400, 3)]);
+
+        // Two fingers that land and lift at once are a right click too.
+        sent = [];
+        dispatch(video, 'pointerdown', { pointerId: 1, pointerType: 'touch', button: 0, clientX: 600, clientY: 300 });
+        dispatch(video, 'pointerdown', { pointerId: 2, pointerType: 'touch', button: 0, clientX: 640, clientY: 300 });
+        dispatch(video, 'pointerup', { pointerId: 2, pointerType: 'touch', button: 0, clientX: 640, clientY: 300 });
+        dispatch(video, 'pointerup', { pointerId: 1, pointerType: 'touch', button: 0, clientX: 600, clientY: 300 });
+        expect(sent).toEqual(click(620, 300, 3));
+
+        // Two fingers travelling together scroll the desktop under them, the
+        // content following the fingers, in fractions of a wheel detent.
+        sent = [];
+        vi.advanceTimersByTime(1000);
+        dispatch(video, 'pointerdown', { pointerId: 1, pointerType: 'touch', button: 0, clientX: 600, clientY: 400 });
+        dispatch(video, 'pointerdown', { pointerId: 2, pointerType: 'touch', button: 0, clientX: 640, clientY: 400 });
+        dispatch(video, 'pointermove', { pointerId: 1, pointerType: 'touch', button: 0, clientX: 600, clientY: 370 });
+        dispatch(video, 'pointermove', { pointerId: 2, pointerType: 'touch', button: 0, clientX: 640, clientY: 370 });
+        dispatch(video, 'pointermove', { pointerId: 1, pointerType: 'touch', button: 0, clientX: 600, clientY: 310 });
+        dispatch(video, 'pointermove', { pointerId: 2, pointerType: 'touch', button: 0, clientX: 640, clientY: 310 });
+        dispatch(video, 'pointerup', { pointerId: 2, pointerType: 'touch', button: 0, clientX: 640, clientY: 310 });
+        dispatch(video, 'pointerup', { pointerId: 1, pointerType: 'touch', button: 0, clientX: 600, clientY: 310 });
+        expect(sent[0]).toEqual({ kind: 'pointer', phase: 'move', x: 620, y: 385 });
+        const scrolled = sent.slice(1).reduce((sum, message) => sum + (message.dy as number), 0);
+        expect(sent.slice(1).every((message) => message.kind === 'wheel')).toBe(true);
+        expect(scrolled).toBeCloseTo(75 / 120, 2);
 
         // A mouse has its own right button.
         sent = [];
-        dispatch(video, 'pointerdown', { pointerId: 2, pointerType: 'mouse', button: 2, clientX: 50, clientY: 60 });
-        dispatch(video, 'pointerup', { pointerId: 2, pointerType: 'mouse', button: 2, clientX: 50, clientY: 60 });
+        dispatch(video, 'pointerdown', { pointerId: 3, pointerType: 'mouse', button: 2, clientX: 50, clientY: 60 });
+        dispatch(video, 'pointerup', { pointerId: 3, pointerType: 'mouse', button: 2, clientX: 50, clientY: 60 });
         expect(sent).toEqual(click(50, 60, 3));
     });
 });

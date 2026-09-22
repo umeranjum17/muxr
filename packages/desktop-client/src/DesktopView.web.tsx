@@ -7,6 +7,8 @@ export interface DesktopViewProps {
     style?: StyleProp<ViewStyle>;
     /** Shown until the first desktop frame has actually rendered. */
     placeholder?: React.ReactNode;
+    /** What a screen reader calls the surface. */
+    accessibilityLabel?: string;
 }
 
 /**
@@ -18,7 +20,7 @@ export interface DesktopViewProps {
  * actually mounted rather than at module load, so an application that never
  * opens a desktop does not carry one in its first paint.
  */
-export function DesktopView({ sessionId, style, placeholder }: DesktopViewProps) {
+export function DesktopView({ sessionId, style, placeholder, accessibilityLabel }: DesktopViewProps) {
     const mounted = React.useCallback(
         (node: unknown) => {
             const element = (node as HTMLElement | null) ?? null;
@@ -32,7 +34,7 @@ export function DesktopView({ sessionId, style, placeholder }: DesktopViewProps)
     );
 
     return (
-        <View style={[styles.surface, style]}>
+        <View style={[styles.surface, style]} accessibilityLabel={accessibilityLabel}>
             {sessionId === null ? placeholder : <div ref={mounted} style={styles.dom} />}
         </View>
     );
