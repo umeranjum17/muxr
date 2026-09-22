@@ -272,8 +272,8 @@ export function limitsPayload(vms: UsageWindowVM[], { plan, message, nowMs = Dat
         return { verdict: 'unknown', windows: [], ...(message === undefined ? {} : { message }) };
     }
     const windows: UsageLimitsWindow[] = vms.map((vm) => {
-        const resetsIn = resetIn(vm.resetEpochSec, nowMs);
-        const elapsed = vm.percentUsed > 0 && Number.isFinite(vm.windowMinutes) && Number.isFinite(vm.resetEpochSec)
+        const resetsIn = vm.resetClock === '' ? '' : resetIn(vm.resetEpochSec, nowMs);
+        const elapsed = vm.percentUsed > 0 && resetsIn !== '' && Number.isFinite(vm.windowMinutes) && Number.isFinite(vm.resetEpochSec)
             ? Math.min(1, Math.max(0, 1 - (vm.resetEpochSec! * 1000 - nowMs) / (vm.windowMinutes! * 60_000)))
             : undefined;
         const name = windowName(vm.windowMinutes);

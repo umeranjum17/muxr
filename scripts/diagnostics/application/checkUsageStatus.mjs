@@ -368,6 +368,9 @@ try {
     // is invented. Every row spells out its reset.
     assert.deepEqual(connectedGo.limits.windows.map((limit) => [limit.window, limit.resetsIn !== undefined]), [['5h', true], ['7d', true], [undefined, true]]);
     assert.equal(connectedGo.limits.windows[2].elapsed, undefined);
+    assert.equal(connectedGo.windows[2].pace.verdict, null);
+    assert.equal(connectedGo.limits.windows[2].pace, null);
+    assert.equal(connectedGo.connected.find((entry) => entry.id === 'opencode').windows[2].pace, null);
     assert.deepEqual(connectedGo.windows.map((vm) => [vm.provider, vm.windowKind, vm.percentUsed, vm.percentRemaining]), [
         ['opencode', 'rolling', 20, 80],
         ['opencode', 'weekly', 21, 79],

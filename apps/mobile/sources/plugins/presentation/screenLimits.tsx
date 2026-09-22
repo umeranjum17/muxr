@@ -9,17 +9,6 @@ import { cardStyle, SectionLabel, Meter } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 
-/** Share of a window used at which the row turns warning, then danger. The
- *  host decided the verdict; these only colour the evidence rows. */
-const ROW_WATCH = 75;
-const ROW_LOW = 90;
-
-const rowTone = (used: number): PluginScreenTone => {
-    if (used >= ROW_LOW) return 'danger';
-    if (used >= ROW_WATCH) return 'warning';
-    return 'positive';
-};
-
 /** One verdict vocabulary for every limit surface; the Right now card reads
  *  the same five words and the same five colours. */
 export const verdictTone = (verdict: PluginLimitsPayload['verdict']): PluginScreenTone =>
@@ -60,7 +49,7 @@ function limitsSummary(payload: PluginLimitsPayload): string {
     const rows = payload.windows.map((window) => {
         const parts = [[window.label, window.window, t('plugins.limits.percentLeft', { percent: 100 - Math.round(window.used) })].filter(Boolean).join(' ')];
         if (window.resetsIn !== undefined) parts.push(t('plugins.rightNow.resetsIn', { time: window.resetsIn }));
-        if (window.pace !== undefined) parts.push(t(PACE_KEYS[window.pace]));
+        if (window.pace != null) parts.push(t(PACE_KEYS[window.pace]));
         return parts.join(', ');
     });
     return [`${payload.plan ?? t('plugins.rightNow.title')}: ${head}`, ...rows].join('. ');
@@ -132,7 +121,7 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
                 )}
                 {payload.windows.length > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider, marginTop: 12, marginBottom: 12 }} />}
                 {payload.windows.map((window, index) => {
-                    const tone = window.pace === undefined ? rowTone(window.used)
+                    const tone: PluginScreenTone | undefined = window.pace == null ? undefined
                         : window.pace === 'limited' || window.pace === 'exhausted' || window.pace === 'burning' ? 'danger'
                             : window.pace === 'on pace' ? 'warning' : 'positive';
                     return (
@@ -142,12 +131,12 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
                                     {window.label}
                                     {window.window !== undefined && <Text style={{ color: theme.colors.textSecondary }}>{` · ${window.window}`}</Text>}
                                 </Text>
-                                <Text style={{ color: toneColor(theme, tone), fontSize: 12.5, ...Typography.mono('semiBold') }}>{t('plugins.limits.percentLeft', { percent: 100 - Math.round(window.used) })}</Text>
+                                <Text style={{ color: tone === undefined ? theme.colors.text : toneColor(theme, tone), fontSize: 12.5, ...Typography.mono('semiBold') }}>{t('plugins.limits.percentLeft', { percent: 100 - Math.round(window.used) })}</Text>
                             </View>
-                            {(window.resetsIn !== undefined || window.pace !== undefined) && (
+                            {(window.resetsIn !== undefined || window.pace != null) && (
                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 4, marginTop: 3, marginBottom: 5 }}>
                                     {window.resetsIn !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('regular') }}>{t('plugins.rightNow.resetsIn', { time: window.resetsIn })}</Text>}
-                                    {window.pace !== undefined && <Text style={{ color: toneColor(theme, tone), fontSize: 11.5 }}>{t(PACE_KEYS[window.pace])}</Text>}
+                                    {window.pace != null && <Text style={{ color: toneColor(theme, tone!), fontSize: 11.5 }}>{t(PACE_KEYS[window.pace])}</Text>}
                                 </View>
                             )}
                             <Meter ratio={window.used / 100} emphasis={0.9} marker={window.elapsed} />

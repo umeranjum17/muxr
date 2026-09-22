@@ -218,7 +218,7 @@ function ProviderRow({ provider }: { provider: UsageConnectedProvider }) {
     const lead = leadWindow(provider.windows);
     if (lead === undefined) return null;
     const left = remainingOf(lead);
-    const tone = left === 0 ? 'danger' : left <= LOW_REMAINING ? 'warning' : undefined;
+    const tone = lead.pace == null ? undefined : left === 0 ? 'danger' : left <= LOW_REMAINING ? 'warning' : undefined;
     return (
         <View accessible accessibilityLabel={providerSummary(provider)}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, height: FIGURE_LINE }}>

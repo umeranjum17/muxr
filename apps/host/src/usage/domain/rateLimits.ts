@@ -59,7 +59,7 @@ export function resetClock(resetEpochSec: number | undefined, nowMs: number): st
 }
 
 export interface PaceVerdict {
-    verdict: 'limited' | 'exhausted' | 'on pace' | 'ahead' | 'burning';
+    verdict: 'limited' | 'exhausted' | 'on pace' | 'ahead' | 'burning' | null;
     tone: 'danger' | 'warning' | 'positive';
 }
 
@@ -76,9 +76,7 @@ export function paceVerdict({ used, windowMinutes, resetEpochSec, nowMs, limited
         at === undefined || remainingMin === undefined || remainingMin <= 0
         || !Number.isFinite(windowMinutes) || (windowMinutes ?? 0) <= 0
     ) {
-        return remaining <= TIGHT_REMAINING
-            ? { verdict: 'on pace', tone: 'warning' }
-            : { verdict: 'on pace', tone: 'positive' };
+        return { verdict: null, tone: 'positive' };
     }
     const elapsedMin = windowMinutes! - remainingMin;
     if (elapsedMin < windowMinutes! * MIN_ELAPSED_SHARE) {

@@ -34,8 +34,9 @@ export function asLimitsWindows(value: unknown): PluginLimitsWindow[] {
         return [{
             label,
             used: window.used,
-            ...(typeof window.pace === 'string' && PACES.has(window.pace as NonNullable<PluginLimitsWindow['pace']>)
-                ? { pace: window.pace as NonNullable<PluginLimitsWindow['pace']> } : {}),
+            ...(window.pace === null ? { pace: null }
+                : typeof window.pace === 'string' && PACES.has(window.pace as NonNullable<PluginLimitsWindow['pace']>)
+                    ? { pace: window.pace as NonNullable<PluginLimitsWindow['pace']> } : {}),
             ...(name === '' ? {} : { window: name }),
             ...(resetsIn === '' ? {} : { resetsIn }),
             ...(elapsed === undefined ? {} : { elapsed }),
