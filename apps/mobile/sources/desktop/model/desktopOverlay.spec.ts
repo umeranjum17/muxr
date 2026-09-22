@@ -34,6 +34,20 @@ describe('the desktop overlay', () => {
         expect(describeDesktopOverlay(ended('the encoder rejected a frame')).canRetry).toBe(false);
     });
 
+    it('turns an unanswered screen-sharing prompt into the step to take, with a retry', () => {
+        const overlay = describeDesktopOverlay({
+            status: 'failed',
+            geometry: null,
+            presented: false,
+            failure: { code: 'consent', message: 'consent-timeout: the portal did not answer within 30s' },
+            diagnostics: {},
+        });
+
+        expect(overlay.detail).toBe('Approve screen sharing on the computer, then try again.');
+        expect(overlay.detail).not.toContain('portal');
+        expect(overlay.canRetry).toBe(true);
+    });
+
     it('falls back to neutral copy for a reason it does not know', () => {
         const overlay = describeDesktopOverlay(ended('internal: something odd'));
 

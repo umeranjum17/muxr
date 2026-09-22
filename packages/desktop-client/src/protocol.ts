@@ -98,6 +98,8 @@ export type SessionStatus =
 
 export type SessionFailure =
     | { code: 'permission'; message: string }
+    /** Nobody approved the desktop's own screen-sharing prompt in time. */
+    | { code: 'consent'; message: string }
     | { code: 'unsupported-codec'; message: string }
     | { code: 'incompatible-version'; message: string }
     | { code: 'source-changed'; message: string }

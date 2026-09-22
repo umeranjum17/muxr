@@ -11,10 +11,14 @@ import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { ui } from '@/components/ui';
 import { sync } from '@/catalog';
+import { useLocalSettingMutable } from '@/catalog/store';
 import { createDesktopSignaling } from '../application/desktopSignaling';
 import { desktopCopy } from '../model/desktopCopy';
-import { describeDesktopOverlay } from '../model/desktopOverlay';
+import { describeDesktopOverlay, describeInputRejection } from '../model/desktopOverlay';
 import { DESKTOP_KEY_ROW_HEIGHT, DesktopKeyRow } from './DesktopKeyRow';
+
+/** How long a notice stays over the desktop before it gets out of the way. */
+const NOTICE_MS = 4000;
 
 type DesktopPermission = 'view' | 'control' | 'clipboard';
 
@@ -40,6 +44,7 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
     const [clipboardOpen, setClipboardOpen] = React.useState(false);
     const keyboard = useKeyboardState();
     const insets = useSafeAreaInsets();
+    const [openedBefore, setOpenedBefore] = useLocalSettingMutable('desktopOpenedBefore');
 
     const session = useDesktopSession({
         // Ask the host what it can actually do before requesting scope: a host
@@ -58,6 +63,12 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
             };
         }, []),
         onError: (failure) => setNotice(failure.message),
+        // Text the desktop refused is a notice, not a failure: the session
+        // carries on, and the clipboard is the way round.
+        onRejected: ({ code }) => {
+            const message = describeInputRejection(code, clipboardAvailable);
+            if (message !== null) setNotice(message);
+        },
     });
 
     const { connect, close, snapshot, releaseHeld, hideKeyboard } = session;
@@ -74,6 +85,12 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
     }, [connect, close, releaseHeld, hideKeyboard]);
 
     React.useEffect(() => setKeyboardOpen(keyboard.isVisible), [keyboard.isVisible]);
+
+    React.useEffect(() => {
+        if (notice === null) return;
+        const timer = setTimeout(() => setNotice(null), NOTICE_MS);
+        return () => clearTimeout(timer);
+    }, [notice]);
 
     const toggleKeyboard = React.useCallback(() => {
         if (keyboardOpen) {
@@ -125,8 +142,14 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
         return () => back.remove();
     }, [clipboardOpen, onExit]);
 
-    const status = describeDesktopOverlay(snapshot);
     const live = snapshot.status === 'live';
+    // The screen-sharing approval happens on the computer, and only the first
+    // time; once a desktop has been live here, the start stops pointing at it.
+    React.useEffect(() => {
+        if (live && !openedBefore) setOpenedBefore(true);
+    }, [live, openedBefore, setOpenedBefore]);
+
+    const status = describeDesktopOverlay(snapshot, openedBefore);
     const clipboardUnavailable = live && !clipboardAvailable;
     const shownNotice = live ? notice ?? (clipboardUnavailable ? desktopCopy.clipboardUnavailable : null) : null;
     const keyRowShown = live && keyboardOpen;

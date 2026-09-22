@@ -186,13 +186,15 @@ describe('a transport failure the automatic reconnect cannot fix', () => {
 });
 
 describe('a refusal the host makes', () => {
-    it('surfaces its code and does not spend the reconnect on it', async () => {
+    // An unanswered screen-sharing prompt is a refusal too: retrying on its own
+    // would only raise another prompt on a computer nobody is looking at.
+    it.each([
+        ['input-unavailable', 'input-unavailable'],
+        ['consent-timeout', 'consent'],
+    ])('surfaces %s as %s and does not spend the reconnect on it', async (hostCode, failureCode) => {
         const held: { current: DesktopSession | null } = { current: null };
         let authorizations = 0;
-        const refusal = Object.assign(
-            new Error('This computer cannot inject input, so there is nothing to control.'),
-            { code: 'input-unavailable' },
-        );
+        const refusal = Object.assign(new Error('the host refused'), { code: hostCode });
 
         function Harness() {
             held.current = useDesktopSession({
@@ -220,7 +222,7 @@ describe('a refusal the host makes', () => {
         });
 
         expect(held.current?.snapshot.status).toBe('failed');
-        expect(held.current?.snapshot.failure).toMatchObject({ code: 'input-unavailable' });
+        expect(held.current?.snapshot.failure).toMatchObject({ code: failureCode });
 
         // A refusal a reconnect cannot fix must not consume the retry.
         await TestRenderer.act(async () => {

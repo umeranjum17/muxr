@@ -46,6 +46,7 @@ const UNREACHABLE_DESKTOP =
 const OPEN_FAILURE_CODES: Record<string, SessionFailure['code']> = {
     permission: 'permission',
     'not-authorized': 'permission',
+    'consent-timeout': 'consent',
     'input-unavailable': 'input-unavailable',
     'unsupported-codec': 'unsupported-codec',
     encode: 'unsupported-codec',
@@ -95,6 +96,12 @@ export interface DesktopSessionOptions {
     authorize: () => Promise<{ signaling: Signaling; session: SessionOpenRequest }>;
     onStateChange?: (snapshot: SessionSnapshot) => void;
     onError?: (failure: SessionFailure) => void;
+    /**
+     * The engine refused one input message and the session carries on, such as
+     * text the desktop's layout cannot type (`text-unsupported`) or too much of
+     * it at once (`text-too-large`).
+     */
+    onRejected?: (rejection: { code: string; message: string }) => void;
 }
 
 export interface DesktopSession {
@@ -440,6 +447,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
                         if (reply.kind === 'rejected') {
                             diagnostics.current.lastRejection = `${reply.code}: ${reply.message}`;
                             update({ diagnostics: { ...diagnostics.current } });
+                            optionsRef.current.onRejected?.({ code: reply.code, message: reply.message });
                             return;
                         }
                         if (reply.kind === 'revoked') {

@@ -8,10 +8,13 @@
 export const desktopCopy = {
     startingTitle: 'Starting desktop…',
     startingBody: undefined,
+    startingFirstTime: 'Approve screen sharing on the computer. It only asks the first time.',
     reconnectingTitle: 'Reconnecting…',
     reconnectingBody: 'The desktop connection dropped. Trying once more.',
     failedTitle: "Couldn't open this computer",
     failedBody: 'The desktop did not start.',
+    consentTitle: 'Screen sharing was not approved',
+    consentBody: 'Approve screen sharing on the computer, then try again.',
     endedTitle: 'Desktop closed',
     endedBody: 'The desktop session has ended.',
     endedTakeover: 'This desktop is open on another device.',
@@ -19,4 +22,7 @@ export const desktopCopy = {
     endedUnencodable: 'This desktop stopped because its screen could not be encoded.',
     endedEngineStopped: 'The computer stopped sharing this desktop.',
     clipboardUnavailable: 'This computer cannot share its clipboard.',
+    textUnsupported: "The desktop can't type that character.",
+    textTooLarge: 'That is too much to type at once.',
+    textUsePaste: 'Use Paste from Phone.',
 } as const;

@@ -92,9 +92,11 @@ const signaling: Signaling = {
 /** A live session on the browser client, its surface mounted and the control channel open. */
 async function liveDesktop() {
     const held: { current: DesktopSession | null } = { current: null };
+    const rejected: string[] = [];
     function Harness() {
         held.current = useDesktopSession({
             authorize: async () => ({ signaling, session: { permissions: ['view', 'control'] } }),
+            onRejected: ({ code }) => rejected.push(code),
         });
         return null;
     }
@@ -119,11 +121,12 @@ async function liveDesktop() {
     const [video, keyboard] = created;
     attachSurface(session.current.nativeId!, new FakeElement() as unknown as HTMLElement);
     // The engine's hello carries the geometry every touch is mapped through.
-    TestRenderer.act(() => {
-        channel.onmessage?.({ data: JSON.stringify({ kind: 'hello', protocol: 2, geometry: GEOMETRY }) });
+    const reply = (message: Record<string, unknown>) => TestRenderer.act(() => {
+        channel.onmessage?.({ data: JSON.stringify(message) });
     });
+    reply({ kind: 'hello', protocol: 2, geometry: GEOMETRY });
     sent = [];
-    return { session, video, keyboard };
+    return { session, video, keyboard, reply, rejected };
 }
 
 function dispatch(target: EventTarget, type: string, fields: Record<string, unknown>): void {
@@ -185,7 +188,7 @@ describe('touch on the desktop', () => {
 
 describe('the keys a phone keyboard lacks', () => {
     it('chords the next typed key with a sticky Ctrl, then lets it go', async () => {
-        const { session, keyboard } = await liveDesktop();
+        const { session, keyboard, reply, rejected } = await liveDesktop();
 
         TestRenderer.act(() => session.current.tapModifier('Control'));
         expect(session.current.modifiers).toEqual({ Control: 'once', Shift: 'off' });
@@ -216,6 +219,11 @@ describe('the keys a phone keyboard lacks', () => {
         expect(sent).toEqual(copy);
         dispatch(keyboard, 'compositionend', { data: 'c' });
         expect(sent).toEqual(copy);
+
+        // The engine refusing a character is reported, and the session goes on.
+        reply({ kind: 'rejected', seq: 9, code: 'text-unsupported', message: 'the active layout cannot produce' });
+        expect(rejected).toEqual(['text-unsupported']);
+        expect(session.current.snapshot.failure).toBeNull();
     });
 
     it('keeps a locked Shift across keys, and releases a held key with the modifiers it went down with', async () => {
