@@ -45,6 +45,10 @@ notifications carry `event` and never an `id`.
 
 `error.code` is a stable machine token; `message` is for logs, not for display.
 
+Every engine notification carries the `sessionId` it belongs to, so a consumer
+that has served more than one session in a process can attribute it to the
+right one.
+
 Request parameters use the engine's own snake_case names (`session_id`,
 `max_width`, `sdp_mid`, …); the examples below are the wire names to send.
 
@@ -181,7 +185,7 @@ The engine is the media offerer; the consumer's authenticated signaling carries
 the SDP and candidates to the client and brings back the answer.
 
 ```jsonc
-{"event":"session.description","params":{"generation":1,
+{"event":"session.description","params":{"sessionId":"…","generation":1,
   "description":{"type":"offer","sdp":"v=0\r\n…"}}}
 ```
 
@@ -191,7 +195,7 @@ the SDP and candidates to the client and brings back the answer.
 ```
 
 ```jsonc
-{"event":"session.candidate","params":{"generation":1,
+{"event":"session.candidate","params":{"sessionId":"…","generation":1,
   "candidate":"candidate:…","sdpMid":"0","sdpMLineIndex":0}}
 {"id":6,"method":"session.candidate","params":{"session_id":"…","generation":1,
   "candidate":"candidate:…","sdp_mid":"0","sdp_m_line_index":0}}
@@ -202,7 +206,7 @@ A candidate that arrives before the remote description is buffered, not dropped.
 ### State
 
 ```jsonc
-{"event":"session.state","params":{
+{"event":"session.state","params":{"sessionId":"…",
   "capture":"streaming",              // consented|streaming|ended
   "transport":"connected",            // new|connecting|connected|failed|closed
   "firstFrame":true}}                 // false until a frame has been encoded
@@ -214,14 +218,14 @@ starts a new `generation`; input carrying an older generation is refused, never
 remapped.
 
 ```jsonc
-{"event":"session.restoreToken","params":{"token":"…"}}
+{"event":"session.restoreToken","params":{"sessionId":"…","token":"…"}}
 ```
 
 The portal handed back a restore token for a later `session.open`. A consumer
 that does not persist one can ignore this notification.
 
 ```jsonc
-{"event":"session.revoked","params":{"reason":"…"}}
+{"event":"session.revoked","params":{"sessionId":"…","reason":"…"}}
 ```
 
 The session ended on the engine's side; there is nothing further to drain.

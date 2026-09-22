@@ -258,6 +258,10 @@ export class DesktopSessions {
         // replaced session must never drain another session's notifications.
         if (session === undefined || session.revoked) return;
         for (const event of session.client.drainEvents()) {
+            // The queue is shared by every session the engine has served, and an
+            // abandoned session's notifications outlive it. Only what carries
+            // this record's engine session id is this record's to deliver.
+            if (event.params.sessionId !== session.engineSessionId) continue;
             const translated = toDesktopEvent(event);
             if (translated === null) continue;
             if (translated.kind === 'revoked') {

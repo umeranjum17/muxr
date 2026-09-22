@@ -42,8 +42,8 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         clipboard: { read: true, write: true, mime: [], maxBytes: 1024 },
       } });
     case 'session.open':
-      setTimeout(() => out({ event: 'session.description', params: { generation: 1, description: { type: 'offer', sdp: 'v=0 offer' } } }), 5);
-      setTimeout(() => out({ event: 'session.candidate', params: { generation: 1, candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 } }), 10);
+      setTimeout(() => out({ event: 'session.description', params: { sessionId: session.id, generation: 1, description: { type: 'offer', sdp: 'v=0 offer' } } }), 5);
+      setTimeout(() => out({ event: 'session.candidate', params: { sessionId: session.id, generation: 1, candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 } }), 10);
       return setTimeout(() => out({ id: request.id, result: {
         sessionId: session.id, generation: 1,
         source: { kind: 'monitor', width: 2560, height: 1440, origin: { x: 0, y: 0 } },
@@ -221,7 +221,7 @@ describe('desktop sessions, host side', () => {
             scriptPath,
             STUB.replace(
                 "    case 'session.open':",
-                "    case 'session.open':\n      setTimeout(() => out({ event: 'session.revoked', params: { reason: 'the session lease expired' } }), 15);",
+                "    case 'session.open':\n      setTimeout(() => out({ event: 'session.revoked', params: { sessionId: session.id, reason: 'the session lease expired' } }), 15);",
             ),
         );
         writeFileSync(log, '');
@@ -256,6 +256,40 @@ describe('desktop sessions, host side', () => {
         // Try again must ask again rather than replay the first answer.
         writeFileSync(scriptPath, STUB);
         expect(await desktop.capabilities()).toMatchObject({ available: true, input: true });
+
+        await desktop.closeAll();
+    }, 20_000);
+
+    it('does not attribute a queued revocation for an abandoned session to a new one', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));
+        const scriptPath = join(directory, 'engine.cjs');
+        const log = join(directory, 'received.jsonl');
+        writeFileSync(
+            scriptPath,
+            STUB.replace(
+                "const session = { id: 'engine-session-1', generation: 1 };",
+                "const session = { id: '', generation: 1 }; let opened = 0;",
+            ).replace(
+                "    case 'session.open':",
+                "    case 'session.open':\n      opened += 1; session.id = 'engine-session-' + opened;\n      if (opened === 1) setTimeout(() => out({ event: 'session.revoked', params: { sessionId: 'engine-session-1', reason: 'the session lease expired' } }), 30);",
+            ),
+        );
+        writeFileSync(log, '');
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
+
+        // The phone opens once and is abandoned before it polls, so the engine's
+        // lease revokes that session into the shared notification queue.
+        await desktop.open({ permissions: ['view'] });
+        await new Promise((resolve) => setTimeout(resolve, 80));
+
+        const second = await desktop.open({ permissions: ['view'] });
+        await new Promise((resolve) => setTimeout(resolve, 40));
+
+        const polled = await desktop.poll(second.desktopId, 0);
+        expect(polled.events.some((event) => event.kind === 'revoked')).toBe(false);
+        // The new record survives the poll that a mis-attributed revocation would
+        // have deleted it on.
+        await expect(desktop.poll(second.desktopId, polled.cursor)).resolves.toBeDefined();
 
         await desktop.closeAll();
     }, 20_000);

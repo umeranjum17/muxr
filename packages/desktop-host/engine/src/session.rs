@@ -331,6 +331,15 @@ pub enum SessionEvent {
     Revoked { reason: String },
 }
 
+/// One notification plus the session it belongs to. The engine serves one
+/// session at a time, but its queue outlives a session, so a consumer needs the
+/// identity to attribute an event to the record that asked for it.
+#[derive(Debug)]
+pub struct Notice {
+    pub session_id: String,
+    pub event: SessionEvent,
+}
+
 /// Everything a session's background tasks need, shared rather than borrowed so
 /// the consumer can own the `Session` handle while the pipeline runs.
 struct Inner {
@@ -351,7 +360,7 @@ struct Inner {
     /// Set false to stop the encode loop; owned here so closing is reachable
     /// from the lease as well as from the consumer.
     pipeline: Arc<AtomicBool>,
-    events: tokio_mpsc::UnboundedSender<SessionEvent>,
+    events: tokio_mpsc::UnboundedSender<Notice>,
 }
 
 pub struct Session {
@@ -420,8 +429,9 @@ pub fn capabilities() -> serde_json::Value {
 impl Session {
     pub async fn open(
         request: OpenRequest,
-        events: tokio_mpsc::UnboundedSender<SessionEvent>,
+        events: tokio_mpsc::UnboundedSender<Notice>,
     ) -> std::result::Result<Self, SessionError> {
+        let id = opaque_id();
         let wants_control = request.permissions.contains(&Permission::Control);
         let wants_x11 = matches!(request.source, Some(SourceRequest::X11 { .. }));
         // Which desktop decides which input path is even available: an X display
@@ -468,7 +478,10 @@ impl Session {
                     .await
                     .map_err(|error| SessionError::new("source", format!("{error:#}")))?;
                 if let Some(token) = &portal.restore_token {
-                    let _ = events.send(SessionEvent::RestoreToken(token.clone()));
+                    let _ = events.send(Notice {
+                        session_id: id.clone(),
+                        event: SessionEvent::RestoreToken(token.clone()),
+                    });
                 }
                 let source = portal.source.clone();
                 let source_w = source.width.max(1) as usize;
@@ -536,7 +549,7 @@ impl Session {
 
         let pipeline = Arc::new(AtomicBool::new(true));
         let inner = Arc::new(Inner {
-            id: opaque_id(),
+            id,
             generation,
             permissions: request.permissions,
             source,
@@ -557,11 +570,11 @@ impl Session {
             events: events.clone(),
         });
 
-        let _ = events.send(SessionEvent::Description {
+        inner.notify(SessionEvent::Description {
             generation,
             sdp: offer,
         });
-        let _ = events.send(SessionEvent::State {
+        inner.notify(SessionEvent::State {
             capture: "consented",
             transport: String::from("new"),
             first_frame: false,
@@ -599,7 +612,7 @@ impl Session {
     }
 
     pub async fn accept_answer(&self, sdp: String) -> Result<()> {
-        self.inner.peer.accept_answer(sdp).await
+        self.inner.peer.accept_answer(sdp).await.map(|_applied| ())
     }
 
     pub async fn add_candidate(
@@ -650,6 +663,14 @@ impl Session {
 }
 
 impl Inner {
+    /// Send one notification, stamped with the session it belongs to.
+    fn notify(&self, event: SessionEvent) {
+        let _ = self.events.send(Notice {
+            session_id: self.id.clone(),
+            event,
+        });
+    }
+
     /// Stop everything and release whatever input this session held. Idempotent,
     /// and the one teardown both an explicit close and a lease expiry take.
     async fn close(&self, reason: &str) {
@@ -677,7 +698,7 @@ impl Inner {
         // out of scope, so the consumer can truthfully say the desktop stopped.
         let capture = self.capture.lock().ok().and_then(|mut held| held.take());
         drop(capture);
-        let _ = self.events.send(SessionEvent::State {
+        self.notify(SessionEvent::State {
             capture: "ended",
             transport: String::from("closed"),
             first_frame: false,
@@ -1028,7 +1049,7 @@ fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: std_mpsc::Receiver<I420>, runnin
                         // reason into what it shows the user.
                         eprintln!("the encoder rejected a frame: {error:#}");
                         let reason = String::from("the encoder rejected a frame");
-                        let _ = inner.events.send(SessionEvent::Revoked { reason: reason.clone() });
+                        inner.notify(SessionEvent::Revoked { reason: reason.clone() });
                         let target = inner.clone();
                         handle.spawn(async move { target.close(&reason).await; });
                         break;
@@ -1061,7 +1082,7 @@ fn spawn_peer_events(inner: &Arc<Inner>, mut events: tokio_mpsc::UnboundedReceiv
                     sdp_mid,
                     sdp_m_line_index,
                 } => {
-                    let _ = inner.events.send(SessionEvent::Candidate {
+                    inner.notify(SessionEvent::Candidate {
                         generation: inner.generation,
                         candidate,
                         sdp_mid,
@@ -1069,7 +1090,7 @@ fn spawn_peer_events(inner: &Arc<Inner>, mut events: tokio_mpsc::UnboundedReceiv
                     });
                 }
                 PeerEvent::State(state) => {
-                    let _ = inner.events.send(SessionEvent::State {
+                    inner.notify(SessionEvent::State {
                         capture: if inner.metrics.lock().map(|m| m.encoded_frames).unwrap_or(0) > 0 {
                             "streaming"
                         } else {
@@ -1114,7 +1135,7 @@ fn spawn_lease(inner: &Arc<Inner>, ttl: Duration) {
             return;
         }
         let reason = String::from("the session lease expired");
-        let _ = inner.events.send(SessionEvent::Revoked { reason: reason.clone() });
+        inner.notify(SessionEvent::Revoked { reason: reason.clone() });
         // An expiry ends the session exactly as an explicit close does; the
         // notification above is not a substitute for stopping the desktop.
         inner.close(&reason).await;
@@ -1191,7 +1212,7 @@ mod tests {
         assert_eq!(to_source_pixels(0, 0, (1280, 720), &source), (0, 0));
     }
 
-    async fn test_inner(events: tokio_mpsc::UnboundedSender<SessionEvent>) -> (Arc<Inner>, Arc<Mutex<Vec<(i16, bool)>>>) {
+    async fn test_inner(events: tokio_mpsc::UnboundedSender<Notice>) -> (Arc<Inner>, Arc<Mutex<Vec<(i16, bool)>>>) {
         let (peer_events, _peer_events_rx) = tokio_mpsc::unbounded_channel();
         let (peer, _offer) = VideoPeer::offer(
             TransportOptions {
@@ -1269,7 +1290,7 @@ mod tests {
             "an expired lease must release what the session pressed",
         );
         assert!(
-            matches!(received.try_recv(), Ok(SessionEvent::Revoked { .. })),
+            matches!(received.try_recv(), Ok(Notice { event: SessionEvent::Revoked { .. }, .. })),
             "the consumer is still told why the session ended",
         );
 
@@ -1308,7 +1329,11 @@ mod tests {
 
         let mut reason = None;
         while let Ok(event) = received.try_recv() {
-            if let SessionEvent::Revoked { reason: why } = event {
+            if let Notice {
+                event: SessionEvent::Revoked { reason: why },
+                ..
+            } = event
+            {
                 reason = Some(why);
             }
         }

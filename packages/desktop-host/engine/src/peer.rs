@@ -45,6 +45,20 @@ const VP9_CLOCK_RATE: u32 = 90_000;
 /// this one is the common convention and keeps packet captures readable.
 pub const VP9_PAYLOAD_TYPE: PayloadType = 98;
 
+fn vp9_codec() -> RTCRtpCodecParameters {
+    RTCRtpCodecParameters {
+        rtp_codec: RTCRtpCodec {
+            mime_type: MIME_TYPE_VP9.to_owned(),
+            clock_rate: VP9_CLOCK_RATE,
+            channels: 0,
+            sdp_fmtp_line: String::new(),
+            rtcp_feedback: Vec::new(),
+        },
+        payload_type: VP9_PAYLOAD_TYPE,
+        ..Default::default()
+    }
+}
+
 /// What the consumer needs to know about a live peer.
 #[derive(Debug, Clone)]
 pub enum PeerEvent {
@@ -171,17 +185,7 @@ impl VideoPeer {
         let runtime = default_runtime().context("no WebRTC runtime is enabled")?;
 
         let mut media_engine = MediaEngine::default();
-        let video_codec = RTCRtpCodecParameters {
-            rtp_codec: RTCRtpCodec {
-                mime_type: MIME_TYPE_VP9.to_owned(),
-                clock_rate: VP9_CLOCK_RATE,
-                channels: 0,
-                sdp_fmtp_line: String::new(),
-                rtcp_feedback: Vec::new(),
-            },
-            payload_type: VP9_PAYLOAD_TYPE,
-            ..Default::default()
-        };
+        let video_codec = vp9_codec();
         media_engine
             .register_codec(video_codec.clone(), RtpCodecKind::Video)
             .context("failed to offer VP9")?;
@@ -286,7 +290,7 @@ impl VideoPeer {
         ))
     }
 
-    pub async fn accept_answer(&self, sdp: String) -> Result<()> {
+    pub async fn accept_answer(&self, sdp: String) -> Result<usize> {
         let answer = RTCSessionDescription::answer(sdp).context("the answer is not valid SDP")?;
         self.peer
             .set_remote_description(answer)
@@ -297,12 +301,15 @@ impl VideoPeer {
             state.ready = true;
             std::mem::take(&mut state.held)
         };
+        let mut applied = 0;
         for candidate in held {
             // Each was acknowledged when it arrived; a bad one must not turn the
             // answer into a failure.
-            let _ = self.peer.add_ice_candidate(candidate).await;
+            if self.peer.add_ice_candidate(candidate).await.is_ok() {
+                applied += 1;
+            }
         }
-        Ok(())
+        Ok(applied)
     }
 
     pub async fn add_candidate(
@@ -375,6 +382,34 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 mod tests {
     use super::*;
 
+    struct NoopHandler;
+
+    impl PeerConnectionEventHandler for NoopHandler {}
+
+    async fn answerer(offer: &str) -> Arc<dyn PeerConnection> {
+        let mut media_engine = MediaEngine::default();
+        media_engine
+            .register_codec(vp9_codec(), RtpCodecKind::Video)
+            .expect("VP9 registers");
+        let registry = register_default_interceptors(Registry::new(), &mut media_engine)
+            .expect("interceptors register");
+        let peer = PeerConnectionBuilder::<std::net::SocketAddr>::new()
+            .with_media_engine(media_engine)
+            .with_interceptor_registry(registry)
+            .with_runtime(default_runtime().expect("a runtime"))
+            .with_handler(Arc::new(NoopHandler))
+            .with_udp_addrs(vec![std::net::SocketAddr::from(([0, 0, 0, 0], 0))])
+            .build()
+            .await
+            .expect("an answering peer");
+        peer.set_remote_description(
+            RTCSessionDescription::offer(offer.to_owned()).expect("a valid offer"),
+        )
+        .await
+        .expect("the offer is accepted");
+        Arc::new(peer)
+    }
+
     #[tokio::test]
     async fn a_candidate_that_arrives_before_the_answer_is_not_refused() {
         let (events, _events_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -397,5 +432,40 @@ mod tests {
         )
         .await
         .expect("a candidate that arrives before the answer is buffered");
+    }
+
+    #[tokio::test]
+    async fn held_candidates_reach_the_peer_when_the_answer_arrives() {
+        let (events, _events_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (peer, offer) = VideoPeer::offer(
+            TransportOptions {
+                ice_servers: Vec::new(),
+                relay_only: false,
+            },
+            events,
+        )
+        .await
+        .expect("a peer connection");
+
+        let other = answerer(&offer).await;
+        let answer = other.create_answer(None).await.expect("an answer");
+        other
+            .set_local_description(answer.clone())
+            .await
+            .expect("a local description");
+
+        peer.add_candidate(
+            String::from("candidate:1 1 udp 2113937151 192.0.2.1 40000 typ host"),
+            Some(String::from("0")),
+            Some(0),
+        )
+        .await
+        .expect("a candidate before the answer is buffered");
+
+        let applied = peer
+            .accept_answer(answer.sdp)
+            .await
+            .expect("the answer is accepted");
+        assert_eq!(applied, 1, "the held candidate must reach the peer");
     }
 }

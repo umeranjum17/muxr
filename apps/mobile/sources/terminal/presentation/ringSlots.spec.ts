@@ -1,18 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { computerRingSlot } from './ringSlots';
+import { desktopRingSlot } from './ringSlots';
 
-describe('the Computer ring slot', () => {
-    it('is absent on a platform with no desktop surface', () => {
-        expect(computerRingSlot(false, () => undefined)).toBeNull();
+describe('the ring\u2019s desktop slot', () => {
+    it('offers Computer in the last slot where the action is available', () => {
+        const slot = desktopRingSlot(true, vi.fn(), vi.fn());
+
+        expect(slot.id).toBe('computer');
+        expect(slot.label).toBe('Computer');
     });
 
-    it('opens the desktop where a surface exists', () => {
-        const open = vi.fn();
-        const slot = computerRingSlot(true, open);
+    it('keeps the Browser shortcut where Computer is not offered', () => {
+        const browser = vi.fn();
+        const slot = desktopRingSlot(false, vi.fn(), browser);
 
-        expect(slot?.id).toBe('computer');
-        slot?.run();
-        expect(open).toHaveBeenCalledTimes(1);
+        expect(slot.id).toBe('browser');
+        slot.run();
+        expect(browser).toHaveBeenCalledTimes(1);
     });
 });

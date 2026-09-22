@@ -251,7 +251,7 @@ async fn serve() -> Result<()> {
         }
     });
 
-    let (events_tx, mut events_rx) = tokio_mpsc::unbounded_channel::<session::SessionEvent>();
+    let (events_tx, mut events_rx) = tokio_mpsc::unbounded_channel::<session::Notice>();
     {
         let out_tx = out_tx.clone();
         tokio::spawn(async move {
@@ -326,11 +326,12 @@ async fn serve() -> Result<()> {
     Ok(())
 }
 
-fn render_event(event: session::SessionEvent) -> Option<String> {
+fn render_event(notice: session::Notice) -> Option<String> {
+    let session::Notice { session_id, event } = notice;
     let (name, params) = match event {
         session::SessionEvent::Description { generation, sdp } => (
             "session.description",
-            serde_json::json!({ "generation": generation, "description": { "type": "offer", "sdp": sdp } }),
+            serde_json::json!({ "sessionId": session_id, "generation": generation, "description": { "type": "offer", "sdp": sdp } }),
         ),
         session::SessionEvent::Candidate {
             generation,
@@ -340,6 +341,7 @@ fn render_event(event: session::SessionEvent) -> Option<String> {
         } => (
             "session.candidate",
             serde_json::json!({
+                "sessionId": session_id,
                 "generation": generation,
                 "candidate": candidate,
                 "sdpMid": sdp_mid,
@@ -352,13 +354,13 @@ fn render_event(event: session::SessionEvent) -> Option<String> {
             first_frame,
         } => (
             "session.state",
-            serde_json::json!({ "capture": capture, "transport": transport, "firstFrame": first_frame }),
+            serde_json::json!({ "sessionId": session_id, "capture": capture, "transport": transport, "firstFrame": first_frame }),
         ),
         session::SessionEvent::RestoreToken(token) => {
-            ("session.restoreToken", serde_json::json!({ "token": token }))
+            ("session.restoreToken", serde_json::json!({ "sessionId": session_id, "token": token }))
         }
         session::SessionEvent::Revoked { reason } => {
-            ("session.revoked", serde_json::json!({ "reason": reason }))
+            ("session.revoked", serde_json::json!({ "sessionId": session_id, "reason": reason }))
         }
     };
     serde_json::to_string(&Event {
@@ -372,7 +374,7 @@ async fn dispatch(
     request: &Request,
     hello_seen: &mut bool,
     current: &mut Option<session::Session>,
-    events: &tokio_mpsc::UnboundedSender<session::SessionEvent>,
+    events: &tokio_mpsc::UnboundedSender<session::Notice>,
 ) -> std::result::Result<serde_json::Value, ErrorBody> {
     match request.method.as_str() {
         "hello" => {
@@ -579,17 +581,25 @@ mod tests {
 
     #[tokio::test]
     async fn the_state_notification_carries_exactly_what_the_document_promises() {
-        let line = render_event(session::SessionEvent::State {
-            capture: "streaming",
-            transport: String::from("connected"),
-            first_frame: true,
+        let line = render_event(session::Notice {
+            session_id: String::from("session-1"),
+            event: session::SessionEvent::State {
+                capture: "streaming",
+                transport: String::from("connected"),
+                first_frame: true,
+            },
         })
         .expect("a state event is renderable");
         let parsed: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_eq!(parsed["event"], "session.state");
         assert_eq!(
             parsed["params"],
-            serde_json::json!({ "capture": "streaming", "transport": "connected", "firstFrame": true })
+            serde_json::json!({
+                "sessionId": "session-1",
+                "capture": "streaming",
+                "transport": "connected",
+                "firstFrame": true
+            })
         );
     }
 }

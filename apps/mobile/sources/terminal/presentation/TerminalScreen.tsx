@@ -55,7 +55,7 @@ import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, De
 import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
 import { FloatingTerminalControls, RING_CENTER_SIZE, type RingSlot } from './FloatingTerminalControls';
-import { computerRingSlot } from './ringSlots';
+import { desktopRingSlot } from './ringSlots';
 import { TERMINAL_QUICK_REPLIES, TerminalKeyRow } from './TerminalKeyRow';
 import { TerminalControlGrid, type ControlGridCategory } from './TerminalKeyRowEditor';
 import { DEFAULT_ROW_IDS, type RowEntry, type TerminalKeyAction } from '../domain/keyRow';
@@ -870,21 +870,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             icon: 'clipboard-outline',
             run: () => void pasteToDraft(),
         });
-        slots.push({
-            id: 'browser',
-            label: 'Browser',
-            icon: 'globe-outline',
-            run: () => router.push(`/session/${encodeURIComponent(props.id)}/takeover`),
-        });
-        // The computer action opens this machine's own desktop inside the
-        // conversation, so it is offered only where the package has a surface
-        // and this grant may act: Android and the web build, for a control
-        // grant, not a platform with no backend or a view-only device.
-        const computer = computerRingSlot(
+        // The Computer action opens this machine's own desktop inside the
+        // conversation, so it takes the ring's last slot wherever the package
+        // has a surface and this grant may act: Android and the web build, for
+        // a control grant. Browser keeps its permanent route in the menu.
+        slots.push(desktopRingSlot(
             desktopAvailable && canControl,
             () => router.push(`/session/${encodeURIComponent(props.id)}/desktop`),
-        );
-        if (computer !== null) slots.push(computer);
+            () => router.push(`/session/${encodeURIComponent(props.id)}/takeover`),
+        ));
         return slots;
     }, [canControl, changesCount, keyboardVisible, openAgentCommands, pasteToDraft, props.id, sendCommand, terminalKeyboardCommand, viewControls]);
 

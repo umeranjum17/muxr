@@ -85,19 +85,20 @@ export interface OpenedSession {
 }
 
 export type EngineEvent =
-    | { event: 'session.description'; params: { generation: number; description: { type: 'offer'; sdp: string } } }
+    | { event: 'session.description'; params: { sessionId: string; generation: number; description: { type: 'offer'; sdp: string } } }
     | {
           event: 'session.candidate';
           params: {
+              sessionId: string;
               generation: number;
               candidate: string;
               sdpMid: string | null;
               sdpMLineIndex: number | null;
           };
       }
-    | { event: 'session.state'; params: { capture: string; transport: string; firstFrame: boolean } }
-    | { event: 'session.restoreToken'; params: { token: string } }
-    | { event: 'session.revoked'; params: { reason: string } };
+    | { event: 'session.state'; params: { sessionId: string; capture: string; transport: string; firstFrame: boolean } }
+    | { event: 'session.restoreToken'; params: { sessionId: string; token: string } }
+    | { event: 'session.revoked'; params: { sessionId: string; reason: string } };
 
 export type EngineEventName = EngineEvent['event'];
 
