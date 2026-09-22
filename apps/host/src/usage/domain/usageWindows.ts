@@ -269,7 +269,7 @@ function windowElapsed(used: number, minutes: number | undefined, reset: number 
 
 /** Limited beats share (90 -> low, 75 -> watch), then pace (20 points over
  *  elapsed -> ahead); otherwise a task can go ahead. */
-function limitsVerdict(used: number, elapsed: number | undefined, limited: boolean): UsageLimitsPayload['verdict'] {
+function limitsVerdict(used: number, elapsed: number | undefined, limited: boolean): Exclude<UsageLimitsPayload['verdict'], 'unknown'> {
     if (limited || used >= 100) return 'limited';
     if (used >= VERDICT_LOW) return 'low';
     if (used >= VERDICT_WATCH) return 'watch';
