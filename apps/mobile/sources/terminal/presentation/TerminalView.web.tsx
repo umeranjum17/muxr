@@ -5,7 +5,7 @@
 
 import * as React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import type { IBuffer, IMarker } from '@xterm/xterm';
+import type { IBuffer, IBufferRange, IMarker } from '@xterm/xterm';
 import type { TerminalCommand } from './FloatingTerminalControls';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -80,7 +80,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         if (element === null) return;
         element.style.position = 'relative';
 
-        let hoveredOscLink: string | null = null;
+        let hoveredOscLink: { url: string; range: IBufferRange } | null = null;
         const term = new Terminal({
             // registerDecoration (plain-URL underlines) is a proposed API.
             allowProposedApi: true,
@@ -95,8 +95,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             // the app boundary, which drops non-web schemes instead.
             linkHandler: {
                 activate: (event, text) => reachLink(text, event),
-                hover: (_event, text) => { hoveredOscLink = text; },
-                leave: () => { hoveredOscLink = null; },
+                hover: (_event, url, range) => { hoveredOscLink = { url, range }; },
             },
         });
         // One rule on both terminals: reaching for a link asks what to do with
@@ -228,6 +227,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     if (disposed || pending.length === 0) return;
                     const chunks = pending;
                     pending = [];
+                    hoveredOscLink = null;
                     for (const chunk of chunks) term.write(decodeBase64(chunk));
                 };
                 opened.onData((base64) => {
@@ -298,6 +298,16 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             const tapped = buffer.getLine(row);
             if (!tapped) return null;
             return plainLinkAtCell(tapped, term.cols, col, row, lineRow);
+        };
+        const screen = element.querySelector('.xterm-screen');
+        const oscLinkAt = (clientX: number, clientY: number): string | null => {
+            if (hoveredOscLink === null) return null;
+            const rect = screen?.getBoundingClientRect() ?? element.getBoundingClientRect();
+            const x = Math.floor((clientX - rect.left) / (rect.width / term.cols)) + 1;
+            const y = term.buffer.active.viewportY + Math.floor((clientY - rect.top) / cellHeight()) + 1;
+            const { start, end } = hoveredOscLink.range;
+            return y >= start.y && y <= end.y && (y > start.y || x >= start.x) && (y < end.y || x <= end.x)
+                ? hoveredOscLink.url : null;
         };
         const plainTextLinkAt = (clientX: number, clientY: number): string | null => {
             const rect = element.getBoundingClientRect();
@@ -375,14 +385,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             if (event.touches.length === 1) {
                 const touch = event.touches[0]!;
                 longPressAt = { x: touch.clientX, y: touch.clientY };
-                const screen = element.querySelector('.xterm-screen');
-                screen?.dispatchEvent(new MouseEvent('mouseleave'));
                 screen?.dispatchEvent(new MouseEvent('mousemove', { clientX: touch.clientX, clientY: touch.clientY }));
                 clearTimeout(longPressTimer);
                 longPressTimer = setTimeout(() => {
                     longPressTimer = undefined;
                     if (longPressAt === null || Math.abs(gesturePx) >= 8) return;
-                    longPressLink = hoveredOscLink ?? plainTextLinkAt(longPressAt.x, longPressAt.y);
+                    longPressLink = oscLinkAt(longPressAt.x, longPressAt.y) ?? plainTextLinkAt(longPressAt.x, longPressAt.y);
                     const box = element.getBoundingClientRect();
                     longPressPoint = { x: longPressAt.x - box.left, y: longPressAt.y - box.top };
                 }, LONG_PRESS_MS);

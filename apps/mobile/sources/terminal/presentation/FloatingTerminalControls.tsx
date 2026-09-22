@@ -57,7 +57,7 @@ export const floatingControlFits = (terminalHeight: number | undefined): boolean
 export function TerminalMenuQuickActions({ slots, terminalHeight, hasTools, onClose }: { slots: readonly RingSlot[]; terminalHeight: number | undefined; hasTools: boolean; onClose: () => void }) {
     const { theme } = useUnistyles();
     if (hasTools && floatingControlFits(terminalHeight)) return null;
-    return slots.filter((slot) => ['continue', 'commands', 'paste', 'browser'].includes(slot.id)).map((slot) => (
+    return slots.map((slot) => (
         <Pressable key={slot.id} onPress={() => { onClose(); slot.run(); }} accessibilityRole="button" accessibilityLabel={slot.label}
             style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
             <Ionicons name={slot.icon} size={18} color={theme.colors.textSecondary} />

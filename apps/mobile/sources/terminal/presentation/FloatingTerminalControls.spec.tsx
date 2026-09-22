@@ -208,9 +208,9 @@ describe('floating terminal control', () => {
         });
         expect(box.top + dragY.value + box.height).toBeLessThanOrEqual(45);
 
-        const run = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
-        const actions: RingSlot[] = ['Continue', 'Commands', 'Paste', 'Browser'].map((label, index) => ({
-            id: label.toLowerCase(), label, icon: 'code', run: run[index]!,
+        const run = Array.from({ length: 6 }, () => vi.fn());
+        const actions: RingSlot[] = ['Continue', 'Review changes', 'Arrow keys', 'Commands', 'Paste', 'Browser'].map((label, index) => ({
+            id: ['continue', 'changes', 'arrows', 'commands', 'paste', 'browser'][index]!, label, icon: 'code', run: run[index]!,
         }));
         let renderer: any;
         TestRenderer.act(() => {
@@ -227,9 +227,11 @@ describe('floating terminal control', () => {
         });
         expect(renderer.root.findAll((node: any) => node.props?.accessibilityLabel === 'Browser')).toHaveLength(0);
         TestRenderer.act(() => {
-            renderer.update(<TerminalMenuQuickActions slots={[actions[3]!]} terminalHeight={45} hasTools={false} onClose={() => undefined} />);
+            renderer.update(<TerminalMenuQuickActions slots={[actions[1]!, actions[5]!]} terminalHeight={45} hasTools={false} onClose={() => undefined} />);
         });
+        tap(renderer, slot(renderer, 'Review changes'));
         tap(renderer, slot(renderer, 'Browser'));
-        expect(run[3]).toHaveBeenCalledTimes(2);
+        expect(run[1]).toHaveBeenCalledTimes(2);
+        expect(run[5]).toHaveBeenCalledTimes(2);
     });
 });
