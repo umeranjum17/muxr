@@ -16,8 +16,10 @@ export interface UsageLimitsWindow {
     used: number;
     /** Duration until reset ("4h 11m"); omitted when the host has no reset time. */
     resetsIn?: string;
-    /** How much of the window has elapsed, 0..1, when the length is known. */
+    /** Elapsed share, 0..1, when the length and reset are usable and some usage exists. */
     elapsed?: number;
+    /** Null when the host cannot calculate pace; the phone omits its verdict and tone. */
+    pace?: 'limited' | 'low' | 'watch' | 'ahead' | 'on pace' | null;
 }
 
 export interface UsageLimitsPayload {
@@ -57,7 +59,7 @@ export interface UsageWindowViewModel {
     windowMinutes?: number;
     resetEpochSec?: number;
     resetClock: string;
-    pace: { verdict: string; tone: string };
+    pace: { verdict: string | null; tone: string };
 }
 
 /** One connected plan: identity plus its real quota windows, most urgent

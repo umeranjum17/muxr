@@ -1,37 +1,15 @@
 /**
- * Rate-limit headroom math for the Usage screen. Pure and side-effect free so
- * the pace boundaries stay testable without stubbing provider backends.
- *
- * One rule owns every colour: red fires only when the current burn projects
- * past the limit before the reset clock, never merely for crossing a percent.
- * Without a usable reset or window length there is no projection to stand on,
- * so the tone caps at amber and the verdict stays neutral.
+ * Reset clock formatting and published window lengths for the Usage screen.
  */
 
-/** Known window lengths in minutes. Rolling has no published length, so it
- * stays unknown and its rows never claim a projection. */
+/** Known window lengths in minutes. OpenCode Go's monthly reset is anchored
+ * to the subscription date, so it has no fixed length here. */
 export const WINDOW_MINUTES = {
     five_hour: 5 * 60,
     seven_day: 7 * 24 * 60,
     weekly: 7 * 24 * 60,
     monthly: 30 * 24 * 60,
 } as const;
-
-/** A projection needs a visible burn: under 5% of the window elapsed the rate
- * is noise, so the row reports neutral instead of crying burning. */
-const MIN_ELAPSED_SHARE = 0.05;
-/** Projected share of the window that reads as tight but survivable. */
-const TIGHT_PROJECTED = 70;
-/** Remaining headroom that reads as tight when no projection is possible. */
-const TIGHT_REMAINING = 15;
-
-export interface PaceInput {
-    used: number;
-    windowMinutes?: number | undefined;
-    resetEpochSec?: number | undefined;
-    nowMs: number;
-    limited?: boolean;
-}
 
 function resetTimeMs(resetEpochSec: number | undefined, nowMs: number): number | undefined {
     if (!Number.isFinite(resetEpochSec) || !Number.isFinite(nowMs)) return undefined;
@@ -58,36 +36,3 @@ export function resetClock(resetEpochSec: number | undefined, nowMs: number): st
     return `${day} ${time}`;
 }
 
-export interface PaceVerdict {
-    verdict: 'limited' | 'exhausted' | 'on pace' | 'ahead' | 'burning';
-    tone: 'danger' | 'warning' | 'positive';
-}
-
-/** Plain-language pace verdict the data supports. `used` is 0-100, `limited`
- * marks a provider-reported rate-limited window, `windowMinutes` may be
- * undefined when the provider publishes no usable length. */
-export function paceVerdict({ used, windowMinutes, resetEpochSec, nowMs, limited = false }: PaceInput): PaceVerdict {
-    const remaining = 100 - used;
-    if (limited && remaining > 0) return { verdict: 'limited', tone: 'danger' };
-    if (remaining <= 0) return { verdict: 'exhausted', tone: 'danger' };
-    const at = resetTimeMs(resetEpochSec, nowMs);
-    const remainingMin = at === undefined ? undefined : (at - nowMs) / 60_000;
-    if (
-        at === undefined || remainingMin === undefined || remainingMin <= 0
-        || !Number.isFinite(windowMinutes) || (windowMinutes ?? 0) <= 0
-    ) {
-        return remaining <= TIGHT_REMAINING
-            ? { verdict: 'on pace', tone: 'warning' }
-            : { verdict: 'on pace', tone: 'positive' };
-    }
-    const elapsedMin = windowMinutes! - remainingMin;
-    if (elapsedMin < windowMinutes! * MIN_ELAPSED_SHARE) {
-        return remaining <= TIGHT_REMAINING
-            ? { verdict: 'on pace', tone: 'warning' }
-            : { verdict: 'ahead', tone: 'positive' };
-    }
-    const projected = used / elapsedMin * windowMinutes!;
-    if (projected >= 100) return { verdict: 'burning', tone: 'danger' };
-    if (projected >= TIGHT_PROJECTED) return { verdict: 'on pace', tone: 'warning' };
-    return { verdict: 'ahead', tone: 'positive' };
-}

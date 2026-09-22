@@ -95,7 +95,8 @@ vi.mock('@/plugins/ui', () => ({
     VERDICT_KEYS: { limited: 'plugins.limits.limited' },
     verdictTone: () => undefined,
 }));
-vi.mock('@/text', () => ({ t: (key: string) => key }));
+// Keys stand in for words; a share keeps its figure, as every real string does.
+vi.mock('@/text', () => ({ t: (key: string, params?: { percent?: number }) => (params?.percent === undefined ? key : `${params.percent}% ${key}`) }));
 
 const { useUsageNow } = await import('./useUsageNow');
 const { RightNowCard } = await import('../presentation/RightNowCard');
@@ -587,7 +588,8 @@ describe('the Home card read path', () => {
         // when it can run, and issues no cache-bypassing read of its own.
         pressRefresh(card);
         await tick();
-        expect(screenText(card)).toContain('plugins.rightNow.refreshThrottled');
+        expect(refreshControls(card)[0].props.accessibilityLabel).toContain('plugins.rightNow.refreshThrottled');
+        expect(screenText(card)).toContain('plugins.rightNow.refreshIn');
         expect(request.mock.calls.length).toBe(read);
         expect(forcedReads()).toHaveLength(2);
     });
@@ -638,6 +640,17 @@ describe('the Home card read path', () => {
 });
 
 describe('the usage screen read path', () => {
+    it('marks the tab the host answered for when the default view opens', async () => {
+        // The default view asks for no tab; the host picks one, and it need not
+        // be the first pill. That pill is the one the figures belong to.
+        request.mockResolvedValue(report('opencode', 0));
+        const screen = renderScreen();
+        await tick();
+        const selected = screen.root.findAll((node: any) => node.props?.accessibilityRole === 'tab' && node.props?.onPress !== undefined)
+            .map((node: any) => [node.props.accessibilityLabel, node.props.accessibilityState?.selected]);
+        expect(selected).toEqual([['Claude', false], ['OpenCode', true]]);
+    });
+
     it('names a refused tap at the control that was pressed', async () => {
         request.mockResolvedValue(report('claude', 1_200));
         const screen = renderScreen();
@@ -813,6 +826,23 @@ describe('the usage screen read path', () => {
         await tick();
         expect(request.mock.calls.length).toBeGreaterThan(before);
         expect(request.mock.calls.at(-1)?.[1]).toEqual({ provider: 'opencode', refresh: true });
+    });
+
+    it('shows the unrounded tightest window and its visible tag on Home', async () => {
+        const session = { label: 'Session', window: '5h', used: 89.6, resetsIn: '1h' };
+        const weekly = { label: 'Weekly', window: '7d', used: 89.9, resetsIn: '2d' };
+        const now: UsageNow = {
+            limits: { verdict: 'low', windows: [weekly] },
+            connected: [{ id: 'codex', label: 'Codex', windows: [session, weekly] }],
+            vitals: VITALS,
+        };
+        noteAsked('', Date.now());
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, now) });
+        const card = renderCard();
+        await tick();
+        expect(card.root.findAllByType('Meter')[0].props.ratio).toBe(0.899);
+        expect(screenText(card)).toContain('7d');
+        expect(screenText(card)).toContain('10% plugins.limits.percentLeft');
     });
 
     it('says what it holds when the figures name no connected plan', async () => {

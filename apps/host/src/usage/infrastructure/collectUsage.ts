@@ -448,18 +448,29 @@ function codexUsage(env: NodeJS.ProcessEnv): Promise<CodexRateLimitResult | unde
     });
 }
 
-/** Critical windows first: the limit you are about to hit leads the list. */
+/** Critical limits first: the limit you are about to hit leads the list, and
+ *  inside one limit its windows read shortest first, like every other plan. */
 function codexWindowsOrdered(result: CodexRateLimitResult | undefined, nowMs: number): UsageWindowVM[] {
     const limits = Object.values(result?.rateLimitsByLimitId ?? {});
     if (!limits.length && result?.rateLimits !== undefined) limits.push(result.rateLimits);
     // Every window becomes the same view model the other providers use; the
     // rendered shapes below are views of it, never a second parse.
-    const vms = codexWindows(limits.slice(0, 8).flatMap((limit) => {
+    const groups = limits.flatMap((limit) => {
         if (!isRecord(limit)) return [];
         const rawName = String(limit.limitName ?? limit.limitId ?? 'Codex').replace(/[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Codex';
-        return [{ limitName: rawName.toLowerCase() === 'codex' ? AGENTS.codex : rawName, primary: limit.primary, secondary: limit.secondary }];
-    }), { nowMs }).map((vm, ordinal) => ({ vm, ordinal }));
-    return vms.sort((a, b) => a.vm.percentRemaining - b.vm.percentRemaining || a.ordinal - b.ordinal).slice(0, 8).map(({ vm }) => vm);
+        // The plan's own limit is already named by the plan; only a separate
+        // limit names itself on its rows.
+        const vms = codexWindows([{ ...(rawName.toLowerCase() === 'codex' ? {} : { limitName: rawName }), primary: limit.primary, secondary: limit.secondary }], { nowMs });
+        return vms.length === 0 ? [] : [vms.sort((a, b) => (a.windowMinutes ?? 0) - (b.windowMinutes ?? 0))];
+    });
+    const chosen = groups.flatMap((vms) => vms)
+        .sort((a, b) => a.percentRemaining - b.percentRemaining)
+        .slice(0, 8);
+    return groups
+        .map((vms, ordinal) => ({ vms: vms.filter((vm) => chosen.includes(vm)), ordinal }))
+        .filter(({ vms }) => vms.length > 0)
+        .sort((a, b) => Math.min(...a.vms.map((vm) => vm.percentRemaining)) - Math.min(...b.vms.map((vm) => vm.percentRemaining)) || a.ordinal - b.ordinal)
+        .flatMap(({ vms }) => vms);
 }
 
 /** The identity includes the selected Go credential. Use a bounded KDF rather
@@ -668,7 +679,7 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
         label: TAB_LABELS[id] ?? AGENTS[id] ?? id,
         glyph: id,
         ...(plan === undefined ? {} : { plan }),
-        windows: limitsPayload(vms, { ...(plan === undefined ? {} : { plan }) }).windows.map(({ label, window, used }) => ({ label, ...(window === undefined ? {} : { window }), used })),
+        windows: limitsPayload(vms, { ...(plan === undefined ? {} : { plan }) }).windows,
     }));
     const output: UsageReport = {
         providers: providerIds.map((agent) => ({ id: agent, label: TAB_LABELS[agent] ?? AGENTS[agent] ?? agent, glyph: agent })),

@@ -7,17 +7,21 @@
  * Dialects end here. Sources report "how much used" (Claude, Z.ai, Go) or
  * "how much left" (quota-style percentRemaining feeds); normalizeWindow
  * accepts either one dialect as input and derives the other, so the pair can
- * never disagree. Reset clocks and pace verdicts come from rateLimits.ts --
- * the same module the rate-limit block renders from -- never re-decided here.
+ * never disagree. One verdict rule governs the card and each window row.
  */
 
 import type { UsageLimitsPayload, UsageLimitsWindow } from '@muxr/contract';
-import { paceVerdict, resetClock, WINDOW_MINUTES, type PaceVerdict } from './rateLimits.js';
+import { resetClock, WINDOW_MINUTES } from './rateLimits.js';
 
 const clampPct = (value: number): number => Math.max(0, Math.min(100, value));
 
 /** One uniform window. `used` and `remaining` are the two input dialects;
  * supply exactly one, the other comes back derived. Plain data throughout. */
+interface PaceVerdict {
+    verdict: 'limited' | 'low' | 'watch' | 'ahead' | 'on pace' | null;
+    tone: 'danger' | 'warning' | 'secondary';
+}
+
 export interface UsageWindowVM {
     provider: string;
     windowKind: string;
@@ -27,6 +31,7 @@ export interface UsageWindowVM {
     windowMinutes?: number;
     resetEpochSec?: number;
     resetClock: string;
+    limited?: boolean;
     pace: PaceVerdict;
 }
 
@@ -48,6 +53,12 @@ export function normalizeWindow({ provider, windowKind, label, used, remaining, 
     const percentUsed = clampPct(hasUsed ? used! : 100 - remaining!);
     if (!hasUsed && !hasRemaining) return undefined;
     const finiteMinutes = Number.isFinite(windowMinutes) && windowMinutes! > 0 ? windowMinutes! : undefined;
+    const clock = resetClock(resetEpochSec, nowMs);
+    const elapsed = windowElapsed(percentUsed, finiteMinutes, resetEpochSec, nowMs, clock);
+    const verdict = elapsed === undefined ? null : limitsVerdict(percentUsed, elapsed, limited);
+    let tone: PaceVerdict['tone'] = 'secondary';
+    if (verdict === 'limited' || verdict === 'low') tone = 'danger';
+    else if (verdict === 'ahead' || verdict === 'watch') tone = 'warning';
     return {
         provider,
         windowKind,
@@ -58,14 +69,19 @@ export function normalizeWindow({ provider, windowKind, label, used, remaining, 
         percentRemaining: 100 - percentUsed,
         ...(finiteMinutes === undefined ? {} : { windowMinutes: finiteMinutes }),
         ...(Number.isFinite(resetEpochSec) ? { resetEpochSec: resetEpochSec! } : {}),
-        resetClock: resetClock(resetEpochSec, nowMs),
-        pace: paceVerdict({ used: percentUsed, windowMinutes: finiteMinutes, resetEpochSec, nowMs, limited }),
+        resetClock: clock,
+        ...(limited ? { limited: true } : {}),
+        pace: { verdict: verdict === 'go' ? 'on pace' : verdict, tone },
     };
 }
 
 // --- Per-provider transforms: raw payload in, view models out. ---
 
-const CLAUDE_WINDOWS: [id: keyof typeof WINDOW_MINUTES, kind: string, label: string][] = [['five_hour', 'session', '5-hour limit'], ['seven_day', 'weekly', '7-day limit']];
+/** One name per window kind, for every provider. The published length rides
+ *  beside it as `window` ("5h", "7d"), so a label never spells it again. */
+const KIND_LABELS: Record<string, string> = { session: 'Session', weekly: 'Weekly', monthly: 'Monthly' };
+
+const CLAUDE_WINDOWS: [id: keyof typeof WINDOW_MINUTES, kind: string, label: string][] = [['five_hour', 'session', KIND_LABELS.session!], ['seven_day', 'weekly', KIND_LABELS.weekly!]];
 
 /** Claude oauth/usage payload: `rate_limits.five_hour.utilization` is percent used. */
 export function claudeWindows(raw: unknown, { provider = 'claude', nowMs }: { provider?: string; nowMs: number }): UsageWindowVM[] {
@@ -92,8 +108,8 @@ export function zaiWindows(limits: unknown, { provider = 'zai', nowMs }: { provi
     // Monitor buckets arrive as unit/number pairs; unknown pairs are skipped
     // rather than guessed at, so a schema change degrades to "unavailable".
     const windows = new Map([
-        ['3:5', { kind: 'session', label: '5-hour limit', windowMinutes: WINDOW_MINUTES.five_hour }],
-        ['6:1', { kind: 'weekly', label: 'Weekly limit', windowMinutes: WINDOW_MINUTES.seven_day }],
+        ['3:5', { kind: 'session', label: KIND_LABELS.session!, windowMinutes: WINDOW_MINUTES.five_hour }],
+        ['6:1', { kind: 'weekly', label: KIND_LABELS.weekly!, windowMinutes: WINDOW_MINUTES.seven_day }],
     ]);
     return (Array.isArray(limits) ? limits : []).flatMap((limit): UsageWindowVM[] => {
         const entry = limit as { unit?: unknown; number?: unknown; percentage?: unknown; nextResetTime?: unknown } | null;
@@ -126,21 +142,27 @@ export function goWindows(usage: unknown, { provider = 'opencode', nowMs }: { pr
     });
 }
 
-/** Codex app-server payload: windows carry usedPercent plus their own durations. */
+/** Codex app-server payload: windows carry usedPercent plus their own durations.
+ *  A limit without a `limitName` is the plan's own, so its windows are named by
+ *  kind alone; a separately named limit prefixes its name. */
 export function codexWindows(limits: unknown[], { provider = 'codex', nowMs }: { provider?: string; nowMs: number }): UsageWindowVM[] {
-    const kindForMinutes = (minutes: number): string => {
-        if (minutes <= 1_440) return 'session';
-        return minutes <= 10_080 ? 'weekly' : 'monthly';
+    const kindForMinutes = (minutes: number | undefined): string => {
+        if (minutes === WINDOW_MINUTES.five_hour) return 'session';
+        if (minutes === WINDOW_MINUTES.seven_day) return 'weekly';
+        if (minutes === WINDOW_MINUTES.monthly) return 'monthly';
+        return 'custom';
     };
     return limits.flatMap((limit) => ['primary', 'secondary'].flatMap((key): UsageWindowVM[] => {
         const window = (limit as Record<string, { usedPercent?: unknown; windowDurationMins?: unknown; resetsAt?: unknown } | undefined> | undefined)?.[key];
         if (!Number.isFinite(window?.usedPercent)) return [];
         const rawMinutes = window?.windowDurationMins;
         const windowMinutes = Number.isFinite(rawMinutes) && (rawMinutes as number) > 0 ? rawMinutes as number : undefined;
-        const limitName = String((limit as { limitName?: unknown; limitId?: unknown }).limitName ?? (limit as { limitId?: unknown }).limitId ?? 'Codex');
+        const limitName = (limit as { limitName?: unknown }).limitName;
+        const windowKind = kindForMinutes(windowMinutes);
+        const kindLabel = KIND_LABELS[windowKind] ?? 'Limit';
         return [normalizeWindow({
-            provider, windowKind: windowMinutes === undefined ? 'session' : kindForMinutes(windowMinutes),
-            label: `${limitName} · ${windowMinutes === undefined ? key : `${windowMinutes / 60}h`}`,
+            provider, windowKind,
+            label: typeof limitName === 'string' && limitName !== '' ? `${limitName} · ${kindLabel}` : kindLabel,
             used: window?.usedPercent as number, windowMinutes, resetEpochSec: window?.resetsAt as number | undefined, nowMs,
         })].filter((vm): vm is UsageWindowVM => vm !== undefined);
     }));
@@ -244,14 +266,19 @@ function windowName(minutes: number | undefined): string {
     return `${minutes!}m`;
 }
 
-/** Verdict rules: limited beats everything, then the tightest window's share
- *  (90 -> low, 75 -> watch), then pace (20 points over the elapsed fraction ->
- *  ahead), otherwise go. */
-function limitsVerdict(tightest: UsageWindowVM, elapsed: number | undefined, limited: boolean): UsageLimitsPayload['verdict'] {
-    if (limited) return 'limited';
-    if (tightest.percentUsed >= VERDICT_LOW) return 'low';
-    if (tightest.percentUsed >= VERDICT_WATCH) return 'watch';
-    if (elapsed !== undefined && tightest.percentUsed - elapsed * 100 >= AHEAD_MARGIN) return 'ahead';
+/** The elapsed anchor and the pace verdict require a usable length and reset. */
+function windowElapsed(used: number, minutes: number | undefined, reset: number | undefined, nowMs: number, clock: string): number | undefined {
+    if (used === 0 || clock === '' || !Number.isFinite(minutes) || !Number.isFinite(reset) || resetIn(reset, nowMs) === '') return undefined;
+    return Math.min(1, Math.max(0, 1 - (reset! * 1000 - nowMs) / (minutes! * 60_000)));
+}
+
+/** Limited beats share (90 -> low, 75 -> watch), then pace (20 points over
+ *  elapsed -> ahead); otherwise a task can go ahead. */
+function limitsVerdict(used: number, elapsed: number | undefined, limited: boolean): Exclude<UsageLimitsPayload['verdict'], 'unknown'> {
+    if (limited || used >= 100) return 'limited';
+    if (used >= VERDICT_LOW) return 'low';
+    if (used >= VERDICT_WATCH) return 'watch';
+    if (elapsed !== undefined && used - elapsed * 100 >= AHEAD_MARGIN) return 'ahead';
     return 'go';
 }
 
@@ -264,22 +291,21 @@ export function limitsPayload(vms: UsageWindowVM[], { plan, message, nowMs = Dat
         return { verdict: 'unknown', windows: [], ...(message === undefined ? {} : { message }) };
     }
     const windows: UsageLimitsWindow[] = vms.map((vm) => {
-        const resetsIn = resetIn(vm.resetEpochSec, nowMs);
-        const elapsed = vm.percentUsed > 0 && Number.isFinite(vm.windowMinutes) && Number.isFinite(vm.resetEpochSec)
-            ? Math.min(1, Math.max(0, 1 - (vm.resetEpochSec! * 1000 - nowMs) / (vm.windowMinutes! * 60_000)))
-            : undefined;
+        const resetsIn = vm.resetClock === '' ? '' : resetIn(vm.resetEpochSec, nowMs);
+        const elapsed = windowElapsed(vm.percentUsed, vm.windowMinutes, vm.resetEpochSec, nowMs, vm.resetClock);
         const name = windowName(vm.windowMinutes);
         return {
             label: vm.label,
             ...(name === '' ? {} : { window: name }),
-            used: Math.round(vm.percentUsed),
+            used: vm.percentUsed,
+            pace: vm.pace.verdict,
             ...(resetsIn === '' ? {} : { resetsIn }),
             ...(elapsed === undefined || !Number.isFinite(elapsed) ? {} : { elapsed }),
         };
     });
     const tightest = tightestWindow(vms)!;
-    const limited = vms.some((vm) => vm.pace.verdict === 'limited' || vm.percentUsed >= 100);
-    const verdict = limitsVerdict(tightest, windows[vms.indexOf(tightest)]?.elapsed, limited);
+    const limited = vms.some((vm) => vm.limited || vm.percentUsed >= 100);
+    const verdict = limitsVerdict(tightest.percentUsed, windows[vms.indexOf(tightest)]?.elapsed, limited);
     return {
         verdict,
         ...(plan === undefined ? {} : { plan }),

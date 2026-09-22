@@ -262,7 +262,7 @@ try {
     // The limits card payload: used shares, spelled-out resets, elapsed anchors.
     assert.equal(output.limits.plan, 'Claude plan');
     assert.equal(output.limits.verdict, 'go');
-    assert.deepEqual(output.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['5-hour limit', '5h', 21], ['7-day limit', '7d', 42]]);
+    assert.deepEqual(output.limits.windows.map((limit) => [limit.label, limit.window, limit.used, limit.pace]), [['Session', '5h', 21, 'on pace'], ['Weekly', '7d', 42, 'on pace']]);
     assert.ok(output.limits.windows.every((limit) => typeof limit.resetsIn === 'string' && limit.resetsIn !== ''));
     assert.ok(Math.abs(output.limits.windows[0].elapsed - 0.4) < 0.01);
     // The same windows as the plain view model every surface reads.
@@ -284,7 +284,7 @@ try {
     // answers with a real window instead of a false "not connected".
     assert.equal(kimi.limits.plan, 'OpenAI Codex');
     assert.equal(kimi.limits.verdict, 'low');
-    assert.deepEqual(kimi.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['OpenAI Codex · 168h', '7d', 90], ['OpenAI Codex · 5h', '5h', 25]]);
+    assert.deepEqual(kimi.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['Session', '5h', 25], ['Weekly', '7d', 90]]);
     assert.equal(kimi.limits.message, undefined);
 
     // A deep link to an installed-but-idle provider no longer mints a tab;
@@ -353,7 +353,7 @@ try {
     assert.ok(!existsSync(stateFile('opencode')), 'missing Go limits must not be cached');
     const goStub = (url, options) => {
         if (url !== 'https://opencode.ai/zen/go/v1/usage' || options.redirect !== 'error' || options.headers.authorization !== 'Bearer fixture-secret-key') throw new Error('unexpected quota request');
-        return Promise.resolve(new Response(JSON.stringify({ usage: Object.fromEntries(['rolling', 'weekly', 'monthly'].map((key, index) => [key, { status: 'ok', percent: 20 + index, resetsAt: new Date(Date.now() + 3600000).toISOString() }])) })));
+        return Promise.resolve(new Response(JSON.stringify({ usage: Object.fromEntries(['rolling', 'weekly', 'monthly'].map((key, index) => [key, { status: 'ok', percent: index === 0 ? 0 : 20 + index, resetsAt: new Date(Date.now() + 3600000).toISOString() }])) })));
     };
     writeFileSync(join(scratch, '.local/share/opencode/auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: 'fixture-secret-key' } }));
     // A pinned-but-unusable override must not borrow the disk account.
@@ -362,14 +362,18 @@ try {
     const connected = await run({ provider: 'opencode' }, { __fetch: goStub });
     const connectedGo = connected;
     assert.equal(connectedGo.limits.plan, 'OpenCode Go');
-    assert.deepEqual(connectedGo.limits.windows.map((limit) => [limit.label, limit.used]), [['Rolling', 20], ['Weekly', 21], ['Monthly', 22]]);
+    assert.deepEqual(connectedGo.limits.windows.map((limit) => [limit.label, limit.used]), [['Rolling', 0], ['Weekly', 21], ['Monthly', 22]]);
     // Rolling is documented as five hours, so it carries a length and an
     // elapsed anchor; monthly's anchor is the subscription date, so no length
     // is invented. Every row spells out its reset.
     assert.deepEqual(connectedGo.limits.windows.map((limit) => [limit.window, limit.resetsIn !== undefined]), [['5h', true], ['7d', true], [undefined, true]]);
     assert.equal(connectedGo.limits.windows[2].elapsed, undefined);
+    assert.equal(connectedGo.windows[2].pace.verdict, null);
+    assert.equal(connectedGo.limits.windows[0].pace, null, 'an unused window cannot claim to be ahead of pace');
+    assert.equal(connectedGo.limits.windows[2].pace, null);
+    assert.equal(connectedGo.connected.find((entry) => entry.id === 'opencode').windows[2].pace, null);
     assert.deepEqual(connectedGo.windows.map((vm) => [vm.provider, vm.windowKind, vm.percentUsed, vm.percentRemaining]), [
-        ['opencode', 'rolling', 20, 80],
+        ['opencode', 'rolling', 0, 100],
         ['opencode', 'weekly', 21, 79],
         ['opencode', 'monthly', 22, 78],
     ]);
@@ -403,7 +407,7 @@ try {
     const zaiRun = await run({ provider: 'zai' }, { PI_AGENT_DIR: zaiAgent, MUXR_HOME: join(scratch, 'zai-state'), __fetch: zaiStubOk });
     assert.equal(zaiRun.provider, 'zai');
     assert.deepEqual(zaiRun.limits.plan, 'Z.ai plan');
-    assert.deepEqual(zaiRun.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['5-hour limit', '5h', 4], ['Weekly limit', '7d', 1]]);
+    assert.deepEqual(zaiRun.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['Session', '5h', 4], ['Weekly', '7d', 1]]);
     // Tokens are the local Z.ai-model slice: one model, one turn, measured
     // once. Cost stays a dash: plan tokens are priced by the plan, and a
     // recorded dollar figure must never stand in for one.
@@ -415,8 +419,8 @@ try {
     assert.deepEqual(zaiRun.modelSeries.map((model) => [model.label, model.value]), [['glm-fixture', 500]]);
     // The windows come out as one plain view model, derived remaining and all.
     assert.deepEqual(zaiRun.windows.map((vm) => [vm.provider, vm.windowKind, vm.percentUsed, vm.percentRemaining, vm.pace.verdict]), [
-        ['zai', 'session', 4, 96, 'ahead'],
-        ['zai', 'weekly', 1, 99, 'ahead'],
+        ['zai', 'session', 4, 96, 'on pace'],
+        ['zai', 'weekly', 1, 99, 'on pace'],
     ]);
     assert.doesNotMatch(JSON.stringify(zaiRun), /fixture-zai-key/);
     // The configured plan is a tab even with zero measured activity of its
@@ -633,7 +637,7 @@ try {
         // instead of a false "not connected".
         assert.equal(pi.limits.plan, 'OpenAI Codex');
         assert.equal(pi.limits.verdict, 'low');
-        assert.deepEqual(pi.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['OpenAI Codex · 168h', '7d', 90], ['OpenAI Codex · 5h', '5h', 25]]);
+        assert.deepEqual(pi.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['Session', '5h', 25], ['Weekly', '7d', 90]]);
         assert.equal(pi.limits.message, undefined);
 
         const omp = await flowRun('omp');
@@ -659,10 +663,10 @@ try {
         // Every limits row ships a used share inside 0..100 and a spelled-out reset.
         assert.ok(codex.limits.windows.every((limit) => Number.isFinite(limit.used) && limit.used >= 0 && limit.used <= 100 && typeof limit.resetsIn === 'string'));
         // Codex windows ride the same view model: kind from the published
-        // length, remaining derived, pace projected against the reset clock.
+        // length, remaining derived, and the same verdict rule as the headline.
         assert.deepEqual(codex.windows.map((vm) => [vm.provider, vm.windowKind, vm.percentUsed, vm.percentRemaining, vm.pace.verdict]), [
-            ['codex', 'weekly', 90, 10, 'burning'],
-            ['codex', 'session', 25, 75, 'ahead'],
+            ['codex', 'session', 25, 75, 'on pace'],
+            ['codex', 'weekly', 90, 10, 'low'],
         ]);
         assert.equal(codex.todayTokens, '1.3K');
         assert.equal(codex.weekSeries.at(-1)?.value, 1300);

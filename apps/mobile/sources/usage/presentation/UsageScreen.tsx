@@ -263,9 +263,7 @@ export function UsageScreen() {
                     <Notice tone="danger" text={error ?? t('plugins.rightNow.unavailable')} style={{ marginBottom: 0 }} />
                     <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4, marginLeft: 14 }}>{t('plugins.retry')}</Text>
                 </Pressable>}
-                {display.status === 'waiting' && <View style={{ paddingVertical: 24, alignItems: 'center' }}>
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 14, textAlign: 'center' }}>{t('plugins.rightNow.collecting')}</Text>
-                </View>}
+                {display.status === 'waiting' && <WaitingSkeleton />}
                 {display.status === 'figures' && (empty
                     ? <View style={{ paddingVertical: 24, alignItems: 'center' }}>
                         {report?.noProvidersTitle !== undefined && <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '600' }}>{report.noProvidersTitle}</Text>}
@@ -283,16 +281,18 @@ export function UsageScreen() {
                                 </View>
                             </View>
                             <SectionLabel style={{ marginBottom: 10 }}>Models today</SectionLabel>
-                            <ScreenChart node={MODEL_CHART_NODE} data={report} nested />
-                            <SectionLabel style={{ marginBottom: 10, marginTop: 10 }}>Last 7 days</SectionLabel>
-                            <View style={[cardStyle(theme), { paddingHorizontal: 16, paddingVertical: 12, marginBottom: 4 }]}>
-                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 }}>
+                            <ScreenChart node={MODEL_CHART_NODE} data={report} nested={false} />
+                            <SectionLabel style={{ marginBottom: 10 }}>Last 7 days</SectionLabel>
+                            {/* The week's totals and its shape are one answer, so
+                                the columns sit in the same card as the figures. */}
+                            <View style={[cardStyle(theme), { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14 }]}>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, marginBottom: 6 }}>
                                     <View style={{ flexBasis: '48%', flexGrow: 1 }}><Metric label="Tokens" value={report.weekTokens} /></View>
                                     <View style={{ flexBasis: '48%', flexGrow: 1 }}><Metric label="Cost" value={report.weekCost} /></View>
                                 </View>
+                                <ScreenChart node={WEEK_CHART_NODE} data={report} nested />
                             </View>
-                            <ScreenChart node={WEEK_CHART_NODE} data={report} nested />
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 12 }}>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 14 }}>
                                 Local activity and estimated costs are separate from provider plan limits. Prompts and project details stay out.
                             </Text>
                         </View>}
@@ -313,7 +313,8 @@ function reportFrom(figures: UsageFigures, provider: string): UsageReport {
     const activity = figures.activity;
     return {
         providers,
-        provider,
+        // The tab the host answered for, so the default view marks its pill.
+        provider: activity?.provider ?? provider,
         providerName: plans.find((plan) => plan.id === provider)?.label ?? provider,
         windowPeriods: [],
         windows: [],
@@ -364,13 +365,37 @@ function RefreshControlButton({ busy, throttledSeconds, failed, onPress }: { bus
  *  lists providers the host measured or found connected. */
 function ProviderTabs({ tabs, active, onSelect }: { tabs: UsageReport['providers']; active?: string; onSelect: (id: string) => void }) {
     const { theme } = useUnistyles();
+    const strip = React.useRef<ScrollView>(null);
+    const pills = React.useRef(new Map<string, { x: number; width: number }>());
+    const view = React.useRef({ x: 0, width: 0 });
+    // The selected pill is always on screen: a deep link or the default view
+    // can select a provider past the edge, and a half-cut selection reads as
+    // a layout bug. A pill already in view never moves the strip.
+    const reveal = React.useCallback(() => {
+        const pill = active === undefined ? undefined : pills.current.get(active);
+        const { x, width } = view.current;
+        if (pill === undefined || width === 0) return;
+        if (pill.x - 14 < x) strip.current?.scrollTo({ x: Math.max(0, pill.x - 14), animated: true });
+        else if (pill.x + pill.width + 14 > x + width) strip.current?.scrollTo({ x: pill.x + pill.width + 14 - width, animated: true });
+    }, [active]);
+    React.useEffect(reveal, [reveal]);
     if (tabs.length === 0) return null;
     return (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }} contentContainerStyle={{ gap: 6, paddingRight: 24 }}>
+        // The strip runs to the screen edges, so a sixth provider scrolls in
+        // from the edge instead of being cut at the page gutter.
+        <ScrollView ref={strip} horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12, marginHorizontal: -14 }} contentContainerStyle={{ gap: 6, paddingHorizontal: 14 }}
+            scrollEventThrottle={32}
+            onScroll={(event) => { view.current.x = event.nativeEvent.contentOffset.x; }}
+            onLayout={(event) => { view.current.width = event.nativeEvent.layout.width; reveal(); }}>
             {tabs.map((tab) => {
                 const labelColor = tab.id === active ? theme.colors.surface : theme.colors.textSecondary;
                 return (
                     <Pressable key={tab.id} accessibilityRole="tab" accessibilityState={{ selected: tab.id === active }} accessibilityLabel={tab.label}
+                        onLayout={(event) => {
+                            const { x, width } = event.nativeEvent.layout;
+                            pills.current.set(tab.id, { x, width });
+                            if (tab.id === active) reveal();
+                        }}
                         onPress={() => onSelect(tab.id)}
                         style={({ pressed }) => ({
                             flexDirection: 'row', alignItems: 'center', gap: 6,
@@ -397,6 +422,23 @@ function Metric({ label, value }: { label: string; value: string }) {
         <View style={{ paddingVertical: 10 }}>
             <Text style={{ color: withAlpha(theme.colors.textSecondary, 0.85), fontSize: 12, lineHeight: 16, fontWeight: '600', ...Typography.default('semiBold') }}>{label}</Text>
             <Text style={{ color: blank ? theme.colors.textSecondary : theme.colors.text, fontSize: 30, letterSpacing: -0.5, marginTop: 2, ...Typography.mono('semiBold') }}>{blank ? DASH : value}</Text>
+        </View>
+    );
+}
+
+/** A first read in flight, in the shape of the answer it is waiting for: the
+ *  limits card, then today, then the models. The words say what is happening;
+ *  the blocks keep the page from jumping when the figures land. */
+function WaitingSkeleton() {
+    const { theme } = useUnistyles();
+    const block = { ...cardStyle(theme), marginBottom: 14, backgroundColor: withAlpha(theme.colors.surfaceHigh, 0.6) };
+    return (
+        <View>
+            <View style={[block, { height: 220, alignItems: 'center', justifyContent: 'center' }]}>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 14, textAlign: 'center' }}>{t('plugins.rightNow.collecting')}</Text>
+            </View>
+            <View style={[block, { height: 96 }]} />
+            <View style={[block, { height: 140 }]} />
         </View>
     );
 }

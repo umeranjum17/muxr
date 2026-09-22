@@ -123,7 +123,7 @@ export class PluginCatalog {
             // lets generic capability pickers show installed alternatives.
             const loaded = await loadPlugin(plugin, this.parsedProjections, usedProjectionKeys).catch((error) => backendOnly(
                 plugin,
-                `muxr UI rejected: ${error instanceof Error ? error.message : String(error)}`,
+                unloadableReason(error),
             ));
             const summary = loaded.summary;
             digests.set(plugin.plugin_id, digest(stableJson({
@@ -295,6 +295,15 @@ async function loadPlugin(
     } finally {
         await handle.close();
     }
+}
+
+/** Why a plugin's muxr UI could not load, in words the Plugins list can show.
+ *  A registration whose files have moved is the common case and has one fix; a
+ *  filesystem path is not a reason anyone can act on. A rejected manifest keeps
+ *  its own words, which are what the plugin's author needs. */
+function unloadableReason(error: unknown): string {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') return 'Its files are missing · link it again with Herdr';
+    return `muxr UI rejected: ${error instanceof Error ? error.message : String(error)}`;
 }
 
 function backendOnly(plugin: HerdrPlugin, warning?: string, pluginRoot = plugin.plugin_root): Snapshot {
