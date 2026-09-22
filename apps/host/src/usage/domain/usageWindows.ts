@@ -7,17 +7,21 @@
  * Dialects end here. Sources report "how much used" (Claude, Z.ai, Go) or
  * "how much left" (quota-style percentRemaining feeds); normalizeWindow
  * accepts either one dialect as input and derives the other, so the pair can
- * never disagree. Reset clocks and pace verdicts come from rateLimits.ts --
- * the same module the rate-limit block renders from -- never re-decided here.
+ * never disagree. One verdict rule governs the card and each window row.
  */
 
 import type { UsageLimitsPayload, UsageLimitsWindow } from '@muxr/contract';
-import { paceVerdict, resetClock, WINDOW_MINUTES, type PaceVerdict } from './rateLimits.js';
+import { resetClock, WINDOW_MINUTES } from './rateLimits.js';
 
 const clampPct = (value: number): number => Math.max(0, Math.min(100, value));
 
 /** One uniform window. `used` and `remaining` are the two input dialects;
  * supply exactly one, the other comes back derived. Plain data throughout. */
+interface PaceVerdict {
+    verdict: 'limited' | 'low' | 'watch' | 'ahead' | 'on pace' | null;
+    tone: 'danger' | 'warning' | 'secondary';
+}
+
 export interface UsageWindowVM {
     provider: string;
     windowKind: string;
@@ -27,6 +31,7 @@ export interface UsageWindowVM {
     windowMinutes?: number;
     resetEpochSec?: number;
     resetClock: string;
+    limited?: boolean;
     pace: PaceVerdict;
 }
 
@@ -48,6 +53,9 @@ export function normalizeWindow({ provider, windowKind, label, used, remaining, 
     const percentUsed = clampPct(hasUsed ? used! : 100 - remaining!);
     if (!hasUsed && !hasRemaining) return undefined;
     const finiteMinutes = Number.isFinite(windowMinutes) && windowMinutes! > 0 ? windowMinutes! : undefined;
+    const clock = resetClock(resetEpochSec, nowMs);
+    const elapsed = windowElapsed(percentUsed, finiteMinutes, resetEpochSec, nowMs, clock);
+    const verdict = elapsed === undefined ? null : limitsVerdict(percentUsed, elapsed, limited);
     return {
         provider,
         windowKind,
@@ -58,8 +66,9 @@ export function normalizeWindow({ provider, windowKind, label, used, remaining, 
         percentRemaining: 100 - percentUsed,
         ...(finiteMinutes === undefined ? {} : { windowMinutes: finiteMinutes }),
         ...(Number.isFinite(resetEpochSec) ? { resetEpochSec: resetEpochSec! } : {}),
-        resetClock: resetClock(resetEpochSec, nowMs),
-        pace: paceVerdict({ used: percentUsed, windowMinutes: finiteMinutes, resetEpochSec, nowMs, limited }),
+        resetClock: clock,
+        ...(limited ? { limited: true } : {}),
+        pace: { verdict: verdict === 'go' ? 'on pace' : verdict, tone: verdict === 'limited' || verdict === 'low' ? 'danger' : verdict === 'ahead' || verdict === 'watch' ? 'warning' : 'secondary' },
     };
 }
 
@@ -252,14 +261,19 @@ function windowName(minutes: number | undefined): string {
     return `${minutes!}m`;
 }
 
-/** Verdict rules: limited beats everything, then the tightest window's share
- *  (90 -> low, 75 -> watch), then pace (20 points over the elapsed fraction ->
- *  ahead), otherwise go. */
-function limitsVerdict(tightest: UsageWindowVM, elapsed: number | undefined, limited: boolean): UsageLimitsPayload['verdict'] {
-    if (limited) return 'limited';
-    if (tightest.percentUsed >= VERDICT_LOW) return 'low';
-    if (tightest.percentUsed >= VERDICT_WATCH) return 'watch';
-    if (elapsed !== undefined && tightest.percentUsed - elapsed * 100 >= AHEAD_MARGIN) return 'ahead';
+/** The elapsed anchor and the pace verdict require a usable length and reset. */
+function windowElapsed(used: number, minutes: number | undefined, reset: number | undefined, nowMs: number, clock: string): number | undefined {
+    if (used === 0 || clock === '' || !Number.isFinite(minutes) || !Number.isFinite(reset) || resetIn(reset, nowMs) === '') return undefined;
+    return Math.min(1, Math.max(0, 1 - (reset! * 1000 - nowMs) / (minutes! * 60_000)));
+}
+
+/** Limited beats share (90 -> low, 75 -> watch), then pace (20 points over
+ *  elapsed -> ahead); otherwise a task can go ahead. */
+function limitsVerdict(used: number, elapsed: number | undefined, limited: boolean): UsageLimitsPayload['verdict'] {
+    if (limited || used >= 100) return 'limited';
+    if (used >= VERDICT_LOW) return 'low';
+    if (used >= VERDICT_WATCH) return 'watch';
+    if (elapsed !== undefined && used - elapsed * 100 >= AHEAD_MARGIN) return 'ahead';
     return 'go';
 }
 
@@ -273,9 +287,7 @@ export function limitsPayload(vms: UsageWindowVM[], { plan, message, nowMs = Dat
     }
     const windows: UsageLimitsWindow[] = vms.map((vm) => {
         const resetsIn = vm.resetClock === '' ? '' : resetIn(vm.resetEpochSec, nowMs);
-        const elapsed = vm.percentUsed > 0 && resetsIn !== '' && Number.isFinite(vm.windowMinutes) && Number.isFinite(vm.resetEpochSec)
-            ? Math.min(1, Math.max(0, 1 - (vm.resetEpochSec! * 1000 - nowMs) / (vm.windowMinutes! * 60_000)))
-            : undefined;
+        const elapsed = windowElapsed(vm.percentUsed, vm.windowMinutes, vm.resetEpochSec, nowMs, vm.resetClock);
         const name = windowName(vm.windowMinutes);
         return {
             label: vm.label,
@@ -287,8 +299,8 @@ export function limitsPayload(vms: UsageWindowVM[], { plan, message, nowMs = Dat
         };
     });
     const tightest = tightestWindow(vms)!;
-    const limited = vms.some((vm) => vm.pace.verdict === 'limited' || vm.percentUsed >= 100);
-    const verdict = limitsVerdict(tightest, windows[vms.indexOf(tightest)]?.elapsed, limited);
+    const limited = vms.some((vm) => vm.limited || vm.percentUsed >= 100);
+    const verdict = limitsVerdict(tightest.percentUsed, windows[vms.indexOf(tightest)]?.elapsed, limited);
     return {
         verdict,
         ...(plan === undefined ? {} : { plan }),

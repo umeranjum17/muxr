@@ -18,11 +18,11 @@ export const verdictTone = (verdict: PluginLimitsPayload['verdict']): PluginScre
                 : 'danger';
 
 const PACE_KEYS: Record<NonNullable<PluginLimitsWindow['pace']>, Parameters<typeof t>[0]> = {
-    limited: 'plugins.limits.paceLimited',
-    exhausted: 'plugins.limits.paceExhausted',
+    limited: 'plugins.limits.limited',
+    low: 'plugins.limits.low',
+    watch: 'plugins.limits.watch',
+    ahead: 'plugins.limits.ahead',
     'on pace': 'plugins.limits.paceOnTrack',
-    ahead: 'plugins.limits.paceAhead',
-    burning: 'plugins.limits.paceBurning',
 };
 
 export const VERDICT_KEYS: Record<Exclude<PluginLimitsPayload['verdict'], 'unknown'>, Parameters<typeof t>[0]> = {
@@ -121,9 +121,7 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
                 )}
                 {payload.windows.length > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider, marginTop: 12, marginBottom: 12 }} />}
                 {payload.windows.map((window, index) => {
-                    const tone: PluginScreenTone | undefined = window.pace == null ? undefined
-                        : window.pace === 'limited' || window.pace === 'exhausted' || window.pace === 'burning' ? 'danger'
-                            : window.pace === 'on pace' ? 'warning' : 'positive';
+                    const tone: PluginScreenTone | undefined = window.pace == null || window.pace === 'on pace' ? undefined : verdictTone(window.pace);
                     return (
                         <View key={`${window.label}-${index}`} style={index === payload.windows.length - 1 ? undefined : { marginBottom: 12 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
@@ -136,7 +134,7 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
                             {(window.resetsIn !== undefined || window.pace != null) && (
                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 4, marginTop: 3, marginBottom: 5 }}>
                                     {window.resetsIn !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('regular') }}>{t('plugins.rightNow.resetsIn', { time: window.resetsIn })}</Text>}
-                                    {window.pace != null && <Text style={{ color: toneColor(theme, tone!), fontSize: 11.5 }}>{t(PACE_KEYS[window.pace])}</Text>}
+                                    {window.pace != null && <Text style={{ color: tone === undefined ? theme.colors.text : toneColor(theme, tone), fontSize: 11.5 }}>{t(PACE_KEYS[window.pace])}</Text>}
                                 </View>
                             )}
                             <Meter ratio={window.used / 100} emphasis={0.9} marker={window.elapsed} />

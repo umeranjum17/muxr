@@ -9,7 +9,7 @@ export type PluginLimitsWindow = UsageLimitsWindow;
 export type PluginLimitsPayload = UsageLimitsPayload;
 
 const VERDICTS = new Set<PluginLimitsVerdict>(['go', 'ahead', 'watch', 'low', 'limited']);
-const PACES = new Set<NonNullable<PluginLimitsWindow['pace']>>(['limited', 'exhausted', 'on pace', 'ahead', 'burning']);
+const PACES = new Set<NonNullable<PluginLimitsWindow['pace']>>(['limited', 'low', 'watch', 'ahead', 'on pace']);
 
 const bounded = (value: unknown, bytes: number): string =>
     typeof value === 'string' ? capUtf8Bytes(sanitizeDisplayText(value).trim(), bytes) : '';
