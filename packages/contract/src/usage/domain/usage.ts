@@ -88,9 +88,9 @@ export interface UsageReport {
     weekCost: string;
     weekSeries: UsageSeriesPoint[];
     capturedAt: string;
-    /** How old that capture is, by the host's clock: the reading's age, on the
-     *  one clock the phone can threshold without asking the host whether the
-     *  figures are old enough to be worth collecting again. */
+    /** How old that capture is, by the host's clock: what the screen says about
+     *  the figures it is showing. Whether they are worth collecting again is a
+     *  separate question the phone answers from its own record of asking. */
     ageSeconds?: number;
     /** The reported window, oldest first, always ending on today. */
     windowPeriods: string[];

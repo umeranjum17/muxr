@@ -60,9 +60,9 @@ export function UsageScreen() {
     const tabs = report?.providers ?? [];
 
     // One rule for every forced read on this screen, whether a person asked or
-    // an ageing reading did: honour it unless the last forced read is too
-    // recent, and claim the budget only where the read actually starts. A read
-    // that was rejected consumed no provider quota, so it is exempt.
+    // a cadence cycle did: honour it unless the last forced read is too recent,
+    // and claim the budget only where the read actually starts. A read that was
+    // rejected consumed no provider quota, so it is exempt.
     const claimForced = React.useCallback((tab: string, nowMs: number): number | undefined => {
         const waitSeconds = forcedReadWait(lastForced.current, rejected.current, nowMs);
         if (waitSeconds !== undefined) return waitSeconds;
@@ -71,9 +71,8 @@ export function UsageScreen() {
         return undefined;
     }, []);
 
-    // `quiet` is the background cadence: it asks the same cache-respecting
-    // question a first paint asks, but without dimming figures that are still
-    // the answer until a newer one lands.
+    // `quiet` is the background cadence: it repaints without dimming figures
+    // that are still the answer until a newer one lands.
     const load = React.useCallback((target: string, refresh = false, quiet = false): Promise<void> => {
         const request = ++version.current;
         inFlight.current = true;
@@ -86,15 +85,6 @@ export function UsageScreen() {
                 reportCache.set(target, value);
                 while (reportCache.size > MAX_CACHED_REPORTS) reportCache.delete(reportCache.keys().next().value!);
                 setFetched({ key: target, value });
-                // Last-known numbers paint at once; a reading past our own
-                // window revalidates, asking for fresh data by name, and swaps
-                // in place. Whether it is worth a whole collection is our
-                // decision, shared with the Home card: the host's word on its
-                // own age can hold an ask back, never authorize one.
-                const now = Date.now();
-                if (collectionDue(target, value.ageSeconds, now) && claimForced(target, now) === undefined) {
-                    void load(target, true);
-                }
             })
             .catch((cause: unknown) => {
                 if (request !== version.current) return;
@@ -107,20 +97,31 @@ export function UsageScreen() {
                 setLoading(false);
                 setRefreshing(false);
             });
-    }, [claimForced]);
+    }, []);
+
+    /** One ask for a tab. Whether it collects is our own decision, taken at the
+     *  instant we ask and recorded against that same instant: a tab nobody has
+     *  asked collects on its first view, and one asked inside the window is
+     *  served the host's cache. The host's word on how old its figures are is
+     *  what the screen says about them, never what decides this. `replace` lets
+     *  a tab change through while another tab's read is still in flight; a
+     *  cadence never stacks a second read behind one. */
+    const loadIfDue = React.useCallback((target: string, quiet: boolean, replace = false): void => {
+        if (inFlight.current && !replace) return;
+        const now = Date.now();
+        const refresh = collectionDue(target, now) && claimForced(target, now) === undefined;
+        void load(target, refresh, quiet);
+    }, [claimForced, load]);
 
     React.useEffect(() => {
-        load(provider);
+        loadIfDue(provider, false, true);
         return () => { version.current += 1; };
-    }, [provider, load]);
+    }, [provider, loadIfDue]);
 
     // Refreshing while focused and in the foreground only, and never on top of
     // a read that is already running -- opening the screen must not queue a
     // second ask behind the first.
-    useForegroundRefresh(() => {
-        if (inFlight.current) return;
-        void load(provider, false, true);
-    }, FRESH_MS);
+    useForegroundRefresh(() => { loadIfDue(provider, true); }, FRESH_MS);
 
     // A pressed tab paints its own last-known payload at once; another tab's
     // payload is not stale data for this one, and an uncached tab skeletons.
@@ -138,7 +139,15 @@ export function UsageScreen() {
         setThrottledSeconds(undefined);
         return true;
     };
-    const onRefresh = () => { if (askNow()) { setRefreshing(true); void load(provider, true); } };
+    const onRefresh = () => {
+        // A pull while a read is already running shows that read: the spinner
+        // reflects work that is happening rather than a gesture that did
+        // nothing. The read in flight clears it when it settles.
+        if (inFlight.current) { setRefreshing(true); return; }
+        if (!askNow()) return;
+        setRefreshing(true);
+        void load(provider, true);
+    };
     // A refused press gives the same feedback as one that ran, so the tap never
     // reads as dead.
     const refreshNow = () => {
