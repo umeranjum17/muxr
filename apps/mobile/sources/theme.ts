@@ -1,5 +1,15 @@
 import { Platform } from 'react-native';
 
+const terminalChrome = {
+    canvas: '#0c0c0b',
+    chrome: '#191918',
+    floating: 'rgba(25, 25, 24, 0.95)',
+    resting: 'rgba(25, 25, 24, 0.7)',
+    cluster: 'rgba(48, 48, 46, 0.92)',
+    clusterPressed: 'rgba(72, 72, 69, 0.96)',
+    scrim: 'rgba(0, 0, 0, 0.62)',
+};
+
 export const lightTheme = {
     dark: false,
     colors: {
@@ -248,32 +258,7 @@ export const lightTheme = {
             emptyOutput: '#6272A4',
         },
 
-        // The session screen is one plane in one material. `canvas` is the
-        // Ghostty background itself, so the terminal is the darkest thing on
-        // the screen; everything that is not the terminal -- the header line,
-        // the pane rail, the key marks, the composer, the floating control and
-        // its ring -- is `chrome`, the same ink one step up. Enough to see
-        // where the terminal ends without either surface announcing itself.
-        // `floating` and `resting` are that same chrome seen over live output:
-        // nearly solid for a control that must be read against text, quiet for
-        // one that is only waiting to be used. The session screen forces the
-        // dark palette, so both themes carry the terminal's own values.
-        terminalChrome: {
-            canvas: '#0c0c0b',
-            chrome: '#191918',
-            floating: 'rgba(25, 25, 24, 0.95)',
-            resting: 'rgba(25, 25, 24, 0.7)',
-            // The cluster lays no scrim — it steers what is behind it, so that
-            // has to stay visible — which means each key has to hold its own
-            // face against whatever the terminal happens to be drawing there,
-            // including a highlighted band. So it is a lighter and far more
-            // solid frost than the ring's discs, which only ever sit on a
-            // scrim: you can still sense content through it, but the content
-            // no longer competes with the glyph.
-            cluster: 'rgba(48, 48, 46, 0.92)',
-            clusterPressed: 'rgba(72, 72, 69, 0.96)',
-            scrim: 'rgba(0, 0, 0, 0.62)',
-        },
+        terminalChrome,
 
     },
 };
@@ -527,25 +512,7 @@ export const darkTheme = {
             emptyOutput: '#7B7B93',
         },
 
-        // See the light palette: the terminal plane's one material, and the
-        // same values in both themes because the session screen is dark either
-        // way.
-        terminalChrome: {
-            canvas: '#0c0c0b',
-            chrome: '#191918',
-            floating: 'rgba(25, 25, 24, 0.95)',
-            resting: 'rgba(25, 25, 24, 0.7)',
-            // The cluster lays no scrim — it steers what is behind it, so that
-            // has to stay visible — which means each key has to hold its own
-            // face against whatever the terminal happens to be drawing there,
-            // including a highlighted band. So it is a lighter and far more
-            // solid frost than the ring's discs, which only ever sit on a
-            // scrim: you can still sense content through it, but the content
-            // no longer competes with the glyph.
-            cluster: 'rgba(48, 48, 46, 0.92)',
-            clusterPressed: 'rgba(72, 72, 69, 0.96)',
-            scrim: 'rgba(0, 0, 0, 0.62)',
-        },
+        terminalChrome,
 
     },
 } satisfies typeof lightTheme;

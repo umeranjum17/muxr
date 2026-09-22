@@ -30,9 +30,9 @@ export interface TerminalViewProps {
      *  no terminal IME, so the pane keeps its own keyboard fallback and the
      *  ring carries only the screen's own slots. */
     onViewControls?: (controls: { commands: TerminalCommand[]; dismissKeyboard: () => void }) => void;
-    /** A long press landed on a printed link; the screen decides what to offer
-     *  for it, at the point it was pressed. Absent, the press falls back to
-     *  copying. */
+    /** A long press landed on a plain HTTP(S) text link; the screen decides
+     *  what to offer for it at the point it was pressed. OSC 8 links keep their
+     *  normal tap activation. Absent, the press falls back to copying. */
     onLinkPress?: (url: string, at?: { x: number; y: number }) => void;
 }
 
@@ -94,22 +94,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             // a strongly worded warning when no handler is set. Route through
             // the app boundary, which drops non-web schemes instead.
             linkHandler: {
-                activate: (event, text) => reachLink(text, event),
+                activate: (_event, text) => openTerminalLink(text, openExternalUrl),
             },
         });
-        // One rule on both terminals: reaching for a link asks what to do with
-        // it rather than opening it. Only the gesture that can carry that
-        // differs, and only because the native grid's renderer handles its own
-        // long press; nothing opens here without being chosen either.
-        const reachLink = (url: string, event?: MouseEvent): void => {
-            if (onLinkPress === undefined) { openTerminalLink(url, openExternalUrl); return; }
-            const box = element.getBoundingClientRect();
-            onLinkPress(url, event === undefined ? undefined : { x: event.clientX - box.left, y: event.clientY - box.top });
-        };
         const fit = new FitAddon();
         term.loadAddon(fit);
-        // Plain-text URLs ride the addon, but through the same boundary.
-        term.loadAddon(new WebLinksAddon((event, uri) => reachLink(uri, event)));
+        // Plain-text URLs open through the same boundary.
+        term.loadAddon(new WebLinksAddon((_event, uri) => openTerminalLink(uri, openExternalUrl)));
         term.open(element);
         fit.fit();
         setTerminalColumns(sessionId, term.cols);

@@ -170,14 +170,21 @@ describe('floating terminal control', () => {
         expect(ringUp(renderer)).toBe(true);
     });
 
-    it('does not let a hold that never moved drag the next slide', () => {
+    it('keeps a pickup for a captured drag but clears a still hold', () => {
         const renderer = mount();
         TestRenderer.act(() => { control(renderer).props.onLongPress(); });
-        // Lifting without travel ends the press, which is where the pickup is
-        // dropped: an arm must not survive into the next gesture.
         TestRenderer.act(() => { control(renderer).props.onPressOut(); });
-
         grant(renderer, 12, 0);
         expect(ringUp(renderer)).toBe(true);
+
+        const dragged = mount();
+        TestRenderer.act(() => { control(dragged).props.onLongPress(); });
+        const responder = pan(dragged);
+        TestRenderer.act(() => {
+            responder.props.onMoveShouldSetPanResponderCapture({}, { dx: 12, dy: 0 });
+            control(dragged).props.onPressOut();
+            responder.props.onPanResponderGrant({ nativeEvent: { locationX: 22, locationY: 22 } }, { dx: 12, dy: 0 });
+        });
+        expect(ringUp(dragged)).toBe(false);
     });
 });

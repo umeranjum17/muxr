@@ -86,7 +86,7 @@ const clamp = (value: number, min: number, max: number): number => Math.max(min,
  * when the ring opens, when it closes, and when a drag ends; never while one
  * of those is running.
  */
-export const FloatingTerminalControls = React.forwardRef<RingHandle, {
+export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, {
     /** Region width (the terminal surface): the control and ring stay inside it. */
     width: number;
     /** The overlay's full height: terminal top down past the rails below it. */
@@ -193,6 +193,7 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
          *  the responder is granted, so a hold that never moves leaves nothing
          *  half-started behind. */
         armed: false,
+        capturing: false,
         grantDx: 0,
         grantDy: 0,
         /** The finger's offset from the control's centre when the sweep began. */
@@ -236,9 +237,14 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
         // The ring blooms on the first 8dp of travel rather than on
         // finger-down, which keeps tap discrimination on the platform's own
         // press path (Pressable) and avoids a second timing heuristic.
-        onMoveShouldSetPanResponderCapture: (_event, state) => Math.hypot(state.dx, state.dy) >= MOVE_THRESHOLD,
+        onMoveShouldSetPanResponderCapture: (_event, state) => {
+            const moving = Math.hypot(state.dx, state.dy) >= MOVE_THRESHOLD;
+            if (moving) gesture.current.capturing = true;
+            return moving;
+        },
         onPanResponderGrant: (event, state) => {
             const g = gesture.current;
+            g.capturing = false;
             g.grantDx = state.dx;
             g.grantDy = state.dy;
             if (g.armed) {
@@ -284,6 +290,7 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
         onPanResponderRelease: (_event, state) => {
             const g = gesture.current;
             g.armed = false;
+            g.capturing = false;
             if (g.phase === 'drag') { releaseDrag(); return; }
             g.phase = 'idle';
             const index = slotUnderFinger({
@@ -296,6 +303,7 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
         onPanResponderTerminate: () => {
             const g = gesture.current;
             g.armed = false;
+            g.capturing = false;
             releaseDrag();
             g.phase = 'idle';
             endSweep();
@@ -389,14 +397,14 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
                     onPress={() => { hapticsLight(); setOverlay(up ? 'none' : 'ring'); }}
                     onLongPress={() => {
                         gesture.current.armed = true;
+                        gesture.current.capturing = false;
                         setOverlay('none');
                         endSweep();
                         hapticsLight();
                     }}
-                    // The press ends here whether it was tapped, held, or
-                    // handed to the drag, so a hold that never moved cannot
-                    // arm the next press-and-slide.
-                    onPressOut={() => { gesture.current.armed = false; }}
+                    onPressOut={() => {
+                        if (gesture.current.armed && !gesture.current.capturing) gesture.current.armed = false;
+                    }}
                     delayLongPress={PICKUP_MS}
                     pressRetentionOffset={{ top: 40, bottom: 40, left: 40, right: 40 }}
                     hitSlop={8}
@@ -414,7 +422,7 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
             )}
         </View>
     );
-});
+}));
 
 /**
  * The directional cluster: the arrow keys as a thumb-sized cross floating on
