@@ -2,7 +2,7 @@ import * as React from 'react';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type UsageNow } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { forcedReadWait } from './forcedRead';
-import { FRESH_MS } from './freshnessWindow';
+import { FRESH_MS, pastFreshnessWindow } from './freshnessWindow';
 import { useForegroundRefresh } from './useForegroundRefresh';
 
 /** `collecting` is the host saying its usage cache was cold, not that there is
@@ -200,12 +200,6 @@ export function useUsageNow(): UsageNowRead {
     }, []);
 
     return { value: state.value, failed: state.failed, refreshing: state.refreshing, throttledSeconds, refresh };
-}
-
-/** Whether figures are old enough to be worth a whole collection: the same
- *  window the cadence uses, applied the moment an accepted payload lands. */
-function pastFreshnessWindow(ageSeconds: number | undefined): boolean {
-    return ageSeconds !== undefined && ageSeconds * 1_000 >= FRESH_MS;
 }
 
 /** Whether an answer is newer than the figures it would replace. The host names

@@ -109,23 +109,25 @@ const collected = (ageSeconds?: number, used = 100, capturedAt?: string): UsageN
     ...(capturedAt === undefined ? {} : { capturedAt }),
     vitals: VITALS,
 });
-/** What the Usage screen reads: one tab, no charts, and the host's own word on
- *  whether this payload is a same-day replay. */
-const report = (stale: boolean): UsageReport => ({
-    providers: [{ id: 'claude', label: 'Claude', glyph: 'claude' }],
-    provider: 'claude',
-    providerName: 'Anthropic Claude',
+/** What the Usage screen reads: two tabs, no charts, and the host's own words
+ *  on how old the payload is. `stale` is the host's coarse sixty-second flag,
+ *  which no longer decides whether the phone collects. */
+const report = (provider: string, ageSeconds: number): UsageReport => ({
+    providers: [{ id: 'claude', label: 'Claude', glyph: 'claude' }, { id: 'opencode', label: 'OpenCode', glyph: 'opencode' }],
+    provider,
+    providerName: provider === 'opencode' ? 'OpenCode' : 'Anthropic Claude',
     todayTokens: '1',
     todayCost: '$0',
     modelSeries: [],
     weekTokens: '1',
     weekCost: '$0',
     weekSeries: [],
-    capturedAt: '2026-09-22T10:00:00.000Z',
+    capturedAt: new Date(Date.now() - ageSeconds * 1_000).toISOString(),
+    ageSeconds,
     windowPeriods: [],
     windows: [],
     limits: { verdict: 'go', windows: [] },
-    ...(stale ? { stale: true as const } : {}),
+    ...(ageSeconds > 60 ? { stale: true as const } : {}),
 });
 
 function mount() {
@@ -542,10 +544,10 @@ describe('the Home card read path', () => {
 
 describe('the usage screen read path', () => {
     it('names a refused tap at the control that was pressed', async () => {
-        request.mockResolvedValue(report(true));
+        request.mockResolvedValue(report('claude', 1_200));
         const screen = renderScreen();
         await tick();
-        // The stale payload revalidated once, spending the forced-read budget.
+        // The old readings revalidated once, spending the forced-read budget.
         expect(forcedReads()).toHaveLength(1);
 
         const control = refreshControls(screen)[0];
@@ -567,27 +569,48 @@ describe('the usage screen read path', () => {
         expect(list.findAllByType('Text').some((node: any) => node.props.children === 'plugins.rightNow.refreshIn')).toBe(false);
     });
 
-    it('keeps an open screen to one collection per freshness window', async () => {
-        request.mockResolvedValue(report(true));
-        renderScreen();
+    it('collects at most once across opening, re-entry, foreground and a tab switch', async () => {
+        // The phone arrives on figures twenty minutes old; every later read
+        // inside the window is served a same-day entry the host still marks
+        // stale at sixty seconds.
+        const cachedAt: Record<string, number> = { claude: Date.now() - 20 * 60_000, opencode: Date.now() - 90_000 };
+        request.mockImplementation((_method: string, params?: { provider?: string; refresh?: boolean }) => {
+            const tab = params?.provider ?? 'claude';
+            if (params?.refresh === true) cachedAt[tab] = Date.now();
+            return Promise.resolve(report(tab, Math.max(0, Math.round((Date.now() - cachedAt[tab]) / 1_000))));
+        });
+
+        // Opening on readings past the window is worth one collection.
+        let screen = renderScreen();
         await tick();
         expect(forcedReads()).toHaveLength(1);
 
-        await tick(14 * 60_000);
-        expect(forcedReads()).toHaveLength(1);
+        // Re-entry...
+        await tick(90_000);
+        TestRenderer.act(() => { screen.unmount(); });
+        screen = renderScreen();
+        await tick();
+        // ...a return from the background...
+        await tick(90_000);
+        TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
+        await tick();
+        // ...and a tab switch, all inside the same window.
+        await tick(90_000);
+        press(screen, 'OpenCode');
+        await tick();
 
-        await tick(60_000);
-        expect(forcedReads()).toHaveLength(2);
+        expect(forcedReads()).toHaveLength(1);
     });
 
-    it('bounds the stale revalidation by the same forced-read budget', async () => {
-        request.mockResolvedValue(report(true));
+    it('leaves the forced-read budget as the floor under a due revalidation', async () => {
+        request.mockResolvedValue(report('claude', 1_200));
         renderScreen();
         await tick();
         expect(forcedReads()).toHaveLength(1);
 
-        // A foreground return lands inside the window the mount revalidation
-        // claimed: the stale answer it gets cannot start another collection.
+        // A foreground return lands inside the ten seconds the mount
+        // revalidation claimed: what it reads as due still cannot start
+        // another collection yet.
         TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
         await tick();
         expect(forcedReads()).toHaveLength(1);

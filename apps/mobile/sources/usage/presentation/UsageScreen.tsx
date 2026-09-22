@@ -17,7 +17,7 @@ import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
-import { FRESH_MS } from '../application/freshnessWindow';
+import { FRESH_MS, pastFreshnessWindow } from '../application/freshnessWindow';
 
 /** Screen payloads survive a close: reopening renders at once, then refreshes. */
 const reportCache = new Map<string, UsageReport>();
@@ -51,7 +51,6 @@ export function UsageScreen() {
     const [busy, setBusy] = React.useState(false);
     const [throttledSeconds, setThrottledSeconds] = React.useState<number>();
     const version = React.useRef(0);
-    const staleRef = React.useRef(false);
     const inFlight = React.useRef(false);
     const lastForced = React.useRef(0);
     const rejected = React.useRef(false);
@@ -87,20 +86,14 @@ export function UsageScreen() {
                 reportCache.set(target, value);
                 while (reportCache.size > MAX_CACHED_REPORTS) reportCache.delete(reportCache.keys().next().value!);
                 setFetched({ key: target, value });
-                // Last-known numbers paint at once; a payload flagged stale by
-                // the host revalidates quietly once -- asking for fresh data
-                // by name -- and swaps in place. The revalidation never chains.
-                if (value.stale === true && !staleRef.current) {
-                    // A stale payload revalidates through the same budget as any
-                    // other forced read, and claims it only where the read
-                    // actually starts. A read that cannot run yet waits for the
-                    // next cycle rather than starting one behind the budget.
-                    if (claimForced() === undefined) {
-                        staleRef.current = true;
-                        void load(target, true).finally(() => { staleRef.current = false; });
-                    }
-                } else {
-                    staleRef.current = false;
+                // Last-known numbers paint at once; a reading past the phone's
+                // own window revalidates, asking for fresh data by name, and
+                // swaps in place. Whether it is worth a whole collection is the
+                // phone's decision, shared with the Home card -- the host's
+                // stale flag says the figures are ageing, not that every
+                // provider should be asked again.
+                if (pastFreshnessWindow(value.ageSeconds) && claimForced() === undefined) {
+                    void load(target, true);
                 }
             })
             .catch((cause: unknown) => {

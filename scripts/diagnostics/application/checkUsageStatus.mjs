@@ -303,6 +303,9 @@ try {
     // One cache entry per tab, so reopening a tab does not rescan.
     const cached = await run({ provider: 'claude' });
     assert.equal(cached.todayTokens, '1.3M');
+    // The reading names its own age, by the host's clock, so the phone can hold
+    // it to one freshness window instead of collecting on the cache's 60 s flag.
+    assert.equal(typeof cached.ageSeconds, 'number', 'a served report must name its age');
     assert.equal(readFileSync(ccusageMarker, 'utf8'), 'xxxx', 'per-tab cache did not prevent a duplicate ccusage scan');
     assert.equal(readFileSync(codexMarker, 'utf8'), 'xxxx', 'per-tab cache did not prevent a duplicate Codex app-server');
 

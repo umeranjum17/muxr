@@ -500,7 +500,7 @@ export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.Pr
     const identity = cacheIdentity(env);
     const cached = input.refresh === true ? undefined : cachedOutput(env, identity, TODAY, NOW.getTime(), selected);
     if (cached !== undefined) {
-        return cached.stale ? { ...cached.output, stale: true } : cached.output;
+        return withAge(cached.stale ? { ...cached.output, stale: true } : cached.output, NOW.getTime());
     }
     // A cold cache asked for by several readers at once -- the Home card's
     // follow-ups, the Usage screen's revalidation, another screen or device --
@@ -709,7 +709,15 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
     if (activityFailure === undefined && reports[provider]?.unavailable !== true && !limitsUnavailable && (selected === '' || selected === output.provider)) {
         saveOutput(env, output, identity, TODAY, NOW.getTime(), selected);
     }
-    return output;
+    return withAge(output, NOW.getTime());
+}
+
+/** The age of the reading, by the host's clock, so every reader can apply its
+ *  own freshness window to one number rather than the coarser cache flag. */
+function withAge(output: UsageReport, nowMs: number): UsageReport {
+    const capturedAt = Date.parse(output.capturedAt ?? '');
+    if (!Number.isFinite(capturedAt)) return output;
+    return { ...output, ageSeconds: Math.max(0, Math.round((nowMs - capturedAt) / 1_000)) };
 }
 
 function selectedWindows(provider: string, claudeVMs: UsageWindowVM[], codex: UsageWindowVM[], zaiVMs: UsageWindowVM[], goVMs: UsageWindowVM[]): UsageWindowVM[] {
