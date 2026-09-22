@@ -57,14 +57,14 @@ const keys: ClusterKey[] = [
     { id: 'down', label: 'Down arrow', icon: 'arrow-down', at: 'down', run: vi.fn() },
 ];
 
-function mount() {
+function mount(terminalHeight = 620) {
     let renderer: any;
     TestRenderer.act(() => {
         renderer = TestRenderer.create(
             <FloatingTerminalControls
                 width={360}
                 height={740}
-                terminalHeight={620}
+                terminalHeight={terminalHeight}
                 slots={[arrows, other]}
                 clusterKeys={keys}
                 dim={{ value: 0 } as never}
@@ -73,6 +73,21 @@ function mount() {
     });
     return renderer!;
 }
+
+/** Re-renders at a new terminal height, the same as a keyboard or a wrapping
+ *  draft resizing the surface under the control. */
+const resize = (renderer: any, terminalHeight: number) => TestRenderer.act(() => {
+    renderer.update(
+        <FloatingTerminalControls
+            width={360}
+            height={740}
+            terminalHeight={terminalHeight}
+            slots={[arrows, other]}
+            clusterKeys={keys}
+            dim={{ value: 0 } as never}
+        />,
+    );
+});
 
 const control = (renderer: any) => renderer.root.findAll((node: any) =>
     node.props.accessibilityLabel === 'Terminal quick actions' || node.props.accessibilityLabel === 'Close terminal quick actions')[0];
@@ -114,6 +129,26 @@ describe('floating terminal control', () => {
         tap(renderer, dismiss);
         expect(clusterShown(renderer)).toBe(false);
         expect(control(renderer)).toBeDefined();
+    });
+
+    it('comes back as the open control when a resize takes the cluster below its floor', () => {
+        const renderer = mount();
+        tap(renderer, control(renderer));
+        tap(renderer, slot(renderer, 'Arrows'));
+        expect(clusterShown(renderer)).toBe(true);
+
+        // 45dp cannot hold a 38dp key plus the pad at both ends, so the cluster
+        // is declined: the control returns as the open control, not latched in
+        // the cluster mode it can no longer render.
+        resize(renderer, 45);
+        expect(clusterShown(renderer)).toBe(false);
+        expect(control(renderer)).toBeDefined();
+        expect(control(renderer).props.accessibilityLabel).toBe('Terminal quick actions');
+        expect(control(renderer).props.accessibilityState).toEqual({ expanded: false });
+
+        // And the tap opens the ring rather than only clearing stale state.
+        tap(renderer, control(renderer));
+        expect(ringUp(renderer)).toBe(true);
     });
 
     it('does not let a hold that never moved drag the next slide', () => {

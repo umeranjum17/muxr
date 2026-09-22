@@ -114,7 +114,6 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
     // it. Holding them in one value is what keeps them from stacking.
     const [overlay, setOverlay] = React.useState<'none' | 'ring' | 'cluster'>('none');
     const open = overlay === 'ring';
-    const cluster = overlay === 'cluster';
     React.useImperativeHandle(handle, () => ({ close: () => setOverlay('none') }), []);
 
     // Where the control rests, in region coordinates. The fraction form is
@@ -132,8 +131,7 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
     );
     const offsets = fan.offsets;
     // The cluster's own placement, solved once per render. Null when the
-    // terminal cannot hold a 38dp key, which is the cue to decline the cluster
-    // rather than draw an unusable key.
+    // terminal cannot hold a 38dp key.
     const clusterSpot = React.useMemo(
         () => (clusterKeys !== undefined && clusterKeys.length > 0
             ? clusterLayout(center, { width, height: terminalHeight })
@@ -141,9 +139,13 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
         [clusterKeys, center, width, terminalHeight],
     );
     // The cluster owns the surface while it is up, so the control stands down
-    // and the two can never stack. A resize too small for the cluster keeps
-    // the control on screen rather than stranding an empty overlay.
-    const clusterUp = cluster && clusterSpot !== null;
+    // and the two can never stack. A terminal too short to hold a 38dp key
+    // declines the cluster, so the mode resolves to nothing the moment its
+    // placement is gone: the control comes back as the open control rather
+    // than latching a mode it cannot draw, and the next tap opens the ring.
+    const cluster = overlay === 'cluster' && clusterSpot !== null;
+    /** Either overlay is up, which is what the control's own state reflects. */
+    const up = open || cluster;
 
     // The ring exists while it is open or while a sweep is in flight; one
     // shared progress drives both directions, so closing collapses the arc
@@ -164,10 +166,10 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
     React.useEffect(() => () => { dim.value = 0; }, [dim]);
 
     React.useEffect(() => {
-        if (overlay === 'none') return;
+        if (!up) return;
         const subscription = BackHandler.addEventListener('hardwareBackPress', () => { setOverlay('none'); return true; });
         return () => subscription.remove();
-    }, [overlay]);
+    }, [up]);
 
     // Everything the stable responder closures read, one ref behind.
     const live = React.useRef({ center, offsets, travelX, travelY });
@@ -342,7 +344,7 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
                 transparent layer over the terminal, so a press anywhere off a
                 key closes it while the terminal stays readable behind — no
                 scrim. Hardware back closes it too. */}
-            {clusterUp && (
+            {cluster && (
                 <Pressable
                     style={{ position: 'absolute', left: 0, top: 0, width, height: terminalHeight }}
                     accessible={false}
@@ -353,7 +355,7 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
             {clusterSpot !== null && cluster && clusterKeys !== undefined && (
                 <ArrowCluster keys={clusterKeys} layout={clusterSpot} reduceMotion={reduceMotion === true} />
             )}
-            {!clusterUp && (
+            {!cluster && (
             <Animated.View
                 {...pan.panHandlers}
                 collapsable={false}
@@ -361,15 +363,15 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
             >
                 <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={overlay === 'none' ? 'Terminal quick actions' : 'Close terminal quick actions'}
+                    accessibilityLabel={up ? 'Close terminal quick actions' : 'Terminal quick actions'}
                     accessibilityHint="Quick actions around the control. Tap to open, press and slide to one, or hold to move it."
-                    accessibilityState={{ expanded: overlay !== 'none' }}
+                    accessibilityState={{ expanded: up }}
                     accessibilityActions={[{ name: 'reset', label: 'Reset position' }]}
                     onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'reset') setRest(null); }}
                     // A still short touch is tap mode; the sweep never reaches
                     // here because the responder has claimed it, and a hold
                     // became a drag below.
-                    onPress={() => { hapticsLight(); setOverlay((current) => (current === 'none' ? 'ring' : 'none')); }}
+                    onPress={() => { hapticsLight(); setOverlay(up ? 'none' : 'ring'); }}
                     onLongPress={() => {
                         gesture.current.armed = true;
                         setOverlay('none');
