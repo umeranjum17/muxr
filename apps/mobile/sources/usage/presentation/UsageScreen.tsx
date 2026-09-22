@@ -61,22 +61,13 @@ export function UsageScreen() {
     const report = fetched.key === provider ? fetched.value : reportCache.get(machineKey(provider));
     const tabs = report?.providers ?? [];
 
-    /** The tab a collection our own window authorized was authorized for, and
-     *  the instant it was decided: the report the host already holds paints
-     *  first and this runs behind it, so nothing is ever withheld to decide
-     *  whether to refresh it. Every forced read on this screen goes through the
-     *  one budget in `forcedReadWait`, whether a person asked or a cadence
-     *  cycle did. */
-    const collectAfter = React.useRef<{ target: string; at: number } | undefined>(undefined);
-
     /**
-     * `refresh` asks the host to collect past its cache; such a read claims our
-     * own window and the shared budget at `claimedAtMs`, the instant the
-     * decision to collect was taken, so the next window is measured from where
-     * it decided rather than from a round trip. Every other ask is
-     * cache-respecting, so what the host already holds paints at once. `quiet`
-     * is the background cadence: it repaints without dimming figures that are
-     * still the answer until a newer one lands.
+     * `refresh` asks the host to collect past its cache, and is the only kind of
+     * ask this screen sends: our own window decides whether it happens at all,
+     * so a window costs one collection rather than a cached read beside it. Such
+     * a read claims our window and the shared budget at `claimedAtMs`, the
+     * instant the decision was taken, so the next window is measured from where
+     * it decided rather than from a round trip.
      */
     const load = React.useCallback((target: string, refresh = false, quiet = false, claimedAtMs = Date.now()): Promise<void> => {
         const request = ++version.current;
@@ -102,41 +93,30 @@ export function UsageScreen() {
                 setBusy(false);
                 setLoading(false);
                 setRefreshing(false);
-                // The report the host already held has painted, so the one
-                // collection our own window authorized runs behind it -- for the
-                // tab that window belonged to, and no other.
-                const owed = collectAfter.current;
-                if (owed === undefined) return;
-                collectAfter.current = undefined;
-                if (owed.target !== target) return;
-                if (forcedReadWait(lastForced.current, rejected.current, Date.now()) !== undefined) return;
-                void load(target, true, true, owed.at);
             });
     }, []);
 
-    /** One ask for a tab. It paints what the host already holds; whether a
-     *  collection runs behind that report is our own decision, taken and
-     *  recorded at the instant we ask: a tab nobody has asked collects on its
-     *  first view, and the host's word on how old its figures are is what the
-     *  screen says about them rather than what decides this. Our own window
-     *  gates the ask itself -- inside it the screen paints the report it holds
-     *  and asks nothing -- except for a tab holding no report at all, which has
-     *  nothing to paint and no way back to its tabs without asking. `replace`
-     *  lets a tab change through while another tab's read is still in flight; a
-     *  cadence never stacks a second read behind one. */
+    /** One ask for a tab, or none: our own window decides, and the request it
+     *  sends is the collection itself -- no cached read beside it, so a host
+     *  holding nothing for this tab collects once rather than twice. Inside the
+     *  window the screen paints the report it holds in memory and asks nothing;
+     *  a tab nobody has asked is an open window with no record. The host's word
+     *  on how old its figures are is what the screen says about them rather than
+     *  what decides this. `replace` lets a tab change through while another
+     *  tab's read is still in flight; a cadence never stacks a second read. */
     const loadIfDue = React.useCallback((target: string, quiet: boolean, replace = false): void => {
         if (inFlight.current && !replace) return;
         const now = Date.now();
-        const due = collectionDue(target, now);
-        if (!due && reportCache.has(machineKey(target))) return;
-        if (due) collectAfter.current = { target, at: now };
-        void load(target, false, quiet);
+        if (!collectionDue(target, now)) return;
+        void load(target, true, quiet, now);
     }, [load]);
 
     React.useEffect(() => {
         loadIfDue(provider, false, true);
-        return () => { version.current += 1; };
     }, [provider, loadIfDue]);
+
+    // A read still running when the screen goes cannot paint into it.
+    React.useEffect(() => () => { version.current += 1; }, []);
 
     // Refreshing while focused and in the foreground only, and never on top of
     // a read that is already running -- opening the screen must not queue a

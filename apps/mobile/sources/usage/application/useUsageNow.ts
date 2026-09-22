@@ -54,7 +54,6 @@ export function useUsageNow(): UsageNowRead {
     const rejected = React.useRef(false);
     const pendingForce = React.useRef(false);
     const bursting = React.useRef(false);
-    const collectAfter = React.useRef<number | undefined>(undefined);
     const followUp = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const latest = React.useRef<(force: boolean) => void>(() => {});
     const shown = React.useRef<UsageNow | undefined>(undefined);
@@ -139,27 +138,15 @@ export function useUsageNow(): UsageNowRead {
             .finally(() => {
                 if (request !== version.current) return;
                 loading.current = false;
-                // A tap taken while the last read was rejected asked for a read
-                // past the cache; it runs the moment the read in flight settles
-                // rather than being answered by it.
-                if (pendingForce.current) {
-                    pendingForce.current = false;
-                    collectAfter.current = undefined;
-                    setThrottledSeconds(undefined);
-                    collecting.current = 0;
-                    bursting.current = false;
-                    void load(true);
-                    return;
-                }
-                // The figures the host already had have painted, so the one
-                // collection our own window authorized runs now.
-                const claimedAt = collectAfter.current;
-                if (claimedAt === undefined) return;
-                collectAfter.current = undefined;
-                if (forcedReadWait(lastForced.current, rejected.current, Date.now()) !== undefined) return;
+                // A tap on a card reading unavailable asked for a read past the
+                // cache; it runs the moment the read in flight settles rather
+                // than being answered by it.
+                if (!pendingForce.current) return;
+                pendingForce.current = false;
+                setThrottledSeconds(undefined);
                 collecting.current = 0;
                 bursting.current = false;
-                void load(true, claimedAt);
+                void load(true);
             });
     }, []);
     latest.current = load;
@@ -198,20 +185,15 @@ export function useUsageNow(): UsageNowRead {
         // restart the burst's budget: bounded means bounded even across a focus.
         // Once the burst has settled this is a new cycle, and it starts whole.
         if (!bursting.current) collecting.current = 0;
-        // Our own window gates every ask, cheap or forced. Inside it the card
-        // paints what it already holds and asks nothing at all; once it has
-        // passed the ask is ours, noted here at the instant we take the
-        // decision, with the figures the host already holds painting first and
-        // the one collection running behind them. A card holding nothing yet
-        // asks whatever the record says: a window is no use with a blank card.
+        // Our own window decides whether this cycle asks at all, and the single
+        // request it sends is the collection itself -- no cheap read first, so a
+        // host with nothing stored collects once rather than twice. Inside the
+        // window the card paints what the memory holds and asks nothing, and a
+        // first view with nothing held is just an open window with no record.
+        // The request claims the window at this instant, the moment of decision.
         const now = Date.now();
-        const due = collectionDue(READ_TAB, now);
-        if (!due && shown.current !== undefined) return;
-        if (due) {
-            noteAsked(READ_TAB, now);
-            collectAfter.current = now;
-        }
-        void load(false);
+        if (!collectionDue(READ_TAB, now)) return;
+        void load(true, now);
     }, [load]), FRESH_MS);
 
     React.useEffect(() => () => {
