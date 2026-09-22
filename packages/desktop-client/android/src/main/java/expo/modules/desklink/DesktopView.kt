@@ -114,14 +114,12 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     if (surfaceWidth == width && surfaceHeight == height) return
     // A new surface size invalidates any held drag: releasing it at coordinates
     // the user never pointed at is worse than letting go.
-    if (dragging) session?.sendCancel(draggingSequence())
+    if (dragging) session?.sendCancel()
     dragging = false
     pointers = 0
     surfaceWidth = width
     surfaceHeight = height
   }
-
-  private fun draggingSequence(): Long = session?.nextSequence() ?: 0L
 
   /** Called when props are (re)applied, so a late session still gets a renderer. */
   fun requestGeometryRefresh() {
@@ -199,7 +197,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     if (event.pointerCount > 1) {
       if (pointers < 2) {
         if (dragging) {
-          point(event.x, event.y)?.let { (x, y) -> active.sendPointer("up", x, y, active.nextSequence()) }
+          point(event.x, event.y)?.let { (x, y) -> active.sendPointer("up", x, y) }
             ?: active.sendCancel()
           dragging = false
         }
@@ -230,7 +228,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         downX = event.x
         downY = event.y
         dragging = false
-        point(event.x, event.y)?.let { (x, y) -> active.sendPointer("move", x, y, touchSequence(active)) }
+        point(event.x, event.y)?.let { (x, y) -> active.sendPointer("move", x, y) }
         return true
       }
 
@@ -238,12 +236,12 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         if (!dragging && hypot((event.x - downX).toDouble(), (event.y - downY).toDouble()) > dp(DRAG_SLOP_DP)) {
           val start = point(downX, downY)
           if (start == null) return true
-          active.sendPointer("down", start.first, start.second, touchSequence(active))
+          active.sendPointer("down", start.first, start.second)
           dragging = true
         }
         if (dragging) {
           point(event.x, event.y)?.let { (x, y) ->
-            active.sendPointer("move", x, y, touchSequence(active), withButton = true)
+            active.sendPointer("move", x, y, withButton = true)
           }
         }
         return true
@@ -251,14 +249,14 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
       MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
         if (dragging) {
-          point(event.x, event.y)?.let { (x, y) -> active.sendPointer("up", x, y, touchSequence(active)) }
+          point(event.x, event.y)?.let { (x, y) -> active.sendPointer("up", x, y) }
             ?: active.sendCancel()
         } else if (event.actionMasked == MotionEvent.ACTION_UP) {
           // A tap is a click *at the touched point*: press and release with the
           // same coordinates, so the desktop sees the click where the user aimed.
           point(event.x, event.y)?.let { (x, y) ->
-            active.sendPointer("down", x, y, touchSequence(active))
-            active.sendPointer("up", x, y, touchSequence(active))
+            active.sendPointer("down", x, y)
+            active.sendPointer("up", x, y)
           }
         }
         pointers = 0
@@ -268,8 +266,6 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     }
     return true
   }
-
-  private fun touchSequence(active: DesktopSession): Long = active.nextSequence()
 
   private fun releaseAll() {
     session?.sendCancel()

@@ -28,7 +28,6 @@ import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicLong
 
 private const val TAG = "DesklinkSession"
 
@@ -59,7 +58,7 @@ class DesktopSession(
     Thread(runnable, "desklink-session")
   }
   private val ui = Handler(Looper.getMainLooper())
-  private val inputSeq = AtomicLong(0)
+  private var inputSeq = 0L
 
   @Volatile private var factory: PeerConnectionFactory? = null
   @Volatile private var peer: PeerConnection? = null
@@ -76,6 +75,7 @@ class DesktopSession(
 
   fun start(iceServersJson: String, relayOnly: Boolean) {
     io.execute {
+      if (closed) return@execute
       try {
         val servers = parseIceServers(iceServersJson)
         val configuration = PeerConnection.RTCConfiguration(servers).apply {
@@ -192,39 +192,42 @@ class DesktopSession(
     }
   }
 
-  /** Send one control-channel message. Dropped when the channel is not open. */
-  fun send(message: String) {
+  /** Stamp and send under one lock: UI gestures and JS use different threads. */
+  @Synchronized
+  private fun send(message: JSONObject) {
+    if (closed) return
     val active = channel ?: return
     if (active.state() != DataChannel.State.OPEN) return
-    // A saturating channel means the network cannot keep up with the gesture;
-    // dropping is correct, and the next pointer move is more useful than a queue.
-    if (active.bufferedAmount() > 256 * 1024) return
-    active.send(DataChannel.Buffer(ByteBuffer.wrap(message.toByteArray(StandardCharsets.UTF_8)), false))
+    // Only a move can be replaced by the next one. Dropping an up/cancel would
+    // leave input held; clipboard and keyboard messages also need delivery.
+    if (active.bufferedAmount() > 256 * 1024 &&
+      message.optString("kind") == "pointer" && message.optString("phase") == "move"
+    ) return
+    message.put("seq", ++inputSeq)
+    val sent = active.send(DataChannel.Buffer(
+      ByteBuffer.wrap(message.toString().toByteArray(StandardCharsets.UTF_8)), false,
+    ))
+    if (!sent) {
+      fail("transport", "the desktop control channel could not send")
+      close()
+    }
   }
 
-  /** A control message from the consumer, stamped with this session's next sequence. */
-  fun sendStamped(message: String) {
-    val json = JSONObject(message)
-    json.put("seq", nextSequence())
-    send(json.toString())
-  }
+  fun sendStamped(message: String) = send(JSONObject(message))
 
-  fun nextSequence(): Long = inputSeq.incrementAndGet()
-
-  fun sendPointer(phase: String, x: Int, y: Int, seq: Long, withButton: Boolean = false) {
+  fun sendPointer(phase: String, x: Int, y: Int, withButton: Boolean = false) {
     val message = mutableMapOf<String, Any?>(
       "kind" to "pointer",
       "phase" to phase,
       "x" to x,
       "y" to y,
-      "seq" to seq,
     )
     if (withButton || phase == "down") message["button"] = 1
     sendJson(message)
   }
 
   fun sendWheel(dx: Int, dy: Int) {
-    sendJson(mapOf("kind" to "wheel", "dx" to dx, "dy" to dy, "seq" to nextSequence()))
+    sendJson(mapOf("kind" to "wheel", "dx" to dx, "dy" to dy))
   }
 
   fun sendKey(name: String, modifiers: List<String>, down: Boolean) {
@@ -234,7 +237,6 @@ class DesktopSession(
         "name" to name,
         "modifiers" to modifiers,
         "down" to down,
-        "seq" to nextSequence(),
       ),
     )
   }
@@ -250,32 +252,31 @@ class DesktopSession(
         "character" to character,
         "modifiers" to modifiers,
         "down" to down,
-        "seq" to nextSequence(),
       ),
     )
   }
 
   fun sendText(text: String) {
-    sendJson(mapOf("kind" to "text", "text" to text, "seq" to nextSequence()))
+    sendJson(mapOf("kind" to "text", "text" to text))
   }
 
   /** Release everything the desktop is holding, without ending the session. */
-  fun sendCancel(seq: Long = nextSequence()) {
-    sendPointer("cancel", 0, 0, seq)
+  fun sendCancel() {
+    sendJson(mapOf("kind" to "release_all"))
   }
 
   fun sendClipboardRead(request: String) {
-    sendJson(mapOf("kind" to "clipboard_read", "request" to request, "seq" to nextSequence()))
+    sendJson(mapOf("kind" to "clipboard_read", "request" to request))
   }
 
   fun sendClipboardWrite(request: String, text: String) {
     sendJson(
-      mapOf("kind" to "clipboard_write", "request" to request, "text" to text, "seq" to nextSequence()),
+      mapOf("kind" to "clipboard_write", "request" to request, "text" to text),
     )
   }
 
   private fun sendJson(message: Map<String, Any?>) {
-    send(JSONObject(message).toString())
+    send(JSONObject(message))
   }
 
   fun markPresented() {
@@ -285,6 +286,7 @@ class DesktopSession(
     }
   }
 
+  @Synchronized
   fun close() {
     if (closed) return
     closed = true

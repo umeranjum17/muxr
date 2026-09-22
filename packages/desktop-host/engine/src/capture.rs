@@ -13,7 +13,7 @@ use pw::spa;
 use pw::spa::pod::{serialize::PodSerializer, Pod};
 use std::io::Cursor;
 use std::os::fd::OwnedFd;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 
@@ -59,7 +59,7 @@ pub type FrameSink = Box<dyn Fn(I420, u64) + Send + 'static>;
 
 /// A running capture. Dropping it quits the PipeWire loop and joins its thread.
 pub struct Capture {
-    quit: Arc<AtomicUsize>,
+    quit: pw::channel::Sender<()>,
     thread: Option<JoinHandle<()>>,
     pub source: SelectedSource,
     geometry: Arc<Mutex<Option<StreamGeometry>>>,
@@ -85,34 +85,12 @@ impl Capture {
 
 impl Drop for Capture {
     fn drop(&mut self) {
-        shutdown(&self.quit, self.thread.take());
-    }
-}
-
-/// Tell a still-running capture loop to quit, then join its thread.
-///
-/// A start that gives up has to do the same thing `Drop` does, or the loop keeps
-/// the compositor's stream and its own thread alive for the life of the process.
-fn shutdown(quit: &Arc<AtomicUsize>, thread: Option<JoinHandle<()>>) {
-    // The loop publishes its main loop pointer as soon as it has one; give it a
-    // moment so the join below cannot block on a loop that was never told to quit.
-    let mut ptr = 0;
-    for _ in 0..100 {
-        ptr = quit.swap(0, Ordering::SeqCst);
-        if ptr != 0 {
-            break;
+        // The channel queues a stop even before the loop starts, and remains
+        // safe if setup already failed. A shared raw loop pointer does neither.
+        let _ = self.quit.send(());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
         }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    if ptr != 0 {
-        // SAFETY: `ptr` is the `pw_main_loop` created by, and still owned by,
-        // the capture thread. `pw_main_loop_quit` is explicitly thread-safe
-        // (it signals the loop's eventfd) and the thread is joined below
-        // before the loop is destroyed, so the pointer cannot dangle here.
-        unsafe { pw::sys::pw_main_loop_quit(ptr as *mut pw::sys::pw_main_loop) };
-    }
-    if let Some(t) = thread {
-        let _ = t.join();
     }
 }
 
@@ -217,7 +195,7 @@ pub fn start(
     let geometry = Arc::new(Mutex::new(None));
     let frames = Arc::new(AtomicU64::new(0));
     let dropped = Arc::new(AtomicU64::new(0));
-    let quit = Arc::new(AtomicUsize::new(0));
+    let (quit, stop) = pw::channel::channel();
     let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
 
     let node_id = source.node_id;
@@ -225,34 +203,23 @@ pub fn start(
         let geometry = geometry.clone();
         let frames = frames.clone();
         let dropped = dropped.clone();
-        let quit = quit.clone();
-        let ready = ready_tx.clone();
+        let ready = ready_tx;
         std::thread::Builder::new()
             .name("desklink-capture".into())
             .spawn(move || {
-                let result = run_loop(fd, node_id, encoded_width, encoded_height, sink, geometry, frames, dropped, quit.clone(), ready.clone())
-                    .map_err(|e| format!("{e:#}"));
-                // A readiness already sent from inside the loop makes this a
-                // no-op; a setup failure has to reach `start` either way.
-                let _ = ready.send(result);
+                let result = run_loop(fd, node_id, encoded_width, encoded_height, sink, geometry, frames, dropped, stop, ready.clone());
+                // Only a delivered frame means ready. A loop that ended without
+                // one must not turn an early exit into a successful start.
+                let error = result.err().map(|e| format!("{e:#}"))
+                    .unwrap_or_else(|| String::from("capture ended before its first frame"));
+                let _ = ready.send(Err(error));
             })
             .context("failed to spawn capture thread")?
     };
 
-    // Surface a capture start failure instead of returning a silently dead handle.
-    match ready_rx.recv_timeout(std::time::Duration::from_secs(10)) {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => anyhow::bail!("capture failed: {e}"),
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            // Only this arm can have a live loop; the other two mean `run_loop`
-            // already returned, and its main loop is gone with it.
-            shutdown(&quit, Some(thread));
-            anyhow::bail!("capture did not start within 10s")
-        }
-        Err(mpsc::RecvTimeoutError::Disconnected) => anyhow::bail!("capture thread died"),
-    }
-
-    Ok(Capture {
+    // Own cleanup before waiting: timeout, setup failure and panic all stop and
+    // join the worker, not just a successfully returned Capture.
+    let capture = Capture {
         quit,
         thread: Some(thread),
         source,
@@ -261,7 +228,13 @@ pub fn start(
         dropped,
         encoded_width,
         encoded_height,
-    })
+    };
+    match ready_rx.recv_timeout(std::time::Duration::from_secs(10)) {
+        Ok(Ok(())) => Ok(capture),
+        Ok(Err(e)) => anyhow::bail!("capture failed: {e}"),
+        Err(mpsc::RecvTimeoutError::Timeout) => anyhow::bail!("capture did not start within 10s"),
+        Err(mpsc::RecvTimeoutError::Disconnected) => anyhow::bail!("capture thread died"),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -274,13 +247,16 @@ fn run_loop(
     geometry: Arc<Mutex<Option<StreamGeometry>>>,
     frames: Arc<AtomicU64>,
     dropped: Arc<AtomicU64>,
-    quit: Arc<AtomicUsize>,
+    stop: pw::channel::Receiver<()>,
     ready: mpsc::Sender<Result<(), String>>,
 ) -> Result<()> {
     pw::init();
     let main_loop =
-        pw::main_loop::MainLoopBox::new(None).context("pw_main_loop_new failed")?;
-    quit.store(main_loop.as_raw_ptr() as usize, Ordering::SeqCst);
+        pw::main_loop::MainLoopRc::new(None).context("pw_main_loop_new failed")?;
+    let _stop = stop.attach(main_loop.loop_(), {
+        let main_loop = main_loop.clone();
+        move |_| main_loop.quit()
+    });
 
     let context = pw::context::ContextBox::new(main_loop.loop_(), None)
         .context("pw_context_new failed")?;
@@ -435,3 +411,52 @@ struct StreamState {
 
 // PipeWire callbacks only touch this from the capture thread.
 unsafe impl Send for StreamState {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn dropping_capture_stops_and_joins_its_live_pipewire_loop() {
+        // Exercise the real event-loop/channel lifetime without a portal,
+        // compositor, screen capture or input device.
+        let (quit, stop) = pw::channel::channel();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (ended_tx, ended_rx) = mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            pw::init();
+            let main_loop = pw::main_loop::MainLoopRc::new(None).unwrap();
+            let _stop = stop.attach(main_loop.loop_(), {
+                let main_loop = main_loop.clone();
+                move |_| main_loop.quit()
+            });
+            let timer = main_loop.loop_().add_timer(move |_| {
+                let _ = ready_tx.send(());
+            });
+            timer.update_timer(Some(Duration::from_millis(1)), None).into_result().unwrap();
+            main_loop.run();
+        });
+        let capture = Capture {
+            quit,
+            thread: Some(thread),
+            source: SelectedSource {
+                node_id: 0, width: 2, height: 2, position: None,
+                source_type: None, origin_x: 0, origin_y: 0,
+            },
+            geometry: Arc::new(Mutex::new(None)),
+            frames: Arc::new(AtomicU64::new(0)),
+            dropped: Arc::new(AtomicU64::new(0)),
+            encoded_width: 2,
+            encoded_height: 2,
+        };
+        ready_rx.recv_timeout(Duration::from_secs(2)).expect("the loop is running");
+        // Keep a broken join bounded so a missing stop is a failed check rather
+        // than a test process that hangs forever.
+        std::thread::spawn(move || {
+            drop(capture);
+            ended_tx.send(()).unwrap();
+        });
+        ended_rx.recv_timeout(Duration::from_secs(2)).expect("capture stopped and joined");
+    }
+}
