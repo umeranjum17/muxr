@@ -80,9 +80,9 @@ const VITALS = { memoryUsed: 8, memoryTotal: 16, load1: 1.2, uptimeSeconds: 90_0
  *  measured, and the flag that says the plan half is still being collected. */
 const COLLECTING: UsageNow = { limits: { verdict: 'unknown', windows: [] }, collecting: true, vitals: VITALS };
 /** What it sends once that collection lands. */
-const collected = (ageSeconds?: number): UsageNow => ({
-    limits: { verdict: 'limited', windows: [{ label: 'Rolling', window: '5h', used: 100 }] },
-    connected: [{ id: 'opencode', label: 'OpenCode', windows: [{ label: 'Rolling', window: '5h', used: 100 }] }],
+const collected = (ageSeconds?: number, used = 100): UsageNow => ({
+    limits: { verdict: 'limited', windows: [{ label: 'Rolling', window: '5h', used }] },
+    connected: [{ id: 'opencode', label: 'OpenCode', windows: [{ label: 'Rolling', window: '5h', used }] }],
     ...(ageSeconds === undefined ? {} : { ageSeconds }),
     vitals: VITALS,
 });
@@ -177,15 +177,62 @@ describe('the Home card read path', () => {
 
     it('re-collects rather than be served the same cached figures once they age past the window', async () => {
         // The host's usage cache answers with any same-day payload, so figures
-        // a reader can see are old would otherwise never become current.
+        // a reader can see are old are revalidated at once rather than served
+        // again -- and the cadence keeps asking past the cache while they stay
+        // old.
         request.mockResolvedValue(collected(FRESH_MS / 1_000 + 60));
         mount();
 
         await tick();
-        expect(request).toHaveBeenLastCalledWith('usage.now', {}, expect.any(Number));
+        expect(forcedReads()).toHaveLength(1);
 
         await tick(FRESH_MS);
-        expect(request).toHaveBeenLastCalledWith('usage.now', { refresh: true }, expect.any(Number));
+        expect(forcedReads().length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('paints a stale first payload at once and revalidates it once behind the figures', async () => {
+        let release: (value: UsageNow) => void = () => undefined;
+        request.mockResolvedValueOnce(collected(FRESH_MS / 1_000 + 60, 100))
+            .mockImplementationOnce(() => new Promise<UsageNow>((resolve) => { release = resolve; }))
+            .mockResolvedValue(collected(undefined, 20));
+        const card = renderCard();
+        await tick();
+
+        // The old figures paint immediately -- what is already on disk is not
+        // withheld while a collection runs -- with the read visible in the
+        // control rather than where the figures are.
+        expect(screenText(card)).toContain('0%');
+        expect(screenText(card)).toContain('plugins.rightNow.refreshing');
+        expect(forcedReads()).toHaveLength(1);
+
+        // The newer answer swaps in place, and the automatic revalidation does
+        // not chain into a second forced read.
+        await TestRenderer.act(async () => { release(collected(undefined, 20)); });
+        expect(screenText(card)).toContain('80%');
+        await tick(60_000);
+        expect(forcedReads()).toHaveLength(1);
+    });
+
+    it('revalidates a stale first read exactly once, however old the answer stays', async () => {
+        // The host keeps reporting the same old capture: the one automatic
+        // revalidation must not start another.
+        request.mockResolvedValue(collected(FRESH_MS / 1_000 + 60));
+        mount();
+
+        await tick();
+        expect(forcedReads()).toHaveLength(1);
+
+        await tick(60_000);
+        expect(forcedReads()).toHaveLength(1);
+    });
+
+    it('does not revalidate a first read that is still inside its window', async () => {
+        request.mockResolvedValue(collected(60));
+        mount();
+
+        await tick();
+        await tick(60_000);
+        expect(forcedReads()).toHaveLength(0);
     });
 
     it('never takes figures off the screen to refresh them, and says plainly when it could not', async () => {
@@ -274,7 +321,7 @@ describe('the Home card read path', () => {
         // from whole-second ages, so its rounding can place it up to a second
         // later. That is still not the collection finishing, so the read asks
         // again -- and still accepts the collection once it lands.
-        request.mockResolvedValueOnce(collected(1_200)).mockResolvedValueOnce(COLLECTING).mockResolvedValueOnce(collected(1_205)).mockResolvedValue(collected(1));
+        request.mockResolvedValueOnce(collected(3)).mockResolvedValueOnce(COLLECTING).mockResolvedValueOnce(collected(8)).mockResolvedValue(collected(1));
         const card = mount();
         await tick();
 
@@ -283,7 +330,7 @@ describe('the Home card read path', () => {
         expect(card.latest().refreshing).toBe(true);
 
         await tick(6_000);
-        expect(card.latest().value?.ageSeconds).toBe(1_200);
+        expect(card.latest().value?.ageSeconds).toBe(3);
         expect(card.latest().refreshing).toBe(true);
 
         await tick(6_000);
@@ -313,22 +360,18 @@ describe('the Home card read path', () => {
     it('does not spend the forced budget on a cycle that could only join a read', async () => {
         let release: (value: UsageNow) => void = () => undefined;
         request.mockResolvedValueOnce(collected(FRESH_MS / 1_000 + 60))
-            .mockResolvedValueOnce(COLLECTING)
             .mockImplementationOnce(() => new Promise<UsageNow>((resolve) => { release = resolve; }))
             .mockResolvedValue(collected());
         const card = mount();
         await tick();
 
-        // One forced read starts, and its burst leaves a follow-up in flight...
-        TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
-        await tick();
-        await tick(6_000);
-
+        // The stale first payload starts its one revalidation and keeps it in
+        // flight...
+        await tick(11_000);
         // ...when a cycle lands, more than ten seconds after the read that
         // really ran. It can only join, so it must not claim the budget.
-        await tick(5_000);
-        TestRenderer.act(() => { appState.listeners.forEach((listener) => listener('active')); });
-        await TestRenderer.act(async () => { release(COLLECTING); });
+        TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
+        await TestRenderer.act(async () => { release(collected()); });
 
         // A tap now is more than ten seconds after that read, so it is honoured
         // rather than told to wait for a read that never ran.
@@ -359,7 +402,7 @@ describe('the Home card read path', () => {
     });
 
     it('lets a tap on the card control re-collect straight after a failure', async () => {
-        request.mockResolvedValueOnce(collected(FRESH_MS / 1_000 + 60)).mockRejectedValueOnce(new Error('host unreachable')).mockResolvedValue(collected());
+        request.mockResolvedValueOnce(collected()).mockRejectedValueOnce(new Error('host unreachable')).mockResolvedValue(collected());
         const card = renderCard();
         await tick();
 

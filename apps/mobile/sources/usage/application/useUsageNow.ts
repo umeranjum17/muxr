@@ -57,6 +57,8 @@ export function useUsageNow(): UsageNowRead {
     const failed = React.useRef(false);
     const pendingForce = React.useRef(false);
     const bursting = React.useRef(false);
+    const revalidating = React.useRef(false);
+    const revalidateAfter = React.useRef(false);
     const followUp = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const latest = React.useRef<(force: boolean) => void>(() => {});
     const shown = React.useRef<UsageNow | undefined>(undefined);
@@ -64,12 +66,13 @@ export function useUsageNow(): UsageNowRead {
     if (shown.current !== state.value) { shown.current = state.value; shownAt.current = Date.now(); }
     failed.current = state.failed;
 
-    const load = React.useCallback((force: boolean) => {
+    const load = React.useCallback((force: boolean): Promise<void> => {
         // One read at a time. A tap during a background read is the same read,
         // so it joins it rather than stacking a second ask -- and still turns
         // the control on, because the tap did do something.
-        if (loading.current) { setState((current) => ({ ...current, refreshing: true })); return; }
+        if (loading.current) { setState((current) => ({ ...current, refreshing: true })); return Promise.resolve(); }
         if (followUp.current !== undefined) { clearTimeout(followUp.current); followUp.current = undefined; }
+        revalidateAfter.current = false;
         // The budget belongs to a forced read that actually starts: a cycle that
         // can only join the read already in flight must not spend it.
         if (force) lastForced.current = Date.now();
@@ -82,7 +85,7 @@ export function useUsageNow(): UsageNowRead {
         loading.current = true;
         const request = ++version.current;
         setState((current) => ({ ...current, refreshing: true }));
-        void sync.request('usage.now', force ? { refresh: true } : {}, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
+        return sync.request('usage.now', force ? { refresh: true } : {}, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((result) => {
                 if (request !== version.current) return;
                 // Only a newer payload, or an explicit failure, ends a read. The
@@ -91,14 +94,22 @@ export function useUsageNow(): UsageNowRead {
                 // that is not the collection finishing, and the read keeps
                 // waiting rather than settling on what it already had.
                 if (result.collecting !== true && (replaced === undefined || isNewer(result, replaced, replacedAt, Date.now()))) {
+                    const wasRevalidation = revalidating.current;
+                    revalidating.current = false;
                     collecting.current = 0;
                     bursting.current = false;
                     setState({ value: result, failed: false, refreshing: false });
+                    // Stale while revalidate, and not only the stale half: figures
+                    // already past their window paint at once, and one forced read
+                    // makes them current behind them. It never chains -- the
+                    // revalidation's own answer cannot ask for another.
+                    if (!wasRevalidation && pastFreshnessWindow(result.ageSeconds)) revalidateAfter.current = true;
                     return;
                 }
                 collecting.current += 1;
                 const exhausted = collecting.current >= COLLECTING_ATTEMPTS;
                 bursting.current = !exhausted;
+                if (exhausted) revalidating.current = false;
                 // A cold answer never takes collected figures off the screen:
                 // showing what was last known is the whole point of refreshing
                 // behind it. With nothing collected yet it still paints, so the
@@ -115,6 +126,7 @@ export function useUsageNow(): UsageNowRead {
             // exactly where they were, with their age, and says so.
             .catch(() => {
                 if (request === version.current) {
+                    revalidating.current = false;
                     bursting.current = false;
                     setState((current) => ({ ...current, failed: true, refreshing: false }));
                 }
@@ -125,12 +137,21 @@ export function useUsageNow(): UsageNowRead {
                 // A tap taken while the last read failed asked for a read past
                 // the cache; it runs the moment the read in flight settles
                 // rather than being answered by it.
-                if (!pendingForce.current) return;
-                pendingForce.current = false;
-                setThrottledSeconds(undefined);
+                if (pendingForce.current) {
+                    pendingForce.current = false;
+                    revalidateAfter.current = false;
+                    setThrottledSeconds(undefined);
+                    collecting.current = 0;
+                    bursting.current = false;
+                    latest.current(true);
+                    return;
+                }
+                if (!revalidateAfter.current) return;
+                revalidateAfter.current = false;
+                revalidating.current = true;
                 collecting.current = 0;
                 bursting.current = false;
-                latest.current(true);
+                void load(true);
             });
     }, []);
     latest.current = load;
@@ -153,7 +174,7 @@ export function useUsageNow(): UsageNowRead {
         setThrottledSeconds(undefined);
         collecting.current = 0;
         bursting.current = false;
-        load(true);
+        void load(true);
     }, [load]);
 
     React.useEffect(() => {
@@ -171,9 +192,8 @@ export function useUsageNow(): UsageNowRead {
         // collection; anything newer is served from the host's cache. The same
         // throttle guards this cycle, which falls back to the cheap ask rather
         // than skipping the moment.
-        const age = shown.current?.ageSeconds;
-        const force = age !== undefined && age * 1_000 >= FRESH_MS && forcedReadWait(lastForced.current, failed.current, Date.now()) === undefined;
-        load(force);
+        const force = pastFreshnessWindow(shown.current?.ageSeconds) && forcedReadWait(lastForced.current, failed.current, Date.now()) === undefined;
+        void load(force);
     }, [load]), FRESH_MS);
 
     React.useEffect(() => () => {
@@ -183,6 +203,12 @@ export function useUsageNow(): UsageNowRead {
     }, []);
 
     return { value: state.value, failed: state.failed, refreshing: state.refreshing, throttledSeconds, refresh };
+}
+
+/** Whether figures are old enough to be worth a whole collection: the same
+ *  window the cadence uses, applied the moment an accepted payload lands. */
+function pastFreshnessWindow(ageSeconds: number | undefined): boolean {
+    return ageSeconds !== undefined && ageSeconds * 1_000 >= FRESH_MS;
 }
 
 /** Whether an answer is newer than the figures it would replace, by comparing
