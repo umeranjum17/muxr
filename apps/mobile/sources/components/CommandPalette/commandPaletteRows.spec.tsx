@@ -30,12 +30,17 @@ vi.mock('react-native-unistyles', () => ({
     useUnistyles: () => ({ theme: { colors: {} } }),
 }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+// The hook resolves its quiet line through the catalogue; these rows are not
+// about wording, and the real module would drag Expo's native runtime in.
+vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('@/components/ui', () => ({ SectionLabel: 'Text', withAlpha: (color: string) => color }));
 
 // eslint-disable-next-line
 import { View as MockView } from 'react-native';
 import { CommandPaletteItem } from './CommandPaletteItem';
 import { CommandPaletteResults } from './CommandPaletteResults';
+import { useCommandPalette } from './useCommandPalette';
+import { CUSTOM_CATEGORY } from './types';
 import type { Command, CommandCategory } from './types';
 
 const compact: Command = {
@@ -79,6 +84,30 @@ describe('terminal command palette rows', () => {
         TestRenderer.act(() => { row.props.onHoverIn(); });
         TestRenderer.act(() => { pencil.props.onHoverIn(); });
         expect(onHover).toHaveBeenCalledTimes(2);
+    });
+
+    it('draws every Custom row a non-matching query keeps visible, with no duplicate section key', () => {
+        const custom = (id: string, title: string): Command => ({ id, title, category: CUSTOM_CATEGORY, action: () => undefined });
+        const commands = [custom('custom-command', 'Run a custom command'), custom('edit-quick-actions', 'Edit replies and commands')];
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        // The real hook drives the real rows: type a query nothing matches and
+        // read what the palette actually paints.
+        function Probe({ query }: { query: string }) {
+            const palette = useCommandPalette(commands, () => undefined);
+            React.useEffect(() => { palette.handleSearchChange(query); }, [query]);
+            return <CommandPaletteResults categories={palette.categories} selectedIndex={0}
+                onSelectCommand={() => undefined} onSelectionChange={() => undefined} appearance="terminal" quietLine={palette.quiet} />;
+        }
+        let renderer: any;
+        TestRenderer.act(() => { renderer = TestRenderer.create(<Probe query="zzqq" />); });
+        const keyWarnings = consoleError.mock.calls.map((call) => String(call[0])).filter((message) => message.includes('same key'));
+        consoleError.mockRestore();
+
+        // Sections are keyed by category id: one per Custom row must stay unique.
+        expect(keyWarnings).toEqual([]);
+        const rendered = renderer!.root.findAllByType(CommandPaletteItem);
+        expect(rendered.map((node: any) => node.props.command.id)).toEqual(['custom-command', 'edit-quick-actions']);
     });
 
     it('opens without scrolling and only aligns a row once the selection moves to it', () => {
