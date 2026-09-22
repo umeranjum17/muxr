@@ -148,6 +148,13 @@ export async function handleHttpRequest(
     // manager streams it (progress bar, background-safe) instead of the phone
     // JSON-parsing a 300MB ws frame. Token rides the query string because anchor
     // downloads cannot set headers -- same posture as the ws auth query token.
+    //
+    // The route name, its `attachmentId` query key and the synthetic
+    // `attachment.prepare` below stay at their pre-rename spelling on purpose.
+    // The URL is handed to an OS download manager that cannot retry a rename,
+    // and this relay both serves apps built before the artifact rename and
+    // drives hosts built before it; the host answers both spellings, so the
+    // relay can move last, once every installed app is past the rename.
     if (req.method === 'GET' && path === '/v1/attachment-download') {
         const machineId = url.searchParams.get('machineId') ?? '';
         const sessionId = url.searchParams.get('sessionId') ?? '';

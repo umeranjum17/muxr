@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
-import { ZoomableAttachmentImage } from './ZoomableAttachmentImage';
+import { ZoomableImage } from './ZoomableImage';
 
 export interface ComposerAttachment {
     id: string;
@@ -59,7 +59,7 @@ export function ComposerAttachments({ images, onRemove }: {
                     </Pressable>
                 </View>
                 {failed ? <Text style={{ color: '#fff', padding: 24 }}>This image preview is unavailable.</Text>
-                    : <ZoomableAttachmentImage uri={preview.uri} recyclingKey={preview.id} width={width} height={Math.max(1, height - insets.top - insets.bottom - 56)}
+                    : <ZoomableImage uri={preview.uri} recyclingKey={preview.id} width={width} height={Math.max(1, height - insets.top - insets.bottom - 56)}
                         onError={() => setFailed(true)} onZoomedChange={ignoreZoom} />}
             </GestureHandlerRootView>
         </Modal>}

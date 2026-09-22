@@ -202,9 +202,9 @@ async function run() {
     mkdirSync(attachDir, { recursive: true });
     writeFileSync(join(attachDir, artifactName), Buffer.from(SHOT_B64, 'base64'));
     await waitFor(() => events.some((entry) => entry.sessionId === shell.id
-        && entry.event?.type === 'attachments.update'
+        && entry.event?.type === 'artifacts.update'
         && entry.event.attachments.some((attachment) => attachment.name === artifactName)), 'the Shared Artifacts update');
-    const artifacts = await request(socket, 'attachment.list', { sessionId: shell.id });
+    const artifacts = await request(socket, 'artifact.list', { sessionId: shell.id });
     const listed = artifacts.attachments.find((attachment) => attachment.name === artifactName);
     if (listed === undefined || 'data' in listed) fail('attachment.list did not return metadata-only Shared Artifacts');
     if (!existsSync(join(attachDir, artifactName))) fail('Shared Artifact disappeared from durable storage');

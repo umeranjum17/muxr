@@ -543,7 +543,7 @@ export const it: TranslationStructure = {
         thoughtFor: ({ duration }: { duration: string }) => `Thought for ${duration}`,
     },
 
-    sessionAttachments: {
+    sessionArtifacts: {
         title: ({ count }: { count: number }) => count === 1 ? '1 allegato' : `${count} allegati`,
     },
 

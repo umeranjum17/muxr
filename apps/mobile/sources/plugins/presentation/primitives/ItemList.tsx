@@ -22,10 +22,10 @@ import { toneColor } from '../../domain/pluginTone';
 import { cardStyle, Meter, SectionLabel, ui, withAlpha } from '@/components/ui';
 import { resolvePluginText } from '../../domain/pluginText';
 import { t } from '@/text';
-import { AttachmentGallery, AttachmentThumbnail, type GalleryImage } from '@/components/AttachmentGallery';
-import type { AttachmentAction } from '@/utils/attachmentPreview';
-import { richPreviewKind } from '@/utils/richAttachmentPreview';
-import { RichAttachmentPreview } from '@/components/attachment/RichAttachmentPreview';
+import { ArtifactGallery, ArtifactThumbnail, type GalleryImage } from '@/components/ArtifactGallery';
+import type { ArtifactAction } from '@/utils/artifactPreview';
+import { richPreviewKind } from '@/utils/richArtifactPreview';
+import { RichArtifactPreview } from '@/components/artifact/RichArtifactPreview';
 
 const EMPTY_MODEL: PluginItemListModel = { items: [], actions: [] };
 
@@ -44,7 +44,7 @@ type SheetListEntry =
     | { key: string; kind: 'images'; images: { image: GalleryImage; galleryIndex: number }[]; spaced: boolean }
     | { key: string; kind: 'item'; item: PluginItemListItem; index: number; rowIndex: number; rowCount: number; spaced: boolean };
 
-function imageAction(item: PluginItemListItem): AttachmentAction | undefined {
+function imageAction(item: PluginItemListItem): ArtifactAction | undefined {
     return item.action?.type === 'attachment' && item.action.mimeType?.startsWith('image/') && richPreviewKind(item.action.name) !== 'svg' ? item.action : undefined;
 }
 const cache = new Map<string, PluginItemListModel>();
@@ -140,7 +140,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
     const [open, setOpen] = React.useState(false);
     const [busyId, setBusyId] = React.useState<string | null>(null);
     const [galleryIndex, setGalleryIndex] = React.useState<number>();
-    const [documentPreview, setDocumentPreview] = React.useState<AttachmentAction>();
+    const [documentPreview, setDocumentPreview] = React.useState<ArtifactAction>();
     const loading = React.useRef(false);
     const requestVersion = React.useRef(0);
     const reloadQueued = React.useRef(false);
@@ -359,7 +359,7 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
                     renderItem={({ item: row }) => {
                         if (row.kind === 'label') return <SectionLabel style={[styles.groupLabel, row.spaced && styles.spacedRow]}>{row.name}</SectionLabel>;
                         if (row.kind === 'images') return <View style={[styles.imageGrid, row.spaced && styles.spacedRow]}>{row.images.map(({ image, galleryIndex }) => <View key={image.id} style={{ width: galleryWidth }}>
-                            <AttachmentThumbnail sessionId={sessionId!} image={image} enabled={visibleThumbnailSet.has(image.id) && (settledThumbnailIds.has(image.id) || loadingThumbnailIds.has(image.id))} onSettled={thumbnailSettled} onPress={() => setGalleryIndex(galleryIndex)} />
+                            <ArtifactThumbnail sessionId={sessionId!} image={image} enabled={visibleThumbnailSet.has(image.id) && (settledThumbnailIds.has(image.id) || loadingThumbnailIds.has(image.id))} onSettled={thumbnailSettled} onPress={() => setGalleryIndex(galleryIndex)} />
                         </View>)}</View>;
                         const first = row.rowIndex === 0;
                         const last = row.rowIndex === row.rowCount - 1;
@@ -384,8 +384,8 @@ export function ItemList({ context, pluginId, manifestHash, contribution, presen
                     </View>)}
                 </View>
         } />
-        {documentPreview !== undefined && sessionId !== undefined && <RichAttachmentPreview key={`${sessionId}:${documentPreview.id}`} sessionId={sessionId} attachment={documentPreview} onClose={() => setDocumentPreview(undefined)} />}
-        {galleryIndex !== undefined && <AttachmentGallery sessionId={sessionId!} images={galleryImages} initialIndex={galleryIndex} onClose={() => setGalleryIndex(undefined)} />}
+        {documentPreview !== undefined && sessionId !== undefined && <RichArtifactPreview key={`${sessionId}:${documentPreview.id}`} sessionId={sessionId} artifact={documentPreview} onClose={() => setDocumentPreview(undefined)} />}
+        {galleryIndex !== undefined && <ArtifactGallery sessionId={sessionId!} images={galleryImages} initialIndex={galleryIndex} onClose={() => setGalleryIndex(undefined)} />}
         </>;
     }}</SurfaceContent></SurfaceScope>;
 }

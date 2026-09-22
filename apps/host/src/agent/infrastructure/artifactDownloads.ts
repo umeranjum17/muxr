@@ -1,5 +1,5 @@
 /**
- * One-time download tickets for pane attachments, served over plain HTTP.
+ * One-time download tickets for pane artifacts, served over plain HTTP.
  *
  * Big files (APKs, screen recordings) must never ride the ws/JSON link: a
  * 250MB file is a ~330MB base64 string that gets stringified, escaped, and
@@ -16,7 +16,7 @@ import { createReadStream } from 'node:fs';
 import { statSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join, normalize, sep } from 'node:path';
-import { scanPane, type AttachmentWatcher } from './attachmentWatcher.js';
+import { scanPane, type ArtifactWatcher } from './artifactWatcher.js';
 
 const TICKET_TTL_MS = 5 * 60_000;
 
@@ -28,22 +28,22 @@ interface Ticket {
     expiresAt: number;
 }
 
-export class AttachmentDownloadServer {
+export class ArtifactDownloadServer {
     private readonly tickets = new Map<string, Ticket>();
     private server: Server | undefined;
 
     constructor(
         private readonly rootDir: string,
         private readonly port: number,
-        private readonly watcher?: AttachmentWatcher,
+        private readonly watcher?: ArtifactWatcher,
     ) {}
 
-    /** Mint a one-time ticket for an attachment id. null: unknown id. */
-    async prepare(paneId: string, attachmentId: string): Promise<{ token: string; name: string; mimeType: string; size: number } | null> {
-        const attachments = this.watcher !== undefined
-            ? (await this.watcher.scanPane(paneId)).attachments
+    /** Mint a one-time ticket for an artifact id. null: unknown id. */
+    async prepare(paneId: string, artifactId: string): Promise<{ token: string; name: string; mimeType: string; size: number } | null> {
+        const artifacts = this.watcher !== undefined
+            ? (await this.watcher.scanPane(paneId)).artifacts
             : await scanPane(this.rootDir, paneId);
-        const found = attachments.find((entry) => entry.id === attachmentId || entry.name === attachmentId);
+        const found = artifacts.find((entry) => entry.id === artifactId || entry.name === artifactId);
         if (found === undefined) return null;
         // The ORIGINAL file on disk (scanPane renames compressed images to
         // .webp for the wire; a download deserves the pristine bytes).

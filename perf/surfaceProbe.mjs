@@ -21,7 +21,7 @@ const flag = (name, fallback) => { const index = args.indexOf(name); return inde
 const sessionPath = resolve(flag('--session', '/tmp/muxr-probe-session.json'));
 const platform = flag('--platform', 'android');
 const surface = flag('--surface', 'document');
-const attachmentsDir = flag('--attachments-dir') ?? (process.env.HERDR_PANE_ID ? join(process.env.HOME, '.muxr/attachments/pane', process.env.HERDR_PANE_ID) : resolve('/tmp/muxr-surface-probe-attachments'));
+const artifactsDir = flag('--attachments-dir') ?? (process.env.HERDR_PANE_ID ? join(process.env.HOME, '.muxr/attachments/pane', process.env.HERDR_PANE_ID) : resolve('/tmp/muxr-surface-probe-attachments'));
 const serial = flag('--serial');
 const udid = flag('--udid');
 const scope = new CommandScope();
@@ -49,7 +49,7 @@ function hostJournal() {
     if (!Array.isArray(value.events) || value.events.length > 512) throw new Error('required host journal is malformed or over cap');
     return value.events;
 }
-function pathFor(name, suffix = '') { return join(attachmentsDir, `probe-${surface}-${name}-${startedAt}${suffix}.png`); }
+function pathFor(name, suffix = '') { return join(artifactsDir, `probe-${surface}-${name}-${startedAt}${suffix}.png`); }
 function routeFor(paneId) {
     const agent = (session.host.world?.agents ?? []).find((row) => row.pane_id === paneId);
     if (!agent) return `shell:${paneId}`;
@@ -91,7 +91,7 @@ function terminalProof(paneId, since) {
     return { attached: geometry.length > 0 && requests.length > 0, input: inputs.length > 0, distance: inputs.reduce((total, row) => total + (Number(row.lines) > 0 ? Number(row.lines) : Number(row.notches)), 0), records: { geometry, requests, inputs } };
 }
 async function capture(name, bounds) {
-    checkDeadline(); mkdirSync(attachmentsDir, { recursive: true });
+    checkDeadline(); mkdirSync(artifactsDir, { recursive: true });
     const original = pathFor(name, '-full');
     if (platform === 'android') await screenshot(original); else await iosUi.screenshot(original);
     const image = PNG.sync.read(readFileSync(original));

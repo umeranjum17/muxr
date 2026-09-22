@@ -75,11 +75,11 @@ export interface SessionChangeFile {
 }
 
 /**
- * One artifact dropped into the pane's attachment dump dir
+ * One artifact dropped into the pane's artifact dump dir
  * (~/.muxr/attachments/pane/<HERDR_PANE_ID>/). Agent-agnostic by
  * convention: anything can copy a file there; the host watches and forwards.
  */
-export interface SessionAttachment {
+export interface SessionArtifact {
     /** sha256 hex of the file content; the merge key. Stable for identical content. */
     id: string;
     /** File name inside the pane's dump dir. */
@@ -90,17 +90,17 @@ export interface SessionAttachment {
     at: number;
     /**
      * Optional bounded base64 held by the host watcher for small-file healing.
-     * `attachment.list` and `attachments.update` always strip it; previews and
-     * downloads use the existing authenticated attachment transports.
+     * `artifact.list` and `artifacts.update` always strip it; previews and
+     * downloads use the existing authenticated artifact transports.
      */
     data?: string;
 }
 
-/** Public list/event shape: metadata only, never attachment bytes. */
-export type SessionAttachmentMetadata = Omit<SessionAttachment, 'data'>;
+/** Public list/event shape: metadata only, never artifact bytes. */
+export type SessionArtifactMetadata = Omit<SessionArtifact, 'data'>;
 
-/** Attribution for bounded cumulative attachment lists. */
-export interface SessionAttachmentAttribution {
+/** Attribution for bounded cumulative artifact lists. */
+export interface SessionArtifactAttribution {
     total: number;
     truncated: boolean;
     schemaVersion?: 1;

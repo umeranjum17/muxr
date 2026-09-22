@@ -117,6 +117,12 @@ Share final artifacts only, never intermediates, logs, secrets, or pairing
 material. The live list shows the newest 50 files; write readable material as
 `.md`, `.txt`, or source files so it previews natively.
 
+The host bounds this history daily: the newest 50 files, nothing younger than a
+week, and nothing older than a month of files shared since retention was
+installed. It never touches what was already there. `muxr artifacts` prints the
+policy and what the last sweep removed; `muxr artifacts prune` is the deliberate
+way to clear older history, and it shows the plan before deleting.
+
 ## Global pitfalls
 
 - Pairing QRs and enrollment strings are single-use. Never reuse one; run

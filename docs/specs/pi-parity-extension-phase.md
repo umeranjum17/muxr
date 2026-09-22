@@ -142,7 +142,7 @@ Likely files:
 - `apps/mobile/sources/components/SimpleSyntaxHighlighter.tsx`
 - `apps/mobile/sources/hooks/usePrefetchFileContents.ts` (remove unused eager path)
 - `apps/mobile/sources/sync/storage.ts`
-- `apps/host/src/herdr/attachmentWatcher.ts`
+- `apps/host/src/herdr/artifactWatcher.ts`
 - `apps/host/src/herdr/changeDetector.ts`
 - `packages/contract/src/sessionEvent.ts`
 

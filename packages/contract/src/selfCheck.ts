@@ -62,8 +62,8 @@ const events: SessionEventBody[] = [
         activity: { sessionId: session.id, phase: 'active', label: 'working', at: '2026-01-01T00:00:00.000Z' },
     },
     {
-        type: 'attachments.update',
-        attachments: [{ id: 'a'.repeat(64), name: 'result.png', mimeType: 'image/png', size: 42, at: 1 }],
+        type: 'artifacts.update',
+        artifacts: [{ id: 'a'.repeat(64), name: 'result.png', mimeType: 'image/png', size: 42, at: 1 }],
         total: 1,
         truncated: false,
     },

@@ -1,7 +1,7 @@
 /**
- * Attachment blobs on disk — native implementation.
+ * Artifact blobs on disk — native implementation.
  *
- * Blobs live as files under documentDirectory/attachments/<id>.<ext>, keyed by
+ * Blobs live as files under documentDirectory/artifacts/<id>.<ext>, keyed by
  * the content-hash id, so metadata-only re-emits never rewrite them.
  */
 import {
@@ -16,8 +16,8 @@ import {
 } from 'expo-file-system/legacy';
 
 function blobsDir(): string {
-    if (!documentDirectory) throw new Error('attachmentBlobs: documentDirectory unavailable');
-    return `${documentDirectory}attachments/`;
+    if (!documentDirectory) throw new Error('artifactBlobs: documentDirectory unavailable');
+    return `${documentDirectory}artifacts/`;
 }
 
 function uriFor(id: string, ext: string): string {
@@ -45,7 +45,7 @@ export async function blobUri(id: string, ext: string): Promise<string | null> {
     return info.exists ? info.uri : null;
 }
 
-/** Text attachments (md, eml, code...) read back as utf8 for the preview modal. */
+/** Text artifacts (md, eml, code...) read back as utf8 for the preview modal. */
 export async function readBlobText(id: string, ext: string): Promise<string | null> {
     const info = await getInfoAsync(uriFor(id, ext));
     if (!info.exists) return null;
@@ -91,6 +91,6 @@ export async function pruneBlobs(keepIds: Set<string>): Promise<void> {
             }
         }
     } catch {
-        // No attachments dir (or unreadable) — nothing to prune.
+        // No artifacts dir (or unreadable) — nothing to prune.
     }
 }

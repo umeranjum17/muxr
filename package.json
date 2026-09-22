@@ -9,7 +9,7 @@
     ],
     "scripts": {
         "postinstall": "patch-package && node scripts/diagnostics/application/syncIosFramework.mjs && node scripts/diagnostics/application/verifyNativePatches.mjs",
-        "build": "tsc --build && node apps/host/scripts/buildVoiceAdapters.mjs && node apps/mobile/scripts/buildAttachmentPreview.mjs",
+        "build": "tsc --build && node apps/host/scripts/buildVoiceAdapters.mjs && node apps/mobile/scripts/buildArtifactPreview.mjs",
         "typecheck": "tsc --build --force",
     "perf": "node perf/releaseGate.mjs",
     "check": "node scripts/diagnostics/application/runSuite.mjs",

@@ -558,7 +558,7 @@ export const en = {
         thoughtFor: ({ duration }: { duration: string }) => `Thought for ${duration}`,
     },
 
-    sessionAttachments: {
+    sessionArtifacts: {
         title: ({ count }: { count: number }) => count === 1 ? '1 attachment' : `${count} attachments`,
     },
 

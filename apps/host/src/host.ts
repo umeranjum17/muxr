@@ -26,8 +26,11 @@ function peerRecipientFor(senderId: string | undefined, hostedE2ee: HostedMachin
     return senderId;
 }
 
+// 'attachment' here is the frozen hosted routing-channel label from
+// ROUTING_CHANNELS: it is bound into the v2 envelope context, so renaming it
+// would strand every app and relay built before the artifact rename.
 function responseChannel(frameType: string): 'attachment' | 'session' {
-    return frameType === 'attachment.read' ? 'attachment' : 'session';
+    return frameType === 'artifact.read' ? 'attachment' : 'session';
 }
 
 function diagnosticClientKind(senderId: string | undefined, hostedE2ee: HostedMachineKeys | undefined): DiagnosticClientKind {
@@ -161,7 +164,7 @@ export function startHost(options: HostOptions): Host {
                     hostVersion,
                 });
                 // The watcher's first scan races this link: hashing a 250MB
-                // attachment outlives the connect, so the emit lands while
+                // artifact outlives the connect, so the emit lands while
                 // link is still undefined and is dropped. The signature guard
                 // then suppresses every later emit, leaving clients pinned to
                 // ids from a previous host run until a file happens to change.

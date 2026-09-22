@@ -1,5 +1,5 @@
 /**
- * Per-pane attachment files. Agents drop artifacts into
+ * Per-pane artifact files. Agents drop artifacts into
  * ~/.muxr/attachments/pane/<HERDR_PANE_ID>/. Shared Artifacts lists them;
  * this watcher is also the prepare/fetch/read source for previews and downloads.
  */
@@ -8,9 +8,9 @@ import { createHash } from 'node:crypto';
 import { createReadStream, mkdirSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { open as openAsync, readdir, readFile, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
-import type { SessionAttachment, SessionAttachmentMetadata } from '@muxr/contract';
+import type { SessionArtifact, SessionArtifactMetadata } from '@muxr/contract';
 
-export const MAX_ATTACHMENTS = 50;
+export const MAX_ARTIFACTS = 50;
 // Large images stay metadata-only instead of crossing the relay inline.
 export const MAX_INLINE_BYTES = 8 * 1024 * 1024;
 /** Whole-file fetch is only the small healing path; larger files use chunks/download. */
@@ -101,12 +101,12 @@ function mimeFor(name: string): string {
     return MIME_BY_EXT[ext] ?? 'application/octet-stream';
 }
 
-/** Metadata-only view of an attachment (id + fields, no base64 data). */
-function metaOnly(entry: SessionAttachment): Omit<SessionAttachment, 'data'> {
+/** Metadata-only view of an artifact (id + fields, no base64 data). */
+function metaOnly(entry: SessionArtifact): Omit<SessionArtifact, 'data'> {
     return { id: entry.id, name: entry.name, mimeType: entry.mimeType, size: entry.size, at: entry.at };
 }
 
-export interface CachedAttachment extends Omit<SessionAttachment, 'data'> {
+export interface CachedArtifact extends Omit<SessionArtifact, 'data'> {
     /** Cache key from filesystem identity + metadata; a changed file is re-read/re-hashed. */
     signature: string;
 }
@@ -116,21 +116,21 @@ export interface CachedAttachment extends Omit<SessionAttachment, 'data'> {
  * content hash as its id; small previews are inlined as base64. Never throws:
  * a missing or half-written pane scans as whatever is readable.
  */
-export interface AttachmentScan {
-    attachments: SessionAttachment[];
+export interface ArtifactScan {
+    artifacts: SessionArtifact[];
     total: number;
     truncated: boolean;
 }
 
-export async function scanPaneWithAttribution(rootDir: string, paneId: string, cache?: Map<string, CachedAttachment>): Promise<AttachmentScan> {
+export async function scanPaneWithAttribution(rootDir: string, paneId: string, cache?: Map<string, CachedArtifact>): Promise<ArtifactScan> {
     const root = resolve(rootDir);
     const dir = resolve(root, paneId);
-    if (!dir.startsWith(`${root}${sep}`)) return { attachments: [], total: 0, truncated: false };
+    if (!dir.startsWith(`${root}${sep}`)) return { artifacts: [], total: 0, truncated: false };
     let entries: import('node:fs').Dirent[];
     try {
         entries = await readdir(dir, { withFileTypes: true });
     } catch {
-        return { attachments: [], total: 0, truncated: false };
+        return { artifacts: [], total: 0, truncated: false };
     }
     const names = entries
         .filter((entry) => entry.isFile() && !entry.name.startsWith('.'))
@@ -142,8 +142,8 @@ export async function scanPaneWithAttribution(rootDir: string, paneId: string, c
     // alphabetical sample when a pane contains thousands of artifacts.
     const candidates = (await statCandidates(dir, names))
         .sort((a, b) => b.at - a.at || compareNames(a.name, b.name));
-    const out: SessionAttachment[] = [];
-    for (const candidate of candidates.slice(0, MAX_ATTACHMENTS)) {
+    const out: SessionArtifact[] = [];
+    for (const candidate of candidates.slice(0, MAX_ARTIFACTS)) {
         const { name, path, size, at, signature } = candidate;
         try {
             const mimeType = mimeFor(name);
@@ -153,7 +153,7 @@ export async function scanPaneWithAttribution(rootDir: string, paneId: string, c
                 out.push(entry);
                 continue;
             }
-            const entry: SessionAttachment = { id: '', name, mimeType, size, at };
+            const entry: SessionArtifact = { id: '', name, mimeType, size, at };
             if (size > MAX_FETCH_BYTES) {
                 // Larger files cannot use the whole-file heal path and the
                 // metadata-only session event never carries bytes anyway.
@@ -170,7 +170,7 @@ export async function scanPaneWithAttribution(rootDir: string, paneId: string, c
             const isImage = entry.mimeType.startsWith('image/');
             const isVideo = mimeType.startsWith('video/');
             const isPdf = mimeType === 'application/pdf';
-            // Text rides whole (empty files too: a real attachment with nothing
+            // Text rides whole (empty files too: a real artifact with nothing
             // in it, rendered as an empty state on the phone); images ride
             // raw; videos and PDFs inline up to their own caps; anything
             // bigger stays a named row.
@@ -191,31 +191,31 @@ export async function scanPaneWithAttribution(rootDir: string, paneId: string, c
     }
     out.sort((a, b) => b.at - a.at);
     return {
-        attachments: out.slice(0, MAX_ATTACHMENTS),
+        artifacts: out.slice(0, MAX_ARTIFACTS),
         total,
-        truncated: total > MAX_ATTACHMENTS,
+        truncated: total > MAX_ARTIFACTS,
     };
 }
 
 /** Backward-compatible array helper used by callers that do not need attribution. */
-export async function scanPane(rootDir: string, paneId: string, cache?: Map<string, CachedAttachment>): Promise<SessionAttachment[]> {
-    return (await scanPaneWithAttribution(rootDir, paneId, cache)).attachments;
+export async function scanPane(rootDir: string, paneId: string, cache?: Map<string, CachedArtifact>): Promise<SessionArtifact[]> {
+    return (await scanPaneWithAttribution(rootDir, paneId, cache)).artifacts;
 }
 
 /**
- * Watches the attachments root and re-scans a pane when its signature changes.
+ * Watches the artifacts root and re-scans a pane when its signature changes.
  */
-export class AttachmentWatcher {
+export class ArtifactWatcher {
     private readonly lastSignature = new Map<string, string>();
-    private readonly fileCache = new Map<string, Map<string, CachedAttachment>>();
-    private readonly scans = new Map<string, Promise<AttachmentScan>>();
+    private readonly fileCache = new Map<string, Map<string, CachedArtifact>>();
+    private readonly scans = new Map<string, Promise<ArtifactScan>>();
     private readonly debounces = new Map<string, ReturnType<typeof setTimeout>>();
     private watcher: FSWatcher | undefined;
     private interval: ReturnType<typeof setInterval> | undefined;
 
     constructor(
         private readonly rootDir: string,
-        private readonly emit: (paneId: string, attachments: SessionAttachmentMetadata[], total?: number, truncated?: boolean) => void,
+        private readonly emit: (paneId: string, artifacts: SessionArtifactMetadata[], total?: number, truncated?: boolean) => void,
         private readonly rescanMs: number = RESCAN_MS,
     ) {}
 
@@ -287,27 +287,27 @@ export class AttachmentWatcher {
 
     private async scanAndEmit(paneId: string): Promise<void> {
         try {
-            const cache = this.fileCache.get(paneId) ?? new Map<string, CachedAttachment>();
+            const cache = this.fileCache.get(paneId) ?? new Map<string, CachedArtifact>();
             this.fileCache.set(paneId, cache);
             const scan = await this.scan(paneId, cache);
-            const attachments = scan.attachments;
-            const names = new Set(attachments.map((entry) => entry.name));
+            const artifacts = scan.artifacts;
+            const names = new Set(artifacts.map((entry) => entry.name));
             for (const name of cache.keys()) if (!names.has(name)) cache.delete(name);
             // Session events are metadata-only: entries heal lazily through
-            // attachment.fetch when opened, so the signature below never has
+            // artifact.fetch when opened, so the signature below never has
             // to reason about data.
-            const signature = JSON.stringify({ attachments: attachments.map(metaOnly), total: scan.total, truncated: scan.truncated });
+            const signature = JSON.stringify({ artifacts: artifacts.map(metaOnly), total: scan.total, truncated: scan.truncated });
             if (this.lastSignature.get(paneId) === signature) return;
             this.lastSignature.set(paneId, signature);
-            this.emit(paneId, attachments.map(metaOnly), scan.total, scan.truncated);
+            this.emit(paneId, artifacts.map(metaOnly), scan.total, scan.truncated);
         } catch {
             // Never throw into the watch callback.
         }
     }
 
     /** Reuse the metadata/hash cache for download ticket preparation. */
-    cacheFor(paneId: string): Map<string, CachedAttachment> {
-        const cache = this.fileCache.get(paneId) ?? new Map<string, CachedAttachment>();
+    cacheFor(paneId: string): Map<string, CachedArtifact> {
+        const cache = this.fileCache.get(paneId) ?? new Map<string, CachedArtifact>();
         this.fileCache.set(paneId, cache);
         return cache;
     }
@@ -322,13 +322,13 @@ export class AttachmentWatcher {
         this.scans.delete(paneId);
     }
 
-    async scanPane(paneId: string): Promise<AttachmentScan> {
-        const cache = this.fileCache.get(paneId) ?? new Map<string, CachedAttachment>();
+    async scanPane(paneId: string): Promise<ArtifactScan> {
+        const cache = this.fileCache.get(paneId) ?? new Map<string, CachedArtifact>();
         this.fileCache.set(paneId, cache);
         return this.scan(paneId, cache);
     }
 
-    private scan(paneId: string, cache: Map<string, CachedAttachment>): Promise<AttachmentScan> {
+    private scan(paneId: string, cache: Map<string, CachedArtifact>): Promise<ArtifactScan> {
         const existing = this.scans.get(paneId);
         if (existing !== undefined) return existing;
         const scan = scanPaneWithAttribution(this.rootDir, paneId, cache).finally(() => {
@@ -339,43 +339,43 @@ export class AttachmentWatcher {
     }
 
     /**
-     * One attachment's full entry (with data) by content-hash id. The timeline
+     * One artifact's full entry (with data) by content-hash id. The timeline
      * uses this bounded healing path for small previews; larger files use the
      * chunked preview or download transports.
      */
-    async fetch(paneId: string, attachmentId: string): Promise<SessionAttachment | null> {
-        const cache = this.fileCache.get(paneId) ?? new Map<string, CachedAttachment>();
+    async fetch(paneId: string, artifactId: string): Promise<SessionArtifact | null> {
+        const cache = this.fileCache.get(paneId) ?? new Map<string, CachedArtifact>();
         this.fileCache.set(paneId, cache);
         const scan = await this.scan(paneId, cache);
-        const found = scan.attachments.find((entry) => entry.id === attachmentId);
+        const found = scan.artifacts.find((entry) => entry.id === artifactId);
         if (found === undefined) return null;
         if (found.size > MAX_FETCH_BYTES) return null;
         if (found.data !== undefined) return found;
         try {
             // Check size BEFORE reading: reading+base64+JSON-stringifying a
             // 250MB file OOM-crashed the host in production. Big files use the
-            // bounded attachment.read chunks below.
+            // bounded artifact.read chunks below.
             const info = await stat(join(this.rootDir, paneId, found.name));
             if (info.size === 0 || info.size > MAX_FETCH_BYTES) return null;
             const data = await readFile(join(this.rootDir, paneId, found.name));
-            if (createHash('sha256').update(data).digest('hex') !== attachmentId) return null;
+            if (createHash('sha256').update(data).digest('hex') !== artifactId) return null;
             return { ...found, data: data.toString('base64') };
         } catch {
             return null;
         }
     }
 
-    /** Bounded read for large hosted attachments; the RPC envelope encrypts every chunk. */
-    async read(paneId: string, attachmentId: string, offset: number, length: number): Promise<{
+    /** Bounded read for large hosted artifacts; the RPC envelope encrypts every chunk. */
+    async read(paneId: string, artifactId: string, offset: number, length: number): Promise<{
         id: string; name: string; mimeType: string; size: number; offset: number; data: string;
     } | null> {
         if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 1 || length > 512 * 1024) {
-            throw new Error('attachment.read: invalid range');
+            throw new Error('artifact.read: invalid range');
         }
-        const cache = this.fileCache.get(paneId) ?? new Map<string, CachedAttachment>();
+        const cache = this.fileCache.get(paneId) ?? new Map<string, CachedArtifact>();
         this.fileCache.set(paneId, cache);
-        const found = (await this.scan(paneId, cache)).attachments.find(
-            (entry) => entry.id === attachmentId || entry.name === attachmentId,
+        const found = (await this.scan(paneId, cache)).artifacts.find(
+            (entry) => entry.id === artifactId || entry.name === artifactId,
         );
         if (found === undefined || offset >= found.size) return null;
         const path = join(this.rootDir, paneId, found.name);

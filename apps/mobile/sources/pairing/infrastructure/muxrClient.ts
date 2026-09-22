@@ -375,7 +375,8 @@ export class MuxrClient {
 
             this.pending.set(requestId, {
                 resolve: (value) => resolve(value as RequestResult<T>),
-                channel: type === 'attachment.read' ? 'attachment' : 'session',
+                // Frozen hosted routing label; see ROUTING_CHANNELS in the contract.
+                channel: type === 'artifact.read' ? 'attachment' : 'session',
                 requestType: type,
                 reject,
                 timer,
@@ -392,7 +393,7 @@ export class MuxrClient {
     private send(frame: ClientFrame, sessionId?: string): void {
         this.seq += 1;
         const streamId = sessionId ?? 'machine';
-        const channel = frame.type === 'attachment.read' ? 'attachment' : 'session';
+        const channel = frame.type === 'artifact.read' ? 'attachment' : 'session';
         const sealed = this.hosted?.seal(channel, streamId, encodePayload(frame));
         const envelope: Envelope = {
             header: {

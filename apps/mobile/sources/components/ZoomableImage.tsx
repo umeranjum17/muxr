@@ -11,7 +11,7 @@ function clamp(value: number, limit: number) {
 }
 
 /** Zoom is relative to the fitted image; a tall screenshot can expand to reading width. */
-export function ZoomableAttachmentImage({ uri, recyclingKey, width, height, onError, onZoomedChange }: {
+export function ZoomableImage({ uri, recyclingKey, width, height, onError, onZoomedChange }: {
     uri: string; recyclingKey: string; width: number; height: number;
     onError: () => void; onZoomedChange: (zoomed: boolean) => void;
 }) {

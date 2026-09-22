@@ -29,7 +29,7 @@ Install dependencies (`yarn install`) and start an Android emulator first.
 From the repository root, use two terminals:
 
 ```bash
-# Terminal 1: source host + relay, TypeScript watch, attachment renderer, Metro
+# Terminal 1: source host + relay, TypeScript watch, artifact renderer, Metro
 yarn dev
 
 # Terminal 2: first installation, or after a native change
@@ -45,7 +45,7 @@ not Expo prebuild, and targets the Android emulator. It does not uninstall the
 production app or access release signing credentials.
 
 `yarn dev` keeps Metro on loopback port **8081** and the development relay on
-**18792**, with attachment downloads on **18793**. The Android command forwards
+**18792**, with artifact downloads on **18793**. The Android command forwards
 all three ports over adb, leaving the installed host's 8792/8793 untouched. State
 persists under the ignored `.cache/muxr-dev/` directory, not the installed
 service's state. Stop the development supervisor with **Ctrl-C**; it owns its
@@ -86,7 +86,7 @@ and pairing checks remain unchanged.
 |---|---|
 | Mobile JS/TS, React components and styles | Save; Metro Fast Refresh updates the running dev client |
 | Host/relay/shared TypeScript | Compiler watcher rebuilds; source services restart after a clean build |
-| Attachment preview runtime | Renderer watcher regenerates the offline bundle; Metro sees it |
+| Artifact preview runtime | Renderer watcher regenerates the offline bundle; Metro sees it |
 | Installed plugin projection/RPC/stream scripts | Source paths are used on the next invocation; installed registrations remain unchanged |
 | Kotlin, C++, native modules/patches or Gradle | Run `yarn dev:android` again |
 | App config, native plugins, dependencies or public environment | Restart Metro; rebuild the dev client when native configuration changes |

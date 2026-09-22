@@ -103,7 +103,7 @@ async function pdf(bytes) {
     }
     await render(); window.addEventListener('pagehide', () => { void doc.destroy(); }, { once: true });
 }
-window.renderMuxrAttachment = async ({ kind, base64, dark }) => {
+window.renderMuxrArtifact = async ({ kind, base64, dark }) => {
     try {
         const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
         if (kind === 'pdf') return await pdf(bytes);

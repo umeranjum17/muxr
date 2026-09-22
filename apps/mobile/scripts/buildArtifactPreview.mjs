@@ -5,9 +5,9 @@ const options = { bundle: true, minify: true, platform: 'browser', target: 'chro
 const worker = await build({ ...options, format: 'esm', entryPoints: [new URL('../../../node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).pathname] });
 const rendererOptions = {
     ...options,
-    entryPoints: [`${root}sources/components/attachment/previewRuntime.mjs`],
+    entryPoints: [`${root}sources/components/artifact/previewRuntime.mjs`],
     write: true,
-    outfile: `${root}sources/components/attachment/preview.bundle.bin`,
+    outfile: `${root}sources/components/artifact/preview.bundle.bin`,
     banner: { js: `window.MUXR_PDF_WORKER=${JSON.stringify(worker.outputFiles[0].text)};` },
 };
 if (process.argv.includes('--watch')) {
@@ -19,8 +19,8 @@ if (process.argv.includes('--watch')) {
             process.exit(0);
         });
     }
-    console.log('Watching offline attachment renderer');
+    console.log('Watching offline artifact renderer');
 } else {
     await build(rendererOptions);
-    console.log('Offline attachment renderer and PDF worker bundled');
+    console.log('Offline artifact renderer and PDF worker bundled');
 }

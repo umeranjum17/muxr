@@ -21,7 +21,7 @@ The analogy applies to package discovery, hooks, commands, status surfaces, navi
 Pi extensions execute TypeScript in the TUI process. Store-distributed mobile apps cannot safely download React Native modules or arbitrary JavaScript, HTML, WebViews, render functions, gestures, or event handlers. muxr therefore provides two renderer classes:
 
 1. **Declarative extensions** compose versioned native muxr components. These can be installed entirely from the host and appear on connected phones when the Herdr plugin is enabled.
-2. **Kernel substrate** provides compiled renderers and OS bridges already present in the app binary. Realtime transport, the diff renderer, attachment previews, and the terminal emulator use this path.
+2. **Kernel substrate** provides compiled renderers and OS bridges already present in the app binary. Realtime transport, the diff renderer, artifact previews, and the terminal emulator use this path.
 
 Plugins use the same extension registry, slots, data selectors, actions, enable/disable lifecycle, and attribution. Kernel renderers are not downloadable plugin code.
 
@@ -104,7 +104,7 @@ Bundled native extensions register extra renderer IDs at compile time. An extern
 
 ## Data, actions, and events
 
-Kernel data is exposed through permissioned read-only selectors such as current machine, session, connection, attention, changes, and attachments. Extension-owned dynamic data uses declared versioned queries with response limits and refresh floors.
+Kernel data is exposed through permissioned read-only selectors such as current machine, session, connection, attention, changes, and artifacts. Extension-owned dynamic data uses declared versioned queries with response limits and refresh floors.
 
 Actions are a closed union:
 
@@ -207,7 +207,7 @@ Native contributions name a **primitive** (`item-list`, `collection`, `icon-butt
 
 ## Amendment 2026-09-20 (Shared Artifacts)
 
-Shared Artifacts deliberately adds one product-owned attachments surface for durable per-session history: the host publishes a metadata-only `attachments.update` session event when the pane's watched dir changes, and an authenticated `attachment.list` request returns the same bounded newest-first snapshot. Neither carries file bytes. Bytes keep moving only through the existing kernel transports (`attachment.fetch`, bounded encrypted `attachment.read` chunks, one-time download tickets) and previews stay bundled kernel renderers, so no manifest slot, declarative node, or plugin code changes. The extracted attachments plugin RPC stays wire-compatible during migration, and `changes` still lists through `plugin.call` — the kernel pushes no other catalog. This supersedes the 2026-08-15 primitive amendments' "the kernel does not push those catalogs" and "`session.changes` / `session.attachments` events ... are gone" wording for this one metadata channel only.
+Shared Artifacts deliberately adds one product-owned artifact surface for durable per-session history: the host publishes a metadata-only `artifacts.update` session event when the pane's watched dir changes, and an authenticated `artifact.list` request returns the same bounded newest-first snapshot. Neither carries file bytes. Bytes keep moving only through the existing kernel transports (`artifact.fetch`, bounded encrypted `artifact.read` chunks, one-time download tickets) and previews stay bundled kernel renderers, so no manifest slot, declarative node, or plugin code changes. The four methods and their params were named `attachment.*` and `attachmentId` before the artifact unification; the host still answers those spellings, with the pre-rename `attachments` listing field, for an app built before it (see `CONTEXT.md`). The extracted attachments plugin RPC stays wire-compatible during migration, and `changes` still lists through `plugin.call` — the kernel pushes no other catalog. This supersedes the 2026-08-15 primitive amendments' "the kernel does not push those catalogs" and "`session.changes` / `session.attachments` events ... are gone" wording for this one metadata channel only.
 
 ## Reopen triggers
 

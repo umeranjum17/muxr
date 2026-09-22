@@ -70,6 +70,24 @@ _Avoid_: inbox, notification store, voice queue, catalog cache
 A spoken update about a trusted Agent and Task Title, admitted only after current-schema validation.
 _Avoid_: TTS job, announcement, completion chime
 
+## Shared Artifacts
+
+**Artifact**:
+A file an Agent shares from one pane into that pane's durable history, shown on the phone as Shared Artifacts. Agents write them with `muxr share`, or by copying into `~/.muxr/attachments/pane/<HERDR_PANE_ID>/`.
+_Avoid_: attachments, uploads, files, media, the plugin that opens them
+
+**Prompt attachment**:
+A file the user sends with a prompt from the phone. Never called an artifact.
+_Avoid_: artifact, shared file
+
+**Artifact retention**:
+The daily bound on how much history a pane keeps: the newest 50 files, nothing younger than a week, nothing post-install older than a month, and 512 MiB of removable files per pane. Read and operated with `muxr artifacts`.
+_Avoid_: cleanup job, cache eviction, garbage collection
+
+**Frozen names**:
+`~/.muxr/attachments/pane/`, the `attachment` hosted routing channel, the `/v1/attachment-download` route with its `attachmentId` query key, and the plugin `muxr.attachments` / plugin action `type: "attachment"` keep their pre-rename spelling. They are contracts with tooling, older installs and the cleartext envelope, and renaming them would break installs that cannot be told to change. Everything else about this subsystem says artifact.
+_Avoid_: treating them as leftovers, "fixing" them in a rename
+
 ## Realtime voice
 
 **Realtime Playback**:

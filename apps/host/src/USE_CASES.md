@@ -25,4 +25,4 @@ Navigate by intent. Socket handlers in `host.ts` / `createRequestDispatcher.ts` 
 
 Not in this process: StartDictation, StartRealtimeConversation, InterruptPlayback — those live on the phone. Voice selection, keys, readiness, and report wording are product use cases in `voice/`, called directly by the dispatcher; only the realtime stream itself is a `SessionSource` method.
 
-Herd layout, attachments, herdr CLI, and worktree land stay as thin `SessionSource` / infrastructure ports with no extra policy.
+Herd layout, artifacts, herdr CLI, and worktree land stay as thin `SessionSource` / infrastructure ports with no extra policy.

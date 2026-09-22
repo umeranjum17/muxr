@@ -346,9 +346,9 @@ try {
 // Expo binds "localhost"; prefer IPv4 so adb reverse and the printed URL agree.
 startChild('metro', process.execPath, ['--dns-result-order=ipv4first', expoBin, 'start', '--dev-client', '--localhost', '--scheme', 'exp+muxr-dev', '--port', String(metroPort)], metroEnv, join(root, 'apps', 'mobile'));
 
-// Regenerates sources/components/attachment/preview.bundle.bin on source
+// Regenerates sources/components/artifact/preview.bundle.bin on source
 // edits so Metro picks up attachment preview changes without a full build.
-startChild('preview', process.execPath, [join(root, 'apps', 'mobile', 'scripts', 'buildAttachmentPreview.mjs'), '--watch'], devEnvBase, root);
+startChild('preview', process.execPath, [join(root, 'apps', 'mobile', 'scripts', 'buildArtifactPreview.mjs'), '--watch'], devEnvBase, root);
 
 const tsc = startChild('tsc', process.execPath, [tscBin, '--build', '--watch', '--pretty', 'false', '--preserveWatchOutput'], devEnvBase, root);
 createInterface({ input: tsc.stdout }).on('line', (line) => {

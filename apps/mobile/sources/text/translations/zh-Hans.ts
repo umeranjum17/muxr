@@ -546,7 +546,7 @@ export const zhHans: TranslationStructure = {
         thoughtFor: ({ duration }: { duration: string }) => `Thought for ${duration}`,
     },
 
-    sessionAttachments: {
+    sessionArtifacts: {
         title: ({ count }: { count: number }) => `${count} 个附件`,
     },
 

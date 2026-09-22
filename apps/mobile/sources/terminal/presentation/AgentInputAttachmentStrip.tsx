@@ -33,7 +33,7 @@ export function AgentInputAttachmentStrip({ images, onRemove }: AgentInputAttach
             keyboardShouldPersistTaps="always"
         >
             {images.map((img) => (
-                <AttachmentThumbnail
+                <ArtifactThumbnail
                     key={img.id}
                     image={img}
                     onRemove={onRemove}
@@ -44,7 +44,7 @@ export function AgentInputAttachmentStrip({ images, onRemove }: AgentInputAttach
     );
 }
 
-function AttachmentThumbnail({
+function ArtifactThumbnail({
     image,
     onRemove,
     theme,

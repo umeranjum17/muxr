@@ -114,7 +114,7 @@ writeFileSync(state, JSON.stringify(panes));
         const source = await createHerdrSessionSource({
             socketPath: herdr.socketPath,
             dataDir: join(dir, 'data'),
-            attachmentsDir: join(dir, 'attachments'),
+            artifactsDir: join(dir, 'attachments'),
             hostHttpPort: 0,
         });
         try {

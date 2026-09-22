@@ -560,7 +560,7 @@ export const pl: TranslationStructure = {
         thoughtFor: ({ duration }: { duration: string }) => `Thought for ${duration}`,
     },
 
-    sessionAttachments: {
+    sessionArtifacts: {
         title: ({ count }: { count: number }) => plural({ count, one: '1 załącznik', few: `${count} załączniki`, many: `${count} załączników` }),
     },
 

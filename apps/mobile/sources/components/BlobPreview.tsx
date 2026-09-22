@@ -1,5 +1,5 @@
 /**
- * Full-screen preview for non-image, non-text attachments — native stub.
+ * Full-screen preview for non-image, non-text artifacts — native stub.
  *
  * The shipped target today is the web export (see BlobPreview.web.tsx: HTML5
  * video + pdf.js). Native isn't cut yet; when it is, video plays in the system

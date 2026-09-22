@@ -21,6 +21,10 @@ export const RELAY_CLOSE_REPLACED = 4000;
  * Strict hosted-mode routing channel. The same vocabulary binds relay routing
  * and the E2EE envelope context so those two modules cannot drift.
  */
+// 'attachment' is frozen at its pre-artifact-rename spelling: the label rides
+// cleartext on every hosted envelope and is bound into the v2 E2EE context, so
+// an older app or relay cannot be told to expect another word. It names the
+// artifact stream; the code that picks it reads artifact.
 export const ROUTING_CHANNELS = ['session', 'terminal', 'attachment', 'stream', 'pairing', 'grant'] as const;
 export type RoutingChannel = (typeof ROUTING_CHANNELS)[number];
 

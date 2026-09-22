@@ -13,7 +13,7 @@
 import type {
     AttentionCatalog,
     SessionActivity,
-    SessionAttachmentMetadata,
+    SessionArtifactMetadata,
     SessionInfo,
     SessionStatus,
     LifecycleEvent,
@@ -38,8 +38,21 @@ export type SessionEventBody =
     | { type: 'activity.update'; activity: SessionActivity }
     /** Metadata-only newest-first artifact history for this session's pane. */
     | {
+          type: 'artifacts.update';
+          artifacts: SessionArtifactMetadata[];
+          total: number;
+          truncated: boolean;
+      }
+    /**
+     * Pre-unification name of `artifacts.update`, with the pre-unification
+     * `attachments` field. A host built before the rename emits only this; the
+     * handler folds it into the same shape. Deliberately absent from
+     * SESSION_EVENT_TYPES: the host never emits it, so nothing waits for it.
+     * @deprecated Read `artifacts.update`.
+     */
+    | {
           type: 'attachments.update';
-          attachments: SessionAttachmentMetadata[];
+          attachments: SessionArtifactMetadata[];
           total: number;
           truncated: boolean;
       }
@@ -74,7 +87,7 @@ export const SESSION_EVENT_TYPES = [
     'shell.end',
     'status.update',
     'activity.update',
-    'attachments.update',
+    'artifacts.update',
     'attention.update',
     'lifecycle.update',
     'watch.settled',

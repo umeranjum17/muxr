@@ -423,7 +423,7 @@ Rows, screen buttons, settings items, and RPC-backed `item-list` rows use one cl
 - `{ "type": "kernel.navigate", "target": "file", "path": "src/app.ts" }` opens a file in the current session;
 - `{ "type": "kernel.navigate", "target": "web-view", "url": "https://..." }` opens the bounded in-app HTTPS viewer;
 - `{ "type": "open-url", "url": "https://..." }` asks before opening the system browser;
-- `{ "type": "attachment", "id": "...", "name": "...", "size": 42 }` downloads a current-session attachment;
+- `{ "type": "attachment", "id": "...", "name": "...", "size": 42 }` downloads a current-session artifact. The name is frozen: approved plugin manifests carry it, so it is not renamed by the artifact unification.
 - `{ "type": "secure-prompt", ..., "submit": { "type": "plugin.call", ... } }` submits one non-empty secret directly to a declared write RPC without persisting or displaying it;
 - `{ "type": "confirm", ..., "destructive": true, "action": { "type": "plugin.call", ... } }` confirms a destructive declared write RPC.
 
