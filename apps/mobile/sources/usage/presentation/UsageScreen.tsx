@@ -17,7 +17,7 @@ import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
-import { FRESH_MS, collectionDue, knownProviders, noteAsked, releaseAsked, rememberShown, shownUsage, subscribeUsage, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
+import { FRESH_MS, collectionDue, knownProviders, lastAskedAt, noteAsked, releaseAsked, rememberShown, shownUsage, subscribeUsage, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
 
 /** The same primitives the declarative system renders, fed typed host data. */
 const LIMITS_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits', title: 'Right now' };
@@ -137,25 +137,39 @@ export function UsageScreen() {
             });
     }, []);
 
-    /** One ask for a tab, or none. Our own window decides, with one exception:
-     *  a record only answers the question it can answer, and a card's usage.now
+    /** A record only answers the questions it can answer: a card's usage.now
      *  figures name no tabs, so a screen holding only those asks once for the
-     *  host's own tab list -- and that ask claims the window like any other, so
-     *  the window governs every mount after it. A tab showing a wait or a
-     *  failure is not asked for again: what it holds is the truth about it.
-     *  `replace` lets a tab change through while another read is in flight. */
+     *  host's own list. Once per such record -- a record written after the last
+     *  ask is one nobody has asked about yet -- and the ask itself claims the
+     *  window, so the window governs every ask after it. */
+    const unaskedTabList = React.useCallback((target: string): boolean => {
+        const stored = shownUsage(target);
+        if (stored === undefined || stored.status !== 'figures' || stored.figures.providers !== undefined) return false;
+        const asked = lastAskedAt(target);
+        return asked === undefined || asked < stored.at;
+    }, []);
+
+    /** One ask for a tab, or none. Our own window decides, except for a record
+     *  nobody has asked about that cannot answer this screen's question. A tab
+     *  showing a wait or a failure is not asked for again: what it holds is the
+     *  truth about it. `replace` lets a tab change through while another read
+     *  is in flight. */
     const loadIfDue = React.useCallback((target: string, replace = false): void => {
         if (inFlight.current && !replace) return;
         const now = Date.now();
-        const stored = shownUsage(target);
-        const figuresWithoutTabs = stored !== undefined && stored.status === 'figures' && stored.figures.providers === undefined;
-        if (!collectionDue(target, now) && !figuresWithoutTabs) return;
+        if (!collectionDue(target, now) && !unaskedTabList(target)) return;
         void load(target, now);
-    }, [load]);
+    }, [load, unaskedTabList]);
 
     React.useEffect(() => {
         loadIfDue(provider, true);
     }, [provider, loadIfDue]);
+
+    // A record that lands while this screen is open is answered the moment it
+    // arrives: the store is the trigger, not the next foreground or tick.
+    React.useEffect(() => {
+        loadIfDue(provider);
+    }, [display, provider, loadIfDue]);
 
     // A read still running when the screen goes cannot paint into it, and its
     // claim goes with it: no answer is coming for it.
@@ -303,7 +317,7 @@ function reportFrom(figures: UsageFigures, provider: string): UsageReport {
         providerName: plans.find((plan) => plan.id === provider)?.label ?? provider,
         windowPeriods: [],
         windows: [],
-        limits: figures.limits,
+        limits: { ...figures.limits, windows: figures.windows ?? figures.limits.windows },
         ...(figures.connected === undefined ? {} : { connected: figures.connected }),
         ...(figures.ageSeconds === undefined ? {} : { ageSeconds: figures.ageSeconds }),
         capturedAt: figures.capturedAt ?? new Date().toISOString(),

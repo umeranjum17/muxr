@@ -71,7 +71,7 @@ export function RightNowCard() {
     // into one restrained provider strip; Memory/Disk/Load/Uptime stay the
     // quiet row beneath it. A plan tab's own failure message keeps its row.
     const strip = hasConnectedStrip(payload);
-    const limit = strip ? undefined : payload.limits.windows[0];
+    const limit = strip ? undefined : (payload.cardWindow ?? payload.limits.windows[0]);
     const verdictWord = verdict === 'unknown' ? undefined : t(VERDICT_KEYS[verdict]);
     const tone = verdict === 'unknown' ? undefined : verdictTone(verdict);
     const dot = tone === undefined ? undefined : <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: toneColor(theme, tone) }} />;

@@ -55,6 +55,12 @@ export interface UsageActivity {
  *  rest of what is held standing. */
 export interface UsageFigures {
     limits: UsageLimitsPayload;
+    /** The host's whole window list, once a report has named it: usage.now
+     *  names one window, so a card read keeps this rather than narrowing it. */
+    windows?: UsageLimitsPayload['windows'];
+    /** The one window usage.now names for the card's verdict line. A report
+     *  cannot name it, so a report read keeps it. */
+    cardWindow?: UsageLimitsPayload['windows'][number];
     /** Every provider with a real integration, which is the host's own tab list
      *  -- a plan with no quota windows is still a tab. */
     providers?: UsageReport['providers'];
@@ -76,26 +82,35 @@ export type UsageDisplay =
     | { status: 'waiting'; askedAt: number; vitals?: UsageVitals }
     | { status: 'unavailable'; reason: string; vitals?: UsageVitals };
 
-/** The figures a usage.now read adds to what this tab holds. */
+/** A projection may only write what it can answer for. The merge keeps, from
+ *  the record already held, every field the writer did not speak for -- so a
+ *  narrower read can never narrow a wider one, and a field added later never
+ *  has to rediscover this. */
+function mergeFigures(held: UsageFigures | undefined, spoken: Pick<UsageFigures, 'limits'> & Partial<UsageFigures>): UsageFigures {
+    return { ...held, ...spoken };
+}
+
+/** The figures a usage.now read answers for: the machine facts it measured, and
+ *  the one window its verdict describes. It cannot speak for the host's whole
+ *  window list, the tab list, or the measured activity. */
 export function withNow(previous: UsageFigures | undefined, value: UsageNow): UsageFigures {
-    return {
-        ...(previous?.providers === undefined ? {} : { providers: previous.providers }),
-        ...(previous?.activity === undefined ? {} : { activity: previous.activity }),
+    return mergeFigures(previous, {
         limits: value.limits,
+        cardWindow: value.limits.windows[0],
         ...(value.connected === undefined ? {} : { connected: value.connected }),
         ...(value.vitals === undefined ? {} : { vitals: value.vitals }),
         ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds }),
         ...(value.capturedAt === undefined ? {} : { capturedAt: value.capturedAt }),
-    };
+    });
 }
 
-/** The figures a usage.report read adds to what this tab holds. */
+/** The figures a usage.report read answers for: the whole window list, the tab
+ *  list and the activity. It cannot speak for the machine facts. */
 export function withReport(previous: UsageFigures | undefined, value: UsageReport): UsageFigures {
-    return {
-        ...(previous?.vitals === undefined ? {} : { vitals: previous.vitals }),
+    return mergeFigures(previous, {
         limits: value.limits,
+        windows: value.limits.windows,
         providers: value.providers,
-        ...(value.connected === undefined ? {} : { connected: value.connected }),
         activity: {
             todayTokens: value.todayTokens,
             todayCost: value.todayCost,
@@ -107,9 +122,10 @@ export function withReport(previous: UsageFigures | undefined, value: UsageRepor
             ...(value.noProvidersTitle === undefined ? {} : { noProvidersTitle: value.noProvidersTitle }),
             ...(value.noProviders === undefined ? {} : { noProviders: value.noProviders }),
         },
+        ...(value.connected === undefined ? {} : { connected: value.connected }),
         ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds }),
         ...(value.capturedAt === undefined ? {} : { capturedAt: value.capturedAt }),
-    };
+    });
 }
 
 const displays = new Map<string, UsageDisplay>();
@@ -165,6 +181,12 @@ export function knownProviders(): UsageReport['providers'] {
         for (const tab of display.figures.providers ?? []) if (!tabs.has(tab.id)) tabs.set(tab.id, tab);
     }
     return [...tabs.values()];
+}
+
+/** When we last asked for this machine's tab, if we have. A record can be
+ *  checked against it to tell whether it has been asked about since it landed. */
+export function lastAskedAt(provider: string): number | undefined {
+    return askedAt.get(machineKey(provider));
 }
 
 /** What this machine's tab shows, if anything has been asked for it yet. */

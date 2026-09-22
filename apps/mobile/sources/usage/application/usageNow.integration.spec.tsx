@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import type { UsageNow, UsageReport } from '@muxr/contract';
-import { FRESH_MS, noteAsked, rememberShown, withNow, withReport } from './freshnessWindow';
+import { FRESH_MS, noteAsked, rememberShown, shownUsage, withNow, withReport } from './freshnessWindow';
 
 /**
  * The Home card's whole read path, end to end against a scripted host.
@@ -152,15 +152,21 @@ function mount() {
     return { seen, latest: () => seen[seen.length - 1]! };
 }
 
+/** Everything a test renders, so a surface it left mounted cannot react to the
+ *  next test's store write. */
+const mounted: any[] = [];
+
 function renderCard() {
     let renderer: any;
     TestRenderer.act(() => { renderer = TestRenderer.create(<RightNowCard />); });
+    mounted.push(renderer!);
     return renderer!;
 }
 
 function renderScreen() {
     let renderer: any;
     TestRenderer.act(() => { renderer = TestRenderer.create(<UsageScreen />); });
+    mounted.push(renderer!);
     return renderer!;
 }
 
@@ -212,7 +218,10 @@ beforeEach(() => {
     appState.currentState = 'active';
     appState.listeners.clear();
 });
-afterEach(() => { vi.useRealTimers(); });
+afterEach(() => {
+    for (const renderer of mounted.splice(0)) TestRenderer.act(() => { renderer.unmount(); });
+    vi.useRealTimers();
+});
 
 describe('the Home card read path', () => {
     it('follows a cold answer through to collected figures and then keeps itself current', async () => {
@@ -720,7 +729,7 @@ describe('the usage screen read path', () => {
     it('paints the state the card left, rather than nothing, when the window is already claimed', async () => {
         const claimed = Date.now();
         request.mockClear();
-        noteAsked('', claimed);
+        noteAsked('', claimed - 1_000);
         rememberShown('', { status: 'waiting', askedAt: claimed });
         let screen = renderScreen();
         await tick();
@@ -809,7 +818,7 @@ describe('the usage screen read path', () => {
     it('says what it holds when the figures name no connected plan', async () => {
         // A machine with local agents but no plan whose limits could be read:
         // the host sends no connected list, and its own reason on the limits.
-        noteAsked('', Date.now());
+        noteAsked('', Date.now() - 1_000);
         rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, { limits: { verdict: 'unknown', windows: [], message: "Plan limits aren't connected" }, ageSeconds: 20 }) });
         request.mockClear();
         request.mockImplementation(() => new Promise<UsageReport>(() => undefined));
@@ -885,7 +894,7 @@ describe('the usage screen read path', () => {
         // The card asked first and wrote its own figures: limits and plans, no
         // tab list. That record answers the card's question, not this screen's.
         const claimed = Date.now();
-        noteAsked('', claimed);
+        noteAsked('', claimed - 1_000);
         rememberShown('', { status: 'figures', at: claimed, figures: withNow(undefined, collected(undefined, 20)) });
         request.mockClear();
         request.mockResolvedValue(report('claude', 60));
@@ -982,6 +991,47 @@ describe('the usage screen read path', () => {
         TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
         await tick();
         expect(request.mock.calls.length).toBeGreaterThan(before);
+    });
+
+    it('keeps every window the screen holds when the card writes its own', async () => {
+        // A report with two windows is what this screen renders.
+        const held: UsageReport = { ...report('claude', 60), limits: { verdict: 'limited', windows: [{ label: 'Five hour', used: 70 }, { label: 'Seven day', used: 40 }] } };
+        const claimed = Date.now();
+        noteAsked('', claimed - 1_000);
+        rememberShown('', { status: 'figures', at: claimed, figures: withReport(undefined, held) });
+        const screen = renderScreen();
+        const windows = () => screen.root.findAllByType('ScreenLimits')[0].props.data.limits.windows.length;
+        expect(windows()).toBe(2);
+
+        // The card's own read lands for the same tab: it names one window, and
+        // the screen's list is not narrowed by it.
+        const stored = shownUsage('');
+        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: claimed + 1, figures: withNow(stored?.status === 'figures' ? stored.figures : undefined, collected(undefined, 20)) }); });
+        expect(windows()).toBe(2);
+        const figures = shownUsage('');
+        expect(figures?.status === 'figures' ? figures.figures.cardWindow?.used : undefined).toBe(20);
+    });
+
+    it('asks once for the tab list, and not again when that ask fails', async () => {
+        // The card's figures name no tabs, and the ask for them fails.
+        const claimed = Date.now();
+        noteAsked('', claimed - 1_000);
+        rememberShown('', { status: 'figures', at: claimed, figures: withNow(undefined, collected(undefined, 20)) });
+        request.mockClear();
+        request.mockRejectedValue(new Error('host unreachable'));
+        let screen = renderScreen();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(1);
+
+        // The record still names no tabs, but its round is spent: a remount and
+        // a foreground return inside the window ask nothing more.
+        TestRenderer.act(() => { screen.unmount(); });
+        screen = renderScreen();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(1);
+        TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
+        await tick();
+        expect(request).toHaveBeenCalledTimes(1);
     });
 
     it('collects exactly once per window for a tab the host has nothing stored for', async () => {
