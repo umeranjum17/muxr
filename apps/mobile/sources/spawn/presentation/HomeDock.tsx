@@ -819,7 +819,7 @@ export const HomeDock = React.memo(({
                         style={styles.input}
                     />
                 )}
-                <DictateButton context={composerDraft} />
+                {Platform.OS !== 'web' && <DictateButton context={composerDraft} />}
                 <PluginSlot slot="home.composer.trailing" context={composerDraft} />
                 <BubblePressable
                     onPress={onSend}
@@ -901,11 +901,14 @@ export const HomeDock = React.memo(({
                         >
                             <Ionicons name="image-outline" size={24} color={theme.colors.text} />
                         </BubblePressable>
-                        <NativeSettingsMenu groups={gearSettingsGroups} style={styles.nativeGearMenu}>
-                            <View style={styles.sideButton}>
-                                <Ionicons name="settings-outline" size={20} color={theme.colors.text} />
-                            </View>
-                        </NativeSettingsMenu>
+                        {/* The web has no native menu to open; the Agent row above picks the agent there. */}
+                        {Platform.OS !== 'web' && (
+                            <NativeSettingsMenu groups={gearSettingsGroups} style={styles.nativeGearMenu}>
+                                <View style={styles.sideButton}>
+                                    <Ionicons name="settings-outline" size={20} color={theme.colors.text} />
+                                </View>
+                            </NativeSettingsMenu>
+                        )}
                         <View style={styles.nativeModeMenu}>
                             <View style={styles.focusedModeButton}>
                                 <Ionicons name="flash" size={18} color={theme.colors.text} />
@@ -914,7 +917,7 @@ export const HomeDock = React.memo(({
                                 </Text>
                             </View>
                         </View>
-                        <DictateButton context={composerDraft} />
+                        {Platform.OS !== 'web' && <DictateButton context={composerDraft} />}
                         <PluginSlot slot="home.composer.trailing" context={composerDraft} />
                         <BubblePressable
                             onPress={submitFromFocusMode}

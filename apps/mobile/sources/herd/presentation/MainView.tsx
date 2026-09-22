@@ -164,14 +164,6 @@ const styles = StyleSheet.create((theme) => ({
         fontSize: 13,
         lineHeight: 18,
     },
-    headerButton: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'transparent',
-    },
     headerActions: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -344,7 +336,8 @@ const HeaderSearch = React.memo(({
     );
 });
 
-// Header right buttons: search and Settings on the phone, start and Settings on web.
+// Header right buttons: Panes, search and Settings. Starting an agent is the
+// composer dock's job on every surface, so the header never carries a start.
 const HeaderRight = React.memo(({
     searchActive,
     onSearchPress,
@@ -354,84 +347,50 @@ const HeaderRight = React.memo(({
 }) => {
     const router = useRouter();
     const { theme } = useUnistyles();
-    const { authority, loading: authorityLoading } = useDeviceAuthority();
 
-    if (Platform.OS !== 'web') {
-        return (
-            <View style={styles.headerActions}>
-                <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
-                    <Pressable
-                        onPress={() => router.push('/panes')}
-                        style={styles.headerActionButton}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Panes"
-                    >
-                        <Ionicons
-                            name="grid-outline"
-                            size={21}
-                            color={theme.colors.header.tint}
-                        />
-                    </Pressable>
-                </MobileGlassSurface>
-                <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
-                    <Pressable
-                        onPress={onSearchPress}
-                        style={styles.headerActionButton}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel={t('tools.names.search')}
-                    >
-                        <Ionicons
-                            name={searchActive ? 'close' : 'search'}
-                            size={searchActive ? 24 : 21}
-                            color={theme.colors.header.tint}
-                        />
-                    </Pressable>
-                </MobileGlassSurface>
-                <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
-                    <Pressable
-                        onPress={() => router.push('/settings')}
-                        style={styles.headerActionButton}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel={t('settings.title')}
-                    >
-                        <Ionicons name="settings-outline" size={21} color={theme.colors.header.tint} />
-                    </Pressable>
-                </MobileGlassSurface>
-            </View>
-        );
-    }
     return (
         <View style={styles.headerActions}>
-            <Pressable
-                onPress={() => router.push('/panes')}
-                hitSlop={15}
-                style={styles.headerButton}
-                accessibilityRole="button"
-                accessibilityLabel="Panes"
-            >
-                <Ionicons name="grid-outline" size={24} color={theme.colors.header.tint} />
-            </Pressable>
-            <Pressable
-                onPress={() => router.push('/settings')}
-                hitSlop={15}
-                style={styles.headerButton}
-                accessibilityRole="button"
-                accessibilityLabel={t('settings.title')}
-            >
-                <Ionicons name="settings-outline" size={24} color={theme.colors.header.tint} />
-            </Pressable>
-            {authority === 'control' && !authorityLoading ? (
+            <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
                 <Pressable
-                    onPress={() => router.navigate('/new-agent')}
-                    hitSlop={15}
-                    style={styles.headerButton}
+                    onPress={() => router.push('/panes')}
+                    style={styles.headerActionButton}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Panes"
                 >
-                    <Ionicons name="add-outline" size={28} color={theme.colors.header.tint} />
+                    <Ionicons
+                        name="grid-outline"
+                        size={21}
+                        color={theme.colors.header.tint}
+                    />
                 </Pressable>
-            ) : null}
+            </MobileGlassSurface>
+            <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
+                <Pressable
+                    onPress={onSearchPress}
+                    style={styles.headerActionButton}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('tools.names.search')}
+                >
+                    <Ionicons
+                        name={searchActive ? 'close' : 'search'}
+                        size={searchActive ? 24 : 21}
+                        color={theme.colors.header.tint}
+                    />
+                </Pressable>
+            </MobileGlassSurface>
+            <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
+                <Pressable
+                    onPress={() => router.push('/settings')}
+                    style={styles.headerActionButton}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('settings.title')}
+                >
+                    <Ionicons name="settings-outline" size={21} color={theme.colors.header.tint} />
+                </Pressable>
+            </MobileGlassSurface>
         </View>
     );
 });
@@ -503,7 +462,7 @@ export const MainView = React.memo(() => {
     const sessionsLoaded = useSessionsLoaded();
     const reopenLastTerminal = useLocalSetting('reopenLastTerminal');
     const lastTerminal = useLocalSetting('lastTerminal');
-    const { loading: authorityLoading } = useDeviceAuthority();
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
     const { isStarting: isStartingHomeSession, startSession: startHomeSession } = useStartSessionFromDraft();
     const sessionListViewData = useVisibleSessionListViewData(true);
     const recentSessions = React.useMemo(
@@ -558,9 +517,9 @@ export const MainView = React.memo(() => {
         : safeArea.top
             + MOBILE_GLASS_HEADER_HEIGHT
             + 12;
-    const bottomContentInset = Platform.OS === 'web'
-        ? 0
-        : searchActive || phoneHomeRecovering ? 16 : MOBILE_HOME_DOCK_CONTENT_INSET;
+    // A view-only grant cannot start agents, so it gets no composer.
+    const dockVisible = authority === 'control' && !authorityLoading && !searchActive && !phoneHomeRecovering;
+    const bottomContentInset = dockVisible ? MOBILE_HOME_DOCK_CONTENT_INSET : 16;
 
     const handleHomePromptSubmit = React.useCallback(async (): Promise<boolean> => {
         const prompt = homePrompt.trim();
@@ -607,11 +566,6 @@ export const MainView = React.memo(() => {
         <DeclarativeHomeCards />
         <DeclarativePhoneNavRow onSelect={(pluginId, contentId) => router.push(pluginHref(pluginId, contentId))} />
     </>;
-
-    const renderWebContent = () => {
-        return <HerdView topContentInset={topContentInset} header={homeHeader} onScroll={handleContentScroll} onRecoveryChange={setPhoneHomeRecovering} />;
-    };
-
 
     // In split view, the sidebar is the only navigator. The landing pane is
     // content: identity, live previews, and home cards. Spaces never duplicate
@@ -672,11 +626,11 @@ export const MainView = React.memo(() => {
         );
     }
 
-    // The home is one screen on every surface: header, herd, composer dock.
+    // Compact home uses the same header, herd, and (when permitted) composer dock on web and native.
     const phoneHeader = (
         <View style={[styles.phoneHeader, Platform.OS !== 'web' && styles.phoneHeaderOverlay]}>
             <Header
-                title={searchActive && Platform.OS !== 'web'
+                title={searchActive
                     ? <HeaderSearch value={searchQuery} onChangeText={setSearchQuery} />
                     : <HeaderTitle homeRecovering={phoneHomeRecovering} />}
                 headerRight={() => (
@@ -699,33 +653,29 @@ export const MainView = React.memo(() => {
         <View style={styles.phoneRoot}>
             <View style={styles.phoneContainer}>
                 {Platform.OS === 'web' && phoneHeader}
-                {Platform.OS === 'web' ? renderWebContent() : (
-                    <View style={styles.phoneSceneStack}>
-                        <HerdView
-                            topContentInset={topContentInset}
-                            bottomContentInset={bottomContentInset}
-                            header={homeHeader}
-                            onScroll={handleContentScroll}
-                            onRecoveryChange={setPhoneHomeRecovering}
-                            searchQuery={searchQuery}
-                        />
-                    </View>
-                )}
+                <View style={styles.phoneSceneStack}>
+                    <HerdView
+                        topContentInset={topContentInset}
+                        bottomContentInset={bottomContentInset}
+                        header={homeHeader}
+                        onScroll={handleContentScroll}
+                        onRecoveryChange={setPhoneHomeRecovering}
+                        searchQuery={searchQuery}
+                    />
+                </View>
                 {Platform.OS !== 'web' && phoneHeader}
             </View>
-            {Platform.OS !== 'web' && (
-                <View pointerEvents="box-none" style={styles.phoneBottomDockOverlay}>
-                    {!searchActive && !phoneHomeRecovering && (
-                        <HomeDock
-                            prompt={homePrompt}
-                            onPromptChange={setHomePrompt}
-                            onSubmit={handleHomePromptSubmit}
-                            onStartBlank={handleStartBlankSession}
-                            isSubmitting={isStartingHomeSession}
-                        />
-                    )}
-                </View>
-            )}
+            <View pointerEvents="box-none" style={styles.phoneBottomDockOverlay}>
+                {dockVisible && (
+                    <HomeDock
+                        prompt={homePrompt}
+                        onPromptChange={setHomePrompt}
+                        onSubmit={handleHomePromptSubmit}
+                        onStartBlank={handleStartBlankSession}
+                        isSubmitting={isStartingHomeSession}
+                    />
+                )}
+            </View>
         </View>
     );
 });
