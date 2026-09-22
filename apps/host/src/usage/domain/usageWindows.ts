@@ -134,18 +134,18 @@ export function goWindows(usage: unknown, { provider = 'opencode', nowMs }: { pr
  *  A limit without a `limitName` is the plan's own, so its windows are named by
  *  kind alone; a separately named limit prefixes its name. */
 export function codexWindows(limits: unknown[], { provider = 'codex', nowMs }: { provider?: string; nowMs: number }): UsageWindowVM[] {
-    const kindForMinutes = (minutes: number): string => {
-        if (minutes <= 1_440) return 'session';
-        return minutes <= 10_080 ? 'weekly' : 'monthly';
-    };
+    const kindForMinutes = (minutes: number | undefined): string =>
+        minutes === WINDOW_MINUTES.five_hour ? 'session'
+            : minutes === WINDOW_MINUTES.seven_day ? 'weekly'
+                : minutes === WINDOW_MINUTES.monthly ? 'monthly' : 'custom';
     return limits.flatMap((limit) => ['primary', 'secondary'].flatMap((key): UsageWindowVM[] => {
         const window = (limit as Record<string, { usedPercent?: unknown; windowDurationMins?: unknown; resetsAt?: unknown } | undefined> | undefined)?.[key];
         if (!Number.isFinite(window?.usedPercent)) return [];
         const rawMinutes = window?.windowDurationMins;
         const windowMinutes = Number.isFinite(rawMinutes) && (rawMinutes as number) > 0 ? rawMinutes as number : undefined;
         const limitName = (limit as { limitName?: unknown }).limitName;
-        const windowKind = windowMinutes === undefined ? 'session' : kindForMinutes(windowMinutes);
-        const kindLabel = KIND_LABELS[windowKind] ?? KIND_LABELS.session!;
+        const windowKind = kindForMinutes(windowMinutes);
+        const kindLabel = KIND_LABELS[windowKind] ?? 'Limit';
         return [normalizeWindow({
             provider, windowKind,
             label: typeof limitName === 'string' && limitName !== '' ? `${limitName} · ${kindLabel}` : kindLabel,
@@ -280,7 +280,8 @@ export function limitsPayload(vms: UsageWindowVM[], { plan, message, nowMs = Dat
         return {
             label: vm.label,
             ...(name === '' ? {} : { window: name }),
-            used: Math.round(vm.percentUsed),
+            used: vm.percentUsed,
+            pace: vm.pace.verdict,
             ...(resetsIn === '' ? {} : { resetsIn }),
             ...(elapsed === undefined || !Number.isFinite(elapsed) ? {} : { elapsed }),
         };

@@ -18,6 +18,7 @@ export interface UsageLimitsWindow {
     resetsIn?: string;
     /** How much of the window has elapsed, 0..1, when the length is known. */
     elapsed?: number;
+    pace?: 'limited' | 'exhausted' | 'on pace' | 'ahead' | 'burning';
 }
 
 export interface UsageLimitsPayload {

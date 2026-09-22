@@ -828,6 +828,23 @@ describe('the usage screen read path', () => {
         expect(request.mock.calls.at(-1)?.[1]).toEqual({ provider: 'opencode', refresh: true });
     });
 
+    it('shows the unrounded tightest window and its visible tag on Home', async () => {
+        const session = { label: 'Session', window: '5h', used: 89.6, resetsIn: '1h' };
+        const weekly = { label: 'Weekly', window: '7d', used: 89.9, resetsIn: '2d' };
+        const now: UsageNow = {
+            limits: { verdict: 'low', windows: [weekly] },
+            connected: [{ id: 'codex', label: 'Codex', windows: [session, weekly] }],
+            vitals: VITALS,
+        };
+        noteAsked('', Date.now());
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, now) });
+        const card = renderCard();
+        await tick();
+        expect(card.root.findAllByType('Meter')[0].props.ratio).toBe(0.899);
+        expect(screenText(card)).toContain('7d');
+        expect(screenText(card)).toContain('10% plugins.limits.percentLeft');
+    });
+
     it('says what it holds when the figures name no connected plan', async () => {
         // A machine with local agents but no plan whose limits could be read:
         // the host sends no connected list, and its own reason on the limits.

@@ -67,11 +67,7 @@ export default function PluginsScreen() {
     if (status === 'connected' && !pluginCatalogLoaded() && entries.length === 0) return <ActivityIndicator style={{ flex: 1 }} />;
 
     const withUi = plugins.filter((plugin) => plugin.manifestHash !== undefined);
-    // Registered with Herdr but contributing no muxr UI: nothing to approve here.
-    // One that meant to and could not load is not a backend package, so it is
-    // listed apart with its reason rather than under a footer that says so.
-    const herdrOnly = plugins.filter((plugin) => plugin.manifestHash === undefined && plugin.warnings.length === 0);
-    const unloadable = plugins.filter((plugin) => plugin.manifestHash === undefined && plugin.warnings.length > 0);
+    const herdrOnly = plugins.filter((plugin) => plugin.manifestHash === undefined);
     const enabledCount = withUi.filter((plugin) => plugin.approved).length;
     const runsCode = withUi.filter((plugin) => plugin.hasBackend).length;
 
@@ -127,14 +123,9 @@ export default function PluginsScreen() {
                     })}
                 </ItemGroup>
             ))}
-            {/* The same row as every other plugin: a mark, one line of what it
-                is, one line of facts. Nothing to switch in either group. */}
-            {([
-                ['herdr', t('plugins.herdrOnly'), t('plugins.herdrOnlyFooter'), herdrOnly],
-                ['unloadable', t('plugins.unavailableLabel'), t('plugins.unavailableFooter'), unloadable],
-            ] as const).filter(([, , , group]) => group.length > 0).map(([key, title, footer, group]) => (
-                <ItemGroup key={key} title={title} footer={footer}>
-                    {group.map((plugin) => {
+            {herdrOnly.length > 0 && (
+                <ItemGroup title={t('plugins.herdrOnly')} footer={t('plugins.herdrOnlyFooter')}>
+                    {herdrOnly.map((plugin) => {
                         const warning = plugin.warnings[0];
                         return <Item key={plugin.pluginId} title={plugin.name}
                             subtitle={warning ?? plugin.description}
@@ -145,7 +136,7 @@ export default function PluginsScreen() {
                             showChevron={false} />;
                     })}
                 </ItemGroup>
-            ))}
+            )}
             {plugins.flatMap((plugin) => plugin.approved
                 ? (manifests[plugin.pluginId]?.contributions.filter((item) => item.slot === 'settings.sections') ?? []).map((section) => (
                     <ItemGroup key={`${plugin.pluginId}:${section.id}`} title={`${resolvePluginText(section.title)} · Plugin`}>

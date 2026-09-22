@@ -455,7 +455,7 @@ function codexWindowsOrdered(result: CodexRateLimitResult | undefined, nowMs: nu
     if (!limits.length && result?.rateLimits !== undefined) limits.push(result.rateLimits);
     // Every window becomes the same view model the other providers use; the
     // rendered shapes below are views of it, never a second parse.
-    const groups = limits.slice(0, 8).flatMap((limit) => {
+    const groups = limits.flatMap((limit) => {
         if (!isRecord(limit)) return [];
         const rawName = String(limit.limitName ?? limit.limitId ?? 'Codex').replace(/[^\x20-\x7e]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Codex';
         // The plan's own limit is already named by the plan; only a separate
@@ -463,11 +463,14 @@ function codexWindowsOrdered(result: CodexRateLimitResult | undefined, nowMs: nu
         const vms = codexWindows([{ ...(rawName.toLowerCase() === 'codex' ? {} : { limitName: rawName }), primary: limit.primary, secondary: limit.secondary }], { nowMs });
         return vms.length === 0 ? [] : [vms.sort((a, b) => (a.windowMinutes ?? 0) - (b.windowMinutes ?? 0))];
     });
-    return groups
-        .map((vms, ordinal) => ({ vms, ordinal, left: Math.min(...vms.map((vm) => vm.percentRemaining)) }))
-        .sort((a, b) => a.left - b.left || a.ordinal - b.ordinal)
-        .flatMap(({ vms }) => vms)
+    const chosen = groups.flatMap((vms) => vms)
+        .sort((a, b) => a.percentRemaining - b.percentRemaining)
         .slice(0, 8);
+    return groups
+        .map((vms, ordinal) => ({ vms: vms.filter((vm) => chosen.includes(vm)), ordinal }))
+        .filter(({ vms }) => vms.length > 0)
+        .sort((a, b) => Math.min(...a.vms.map((vm) => vm.percentRemaining)) - Math.min(...b.vms.map((vm) => vm.percentRemaining)) || a.ordinal - b.ordinal)
+        .flatMap(({ vms }) => vms);
 }
 
 /** The identity includes the selected Go credential. Use a bounded KDF rather
@@ -676,8 +679,6 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
         label: TAB_LABELS[id] ?? AGENTS[id] ?? id,
         glyph: id,
         ...(plan === undefined ? {} : { plan }),
-        // The whole window, reset clock and pace included: the Home card draws
-        // each plan as a meter with the time until it resets.
         windows: limitsPayload(vms, { ...(plan === undefined ? {} : { plan }) }).windows,
     }));
     const output: UsageReport = {

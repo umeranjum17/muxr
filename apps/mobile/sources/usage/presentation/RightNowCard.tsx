@@ -94,7 +94,7 @@ export function RightNowCard() {
         ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {dot}
             <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, lineHeight: 18 }}>
-                {[verdictWord, `${limit.label} ${Math.round(limit.used)}%`].filter((part) => part !== undefined).join(' · ')}
+                {[verdictWord, `${limit.label}${limit.window === undefined ? '' : ` · ${limit.window}`} ${Math.round(limit.used)}%`].filter((part) => part !== undefined).join(' · ')}
             </Text>
             {limit.resetsIn !== undefined && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{` · ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`}</Text>}
             <View style={{ marginLeft: 'auto' }}>
@@ -224,6 +224,7 @@ function ProviderRow({ provider }: { provider: UsageConnectedProvider }) {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, height: FIGURE_LINE }}>
                 <AgentGlyph name={provider.glyph ?? provider.id} size={14} />
                 <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, lineHeight: FIGURE_LINE }}>{provider.label}</Text>
+                <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('regular') }}>{windowTag(lead)}</Text>
                 {lead.resetsIn !== undefined && (
                     <Text numberOfLines={1} style={{ marginLeft: 'auto', flexShrink: 1, color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('regular') }}>
                         {t('plugins.rightNow.resetsIn', { time: lead.resetsIn })}
@@ -244,7 +245,7 @@ function ProviderRow({ provider }: { provider: UsageConnectedProvider }) {
 /** The window that runs out first: the one worth leading with. */
 function leadWindow(windows: UsageLimitsWindow[]): UsageLimitsWindow | undefined {
     return windows.reduce<UsageLimitsWindow | undefined>(
-        (tightest, window) => (tightest === undefined || remainingOf(window) < remainingOf(tightest) ? window : tightest),
+        (tightest, window) => (tightest === undefined || window.used > tightest.used ? window : tightest),
         undefined,
     );
 }
@@ -344,7 +345,7 @@ function cardAccessibilityLabel(payload: UsageFigures): string {
     } else if (payload.limits.windows[0] !== undefined) {
         const limit = payload.limits.windows[0];
         const verdict = payload.limits.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.limits.verdict]);
-        const line = [verdict, [limit.label, t('plugins.limits.percentUsed', { percent: Math.round(limit.used) })].join(' ')]
+        const line = [verdict, [limit.label, limit.window, t('plugins.limits.percentUsed', { percent: Math.round(limit.used) })].filter(Boolean).join(' ')]
             .filter((part) => part !== undefined).join(', ');
         parts.push(limit.resetsIn === undefined ? line : `${line}, ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`);
     } else {

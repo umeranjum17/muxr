@@ -9,6 +9,7 @@ export type PluginLimitsWindow = UsageLimitsWindow;
 export type PluginLimitsPayload = UsageLimitsPayload;
 
 const VERDICTS = new Set<PluginLimitsVerdict>(['go', 'ahead', 'watch', 'low', 'limited']);
+const PACES = new Set<NonNullable<PluginLimitsWindow['pace']>>(['limited', 'exhausted', 'on pace', 'ahead', 'burning']);
 
 const bounded = (value: unknown, bytes: number): string =>
     typeof value === 'string' ? capUtf8Bytes(sanitizeDisplayText(value).trim(), bytes) : '';
@@ -33,6 +34,8 @@ export function asLimitsWindows(value: unknown): PluginLimitsWindow[] {
         return [{
             label,
             used: window.used,
+            ...(typeof window.pace === 'string' && PACES.has(window.pace as NonNullable<PluginLimitsWindow['pace']>)
+                ? { pace: window.pace as NonNullable<PluginLimitsWindow['pace']> } : {}),
             ...(name === '' ? {} : { window: name }),
             ...(resetsIn === '' ? {} : { resetsIn }),
             ...(elapsed === undefined ? {} : { elapsed }),
