@@ -114,17 +114,22 @@ export function UsageScreen() {
             });
     }, []);
 
-    /** One ask for a tab. It always paints what the host already holds; whether
-     *  a collection runs behind that report is our own decision, taken and
+    /** One ask for a tab. It paints what the host already holds; whether a
+     *  collection runs behind that report is our own decision, taken and
      *  recorded at the instant we ask: a tab nobody has asked collects on its
      *  first view, and the host's word on how old its figures are is what the
-     *  screen says about them rather than what decides this. `replace` lets a
-     *  tab change through while another tab's read is still in flight; a
+     *  screen says about them rather than what decides this. Our own window
+     *  gates the ask itself -- inside it the screen paints the report it holds
+     *  and asks nothing -- except for a tab holding no report at all, which has
+     *  nothing to paint and no way back to its tabs without asking. `replace`
+     *  lets a tab change through while another tab's read is still in flight; a
      *  cadence never stacks a second read behind one. */
     const loadIfDue = React.useCallback((target: string, quiet: boolean, replace = false): void => {
         if (inFlight.current && !replace) return;
         const now = Date.now();
-        if (collectionDue(target, now)) collectAfter.current = { target, at: now };
+        const due = collectionDue(target, now);
+        if (!due && reportCache.has(machineKey(target))) return;
+        if (due) collectAfter.current = { target, at: now };
         void load(target, false, quiet);
     }, [load]);
 

@@ -63,6 +63,10 @@ export function useUsageNow(): UsageNowRead {
     // What is on screen is what a remount should find, so the memory beside the
     // ask record never lags the figures a reader was shown.
     React.useEffect(() => { if (state.value !== undefined) rememberReading(READ_TAB, state.value); }, [state.value]);
+    // The card is reading unavailable: a tap on it must end in a read that
+    // bypasses the cache, whatever else is in flight.
+    const unavailable = React.useRef(false);
+    unavailable.current = state.failed;
 
     /**
      * `force` asks the host to collect past its cache; such a read claims our
@@ -167,10 +171,10 @@ export function useUsageNow(): UsageNowRead {
     // collecting burst that ran out its attempts.
     const refresh = React.useCallback(() => {
         if (loading.current) {
-            // A tap taken while the last read was rejected still has to end in a
-            // read that skips the cache, so it is remembered and run when the
-            // read in flight settles rather than answered by it.
-            if (rejected.current) pendingForce.current = true;
+            // A tap on a card reading unavailable still has to end in a read
+            // that skips the cache, so it is remembered and run when the read
+            // in flight settles rather than being answered by it.
+            if (unavailable.current) pendingForce.current = true;
             setState((current) => ({ ...current, refreshing: true }));
             return;
         }
@@ -194,14 +198,16 @@ export function useUsageNow(): UsageNowRead {
         // restart the burst's budget: bounded means bounded even across a focus.
         // Once the burst has settled this is a new cycle, and it starts whole.
         if (!bursting.current) collecting.current = 0;
-        // The read is issued on every mount, focus and foreground, and it is
-        // always cache-respecting: what the host already holds is what paints,
-        // and nothing holds that back. Our own per-machine window decides one
-        // thing only -- whether that read also asks the host to collect fresh --
-        // noted here, at the instant we take the decision, whatever the answer
-        // turns out to be.
+        // Our own window gates every ask, cheap or forced. Inside it the card
+        // paints what it already holds and asks nothing at all; once it has
+        // passed the ask is ours, noted here at the instant we take the
+        // decision, with the figures the host already holds painting first and
+        // the one collection running behind them. A card holding nothing yet
+        // asks whatever the record says: a window is no use with a blank card.
         const now = Date.now();
-        if (collectionDue(READ_TAB, now)) {
+        const due = collectionDue(READ_TAB, now);
+        if (!due && shown.current !== undefined) return;
+        if (due) {
             noteAsked(READ_TAB, now);
             collectAfter.current = now;
         }

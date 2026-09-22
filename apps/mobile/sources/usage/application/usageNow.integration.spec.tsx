@@ -310,27 +310,60 @@ describe('the Home card read path', () => {
         expect(screenText(card)).not.toContain('plugins.rightNow.refreshing');
     });
 
-    it('still reads inside the window, but collects only once', async () => {
-        // A host that cannot persist a reading never gives the card figures at
-        // all -- only the cold word. The window opened when we decided keeps it
-        // to one collection; the read itself is never held back.
-        request.mockResolvedValue(COLLECTING);
-        mount();
+    it('asks nothing inside the window on a host that cannot cache, and keeps painting', async () => {
+        // The host never persists a reading, so every ask it is given collects.
+        // Our own window keeps that to one per window, and the figure it gave us
+        // is what a remount paints.
+        request.mockResolvedValue(collected(undefined, 20, '2026-09-22T18:00:00.000Z'));
+        let card = renderCard();
         await tick();
-        for (let follow = 0; follow < 6; follow += 1) await tick(6_000);
-        expect(forcedReads()).toHaveLength(1);
+        expect(screenText(card)).toContain('80%');
+        expect(request).toHaveBeenCalledTimes(2);
+        TestRenderer.act(() => { card.unmount(); });
 
-        // Focus and foreground events still read -- that read is what paints --
-        // but ask for no further collection.
+        // Repeated mounts, focus and foreground events inside the window ask
+        // nothing at all, and still paint.
+        request.mockClear();
         for (let event = 0; event < 3; event += 1) {
             await tick(60_000);
+            card = renderCard();
+            expect(screenText(card)).toContain('80%');
             TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
             await tick();
+            expect(request).toHaveBeenCalledTimes(0);
+            TestRenderer.act(() => { card.unmount(); });
         }
-        expect(forcedReads()).toHaveLength(1);
+        expect(forcedReads()).toHaveLength(0);
     });
 
-    it('paints the last known figures on a remount inside the window, and still reads', async () => {
+    it('always gives a tap on the unavailable card a read that bypasses the cache', async () => {
+        let release: (value: UsageNow) => void = () => undefined;
+        let hanging = false;
+        request.mockImplementation(() => (hanging ? new Promise<UsageNow>((resolve) => { release = resolve; }) : Promise.resolve(COLLECTING)));
+        const card = mount();
+        await tick();
+        for (let follow = 0; follow < 5; follow += 1) await tick(6_000);
+        // The host never finished a collection, so the card reads unavailable.
+        expect(card.latest().failed).toBe(true);
+
+        // A retry tap asks past the cache, and is still in flight when a second
+        // tap lands on it...
+        hanging = true;
+        TestRenderer.act(() => { card.latest().refresh(); });
+        await tick();
+        const inFlight = request.mock.calls.length;
+        expect(request.mock.calls.at(-1)?.[1]).toEqual({ refresh: true });
+        TestRenderer.act(() => { card.latest().refresh(); });
+        expect(request.mock.calls.length).toBe(inFlight);
+
+        // ...and that tap still ends in a read that bypasses the cache.
+        await TestRenderer.act(async () => { release(COLLECTING); });
+        await tick();
+        expect(request.mock.calls.length).toBeGreaterThan(inFlight);
+        expect(request.mock.calls.at(-1)?.[1]).toEqual({ refresh: true });
+    });
+
+    it('paints the last known figures on a remount inside the window without asking', async () => {
         request.mockResolvedValue(collected(undefined, 20, '2026-09-22T18:00:00.000Z'));
         let card = renderCard();
         await tick();
@@ -338,19 +371,13 @@ describe('the Home card read path', () => {
         TestRenderer.act(() => { card.unmount(); });
 
         // A minute later -- well inside the window -- the card comes back, and
-        // the read it issues is left unanswered: only the memory can paint.
+        // asks nothing: the reading we hold is what paints.
         await tick(60_000);
         request.mockClear();
-        request.mockImplementation(() => new Promise<UsageNow>(() => undefined));
         card = renderCard();
-
-        // The figures it held are there at once rather than a skeleton...
         expect(screenText(card)).toContain('80%');
-        // ...the cache-respecting read is still issued...
-        expect(request).toHaveBeenCalledTimes(1);
-        expect(request.mock.calls[0]?.[1]).toEqual({});
-        // ...and inside our window it asks for no collection.
-        expect(forcedReads()).toHaveLength(0);
+        await tick();
+        expect(request).toHaveBeenCalledTimes(0);
     });
 
     it('asks immediately on the first view after switching machines', async () => {
