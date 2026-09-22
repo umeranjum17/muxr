@@ -364,10 +364,10 @@ describe('the Home card read path', () => {
         expect(card.latest().refreshing).toBe(false);
     });
 
-    it('throttles a tap once a collecting burst has run out, rather than starting another collection', async () => {
+    it('throttles a tap once a collecting burst has run out, and names the countdown', async () => {
         // The host's collection outlives its bounded wait but stays under way.
         request.mockResolvedValueOnce(collected(FRESH_MS / 1_000 + 60)).mockResolvedValue(COLLECTING);
-        const card = mount();
+        const card = renderCard();
         await tick();
         for (let follow = 0; follow < 4; follow += 1) await tick(6_000);
 
@@ -375,15 +375,17 @@ describe('the Home card read path', () => {
         // the read through, so the burst runs out with the budget just spent.
         TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
         await tick();
-        expect(card.latest().failed).toBe(true);
+        expect(screenText(card)).toContain('plugins.rightNow.refreshFailed');
 
         // That is not a rejected read: it asked every provider, so the tap is
-        // told to wait instead of starting a fresh collection.
+        // told to wait instead of starting a fresh collection -- and says so,
+        // with the countdown, rather than appearing to do nothing.
         const read = request.mock.calls.length;
-        TestRenderer.act(() => { card.latest().refresh(); });
+        pressRefresh(card);
         await tick();
         expect(request.mock.calls.length).toBe(read);
-        expect(card.latest().throttledSeconds).toBeGreaterThan(0);
+        expect(screenText(card)).toContain('plugins.rightNow.refreshThrottled');
+        expect(screenText(card)).not.toContain('plugins.rightNow.refreshFailed');
     });
 
     it('does not restart a collecting burst from a cycle event, but a later cycle starts whole', async () => {

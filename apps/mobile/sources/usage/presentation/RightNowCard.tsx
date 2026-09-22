@@ -133,12 +133,12 @@ function FreshnessRow({ payload, failed, refreshing, throttledSeconds, onRefresh
     const agedFor = disclosedAge(payload);
     const word = refreshing
         ? t('plugins.rightNow.refreshing')
-        : failed
-            ? t('plugins.rightNow.refreshFailed')
-            : throttledSeconds !== undefined
-                ? t('plugins.rightNow.refreshThrottled', { seconds: throttledSeconds })
+        : throttledSeconds !== undefined
+            ? t('plugins.rightNow.refreshThrottled', { seconds: throttledSeconds })
+            : failed
+                ? t('plugins.rightNow.refreshFailed')
                 : agedFor === undefined ? undefined : t('components.sessionStatusBar.limitAsOf', { age: agedFor });
-    const alarm = failed && !refreshing;
+    const alarm = failed && !refreshing && throttledSeconds === undefined;
     const tint = alarm ? theme.colors.textDestructive : withAlpha(theme.colors.textSecondary, refreshing ? 0.5 : 1);
     return (
         <Pressable onPress={onRefresh} disabled={refreshing} accessibilityRole="button"
