@@ -43,6 +43,17 @@ desktop.showKeyboard();
 await desktop.pasteLocalToRemote(await Clipboard.getStringAsync());
 ```
 
+A screen that only decides *whether* to offer a desktop does not need the
+session: import the flag from its own entry, which is a constant on web and a
+check for the platform module elsewhere, so the hook and the view stay out of
+the first paint.
+
+```tsx
+import { desktopAvailable } from '@desklink/react-native/availability';
+
+{desktopAvailable && <ComputerAction onPress={openDesktop} />}
+```
+
 ### What the package guarantees
 
 - **Hardware decoding.** The session builds its own peer connection with a

@@ -5,6 +5,13 @@
     "description": "Render and drive a desktop session from a React Native app",
     "main": "index.ts",
     "types": "index.ts",
+    "exports": {
+        ".": "./index.ts",
+        "./availability": {
+            "browser": "./src/availability.web.ts",
+            "default": "./src/availability.ts"
+        }
+    },
     "files": [
         "index.ts",
         "src",

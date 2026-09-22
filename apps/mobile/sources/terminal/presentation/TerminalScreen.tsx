@@ -14,7 +14,10 @@ import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMo
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { desktopAvailable } from '@desklink/react-native';
+// The flag is its own entry: the package's barrel also carries the session
+// hook, and the ring slot is built on every terminal screen, so importing the
+// barrel here would put the client's session in the application's first paint.
+import { desktopAvailable } from '@desklink/react-native/availability';
 import { changesList } from '@/catalog/ops';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
