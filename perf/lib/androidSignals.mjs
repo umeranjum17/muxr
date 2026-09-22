@@ -112,7 +112,8 @@ export async function jsThreadId(pid) {
     return found === undefined || found === '' ? undefined : found;
 }
 
-async function threadBusyTicks(pid, tid) {
+/** utime+stime for one thread, in clock ticks. Undefined once it is gone. */
+export async function threadBusyTicks(pid, tid) {
     const stat = (await quiet(['shell', `cat /proc/${pid}/task/${tid}/stat 2>/dev/null`])).trim();
     if (stat === '') return undefined;
     const fields = stat.split(/\s+/);
