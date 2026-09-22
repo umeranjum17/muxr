@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 
 import { Bridge, BRIDGE_PATH } from './bridge.js';
-import type { EngineEvent } from './protocol.js';
+import type { EngineEvent, SourceRequest } from './protocol.js';
 
 /**
  * The third-party seam: a consumer with no signaling channel of its own.
@@ -20,7 +20,9 @@ const readline = require('node:readline');
 const out = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const request = JSON.parse(line);
-  if (request.method === 'hello') return out({ id: request.id, result: { protocol: 2 } });
+  if (request.method === 'hello' || request.method === 'capabilities') return out({ id: request.id, result: {
+    protocol: 2, clipboard: { read: true, write: true, mime: [], maxBytes: 1024 },
+  } });
   if (request.method === 'session.open') {
     out({ event: 'session.restoreToken', params: { sessionId: 'engine-1', token: 'test-private-grant' } });
     setTimeout(() => out({ event: 'session.description', params: { generation: 1, description: { type: 'offer', sdp: 'v=0 offer' } } }), 5);
@@ -44,7 +46,7 @@ afterEach(async () => {
     for (const bridge of bridges.splice(0)) await bridge.close();
 });
 
-async function startBridge(token: string, serveExample = true): Promise<{ bridge: Bridge; port: number; localEvents: EngineEvent[] }> {
+async function startBridge(token: string, serveExample = true, source?: SourceRequest): Promise<{ bridge: Bridge; port: number; localEvents: EngineEvent[] }> {
     const directory = mkdtempSync(join(tmpdir(), 'desklink-bridge-'));
     const script = join(directory, 'engine.cjs');
     writeFileSync(script, STUB);
@@ -56,6 +58,7 @@ async function startBridge(token: string, serveExample = true): Promise<{ bridge
         engineArgs: [script],
         engineOptions: { onEvent: (event) => localEvents.push(event) },
         serveExample,
+        ...(source === undefined ? {} : { source }),
     });
     bridges.push(bridge);
     return { bridge, port: bridge.port, localEvents };
@@ -121,6 +124,24 @@ describe('the bridge', () => {
         expect(localEvents).toContainEqual({
             event: 'session.restoreToken', params: { sessionId: 'engine-1', token: 'test-private-grant' },
         });
+    }, 20_000);
+
+    it('reports clipboard only for a source that can serve it', async () => {
+        const x11 = await startBridge('t', false, { kind: 'x11', display: ':99' });
+        const x11Socket = await connect(x11.port, 'token=t');
+        expect((await requestOn(x11Socket, 1, 'hello', { protocol: 2 })).clipboard)
+            .toMatchObject({ read: false, write: false });
+        expect((await requestOn(x11Socket, 2, 'capabilities')).clipboard)
+            .toMatchObject({ read: false, write: false });
+        expect(await requestOn(x11Socket, 3, 'session.open', { permissions: ['view', 'control'] }))
+            .toMatchObject({ sessionId: 'engine-1' });
+
+        const portal = await startBridge('t', false);
+        const portalSocket = await connect(portal.port, 'token=t');
+        expect((await requestOn(portalSocket, 1, 'capabilities')).clipboard)
+            .toMatchObject({ read: true, write: true });
+        expect(await requestOn(portalSocket, 2, 'session.open', { permissions: ['view', 'control', 'clipboard'] }))
+            .toMatchObject({ sessionId: 'engine-1' });
     }, 20_000);
 
     it('serves the reference page only to a caller that already has the token', async () => {

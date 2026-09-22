@@ -444,6 +444,11 @@ pub struct Session {
     inner: Arc<Inner>,
 }
 
+fn wayland_clipboard_available() -> bool {
+    std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("wayland")
+        && std::env::var_os("WAYLAND_DISPLAY").is_some()
+}
+
 /// What the engine can actually do on this machine right now.
 pub fn capabilities() -> serde_json::Value {
     let session_kind = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
@@ -455,7 +460,7 @@ pub fn capabilities() -> serde_json::Value {
     };
     // Clipboard transfer needs Wayland; writes also need a selection server
     // that can outlive this engine. Do not offer it when that tool is absent.
-    let clipboard = session_kind == "wayland";
+    let clipboard = wayland_clipboard_available();
     let x11 = crate::x11::X11Desktop::connect(None)
         .map(|desktop| serde_json::json!([desktop.screen_size().0, desktop.screen_size().1]))
         .unwrap_or(serde_json::Value::Null);
@@ -812,7 +817,7 @@ impl Inner {
 
     fn clipboard_refusal(&self) -> Option<(&'static str, &'static str)> {
         if self.source.source_type.as_deref() == Some("x11-root")
-            || std::env::var("XDG_SESSION_TYPE").as_deref() != Ok("wayland") {
+            || !wayland_clipboard_available() {
             return Some(("clipboard-unsupported", "clipboard is unavailable for this desktop source"));
         }
         if !self.has(Permission::Clipboard) {

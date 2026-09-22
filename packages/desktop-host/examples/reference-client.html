@@ -53,8 +53,8 @@
 </div>
 <nav id="tools">
   <button id="keyboard">Keyboard</button>
-  <button id="copy">Copy from desktop</button>
-  <button id="paste">Paste to desktop</button>
+  <button id="copy" hidden>Copy from desktop</button>
+  <button id="paste" hidden>Paste to desktop</button>
 </nav>
 
 <script type="module">
@@ -67,6 +67,8 @@ const overlay = document.getElementById('overlay');
 const status = document.getElementById('status');
 const reconnect = document.getElementById('reconnect');
 const keyboard = document.getElementById('remote-keyboard');
+const copy = document.getElementById('copy');
+const paste = document.getElementById('paste');
 
 let socket = null;
 let peer = null;
@@ -225,7 +227,7 @@ document.getElementById('keyboard').addEventListener('click', () => {
   keyboard.value = '';
   keyboard.focus();
 });
-document.getElementById('copy').addEventListener('click', async () => {
+copy.addEventListener('click', async () => {
   const id = crypto.randomUUID();
   const answer = new Promise((resolve) => clipboardRequests.set(id, resolve));
   control({ kind: 'clipboard_read', request: id });
@@ -235,7 +237,7 @@ document.getElementById('copy').addEventListener('click', async () => {
   await navigator.clipboard.writeText(reply.text ?? '');
   say('Copied from the desktop');
 });
-document.getElementById('paste').addEventListener('click', async () => {
+paste.addEventListener('click', async () => {
   // Read the local clipboard inside the user gesture: a browser clipboard read
   // outside one is refused, so it cannot happen after an await.
   let text = '';
@@ -255,14 +257,20 @@ async function start() {
   if (opening) return;
   opening = true;
   reconnect.disabled = true;
+  copy.hidden = true;
+  paste.hidden = true;
   video.srcObject = null;
   show(attempts === 0 ? 'Connecting…' : 'Reconnecting…');
   say('Connecting…');
   try {
+    const capabilities = await request('capabilities');
+    const clipboardAvailable = capabilities.clipboard?.read === true && capabilities.clipboard?.write === true;
     const session = await request('session.open', {
-      permissions: ['view', 'control', 'clipboard'],
+      permissions: clipboardAvailable ? ['view', 'control', 'clipboard'] : ['view', 'control'],
       max_fps: 30,
     });
+    copy.hidden = !clipboardAvailable;
+    paste.hidden = !clipboardAvailable;
     surface = session.geometry.encoded;
     // Reference-client diagnostics: enough to see the session from the console
     // without a debugger. Not part of the protocol.
@@ -364,6 +372,8 @@ function teardown(message) {
   peer = null;
   channel = null;
   video.srcObject = null;
+  copy.hidden = true;
+  paste.hidden = true;
   // A dead session must leave a visible state behind: clearing the video and
   // saying nothing leaves a black rectangle that looks like a broken desktop
   // rather than a lost connection.

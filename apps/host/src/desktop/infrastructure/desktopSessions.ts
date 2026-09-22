@@ -177,20 +177,19 @@ export class DesktopSessions {
             ...(request.bitrateKbps === undefined ? {} : { bitrateKbps: request.bitrateKbps }),
             ...(request.maxFps === undefined ? {} : { maxFps: request.maxFps }),
             ttlSeconds: DESKTOP_SESSION_LEASE_SECONDS,
+        }).finally(() => {
+            for (const existing of this.sessions.values()) {
+                if (existing.revoked || existing.client !== client) continue;
+                existing.revoked = true;
+                existing.client.drainEvents(existing.engineSessionId);
+                existing.appended += 1;
+                existing.events.push({ kind: 'revoked', reason: 'another device opened this computer' });
+            }
         }).catch(async (error: unknown) => {
             this.opening -= 1;
             await this.stopIfIdle();
             throw error;
         });
-        // The engine serves one session at a time and closes the previous one as
-        // `replaced`. The replaced client is told once, and from here on the
-        // engine's notifications belong to the new session alone.
-        for (const existing of this.sessions.values()) {
-            existing.revoked = true;
-            existing.client.drainEvents(existing.engineSessionId);
-            existing.appended += 1;
-            existing.events.push({ kind: 'revoked', reason: 'another device opened this computer' });
-        }
         if (owner !== undefined && !owner.isConnected()) {
             client.drainEvents(opened.sessionId);
             await client.closeSession(opened.sessionId).catch(() => undefined);
@@ -286,10 +285,7 @@ export class DesktopSessions {
         for (const desktopId of [...this.sessions.keys()]) {
             await this.close(desktopId);
         }
-        const client = this.client;
-        this.client = null;
-        this.capabilitiesCache = null;
-        await client?.stop().catch(() => undefined);
+        await this.stopIfIdle();
     }
 
     private async stopIfIdle(): Promise<void> {

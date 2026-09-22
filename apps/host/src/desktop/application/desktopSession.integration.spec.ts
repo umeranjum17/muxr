@@ -411,6 +411,52 @@ describe('desktop sessions, host side', () => {
         await desktop.closeAll();
     }, 20_000);
 
+    it('revokes the previous phone even when replacement consent is refused', async () => {
+        const stub = stubEngine();
+        writeFileSync(stub.path, STUB.replace("const session = { id: 'engine-session-1', generation: 1 };",
+            "const session = { id: 'engine-session-1', generation: 1 }; let opens = 0;",
+        ).replace("    case 'session.open':", `    case 'session.open':
+      if (++opens === 2) return out({ id: request.id, error: { code: 'source', message: 'screen capture was not granted' } });`));
+        const desktop = sessionsFor(stub);
+        try {
+            const first = await desktop.open({ permissions: ['view'] });
+            await expect(desktop.open({ permissions: ['view'] })).rejects.toMatchObject({ code: 'source' });
+            const polled = await desktop.poll(first.desktopId, 0);
+            expect(polled.events).toContainEqual({ kind: 'revoked', reason: 'another device opened this computer' });
+            await expect(desktop.poll(first.desktopId, polled.cursor)).rejects.toMatchObject({ code: 'session' });
+        } finally {
+            await desktop.closeAll();
+        }
+    }, 20_000);
+
+    it('keeps a newly opening desktop alive during old relay-loss cleanup', async () => {
+        const stub = stubEngine();
+        writeFileSync(stub.path, STUB.replace('      } }), 1);', '      } }), 150);').replace(
+            "    case 'session.close':\n      return out({ id: request.id, result: { closed: true } });",
+            "    case 'session.close':\n      return setTimeout(() => out({ id: request.id, result: { closed: true } }), 80);",
+        ));
+        const desktop = sessionsFor(stub);
+        try {
+            const first = await desktop.open({ permissions: ['view'] });
+            const cleanup = desktop.closeAll();
+            const deadline = Date.now() + 5000;
+            while (!stub.sent().some((line) => JSON.parse(line).method === 'session.close') && Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+            expect(stub.sent().some((line) => JSON.parse(line).method === 'session.close')).toBe(true);
+            const opening = desktop.open({ permissions: ['view'] });
+            await cleanup;
+            expect(stub.sent().some((line) => JSON.parse(line).method === 'shutdown')).toBe(false);
+            const second = await opening;
+            expect((await desktop.poll(second.desktopId, 0)).events).toContainEqual(expect.objectContaining({ kind: 'offer' }));
+            await desktop.close(second.desktopId);
+            expect(stub.sent().some((line) => JSON.parse(line).method === 'shutdown')).toBe(true);
+            await expect(desktop.poll(first.desktopId, 0)).rejects.toMatchObject({ code: 'session' });
+        } finally {
+            await desktop.closeAll();
+        }
+    }, 20_000);
+
     it('tears down an engine that refuses the handshake instead of leaving it running', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));
         const scriptPath = join(directory, 'engine.cjs');

@@ -152,15 +152,20 @@ export class Bridge {
                 ? { ...(request.params ?? {}), source: this.defaultSource }
                 : request.params;
             void this.engine
-                .request(method, params)
+                .request<Record<string, unknown>>(method, params)
                 .then((result) => {
                     this.rememberSession(method, result);
+                    const forwarded = this.defaultSource?.kind === 'x11'
+                        && (method === 'hello' || method === 'capabilities')
+                        && result !== null && result.clipboard !== null && typeof result.clipboard === 'object'
+                        ? { ...result, clipboard: { ...result.clipboard, read: false, write: false } }
+                        : result;
                     if (method === 'session.open' && socket.readyState !== socket.OPEN) {
                         this.releaseSessionIfDetached(true);
                         return;
                     }
                     if (request.id !== undefined && socket.readyState === socket.OPEN) {
-                        socket.send(JSON.stringify({ id: request.id, result }));
+                        socket.send(JSON.stringify({ id: request.id, result: forwarded }));
                     }
                 })
                 .catch((error: unknown) => {
