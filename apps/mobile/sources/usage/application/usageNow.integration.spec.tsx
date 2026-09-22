@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
-import type { UsageNow } from '@muxr/contract';
+import type { UsageNow, UsageReport } from '@muxr/contract';
 
 /**
  * The Home card's whole read path, end to end against a scripted host.
@@ -19,6 +19,7 @@ import type { UsageNow } from '@muxr/contract';
  */
 
 const request = vi.fn();
+const hapticsSelection = vi.fn();
 const appState = { currentState: 'active' as string, listeners: new Set<(next: string) => void>() };
 const theme = {
     colors: {
@@ -42,7 +43,8 @@ vi.mock('expo-router', async () => {
     // always focused, so an ordinary effect is the same contract here.
     return {
         useFocusEffect: (callback: () => void | (() => void)) => react.useEffect(callback, [callback]),
-        useRouter: () => ({ push: () => undefined }),
+        useLocalSearchParams: () => ({}),
+        useRouter: () => ({ push: () => undefined, back: () => undefined }),
     };
 });
 vi.mock('react-native', () => ({
@@ -54,25 +56,45 @@ vi.mock('react-native', () => ({
         },
     },
     Pressable: 'Pressable',
+    RefreshControl: 'RefreshControl',
+    ScrollView: 'ScrollView',
+    StyleSheet: { create: (styles: Record<string, unknown>) => styles, hairlineWidth: 1 },
     Text: 'Text',
     View: 'View',
 }));
 vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme }) }));
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+vi.mock('@/components/haptics', () => ({ hapticsSelection }));
+vi.mock('@/components/navigation/Header', async () => {
+    const react = await import('react');
+    return {
+        Header: (props: { headerLeft?: () => React.ReactNode; headerRight?: () => React.ReactNode }) =>
+            react.createElement(react.Fragment, null, props.headerLeft?.() ?? null, props.headerRight?.() ?? null),
+    };
+});
+vi.mock('@/components/navigation/HeaderBackButton', () => ({ HeaderBackButton: 'HeaderBackButton' }));
 vi.mock('@/components/ui', () => ({
     cardStyle: () => ({}),
     Meter: 'Meter',
+    Notice: 'Notice',
     SectionLabel: 'SectionLabel',
     withAlpha: () => '#000',
 }));
 vi.mock('@/components/AgentGlyph', () => ({ AgentGlyph: 'AgentGlyph' }));
 vi.mock('@/constants/Typography', () => ({ Typography: { mono: () => ({}), default: () => ({}) } }));
 vi.mock('@/plugins', () => ({ toneColor: () => '#000' }));
-vi.mock('@/plugins/ui', () => ({ VERDICT_KEYS: { limited: 'plugins.limits.limited' }, verdictTone: () => undefined }));
+vi.mock('@/plugins/ui', () => ({
+    ScreenChart: 'ScreenChart',
+    ScreenLimits: 'ScreenLimits',
+    VERDICT_KEYS: { limited: 'plugins.limits.limited' },
+    verdictTone: () => undefined,
+}));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 
 const { useUsageNow } = await import('./useUsageNow');
 const { RightNowCard } = await import('../presentation/RightNowCard');
+const { UsageScreen } = await import('../presentation/UsageScreen');
 
 const FRESH_MS = 15 * 60_000;
 const VITALS = { memoryUsed: 8, memoryTotal: 16, load1: 1.2, uptimeSeconds: 90_000 };
@@ -86,6 +108,24 @@ const collected = (ageSeconds?: number, used = 100, capturedAt?: string): UsageN
     ...(ageSeconds === undefined ? {} : { ageSeconds }),
     ...(capturedAt === undefined ? {} : { capturedAt }),
     vitals: VITALS,
+});
+/** What the Usage screen reads: one tab, no charts, and the host's own word on
+ *  whether this payload is a same-day replay. */
+const report = (stale: boolean): UsageReport => ({
+    providers: [{ id: 'claude', label: 'Claude', glyph: 'claude' }],
+    provider: 'claude',
+    providerName: 'Anthropic Claude',
+    todayTokens: '1',
+    todayCost: '$0',
+    modelSeries: [],
+    weekTokens: '1',
+    weekCost: '$0',
+    weekSeries: [],
+    capturedAt: '2026-09-22T10:00:00.000Z',
+    windowPeriods: [],
+    windows: [],
+    limits: { verdict: 'go', windows: [] },
+    ...(stale ? { stale: true as const } : {}),
 });
 
 function mount() {
@@ -104,6 +144,17 @@ function renderCard() {
     TestRenderer.act(() => { renderer = TestRenderer.create(<RightNowCard />); });
     return renderer!;
 }
+
+function renderScreen() {
+    let renderer: any;
+    TestRenderer.act(() => { renderer = TestRenderer.create(<UsageScreen />); });
+    return renderer!;
+}
+
+/** Every control that asks the host to collect now, wherever it renders. */
+const refreshControls = (renderer: any) => renderer.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
+    && typeof node.props?.accessibilityLabel === 'string'
+    && node.props.accessibilityLabel.endsWith('plugins.rightNow.refreshNow'));
 
 /** Press the card's own refresh control, the way a person reaches it. */
 function pressRefresh(renderer: any, label = 'plugins.rightNow.refreshNow') {
@@ -137,6 +188,7 @@ async function tick(ms = 0) {
 beforeEach(() => {
     vi.useFakeTimers();
     request.mockReset();
+    hapticsSelection.mockClear();
     appState.currentState = 'active';
     appState.listeners.clear();
 });
@@ -485,5 +537,59 @@ describe('the Home card read path', () => {
         await tick();
         expect(forcedReads()).toHaveLength(1);
         expect(request).toHaveBeenLastCalledWith('usage.now', { refresh: true }, expect.any(Number));
+    });
+});
+
+describe('the usage screen read path', () => {
+    it('names a refused tap at the control that was pressed', async () => {
+        request.mockResolvedValue(report(true));
+        const screen = renderScreen();
+        await tick();
+        // The stale payload revalidated once, spending the forced-read budget.
+        expect(forcedReads()).toHaveLength(1);
+
+        const control = refreshControls(screen)[0];
+        expect(control).toBeDefined();
+        TestRenderer.act(() => { control.props.onPress(); });
+        await tick();
+
+        // The refusal is named on the button itself, with its countdown, and it
+        // gets the same feedback as a press that ran.
+        const pressed = refreshControls(screen)[0];
+        expect(hapticsSelection).toHaveBeenCalled();
+        expect(pressed.props.accessibilityLabel).toContain('plugins.rightNow.refreshThrottled');
+        expect(pressed.findAllByType('Text').map((node: any) => node.props.children).join(' ')).toContain('plugins.rightNow.refreshIn');
+        expect(forcedReads()).toHaveLength(1);
+
+        // It lives with the control, above the list, so scrolling cannot take it
+        // away from the tap that produced it.
+        const list = screen.root.findAllByType('ScrollView')[0];
+        expect(list.findAllByType('Text').some((node: any) => node.props.children === 'plugins.rightNow.refreshIn')).toBe(false);
+    });
+
+    it('keeps an open screen to one collection per freshness window', async () => {
+        request.mockResolvedValue(report(true));
+        renderScreen();
+        await tick();
+        expect(forcedReads()).toHaveLength(1);
+
+        await tick(14 * 60_000);
+        expect(forcedReads()).toHaveLength(1);
+
+        await tick(60_000);
+        expect(forcedReads()).toHaveLength(2);
+    });
+
+    it('bounds the stale revalidation by the same forced-read budget', async () => {
+        request.mockResolvedValue(report(true));
+        renderScreen();
+        await tick();
+        expect(forcedReads()).toHaveLength(1);
+
+        // A foreground return lands inside the window the mount revalidation
+        // claimed: the stale answer it gets cannot start another collection.
+        TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
+        await tick();
+        expect(forcedReads()).toHaveLength(1);
     });
 });

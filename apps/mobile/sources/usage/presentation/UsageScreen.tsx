@@ -17,15 +17,11 @@ import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
+import { FRESH_MS } from '../application/freshnessWindow';
 
 /** Screen payloads survive a close: reopening renders at once, then refreshes. */
 const reportCache = new Map<string, UsageReport>();
 const MAX_CACHED_REPORTS = 16;
-
-/** The same cadence the Home card keeps, for the same reason: quota windows
- *  move over hours, and the screen should already be current when it is looked
- *  at rather than made current by being looked at. */
-const REFRESH_MS = 5 * 60_000;
 
 /** The same primitives the declarative system renders, fed typed host data. */
 const LIMITS_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits', title: 'Right now' };
@@ -58,9 +54,23 @@ export function UsageScreen() {
     const staleRef = React.useRef(false);
     const inFlight = React.useRef(false);
     const lastForced = React.useRef(0);
+    const rejected = React.useRef(false);
+    rejected.current = error !== undefined;
 
     const report = fetched.key === provider ? fetched.value : reportCache.get(provider);
     const tabs = report?.providers ?? [];
+
+    // One rule for every forced read on this screen, whether a person asked or
+    // a stale payload did: honour it unless the last forced read is too recent,
+    // and claim the budget only where the read actually starts. A read that was
+    // rejected consumed no provider quota, so it is exempt.
+    const claimForced = React.useCallback((): number | undefined => {
+        const now = Date.now();
+        const waitSeconds = forcedReadWait(lastForced.current, rejected.current, now);
+        if (waitSeconds !== undefined) return waitSeconds;
+        lastForced.current = now;
+        return undefined;
+    }, []);
 
     // `quiet` is the background cadence: it asks the same cache-respecting
     // question a first paint asks, but without dimming figures that are still
@@ -81,12 +91,14 @@ export function UsageScreen() {
                 // the host revalidates quietly once -- asking for fresh data
                 // by name -- and swaps in place. The revalidation never chains.
                 if (value.stale === true && !staleRef.current) {
-                    staleRef.current = true;
-                    // An automatic revalidation is a whole collection too, so
-                    // its budget is visible to the controls even though the
-                    // revalidation itself is never throttled.
-                    lastForced.current = Date.now();
-                    void load(target, true).finally(() => { staleRef.current = false; });
+                    // A stale payload revalidates through the same budget as any
+                    // other forced read, and claims it only where the read
+                    // actually starts. A read that cannot run yet waits for the
+                    // next cycle rather than starting one behind the budget.
+                    if (claimForced() === undefined) {
+                        staleRef.current = true;
+                        void load(target, true).finally(() => { staleRef.current = false; });
+                    }
                 } else {
                     staleRef.current = false;
                 }
@@ -102,7 +114,7 @@ export function UsageScreen() {
                 setLoading(false);
                 setRefreshing(false);
             });
-    }, []);
+    }, [claimForced]);
 
     React.useEffect(() => {
         load(provider);
@@ -115,7 +127,7 @@ export function UsageScreen() {
     useForegroundRefresh(() => {
         if (inFlight.current) return;
         void load(provider, false, true);
-    }, REFRESH_MS);
+    }, FRESH_MS);
 
     // A pressed tab paints its own last-known payload at once; another tab's
     // payload is not stale data for this one, and an uncached tab skeletons.
@@ -124,24 +136,21 @@ export function UsageScreen() {
         setProvider(id);
     };
     // The header control and the pull gesture are the same instruction: ask
-    // past the cache, now. One rule for both, shared with the Home card: a tap
-    // is honoured unless the last forced read is too recent, recovery from a
-    // failure is exempt, and a tap that cannot run says when. A tap while a
-    // read is already running joins it rather than stacking a second ask on
-    // rate-limited providers.
+    // past the cache, now. The budget refuses when a collection has just run;
+    // a refusal is named at the control that was pressed, never silent.
     const askNow = (): boolean => {
         if (inFlight.current) return false;
-        const now = Date.now();
-        const waitSeconds = forcedReadWait(lastForced.current, error !== undefined, now);
+        const waitSeconds = claimForced();
         if (waitSeconds !== undefined) { setThrottledSeconds(waitSeconds); return false; }
-        lastForced.current = now;
         setThrottledSeconds(undefined);
         return true;
     };
-    const onRefresh = () => { if (askNow()) { setRefreshing(true); load(provider, true); } };
+    const onRefresh = () => { if (askNow()) { setRefreshing(true); void load(provider, true); } };
+    // A refused press gives the same feedback as one that ran, so the tap never
+    // reads as dead.
     const refreshNow = () => {
-        if (!askNow()) return;
         hapticsSelection();
+        if (!askNow()) return;
         void load(provider, true);
     };
 
@@ -157,7 +166,7 @@ export function UsageScreen() {
             <Header
                 title={<Text style={{ fontSize: 16, color: theme.colors.header.tint, ...Typography.default('semiBold') }}>{t('usage.title')}</Text>}
                 headerLeft={() => <HeaderBackButton onPress={() => router.back()} label={t('plugins.goBack')} />}
-                headerRight={() => <RefreshControlButton busy={busy} onPress={refreshNow} />}
+                headerRight={() => <RefreshControlButton busy={busy} throttledSeconds={throttledSeconds} onPress={refreshNow} />}
                 headerLeftGlass={false}
                 headerRightGlass={false}
                 headerShadowVisible={false}
@@ -177,7 +186,6 @@ export function UsageScreen() {
                     figure being replaced by a spinner. The rail keeps its
                     height when idle, so nothing below it moves. */}
                 <LoadingHairline active={busy} />
-                {throttledSeconds !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginBottom: 8 }}>{t('plugins.rightNow.refreshThrottled', { seconds: throttledSeconds })}</Text>}
                 {error !== undefined && <Pressable onPress={() => { if (askNow()) load(provider, true); }} accessibilityRole="button" accessibilityLabel={`${error}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
                     <Notice tone="danger" text={error} style={{ marginBottom: 0 }} />
                     <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4, marginLeft: 14 }}>{t('plugins.retry')}</Text>
@@ -224,14 +232,23 @@ export function UsageScreen() {
 
 /** The screen's explicit "now, past the cache" control. It dims while a read
  *  is running rather than swapping in a spinner, so the control keeps its
- *  place and the figures keep theirs. */
-function RefreshControlButton({ busy, onPress }: { busy: boolean; onPress: () => void }) {
+ *  place and the figures keep theirs. A refused tap is named here, beside the
+ *  control that was pressed, so it cannot scroll away from it. */
+function RefreshControlButton({ busy, throttledSeconds, onPress }: { busy: boolean; throttledSeconds?: number; onPress: () => void }) {
     const { theme } = useUnistyles();
+    const throttled = throttledSeconds !== undefined;
+    const tint = withAlpha(theme.colors.header.tint, busy ? 0.4 : 1);
     return (
         <Pressable onPress={onPress} disabled={busy} hitSlop={10} accessibilityRole="button"
-            accessibilityState={{ busy }} accessibilityLabel={t('plugins.rightNow.refreshNow')}
-            style={{ padding: 6 }}>
-            <Ionicons name="refresh" size={20} color={withAlpha(theme.colors.header.tint, busy ? 0.4 : 1)} />
+            accessibilityState={{ busy }}
+            accessibilityLabel={throttled
+                ? `${t('plugins.rightNow.refreshThrottled', { seconds: throttledSeconds })}. ${t('plugins.rightNow.refreshNow')}`
+                : t('plugins.rightNow.refreshNow')}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 5, padding: 6 }}>
+            <Ionicons name="refresh" size={20} color={tint} />
+            {throttled && <Text numberOfLines={1} style={{ fontSize: 11.5, lineHeight: 15, ...Typography.mono('regular'), color: withAlpha(theme.colors.header.tint, 0.7) }}>
+                {t('plugins.rightNow.refreshIn', { seconds: throttledSeconds })}
+            </Text>}
         </Pressable>
     );
 }

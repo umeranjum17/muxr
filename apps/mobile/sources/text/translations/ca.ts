@@ -106,6 +106,7 @@ export const ca: TranslationStructure = {
             refreshFailed: 'No s’ha pogut actualitzar · toca per tornar-ho a provar',
             refreshNow: 'Actualitza l’ús ara',
             refreshThrottled: ({ seconds }: { seconds: number }) => `Actualització disponible en ${seconds} s`,
+            refreshIn: ({ seconds }: { seconds: number }) => `en ${seconds} s`,
             notConnected: 'Límits del pla no connectats',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `es renova en ${time}`,

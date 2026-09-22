@@ -104,6 +104,7 @@ export const en = {
             refreshFailed: 'Could not refresh · tap to try again',
             refreshNow: 'Refresh usage now',
             refreshThrottled: ({ seconds }: { seconds: number }) => `Refresh available in ${seconds}s`,
+            refreshIn: ({ seconds }: { seconds: number }) => `in ${seconds}s`,
             notConnected: 'Plan limits aren’t connected',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `resets in ${time}`,

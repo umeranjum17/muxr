@@ -2,15 +2,8 @@ import * as React from 'react';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type UsageNow } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { forcedReadWait } from './forcedRead';
+import { FRESH_MS } from './freshnessWindow';
 import { useForegroundRefresh } from './useForegroundRefresh';
-
-/** How long a collected answer stays good enough to show as it is. Quota
- *  windows move over hours, so within this the cached figures are the answer
- *  and asking again costs a full collection for nothing. Past it the read asks
- *  the host to collect again rather than be served the same payload: the usage
- *  cache answers with any same-day payload, so nothing else makes figures a
- *  reader can see are old become current. Doubles as the refresh cadence. */
-const FRESH_MS = 15 * 60_000;
 
 /** `collecting` is the host saying its usage cache was cold, not that there is
  *  nothing to have: it answers with the vitals it already measured while the

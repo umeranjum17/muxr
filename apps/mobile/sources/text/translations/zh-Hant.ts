@@ -108,6 +108,7 @@ export const zhHant: TranslationStructure = {
             refreshFailed: '無法重新整理 · 點按重試',
             refreshNow: '立即重新整理用量',
             refreshThrottled: ({ seconds }: { seconds: number }) => `${seconds} 秒後可重新整理`,
+            refreshIn: ({ seconds }: { seconds: number }) => `${seconds} 秒後`,
             notConnected: '未連線方案限額',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `${time}後重置`,
