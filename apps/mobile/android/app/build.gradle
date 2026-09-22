@@ -64,7 +64,7 @@ react {
 }
 
 /**
- * `sources/components/attachment/preview.bundle.bin` is generated, gitignored, and
+ * `sources/components/artifact/preview.bundle.bin` is generated, gitignored, and
  * packaged verbatim by Metro. Gradle sees no source for it, so a build that did not
  * run `yarn build` first shipped a preview renderer older than the revision its
  * provenance names -- which is how a committed Mermaid label fix never reached the

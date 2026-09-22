@@ -46,7 +46,7 @@ behaviour it claims to cover and watch it go red.
 
 - Artifacts meant to appear in muxr must be shared with `muxr share <path>` or written to `~/.muxr/attachments/pane/$HERDR_PANE_ID`.
 - Shared Artifacts is a durable per-session timeline. Artifacts are never rendered as transient terminal overlays; live push channels (`terminal.image`-style) must not be reintroduced.
-- One word, host and phone alike: **artifact**. A file the user sends with a prompt is a **prompt attachment**, never an artifact. `CONTEXT.md` lists the four names that stay frozen for compatibility — do not "fix" them.
+- One word, host and phone alike: **artifact**. A file the user sends with a prompt is a **prompt attachment**, never an artifact. `CONTEXT.md` lists the five names that stay frozen for compatibility — do not "fix" them.
 - History is bounded by the daily sweep in `apps/host/src/agent/infrastructure/artifactRetention.ts`. It never touches files shared before retention was installed; `muxr artifacts` shows the policy and what it removed, and `muxr artifacts prune` is the only path that clears the older pile.
 
 ## Self-naming

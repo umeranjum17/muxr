@@ -24,7 +24,6 @@ import { createArtifactWire, type ArtifactChunk, type ArtifactListing, type Arti
 import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../infrastructure/connectionDiagnostics';
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
-import type { DecryptedArtifact } from '../infrastructure/artifactTypes';
 import { MuxrClient } from '@/pairing/client';
 import * as Notifications from 'expo-notifications';
 import { AppState, Platform } from 'react-native';
@@ -742,27 +741,6 @@ class MuxrSync {
     refreshMachines = async (): Promise<void> => {
         await this.refreshCatalog();
     };
-
-    fetchArtifactsList = async (): Promise<void> => {};
-
-    fetchArtifactWithBody = async (_artifactId: string): Promise<DecryptedArtifact | null> => null;
-
-    createArtifact = async (
-        _title: string | null,
-        _body: string | null,
-        _sessions?: string[],
-        _draft?: boolean,
-    ): Promise<string> => {
-        throw new Error('muxr mobile: artifacts not wired');
-    };
-
-    updateArtifact = async (
-        _artifactId: string,
-        _title: string | null,
-        _body: string | null,
-        _sessions?: string[],
-        _draft?: boolean,
-    ): Promise<void> => {};
 
     /**
      * Shared Artifacts. `createArtifactWire` owns the pre-rename fallback so
