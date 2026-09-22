@@ -1,4 +1,3 @@
-import { appendFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
@@ -66,25 +65,44 @@ function visibleTexts(root: any): string[] {
     });
 }
 
-function recordLayoutEvidence(value: { viewport: { width: number; height: number }; transcriptHeight: number; contentHeight: number; rowYs: number[]; target: number }): void {
-    const path = process.env.MUXR_REALTIME_EVIDENCE_FILE;
-    if (path === undefined) return;
-    appendFileSync(path, `${JSON.stringify({ event: 'layout.measurement', ...value })}\n`);
+type Row = readonly [y: number, height: number];
+
+/**
+ * Lays the transcript out the way the platform reports it -- the window, each
+ * row, then the content size including whatever room the screen added under
+ * the newest row -- and returns where the screen scrolled and that room.
+ */
+function driveTranscriptLayout(renderer: any, viewport: number, rows: readonly Row[]): { target: number; tail: number } {
+    const root = renderer.root;
+    const transcript = () => root.findAllByType(MockScrollView).find((node: any) => typeof node.props.onContentSizeChange === 'function');
+    const inset = () => {
+        const style = transcript().props.contentContainerStyle;
+        return style.paddingBottom ?? style.paddingVertical ?? 0;
+    };
+    const views = root.findAllByType('View').filter((node: any) => typeof node.props.onLayout === 'function').slice(-rows.length);
+    if (views.length !== rows.length) throw new Error(`expected ${rows.length} transcript rows, got ${views.length}`);
+    const [newestY, newestHeight] = rows.at(-1)!;
+    conversation.scrolls.length = 0;
+    TestRenderer.act(() => {
+        transcript().props.onLayout({ nativeEvent: { layout: { height: viewport } } });
+        views.forEach((view: any, index: number) => view.props.onLayout({ nativeEvent: { layout: { y: rows[index]![0], height: rows[index]![1] } } }));
+    });
+    for (let frame = 0; frame < 4; frame += 1) {
+        TestRenderer.act(() => {
+            transcript().props.onContentSizeChange(320, newestY + newestHeight + inset());
+            vi.runAllTimers();
+        });
+    }
+    return { target: conversation.scrolls.at(-1)?.y ?? -1, tail: inset() - 8 };
 }
 
-function driveTranscriptLayout(renderer: any, transcriptViewportHeight: number, contentHeight: number, rowYs: number[]): number {
-    const root = renderer.root;
-    const transcript = root.findAllByType(MockScrollView).find((node: any) => typeof node.props.onContentSizeChange === 'function');
-    if (!transcript) throw new Error('transcript ScrollView was not rendered');
-    const rows = root.findAllByType('View').filter((node: any) => typeof node.props.onLayout === 'function').slice(-rowYs.length);
-    if (rows.length !== rowYs.length) throw new Error(`expected ${rowYs.length} transcript rows, got ${rows.length}`);
-    TestRenderer.act(() => {
-        transcript.props.onLayout({ nativeEvent: { layout: { height: transcriptViewportHeight } } });
-        transcript.props.onContentSizeChange(320, contentHeight);
-        rows.forEach((row: any, index: number) => row.props.onLayout({ nativeEvent: { layout: { y: rowYs[index], height: 50 } } }));
-        vi.runAllTimers();
-    });
-    return conversation.scrolls.at(-1)?.y ?? -1;
+/** The window opens on a whole row, keeps the newest row whole, and can be scrolled to. */
+function expectWholeRows(viewport: number, rows: readonly Row[], { target, tail }: { target: number; tail: number }): void {
+    for (const [y, height] of rows) expect(target > y && target < y + height, `window opens inside the row at ${y}`).toBe(false);
+    const [newestY, newestHeight] = rows.at(-1)!;
+    if (newestHeight + 16 <= viewport) expect(newestY + newestHeight).toBeLessThanOrEqual(target + viewport);
+    else expect(target).toBe(newestY - 8);
+    expect(newestY + newestHeight + 8 + tail).toBeGreaterThanOrEqual(target + viewport);
 }
 
 describe('realtime failure banner', () => {
@@ -134,76 +152,72 @@ describe('realtime failure banner', () => {
 });
 
 describe('realtime transcript layout', () => {
-    it('keeps Listening → Thinking → response on measured row boundaries at both short viewports', () => {
+    // Rows and windows measured on the PWA replaying the owner's conversation.
+    const OWNER = [
+        ['user', 'What is the first mate doing'],
+        ['agent', 'I couldn’t find an agent named “First Mate,” so I can’t confirm what they’re doing.'],
+        ['user', 'Okay, what is crane doing'],
+        ['agent', 'I couldn’t find an agent matching “Crane,” so I can’t confirm what they’re doing.'],
+        ['user', 'Which agents can you find'],
+        ['agent', 'I couldn’t retrieve the agent list, so I can’t reliably name any available agents.'],
+        ['user', 'What can you do right now'],
+        ['agent', 'I can read agent status and output, list recent activity, start or prompt agents, and navigate the app; tell me which one you want.'],
+        ['user', 'How many agents are running right now'],
+        ['agent', 'I couldn’t retrieve the live agent list, so I can’t determine how many are running right now.'],
+        ['user', 'Why? What exactly is the error you’re hitting'],
+        ['agent', 'The only error I got was, “The work request could not be completed. No action was confirmed.” It didn’t include any further details.'],
+    ] as const;
+    const SHORT_ROWS: Row[] = [[8, 42], [60, 84], [154, 21], [185, 84], [279, 21], [310, 84], [404, 21], [435, 126], [571, 42], [623, 84], [717, 42], [769, 126]];
+    const WIDE_ROWS: Row[] = [[8, 21], [39, 63], [112, 21], [143, 63], [216, 21], [247, 63], [320, 21], [351, 84], [445, 21], [476, 63], [549, 42], [601, 84]];
+    const show = (count: number) => {
+        conversation.turns = OWNER.slice(0, count).map(([role, text], id) => ({ id, role, text }));
+    };
+
+    it('never opens the window inside an older row under Listening or Thinking', () => {
         vi.useFakeTimers();
         try {
-            transport.state = 'connected';
+            // 270x594: the owner's next question is pending, and scrolling to
+            // the end would open the window 16dp inside the answer above it.
+            transport.state = 'thinking';
             transport.detail = undefined;
-            conversation.turns = [
-                { id: 1, role: 'user', text: 'Which agents are running?' },
-                { id: 2, role: 'agent', text: 'I am checking the live roster.' },
-            ];
-            conversation.scrolls.length = 0;
+            show(11);
             let renderer: any;
             TestRenderer.act(() => {
                 renderer = TestRenderer.create(React.createElement(RealtimeConversation, { visible: true, onClose: () => {} }));
             });
-            expect(visibleTexts(renderer.root)).toContain('Listening');
-            expect(viewport).toEqual({ width: 270, height: 594 });
-            const firstTarget = driveTranscriptLayout(renderer, 220, 620, [0, 110]);
-            recordLayoutEvidence({ viewport: { ...viewport }, transcriptHeight: 220, contentHeight: 620, rowYs: [0, 110], target: firstTarget });
-            expect([0, 110]).toContain(firstTarget);
+            expect(visibleTexts(renderer.root)).toContain('Thinking…');
+            const thinking = driveTranscriptLayout(renderer, 128, SHORT_ROWS.slice(0, 11));
+            expectWholeRows(128, SHORT_ROWS.slice(0, 11), thinking);
+            expect(thinking).toEqual({ target: 709, tail: 70 });
 
+            // The answer arrives taller than the window: it reads from its start.
+            transport.state = 'connected';
+            show(12);
+            TestRenderer.act(() => {
+                renderer.update(React.createElement(RealtimeConversation, { visible: true, onClose: () => {} }));
+            });
+            expect(visibleTexts(renderer.root)).toContain('Listening');
+            const answered = driveTranscriptLayout(renderer, 128, SHORT_ROWS);
+            expectWholeRows(128, SHORT_ROWS, answered);
+            expect(answered).toEqual({ target: 761, tail: 0 });
+
+            // 360x640: scrolling to the end would leave the last 20dp of an
+            // older answer as a fragment under Listening.
             viewport.width = 360;
             viewport.height = 640;
-            transport.state = 'thinking';
-            conversation.turns = [
-                ...conversation.turns,
-                { id: 3, role: 'user', text: 'What is crane doing?' },
-            ];
             TestRenderer.act(() => {
                 renderer.update(React.createElement(RealtimeConversation, { visible: true, onClose: () => {} }));
             });
-            expect(visibleTexts(renderer.root)).toContain('Thinking…');
-            expect(viewport).toEqual({ width: 360, height: 640 });
-            const clippedTarget = driveTranscriptLayout(renderer, 220, 370, [0, 110, 240]);
-            recordLayoutEvidence({ viewport: { ...viewport }, transcriptHeight: 220, contentHeight: 370, rowYs: [0, 110, 240], target: clippedTarget });
-            // The newest row starts past the bottom edge, so the window anchors
-            // on the bottom rather than a row boundary above it.
-            expect(clippedTarget).toBe(150);
-            const secondTarget = driveTranscriptLayout(renderer, 280, 700, [0, 110, 240]);
-            recordLayoutEvidence({ viewport: { ...viewport }, transcriptHeight: 280, contentHeight: 700, rowYs: [0, 110, 240], target: secondTarget });
-            expect([0, 110, 240]).toContain(secondTarget);
+            const listening = driveTranscriptLayout(renderer, 174, WIDE_ROWS);
+            expectWholeRows(174, WIDE_ROWS, listening);
+            expect(listening).toEqual({ target: 541, tail: 22 });
 
-            transport.state = 'connected';
-            conversation.turns = [
-                ...conversation.turns,
-                { id: 4, role: 'agent', text: 'crane is running its health check.' },
-            ];
+            // A conversation that fits needs neither scrolling nor room.
+            show(2);
             TestRenderer.act(() => {
                 renderer.update(React.createElement(RealtimeConversation, { visible: true, onClose: () => {} }));
             });
-            expect(visibleTexts(renderer.root)).toContain('Listening');
-            const finalTarget = driveTranscriptLayout(renderer, 280, 800, [0, 110, 240, 350]);
-            recordLayoutEvidence({ viewport: { ...viewport }, transcriptHeight: 280, contentHeight: 800, rowYs: [0, 110, 240, 350], target: finalTarget });
-            expect([0, 110, 240, 350]).toContain(finalTarget);
-            expect(finalTarget).toBe(350);
-
-            // A row taller than the transcript pushes the next short row past
-            // the bottom edge. The window must still include that newest row
-            // instead of anchoring on the tall row's boundary above it.
-            conversation.turns = [
-                { id: 5, role: 'agent', text: 'a'.repeat(400) },
-                { id: 6, role: 'user', text: 'and now?' },
-            ];
-            TestRenderer.act(() => {
-                renderer.update(React.createElement(RealtimeConversation, { visible: true, onClose: () => {} }));
-            });
-            const newestTarget = driveTranscriptLayout(renderer, 280, 536, [8, 478]);
-            recordLayoutEvidence({ viewport: { ...viewport }, transcriptHeight: 280, contentHeight: 536, rowYs: [8, 478], target: newestTarget });
-            expect(newestTarget).toBe(256);
-            expect(newestTarget).toBeLessThanOrEqual(478);
-            expect(newestTarget + 280).toBeGreaterThan(478);
+            expect(driveTranscriptLayout(renderer, 174, WIDE_ROWS.slice(0, 2))).toEqual({ target: 0, tail: 0 });
 
             for (const label of ['Minimize realtime conversation', 'Mute microphone', 'End realtime conversation']) {
                 const control = renderer.root.findByProps({ accessibilityLabel: label });

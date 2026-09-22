@@ -282,7 +282,7 @@ describe('providerRefusal', () => {
             { status: 'unknown', detail: 'No terminal state was observed.' },
         ];
         const agents = [
-            { sessionId: 'pp_john_private', cwd: privateProject, agentName: 'John', taskTitle: 'Harden audio', agentKind: 'pi', agentStatus: 'idle', promptable: true, changedAt: 1 },
+            { sessionId: 'pp_john_private', cwd: privateProject, agentName: 'John', taskTitle: 'Harden audio', agentKind: 'pi', agentStatus: 'idle', promptable: true, changedAt: 1, workspace: 'firstmate' },
             { sessionId: 'pp_maria_one', cwd: privateProject, agentName: 'Maria', taskTitle: 'Fix auth', agentKind: 'codex', agentStatus: 'working', promptable: true, changedAt: 3 },
             { sessionId: 'pp_maria_two', cwd: privateProject, agentName: 'Maria', taskTitle: 'Ship sync', agentKind: 'claude', agentStatus: 'blocked', promptable: false, changedAt: 2 },
             { sessionId: 'pp_unsafe', cwd: privateProject, agentName: 'Unsafe<script>', taskTitle: 'Review boundary', agentKind: 'gemini', agentStatus: 'idle', promptable: true, changedAt: 1 },
@@ -455,6 +455,13 @@ describe('providerRefusal', () => {
             const piAgents = await call('list_agents', { kind: 'pi', limit: 3 });
             expect(piAgents).toContain('John — Harden audio; Pi; idle');
             expect(piAgents).not.toContain('Fix auth');
+            // The Codex planner's own shape for "which agents are there": every
+            // optional filter filled with a blank. It must list and count them.
+            expect(await call('list_agents', { kind: '', query: '', offset: 0, limit: 10 })).toContain('Showing 1–4 of 4 agents');
+            expect(await call('list_agents', { kind: null, query: null, offset: 0, limit: 10 })).toContain('Showing 1–4 of 4 agents');
+            expect(await call('read_work_context', { agent: '  ' }))
+                .toBe('The work-context target or context depth is invalid. No action was performed.');
+            expect(calls.reads).toEqual([]);
             const providerSafeName = await call('list_agents', { kind: 'gemini', limit: 3 });
             expect(providerSafeName).toContain('Unsafe&lt;script&gt;');
             expect(providerSafeName).not.toContain('<script>');
@@ -477,6 +484,8 @@ describe('providerRefusal', () => {
             expect(hostFrames.filter((frame) => frame.type === 'realtime.app.request')).toHaveLength(appRequestsBeforeDegenerateCalls);
             expect(invalidHostFrames).toBe(0);
             expect(await call('agent_status', { agent: 'John' })).toBe('John is idle.');
+            // Spoken the way the app shows it: the one agent in the firstmate workspace.
+            expect(await call('agent_status', { agent: 'first mate' })).toBe('John is idle.');
             expect(activatedApp.output).toBe('Activated Realtime voice.');
             const promptReceipt = await call('prompt_agent', { agent: 'ＪＯＨＮ', text: 'Fix the realtime routing.' });
             expect(promptReceipt).toBe('Queued: instruction for John.');
