@@ -30,6 +30,9 @@ export interface TerminalViewProps {
      *  no terminal IME, so the pane keeps its own keyboard fallback and the
      *  ring carries only the screen's own slots. */
     onViewControls?: (controls: { commands: TerminalCommand[]; dismissKeyboard: () => void }) => void;
+    /** A long press landed on a printed link; the screen decides what to offer
+     *  for it. Absent, the press falls back to copying. */
+    onLinkLongPress?: (url: string) => void;
 }
 
 function decodeBase64(value: string): Uint8Array {
@@ -60,7 +63,7 @@ function plainUrlCellRanges(buffer: IBuffer, cols: number, row: number): { start
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
     const hostRef = React.useRef<View | null>(null);
-    const { sessionId, onStatus, onChannel } = props;
+    const { sessionId, onStatus, onChannel, onLinkLongPress } = props;
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
     // Quiet, immediate confirmation for the long-press link copy.
     const [linkCopied, setLinkCopied] = React.useState(false);
@@ -408,7 +411,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             // the touchup would synthesize a click on the link we just copied.
             if (link !== null) {
                 if (event.cancelable) event.preventDefault();
-                void navigator.clipboard?.writeText(link).then(showLinkCopied).catch(() => {});
+                // A link has more than one thing you might want to do with it,
+                // so the press asks rather than picking one. Without a host to
+                // ask, it still copies.
+                if (onLinkLongPress !== undefined) onLinkLongPress(link);
+                else void navigator.clipboard?.writeText(link).then(showLinkCopied).catch(() => {});
             }
             if (!momentumRunning && Math.abs(velocity) >= 0.5) {
                 momentumRunning = true;
@@ -444,7 +451,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             controller.abort();
             term.dispose();
         };
-    }, [sessionId, onStatus, onChannel, showLinkCopied]);
+    }, [sessionId, onStatus, onChannel, showLinkCopied, onLinkLongPress]);
 
     return (
         // position: relative anchors the copy chip to the terminal, not the

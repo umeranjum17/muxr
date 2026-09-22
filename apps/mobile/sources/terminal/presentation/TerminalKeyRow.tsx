@@ -7,9 +7,23 @@ import { hapticsSelection } from '@/components/haptics';
 import { useLocalSetting, useLocalSettingMutable } from '@/catalog/store';
 import { modifiedSend, resolveKeyRow, type TerminalKey, type TerminalKeyAction } from '../domain/keyRow';
 
-const ARROWS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
+/**
+ * Keys that read better as a mark than as a word. An arrow rendered as the
+ * character `\u2190` is a text glyph at text size — the thing on this row a
+ * thumb reaches for most, drawn smallest. These are icons, at icon size, and
+ * they keep the same 34dp target the text keys have.
+ */
+const KEY_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
     '\u001b[D': 'arrow-back', '\u001b[A': 'arrow-up', '\u001b[B': 'arrow-down', '\u001b[C': 'arrow-forward',
+    '\r': 'return-down-back',
 };
+const ACTION_ICONS: Record<TerminalKeyAction, React.ComponentProps<typeof Ionicons>['name']> = {
+    paste: 'clipboard-outline',
+    'hide-keyboard': 'chevron-down',
+};
+/** An icon carries less ink than a mono glyph, so it is drawn larger to weigh
+ *  the same beside one. */
+const KEY_ICON_SIZE = 18;
 
 export const TERMINAL_QUICK_REPLIES: readonly { label: string; text: string }[] = [
     { label: 'Continue', text: 'Continue with the current task.' },
@@ -26,7 +40,11 @@ type Modifier = 'off' | 'once' | 'lock';
 
 const cycle = (state: Modifier): Modifier => (state === 'off' ? 'once' : state === 'once' ? 'lock' : 'off');
 
-export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channel?: { sendText: (text: string) => void }; children?: React.ReactNode; onEdit: () => void; onAction?: (action: TerminalKeyAction) => void }) {
+// Memoised: the screen above re-renders on every keystroke in the composer,
+// and rebuilding a dozen key marks per character is work nobody asked for. The
+// row's props are all stable, including the plugin slot the screen memoises
+// before handing it down.
+export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, children, onEdit, onAction }: { channel?: { sendText: (text: string) => void }; children?: React.ReactNode; onEdit: () => void; onAction?: (action: TerminalKeyAction) => void }) {
     const { theme } = useUnistyles();
     const rowEntries = useLocalSetting('terminalKeyRow');
     // "Use Icons for Modifier Keys": the control grid's display toggle swaps
@@ -64,7 +82,9 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
         justifyContent: 'center' as const,
         alignItems: 'center' as const,
         paddingHorizontal: 6,
-        borderRadius: 8,
+        // Round, like every other control on this plane: an armed modifier is a
+        // pill, not the one rounded rectangle on the screen.
+        borderRadius: 999,
         backgroundColor: locked ? theme.colors.accentSubtle : 'transparent',
         borderWidth: 0,
         borderColor: 'transparent',
@@ -128,6 +148,7 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
                 // key with no bytes, which is not the same as a chord the
                 // terminal cannot express.
                 const unavailable = key.action === undefined && modifiedSend(key, active(ctrl), active(shift)) === null;
+                const icon = key.action === undefined ? KEY_ICONS[key.send] : ACTION_ICONS[key.action];
                 return (
                     <Pressable
                         key={`${key.label}:${key.send}:${index}`}
@@ -144,8 +165,8 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
                         onPressOut={stopRepeat}
                         style={({ pressed }) => [style(), unavailable && { opacity: 0.35 }, pressed && { opacity: 0.6 }]}
                     >
-                        {ARROWS[key.send] !== undefined
-                            ? <Ionicons name={ARROWS[key.send]} size={12} color={theme.colors.textSecondary} />
+                        {icon !== undefined
+                            ? <Ionicons name={icon} size={KEY_ICON_SIZE} color={theme.colors.textSecondary} />
                             : <Text style={labelStyle(theme.colors.textSecondary)}>{key.label}</Text>}
                     </Pressable>
                 );
@@ -155,4 +176,4 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
 
         </>
     );
-}
+});

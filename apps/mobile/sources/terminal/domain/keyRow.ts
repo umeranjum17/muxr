@@ -74,6 +74,20 @@ export const BUILTIN_KEY_CATALOG: Record<string, TerminalKey> = {
 
 export const DEFAULT_ROW_IDS: readonly string[] = ['esc', 'tab', 'ctrl-c', 'ctrl-d', 'enter', 'left', 'up', 'down', 'right', 'paste', 'hide-keyboard'];
 
+/**
+ * The directional cluster: the same catalog keys the row carries, placed on a
+ * cross with return at its centre. It is a second PLACE for those keys, never
+ * a second definition of them — the bytes come from the catalog, so a cluster
+ * key can never drift from the row key of the same name.
+ */
+export const ARROW_CLUSTER: readonly { id: string; at: 'up' | 'left' | 'centre' | 'right' | 'down' }[] = [
+    { id: 'up', at: 'up' },
+    { id: 'left', at: 'left' },
+    { id: 'enter', at: 'centre' },
+    { id: 'right', at: 'right' },
+    { id: 'down', at: 'down' },
+];
+
 /** Groups for the add-key grid, in the order a person scans them. */
 export const CATALOG_GROUPS: readonly { title: string; ids: readonly string[] }[] = [
     { title: 'Editing', ids: ['esc', 'tab', 'enter', 'ctrl-c', 'ctrl-d', 'ctrl-l', 'ctrl-r', 'ctrl-u', 'ctrl-w', 'ctrl-z'] },

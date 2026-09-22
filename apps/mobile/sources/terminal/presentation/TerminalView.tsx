@@ -45,6 +45,13 @@ export interface TerminalViewProps {
     onChannel?: (channel: TerminalChannel | undefined) => void;
     /** The pane hosts the control, so the ring can cover the accessory row. */
     onViewControls?: (controls: TerminalViewControls) => void;
+    /**
+     * A long press landed on a printed link, and the screen decides what to
+     * offer for it. Only the browser terminal raises this: the native grid's
+     * long press belongs to the terminal renderer, which copies the link
+     * itself, so nothing here can intercept it.
+     */
+    onLinkLongPress?: (url: string) => void;
 }
 
 export type TerminalViewControls = {

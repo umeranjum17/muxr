@@ -37,8 +37,10 @@ export const LocalSettingsSchema = z.object({
         label: z.string().min(1).max(QUICK_REPLY_LABEL_LIMIT),
         text: z.string().min(1).max(QUICK_REPLY_TEXT_LIMIT),
     })).max(QUICK_REPLY_LIMIT).default([]).catch([]).describe('Personal insert-only quick replies (this device only)'),
-    // Retired with terminalCommandKeyDock: the ring's centre now docks in the
-    // composer rail, so there is no drag-rest position to store.
+    // The floating terminal control rests where the person leaves it, as
+    // fractions of its travel from the terminal's own top-left corner, so the
+    // position survives a restart and a terminal of any size.
+    terminalCommandKeyDock: z.object({ fx: z.number(), fy: z.number() }).nullable().catch(null).describe('Where the floating terminal command control rests, as fractions of the terminal surface'),
     terminalModifierIcons: z.boolean().describe('Draw ctrl and shift as modifier glyphs in the terminal key row'),
     vadStandbyEnabled: z.boolean().describe('Persistently wake realtime voice from local speech activity standby'),
     dictationLanguage: z.string().nullable().describe('Spoken dictation language (null for automatic detection)'),
@@ -81,6 +83,7 @@ export const localSettingsDefaults: LocalSettings = {
     terminalFontIndex: DEFAULT_FONT_INDEX,
     terminalKeyRow: null,
     terminalQuickReplies: [],
+    terminalCommandKeyDock: null,
     terminalModifierIcons: false,
     vadStandbyEnabled: false,
     dictationLanguage: null,
