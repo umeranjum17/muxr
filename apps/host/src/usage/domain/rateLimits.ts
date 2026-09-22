@@ -2,8 +2,8 @@
  * Reset clock formatting and published window lengths for the Usage screen.
  */
 
-/** Known window lengths in minutes. Rolling has no published length, so it
- * stays unknown and its rows never claim a projection. */
+/** Known window lengths in minutes. OpenCode Go's monthly reset is anchored
+ * to the subscription date, so it has no fixed length here. */
 export const WINDOW_MINUTES = {
     five_hour: 5 * 60,
     seven_day: 7 * 24 * 60,
