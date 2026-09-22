@@ -110,6 +110,9 @@ export function withReport(previous: UsageFigures | undefined, value: UsageRepor
     return mergeFigures(previous, {
         limits: value.limits,
         windows: value.limits.windows,
+        // A report naming no window has answered for the card's one window: an
+        // older value of it must not outlive the answer that contradicts it.
+        ...(value.limits.windows.length === 0 ? { cardWindow: undefined } : {}),
         providers: value.providers,
         activity: {
             todayTokens: value.todayTokens,
@@ -183,10 +186,21 @@ export function knownProviders(): UsageReport['providers'] {
     return [...tabs.values()];
 }
 
-/** When we last asked for this machine's tab, if we have. A record can be
- *  checked against it to tell whether it has been asked about since it landed. */
-export function lastAskedAt(provider: string): number | undefined {
-    return askedAt.get(machineKey(provider));
+/** When the Usage screen last asked for this machine's tab list, if it has.
+ *  The question is this surface's own: another surface's ask answers nothing
+ *  about it, so it is recorded here rather than read off the shared ask time. */
+const tabListAskedAt = new Map<string, number>();
+
+/** Note that the screen asked for this machine's tab list at `nowMs`. */
+export function noteTabListAsked(provider: string, nowMs: number): void {
+    tabListAskedAt.set(machineKey(provider), nowMs);
+}
+
+/** Whether the tab-list question is still owed for a record written at
+ *  `recordAt`: no ask has answered it since that record landed. */
+export function tabListAskOwed(provider: string, recordAt: number): boolean {
+    const asked = tabListAskedAt.get(machineKey(provider));
+    return asked === undefined || asked < recordAt;
 }
 
 /** What this machine's tab shows, if anything has been asked for it yet. */

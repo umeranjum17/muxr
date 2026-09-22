@@ -17,7 +17,7 @@ import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
-import { FRESH_MS, collectionDue, knownProviders, lastAskedAt, noteAsked, releaseAsked, rememberShown, shownUsage, subscribeUsage, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
+import { FRESH_MS, collectionDue, knownProviders, noteAsked, noteTabListAsked, releaseAsked, rememberShown, shownUsage, subscribeUsage, tabListAskOwed, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
 
 /** The same primitives the declarative system renders, fed typed host data. */
 const LIMITS_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits', title: 'Right now' };
@@ -145,8 +145,7 @@ export function UsageScreen() {
     const unaskedTabList = React.useCallback((target: string): boolean => {
         const stored = shownUsage(target);
         if (stored === undefined || stored.status !== 'figures' || stored.figures.providers !== undefined) return false;
-        const asked = lastAskedAt(target);
-        return asked === undefined || asked < stored.at;
+        return tabListAskOwed(target, stored.at);
     }, []);
 
     /** One ask for a tab, or none. Our own window decides, except for a record
@@ -157,7 +156,9 @@ export function UsageScreen() {
     const loadIfDue = React.useCallback((target: string, replace = false): void => {
         if (inFlight.current && !replace) return;
         const now = Date.now();
-        if (!collectionDue(target, now) && !unaskedTabList(target)) return;
+        const owed = unaskedTabList(target);
+        if (!collectionDue(target, now) && !owed) return;
+        if (owed) noteTabListAsked(target, now);
         void load(target, now);
     }, [load, unaskedTabList]);
 
@@ -350,9 +351,9 @@ function RefreshControlButton({ busy, throttledSeconds, failed, onPress }: { bus
         <Pressable onPress={onPress} disabled={busy} hitSlop={10} accessibilityRole="button"
             accessibilityState={{ busy }}
             accessibilityLabel={label}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 5, padding: 6 }}>
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 5, padding: 6, flexShrink: 1, maxWidth: 190 }}>
             <Ionicons name="refresh" size={20} color={tint} />
-            {word !== undefined && <Text numberOfLines={1} style={{ fontSize: 11.5, lineHeight: 15, ...Typography.mono('regular'), color: tint }}>
+            {word !== undefined && <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 11.5, lineHeight: 15, ...Typography.mono('regular'), color: tint }}>
                 {word}
             </Text>}
         </Pressable>

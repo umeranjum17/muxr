@@ -1034,6 +1034,39 @@ describe('the usage screen read path', () => {
         expect(request).toHaveBeenCalledTimes(1);
     });
 
+    it('drops the card window a newer answer says does not exist', async () => {
+        // The card's read names one window; a later report for the same tab
+        // reports no window figures at all.
+        const claimed = Date.now();
+        noteAsked('', claimed - 1_000);
+        rememberShown('', { status: 'figures', at: claimed, figures: withNow(undefined, collected(undefined, 20)) });
+        const card = renderCard();
+        expect(screenText(card)).toContain('80%');
+
+        const planless: UsageReport = { ...report('claude', 60), limits: { verdict: 'unknown', windows: [], message: 'Claude plan limits unavailable' } };
+        const held = shownUsage('');
+        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: claimed + 1, figures: withReport(held?.status === 'figures' ? held.figures : undefined, planless) }); });
+
+        // The refuted window is gone, and the host's own words take its place.
+        expect(screenText(card)).not.toContain('80%');
+        expect(screenText(card)).toContain('Claude plan limits unavailable');
+    });
+
+    it('still asks for the tab list when an unrelated ask has landed', async () => {
+        // The card's figures name no tabs, and a later ask on the same tab
+        // produced no record at all: that ask answered nothing of this screen's.
+        const claimed = Date.now();
+        noteAsked('', claimed);
+        rememberShown('', { status: 'figures', at: claimed - 1_000, figures: withNow(undefined, collected(undefined, 20)) });
+        request.mockClear();
+        request.mockResolvedValue(report('claude', 60));
+        const screen = renderScreen();
+        await tick();
+
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(screenText(screen)).toContain('OpenCode');
+    });
+
     it('collects exactly once per window for a tab the host has nothing stored for', async () => {
         // The host cannot store this tab, so every request for it is a whole
         // collection: the request count is the collection count.
