@@ -225,10 +225,15 @@ function KeysCategory({ entries, seed, onChange, closeForm, modifierIcons, onCha
     };
 
     closeForm.current = formIndex === null ? null : () => setFormIndex(null);
+    // The terminal's dark scope reaches only what mounts while the terminal
+    // itself renders. Opening or closing a form re-renders this list alone,
+    // so whatever it mounts then (the form, the preview row, the switch)
+    // would take a light phone's theme inside the dark sheet; the scope is
+    // repeated here, where that render starts.
     if (formIndex !== null) {
-        return <KeyForm entry={working[formIndex]} onSave={saveKey} onCancel={() => setFormIndex(null)} />;
+        return <ScopedTheme name="dark"><KeyForm entry={working[formIndex]} onSave={saveKey} onCancel={() => setFormIndex(null)} /></ScopedTheme>;
     }
-    return <View>
+    return <ScopedTheme name="dark"><View>
         <SectionLabel>LIVE PREVIEW</SectionLabel>
         {/* The stage is the dominant first section, but never at the cost of the
             sections under it: on a short pane a fixed 300dp block would push
@@ -243,14 +248,10 @@ function KeysCategory({ entries, seed, onChange, closeForm, modifierIcons, onCha
                 removal and drag lands here exactly as the terminal will draw
                 it. Taps arm ctrl and shift and dim what they cannot encode;
                 no channel is attached, so nothing is sent. A screen reader
-                hears the arrangement once instead of a run of dead buttons.
-                The terminal only ever draws the row dark; the scope is its
-                own because this list remounts it outside the terminal's
-                render (back from the key form), where a light phone's theme
-                would otherwise dim it. */}
+                hears the arrangement once instead of a run of dead buttons. */}
             <View accessible role="img" aria-label={`Key row preview: ${['Control', 'Shift', ...resolveKeyRow(working).map((key) => key.accessibilityLabel)].join(', ')}`} style={styles.previewRow}>
                 <View aria-hidden>
-                    <ScopedTheme name="dark"><TerminalKeyRow entries={working} /></ScopedTheme>
+                    <TerminalKeyRow entries={working} />
                 </View>
             </View>
         </View>
@@ -324,7 +325,7 @@ function KeysCategory({ entries, seed, onChange, closeForm, modifierIcons, onCha
                 <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the default row</Text>
             </Pressable>
         )}
-    </View>;
+    </View></ScopedTheme>;
 }
 
 // The toggle lives in local settings; the grid owns it and passes it down.
@@ -353,10 +354,11 @@ function SnippetsCategory({ actions, seed, onChange, closeForm }: {
     };
 
     closeForm.current = formIndex === null ? null : () => setFormIndex(null);
+    // Same dark scope as the key list, for the same reason.
     if (formIndex !== null) {
-        return <ActionForm entry={working[formIndex]} onSave={saveAction} onCancel={() => setFormIndex(null)} />;
+        return <ScopedTheme name="dark"><ActionForm entry={working[formIndex]} onSave={saveAction} onCancel={() => setFormIndex(null)} /></ScopedTheme>;
     }
-    return <View>
+    return <ScopedTheme name="dark"><View>
         <Text style={[styles.caption]}>Your replies and commands · a tap in the command palette sends one</Text>
         {working.length === 0 && <Text style={[styles.caption]}>Nothing here. The command palette shows the agent&apos;s own commands only.</Text>}
         <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
@@ -409,7 +411,7 @@ function SnippetsCategory({ actions, seed, onChange, closeForm }: {
                 <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the built-in replies and commands</Text>
             </Pressable>
         )}
-    </View>;
+    </View></ScopedTheme>;
 }
 
 /** Hold the handle to lift the row, then drag; the list swaps underneath. Shared by the key-row and snippet reorder cards. */
