@@ -101,6 +101,12 @@ const RECONNECT_BUDGET_MS = 75_000;
  * second outage the app stayed unusable for up to five more seconds with the
  * link already restored, purely waiting out its own timer. A dial is one
  * handshake; waiting is not free.
+ *
+ * It bounds the widening, and only the widening. A caller that configured a
+ * slower base asked for that cadence on purpose -- `scopedMachineClient` asks
+ * for 30s inside a 12s deadline, which is a way of asking for one attempt --
+ * so the base is kept as a floor below. Shortening it would turn one dial
+ * against an unreachable machine into a dial every four seconds.
  */
 const RECONNECT_CEILING_MS = 4000;
 
@@ -345,7 +351,7 @@ export class MuxrClient {
             return;
         }
         const base = this.options.reconnectDelayMs ?? 1500;
-        const delay = Math.max(floorMs ?? 0, Math.min(base * 2 ** this.reconnectAttempt++, RECONNECT_CEILING_MS));
+        const delay = Math.max(floorMs ?? 0, base, Math.min(base * 2 ** this.reconnectAttempt++, RECONNECT_CEILING_MS));
         this.reconnectTimer = setTimeout(() => this.connect(), delay);
     }
 

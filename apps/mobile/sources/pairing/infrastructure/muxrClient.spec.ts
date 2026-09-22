@@ -338,6 +338,21 @@ describe('reconnect schedule after a drop', () => {
         client.close();
     }, 30_000);
 
+    it('never dials sooner than a delay the caller configured above the ceiling', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('WebSocket', FakeWebSocket);
+        // Collaboration asks for 30s inside a 12s deadline, which is a way of
+        // asking for exactly one attempt against a machine already known to be
+        // unreachable. A ceiling meant to bound the widening must not turn that
+        // into a dial every four seconds.
+        const client = new MuxrClient({ mode: 'local', relayUrl: 'ws://relay.test', machineId: 'machine-1', reconnectDelayMs: 30_000 });
+        client.connect();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(await dropAndMeasureWait(client)).toBe(30_000);
+        client.close();
+    }, 30_000);
+
     it('bounds give-up by wall-clock, so a relay that waits out every liveness timeout still stops in time', async () => {
         vi.useFakeTimers();
         vi.stubGlobal('WebSocket', FakeWebSocket);

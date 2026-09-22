@@ -122,7 +122,7 @@ describe('ArtifactWatcher', () => {
             expect(swept).toEqual(['served']);
             // The retired pane is still a real listing when a phone asks for it.
             const retired = await watcher.scanPane('retired');
-            expect(retired.attachments.map((entry) => entry.name)).toEqual(['a.png']);
+            expect(retired.artifacts.map((entry) => entry.name)).toEqual(['a.png']);
         } finally {
             watcher.dispose();
         }
