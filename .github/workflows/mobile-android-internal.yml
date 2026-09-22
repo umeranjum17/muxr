@@ -117,7 +117,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/release-report"
           node scripts/release/presentation/changelog.mjs generate --version "$MUXR_RELEASE_VERSION" --commit "$GITHUB_SHA" --build "$ANDROID_VERSION_CODE" --directory "$RUNNER_TEMP/release-report"
           node scripts/release/presentation/changelog.mjs check --version "$MUXR_RELEASE_VERSION" --commit "$GITHUB_SHA" --build "$ANDROID_VERSION_CODE" --directory "$RUNNER_TEMP/release-report"
-      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+      - uses: android-actions/setup-android@7731365548f3f81c15d4c49c8f1d29101e02cdcf # v4.0.2
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
           ruby-version: "3.3"
