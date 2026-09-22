@@ -1615,13 +1615,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     </View>}
                     </View>
 
-                    {/* The one way into the terminal's quick actions: a control
-                        floating on the terminal itself, resting where it was
-                        last left, with the ring struck from wherever that is.
-                        The overlay is exactly the terminal's own box, so the
-                        arc can never reach the composer below it and the
-                        control can never be dragged off the surface it belongs
-                        to. */}
+                    {/* The control rests on the terminal and stands down while
+                        a link card is open. Its overlay extends through the
+                        rails so the ring can borrow room below a short terminal;
+                        the control itself stays on the terminal surface. */}
                     {hasTools && linkMenu === null && terminalBox !== undefined && floatingControlFits(terminalBox.height) && (
                         <View
                             pointerEvents="box-none"
