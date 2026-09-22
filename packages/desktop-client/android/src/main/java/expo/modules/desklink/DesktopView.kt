@@ -4,8 +4,10 @@ import android.content.Context
 import android.graphics.Color
 import android.text.InputType
 import android.util.Log
+import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputConnectionWrapper
@@ -37,9 +39,9 @@ private const val SCROLL_SLOP_DP = 18f
  * drag produces tens of events a second, and routing each one through the
  * bridge would add latency and jitter to the one interaction the user judges the
  * whole feature by. This view owns containment (the surface is letterboxed, and
- * a touch outside the picture is not a desktop coordinate), the tap/drag/scroll
- * decision, the native keyboard, and the release of held state when it is
- * detached.
+ * a touch outside the picture is not a desktop coordinate), the tap, drag,
+ * long-press and scroll decision, the native keyboard, and the release of held
+ * state when it is detached.
  */
 class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, appContext) {
   private var renderer: SurfaceViewRenderer? = null
@@ -57,6 +59,22 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
   private var lastY = 0f
   private var dragging = false
   private var pointers = 0
+  /** True once the active touch became a right click, so its end is not a tap. */
+  private var longPressed = false
+
+  /**
+   * A still touch is a right click where the finger rests: the context menu
+   * every desktop app offers for copy and paste, on a phone that has no Ctrl.
+   * A touch that passes the drag slop first stays a drag.
+   */
+  private val longPress = Runnable {
+    val active = session ?: return@Runnable
+    if (pointers != 1 || dragging) return@Runnable
+    val at = point(downX, downY) ?: return@Runnable
+    longPressed = true
+    active.sendRightClick(at.first, at.second)
+    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+  }
 
   /** Chorded keys that are down on the desktop, by Android key code. */
   private val chordKeysDown = mutableSetOf<Int>()
@@ -97,6 +115,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
   fun setSession(next: DesktopSession?) {
     if (session === next) return
     detachSink()
+    removeCallbacks(longPress)
     chordKeysDown.clear()
     renderer?.let { it.release(); removeView(it) }
     renderer = null
@@ -200,6 +219,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     if (active == null) return true
 
     if (event.pointerCount > 1) {
+      removeCallbacks(longPress)
       if (pointers < 2) {
         if (dragging) {
           point(event.x, event.y)?.let { (x, y) -> active.sendPointer("up", x, y) }
@@ -233,12 +253,19 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         downX = event.x
         downY = event.y
         dragging = false
+        longPressed = false
         point(event.x, event.y)?.let { (x, y) -> active.sendPointer("move", x, y) }
+        removeCallbacks(longPress)
+        postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
         return true
       }
 
       MotionEvent.ACTION_MOVE -> {
+        // What follows a right click is not a drag: the menu it opened takes
+        // the next tap.
+        if (longPressed) return true
         if (!dragging && hypot((event.x - downX).toDouble(), (event.y - downY).toDouble()) > dp(DRAG_SLOP_DP)) {
+          removeCallbacks(longPress)
           val start = point(downX, downY)
           if (start == null) return true
           active.sendPointer("down", start.first, start.second)
@@ -253,6 +280,12 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
       }
 
       MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+        removeCallbacks(longPress)
+        if (longPressed) {
+          longPressed = false
+          pointers = 0
+          return true
+        }
         if (dragging) {
           point(event.x, event.y)?.let { (x, y) -> active.sendPointer("up", x, y) }
             ?: active.sendCancel()
@@ -278,6 +311,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   override fun onDetachedFromWindow() {
     // Unmounting must not leave a button held on the far desktop.
+    removeCallbacks(longPress)
     runCatching { session?.sendCancel() }
     chordKeysDown.clear()
     detachSink()

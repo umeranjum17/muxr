@@ -66,9 +66,11 @@ import { desktopAvailable } from '@desklink/react-native/availability';
 - **Contained geometry.** Touch maps through the engine's reported surface
   rectangle. A touch outside the picture is not a desktop coordinate, and a
   letterboxed surface never sends a click to the wrong pixel.
-- **One decision per gesture.** Tap, double-tap and drag are decided natively,
-  with a slop threshold, and a drag that leaves the surface is cancelled rather
-  than released at a coordinate the user never pointed at.
+- **One decision per gesture.** Tap, double-tap, drag and long-press are
+  decided natively, with a slop threshold. A still hold is a right click where
+  the finger rests, so every desktop app's context menu is one gesture away; a
+  drag that leaves the surface is cancelled rather than released at a
+  coordinate the user never pointed at.
 - **Readiness is a rendered frame.** `status: 'live'` is set by the first frame
   actually presented, not by a track arriving or ICE connecting.
 - **Released state.** Unmount, background, session close and a lost control

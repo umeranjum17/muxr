@@ -232,6 +232,13 @@ class DesktopSession(
     sendJson(message)
   }
 
+  /** A right click where the finger rests: the context menu every desktop app offers. */
+  fun sendRightClick(x: Int, y: Int) {
+    for (phase in listOf("down", "up")) {
+      sendJson(mapOf("kind" to "pointer", "phase" to phase, "x" to x, "y" to y, "button" to 3))
+    }
+  }
+
   fun sendWheel(dx: Int, dy: Int) {
     sendJson(mapOf("kind" to "wheel", "dx" to dx, "dy" to dy))
   }

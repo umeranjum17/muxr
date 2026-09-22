@@ -22,6 +22,9 @@ const DRAG_SLOP = 6;
 /** Two-finger travel before a scroll is emitted. */
 const SCROLL_SLOP = 18;
 
+/** A touch held this long without passing the drag slop is a right click. */
+const LONG_PRESS_MS = 400;
+
 interface WebSession {
     id: string;
     peer: RTCPeerConnection;
@@ -40,6 +43,9 @@ interface WebSession {
     pointers: number;
     /** True once the active gesture became two-finger, so its end is not a tap. */
     multiPointer: boolean;
+    longPress: ReturnType<typeof setTimeout> | null;
+    /** True once the active touch became a right click, so its end is not a tap. */
+    longPressed: boolean;
     /** Chorded keys that are down on the desktop, by the character sent for them. */
     chordsDown: Set<string>;
     /** Candidates that arrived before the offer; applied once it is set. */
@@ -132,14 +138,42 @@ function surfacePoint(session: WebSession, clientX: number, clientY: number): { 
     return { x, y };
 }
 
+function cancelLongPress(session: WebSession): void {
+    if (session.longPress !== null) clearTimeout(session.longPress);
+    session.longPress = null;
+}
+
 function attachGestures(session: WebSession): () => void {
     const { video, keyboard } = session;
+
+    const rightButton = (event: PointerEvent, phase: 'down' | 'up'): void => {
+        const at = surfacePoint(session, event.clientX, event.clientY);
+        if (at !== null) control(session, { kind: 'pointer', phase, x: at.x, y: at.y, button: 3, seq: seq(session) });
+    };
+
+    // A still touch is a right click where the finger rests: the context menu
+    // every desktop app offers for copy and paste, on a phone that has no Ctrl.
+    const longPress = (): void => {
+        session.longPress = null;
+        if (session.pointers !== 1 || session.multiPointer || session.dragging) return;
+        const at = surfacePoint(session, session.downX, session.downY);
+        if (at === null) return;
+        session.longPressed = true;
+        control(session, { kind: 'pointer', phase: 'down', x: at.x, y: at.y, button: 3, seq: seq(session) });
+        control(session, { kind: 'pointer', phase: 'up', x: at.x, y: at.y, button: 3, seq: seq(session) });
+        globalThis.navigator?.vibrate?.(10);
+    };
 
     const pointerDown = (event: PointerEvent): void => {
         try {
             video.setPointerCapture(event.pointerId);
         } catch {
             // A synthetic event has no real pointer behind it.
+        }
+        // A mouse brings its own right button, and it never starts a drag.
+        if (event.button === 2) {
+            rightButton(event, 'down');
+            return;
         }
         if (session.pointers === 0) {
             const at = surfacePoint(session, event.clientX, event.clientY);
@@ -148,9 +182,12 @@ function attachGestures(session: WebSession): () => void {
             session.downX = event.clientX;
             session.downY = event.clientY;
             session.dragging = false;
+            session.longPressed = false;
             if (at !== null) control(session, { kind: 'pointer', phase: 'move', x: at.x, y: at.y, seq: seq(session) });
+            if (event.pointerType !== 'mouse') session.longPress = setTimeout(longPress, LONG_PRESS_MS);
             return;
         }
+        cancelLongPress(session);
         // A second finger makes this a scroll: release anything the drag already
         // pressed and stop driving the pointer.
         if (session.dragging) {
@@ -172,8 +209,12 @@ function attachGestures(session: WebSession): () => void {
         }
         if (session.pointers === 0) return;
         if (session.multiPointer) return;
+        // What follows a right click is not a drag: the menu it opened takes the
+        // next tap.
+        if (session.longPressed) return;
         const travelled = Math.hypot(event.clientX - session.downX, event.clientY - session.downY);
         if (!session.dragging && travelled > DRAG_SLOP) {
+            cancelLongPress(session);
             const start = surfacePoint(session, session.downX, session.downY);
             if (start === null) return;
             control(session, { kind: 'pointer', phase: 'down', x: start.x, y: start.y, button: 1, seq: seq(session) });
@@ -192,6 +233,11 @@ function attachGestures(session: WebSession): () => void {
     };
 
     const pointerUp = (event: PointerEvent): void => {
+        if (event.button === 2) {
+            rightButton(event, 'up');
+            return;
+        }
+        cancelLongPress(session);
         if (session.pointers > 1) {
             session.pointers -= 1;
             return;
@@ -205,6 +251,10 @@ function attachGestures(session: WebSession): () => void {
             return;
         }
         session.pointers = 0;
+        if (session.longPressed) {
+            session.longPressed = false;
+            return;
+        }
         const at = surfacePoint(session, event.clientX, event.clientY);
         if (session.dragging) {
             if (at !== null) control(session, { kind: 'pointer', phase: 'up', x: at.x, y: at.y, button: 1, seq: seq(session) });
@@ -283,11 +333,15 @@ function attachGestures(session: WebSession): () => void {
     const keyDown = (event: KeyboardEvent): void => keyEvent(event, true);
     const keyUp = (event: KeyboardEvent): void => keyEvent(event, false);
 
+    // The browser's own menu for the video would cover the desktop's.
+    const contextMenu = (event: Event): void => event.preventDefault();
+
     video.addEventListener('pointerdown', pointerDown);
     video.addEventListener('pointermove', pointerMove);
     video.addEventListener('pointerup', pointerUp);
     video.addEventListener('pointercancel', pointerUp);
     video.addEventListener('wheel', wheel, { passive: false });
+    video.addEventListener('contextmenu', contextMenu);
     keyboard.addEventListener('compositionstart', compositionStart);
     keyboard.addEventListener('compositionend', compositionEnd);
     keyboard.addEventListener('beforeinput', beforeInput);
@@ -295,11 +349,13 @@ function attachGestures(session: WebSession): () => void {
     keyboard.addEventListener('keyup', keyUp);
 
     return () => {
+        cancelLongPress(session);
         video.removeEventListener('pointerdown', pointerDown);
         video.removeEventListener('pointermove', pointerMove);
         video.removeEventListener('pointerup', pointerUp);
         video.removeEventListener('pointercancel', pointerUp);
         video.removeEventListener('wheel', wheel);
+        video.removeEventListener('contextmenu', contextMenu);
         keyboard.removeEventListener('compositionstart', compositionStart);
         keyboard.removeEventListener('compositionend', compositionEnd);
         keyboard.removeEventListener('beforeinput', beforeInput);
@@ -353,6 +409,8 @@ export const nativeDesklink: NativeDesklinkModule = {
             lastScrollY: 0,
             pointers: 0,
             multiPointer: false,
+            longPress: null,
+            longPressed: false,
             chordsDown: new Set<string>(),
             remoteDescriptionSet: false,
             pendingCandidates: [],
