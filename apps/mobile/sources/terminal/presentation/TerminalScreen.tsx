@@ -52,9 +52,10 @@ import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, De
 import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
 import { FloatingTerminalControls, RING_CENTER_SIZE, type RingSlot } from './FloatingTerminalControls';
-import { TERMINAL_QUICK_REPLIES, TerminalKeyRow } from './TerminalKeyRow';
+import { TerminalKeyRow } from './TerminalKeyRow';
 import { TerminalControlGrid, type ControlGridCategory } from './TerminalKeyRowEditor';
 import { DEFAULT_ROW_IDS, type RowEntry, type TerminalKeyAction } from '../domain/keyRow';
+import { quickActionSends, resolveQuickActions } from '../domain/quickActions';
 import { appendToDraft, clearDraftInsertion, consumeDraftInsertion } from '../application/draftInsertion';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
@@ -78,6 +79,10 @@ import { useTerminalQuickReplies } from '@/plugins/ui';
 
 /** What a reply row's primary tap really does, for replies that never send. */
 const INSERT_ONLY_LABEL = 'Inserts into the prompt, never sends.';
+/** The same, for an action still carrying a placeholder to finish. */
+const PLACEHOLDER_LABEL = 'Fills the prompt so the placeholder can be finished, never sends.';
+/** The editor row is the one Custom row that opens a sheet rather than typing. */
+const OPENS_EDITOR_LABEL = 'Opens the controls editor.';
 
 // Live recording level as five honest bars; the same fixed weights keep every
 // bar following the real input level, taller through the middle. The level is
@@ -149,7 +154,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const pluginButtons = useSessionPlugins();
     const declaredActions = useDeclarativeSessionActions(session?.metadata?.path);
     const pluginQuickReplies = useTerminalQuickReplies();
-    const quickReplies = React.useMemo(() => [...TERMINAL_QUICK_REPLIES, ...pluginQuickReplies], [pluginQuickReplies]);
     const [changesCount, setChangesCount] = React.useState<number | null>(null);
     const [artifactsCount, setArtifactsCount] = React.useState<number | null>(null);
     useFocusEffect(React.useCallback(() => {
@@ -185,7 +189,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const [actionsOpen, setActionsOpen] = React.useState(false);
     const [findOpen, setFindOpen] = React.useState(false);
     const [controlGrid, setControlGrid] = React.useState<{ open: boolean; category: ControlGridCategory }>({ open: false, category: 'keys' });
-    const [personalReplies, setPersonalReplies] = useLocalSettingMutable('terminalQuickReplies');
+    const [storedActions, setStoredActions] = useLocalSettingMutable('terminalQuickActions');
+    // The seeds are a starting list, not a fixed row: once anything is stored,
+    // including the empty list, the stored one is the whole truth.
+    const quickActions = React.useMemo(() => resolveQuickActions(storedActions), [storedActions]);
     const [rowEntries, setRowEntries] = useLocalSettingMutable('terminalKeyRow');
     const rowSeed = React.useMemo<RowEntry[]>(() => rowEntries ?? [...DEFAULT_ROW_IDS], [rowEntries]);
     // Focus in Herdr: one request, the menu stays open while it is pending,
@@ -547,40 +554,43 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 },
             secondaryAction: () => insertDraft(`${entry.command} `),
         });
+        // The person's own actions are the same promise the slash rows make:
+        // a tap sends. The pencil beside every row is the way to fill the
+        // prompt instead, and text still carrying a {placeholder} takes that
+        // route on a plain tap too rather than going out half-written.
+        const toQuickAction = (action: { id: string; label: string; text: string }, category: string): Command => {
+            const sends = quickActionSends(action.text);
+            return {
+                id: `quick:${action.id}`,
+                title: action.label,
+                category,
+                action: sends
+                    ? () => {
+                        showGestureHintRef.current(t('commandPalette.sent', { command: action.label }));
+                        sendCommand(action.text);
+                    }
+                    : () => insertDraft(action.text),
+                ...(sends ? {} : { actionLabel: PLACEHOLDER_LABEL }),
+                secondaryAction: () => insertDraft(action.text),
+            };
+        };
         const entries: Command[] = [
-            // Common replies live in the slash catalogue, at the top, so the
-            // canned prompts have one home with the commands (report §8). A
-            // reply is a promise that something is sent: the app's own replies
-            // send; host-contributed ones still land in the draft for review,
-            // as they always have.
-            ...quickReplies.map((reply, index): Command => {
-                const firstParty = index < TERMINAL_QUICK_REPLIES.length;
-                return {
-                    id: `reply:${index}:${reply.label}`,
-                    title: reply.label,
-                    category: t('commandPalette.commonReplies'),
-                    action: firstParty
-                        ? () => {
-                            showGestureHintRef.current(t('commandPalette.sent', { command: reply.label }));
-                            sendCommand(reply.text);
-                        }
-                        : () => insertDraft(reply.text),
-                    // A host-contributed reply only ever lands in the draft, so
-                    // the row must not announce that it sends.
-                    actionLabel: firstParty ? undefined : INSERT_ONLY_LABEL,
-                    secondaryAction: () => insertDraft(reply.text),
-                };
-            }),
-            // Personal replies are insert-only: a tap lands in the visible
-            // draft and only an explicit Send sends anything.
-            ...personalReplies.map((reply): Command => ({
-                id: `reply:user:${reply.id}`,
+            // Replies live in the slash catalogue, at the top, so the canned
+            // prompts have one home with the commands (report §8).
+            ...quickActions.filter((action) => action.kind === 'reply').map((action) => toQuickAction(action, t('commandPalette.commonReplies'))),
+            // A host-contributed reply still only lands in the draft, as it
+            // always has, so its row must not announce that it sends.
+            ...pluginQuickReplies.map((reply, index): Command => ({
+                id: `reply:plugin:${index}:${reply.label}`,
                 title: reply.label,
                 category: t('commandPalette.commonReplies'),
                 action: () => insertDraft(reply.text),
                 actionLabel: INSERT_ONLY_LABEL,
                 secondaryAction: () => insertDraft(reply.text),
             })),
+            // The person's own commands sit with the agent's, above them: they
+            // are the ones they chose to keep.
+            ...quickActions.filter((action) => action.kind === 'command').map((action) => toQuickAction(action, t('commandPalette.yourCommands'))),
             ...known.filter((entry) => entry.common === true && entry.dangerous !== true).map((entry) => toEntry(entry, t('commandPalette.common'))),
             ...known.filter((entry) => entry.common !== true && entry.dangerous !== true).map((entry) => toEntry(entry, t('commandPalette.allCommands', { kind: kindLabel ?? '' }))),
             ...known.filter((entry) => entry.dangerous === true).map((entry) => toEntry(entry, t('commandPalette.destructive'))),
@@ -589,13 +599,19 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             id: 'custom-command', title: t('commandPalette.typeCommand'), subtitle: t('commandPalette.insertSlash'),
             category: CUSTOM_CATEGORY, action: () => insertDraft('/'),
         });
+        // The way from using these to editing them, from the surface they are
+        // used on: otherwise the only route in is a sheet two taps away.
+        entries.push({
+            id: 'edit-quick-actions', title: t('commandPalette.editQuickActions'), actionLabel: OPENS_EDITOR_LABEL,
+            category: CUSTOM_CATEGORY, action: () => setControlGrid({ open: true, category: 'snippets' }),
+        });
         Modal.show({ component: CommandPalette, props: {
             appearance: 'terminal',
             title: known.length > 0 ? t('commandPalette.agentCommands', { agent: kindLabel ?? '' }) : t('commandPalette.commandsTitle'),
             quietLine: known.length > 0 ? undefined : t('commandPalette.noCatalogue', { kind: paneKind ?? t('commandPalette.thisAgent') }),
             commands: entries,
         } } as any);
-    }, [canControl, insertDraft, paneKind, personalReplies, quickReplies, sendCommand, showDialogGuard]);
+    }, [canControl, insertDraft, paneKind, pluginQuickReplies, quickActions, sendCommand, showDialogGuard]);
     React.useEffect(() => {
         if (paneMissing) {
             recordAgentGate({
@@ -1434,8 +1450,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         entries={rowEntries}
                         seed={rowSeed}
                         onChange={setRowEntries}
-                        replies={personalReplies}
-                        onRepliesChange={setPersonalReplies}
+                        actions={storedActions}
+                        actionSeed={quickActions}
+                        onActionsChange={setStoredActions}
                         recentLinks={recentTerminalLinks(props.id)}
                         onRecentLink={(url, action) => {
                             setControlGrid((current) => ({ ...current, open: false }));

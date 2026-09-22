@@ -12,14 +12,15 @@ import { useLocalSettingMutable } from '@/catalog/store';
 import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, DEFAULT_ROW_IDS, TERMINAL_KEY_ROW_LIMIT, bytesToEscape, escapeToBytes, modifiedSend, resolveKeyRow, type RowEntry } from '../domain/keyRow';
 import { useReorderableList } from './useReorderableList';
 import { randomUUID } from 'expo-crypto';
-import { personalReplyErrors, QUICK_REPLY_LABEL_LIMIT, QUICK_REPLY_LIMIT, QUICK_REPLY_TEXT_LIMIT, type PersonalQuickReply } from '../domain/quickReplies';
+import { DEFAULT_QUICK_ACTIONS, quickActionErrors, quickActionSends, QUICK_ACTION_LABEL_LIMIT, QUICK_ACTION_LIMIT, QUICK_ACTION_TEXT_LIMIT, type QuickAction, type QuickActionKind } from '../domain/quickActions';
 
 /**
  * The terminal control grid: one dense, categorised sheet for everything the
  * terminal's controls can become — the key row (with a live preview), the
- * person's own snippets, recent links, appearance, and keyboard actions.
- * Arrangement and the stored formats are unchanged: catalog ids or named
- * terminal byte sequences, and plain { id, label, text } replies.
+ * person's own replies and commands, recent links, appearance, and keyboard
+ * actions. Both editable lists are the same machine: catalog ids or named
+ * terminal byte sequences for the row, { id, kind, label, text } for the
+ * snippets, and in each case null means "follow the built-in list".
  */
 
 export type ControlGridCategory = 'keys' | 'snippets' | 'recents' | 'appearance' | 'keyboard';
@@ -39,7 +40,7 @@ export type GridCommand = { label: string; run: () => void; disabled?: boolean; 
 // so a drag that reaches the visible edge stops there. Wrap or autoscroll if
 // a longer row ever needs it.
 const CAP_NOTICE = `The row is full at ${TERMINAL_KEY_ROW_LIMIT} keys.`;
-const REPLY_CAP_NOTICE = `The list is full at ${QUICK_REPLY_LIMIT} snippets.`;
+const ACTION_CAP_NOTICE = `The list is full at ${QUICK_ACTION_LIMIT} snippets.`;
 
 export function TerminalControlGrid({
     visible,
@@ -49,8 +50,9 @@ export function TerminalControlGrid({
     entries,
     seed,
     onChange,
-    replies,
-    onRepliesChange,
+    actions,
+    actionSeed,
+    onActionsChange,
     recentLinks,
     onRecentLink,
     viewCommands,
@@ -66,8 +68,11 @@ export function TerminalControlGrid({
     /** The row to start from when nothing is stored yet (the built-in row). */
     seed: RowEntry[];
     onChange: (entries: RowEntry[] | null) => void;
-    replies: PersonalQuickReply[];
-    onRepliesChange: (replies: PersonalQuickReply[]) => void;
+    /** The stored actions, or null while they follow the built-in seeds. */
+    actions: QuickAction[] | null;
+    /** The list to start from when nothing is stored yet (the seeds). */
+    actionSeed: QuickAction[];
+    onActionsChange: (actions: QuickAction[] | null) => void;
     recentLinks: readonly string[];
     onRecentLink: (url: string, action: 'open' | 'copy') => void;
     viewCommands: readonly GridCommand[];
@@ -122,7 +127,7 @@ export function TerminalControlGrid({
 
                     <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
                         {category === 'keys' && <KeysCategory entries={entries} seed={seed} onChange={onChange} closeForm={closeForm} modifierIcons={modifierIcons === true} onChangeModifierIcons={(value) => { hapticsSelection(); setModifierIcons(value); }} />}
-                        {category === 'snippets' && <SnippetsCategory replies={replies} onRepliesChange={onRepliesChange} closeForm={closeForm} />}
+                        {category === 'snippets' && <SnippetsCategory actions={actions} seed={actionSeed} onChange={onActionsChange} closeForm={closeForm} />}
                         {category === 'recents' && (
                             recentLinks.length === 0
                                 ? <SectionNote>Links printed by the terminal gather here.</SectionNote>
@@ -325,23 +330,24 @@ function KeysCategory({ entries, seed, onChange, closeForm, modifierIcons, onCha
 
 // The toggle lives in local settings; the grid owns it and passes it down.
 
-function SnippetsCategory({ replies, onRepliesChange, closeForm }: {
-    replies: PersonalQuickReply[];
-    onRepliesChange: (replies: PersonalQuickReply[]) => void;
+function SnippetsCategory({ actions, seed, onChange, closeForm }: {
+    actions: QuickAction[] | null;
+    seed: QuickAction[];
+    onChange: (actions: QuickAction[] | null) => void;
     closeForm: React.MutableRefObject<(() => void) | null>;
 }) {
     const { theme } = useUnistyles();
-    const { working, drag, commit, removeAt, onDrag, moveBy, isDragging } = useReorderableList<PersonalQuickReply>(true, replies, onRepliesChange);
+    const { working, drag, commit, reseed, removeAt, onDrag, moveBy, isDragging } = useReorderableList<QuickAction>(true, seed, onChange);
     const [formIndex, setFormIndex] = React.useState<number | null>(null);
 
     // Same rule as the key list: the closer goes away with its owner.
     React.useLayoutEffect(() => () => { closeForm.current = null; }, [closeForm]);
 
-    const saveReply = (reply: PersonalQuickReply) => {
+    const saveAction = (action: QuickAction) => {
         if (formIndex === null || isDragging()) return;
         const next = [...working];
-        if (formIndex === next.length && next.length >= QUICK_REPLY_LIMIT) return;
-        next[formIndex] = reply;
+        if (formIndex === next.length && next.length >= QUICK_ACTION_LIMIT) return;
+        next[formIndex] = action;
         hapticsSelection();
         commit(next);
         setFormIndex(null);
@@ -349,47 +355,60 @@ function SnippetsCategory({ replies, onRepliesChange, closeForm }: {
 
     closeForm.current = formIndex === null ? null : () => setFormIndex(null);
     if (formIndex !== null) {
-        return <ReplyForm entry={working[formIndex]} onSave={saveReply} onCancel={() => setFormIndex(null)} />;
+        return <ActionForm entry={working[formIndex]} onSave={saveAction} onCancel={() => setFormIndex(null)} />;
     }
     return <View>
-        <Text style={[styles.caption]}>Your snippets · inserted into the prompt, never sent by themselves</Text>
-        {working.length === 0 && <Text style={[styles.caption]}>Nothing here yet. The built-in replies still live in the command palette.</Text>}
+        <Text style={[styles.caption]}>Your replies and commands · a tap in the command palette sends one</Text>
+        <Text style={[styles.caption]}>Leave a {'{placeholder}'} in the text and a tap fills the prompt instead, so you can finish it first.</Text>
+        {working.length === 0 && <Text style={[styles.caption]}>Nothing here. The command palette shows the agent&apos;s own commands only.</Text>}
         <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
-            {working.map((reply, index) => {
+            {working.map((action, index) => {
                 const dragging = drag?.index === index;
+                const kindWord = action.kind === 'command' ? 'Command' : 'Reply';
                 return (
                     <View
-                        key={reply.id}
+                        key={action.id}
                         style={[
                             styles.cardRow,
                             index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider },
                             dragging && { transform: [{ translateY: drag.translate }], zIndex: 10, borderColor: theme.colors.accent },
                         ]}
                     >
-                        <Pressable onPress={() => removeAt(index)} accessibilityRole="button" accessibilityLabel={`Remove ${reply.label}`} style={styles.cardRowAction}>
+                        <Pressable onPress={() => removeAt(index)} accessibilityRole="button" accessibilityLabel={`Remove ${action.label}`} style={styles.cardRowAction}>
                             <Ionicons name="remove-circle-outline" size={22} color={theme.colors.status.error} />
                         </Pressable>
-                        <Pressable onPress={() => setFormIndex(index)} accessibilityRole="button" accessibilityLabel={`Edit ${reply.label}`} style={{ flex: 1, minHeight: 56, justifyContent: 'center' }}>
-                            <Text style={[styles.rowLabel, { color: theme.colors.text }]} numberOfLines={1}>{reply.label}</Text>
-                            <Text style={[styles.rowSend, { color: theme.colors.textSecondary }]} numberOfLines={1}>{reply.text}</Text>
+                        <Pressable onPress={() => setFormIndex(index)} accessibilityRole="button" accessibilityLabel={`Edit ${kindWord.toLowerCase()} ${action.label}`} style={{ flex: 1, minHeight: 56, justifyContent: 'center' }}>
+                            <Text style={[styles.rowLabel, { color: theme.colors.text }]} numberOfLines={1}>{action.label}</Text>
+                            <Text style={[styles.rowSend, { color: theme.colors.textSecondary }]} numberOfLines={1}>{`${kindWord} \u00b7 ${action.text}`}</Text>
                         </Pressable>
-                        <Handle index={index} label={reply.label} onDrag={onDrag} onMove={moveBy} tint={theme.colors.textSecondary} />
+                        <Handle index={index} label={action.label} onDrag={onDrag} onMove={moveBy} tint={theme.colors.textSecondary} />
                     </View>
                 );
             })}
         </View>
 
-        {working.length >= QUICK_REPLY_LIMIT ? (
-            <Text style={[styles.caption, { color: theme.colors.warningCritical }]}>{REPLY_CAP_NOTICE}</Text>
+        {working.length >= QUICK_ACTION_LIMIT ? (
+            <Text style={[styles.caption, { color: theme.colors.warningCritical }]}>{ACTION_CAP_NOTICE}</Text>
         ) : (
             <Pressable
                 onPress={() => setFormIndex(working.length)}
                 accessibilityRole="button"
-                accessibilityLabel="Add a reply"
+                accessibilityLabel="Add a reply or command"
                 style={[styles.addRow, { borderColor: theme.colors.accent }]}
             >
                 <Ionicons name="add" size={18} color={theme.colors.accent} />
                 <Text style={{ color: theme.colors.accent, fontSize: 14 }}>Add a snippet</Text>
+            </Pressable>
+        )}
+
+        {actions !== null && (
+            <Pressable onPress={() => {
+                if (isDragging()) return;
+                hapticsSelection();
+                reseed(DEFAULT_QUICK_ACTIONS.map((action) => ({ ...action })));
+                onChange(null);
+            }} accessibilityRole="button" accessibilityLabel="Reset snippets to the built-in ones" style={styles.resetRow}>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the built-in snippets</Text>
             </Pressable>
         )}
     </View>;
@@ -538,28 +557,50 @@ export function KeyForm({ entry, onSave, onCancel }: {
     </View>;
 }
 
-function ReplyForm({ entry, onSave, onCancel }: {
-    entry: PersonalQuickReply | undefined;
-    onSave: (reply: PersonalQuickReply) => void;
+/** The one form behind both kinds; the kind only decides where it is offered. */
+function ActionForm({ entry, onSave, onCancel }: {
+    entry: QuickAction | undefined;
+    onSave: (action: QuickAction) => void;
     onCancel: () => void;
 }) {
     const { theme } = useUnistyles();
+    const [kind, setKind] = React.useState<QuickActionKind>(entry?.kind ?? 'reply');
     const [label, setLabel] = React.useState(entry?.label ?? '');
     const [text, setText] = React.useState(entry?.text ?? '');
-    const errors = personalReplyErrors(label, text);
+    const errors = quickActionErrors(label, text);
     const valid = errors.length === 0;
+    const sends = quickActionSends(text);
+    // The same quiet segmented switch the key form uses for its own modes.
+    const segment = (active: boolean) => [styles.gridChip, {
+        backgroundColor: active ? theme.colors.surfaceHighest : 'transparent',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: active ? theme.colors.divider : 'transparent',
+    }];
+    const segmentInk = (active: boolean) => ({ color: active ? theme.colors.text : theme.colors.textSecondary, fontSize: 13, fontWeight: active ? '600' as const : '400' as const });
     return <View>
+        <View style={styles.grid}>
+            {(['reply', 'command'] as const).map((value) => <Pressable key={value} onPress={() => setKind(value)} accessibilityRole="button" accessibilityLabel={value === 'reply' ? 'Reply' : 'Command'} accessibilityState={{ selected: kind === value }} style={segment(kind === value)}>
+                <Text style={segmentInk(kind === value)}>{value === 'reply' ? 'Reply' : 'Command'}</Text>
+            </Pressable>)}
+        </View>
+        <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>
+            {kind === 'command' ? 'Listed with the agent\u2019s own commands.' : 'Listed with the common replies.'}
+        </Text>
         <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Name on the list</Text>
-        <TextInput value={label} onChangeText={setLabel} maxLength={QUICK_REPLY_LABEL_LIMIT} accessibilityLabel="Reply name" placeholder="e.g. Ship it" placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider }]} />
-        <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>Text inserted into the prompt</Text>
-        <TextInput value={text} onChangeText={setText} multiline maxLength={QUICK_REPLY_TEXT_LIMIT} autoCapitalize="none" autoCorrect={false} accessibilityLabel="Reply text" placeholder="What should be inserted when this reply is tapped" placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider, minHeight: 96, textAlignVertical: 'top' }]} />
+        <TextInput value={label} onChangeText={setLabel} maxLength={QUICK_ACTION_LABEL_LIMIT} accessibilityLabel="Name" placeholder={kind === 'command' ? 'e.g. Compact' : 'e.g. Ship it'} placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider }]} />
+        <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>What gets sent</Text>
+        <TextInput value={text} onChangeText={setText} multiline maxLength={QUICK_ACTION_TEXT_LIMIT} autoCapitalize="none" autoCorrect={false} accessibilityLabel="Text to send" placeholder={kind === 'command' ? 'e.g. /compact' : 'What should be sent when this is tapped'} placeholderTextColor={theme.colors.textSecondary} style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.divider, minHeight: 96, textAlignVertical: 'top' }]} />
+        <View style={[styles.sequence, { backgroundColor: theme.colors.surfaceHighest }]}>
+            <Text style={[styles.caption, { color: theme.colors.textSecondary }]}>On tap</Text>
+            <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{sends ? 'Sends this straight to the agent.' : 'Fills the prompt, so the placeholder can be finished first.'}</Text>
+        </View>
         {errors.map((error) => <Text key={error} style={{ color: theme.colors.warningCritical, fontSize: 13, marginTop: 4 }}>{error}</Text>)}
         <View style={styles.formActions}>
             <Pressable onPress={onCancel} accessibilityRole="button" style={styles.customDone}><Text style={{ color: theme.colors.textSecondary }}>Cancel</Text></Pressable>
-            <Pressable disabled={!valid} accessibilityRole="button" accessibilityLabel="Save reply" accessibilityState={{ disabled: !valid }} style={[styles.customAdd, { backgroundColor: theme.colors.accent, opacity: valid ? 1 : 0.4 }]} onPress={() => {
+            <Pressable disabled={!valid} accessibilityRole="button" accessibilityLabel="Save" accessibilityState={{ disabled: !valid }} style={[styles.customAdd, { backgroundColor: theme.colors.accent, opacity: valid ? 1 : 0.4 }]} onPress={() => {
                 if (!valid) return;
-                onSave({ id: entry?.id ?? randomUUID(), label: label.trim(), text });
-            }}><Text style={{ color: theme.colors.button.primary.tint, fontSize: 14, fontWeight: '600' }}>Save reply</Text></Pressable>
+                onSave({ id: entry?.id ?? randomUUID(), kind, label: label.trim(), text });
+            }}><Text style={{ color: theme.colors.button.primary.tint, fontSize: 14, fontWeight: '600' }}>Save</Text></Pressable>
         </View>
     </View>;
 }

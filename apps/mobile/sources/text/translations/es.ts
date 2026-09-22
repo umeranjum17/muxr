@@ -382,6 +382,8 @@ export const es: TranslationStructure = {
         thisAgent: 'este agente',
         sent: ({ command }: { command: string }) => `Enviado ${command}`,
         commonReplies: 'Respuestas frecuentes',
+        yourCommands: 'Tus comandos',
+        editQuickActions: 'Editar respuestas y comandos…',
     },
 
 

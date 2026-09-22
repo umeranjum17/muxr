@@ -384,6 +384,8 @@ export const ja: TranslationStructure = {
         thisAgent: 'このエージェント',
         sent: ({ command }: { command: string }) => `${command}を送信しました`,
         commonReplies: 'よく使う返信',
+        yourCommands: '自分のコマンド',
+        editQuickActions: '返信とコマンドを編集…',
     },
 
 

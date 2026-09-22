@@ -384,6 +384,8 @@ export const zhHans: TranslationStructure = {
         thisAgent: '该代理',
         sent: ({ command }: { command: string }) => `已发送 ${command}`,
         commonReplies: '常用回复',
+        yourCommands: '你的命令',
+        editQuickActions: '编辑回复和命令…',
     },
 
 

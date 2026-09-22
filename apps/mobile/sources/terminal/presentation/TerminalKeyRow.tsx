@@ -11,12 +11,6 @@ const ARROWS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
     '\u001b[D': 'arrow-back', '\u001b[A': 'arrow-up', '\u001b[B': 'arrow-down', '\u001b[C': 'arrow-forward',
 };
 
-export const TERMINAL_QUICK_REPLIES: readonly { label: string; text: string }[] = [
-    { label: 'Continue', text: 'Continue with the current task.' },
-    { label: 'Run tests', text: 'Run the relevant tests and report any failures.' },
-    { label: 'Summarize', text: 'Summarize what changed and what remains.' },
-];
-
 // Sticky modifiers: tap = applies to the next key, tap again =
 // locked until tapped once more. A touchscreen makes hold-and-reach a
 // two-thumb dance; the lock covers a run of chords without re-arming between
