@@ -321,10 +321,11 @@ still valid.
 {"id":12,"method":"session.close","params":{"session_id":"…"}}
 ```
 
-Closes are idempotent and terminal for that session: held input is released,
-capture stops, the peer is closed and the consent-bearing PipeWire stream is
-dropped. A `stop` for a generation that is no longer current is a no-op and
-never closes a newer session.
+Closing is terminal for that session: held input is released, capture stops,
+the peer is closed and the consent-bearing PipeWire stream is dropped. A close
+naming a generation that is no longer current is refused with
+`error.code = "generation"` and never closes a newer session; a close for a
+session that has already ended is refused with `error.code = "session"`.
 
 ```jsonc
 {"id":13,"method":"shutdown"}

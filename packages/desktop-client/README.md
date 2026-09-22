@@ -9,13 +9,16 @@ the application.
 
 ## Install
 
-The package contains native code and is not an Expo Go package.
+The package contains native code and is not an Expo Go package. It is not
+published to npm yet: inside this repository it resolves through the workspace,
+and the command below is what a consumer outside it will run once it is.
 
 ```sh
 npx expo install @desklink/react-native      # or yarn add, then prebuild/rebuild
 ```
 
-Android only today. `expo-module.config.json` declares that honestly rather than
+Android as a native module, plus the browser, which brings its own WebRTC.
+`expo-module.config.json` declares the native side honestly rather than
 compiling an untested stub for other platforms; `ios/DEFERRED.md` lists exactly
 what an iOS backend has to implement.
 
