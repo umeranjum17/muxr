@@ -22,7 +22,7 @@ import {
 import { realtimeCallLabel } from '../domain/micOwnership';
 import { voiceFailure } from '../domain/voiceFailure';
 
-type TranscriptRowMeasurement = { index: number; y: number; height: number };
+type TranscriptRowMeasurement = { y: number; height: number };
 type FrameHandle =
     | { kind: 'animation'; id: number }
     | { kind: 'timeout'; id: ReturnType<typeof setTimeout> };
@@ -68,31 +68,42 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     const [orbRoom, setOrbRoom] = React.useState<number | undefined>(undefined);
     const transcript = React.useRef<ScrollView>(null);
     const transcriptRows = React.useRef(new Map<number, TranscriptRowMeasurement>());
-    const transcriptMetrics = React.useRef({ viewportHeight: 0, contentHeight: 0 });
+    const transcriptViewport = React.useRef(0);
     const transcriptFrame = React.useRef<FrameHandle | undefined>(undefined);
+    // Room under the newest row that lets the window start on a whole row.
+    const [transcriptTail, setTranscriptTail] = React.useState(0);
+    const appliedTranscriptTail = React.useRef(0);
     const turnsForTranscript = turns.slice(-24);
 
     const scheduleTranscriptPosition = React.useCallback(() => {
         if (transcriptFrame.current !== undefined) cancelFrame(transcriptFrame.current);
         transcriptFrame.current = scheduleFrame(() => {
             transcriptFrame.current = undefined;
-            const { viewportHeight, contentHeight } = transcriptMetrics.current;
-            if (viewportHeight <= 0 || contentHeight <= 0) return;
-            const bottom = Math.max(0, contentHeight - viewportHeight);
-            if (bottom === 0) {
-                transcript.current?.scrollTo({ y: 0, animated: false });
+            const viewport = transcriptViewport.current;
+            const rows = [...transcriptRows.current.values()].sort((left, right) => left.y - right.y);
+            const newest = rows.at(-1);
+            // Unmeasured, the layout is still settling; the next measurement
+            // schedules this again.
+            if (viewport <= 0 || newest === undefined) return;
+            // Scrolling to the end puts the window's top edge on a pixel that
+            // usually falls inside an older row, leaving that row's tail as a
+            // fragment under the status label. Start the window at the first
+            // row that begins at or below that edge instead: it and every newer
+            // row are whole, the newest included. A newest row taller than the
+            // window is shown from its own start.
+            const bottom = Math.max(0, newest.y + newest.height + TRANSCRIPT_INSET - viewport);
+            const first = rows.find((row) => row.y - TRANSCRIPT_INSET >= bottom) ?? newest;
+            const target = bottom === 0 ? 0 : Math.max(0, first.y - TRANSCRIPT_INSET);
+            // A ScrollView cannot scroll past its content, so the window gets
+            // the difference as room under the newest row.
+            const tail = Math.max(0, Math.ceil(target - bottom));
+            if (tail !== appliedTranscriptTail.current) {
+                appliedTranscriptTail.current = tail;
+                setTranscriptTail(tail);
+                // The content grows with it and that change schedules the scroll.
                 return;
             }
-            const rows = [...transcriptRows.current.values()];
-            const newest = rows.reduce<TranscriptRowMeasurement | undefined>((latest, row) => (latest === undefined || row.index > latest.index ? row : latest), undefined);
-            const target = newest !== undefined && newest.y > bottom
-                ? bottom
-                : rows.filter((row) => row.y <= bottom).sort((left, right) => left.y - right.y).at(-1)?.y;
-            // No measured boundary means the layout is still settling. Wait
-            // for the next row measurement rather than choosing a pixel inside
-            // an arbitrary transcript row.
-            if (target === undefined) return;
-            transcript.current?.scrollTo({ y: Math.max(0, Math.min(target, bottom)), animated: false });
+            transcript.current?.scrollTo({ y: target, animated: false });
         });
     }, []);
 
@@ -110,7 +121,7 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
 
     React.useEffect(() => {
         scheduleTranscriptPosition();
-    }, [insets.bottom, insets.top, scheduleTranscriptPosition, viewportHeight, viewportWidth]);
+    }, [insets.bottom, insets.top, scheduleTranscriptPosition, transcriptTail, viewportHeight, viewportWidth]);
 
     // The voice is attached to a working session; what that session is doing is
     // the other half of "what is happening right now".
@@ -274,25 +285,22 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
                 <ScrollView
                     ref={transcript}
                     style={{ flex: 1, alignSelf: 'stretch' }}
-                    contentContainerStyle={{ paddingVertical: 8, gap: 10 }}
+                    contentContainerStyle={{ paddingTop: TRANSCRIPT_INSET, paddingBottom: TRANSCRIPT_INSET + transcriptTail, gap: 10 }}
                     showsVerticalScrollIndicator={false}
                     onLayout={(event) => {
-                        transcriptMetrics.current.viewportHeight = Math.max(0, event.nativeEvent.layout.height);
+                        transcriptViewport.current = Math.max(0, event.nativeEvent.layout.height);
                         scheduleTranscriptPosition();
                     }}
-                    onContentSizeChange={(_width, height) => {
-                        transcriptMetrics.current.contentHeight = Math.max(0, height);
-                        scheduleTranscriptPosition();
-                    }}
+                    onContentSizeChange={scheduleTranscriptPosition}
                 >
-                    {turnsForTranscript.map((turn, index) => (
+                    {turnsForTranscript.map((turn) => (
                         <View
                             key={turn.id}
                             onLayout={(event) => {
                                 const { y, height } = event.nativeEvent.layout;
-                                const next = { index, y: Math.max(0, y), height: Math.max(0, height) };
+                                const next = { y: Math.max(0, y), height: Math.max(0, height) };
                                 const previous = transcriptRows.current.get(turn.id);
-                                if (previous?.index === next.index && previous.y === next.y && previous.height === next.height) return;
+                                if (previous?.y === next.y && previous.height === next.height) return;
                                 transcriptRows.current.set(turn.id, next);
                                 scheduleTranscriptPosition();
                             }}
@@ -343,6 +351,8 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
     );
 });
 
+/** Space above the first transcript row and below the last. */
+const TRANSCRIPT_INSET = 8;
 /** The size the dust cloud is drawn for; it shrinks from here when the words need the room. */
 const ORB_SIZE = 240;
 /**

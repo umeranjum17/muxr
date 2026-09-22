@@ -249,8 +249,12 @@ function agentKindLabel(agent: RealtimeCodingAgent): string {
     return agent.agentKind === undefined ? 'Unknown provider' : kindLabel(agent.agentKind);
 }
 
+// People name an agent by where they see it -- "the first mate" for the one
+// agent in the firstmate workspace -- so the workspace is a label too. A
+// workspace holding several agents matches all of them, which only ever asks
+// which one.
 function agentLabels(agent: RealtimeCodingAgent): string[] {
-    return [agent.agentName, agent.taskTitle, agent.displayAgent,
+    return [agent.agentName, agent.taskTitle, agent.displayAgent, agent.workspace,
         agent.agentName && agent.taskTitle ? `${agent.agentName}, ${agent.taskTitle}` : undefined,
         agent.agentName && agent.taskTitle ? `${agent.taskTitle}, ${agent.agentName}` : undefined,
     ].filter((label): label is string => Boolean(label));
