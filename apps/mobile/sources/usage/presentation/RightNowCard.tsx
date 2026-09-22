@@ -154,46 +154,75 @@ function FreshnessRow({ payload, failed, refreshing, throttledSeconds, onRefresh
     );
 }
 
-/** The height of one figure line; the mark is locked to it so every provider
+/** The height of one provider row; the mark is locked to it so every provider
  *  shares a baseline however many windows it publishes. */
-const FIGURE_LINE = 15;
+const FIGURE_LINE = 18;
 
-/** One line per connected provider: its mark, then every quota window as a
- *  named figure. One line each is what makes the entries comparable -- the
- *  stacked columns this replaces gave each provider a different height and a
- *  different centre, and printed bare percentages that named no window.
- *  Providers publish different numbers of windows, so the rows end at
- *  different widths; they never start at different heights. */
+/** Below this share remaining a plan is close enough to its ceiling to be worth
+ *  reading before the others. Presentation only -- what the windows mean is the
+ *  host's to decide; this is only which figure the eye should land on. */
+const LOW_REMAINING = 15;
+
+/**
+ * One line per connected plan, with one figure carrying it.
+ *
+ * The tightest window -- the one that runs out first -- is the plan's headline:
+ * full size, and toned once it is close to its ceiling, so the plan in trouble
+ * is the thing seen first without reading anything. Its other windows stay on
+ * the same line behind it, quieter and smaller, because they are context rather
+ * than the answer.
+ *
+ * What this replaces was a stacked column of bare percentages per plan: every
+ * plan a different height, every mark on a different centre, and no number
+ * saying which window it measured.
+ */
 function ConnectedStrip({ providers }: { providers: UsageConnectedProvider[] }) {
     return (
-        <View style={{ flexShrink: 1, rowGap: 3 }}>
-            {providers.map((provider) => (
-                <View key={provider.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}
-                    accessibilityLabel={providerSummary(provider)}>
-                    <View style={{ height: FIGURE_LINE, justifyContent: 'center' }}>
-                        <AgentGlyph name={provider.glyph ?? provider.id} size={14} />
-                    </View>
-                    <View style={{ flexShrink: 1, flexDirection: 'row', flexWrap: 'wrap', columnGap: 8, rowGap: 1 }}>
-                        {provider.windows.map((window, index) => <WindowFigure key={index} window={window} />)}
-                    </View>
-                </View>
-            ))}
+        <View style={{ flexShrink: 1, rowGap: 4 }}>
+            {providers.map((provider) => <ProviderRow key={provider.id} provider={provider} />)}
         </View>
     );
 }
 
-/** One window as a figure that says what it is: the published length when the
- *  host knows one ("5h", "7d"), otherwise the window's own name ("Monthly").
- *  A window with nothing left is the one fact worth colouring. */
-function WindowFigure({ window }: { window: UsageLimitsWindow }) {
+function ProviderRow({ provider }: { provider: UsageConnectedProvider }) {
     const { theme } = useUnistyles();
-    const left = Math.max(0, 100 - Math.round(window.used));
+    const lead = leadWindow(provider.windows);
+    if (lead === undefined) return null;
+    const rest = provider.windows.filter((window) => window !== lead);
+    const left = remainingOf(lead);
+    const tone = left === 0 ? 'danger' : left <= LOW_REMAINING ? 'warning' : undefined;
     return (
-        <Text numberOfLines={1} style={{ fontSize: 11.5, lineHeight: FIGURE_LINE, ...Typography.mono('regular') }}>
-            <Text style={{ color: theme.colors.textSecondary }}>{`${windowTag(window)}\u00a0`}</Text>
-            <Text style={{ color: left === 0 ? theme.colors.textDestructive : theme.colors.text }}>{`${left}%`}</Text>
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 7 }}
+            accessibilityLabel={providerSummary(provider)}>
+            <View style={{ height: FIGURE_LINE, justifyContent: 'center' }}>
+                <AgentGlyph name={provider.glyph ?? provider.id} size={14} />
+            </View>
+            <View style={{ flexShrink: 1, flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', columnGap: 7 }}>
+                <Text numberOfLines={1} style={{ fontSize: 14, lineHeight: FIGURE_LINE, ...Typography.mono('semiBold'),
+                    color: tone === undefined ? theme.colors.text : toneColor(theme, tone) }}>
+                    <Text>{`${left}%`}</Text>
+                    <Text style={{ fontSize: 10.5, ...Typography.mono('regular'), color: theme.colors.textSecondary }}>{`\u00a0${windowTag(lead)}`}</Text>
+                </Text>
+                {rest.map((window, index) => (
+                    <Text key={index} numberOfLines={1} style={{ fontSize: 10.5, lineHeight: FIGURE_LINE, ...Typography.mono('regular'), color: withAlpha(theme.colors.textSecondary, 0.85) }}>
+                        {`${remainingOf(window)}%\u00a0${windowTag(window)}`}
+                    </Text>
+                ))}
+            </View>
+        </View>
     );
+}
+
+/** The window that runs out first: the one worth leading with. */
+function leadWindow(windows: UsageLimitsWindow[]): UsageLimitsWindow | undefined {
+    return windows.reduce<UsageLimitsWindow | undefined>(
+        (tightest, window) => (tightest === undefined || remainingOf(window) < remainingOf(tightest) ? window : tightest),
+        undefined,
+    );
+}
+
+function remainingOf(window: UsageLimitsWindow): number {
+    return Math.max(0, 100 - Math.round(window.used));
 }
 
 /** The shortest name that still says which window a figure belongs to. */
@@ -210,11 +239,18 @@ function hasConnectedStrip(payload: UsageNow): boolean {
 /** One sentence per provider for the reader: "OpenCode Go: 5h 100% left, 7d
  *  32% left". The window names the figures carry on screen are read out too;
  *  a list of bare percentages says as little aloud as it does in print. */
+function orderedWindows(provider: UsageConnectedProvider): UsageLimitsWindow[] {
+    // Read in the order the row shows them, tightest first: the figure the eye
+    // lands on and the one a reader hears should be the same one.
+    const lead = leadWindow(provider.windows);
+    return lead === undefined ? provider.windows : [lead, ...provider.windows.filter((window) => window !== lead)];
+}
+
 function providerSummary(provider: UsageConnectedProvider): string {
     return t('plugins.rightNow.planRemaining', {
         plan: provider.plan ?? provider.label,
-        remainings: provider.windows
-            .map((window) => `${windowTag(window)} ${t('plugins.limits.percentLeft', { percent: Math.max(0, 100 - Math.round(window.used)) })}`)
+        remainings: orderedWindows(provider)
+            .map((window) => `${windowTag(window)} ${t('plugins.limits.percentLeft', { percent: remainingOf(window) })}`)
             .join(', '),
     });
 }
