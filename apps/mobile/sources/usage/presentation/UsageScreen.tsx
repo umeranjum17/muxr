@@ -53,10 +53,10 @@ export function UsageScreen() {
     React.useSyncExternalStore(subscribeUsage, usageWrites);
     const display = shownUsage(provider) ?? NOTHING_SHOWN_YET;
     const [refreshing, setRefreshing] = React.useState(false);
-    // The last read did not produce figures: the card's own rule, so a refresh
-    // that failed behind figures a reader can see is named rather than passed
-    // off as a refresh that worked.
-    const [failed, setFailed] = React.useState(false);
+    // The tab whose last read did not produce figures: the card's own rule, so a
+    // refresh that failed behind figures a reader can see is named rather than
+    // passed off as a refresh that worked -- and named for that tab only.
+    const [failedTab, setFailedTab] = React.useState<string | undefined>(undefined);
     // Any read in flight. It drives the hairline and the refresh control, never
     // the figures: what is on screen stays there until a newer answer lands.
     const [busy, setBusy] = React.useState(false);
@@ -70,7 +70,8 @@ export function UsageScreen() {
     // outstanding: a read abandoned before that has no answer coming.
     const claim = React.useRef<{ target: string; at: number } | undefined>(undefined);
     const error = display.status === 'unavailable' ? (display.reason === '' ? t('plugins.rightNow.unavailable') : display.reason) : undefined;
-    rejected.current = display.status === 'unavailable';
+    const failed = failedTab === provider;
+    rejected.current = failed || display.status === 'unavailable';
 
     const report = display.status === 'figures' ? reportFrom(display.figures, provider) : undefined;
     const tabs = report?.providers ?? knownProviders();
@@ -88,9 +89,17 @@ export function UsageScreen() {
         inFlight.current = true;
         setBusy(true);
         lastForced.current = claimedAtMs;
+        // This read supersedes whatever was in flight: that answer will be
+        // dropped, so its claim goes with it now rather than a window later.
+        const superseded = claim.current;
+        if (superseded !== undefined) releaseAsked(superseded.target, superseded.at);
         noteAsked(target, claimedAtMs);
         claim.current = { target, at: claimedAtMs };
-        const abandon = () => { const held = claim.current; if (held !== undefined && held.target === target && held.at === claimedAtMs) { claim.current = undefined; releaseAsked(target, claimedAtMs); } };
+        const abandon = () => {
+            releaseAsked(target, claimedAtMs);
+            const held = claim.current;
+            if (held !== undefined && held.target === target && held.at === claimedAtMs) claim.current = undefined;
+        };
         // A tab already showing figures keeps them: this is a read running
         // behind an answer, not a reason to take that answer away.
         const before = shownUsage(target);
@@ -99,14 +108,14 @@ export function UsageScreen() {
             .then((value) => {
                 if (request !== version.current) { abandon(); return; }
                 claim.current = undefined;
-                setFailed(false);
+                setFailedTab((current) => (current === target ? undefined : current));
                 const previous = shownUsage(target);
                 rememberShown(target, { status: 'figures', at: Date.now(), figures: withReport(previous?.status === 'figures' ? previous.figures : undefined, value) });
             })
             .catch((cause: unknown) => {
                 if (request !== version.current) { abandon(); return; }
                 claim.current = undefined;
-                setFailed(true);
+                setFailedTab(target);
                 const previous = shownUsage(target);
                 if (previous === undefined || previous.status !== 'figures') {
                     rememberShown(target, { status: 'unavailable', reason: cause instanceof Error ? cause.message : String(cause), ...measured(previous ?? {}) });
@@ -128,15 +137,19 @@ export function UsageScreen() {
             });
     }, []);
 
-    /** One ask for a tab, or none: our own window decides, and the request it
-     *  sends is the collection itself. Inside the window the screen paints what
-     *  the shared memory holds and asks nothing; a tab nobody has asked is an
-     *  open window with no record. `replace` lets a tab change through while
-     *  another tab's read is still in flight. */
+    /** One ask for a tab, or none. Our own window decides, with one exception:
+     *  a record only answers the question it can answer, and a card's usage.now
+     *  figures name no tabs, so a screen holding only those asks once for the
+     *  host's own tab list -- and that ask claims the window like any other, so
+     *  the window governs every mount after it. A tab showing a wait or a
+     *  failure is not asked for again: what it holds is the truth about it.
+     *  `replace` lets a tab change through while another read is in flight. */
     const loadIfDue = React.useCallback((target: string, replace = false): void => {
         if (inFlight.current && !replace) return;
         const now = Date.now();
-        if (!collectionDue(target, now)) return;
+        const stored = shownUsage(target);
+        const figuresWithoutTabs = stored !== undefined && stored.status === 'figures' && stored.figures.providers === undefined;
+        if (!collectionDue(target, now) && !figuresWithoutTabs) return;
         void load(target, now);
     }, [load]);
 

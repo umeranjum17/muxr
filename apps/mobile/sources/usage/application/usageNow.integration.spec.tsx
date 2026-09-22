@@ -729,13 +729,16 @@ describe('the usage screen read path', () => {
         TestRenderer.act(() => { screen.unmount(); });
 
         // The card's own read answers with usage.now figures: the screen paints
-        // the limits it carries and dashes the activity it never had.
+        // the limits it carries and dashes the activity it never had, and asks
+        // for the tab list that record cannot name.
         rememberShown('', { status: 'figures', at: claimed, figures: withNow(undefined, collected(undefined, 20)) });
+        request.mockImplementation(() => Promise.resolve(report('claude', 60)));
         screen = renderScreen();
-        await tick();
         expect(screenText(screen)).toContain('—');
-        expect(request).toHaveBeenCalledTimes(0);
+        await tick();
+        expect(request).toHaveBeenCalledTimes(1);
         TestRenderer.act(() => { screen.unmount(); });
+        request.mockClear();
 
         // A failure says so, with the way back.
         rememberShown('', { status: 'unavailable', reason: 'host unreachable' });
@@ -809,9 +812,10 @@ describe('the usage screen read path', () => {
         noteAsked('', Date.now());
         rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, { limits: { verdict: 'unknown', windows: [], message: "Plan limits aren't connected" }, ageSeconds: 20 }) });
         request.mockClear();
+        request.mockImplementation(() => new Promise<UsageReport>(() => undefined));
         const screen = renderScreen();
         await tick();
-        expect(request).toHaveBeenCalledTimes(0);
+        expect(request).toHaveBeenCalledTimes(1);
         expect(screen.root.findAllByType('ScreenLimits').length).toBeGreaterThan(0);
         expect(screenText(screen)).toContain('—');
     });
@@ -875,6 +879,109 @@ describe('the usage screen read path', () => {
         expect(screenText(screen)).toContain('OpenCode');
         expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
         expect(refreshControls(screen)[0].props.accessibilityLabel).toContain('plugins.rightNow.refreshFailed');
+    });
+
+    it('asks for the host tab list when the record it holds names no tabs, then asks nothing more', async () => {
+        // The card asked first and wrote its own figures: limits and plans, no
+        // tab list. That record answers the card's question, not this screen's.
+        const claimed = Date.now();
+        noteAsked('', claimed);
+        rememberShown('', { status: 'figures', at: claimed, figures: withNow(undefined, collected(undefined, 20)) });
+        request.mockClear();
+        request.mockResolvedValue(report('claude', 60));
+        let screen = renderScreen();
+        await tick();
+
+        // One ask, and every tab the host names is there.
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(screenText(screen)).toContain('Claude');
+        expect(screenText(screen)).toContain('OpenCode');
+
+        // That ask claimed the window, so a second view asks nothing.
+        TestRenderer.act(() => { screen.unmount(); });
+        request.mockClear();
+        screen = renderScreen();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(0);
+        expect(screenText(screen)).toContain('OpenCode');
+    });
+
+    it('asks nothing inside the window when the record answers this screen', async () => {
+        const claimed = Date.now();
+        noteAsked('', claimed);
+        rememberShown('', { status: 'figures', at: claimed, figures: withReport(undefined, report('claude', 60)) });
+        request.mockClear();
+        const screen = renderScreen();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(0);
+        expect(screenText(screen)).toContain('OpenCode');
+    });
+
+    it('leaves the tab of a superseded read askable again', async () => {
+        let hanging = false;
+        request.mockImplementation((method: string, params?: { provider?: string }) => {
+            if (method === 'usage.now') return Promise.resolve(collected());
+            if (hanging) return new Promise<UsageReport>(() => undefined);
+            return Promise.resolve(report(params?.provider ?? 'claude', 60));
+        });
+        const screen = renderScreen();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(1);
+
+        // The window opens and its read is in flight when a tab switch takes
+        // over: the default tab's answer is dropped, so its claim goes with it.
+        hanging = true;
+        await tick(FRESH_MS);
+        expect(request).toHaveBeenCalledTimes(2);
+        press(screen, 'Claude');
+        await tick();
+
+        // The abandoned claim went with its read: the card, which reads the same
+        // tab, is not locked out of it.
+        request.mockClear();
+        const card = renderCard();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(1);
+        TestRenderer.act(() => { card.unmount(); });
+    });
+
+    it('names a failure for the tab it happened on, not for the tab selected next', async () => {
+        // opencode has healthy figures of its own, inside its window.
+        noteAsked('opencode', Date.now());
+        rememberShown('opencode', { status: 'figures', at: Date.now(), figures: withReport(undefined, report('opencode', 60)) });
+        request.mockImplementation((_method: string, params?: { provider?: string }) => (params?.provider === 'claude'
+            ? Promise.reject(new Error('host unreachable'))
+            : Promise.resolve(report('claude', 60))));
+        const screen = renderScreen();
+        await tick();
+        press(screen, 'Claude');
+        await tick();
+        expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
+
+        // Switching to a tab that never failed does not carry the word over.
+        press(screen, 'OpenCode');
+        await tick();
+        expect(screenText(screen)).not.toContain('plugins.rightNow.refreshFailed');
+    });
+
+    it('lets a retry press reach the host after a rejection behind figures', async () => {
+        request.mockResolvedValueOnce(report('claude', 60)).mockRejectedValue(new Error('host unreachable'));
+        const screen = renderScreen();
+        await tick();
+        expect(screenText(screen)).toContain('OpenCode');
+
+        // A refresh that fails behind figures keeps them and is named at the
+        // control...
+        await tick(11_000);
+        TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
+        await tick();
+        expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
+
+        // ...and the retry is not throttled: the rejected read spent no quota.
+        const before = request.mock.calls.length;
+        TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
+        await tick();
+        expect(request.mock.calls.length).toBeGreaterThan(before);
     });
 
     it('collects exactly once per window for a tab the host has nothing stored for', async () => {

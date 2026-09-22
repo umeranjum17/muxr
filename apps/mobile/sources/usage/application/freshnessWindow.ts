@@ -79,6 +79,7 @@ export type UsageDisplay =
 /** The figures a usage.now read adds to what this tab holds. */
 export function withNow(previous: UsageFigures | undefined, value: UsageNow): UsageFigures {
     return {
+        ...(previous?.providers === undefined ? {} : { providers: previous.providers }),
         ...(previous?.activity === undefined ? {} : { activity: previous.activity }),
         limits: value.limits,
         ...(value.connected === undefined ? {} : { connected: value.connected }),
