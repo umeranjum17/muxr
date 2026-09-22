@@ -417,7 +417,6 @@ async fn dispatch(
                 max_height: params.max_height,
                 bitrate_kbps: params.bitrate_kbps,
                 max_fps: params.max_fps,
-                relay_only: params.relay_only,
                 restore_token: params.restore_token,
                 ttl: params.ttl_seconds.map(Duration::from_secs),
                 ice_servers: params
@@ -448,16 +447,6 @@ async fn dispatch(
             *current = Some(session);
             Ok(result)
         }
-        "sources" => Ok(serde_json::json!({
-            "granted": current.is_some(),
-            "sources": current.as_ref().map(|session| serde_json::json!([{
-                "id": session.source().node_id.to_string(),
-                "kind": session.restore_source(),
-                "width": session.source().width,
-                "height": session.source().height,
-                "origin": { "x": session.source().origin_x, "y": session.source().origin_y },
-            }])).unwrap_or_else(|| serde_json::json!([])),
-        })),
         "session.description" => {
             let session = require_session(current)?;
             let params: protocol::DescriptionParams =

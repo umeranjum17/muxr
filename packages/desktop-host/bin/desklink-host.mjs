@@ -51,6 +51,7 @@ Set MUXR_DESKLINK_ENGINE to use an engine built somewhere else.`);
         };
         const listen = flag('listen', '127.0.0.1:19400');
         const token = flag('token', randomBytes(24).toString('base64url'));
+        if (typeof token !== 'string' || token.trim() === '') throw new Error('the bridge token must not be blank');
         const sourceKind = flag('source', process.env.MUXR_DESKTOP_SOURCE ?? 'portal');
         const display = flag('display', process.env.MUXR_DESKTOP_X11_DISPLAY);
         const bridge = await Bridge.start({

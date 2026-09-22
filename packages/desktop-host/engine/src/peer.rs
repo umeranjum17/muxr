@@ -24,7 +24,6 @@ use rtc::media_stream::MediaStreamTrack;
 use rtc::peer_connection::configuration::interceptor_registry::register_default_interceptors;
 use rtc::peer_connection::configuration::media_engine::{MediaEngine, MIME_TYPE_VP9};
 use rtc::peer_connection::configuration::RTCConfigurationBuilder;
-use rtc::peer_connection::configuration::RTCIceTransportPolicy;
 use rtc::peer_connection::event::RTCPeerConnectionIceEvent;
 use rtc::peer_connection::sdp::RTCSessionDescription;
 use rtc::peer_connection::transport::{RTCIceCandidateInit, RTCIceServer};
@@ -84,7 +83,6 @@ pub enum PeerEvent {
 /// Transport settings the consumer chose for this session.
 pub struct TransportOptions {
     pub ice_servers: Vec<(String, Option<String>, Option<String>)>,
-    pub relay_only: bool,
     /// The rate video packets are released at, in bits per second.
     pub pace_bps: f64,
 }
@@ -406,12 +404,6 @@ impl VideoPeer {
                     .collect(),
             );
         }
-        if options.relay_only {
-            builder = builder.with_ice_transport_policy(
-                RTCIceTransportPolicy::Relay,
-            );
-        }
-
         let wants_keyframe = Arc::new(AtomicBool::new(true));
         let connected = Arc::new(AtomicBool::new(false));
         let control_events = events.clone();
@@ -644,7 +636,6 @@ mod tests {
         let (peer, _offer) = VideoPeer::offer(
             TransportOptions {
                 ice_servers: Vec::new(),
-                relay_only: false,
                 pace_bps: 20_000_000.0,
             },
             events,
@@ -669,7 +660,6 @@ mod tests {
         let (peer, offer) = VideoPeer::offer(
             TransportOptions {
                 ice_servers: Vec::new(),
-                relay_only: false,
                 pace_bps: 20_000_000.0,
             },
             events,

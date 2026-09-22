@@ -323,7 +323,6 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
                 bitrate_kbps: authorization.session.bitrateKbps,
                 max_fps: authorization.session.maxFps,
                 ice_servers: serializeIceServers(authorization.session.iceServers),
-                relay_only: authorization.session.relayOnly ?? false,
                 restore_token: authorization.session.restoreToken,
                 ttl_seconds: authorization.session.ttlSeconds,
             });
@@ -347,7 +346,6 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         const platform = nativeDesklink;
         const id = platform === null ? null : platform.createSession(
             JSON.stringify(authorization.session.iceServers ?? []),
-            authorization.session.relayOnly ?? false,
         );
         if (id == null) {
             refuse('the native session could not be created');

@@ -89,12 +89,17 @@ function requestOn(socket: WebSocket, id: number, method: string, params: Record
 
 describe('the bridge', () => {
     it('refuses a socket without the token and serves the protocol with it', async () => {
+        await expect(Bridge.start({ listen: '127.0.0.1:0', token: '  ', engineCommand: process.execPath, engineArgs: [] }))
+            .rejects.toThrow(/token/);
         const { port, localEvents } = await startBridge('s3cret');
         await expect(connect(port, 'token=wrong')).rejects.toThrow(/refused|401/);
 
         const socket = await connect(port, 'token=s3cret');
         const received: string[] = [];
         socket.on('message', (raw) => received.push(String(raw)));
+        const malformed = new Promise<string>((resolve) => socket.once('message', (raw) => resolve(String(raw))));
+        socket.send('null');
+        expect(JSON.parse(await malformed)).toMatchObject({ error: { code: 'malformed' } });
         const opened = await requestOn(socket, 1, 'session.open');
         expect(opened).toMatchObject({ sessionId: 'engine-1', generation: 1 });
         expect((opened.geometry as { encoded: unknown }).encoded).toEqual({ width: 100, height: 100 });
@@ -202,6 +207,55 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         expect(seen).toEqual([]);
         await requestOn(socket, 2, 'session.open');
         expect(seen).toEqual([{ kind: 'x11', display: ':99' }]);
+    }, 20_000);
+
+    it('closes a late open when its requesting socket disconnects', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-bridge-'));
+        const script = join(directory, 'engine.cjs');
+        const log = join(directory, 'engine.log');
+        writeFileSync(script, `
+const fs = require('node:fs');
+const readline = require('node:readline');
+const out = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
+readline.createInterface({ input: process.stdin }).on('line', (line) => {
+  const request = JSON.parse(line);
+  if (request.method === 'hello') return out({ id: request.id, result: { protocol: 2 } });
+  if (request.method === 'session.open') {
+    out({ event: 'opening', params: {} });
+    return setTimeout(() => out({ id: request.id, result: { sessionId: 'late', generation: 1 } }), 100);
+  }
+  if (request.method === 'session.close') {
+    fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(request.params));
+    return out({ id: request.id, result: { closed: true } });
+  }
+  if (request.method === 'shutdown') process.exit(0);
+});
+`);
+        const bridge = await Bridge.start({
+            listen: '127.0.0.1:0', token: 't', engineCommand: process.execPath,
+            engineArgs: [script], serveExample: false,
+        });
+        bridges.push(bridge);
+        const first = await connect(bridge.port, 'token=t');
+        const other = await connect(bridge.port, 'token=t');
+        const opening = new Promise<void>((resolve) => {
+            first.on('message', (raw) => {
+                if (JSON.parse(String(raw)).event === 'opening') resolve();
+            });
+        });
+        first.send(JSON.stringify({ id: 1, method: 'session.open', params: {} }));
+        await opening;
+        first.close();
+        await new Promise<void>((resolve) => first.once('close', () => resolve()));
+        const closed = (): string => {
+            try { return readFileSync(log, 'utf8'); } catch { return ''; }
+        };
+        const deadline = Date.now() + 5000;
+        while (!closed() && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(closed()).toBe('{"session_id":"late","generation":1}');
+        expect(other.readyState).toBe(WebSocket.OPEN);
     }, 20_000);
 
     it('closes the engine session when its last consumer goes away, and only then', async () => {

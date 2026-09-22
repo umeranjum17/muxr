@@ -187,6 +187,7 @@ struct InputTarget {
     held: HeldState,
     explicit_modifiers: Vec<i16>,
     chord_modifiers: Vec<i16>,
+    chord_keys: Vec<(i16, Vec<i16>)>,
     /// Fractions of a detent an X server, which only knows whole wheel clicks,
     /// has not been sent yet.
     wheel_rest: (f64, f64),
@@ -292,10 +293,30 @@ impl InputTarget {
         Ok(())
     }
 
+    fn chord(&mut self, code: i16, modifiers: Vec<i16>, down: bool) -> Result<()> {
+        if down {
+            if self.chord_keys.iter().any(|(held, _)| *held == code) { return Ok(()); }
+            self.check_keys(modifiers.iter().copied().chain(std::iter::once(code)))?;
+            for modifier in &modifiers {
+                self.modifier(*modifier, true, false)?;
+            }
+            self.key(code, true)?;
+            self.chord_keys.push((code, modifiers));
+        } else if let Some(index) = self.chord_keys.iter().position(|(held, _)| *held == code) {
+            self.key(code, false)?;
+            let (_, modifiers) = self.chord_keys.remove(index);
+            for modifier in modifiers.iter().rev() {
+                self.modifier(*modifier, false, false)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Release exactly what this session pressed, once, buttons before keys.
     fn release_all(&mut self) -> Result<()> {
         self.explicit_modifiers.clear();
         self.chord_modifiers.clear();
+        self.chord_keys.clear();
         let (buttons, keys) = self.held.release_plan();
         for button in buttons {
             match &mut self.applier {
@@ -364,7 +385,6 @@ pub struct OpenRequest {
     pub bitrate_kbps: u32,
     pub max_fps: u32,
     pub ice_servers: Vec<(String, Option<String>, Option<String>)>,
-    pub relay_only: bool,
     pub restore_token: Option<String>,
     pub ttl: Option<Duration>,
 }
@@ -582,6 +602,7 @@ impl Session {
                     held: HeldState::default(),
                     explicit_modifiers: Vec::new(),
                     chord_modifiers: Vec::new(),
+                    chord_keys: Vec::new(),
                     wheel_rest: (0.0, 0.0),
                 },
                 None => InputTarget {
@@ -593,6 +614,7 @@ impl Session {
                     held: HeldState::default(),
                     explicit_modifiers: Vec::new(),
                     chord_modifiers: Vec::new(),
+                    chord_keys: Vec::new(),
                     wheel_rest: (0.0, 0.0),
                 },
             })
@@ -605,7 +627,6 @@ impl Session {
         let (peer, offer) = VideoPeer::offer(
             TransportOptions {
                 ice_servers: request.ice_servers.clone(),
-                relay_only: request.relay_only,
                 // Well above the rate target, so pacing only spreads a large
                 // frame over a few tens of milliseconds and never queues.
                 pace_bps: (bitrate_kbps as f64 * 3_000.0).max(20_000_000.0),
@@ -979,21 +1000,7 @@ impl Inner {
         requested.sort_unstable();
         requested.dedup();
 
-        self.with_input(|target| {
-            target.check_keys(requested.iter().copied().chain(std::iter::once(stroke.code)))?;
-            if down {
-                for modifier in &requested {
-                    target.modifier(*modifier, true, false)?;
-                }
-            }
-            target.key(stroke.code, down)?;
-            if !down {
-                for modifier in requested.iter().rev() {
-                    target.modifier(*modifier, false, false)?;
-                }
-            }
-            Ok(())
-        })
+        self.with_input(|target| target.chord(stroke.code, requested, down))
     }
 
     fn text(&self, text: &str, seq: u64) -> std::result::Result<(), (&'static str, String)> {
@@ -1536,7 +1543,6 @@ mod tests {
         let (peer, _offer) = VideoPeer::offer(
             TransportOptions {
                 ice_servers: Vec::new(),
-                relay_only: false,
                 pace_bps: 20_000_000.0,
             },
             peer_events,
@@ -1572,6 +1578,7 @@ mod tests {
                 held: HeldState::default(),
                 explicit_modifiers: Vec::new(),
                 chord_modifiers: Vec::new(),
+                chord_keys: Vec::new(),
                 wheel_rest: (0.0, 0.0),
             })),
             capture: Mutex::new(None),
@@ -1688,9 +1695,42 @@ mod tests {
             name: Some(String::from("ArrowLeft")), character: None, down: false,
             modifiers: vec![String::from("Control")], seq: 15,
         });
+        {
+            let strokes = recorded.lock().unwrap();
+            assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_CTRL, true)).count(), 2);
+            assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_CTRL, false)).count(), 2);
+        }
+        inner.apply(ControlMessage::Key {
+            name: Some(String::from("Control")), character: None, down: true,
+            modifiers: Vec::new(), seq: 16,
+        });
+        for seq in [17, 18] {
+            inner.apply(ControlMessage::Key {
+                name: None, character: Some(String::from("c")), down: true,
+                modifiers: vec![String::from("Control")], seq,
+            });
+        }
+        inner.apply(ControlMessage::Key {
+            name: Some(String::from("Control")), character: None, down: false,
+            modifiers: Vec::new(), seq: 19,
+        });
+        assert!(!recorded.lock().unwrap().iter().rev().take(2).any(|event| *event == (keycode::LEFT_CTRL, false)));
+        inner.apply(ControlMessage::Key {
+            name: None, character: Some(String::from("c")), down: false,
+            modifiers: Vec::new(), seq: 20,
+        });
+        inner.apply(ControlMessage::Key {
+            name: Some(String::from("ArrowLeft")), character: None, down: true,
+            modifiers: vec![String::from("Shift")], seq: 21,
+        });
+        inner.apply(ControlMessage::Key {
+            name: Some(String::from("ArrowLeft")), character: None, down: false,
+            modifiers: Vec::new(), seq: 22,
+        });
         let strokes = recorded.lock().unwrap();
-        assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_CTRL, true)).count(), 2);
-        assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_CTRL, false)).count(), 2);
+        assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_CTRL, true)).count(), 3);
+        assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_CTRL, false)).count(), 3);
+        assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_SHIFT, false)).count(), 2);
     }
 
     #[tokio::test]

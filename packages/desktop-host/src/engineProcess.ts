@@ -158,7 +158,6 @@ export class EngineClient {
             ...(request.bitrateKbps === undefined ? {} : { bitrate_kbps: request.bitrateKbps }),
             ...(request.maxFps === undefined ? {} : { max_fps: request.maxFps }),
             ...(request.iceServers === undefined ? {} : { ice_servers: request.iceServers }),
-            ...(request.relayOnly === undefined ? {} : { relay_only: request.relayOnly }),
             ...(request.restoreToken === undefined ? {} : { restore_token: request.restoreToken }),
             ...(request.ttlSeconds === undefined ? {} : { ttl_seconds: request.ttlSeconds }),
         });

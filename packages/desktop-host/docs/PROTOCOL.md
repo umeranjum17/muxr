@@ -122,21 +122,6 @@ and never asks for privileges on its own.
 `capabilities` is safe to call before any consent has been given and must not
 trigger a capture request.
 
-## Sources
-
-```jsonc
-{"id":3,"method":"sources","params":{"refresh":false}}
-```
-
-```jsonc
-{"granted":true,
- "sources":[{"id":"<opaque>","kind":"monitor","width":2560,"height":1440,"origin":{"x":0,"y":0}}]}
-```
-
-The portal does not enumerate sources until the user grants one, so an
-un-granted engine returns an empty list and `granted:false`. A source `id` is
-opaque and local to this process's lifetime — it is not a portable identity.
-
 ## Opening a session
 
 ```jsonc
@@ -147,7 +132,6 @@ opaque and local to this process's lifetime — it is not a portable identity.
   "bitrate_kbps": 0,                    // 0 (default): sized to the encoded surface
   "max_fps": 30,
   "ice_servers": [{"urls":["stun:..."],"username":null,"credential":null}],
-  "relay_only": false,                  // true keeps ICE to relay candidates
   "restore_token": null,                // from a previous session.restoreToken
   "ttl_seconds": 3600                  // session lease; default 3600
 }}

@@ -39,7 +39,6 @@ export interface SessionOpenRequest {
     bitrateKbps?: number;
     maxFps?: number;
     iceServers?: IceServerConfig[];
-    relayOnly?: boolean;
     restoreToken?: string;
     ttlSeconds?: number;
 }

@@ -71,6 +71,7 @@ export class Bridge {
     ) {}
 
     static async start(options: BridgeOptions): Promise<Bridge> {
+        if (options.token.trim() === '') throw new Error('the bridge token must not be blank');
         const server = createServer((request, response) => {
             const url = new URL(request.url ?? '/', 'http://localhost');
             // The page is served only to a caller that already has the token: an
@@ -137,6 +138,10 @@ export class Bridge {
                 socket.send(JSON.stringify({ error: { code: 'malformed', message: 'not JSON' } }));
                 return;
             }
+            if (request === null || typeof request !== 'object' || Array.isArray(request)) {
+                socket.send(JSON.stringify({ error: { code: 'malformed', message: 'expected a request object' } }));
+                return;
+            }
             const method = request.method;
             if (typeof method !== 'string') return;
             if (method === 'session.open' && request.params != null && Object.prototype.hasOwnProperty.call(request.params, 'source')) {
@@ -150,6 +155,10 @@ export class Bridge {
                 .request(method, params)
                 .then((result) => {
                     this.rememberSession(method, result);
+                    if (method === 'session.open' && socket.readyState !== socket.OPEN) {
+                        this.releaseSessionIfDetached(true);
+                        return;
+                    }
                     if (request.id !== undefined && socket.readyState === socket.OPEN) {
                         socket.send(JSON.stringify({ id: request.id, result }));
                     }
@@ -188,8 +197,8 @@ export class Bridge {
             : { sessionId: opened.sessionId };
     }
 
-    private releaseSessionIfDetached(): void {
-        if (this.closing || this.sockets.clients.size > 0) return;
+    private releaseSessionIfDetached(force = false): void {
+        if (this.closing || (!force && this.sockets.clients.size > 0)) return;
         const session = this.session;
         this.session = undefined;
         if (session === undefined) return;

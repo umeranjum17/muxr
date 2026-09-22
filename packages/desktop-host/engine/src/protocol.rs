@@ -105,8 +105,6 @@ pub struct OpenParams {
     #[serde(default)]
     pub ice_servers: Vec<IceServerParam>,
     #[serde(default)]
-    pub relay_only: bool,
-    #[serde(default)]
     pub restore_token: Option<String>,
     #[serde(default)]
     pub ttl_seconds: Option<u64>,
@@ -315,6 +313,5 @@ mod tests {
         assert_eq!(params.max_height, 2160);
         assert_eq!(params.bitrate_kbps, 0, "the engine sizes the rate to the surface");
         assert_eq!(params.max_fps, 30);
-        assert!(!params.relay_only);
     }
 }

@@ -674,7 +674,7 @@ export const desktopAvailable = true;
 export const nativeDesklink: NativeDesklinkModule = {
     isAvailable: () => true,
 
-    createSession(iceServersJson: string, relayOnly: boolean): string | null {
+    createSession(iceServersJson: string): string | null {
         counter += 1;
         const id = `web-${counter}`;
         const { video, keyboard } = createSessionElements();
@@ -683,10 +683,7 @@ export const nativeDesklink: NativeDesklinkModule = {
             username?: string;
             credential?: string;
         }>;
-        const peer = new RTCPeerConnection({
-            iceServers: servers,
-            ...(relayOnly ? { iceTransportPolicy: 'relay' as RTCIceTransportPolicy } : {}),
-        });
+        const peer = new RTCPeerConnection({ iceServers: servers });
         const session: WebSession = {
             id,
             peer,

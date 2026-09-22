@@ -31,7 +31,7 @@ export interface NativeSessionEvent {
 }
 
 export interface NativeDesklinkModule {
-    createSession(iceServersJson: string, relayOnly: boolean): string | null;
+    createSession(iceServersJson: string): string | null;
     setRemoteDescription(id: string, type: string, sdp: string): boolean;
     addRemoteCandidate(id: string, candidate: string, sdpMid: string | null, sdpMLineIndex: number | null): boolean;
     /** Send one control message; the platform stamps it with the session's next sequence. */

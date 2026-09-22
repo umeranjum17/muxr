@@ -27,7 +27,7 @@ class DesklinkModule : Module() {
 
     Events("onSessionEvent")
 
-    Function("createSession") { iceServersJson: String?, relayOnly: Boolean? ->
+    Function("createSession") { iceServersJson: String? ->
       val context = appContext.reactContext ?: return@Function null
       val id = "desklink-${++nextId}"
       val session = DesktopSession(
@@ -36,7 +36,7 @@ class DesklinkModule : Module() {
         onEvent = { name, payload -> emit(name, id, payload) },
       )
       sessions[id] = session
-      session.start(iceServersJson ?: "[]", relayOnly ?: false)
+      session.start(iceServersJson ?: "[]")
       id
     }
 

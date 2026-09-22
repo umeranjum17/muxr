@@ -325,6 +325,7 @@ fn run_loop(
             let kind = data.type_();
             let chunk = data.chunk();
             let stride = chunk.stride().max(0) as usize;
+            let offset = chunk.offset() as usize;
             let size = chunk.size() as usize;
             state.buffer_type = format!("{kind:?}");
             let (w, h) = (state.logical_w, state.logical_h);
@@ -339,12 +340,15 @@ fn run_loop(
                 return;
             };
             let stride = if stride == 0 { w * 4 } else { stride };
-            let used = if size == 0 { bytes.len() } else { size.min(bytes.len()) };
+            let Some(chunk_bytes) = bytes.get(offset..offset.saturating_add(size)) else {
+                state.dropped.fetch_add(1, Ordering::Relaxed);
+                return;
+            };
             // Exactly the encoder's size: fitting again here would round a
             // second time and hand the encoder a frame it refuses whenever the
             // stream's size differs from the one the portal reported.
             let seq = state.frames.load(Ordering::Relaxed);
-            match to_i420(&bytes[..used], w, h, stride, format, state.box_w, state.box_h) {
+            match to_i420(chunk_bytes, w, h, stride, format, state.box_w, state.box_h) {
                 Some(i420) => {
                     if state.geometry.lock().map(|g| g.is_none()).unwrap_or(false) {
                         if let Ok(mut g) = state.geometry.lock() {

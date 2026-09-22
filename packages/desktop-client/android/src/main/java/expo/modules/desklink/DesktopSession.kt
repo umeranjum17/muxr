@@ -79,18 +79,13 @@ class DesktopSession(
       ui.post { if (!closed) videoTrack?.let { frameSink?.invoke(it) } }
     }
 
-  fun start(iceServersJson: String, relayOnly: Boolean) {
+  fun start(iceServersJson: String) {
     io.execute {
       if (closed) return@execute
       try {
         val servers = parseIceServers(iceServersJson)
         val configuration = PeerConnection.RTCConfiguration(servers).apply {
           sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-          iceTransportsType = if (relayOnly) {
-            PeerConnection.IceTransportsType.RELAY
-          } else {
-            PeerConnection.IceTransportsType.ALL
-          }
         }
         val created = buildFactory()
         factory = created

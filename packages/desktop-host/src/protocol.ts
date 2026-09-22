@@ -67,7 +67,6 @@ export interface OpenSessionRequest {
     bitrateKbps?: number;
     maxFps?: number;
     iceServers?: Array<{ urls: string[]; username?: string; credential?: string }>;
-    relayOnly?: boolean;
     restoreToken?: string;
     ttlSeconds?: number;
 }
