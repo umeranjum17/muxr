@@ -30,6 +30,33 @@ const UNREACHABLE_DESKTOP =
     'The desktop could not be reached. Connecting from outside the desktop\'s own network is not supported in this version.';
 
 /**
+ * The engine's and host's own refusal tokens, mapped to this package's failure
+ * codes. A token the engine did not send is a deliberate refusal, not a network
+ * blip, so it is not treated as retryable.
+ */
+const OPEN_FAILURE_CODES: Record<string, SessionFailure['code']> = {
+    permission: 'permission',
+    'not-authorized': 'permission',
+    'input-unavailable': 'input-unavailable',
+    'unsupported-codec': 'unsupported-codec',
+    encode: 'unsupported-codec',
+    'incompatible-version': 'incompatible-version',
+    'host-contract-mismatch': 'incompatible-version',
+    'unsupported-protocol': 'incompatible-version',
+    'source-changed': 'source-changed',
+    transport: 'transport',
+};
+
+function classifyOpenFailure(error: unknown): SessionFailure['code'] {
+    const code = (error as { code?: unknown } | null)?.code;
+    if (typeof code === 'string') return OPEN_FAILURE_CODES[code] ?? 'platform';
+    // No token at all: fall back to the message, treating anything that is not a
+    // permission refusal as a transport failure a retry may fix.
+    const message = error instanceof Error ? error.message : '';
+    return /permission|not authorized/i.test(message) ? 'permission' : 'transport';
+}
+
+/**
  * The platform module, loaded the first time a desktop is opened.
  *
  * It holds the session, the renderer and the input bridge — the largest thing in
@@ -70,7 +97,7 @@ export interface DesktopSession {
     showKeyboard: () => void;
     hideKeyboard: () => void;
     /** Copy the desktop's clipboard to the phone; the caller places it locally. */
-    copyRemoteToLocal: () => Promise<string>;
+    copyRemoteToLocal: () => Promise<{ text: string; truncated: boolean }>;
     /** Send the phone's clipboard text to the desktop. */
     pasteLocalToRemote: (text: string) => Promise<void>;
     /** Release anything the desktop is holding, without ending the session. */
@@ -101,7 +128,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
     const opened = useRef<SessionOpenResult | null>(null);
     const signaling = useRef<Signaling | null>(null);
     const nativeRef = useRef<string | null>(null);
-    const pendingClipboard = useRef(new Map<string, (reply: { text: string; error?: string }) => void>());
+    const pendingClipboard = useRef(new Map<string, (reply: { text: string; truncated: boolean; error?: string }) => void>());
     const attempts = useRef(0);
     /**
      * The pending reconnect attempt. It lives here rather than in the effect
@@ -157,7 +184,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         generationToken.current += 1;
         const id = nativeRef.current;
         nativeRef.current = null;
-        for (const resolve of pendingClipboard.current.values()) resolve({ text: '', error: 'the session ended' });
+        for (const resolve of pendingClipboard.current.values()) resolve({ text: '', truncated: false, error: 'the session ended' });
         pendingClipboard.current.clear();
         opened.current = null;
         signaling.current = null;
@@ -224,7 +251,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
             });
         } catch (error) {
             const message = error instanceof Error ? error.message : 'the desktop could not start';
-            refuse(message, /permission|not authorized/i.test(message) ? 'permission' : 'transport');
+            refuse(message, classifyOpenFailure(error));
             return;
         }
         if (token !== generationToken.current) return;
@@ -342,7 +369,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
                             return;
                         }
                         if (reply.kind === 'clipboard') {
-                            pendingClipboard.current.get(reply.request)?.({ text: reply.text, error: reply.error });
+                            pendingClipboard.current.get(reply.request)?.({ text: reply.text, truncated: reply.truncated === true, error: reply.error });
                             pendingClipboard.current.delete(reply.request);
                             return;
                         }
@@ -382,26 +409,26 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         const id = nativeRef.current;
         if (id == null || nativeDesklink == null) throw new Error('No desktop session is open.');
         const request = randomId();
-        const answer = new Promise<{ text: string; error?: string }>((resolve) => {
+        const answer = new Promise<{ text: string; truncated: boolean; error?: string }>((resolve) => {
             pendingClipboard.current.set(request, resolve);
             setTimeout(() => {
-                if (pendingClipboard.current.delete(request)) resolve({ text: '', error: 'the desktop did not answer' });
+                if (pendingClipboard.current.delete(request)) resolve({ text: '', truncated: false, error: 'the desktop did not answer' });
             }, CLIPBOARD_TIMEOUT_MS);
         });
         nativeDesklink.sendControl(id, JSON.stringify({ kind: 'clipboard_read', request }));
         const reply = await answer;
         if (reply.error != null) throw new Error(reply.error);
-        return reply.text;
+        return { text: reply.text, truncated: reply.truncated };
     }, []);
 
     const pasteLocalToRemote = useCallback(async (text: string) => {
         const id = nativeRef.current;
         if (id == null || nativeDesklink == null) throw new Error('No desktop session is open.');
         const request = randomId();
-        const answer = new Promise<{ text: string; error?: string }>((resolve) => {
+        const answer = new Promise<{ text: string; truncated: boolean; error?: string }>((resolve) => {
             pendingClipboard.current.set(request, resolve);
             setTimeout(() => {
-                if (pendingClipboard.current.delete(request)) resolve({ text: '', error: 'the desktop did not answer' });
+                if (pendingClipboard.current.delete(request)) resolve({ text: '', truncated: false, error: 'the desktop did not answer' });
             }, CLIPBOARD_TIMEOUT_MS);
         });
         nativeDesklink.sendControl(id, JSON.stringify({ kind: 'clipboard_write', request, text }));

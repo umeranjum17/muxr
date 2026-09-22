@@ -79,9 +79,11 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
         setClipboardBusy(true);
         setNotice(null);
         try {
-            const text = await session.copyRemoteToLocal();
+            const { text, truncated } = await session.copyRemoteToLocal();
             await Clipboard.setStringAsync(text);
-            setNotice(text === '' ? 'The desktop clipboard was empty.' : 'Copied to this phone.');
+            if (truncated) setNotice('Copied the start of the desktop clipboard; the rest was too large.');
+            else if (text === '') setNotice('The desktop clipboard was empty.');
+            else setNotice('Copied to this phone.');
         } catch (error) {
             setNotice(error instanceof Error ? error.message : 'Could not copy from the desktop.');
         } finally {

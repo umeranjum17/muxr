@@ -492,11 +492,11 @@ async fn dispatch(
             let params: protocol::ClipboardParams = serde_json::from_value(request.params.clone())
                 .map_err(|error| ErrorBody::new("malformed", error.to_string()))?;
             check_session(session, &params.session_id, None)?;
-            let text = session
+            let (text, truncated) = session
                 .read_clipboard()
                 .await
                 .map_err(|reason| ErrorBody::new("clipboard", reason))?;
-            Ok(serde_json::json!({ "text": text, "truncated": false }))
+            Ok(serde_json::json!({ "text": text, "truncated": truncated }))
         }
         "session.clipboard.write" => {
             let session = require_session(current)?;

@@ -272,6 +272,7 @@ pub enum ControlReply<'a> {
     Clipboard {
         request: &'a str,
         text: String,
+        truncated: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<&'a str>,
     },

@@ -75,7 +75,7 @@ export class EngineClient {
         const child = spawn(command, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
         const client = new EngineClient(child, options);
         try {
-            await client.request('hello', { protocol: PROTOCOL_VERSION, client: 'consumer' });
+            await client.request('hello', { protocol: PROTOCOL_VERSION });
         } catch (error) {
             // A refused or timed-out handshake must not leave a child running
             // with its exit still wired to the caller's state.

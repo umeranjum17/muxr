@@ -277,7 +277,7 @@ The engine answers on the same channel:
 {"kind":"hello","protocol":2,"geometry":{…}}     // once, when the channel opens
 {"kind":"ack","seq":44}
 {"kind":"rejected","seq":44,"code":"coordinates","message":"(9000,4) is outside the 1280x720 surface"}
-{"kind":"clipboard","request":"…","text":"…"}     // "error" alongside an empty "text" when the read failed
+{"kind":"clipboard","request":"…","text":"…","truncated":false}   // an empty "text" with "error" when the read failed
 {"kind":"revoked","reason":"…"}
 ```
 
@@ -310,8 +310,10 @@ instead; both reach the same clipboard:
 ```
 
 Refused with `error.code = "clipboard"` when the session lacks `clipboard`, or
-when the desktop's clipboard has no text. The size bound is reported in
-`capabilities` as `clipboard.maxBytes`.
+when the desktop's clipboard has no text. A read is bounded by
+`capabilities.clipboard.maxBytes`; when the desktop's text is longer, `truncated`
+is true and the text is cut on a character boundary, so the returned text is
+still valid.
 
 ## Close
 

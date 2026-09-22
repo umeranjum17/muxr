@@ -78,6 +78,11 @@ export type SessionEvent =
  * `subscribe` delivers engine notifications until the returned function runs.
  */
 export interface Signaling {
+    /**
+     * Send one request. A rejection may carry a stable `code` — the engine's or
+     * the host's own token — which the package reads to classify a refusal, so a
+     * refusal is not retried as though it were a network failure.
+     */
     request<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>;
     subscribe(handler: (event: SessionEvent) => void): () => void;
 }
@@ -129,7 +134,7 @@ export type ControlReply =
     | { kind: 'hello'; protocol: number; geometry: SurfaceGeometry }
     | { kind: 'ack'; seq: number }
     | { kind: 'rejected'; seq: number; code: string; message: string }
-    | { kind: 'clipboard'; request: string; text: string; error?: string }
+    | { kind: 'clipboard'; request: string; text: string; truncated?: boolean; error?: string }
     | { kind: 'revoked'; reason: string };
 
 export function parseControlReply(raw: string): ControlReply | null {

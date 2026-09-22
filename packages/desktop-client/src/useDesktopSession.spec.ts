@@ -184,3 +184,48 @@ describe('a transport failure the automatic reconnect cannot fix', () => {
         expect(session.current.snapshot.status).not.toBe('failed');
     }, 20_000);
 });
+
+describe('a refusal the host makes', () => {
+    it('surfaces its code and does not spend the reconnect on it', async () => {
+        const held: { current: DesktopSession | null } = { current: null };
+        let authorizations = 0;
+        const refusal = Object.assign(
+            new Error('This computer cannot inject input, so there is nothing to control.'),
+            { code: 'input-unavailable' },
+        );
+
+        function Harness() {
+            held.current = useDesktopSession({
+                authorize: async () => {
+                    authorizations += 1;
+                    return {
+                        signaling: {
+                            async request<T>(): Promise<T> {
+                                throw refusal;
+                            },
+                            subscribe: () => () => undefined,
+                        },
+                        session: { permissions: ['view', 'control'] },
+                    };
+                },
+            });
+            return null;
+        }
+
+        await TestRenderer.act(async () => {
+            TestRenderer.create(React.createElement(Harness));
+        });
+        await TestRenderer.act(async () => {
+            await held.current?.connect();
+        });
+
+        expect(held.current?.snapshot.status).toBe('failed');
+        expect(held.current?.snapshot.failure).toMatchObject({ code: 'input-unavailable' });
+
+        // A refusal a reconnect cannot fix must not consume the retry.
+        await TestRenderer.act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 900));
+        });
+        expect(authorizations).toBe(1);
+    }, 20_000);
+});

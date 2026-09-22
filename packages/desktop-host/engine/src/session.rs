@@ -32,9 +32,9 @@ const CLIPBOARD_TIMEOUT: Duration = Duration::from_secs(3);
 /// Both halves matter. The clipboard backends block, and running one inline on
 /// a runtime thread stalls the session's own input and lifecycle events; and a
 /// desktop whose clipboard cannot answer must fail visibly rather than hang.
-async fn clipboard_task(
-    operation: impl FnOnce() -> std::result::Result<String, String> + Send + 'static,
-) -> std::result::Result<String, String> {
+async fn clipboard_task<T: Send + 'static>(
+    operation: impl FnOnce() -> std::result::Result<T, String> + Send + 'static,
+) -> std::result::Result<T, String> {
     match tokio::time::timeout(CLIPBOARD_TIMEOUT, tokio::task::spawn_blocking(operation)).await {
         Ok(Ok(result)) => result,
         Ok(Err(join)) => Err(format!("the clipboard operation failed: {join}")),
@@ -628,7 +628,7 @@ impl Session {
     }
 
     /// Read the desktop clipboard for the consumer. Explicit, never polled.
-    pub async fn read_clipboard(&self) -> std::result::Result<String, String> {
+    pub async fn read_clipboard(&self) -> std::result::Result<(String, bool), String> {
         if !self.inner.permissions.contains(&Permission::Clipboard) {
             return Err(String::from("this session has no clipboard permission"));
         }
@@ -963,13 +963,14 @@ impl Inner {
         }
         let inner = Arc::clone(self);
         tokio::spawn(async move {
-            let (text, error) = match clipboard_task(clipboard::read_or_explain).await {
-                Ok(text) => (text, None),
-                Err(reason) => (String::new(), Some(reason)),
+            let (text, truncated, error) = match clipboard_task(clipboard::read_or_explain).await {
+                Ok((text, truncated)) => (text, truncated, None),
+                Err(reason) => (String::new(), false, Some(reason)),
             };
             let _ = inner.reply(&ControlReply::Clipboard {
                 request: &request,
                 text,
+                truncated,
                 error: error.as_deref(),
             });
         });
@@ -990,6 +991,7 @@ impl Inner {
             let _ = inner.reply(&ControlReply::Clipboard {
                 request: &request,
                 text: String::new(),
+                truncated: false,
                 error: error.as_deref(),
             });
         });
