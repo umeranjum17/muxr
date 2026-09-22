@@ -877,10 +877,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             run: () => router.push(`/session/${encodeURIComponent(props.id)}/takeover`),
         });
         // The computer action opens this machine's own desktop inside the
-        // conversation, so it is offered only where the package has a surface:
-        // Android and the web build, not a platform with no backend.
+        // conversation, so it is offered only where the package has a surface
+        // and this grant may act: Android and the web build, for a control
+        // grant, not a platform with no backend or a view-only device.
         const computer = computerRingSlot(
-            desktopAvailable,
+            desktopAvailable && canControl,
             () => router.push(`/session/${encodeURIComponent(props.id)}/desktop`),
         );
         if (computer !== null) slots.push(computer);
@@ -1527,7 +1528,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Browser</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
-                                    {desktopAvailable && <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/desktop`); }} accessibilityRole="button" accessibilityLabel="Computer"
+                                    {desktopAvailable && canControl && <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/desktop`); }} accessibilityRole="button" accessibilityLabel="Computer"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="desktop-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Computer</Text>

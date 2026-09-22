@@ -13,7 +13,7 @@
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use rtc::interceptor::Registry;
 use rtc::media::Sample;
@@ -150,6 +150,15 @@ pub struct VideoPeer {
     ssrc: u32,
     control: Arc<dyn DataChannel>,
     payload_type: PayloadType,
+    /// The engine is the offerer, so a candidate can arrive before the answer
+    /// that supplies its remote description; those are held here until it does.
+    candidates: Mutex<PendingCandidates>,
+}
+
+#[derive(Default)]
+struct PendingCandidates {
+    ready: bool,
+    held: Vec<RTCIceCandidateInit>,
 }
 
 impl VideoPeer {
@@ -271,6 +280,7 @@ impl VideoPeer {
                 ssrc,
                 control,
                 payload_type,
+                candidates: Mutex::new(PendingCandidates::default()),
             },
             offer.sdp,
         ))
@@ -281,7 +291,18 @@ impl VideoPeer {
         self.peer
             .set_remote_description(answer)
             .await
-            .context("the peer refused the answer")
+            .context("the peer refused the answer")?;
+        let held = {
+            let mut state = lock(&self.candidates);
+            state.ready = true;
+            std::mem::take(&mut state.held)
+        };
+        for candidate in held {
+            // Each was acknowledged when it arrived; a bad one must not turn the
+            // answer into a failure.
+            let _ = self.peer.add_ice_candidate(candidate).await;
+        }
+        Ok(())
     }
 
     pub async fn add_candidate(
@@ -290,14 +311,22 @@ impl VideoPeer {
         sdp_mid: Option<String>,
         sdp_m_line_index: Option<u16>,
     ) -> Result<()> {
+        let candidate = RTCIceCandidateInit {
+            candidate,
+            sdp_mid,
+            sdp_mline_index: sdp_m_line_index,
+            username_fragment: None,
+            url: None,
+        };
+        {
+            let mut state = lock(&self.candidates);
+            if !state.ready {
+                state.held.push(candidate);
+                return Ok(());
+            }
+        }
         self.peer
-            .add_ice_candidate(RTCIceCandidateInit {
-                candidate,
-                sdp_mid,
-                sdp_mline_index: sdp_m_line_index,
-                username_fragment: None,
-                url: None,
-            })
+            .add_ice_candidate(candidate)
             .await
             .context("the peer refused an ICE candidate")
     }
@@ -335,5 +364,38 @@ impl VideoPeer {
     pub async fn close(&self) {
         let _ = self.control.close().await;
         let _ = self.peer.close().await;
+    }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_candidate_that_arrives_before_the_answer_is_not_refused() {
+        let (events, _events_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (peer, _offer) = VideoPeer::offer(
+            TransportOptions {
+                ice_servers: Vec::new(),
+                relay_only: false,
+            },
+            events,
+        )
+        .await
+        .expect("a peer connection");
+
+        // The engine is the offerer, so the remote description only arrives with
+        // the answer; this candidate must be held, not refused.
+        peer.add_candidate(
+            String::from("candidate:1 1 udp 2113937151 192.0.2.1 40000 typ host"),
+            Some(String::from("0")),
+            Some(0),
+        )
+        .await
+        .expect("a candidate that arrives before the answer is buffered");
     }
 }

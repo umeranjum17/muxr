@@ -130,9 +130,6 @@ fn select_x11(
                     };
                     match frame {
                         Ok(frame) => {
-                            if let Ok(mut m) = captured.lock() {
-                                m.captured_frames += 1;
-                            }
                             sink(frame, sequence);
                             sequence += 1;
                         }

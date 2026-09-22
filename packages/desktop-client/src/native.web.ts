@@ -38,6 +38,9 @@ interface WebSession {
     pointers: number;
     /** Chorded keys that are down on the desktop, by the character sent for them. */
     chordsDown: Set<string>;
+    /** Candidates that arrived before the offer; applied once it is set. */
+    remoteDescriptionSet: boolean;
+    pendingCandidates: RTCIceCandidateInit[];
     detach: (() => void) | null;
 }
 
@@ -321,6 +324,8 @@ export const nativeDesklink: NativeDesklinkModule = {
             lastScrollY: 0,
             pointers: 0,
             chordsDown: new Set<string>(),
+            remoteDescriptionSet: false,
+            pendingCandidates: [],
             detach: null,
         };
         sessions.set(id, session);
@@ -375,6 +380,10 @@ export const nativeDesklink: NativeDesklinkModule = {
         void (async () => {
             try {
                 await session.peer.setRemoteDescription({ type: 'offer', sdp });
+                session.remoteDescriptionSet = true;
+                for (const candidate of session.pendingCandidates.splice(0)) {
+                    await session.peer.addIceCandidate(candidate).catch(() => undefined);
+                }
                 const answer = await session.peer.createAnswer();
                 await session.peer.setLocalDescription(answer);
                 if (sessions.get(id) !== session) return;
@@ -392,11 +401,18 @@ export const nativeDesklink: NativeDesklinkModule = {
     addRemoteCandidate(id, candidate, sdpMid, sdpMLineIndex): boolean {
         const session = sessions.get(id);
         if (session === undefined) return false;
-        // A candidate can arrive before the description; a refusal is not fatal
-        // because the same candidate is re-offered by the engine's announcement.
-        void session.peer
-            .addIceCandidate({ candidate, sdpMid: sdpMid ?? undefined, sdpMLineIndex: sdpMLineIndex ?? undefined })
-            .catch(() => undefined);
+        const init: RTCIceCandidateInit = {
+            candidate,
+            sdpMid: sdpMid ?? undefined,
+            sdpMLineIndex: sdpMLineIndex ?? undefined,
+        };
+        // The engine announces each candidate exactly once, so a candidate that
+        // arrives before the offer has to be held until the offer is set.
+        if (!session.remoteDescriptionSet) {
+            session.pendingCandidates.push(init);
+            return true;
+        }
+        void session.peer.addIceCandidate(init).catch(() => undefined);
         return true;
     },
 
