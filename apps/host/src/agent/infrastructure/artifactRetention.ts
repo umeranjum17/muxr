@@ -37,7 +37,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
-import { join, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 
 export const ARTIFACT_RETENTION_REPORT_FILE = 'artifact-retention.json';
 
@@ -274,9 +274,9 @@ export async function runArtifactRetention(options: {
  * previous report and its epoch exactly as they were.
  */
 async function writeArtifactRetentionReport(path: string, report: ArtifactRetentionReport): Promise<void> {
-    const temporary = `${path}.${randomUUID()}.tmp`;
+    const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
     try {
-        await writeFile(temporary, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+        await writeFile(temporary, `${JSON.stringify(report, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
         await rename(temporary, path);
     } catch (error) {
         await rm(temporary, { force: true }).catch(() => undefined);

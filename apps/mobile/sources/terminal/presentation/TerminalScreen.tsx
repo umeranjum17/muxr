@@ -897,7 +897,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             const showUnconfirmedStatus = status === 'unconfirmed' && gestureHint === null;
             // 31669's leading control: its own circle, outside the field, so the
             // field is the only container on the rail.
-            const artifactAction = <Pressable onPress={attachPhotos} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }}
+            const attachmentAction = <Pressable onPress={attachPhotos} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }}
                 style={({ pressed }) => ({ width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 19, backgroundColor: withAlpha(theme.colors.text, 0.06), opacity: attaching ? 0.4 : pressed ? 0.6 : 1 })}>
                 <Ionicons name={attaching ? 'hourglass-outline' : 'add'} size={20} color={theme.colors.textSecondary} />
             </Pressable>;
@@ -1349,7 +1349,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         the realtime agent while the field is empty and becomes
                         send the moment there is something to send. */}
                     <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, paddingHorizontal: 10, paddingTop: 4, paddingBottom: (keyboardVisible ? 8 : insets.bottom + 8) }}>
-                        {!dictationActive && artifactAction}
+                        {!dictationActive && attachmentAction}
                         <View style={{
                             flex: 1,
                             minHeight: keyboardVisible ? 44 : 48,
