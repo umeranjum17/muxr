@@ -298,7 +298,7 @@ describe('reconnect schedule after a drop', () => {
         await vi.advanceTimersByTimeAsync(0);
     };
 
-    it('widens to a 30s ceiling, gives up inside 90s, and starts over once the host answers', async () => {
+    it('widens to a 4s ceiling, keeps its patience, gives up inside 90s, and starts over once the host answers', async () => {
         vi.useFakeTimers();
         vi.stubGlobal('WebSocket', FakeWebSocket);
         const client = new MuxrClient({ mode: 'local', relayUrl: 'ws://relay.test', machineId: 'machine-1' });
@@ -306,23 +306,27 @@ describe('reconnect schedule after a drop', () => {
         await vi.advanceTimersByTimeAsync(0);
 
         const waits: number[] = [];
-        while (waits.length < 12) {
+        while (waits.length < 40) {
             const waited = await dropAndMeasureWait(client);
             if (waited === 0) break;
             waits.push(waited);
         }
 
         // Backing off is right; disappearing for minutes is not. A phone that
-        // has just left a lift must find the relay within one long wait.
-        expect(Math.max(...waits)).toBeLessThanOrEqual(30_000);
-        expect(waits).toEqual([1500, 3000, 6000, 12000, 24000, 30_000]);
-        for (const [index, wait] of waits.entries()) {
-            if (index > 0) expect(wait).toBeGreaterThan(waits[index - 1]!);
-        }
+        // has just left a lift must find the relay within one long wait -- and
+        // nothing here can be told the network came back, so this ceiling is
+        // the whole of what it will sit through with the link already restored.
+        expect(Math.max(...waits)).toBeLessThanOrEqual(4000);
+        expect(waits.slice(0, 3)).toEqual([1500, 3000, 4000]);
+        expect(waits.slice(3).every((wait) => wait === 4000)).toBe(true);
 
-        // Then it stops and says so, rather than reconnecting for ever.
+        // Then it stops and says so, rather than reconnecting for ever. The
+        // ceiling came down without spending the patience: a lift, a tunnel or
+        // a handover still gets the same minute-and-a-bit of trying it had.
         expect(client.state).toBe('stale');
-        expect(waits.reduce((total, wait) => total + wait, 0)).toBeLessThan(90_000);
+        const patience = waits.reduce((total, wait) => total + wait, 0);
+        expect(patience).toBeLessThan(90_000);
+        expect(patience).toBeGreaterThan(60_000);
 
         // Coming back resets the count: the next drop must not inherit the
         // ceiling the failed run climbed to.

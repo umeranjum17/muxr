@@ -88,6 +88,16 @@ const INSERT_ONLY_LABEL = 'Inserts into the prompt, never sends.';
 const CONNECT_DEADLINE_MS = 12_000;
 const CONNECT_STALLED = 'still connecting';
 
+/**
+ * How long a pane must be unwell before it says so. A dropped link is noticed
+ * within a couple of hundred milliseconds and most are back before anyone could
+ * read a badge, so announcing instantly puts a notice over a terminal that is
+ * about to be fine -- which is what a reconnect that interrupts nothing looks
+ * like from the outside. Recovery is never delayed by this: going back to live
+ * shows at once, so the badge only ever appears when the trouble outlasted it.
+ */
+const STATUS_GRACE_MS = 900;
+
 // Live recording level as five honest bars; the same fixed weights keep every
 // bar following the real input level, taller through the middle. The level is
 // a shared value read on the UI thread, so a recording chunk never re-renders
@@ -370,6 +380,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             router.replace(`/session/${encodeURIComponent(next)}`);
         },
     });
+
+    // What the pane shows, as opposed to what it knows. The status itself stays
+    // exact for everything that acts on it; only the announcement waits.
+    const [shownStatus, setShownStatus] = React.useState(status);
+    React.useEffect(() => {
+        if (status === 'live') { setShownStatus('live'); return; }
+        const timer = setTimeout(() => setShownStatus(status), STATUS_GRACE_MS);
+        return () => clearTimeout(timer);
+    }, [status]);
 
     // 'connecting' is the one status nothing is watching. The renderer opens
     // the channel only once it reports a grid, so a surface that never reports
@@ -935,9 +954,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             const tabPanes = currentTab?.panes ?? [];
             const paneIndex = tabPanes.findIndex((pane) => pane.sessionId === props.id);
             const paneTotal = tabPanes.length;
-            const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
-            const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting' && status !== 'unconfirmed';
-            const showUnconfirmedStatus = status === 'unconfirmed' && gestureHint === null;
+            const showConnectingStatus = shownStatus !== 'live' && gestureHint === null && shownStatus === 'connecting';
+            const showRetryStatus = shownStatus !== 'live' && gestureHint === null && shownStatus !== 'connecting' && shownStatus !== 'unconfirmed';
+            const showUnconfirmedStatus = shownStatus === 'unconfirmed' && gestureHint === null;
             // 31669's leading control: its own circle, outside the field, so the
             // field is the only container on the rail.
             const attachmentAction = <Pressable onPress={attachPhotos} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }}
@@ -1003,9 +1022,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             // Only what the channel can vouch for: 'live' means frames flow with
             // nothing known wrong, so it reads as connected, never as health; a known
             // timeout or lost route reads unconfirmed until the host answers again.
-            const statusText = status === 'live' ? 'connected'
-                : status === 'unconfirmed' ? 'Connection unconfirmed'
-                    : status;
+            const statusText = shownStatus === 'live' ? 'connected'
+                : shownStatus === 'unconfirmed' ? 'Connection unconfirmed'
+                    : shownStatus;
 
             // Same shape as KeyboardAvoidingView, minus the animation: that padding
             // moves frame by frame and Ghostty reflows its whole grid on every size
@@ -1150,7 +1169,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     }}
                                 >
                                     <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{status}</Text>
+                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{shownStatus}</Text>
                                 </View>
                         )}
                         {showUnconfirmedStatus && (
@@ -1180,7 +1199,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                     onPress={retryTerminal}
                                     hitSlop={8}
                                     accessibilityRole="button"
-                                    accessibilityLabel={status.includes('another device') ? 'Use this terminal here' : `Reconnect terminal. ${statusText}`}
+                                    accessibilityLabel={shownStatus.includes('another device') ? 'Use this terminal here' : `Reconnect terminal. ${statusText}`}
                                     style={({ pressed }) => ({
                                         position: 'absolute',
                                         top: 12,

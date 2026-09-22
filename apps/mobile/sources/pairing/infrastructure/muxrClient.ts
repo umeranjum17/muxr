@@ -85,8 +85,19 @@ const MAX_PENDING_REQUESTS = 128;
 // up on: past this many consecutive failures with no host frame the client
 // fails closed to 'stale' (surfaced as an error) instead of reconnecting for
 // ever. A successful host frame resets the count; a manual reconnect (new
-// client) starts fresh. With the 1.5s→30s backoff this is ~75s of trying.
-const MAX_RECONNECT_ATTEMPTS = 6;
+// client) starts fresh. With the 1.5s→4s backoff this is ~75s of trying.
+const MAX_RECONNECT_ATTEMPTS = 20;
+/**
+ * The longest this client will ignore a network that has already come back.
+ * Nothing here can be told that it returned -- there is no connectivity signal
+ * on this platform -- so the ceiling is the whole of what the phone waits
+ * through, and the old 30s one was measured doing exactly that: after a ten
+ * second outage the app stayed unusable for up to five more seconds with the
+ * link already restored, purely waiting out its own timer. The attempt count
+ * above is raised to match, so total patience before 'stale' is unchanged and
+ * only the ignorance is bounded. A dial is one handshake; waiting is not free.
+ */
+const RECONNECT_CEILING_MS = 4000;
 
 export class MuxrClient {
     private socket: WebSocket | undefined;
@@ -324,7 +335,7 @@ export class MuxrClient {
             return;
         }
         const base = this.options.reconnectDelayMs ?? 1500;
-        const delay = Math.max(floorMs ?? 0, Math.min(base * 2 ** this.reconnectAttempt++, 30_000));
+        const delay = Math.max(floorMs ?? 0, Math.min(base * 2 ** this.reconnectAttempt++, RECONNECT_CEILING_MS));
         this.reconnectTimer = setTimeout(() => this.connect(), delay);
     }
 
