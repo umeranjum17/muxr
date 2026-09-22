@@ -8,10 +8,10 @@
 const FORCED_MIN_INTERVAL_MS = 10_000;
 
 /** Whether a forced read may run: `undefined` when it may, otherwise the whole
- *  seconds until it can. A read that failed consumed no provider quota, so a
- *  tap recovering from an error is never held back. */
-export function forcedReadWait(lastForcedAt: number, lastFailed: boolean, nowMs: number): number | undefined {
-    if (lastFailed) return undefined;
+ *  seconds until it can. A read that was rejected consumed no provider quota,
+ *  so a tap recovering from an error is never held back. */
+export function forcedReadWait(lastForcedAt: number, lastRejected: boolean, nowMs: number): number | undefined {
+    if (lastRejected) return undefined;
     const remaining = FORCED_MIN_INTERVAL_MS - (nowMs - lastForcedAt);
     return remaining > 0 ? Math.ceil(remaining / 1_000) : undefined;
 }

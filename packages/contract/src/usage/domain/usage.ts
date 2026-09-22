@@ -125,5 +125,9 @@ export interface UsageNow {
     collecting?: true;
     /** How old the limit figures are, by the host's clock. */
     ageSeconds?: number;
+    /** The instant this reading was captured, by the host's clock: the host
+     *  names the reading so a reader can tell a replayed cache entry from a
+     *  new collection instead of inferring it from the age. */
+    capturedAt?: string;
     vitals?: UsageVitals;
 }

@@ -54,7 +54,7 @@ export function useUsageNow(): UsageNowRead {
     const loading = React.useRef(false);
     const collecting = React.useRef(0);
     const lastForced = React.useRef(0);
-    const failed = React.useRef(false);
+    const rejected = React.useRef(false);
     const pendingForce = React.useRef(false);
     const bursting = React.useRef(false);
     const revalidating = React.useRef(false);
@@ -64,7 +64,6 @@ export function useUsageNow(): UsageNowRead {
     const shown = React.useRef<UsageNow | undefined>(undefined);
     const shownAt = React.useRef(0);
     if (shown.current !== state.value) { shown.current = state.value; shownAt.current = Date.now(); }
-    failed.current = state.failed;
 
     const load = React.useCallback((force: boolean): Promise<void> => {
         // One read at a time. A tap during a background read is the same read,
@@ -88,6 +87,9 @@ export function useUsageNow(): UsageNowRead {
         return sync.request('usage.now', force ? { refresh: true } : {}, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((result) => {
                 if (request !== version.current) return;
+                // The host answered, so the last read was not rejected: whether
+                // it produced figures is a different question (`failed`).
+                rejected.current = false;
                 // Only a newer payload, or an explicit failure, ends a read. The
                 // host's cache replays any same-day payload, so a follow-up can
                 // be answered by the very figures this read set out to replace:
@@ -128,14 +130,15 @@ export function useUsageNow(): UsageNowRead {
                 if (request === version.current) {
                     revalidating.current = false;
                     bursting.current = false;
+                    rejected.current = true;
                     setState((current) => ({ ...current, failed: true, refreshing: false }));
                 }
             })
             .finally(() => {
                 if (request !== version.current) return;
                 loading.current = false;
-                // A tap taken while the last read failed asked for a read past
-                // the cache; it runs the moment the read in flight settles
+                // A tap taken while the last read was rejected asked for a read
+                // past the cache; it runs the moment the read in flight settles
                 // rather than being answered by it.
                 if (pendingForce.current) {
                     pendingForce.current = false;
@@ -158,18 +161,19 @@ export function useUsageNow(): UsageNowRead {
 
     // An explicit tap is a fresh start, not one more of the follow-ups that
     // just ran out, and it is always worth honouring -- but not so often that
-    // it hammers rate-limited providers. A tap that cannot run says when, and
-    // recovery from a failed read consumes no provider quota, so it is exempt.
+    // it hammers rate-limited providers. A tap that cannot run says when, and a
+    // read that was rejected is exempt: it consumed no provider quota, unlike a
+    // collecting burst that ran out its attempts.
     const refresh = React.useCallback(() => {
         if (loading.current) {
-            // A tap taken while the last read failed still has to end in a read
-            // that skips the cache, so it is remembered and run when the read
-            // in flight settles rather than answered by it.
-            if (failed.current) pendingForce.current = true;
+            // A tap taken while the last read was rejected still has to end in a
+            // read that skips the cache, so it is remembered and run when the
+            // read in flight settles rather than answered by it.
+            if (rejected.current) pendingForce.current = true;
             setState((current) => ({ ...current, refreshing: true }));
             return;
         }
-        const waitSeconds = forcedReadWait(lastForced.current, failed.current, Date.now());
+        const waitSeconds = forcedReadWait(lastForced.current, rejected.current, Date.now());
         if (waitSeconds !== undefined) { setThrottledSeconds(waitSeconds); return; }
         setThrottledSeconds(undefined);
         collecting.current = 0;
@@ -192,7 +196,7 @@ export function useUsageNow(): UsageNowRead {
         // collection; anything newer is served from the host's cache. The same
         // throttle guards this cycle, which falls back to the cheap ask rather
         // than skipping the moment.
-        const force = pastFreshnessWindow(shown.current?.ageSeconds) && forcedReadWait(lastForced.current, failed.current, Date.now()) === undefined;
+        const force = pastFreshnessWindow(shown.current?.ageSeconds) && forcedReadWait(lastForced.current, rejected.current, Date.now()) === undefined;
         void load(force);
     }, [load]), FRESH_MS);
 
@@ -211,15 +215,17 @@ function pastFreshnessWindow(ageSeconds: number | undefined): boolean {
     return ageSeconds !== undefined && ageSeconds * 1_000 >= FRESH_MS;
 }
 
-/** Whether an answer is newer than the figures it would replace, by comparing
- *  capture instants rather than the ages themselves: the two ages were
- *  measured at different moments, so the replaced one is stale by however long
- *  ago it was painted, and a fresh collection's age is merely its own duration.
- *  Both instants are reconstructed from whole-second ages, so an answer must
- *  clear the replaced capture by more than that rounding before it counts: a
- *  same-day cache replay shares the capture and is not an answer. With no age
- *  to compare there is nothing to hold the read open for. */
+/** Whether an answer is newer than the figures it would replace. The host names
+ *  the reading it served, so the same capture is exactly a cache replay and a
+ *  new one is a collection that landed: an exact test.
+ *
+ *  An older host carries no name, and the age comparison below is then only a
+ *  heuristic: the two ages were measured at different moments, so a slow frame
+ *  between the two responses can make a replay look newer. It is kept so an
+ *  older pairing still makes progress, not because it can be trusted. With no
+ *  age to compare there is nothing to hold the read open for. */
 function isNewer(next: UsageNow, previous: UsageNow, previousObservedAtMs: number, nowMs: number): boolean {
+    if (next.capturedAt !== undefined && previous.capturedAt !== undefined) return next.capturedAt !== previous.capturedAt;
     if (previous.ageSeconds === undefined || next.ageSeconds === undefined) return true;
     return nowMs - next.ageSeconds * 1_000 > previousObservedAtMs - previous.ageSeconds * 1_000 + 1_000;
 }

@@ -80,10 +80,11 @@ const VITALS = { memoryUsed: 8, memoryTotal: 16, load1: 1.2, uptimeSeconds: 90_0
  *  measured, and the flag that says the plan half is still being collected. */
 const COLLECTING: UsageNow = { limits: { verdict: 'unknown', windows: [] }, collecting: true, vitals: VITALS };
 /** What it sends once that collection lands. */
-const collected = (ageSeconds?: number, used = 100): UsageNow => ({
+const collected = (ageSeconds?: number, used = 100, capturedAt?: string): UsageNow => ({
     limits: { verdict: 'limited', windows: [{ label: 'Rolling', window: '5h', used }] },
     connected: [{ id: 'opencode', label: 'OpenCode', windows: [{ label: 'Rolling', window: '5h', used }] }],
     ...(ageSeconds === undefined ? {} : { ageSeconds }),
+    ...(capturedAt === undefined ? {} : { capturedAt }),
     vitals: VITALS,
 });
 
@@ -336,6 +337,53 @@ describe('the Home card read path', () => {
         await tick(6_000);
         expect(card.latest().value?.ageSeconds).toBe(1);
         expect(card.latest().refreshing).toBe(false);
+    });
+
+    it('never accepts a replayed capture as newer when the host names the capture', async () => {
+        const capture = '2026-09-22T10:00:00.000Z';
+        // The host names the same capture on the replay, and the age it reports
+        // grew by less than the elapsed time -- exactly the slow frame that
+        // makes the age heuristic read a replay as newer.
+        request.mockResolvedValueOnce(collected(3, 100, capture))
+            .mockResolvedValueOnce(COLLECTING)
+            .mockResolvedValueOnce(collected(7, 100, capture))
+            .mockResolvedValue(collected(1, 100, '2026-09-22T10:20:00.000Z'));
+        const card = mount();
+        await tick();
+
+        TestRenderer.act(() => { card.latest().refresh(); });
+        await tick();
+        expect(card.latest().refreshing).toBe(true);
+
+        await tick(6_000);
+        expect(card.latest().value?.capturedAt).toBe(capture);
+        expect(card.latest().refreshing).toBe(true);
+
+        await tick(6_000);
+        expect(card.latest().value?.capturedAt).toBe('2026-09-22T10:20:00.000Z');
+        expect(card.latest().refreshing).toBe(false);
+    });
+
+    it('throttles a tap once a collecting burst has run out, rather than starting another collection', async () => {
+        // The host's collection outlives its bounded wait but stays under way.
+        request.mockResolvedValueOnce(collected(FRESH_MS / 1_000 + 60)).mockResolvedValue(COLLECTING);
+        const card = mount();
+        await tick();
+        for (let follow = 0; follow < 4; follow += 1) await tick(6_000);
+
+        // A cycle lands while the burst still has one attempt left and forces
+        // the read through, so the burst runs out with the budget just spent.
+        TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
+        await tick();
+        expect(card.latest().failed).toBe(true);
+
+        // That is not a rejected read: it asked every provider, so the tap is
+        // told to wait instead of starting a fresh collection.
+        const read = request.mock.calls.length;
+        TestRenderer.act(() => { card.latest().refresh(); });
+        await tick();
+        expect(request.mock.calls.length).toBe(read);
+        expect(card.latest().throttledSeconds).toBeGreaterThan(0);
     });
 
     it('does not restart a collecting burst from a cycle event, but a later cycle starts whole', async () => {

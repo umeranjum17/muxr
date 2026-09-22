@@ -788,6 +788,9 @@ try {
         'the card must lead with the window the verdict describes',
     );
     assert.ok(Number.isFinite(nowPayload.vitals.memoryTotal) && nowPayload.vitals.memoryTotal > 0);
+    // The card names the reading it served, so a replayed cache entry can be
+    // told from a collection that just landed without phone-side clock inference.
+    assert.equal(typeof nowPayload.capturedAt, 'string', 'a served reading must name its capture');
     assert.ok(Number.isFinite(nowPayload.vitals.load1) && Number.isFinite(nowPayload.vitals.uptimeSeconds));
     // The disk pair is the one figure a host may not be able to read: a denied
     // statfs drops it and leaves the rest of the line standing. Absent is the
@@ -810,6 +813,7 @@ try {
     const coldNow = await driveNow({ ...baseEnv(), HOME: coldHome, MUXR_HOME: coldHome, MUXR_CCUSAGE_BIN: slowCold });
     const coldMs = Date.now() - coldStarted;
     assert.equal(coldNow.collecting, true, 'a usage read that cannot answer in time must report collecting');
+    assert.equal(coldNow.capturedAt, undefined, 'a collecting answer has no capture to name');
     assert.deepEqual(coldNow.limits, { verdict: 'unknown', windows: [] });
     assert.ok(Number.isFinite(coldNow.vitals.memoryTotal) && coldNow.vitals.memoryTotal > 0);
     assert.ok(coldMs < 8_000, `the bounded wait answered late (${coldMs}ms)`);
