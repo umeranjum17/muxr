@@ -162,7 +162,13 @@ try {
     if (!ticketState.slice(-2).every((entry) => liveCredentialIds.has(entry.machineCredentialId))) throw new Error('ticket credential id is not active');
     socket = new WebSocket(`ws://127.0.0.1:${port}/relay?ticket=${encodeURIComponent(live)}`);
     await new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    const admissionDeadline = Date.now() + 3000;
+    while (true) {
+        const status = await json('/v1/selfhost/machine-status', { headers: bearer(b.credential) });
+        if (status.response.status === 200 && status.body.online) break;
+        if (socket.readyState !== WebSocket.OPEN || Date.now() >= admissionDeadline) throw new Error('machine peer was not admitted');
+        await new Promise((resolve) => setTimeout(resolve, 25));
+    }
     const closed = new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('revoked machine peer stayed connected')), 3000);
         socket.once('close', (code, reason) => { clearTimeout(timer); resolve({ code, reason: String(reason) }); });

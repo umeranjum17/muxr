@@ -1,5 +1,15 @@
 import { Platform } from 'react-native';
 
+const terminalChrome = {
+    canvas: '#0c0c0b',
+    chrome: '#191918',
+    floating: 'rgba(25, 25, 24, 0.95)',
+    resting: 'rgba(25, 25, 24, 0.7)',
+    cluster: 'rgba(48, 48, 46, 0.92)',
+    clusterPressed: 'rgba(72, 72, 69, 0.96)',
+    scrim: 'rgba(0, 0, 0, 0.62)',
+};
+
 export const lightTheme = {
     dark: false,
     colors: {
@@ -247,6 +257,8 @@ export const lightTheme = {
             error: '#FF5555',
             emptyOutput: '#6272A4',
         },
+
+        terminalChrome,
 
     },
 };
@@ -499,6 +511,8 @@ export const darkTheme = {
             error: '#FF6B6B',
             emptyOutput: '#7B7B93',
         },
+
+        terminalChrome,
 
     },
 } satisfies typeof lightTheme;

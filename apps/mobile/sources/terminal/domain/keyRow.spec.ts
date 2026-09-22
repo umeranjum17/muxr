@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_ROW_IDS, BUILTIN_KEY_CATALOG, bytesToEscape, escapeToBytes, modifiedSend, resolveKeyRow, type RowEntry } from './keyRow';
+import { ARROW_CLUSTER, DEFAULT_ROW_IDS, BUILTIN_KEY_CATALOG, bytesToEscape, escapeToBytes, modifiedSend, resolveKeyRow, type RowEntry } from './keyRow';
 
 // The row a person sees is the arrangement they made on this device; until
 // they make one, the built-in default stands.
@@ -37,6 +37,20 @@ describe('terminal key row resolution', () => {
 
     // An armed modifier must reach every key that can encode it, and must not
     // silently send the bare key when it cannot.
+    // The cluster is a second PLACE for row keys, never a second definition of
+    // them: it stores ids only, so every id must still resolve through the
+    // catalog to a byte key. An id that vanished, or that turned into a rail
+    // action, would drop a key from the cross without a word.
+    it('resolves every directional cluster id through the catalog to a byte key', () => {
+        expect(ARROW_CLUSTER.length).toBeGreaterThan(0);
+        for (const spot of ARROW_CLUSTER) {
+            const key = BUILTIN_KEY_CATALOG[spot.id];
+            expect(key, `${spot.id} is a catalog key`).toBeDefined();
+            expect(key!.send.length, `${spot.id} sends bytes`).toBeGreaterThan(0);
+            expect(key!.action, `${spot.id} is a byte key, not a rail action`).toBeUndefined();
+        }
+    });
+
     it('encodes armed modifiers across the catalog and refuses the chords a terminal cannot express', () => {
         const key = (id: string) => BUILTIN_KEY_CATALOG[id];
 

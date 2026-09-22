@@ -86,6 +86,7 @@ vi.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid' }));
 
 // eslint-disable-next-line
 import { KeyForm, TerminalControlGrid } from './TerminalKeyRowEditor';
+import { TerminalKeyRow } from './TerminalKeyRow';
 import { ScopedTheme } from 'react-native-unistyles';
 import { DEFAULT_ROW_IDS } from '../domain/keyRow';
 
@@ -165,6 +166,24 @@ describe('terminal key form with an action key', () => {
         expect(present(renderer, 'Key name')).toBe(1);
         expect(renderer.root.findByProps({ accessibilityLabel: 'Save key' }).props.disabled).toBe(true);
         expect(drawn(renderer)).toContain('Keep the name to 12 characters.');
+    });
+});
+
+describe('terminal key row', () => {
+    it('shows custom labels even when their bytes match catalog arrows and Enter', () => {
+        const sendText = vi.fn();
+        let renderer: any;
+        TestRenderer.act(() => {
+            renderer = TestRenderer.create(<TerminalKeyRow channel={{ sendText }} entries={[
+                { label: 'Submit', send: '\r' }, { label: 'Back', send: '\u001b[D' }, 'enter', 'left',
+            ]} />);
+        });
+        expect(drawn(renderer)).toContain('Submit');
+        expect(drawn(renderer)).toContain('Back');
+        expect(drawn(renderer)).not.toContain('⏎');
+        expect(drawn(renderer)).not.toContain('←');
+        for (const label of ['Submit', 'Back', 'Enter', 'Left arrow']) press(renderer, label);
+        expect(sendText.mock.calls.map(([bytes]) => bytes)).toEqual(['\r', '\u001b[D', '\r', '\u001b[D']);
     });
 });
 

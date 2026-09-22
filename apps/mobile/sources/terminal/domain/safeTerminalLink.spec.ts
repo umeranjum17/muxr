@@ -1,3 +1,4 @@
+import { displayLink } from './TerminalLink';
 import { describe, expect, it, vi } from 'vitest';
 import xterm from '@xterm/xterm';
 import {
@@ -195,5 +196,14 @@ describe('terminal printed links open only as safe web URLs', () => {
         await new Promise<void>((resolve) => term.write('\x1b[1;1Hnew header line\x1b[K', resolve));
         expect(rangesOf(1)).toEqual([]);
         term.dispose();
+    });
+
+    // A printed link is whatever the agent wrote. The menu names it before
+    // offering Copy, so a value no URL parser accepts has to render as text
+    // rather than throw the card away before Copy is reachable.
+    it('names a malformed printed link instead of failing to draw the menu', () => {
+        expect(displayLink('http://', 88)).toBe('http://');
+        expect(displayLink('https://x.io/path', 88)).toBe('https://x.io/path');
+        expect(displayLink('http://[', 5)).toBe('http…');
     });
 });

@@ -45,6 +45,12 @@ export interface TerminalViewProps {
     onChannel?: (channel: TerminalChannel | undefined) => void;
     /** The pane hosts the control, so the ring can cover the accessory row. */
     onViewControls?: (controls: TerminalViewControls) => void;
+    /**
+     * A tap on a printed link offers actions instead of opening it outright
+     * on both terminals. Web also offers them on a hold; the native renderer
+     * owns its long press and only hands the tap up to this callback.
+     */
+    onLinkPress?: (url: string, at?: { x: number; y: number }) => void;
 }
 
 export type TerminalViewControls = {
@@ -339,7 +345,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // Ghostty counts rows the way the finger moved, herdr counts
                 // them the way the text does, hence the negation.
                 onScroll={({ nativeEvent }) => scrollGate.queue(-nativeEvent.rows)}
-                onOpenLink={({ nativeEvent }) => openTerminalLink(nativeEvent.url, openExternalUrl)}
+                onOpenLink={({ nativeEvent }) => {
+                    if (props.onLinkPress !== undefined) { props.onLinkPress(nativeEvent.url); return; }
+                    openTerminalLink(nativeEvent.url, openExternalUrl);
+                }}
             />
             </View>
         </View>

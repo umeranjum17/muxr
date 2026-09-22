@@ -10,7 +10,9 @@ declare module 'react-test-renderer' {
     }
 
     interface TestRendererModule {
-        create(element: ReactElement): ReactTestRenderer;
+        create(element: ReactElement, options?: {
+            createNodeMock?: (element: { type: unknown; props: { style?: { position?: string } } }) => unknown;
+        }): ReactTestRenderer;
         act(callback: () => Promise<void> | void): Promise<void> | void;
     }
 
