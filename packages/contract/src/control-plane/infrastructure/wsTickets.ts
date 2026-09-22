@@ -19,6 +19,7 @@ export async function issueWsTicket(input: {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10_000);
     let response: Response;
+    let body: { ticket?: unknown; error?: unknown };
     try {
         response = await fetch(relayControlUrl(input.relayUrl, '/v1/ws-tickets'), {
             method: 'POST',
@@ -31,10 +32,13 @@ export async function issueWsTicket(input: {
             }),
             signal: controller.signal,
         });
+        // Inside the deadline: headers can arrive from a relay that then never
+        // sends a body, and this await is on the path that opens a terminal.
+        // Left outside, that read waits for ever and the pane shows nothing.
+        body = await response.json() as { ticket?: unknown; error?: unknown };
     } finally {
         clearTimeout(timer);
     }
-    const body = await response.json() as { ticket?: unknown; error?: unknown };
     if (!response.ok || typeof body.ticket !== 'string') {
         const message = typeof body.error === 'string' ? body.error : `ticket request failed (${response.status})`;
         throw new WsTicketError(response.status, message);

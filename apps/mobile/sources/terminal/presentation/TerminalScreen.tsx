@@ -8,7 +8,7 @@
 
 import { RealtimeTalkButton } from '@/conversation/ui';
 import * as React from 'react';
-import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, AppState, BackHandler, InteractionManager, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMotion, type SharedValue } from 'react-native-reanimated';
@@ -78,6 +78,15 @@ import { useTerminalQuickReplies } from '@/plugins/ui';
 
 /** What a reply row's primary tap really does, for replies that never send. */
 const INSERT_ONLY_LABEL = 'Inserts into the prompt, never sends.';
+
+/**
+ * How long a pane may show nothing but the connecting pill before it hands the
+ * user the retry. The copy states where the pane is rather than declaring it
+ * dead, because an attach still inside its own request timeouts may yet land --
+ * and when it does it publishes its own state over this one.
+ */
+const CONNECT_DEADLINE_MS = 12_000;
+const CONNECT_STALLED = 'still connecting';
 
 // Live recording level as five honest bars; the same fixed weights keep every
 // bar following the real input level, taller through the middle. The level is
@@ -157,13 +166,20 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         changesList(props.id)
             .then((badge) => { if (!cancelled) setChangesCount(badge.count); })
             .catch(() => { if (!cancelled) setChangesCount(null); });
-        sync.artifactList(props.id)
-            .then((result) => { if (!cancelled) setArtifactsCount(result.total); })
-            .catch(() => { if (!cancelled) setArtifactsCount(null); });
+        // The artifact count is a badge; the terminal is why this screen was
+        // opened. Asking the host to enumerate a pane's whole history while it
+        // is still answering this pane's attach put a directory walk in front
+        // of the first frame, so it waits until the open has settled.
+        const counting = InteractionManager.runAfterInteractions(() => {
+            if (cancelled) return;
+            sync.artifactList(props.id)
+                .then((result) => { if (!cancelled) setArtifactsCount(result.total); })
+                .catch(() => { if (!cancelled) setArtifactsCount(null); });
+        });
         const unsubscribe = registerArtifactUpdateHandler((sessionId, event) => {
             if (!cancelled && sessionId === props.id) setArtifactsCount(event.total);
         });
-        return () => { cancelled = true; unsubscribe(); };
+        return () => { cancelled = true; counting.cancel(); unsubscribe(); };
     }, [props.id]));
     const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
     const [pluginActionBusy, setExtensionActionBusy] = React.useState<string>();
@@ -174,6 +190,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     }, []);
     const swipeIds = React.useMemo(() => workingAgentSwipeIds(sessions, swipeNow), [sessions, swipeNow]);
     const [status, setStatus] = React.useState('connecting');
+    // A fresh mount is the only retry a pane has before it ever attached: the
+    // channel that reconnect() would use does not exist yet.
+    const [attempt, setAttempt] = React.useState(0);
     const [draft, setDraft] = React.useState('');
     const { clearDraft } = useDraft(props.id, draft, setDraft);
     const [attaching, setAttaching] = React.useState(false);
@@ -351,6 +370,30 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             router.replace(`/session/${encodeURIComponent(next)}`);
         },
     });
+
+    // 'connecting' is the one status nothing is watching. The renderer opens
+    // the channel only once it reports a grid, so a surface that never reports
+    // one never starts the attach whose failure would move this status, and no
+    // request timeout is running to end it either. A pane that has not started
+    // by now says so and offers the retry, instead of holding a spinner over an
+    // empty body for ever; a slow attach that does land overwrites this itself.
+    React.useEffect(() => {
+        if (status !== 'connecting') return;
+        const timer = setTimeout(() => setStatus(CONNECT_STALLED), CONNECT_DEADLINE_MS);
+        return () => clearTimeout(timer);
+    }, [status, attempt]);
+
+    // Before the first attach there is no channel to reconnect, so the retry a
+    // stalled pane offers is a fresh mount of the renderer itself.
+    const retryTerminal = React.useCallback(() => {
+        const channel = channelRef.current;
+        if (channel !== undefined) {
+            channel.reconnect(true);
+            return;
+        }
+        setStatus('connecting');
+        setAttempt((current) => current + 1);
+    }, []);
 
     // herdr is truth: a closed pane disappears. The ref guard is what stops a
     // status batch from double-firing: two 'unknown session' updates arriving
@@ -1069,7 +1112,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         onTouchEnd={paneGestures.onTouchEnd}
                         style={{ flex: 1 }}
                     >
-                        <TerminalView sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} />
+                        <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} />
                         {gestureHint !== null && (
                             <View
                                 pointerEvents="none"
@@ -1134,7 +1177,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         )}
                         {showRetryStatus && (
                                 <Pressable
-                                    onPress={() => channelRef.current?.reconnect(true)}
+                                    onPress={retryTerminal}
                                     hitSlop={8}
                                     accessibilityRole="button"
                                     accessibilityLabel={status.includes('another device') ? 'Use this terminal here' : `Reconnect terminal. ${statusText}`}

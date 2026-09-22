@@ -22,6 +22,7 @@ behaviour it claims to cover and watch it go red.
 
 - `yarn check` is yarn v1's built-in dependency checker, not this repo's suite. The suite is `yarn run check`; the automatic pull-request lane is `yarn run check:fast`. `scripts/diagnostics/application/runSuite.mjs` owns both lists.
 - An e2e check must own the relay it starts: spawn with `MUXR_RELAY_PORT=0` and take the real port from `waitForRelay(child)`. Naming a port instead lets a relay from another worktree answer the health probe, and the check then passes having tested nothing it started.
+- A browser lab cannot be pointed at its own relay with `EXPO_PUBLIC_MUXR_*`. `BUILD_ENV_APPLIES` in `apps/mobile/sources/connection/connectionSettings.ts` drops every one of them on web on purpose, so the PWA falls back to the default relay URL — the desk's live one. Write the lab's connection into the browser secure store (`muxr.connection.v1`, see `pairing/infrastructure/webSecureStore.ts`) or pair the lab properly; otherwise the lab silently drives the machine you were trying not to touch.
 
 ## Voice
 

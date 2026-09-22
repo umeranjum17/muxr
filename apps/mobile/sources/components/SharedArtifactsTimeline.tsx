@@ -70,6 +70,7 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
     const [documentPreview, setDocumentPreview] = React.useState<ArtifactAction>();
     const [downloadingId, setDownloadingId] = React.useState<string>();
     const [visibleImageKeys, setVisibleImageKeys] = React.useState<string[]>([]);
+    const [visibleTextIds, setVisibleTextIds] = React.useState<string[]>([]);
     const [snippets, setSnippets] = React.useState<Record<string, string>>({});
     const attemptedSnippets = React.useRef(new Set<string>());
     const requestGeneration = React.useRef(0);
@@ -110,12 +111,18 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
     React.useEffect(() => {
         attemptedSnippets.current.clear();
         setSnippets({});
+        setVisibleTextIds([]);
     }, [sessionId]);
+    // A snippet is one line under a row's name, and it costs a whole-file
+    // fetch plus a decode to produce. Rows nobody has scrolled to do not get
+    // one: on a pane with a long history this was eight full payloads pulled
+    // and decoded on mount for rows that were never on screen.
+    const visibleTextSet = React.useMemo(() => new Set(visibleTextIds), [visibleTextIds]);
     React.useEffect(() => {
         let cancelled = false;
         const unique = new Map<string, SessionArtifact>();
         for (const artifact of artifacts) {
-            if (artifact.mimeType.startsWith('text/') && !attemptedSnippets.current.has(artifact.id)) unique.set(artifact.id, artifact);
+            if (artifact.mimeType.startsWith('text/') && visibleTextSet.has(artifact.id) && !attemptedSnippets.current.has(artifact.id)) unique.set(artifact.id, artifact);
         }
         const plan = planArtifactHeal([...unique.values()]);
         for (const artifact of plan.candidates) attemptedSnippets.current.add(artifact.id);
@@ -133,7 +140,7 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
             }
         }));
         return () => { cancelled = true; };
-    }, [artifacts, sessionId]);
+    }, [artifacts, sessionId, visibleTextSet]);
     const rows = React.useMemo(() => buildSharedArtifactTimeline(artifacts), [artifacts]);
     const galleryImages = React.useMemo<GalleryImage[]>(() => artifacts.flatMap((artifact) => (
         artifact.mimeType.startsWith('image/') && richPreviewKind(artifact.name) !== 'svg'
@@ -153,6 +160,10 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
             ? [item.key]
             : []);
         setVisibleImageKeys((current) => current.length === next.length && current.every((key, index) => key === next[index]) ? current : next);
+        const text = viewableItems.flatMap(({ item }) => item?.type === 'artifact' && item.artifact.mimeType.startsWith('text/')
+            ? [item.artifact.id]
+            : []);
+        setVisibleTextIds((current) => current.length === text.length && current.every((id, index) => id === text[index]) ? current : text);
     }).current;
 
     const download = React.useCallback((artifact: SessionArtifact) => {

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { SessionArtifactMetadata } from '@muxr/contract';
-import { ArtifactWatcher, MAX_INLINE_BYTES, scanPane, scanPaneWithAttribution } from './artifactWatcher.js';
+import { ArtifactWatcher, scanPane, scanPaneWithAttribution } from './artifactWatcher.js';
 
 const PIXEL_B64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -21,7 +21,7 @@ function paneRoot(): string {
 afterAll(() => roots.forEach((root) => rmSync(root, { recursive: true, force: true })));
 
 describe('scanPane', () => {
-    it('returns files with mime types and inline base64 for small images', async () => {
+    it('returns files with mime types and content ids, and never their bytes', async () => {
         const root = paneRoot();
         mkdirSync(join(root, 'p1'), { recursive: true });
         writeFileSync(join(root, 'p1', 'shot.png'), Buffer.from(PIXEL_B64, 'base64'));
@@ -38,27 +38,16 @@ describe('scanPane', () => {
         expect(byName.get('shot.png')!).toMatchObject({
             mimeType: 'image/png',
             size: Buffer.from(PIXEL_B64, 'base64').length,
-            data: PIXEL_B64,
         });
         expect(byName.get('shot.png')!.id).toBe(createHash('sha256').update(PIXEL).digest('hex'));
+        // A listing is metadata. Reading and base64-encoding every small file
+        // here cost a cold scan hundreds of MiB that every caller then dropped.
+        for (const entry of entries) expect(Object.hasOwn(entry, 'data')).toBe(false);
         for (const entry of entries) expect(entry.id).toMatch(/^[0-9a-f]{64}$/);
         expect(byName.get('notes.md')!).toMatchObject({ mimeType: 'text/plain' });
         expect(byName.get('clip.mp4')!).toMatchObject({ mimeType: 'video/mp4' });
         expect(byName.get('blob.bin')!).toMatchObject({ mimeType: 'application/octet-stream' });
         for (const entry of entries) expect(entry.at).toEqual(expect.any(Number));
-    });
-
-    it('does not inline an uncompressible image over the wire cap', async () => {
-        const root = paneRoot();
-        mkdirSync(join(root, 'p1'), { recursive: true });
-        const big = Buffer.alloc(MAX_INLINE_BYTES + 17, 1);
-        writeFileSync(join(root, 'p1', 'big.png'), big);
-
-        const [entry] = await scanPane(root, 'p1');
-        expect(entry!.name).toBe('big.png');
-        expect(entry!.mimeType).toBe('image/png');
-        expect(entry!.size).toBe(big.length);
-        expect(entry!.data).toBeUndefined();
     });
 
     it('caps the list at the newest 50 files with attribution and refuses oversized whole-file fetches', async () => {
@@ -117,6 +106,27 @@ describe('ArtifactWatcher', () => {
             });
         return { watcher, emits, waitFor };
     }
+
+    it('sweeps only the panes the host serves, and still serves the rest on demand', async () => {
+        const root = paneRoot();
+        for (const paneId of ['served', 'retired']) {
+            mkdirSync(join(root, paneId), { recursive: true });
+            writeFileSync(join(root, paneId, 'a.png'), PIXEL);
+        }
+        const swept: string[] = [];
+        // A machine keeps the artifacts of every pane it ever ran; the backstop
+        // may not read them all every half minute for an update nobody wants.
+        const watcher = new ArtifactWatcher(root, (paneId) => swept.push(paneId), 60_000, () => ['served']);
+        try {
+            await watcher.rescanAll();
+            expect(swept).toEqual(['served']);
+            // The retired pane is still a real listing when a phone asks for it.
+            const retired = await watcher.scanPane('retired');
+            expect(retired.attachments.map((entry) => entry.name)).toEqual(['a.png']);
+        } finally {
+            watcher.dispose();
+        }
+    });
 
     it('resolves a plugin filename once, then pins encrypted chunks to the content id', async () => {
         const root = paneRoot();
