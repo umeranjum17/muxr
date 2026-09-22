@@ -58,6 +58,7 @@ vi.mock('@/components/haptics', () => ({ hapticsLight: () => undefined, hapticsS
 // eslint-disable-next-line
 import { FloatingTerminalControls, TerminalMenuQuickActions, floatingControlFits, type ClusterKey, type RingSlot } from './FloatingTerminalControls';
 import { TerminalKeyRow } from './TerminalKeyRow';
+import { ringFan } from '../domain/ringGeometry';
 
 const arrows: RingSlot = { id: 'arrows', label: 'Arrows', icon: 'code', opens: 'cluster', run: vi.fn() };
 const other: RingSlot = { id: 'other', label: 'Other', icon: 'code', run: vi.fn() };
@@ -177,6 +178,23 @@ describe('floating terminal control', () => {
         // And the tap opens the ring rather than only clearing stale state.
         tap(renderer, control(renderer));
         expect(ringUp(renderer)).toBe(true);
+    });
+
+    it('sweeps into the arrow cluster after a short terminal grows', () => {
+        vi.mocked(arrows.run).mockClear();
+        const renderer = mount(45);
+        resize(renderer, 86);
+        const responder = pan(renderer);
+        const box = responder.props.style[0];
+        const target = ringFan({ x: box.left + 22, y: box.top + 22 }, { width: 360, height: 740 }, 86, 2, 48).offsets[0]!;
+        TestRenderer.act(() => {
+            responder.props.onMoveShouldSetPanResponderCapture({}, { dx: 12, dy: 0 });
+            responder.props.onPanResponderGrant({ nativeEvent: { locationX: 22, locationY: 22 } }, { dx: 12, dy: 0 });
+            responder.props.onPanResponderMove({}, { dx: 12 + target.x, dy: target.y });
+            responder.props.onPanResponderRelease({}, { dx: 12 + target.x, dy: target.y });
+        });
+        expect(clusterShown(renderer)).toBe(true);
+        expect(arrows.run).not.toHaveBeenCalled();
     });
 
     it('keeps a pickup for a captured drag but clears a still hold', () => {

@@ -235,6 +235,8 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
         setOverlay('none');
         slot?.run();
     }, [endSweep, clusterSpot]);
+    const fireRef = React.useRef(fire);
+    fireRef.current = fire;
     const releaseDrag = React.useCallback(() => {
         if (gesture.current.phase !== 'drag') return;
         gesture.current.phase = 'idle';
@@ -313,7 +315,7 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
                 x: g.fromCenterX + (state.dx - g.grantDx),
                 y: g.fromCenterY + (state.dy - g.grantDy),
             }, live.current.offsets);
-            if (index !== null) { fire(index); return; }
+            if (index !== null) { fireRef.current(index); return; }
             endSweep();
         },
         onPanResponderTerminate: () => {
