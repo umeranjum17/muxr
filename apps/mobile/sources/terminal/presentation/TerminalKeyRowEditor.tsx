@@ -40,7 +40,7 @@ export type GridCommand = { label: string; run: () => void; disabled?: boolean; 
 // so a drag that reaches the visible edge stops there. Wrap or autoscroll if
 // a longer row ever needs it.
 const CAP_NOTICE = `The row is full at ${TERMINAL_KEY_ROW_LIMIT} keys.`;
-const ACTION_CAP_NOTICE = `The list is full at ${QUICK_ACTION_LIMIT} snippets.`;
+const ACTION_CAP_NOTICE = `The list is full at ${QUICK_ACTION_LIMIT} replies and commands.`;
 
 export function TerminalControlGrid({
     visible,
@@ -396,7 +396,7 @@ function SnippetsCategory({ actions, seed, onChange, closeForm }: {
                 style={[styles.addRow, { borderColor: theme.colors.accent }]}
             >
                 <Ionicons name="add" size={18} color={theme.colors.accent} />
-                <Text style={{ color: theme.colors.accent, fontSize: 14 }}>Add a snippet</Text>
+                <Text style={{ color: theme.colors.accent, fontSize: 14 }}>Add a reply or command</Text>
             </Pressable>
         )}
 
@@ -406,8 +406,8 @@ function SnippetsCategory({ actions, seed, onChange, closeForm }: {
                 hapticsSelection();
                 reseed(DEFAULT_QUICK_ACTIONS.map((action) => ({ ...action })));
                 onChange(null);
-            }} accessibilityRole="button" accessibilityLabel="Reset snippets to the built-in ones" style={styles.resetRow}>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the built-in snippets</Text>
+            }} accessibilityRole="button" accessibilityLabel="Reset to the built-in replies and commands" style={styles.resetRow}>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the built-in replies and commands</Text>
             </Pressable>
         )}
     </View>;
