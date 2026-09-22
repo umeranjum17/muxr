@@ -195,7 +195,7 @@ const SLOT_LABELS: Record<string, string> = {
     'session.overlay': 'a session overlay',
     'home.composer.leading': 'a composer button',
     'home.composer.trailing': 'a composer button',
-    'session.composer.trailing': 'a composer button',
+    'session.composer.trailing': 'a session control the app places',
     'shortcuts': 'a launcher shortcut',
     'events': 'an event trigger',
 };

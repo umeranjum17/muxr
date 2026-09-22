@@ -11,7 +11,7 @@ import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
-import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMotion, type SharedValue } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
@@ -51,10 +51,10 @@ import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
-import { FloatingTerminalControls, RING_CENTER_SIZE, type RingSlot } from './FloatingTerminalControls';
+import { FloatingTerminalControls, type ClusterKey, type RingHandle, type RingSlot } from './FloatingTerminalControls';
 import { TerminalKeyRow } from './TerminalKeyRow';
 import { TerminalControlGrid, type ControlGridCategory } from './TerminalKeyRowEditor';
-import { DEFAULT_ROW_IDS, type RowEntry, type TerminalKeyAction } from '../domain/keyRow';
+import { ARROW_CLUSTER, BUILTIN_KEY_CATALOG, DEFAULT_ROW_IDS, type RowEntry, type TerminalKeyAction } from '../domain/keyRow';
 import { resolveQuickActions, type QuickAction } from '../domain/quickActions';
 import { quickActionCommand } from '../application/quickActionCommands';
 import { appendToDraft, clearDraftInsertion, consumeDraftInsertion } from '../application/draftInsertion';
@@ -68,6 +68,8 @@ import { ActiveAgentWakeLock } from './ActiveAgentWakeLock';
 import { useDictation } from '@/utils/dictation';
 import { getCachedConnectionSettings } from '@/connection';
 import { displayLink } from '../domain/TerminalLink';
+import { TerminalLinkMenu, type LinkAction } from './TerminalLinkMenu';
+import { openTerminalLink, safeTerminalLinkUrl } from '../domain/safeTerminalLink';
 import { humanError } from '@/utils/errors';
 import { CommandPalette } from '@/components/CommandPalette';
 import type { Command } from '@/components/CommandPalette/types';
@@ -143,9 +145,11 @@ function TranscribingDots({ color }: { color: string }) {
  * screen's own render root and the theme is read beneath it, so each render
  * of the screen (and everything it mounts) paints from the same palette.
  */
-// The canvas black is the Ghostty background itself: chrome painted in any
-// other value shows up as a band against the terminal.
-const CANVAS_BLACK = '#0c0c0b';
+// The material is decided once, in the theme (`terminalChrome`): the canvas is
+// the Ghostty background itself, and every surface that is not the terminal --
+// the header line, the pane rail, the key marks, the composer, the floating
+// control and its ring -- is the same ink one step up from it. Enough to see
+// where the terminal ends; not enough for either surface to announce itself.
 function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();
     return <>{children(theme)}</>;
@@ -162,8 +166,14 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const insets = useSafeAreaInsets();
     // Keyboard height already covers the home indicator, so keeping the bottom
     // inset while it is up double-pads the composer.
-    const keyboardVisible = useKeyboardState().isVisible;
-    const keyboardHeight = useKeyboardState().height;
+    //
+    // Both read through a selector: without one the hook hands back a fresh
+    // state object on every keyboard event, including the `willShow` that only
+    // carries an appearance, so a single keyboard opening re-rendered this
+    // whole screen three times over. A primitive lets React drop the renders
+    // that change nothing, which is most of them.
+    const keyboardVisible = useKeyboardState((state) => state.isVisible);
+    const keyboardHeight = useKeyboardState((state) => state.height);
     const session = useSession(props.id);
     const sessions = useSessions();
     const { workspaces, loaded: treeLoaded } = useHerdrTree();
@@ -221,8 +231,18 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // View commands keep a permanent route in Pane actions.
     const [viewControls, setViewControls] = React.useState<TerminalViewControls>({ commands: [], dismissKeyboard: () => {} });
     const [terminalBox, setTerminalBox] = React.useState<{ top: number; width: number; height: number }>();
-    // The ring is hosted by the screen, never by the terminal renderer.
-    const [toolsOpen, setToolsOpen] = React.useState(false);
+    // The ring is hosted by the screen, never by the terminal renderer. It owns
+    // its own open state so that opening it re-renders one small component
+    // rather than this whole screen on the frame the bloom starts; the screen
+    // only ever closes it, and reads how far it is open from a shared value the
+    // rails recede by on the UI thread.
+    const ringRef = React.useRef<RingHandle>(null);
+    const ringDim = useSharedValue(0);
+    const ringRecede = useAnimatedStyle(() => ({ opacity: 1 - ringDim.value * 0.78 }));
+    // The ring's overlay is the terminal plus the rails under it: the scrim it
+    // draws covers everything it could bloom over, and a terminal too short for
+    // the arc can borrow that space instead of losing an action.
+    const [ringOverlay, setRingOverlay] = React.useState(0);
     const [attachedImages, setAttachedImages] = React.useState<ComposerAttachment[]>([]);
     const attachedPaths = attachedImages.flatMap((image) => image.path === undefined ? [] : [image.path]);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
@@ -236,33 +256,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const dictation = useDictation(() => draftRef.current, setDraft);
     const dictationActive = dictation.recording || dictation.transcribing;
     React.useEffect(() => { if (dictation.pending !== null) dictation.accept(); }, [dictation.pending, dictation.accept]);
-    // The ring's docked centre is measured from the composer rail so the ring
-    // blooms over the terminal from exactly where the thumb rests.
-    const ringSlotRef = React.useRef<View>(null);
-    // The overlay that draws the centre is positioned in this screen's own
-    // layout space, so the slot has to be measured in that space too.
-    // measureInWindow answers in window coordinates, and on Android those
-    // leave the status bar out while the screen's layout counts it: the two
-    // differed by exactly insets.top and the control drew a row above the rail
-    // it is docked in. measureLayout against the screen root has no such seam.
-    const screenRef = React.useRef<View>(null);
-    const [ringCenter, setRingCenter] = React.useState<{ x: number; y: number } | undefined>(undefined);
-    const measureRingAnchor = React.useCallback(() => {
-        const slot = ringSlotRef.current;
-        const root = screenRef.current;
-        if (slot === null || root === null) return;
-        slot.measureLayout(root, (x, y, w, h) => {
-            if (w === 0 && h === 0) return;
-            setRingCenter((current) => (current !== undefined && Math.abs(current.x - (x + w / 2)) < 0.5 && Math.abs(current.y - (y + h / 2)) < 0.5 ? current : { x: x + w / 2, y: y + h / 2 }));
-        }, () => undefined);
-    }, []);
-    React.useEffect(() => { measureRingAnchor(); }, [measureRingAnchor, keyboardVisible, keyboardHeight, terminalBox]);
-    // The ring is drawn by an overlay onto the rail's reserved slot, so it may
-    // only exist while that slot does. Dictation and a typed draft both take
-    // the slot back, and a stale measurement would otherwise leave the centre
-    // control floating over the capsule it just made way for.
-    const railShowsRing = canControl && !dictationActive && draft === '';
-    React.useEffect(() => { if (!railShowsRing) setToolsOpen(false); }, [railShowsRing]);
+    // Held in a ref so the link menu, built once, always inserts through the
+    // current draft rather than a captured one.
+    const insertDraftRef = React.useRef<(value: string) => void>(() => {});
     const insertDraft = React.useCallback((value: string) => {
         const next = appendToDraft(draftRef.current, value);
         draftRef.current = next;
@@ -270,6 +266,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         // The palette animates out; focus once its input has released the IME.
         setTimeout(() => composerRef.current?.focus(), 280);
     }, []);
+
+    insertDraftRef.current = insertDraft;
 
     const { selectedImages, pickImages, clearImages } = useImagePicker();
 
@@ -511,9 +509,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const [treeOpen, setTreeOpen] = React.useState(false);
     // A sheet or editor owns the screen; no floating control remains beneath it.
     React.useEffect(() => {
-        if (actionsOpen || overviewOpen || treeOpen || findOpen || controlGrid.open || menu !== null) setToolsOpen(false);
+        if (actionsOpen || overviewOpen || treeOpen || findOpen || controlGrid.open || menu !== null) ringRef.current?.close();
     }, [actionsOpen, overviewOpen, treeOpen, findOpen, controlGrid.open, menu]);
-    const editKeys = React.useCallback(() => { setToolsOpen(false); setActionsOpen(false); setControlGrid({ open: true, category: 'keys' }); }, []);
+    const openControls = React.useCallback((category: ControlGridCategory) => { ringRef.current?.close(); setActionsOpen(false); setControlGrid({ open: true, category }); }, []);
+    // Held steady so the memoised key row is not rebuilt by a new child element
+    // on every keystroke in the composer above it.
+    const keySlot = React.useMemo(() => <DeclarativeTerminalKeySlot channel={channel} />, [channel]);
+    const editKeys = React.useCallback(() => openControls('keys'), [openControls]);
     const overlayContributions = useSlotContributions('session.overlay');
     // The composer slot is one icon, and an unlabelled icon dropped into a list
     // of labelled rows reads as something broken rather than something offered.
@@ -586,7 +588,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     }, [props.id, showDialogGuard]);
     const openAgentCommands = React.useCallback(() => {
         if (!canControl) return;
-        setToolsOpen(false);
+        ringRef.current?.close();
         setActionsOpen(false);
         if (terminalInputDisposition(currentPaneRef.current, sessionRef.current ?? undefined, '/model').kind === 'blocked') {
             showDialogGuard();
@@ -730,21 +732,48 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     }, [props.id, navigateToSession]);
     React.useEffect(() => { if (!actionsOpen) setFocusFailure(null); }, [actionsOpen]);
 
-    const showRecentLinks = React.useCallback((action: 'open' | 'copy') => {
+    /**
+     * What you can do with ONE link the terminal printed. The link is the
+     * subject and it names itself in the note, so there is never a doubt which
+     * one is about to be opened.
+     *
+     * Opening stays a deliberate choice on an exact, scheme-checked URL —
+     * nothing here auto-opens — and inserting puts the exact URL in the prompt
+     * without sending it.
+     */
+    // Where the last touch landed inside the terminal, so a link menu opens on
+    // the link rather than at a screen edge. The native grid reports which link
+    // was reached for but not where, and this is already being observed for the
+    // pane swipe, so nothing new is watched.
+    const terminalTouch = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+    const [linkMenu, setLinkMenu] = React.useState<{ url: string; at: { x: number; y: number } } | null>(null);
+    const showLinkActions = React.useCallback((url: string, at?: { x: number; y: number }) => {
+        if (safeTerminalLinkUrl(url) === null && !url.startsWith('http')) return;
+        setActionsOpen(false);
+        setMenu(null);
+        setLinkMenu({ url, at: at ?? terminalTouch.current });
+    }, []);
+    const linkActions = React.useMemo<LinkAction[]>(() => {
+        const url = linkMenu?.url ?? '';
+        const safe = safeTerminalLinkUrl(url);
+        return [
+            ...(safe === null ? [] : [{ id: 'open', label: 'Open', icon: 'open-outline' as const, run: () => { void openExternalUrl(safe); } }]),
+            { id: 'copy', label: 'Copy', icon: 'copy-outline' as const, run: () => { void Clipboard.setStringAsync(url).then(() => showGestureHintRef.current('Link copied')); } },
+            { id: 'insert', label: 'Insert into the prompt', icon: 'return-down-forward-outline' as const, note: INSERT_ONLY_LABEL, run: () => insertDraftRef.current(url) },
+        ];
+    }, [linkMenu]);
+
+    /** The links this pane printed recently, each offering the same choices. */
+    const showRecentLinks = React.useCallback(() => {
         const links = recentTerminalLinks(props.id);
         if (links.length === 0) return;
         setActionsOpen(false);
         setMenu({
-            title: action === 'open' ? 'Open link' : 'Copy link',
+            title: 'Recent links',
             note: 'From the recent terminal output',
-            items: links.map((url) => ({
-                label: displayLink(url, 72),
-                onPress: action === 'open'
-                    ? () => { void openExternalUrl(url); }
-                    : () => { void Clipboard.setStringAsync(url).then(() => Modal.alert('Link copied', url)); },
-            })),
+            items: links.map((url) => ({ label: displayLink(url, 72), onPress: () => showLinkActions(url) })),
         });
-    }, [props.id]);
+    }, [props.id, showLinkActions]);
 
     // Coming back to a screen whose socket died while it was backgrounded used
     // to leave a dead terminal until the user navigated away and back. Retry on
@@ -903,7 +932,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // The ring's slots in arc order = list order, running from the anchor's
     // own edge inward. Every slot keeps its permanent route (the status row,
     // the ⋯ menu, the composer); the ring is a shortcut layer.
-    const terminalKeyboardCommand = viewControls.commands.find((command) => command.icon === 'keyboard');
     const ringSlots = React.useMemo<RingSlot[]>(() => {
         const slots: RingSlot[] = [];
         if (canControl) slots.push({
@@ -918,19 +946,24 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         slots.push({
             id: 'changes',
             label: 'Review changes',
+            short: 'Changes',
             icon: 'git-compare-outline',
             ...(changesCount === null ? {} : { badge: changesCount }),
             run: () => router.push(`/session/${encodeURIComponent(props.id)}/changes`),
         });
-        if (canControl && Platform.OS !== 'web') slots.push({
-            id: 'keyboard',
-            label: keyboardVisible ? 'Hide keyboard' : 'Keyboard',
-            icon: keyboardVisible ? 'chevron-down-outline' : 'keypad-outline',
-            run: () => {
-                if (!keyboardVisible) { terminalKeyboardCommand?.run(); return; }
-                viewControls.dismissKeyboard();
-                Keyboard.dismiss();
-            },
+        // The arrows, at the size the thumb that reaches for them deserves. The
+        // key row keeps them too; this is the one-handed way to hold one down
+        // while watching what it moves. The keyboard's own show/hide stays on
+        // the key row, in the control grid, and inside the cluster itself.
+        if (canControl) slots.push({
+            id: 'arrows',
+            label: 'Arrow keys',
+            short: 'Arrows',
+            icon: 'move-outline',
+            opens: 'cluster',
+            // The cluster declines a terminal too short for a 38dp key; the
+            // arrows stay on the key row, and the slot says so.
+            run: () => { showGestureHintRef.current('Arrows stay on the key row'); },
         });
         if (canControl) slots.push({
             id: 'commands',
@@ -951,7 +984,29 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             run: () => router.push(`/session/${encodeURIComponent(props.id)}/takeover`),
         });
         return slots;
-    }, [canControl, changesCount, keyboardVisible, openAgentCommands, pasteToDraft, props.id, sendCommand, terminalKeyboardCommand, viewControls]);
+    }, [canControl, changesCount, openAgentCommands, pasteToDraft, props.id, sendCommand]);
+
+    // The cross the ring's Arrows slot summons: the row's own catalog keys, the
+    // row's own bytes, the row's own hold-to-repeat. Centre is Enter, the way
+    // the reference arranges it.
+    const clusterKeys = React.useMemo<ClusterKey[]>(() => {
+        const marks: Record<string, ClusterKey['icon']> = {
+            up: 'arrow-up', left: 'arrow-back', enter: 'return-down-back', right: 'arrow-forward', down: 'arrow-down',
+        };
+        return ARROW_CLUSTER.flatMap((spot) => {
+            const entry = BUILTIN_KEY_CATALOG[spot.id];
+            const icon = marks[spot.id];
+            if (entry === undefined || icon === undefined) return [];
+            return [{
+                id: spot.id,
+                at: spot.at,
+                icon,
+                label: entry.accessibilityLabel,
+                ...(entry.repeat === true ? { repeat: true } : {}),
+                run: () => channel?.sendText(entry.send),
+            }];
+        });
+    }, [channel]);
 
     // Where this session sits and how it is allowed to act, in one quiet row.
     // Connection stays out of it: subtitle/send color and the reconnect pill
@@ -973,12 +1028,36 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             const showConnectingStatus = shownStatus !== 'live' && gestureHint === null && shownStatus === 'connecting';
             const showRetryStatus = shownStatus !== 'live' && gestureHint === null && shownStatus !== 'connecting' && shownStatus !== 'unconfirmed';
             const showUnconfirmedStatus = shownStatus === 'unconfirmed' && gestureHint === null;
-            // 31669's leading control: its own circle, outside the field, so the
+            // The rail's one alignment rule. The field is the tallest thing on
+            // the row and it carries its own padding, so the band its text
+            // actually occupies is `RAIL_BAND`. Every control — the two ends
+            // outside the field and the two marks inside it — reserves exactly
+            // that band and hangs from the bottom of the row. Collapsed, each
+            // control fills the field's text box and so reads centred on the
+            // rail; grown, each one stays on the field's last line instead of
+            // drifting up the middle of a tall box.
+            //
+            // One measure, keyboard up or down: the rail used to lose 4dp when
+            // the keyboard arrived, so every control on it resized on the same
+            // frame the terminal was reflowing. The 4dp bought nothing and the
+            // resize was visible.
+            const RAIL_MEASURE = 48;
+            const FIELD_PAD = 5;
+            const RAIL_BAND = RAIL_MEASURE - FIELD_PAD * 2;
+            const RAIL_END = RAIL_BAND;
+            const railEnd = (child: React.ReactNode) => <View style={{ height: RAIL_BAND, marginBottom: FIELD_PAD, alignItems: 'center', justifyContent: 'center' }}>{child}</View>;
+            const endCircle = (pressed: boolean, tint?: string) => ({
+                width: RAIL_END, height: RAIL_END, borderRadius: RAIL_END / 2,
+                alignItems: 'center' as const, justifyContent: 'center' as const,
+                backgroundColor: tint ?? withAlpha(theme.colors.text, 0.14),
+                opacity: pressed ? 0.7 : 1,
+            });
+            // The leading control: its own circle, outside the field, so the
             // field is the only container on the rail.
-            const attachmentAction = <Pressable onPress={attachPhotos} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }}
-                style={({ pressed }) => ({ width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 19, backgroundColor: withAlpha(theme.colors.text, 0.06), opacity: attaching ? 0.4 : pressed ? 0.6 : 1 })}>
+            const attachmentAction = railEnd(<Pressable onPress={attachPhotos} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }}
+                style={({ pressed }) => ({ ...endCircle(pressed), opacity: attaching ? 0.4 : pressed ? 0.7 : 1 })}>
                 <Ionicons name={attaching ? 'hourglass-outline' : 'add'} size={20} color={theme.colors.textSecondary} />
-            </Pressable>;
+            </Pressable>);
             // One pill that is the composer: idle input, multiline compose,
             // Dictating…, Transcribing… — same geometry, same material, only
             // the contents swap, exactly like the supplied frames.
@@ -1006,34 +1085,57 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 style={{ flex: 1, minWidth: 0, color: theme.colors.text, paddingLeft: 12, paddingRight: 2, paddingVertical: 8, fontSize: 15, maxHeight: 120,
                     ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } as any : {}) }}
             />;
+            // In-field controls are circles on one size, like everything else
+            // on this rail: the screen has exactly two shapes, a round control
+            // and a soft-cornered card, and nothing in between.
+            const IN_FIELD = 30;
+            const inField = {
+                width: IN_FIELD, height: RAIL_BAND, borderRadius: IN_FIELD / 2,
+                alignItems: 'center' as const, justifyContent: 'center' as const,
+                alignSelf: 'flex-end' as const,
+            };
             const clearAction = draft === '' ? null : <Pressable onPress={() => setDraft('')} accessibilityRole="button" accessibilityLabel="Clear prompt" hitSlop={8}
-                style={({ pressed }) => ({ width: 26, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 13, opacity: pressed ? 0.6 : 1 })}>
+                style={({ pressed }) => ({ ...inField, opacity: pressed ? 0.6 : 1 })}>
                 <Ionicons name="close" size={16} color={theme.colors.textSecondary} />
             </Pressable>;
+            // The microphone stays on the rail whatever is in the field: it
+            // appends to the draft rather than replacing it, so speaking the
+            // rest of a half-typed prompt is the same control, in the same
+            // place, as speaking the whole of one.
             const dictateAction = <Pressable onPress={dictation.toggle} disabled={transcribing} accessibilityRole="button"
                 accessibilityLabel={dictating ? 'Stop dictation' : 'Dictate'}
-                accessibilityHint={dictating ? 'Stops listening and transcribes' : undefined}
+                accessibilityHint={dictating ? 'Stops listening and transcribes' : 'Adds what you say to the prompt. It never sends by itself.'}
                 accessibilityState={{ busy: transcribing, selected: dictating, disabled: transcribing }}
-                style={({ pressed }) => ({ width: 32, height: 38, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+                style={({ pressed }) => ({ ...inField, opacity: pressed ? 0.6 : 1 })}>
                 <Ionicons name="mic-outline" size={19} color={theme.colors.textSecondary} />
             </Pressable>;
-            // The filled disc and its plane only appear once there is something to
-            // send; unarmed it is a quiet outline, never a second bright control
-            // competing with the send it is not yet.
-            const sendAction = <Pressable onPress={sendPrompt} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }}
-                style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: canSend ? theme.colors.terminal.prompt : withAlpha(theme.colors.text, 0.06), opacity: pressed ? 0.8 : canSend ? 1 : 0.55, transform: [{ scale: pressed && canSend ? 0.94 : 1 }] })}>
-                <Ionicons name="send" size={17} color={canSend ? '#101010' : theme.colors.textSecondary} style={{ marginLeft: 1 }} />
-            </Pressable>;
-            // 31669's trailing control: one circle at the rail's end. With an
-            // empty field it is the realtime agent, beside the microphone the
-            // way every other app puts it; the moment there is something to
-            // send it gives way to send. The plugin owns its own glyph and its
-            // own availability — only the circle around it is ours.
-            const showRealtimeTrailing = draft === '' && attachedPaths.length === 0 && composerContributions.length > 0 && canControl;
-            const trailingAction = showRealtimeTrailing
-                ? <View style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: withAlpha(theme.colors.accent, 0.16), borderWidth: StyleSheet.hairlineWidth, borderColor: withAlpha(theme.colors.accent, 0.35) }}>
-                    <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
-                </View>
+            // Send is ours, and it has always been the pane's own lifecycle
+            // colour: blue while the agent works, green when it is done, the
+            // plain accent when it is idle. A flat brand green here belonged to
+            // no state at all.
+            const sendColor = headerLifecycle === 'idle' || headerLifecycle === 'unknown' ? theme.colors.accent : headerStatus.color;
+            const sendAction = railEnd(<Pressable onPress={sendPrompt} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }}
+                style={({ pressed }) => ({ ...endCircle(pressed, canSend ? sendColor : withAlpha(theme.colors.text, 0.08)), opacity: canSend ? (pressed ? 0.8 : 1) : 0.55, transform: [{ scale: pressed && canSend ? 0.94 : 1 }] })}>
+                <Ionicons name="send" size={17} color={canSend ? theme.colors.terminalChrome.canvas : theme.colors.textSecondary} style={{ marginLeft: 1 }} />
+            </Pressable>);
+            // 31669's trailing control: one circle at the rail's end. With
+            // nothing to send it is the realtime agent, beside the microphone
+            // the way every other app puts it; the moment there IS something to
+            // send it gives way to send. Which of the two shows is decided by
+            // the draft and its attachments alone — never by focus or by the
+            // keyboard being up, so an empty field with the keyboard open still
+            // offers the agent.
+            //
+            // The control is product code. It used to be drawn through the
+            // composer plugin slot, and when realtime voice moved out of that
+            // plugin and into the app the slot's contribution list emptied, so
+            // the empty state silently fell through to a disabled send. Third
+            // party contributions keep their own row in the pane menu.
+            const readyToSend = draft.trim() !== '' || attachedPaths.length > 0 || selectedImages.length > 0;
+            const trailingAction = !readyToSend && canControl
+                ? railEnd(<View style={endCircle(false)}>
+                    <RealtimeTalkButton sessionId={props.id} accessibilityLabel="Talk to this session" size={RAIL_END} />
+                </View>)
                 : sendAction;
             // Only what the channel can vouch for: 'live' means frames flow with
             // nothing known wrong, so it reads as connected, never as health; a known
@@ -1050,23 +1152,24 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             // above the IME, and it measures the gap below itself to do it, so a bar
             // that floats over it gets counted as empty space and lands on the output.
                 return (
-                <View ref={screenRef} collapsable={false} style={{ flex: 1, backgroundColor: CANVAS_BLACK, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
+                <View collapsable={false} style={{ flex: 1, backgroundColor: theme.colors.terminalChrome.canvas, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
                     {watchingWorkingAgent && <ActiveAgentWakeLock />}
 
-                    {/* One quiet line inside the terminal plane: a back circle,
+                    {/* One quiet line above the terminal plane: a back mark,
                         the session identity, the pane pager, and an overflow
-                        circle. No band, no border, no shadow — the reference's
-                        header is invisible until you look for it. */}
-                    <View
+                        mark. No border, no shadow, no height it does not need —
+                        only the chrome ink, which is just enough to see where
+                        the terminal starts without the header becoming a band. */}
+                    <Animated.View
                         onLayout={(event) => { if (!hasStatusRow) setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height); }}
-                        style={{
+                        style={[{
                             flexDirection: 'row',
                             alignItems: 'center',
                             gap: 2,
                             paddingHorizontal: 6,
                             paddingTop: 0,
-                            backgroundColor: 'transparent',
-                        }}
+                            backgroundColor: theme.colors.terminalChrome.chrome,
+                        }, ringRecede]}
                     >
                         <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Back" hitSlop={12}
                             style={({ pressed }) => ({ minWidth: 30, minHeight: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
@@ -1093,7 +1196,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             accessibilityRole="button"
                             accessibilityLabel={treeLoaded && located !== undefined ? `Pane ${Math.max(paneIndex, 0) + 1} of ${Math.max(paneTotal, 1)}. Open panes.` : 'Panes loading'}
                             accessibilityState={{ expanded: overviewOpen, disabled: !treeLoaded || located === undefined }}
-                            style={({ pressed }) => ({ minWidth: 32, minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 1, paddingHorizontal: 4, borderRadius: 10, opacity: pressed ? 0.6 : 1 })}
+                            style={({ pressed }) => ({ minWidth: 32, minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 1, paddingHorizontal: 4, borderRadius: 999, opacity: pressed ? 0.6 : 1 })}
                         >
                             {/* The count is the affordance; a chevron beside it
                                 only made the header look like it carried a menu. */}
@@ -1104,11 +1207,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         {!authorityLoading && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel={`Pane actions${artifactsCount !== null && artifactsCount > 0 ? `, ${t('sessionArtifacts.title', { count: artifactsCount })}` : ''}`}
                             accessibilityState={{ expanded: actionsOpen }} hitSlop={12} style={({ pressed }) => ({ minWidth: 30, minHeight: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
                             <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
-                            {artifactsCount !== null && artifactsCount > 0 && <View style={{ position: 'absolute', top: 1, right: 0, minWidth: 16, height: 16, paddingHorizontal: 4, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accent }}>
+                            {artifactsCount !== null && artifactsCount > 0 && <View style={{ position: 'absolute', top: 1, right: 0, minWidth: 16, height: 16, paddingHorizontal: 4, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accent }}>
                                 <Text style={{ color: theme.colors.surface, fontSize: 9, fontWeight: '700' }}>{artifactsCount > 99 ? '99+' : artifactsCount}</Text>
                             </View>}
                         </Pressable>}
-                    </View>
+                    </Animated.View>
 
                     {hasStatusRow && (
                         <Pressable
@@ -1117,7 +1220,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             accessibilityLabel="Review changes"
                             disabled={branch === null}
                             onPress={() => { if (branch !== null) router.push(`/session/${encodeURIComponent(props.id)}/changes`); }}
-                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 4, backgroundColor: 'transparent' }}>
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 4, backgroundColor: theme.colors.terminalChrome.chrome }}>
                             {branch !== null && <Ionicons name="git-branch-outline" size={12} color={theme.colors.textSecondary} />}
                             <SessionMetaLine
                                 style={{ flex: 1 }}
@@ -1141,13 +1244,36 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
 
                     <View
                         ref={paneGestures.ref}
-                        onLayout={({ nativeEvent }) => setTerminalBox({ top: nativeEvent.layout.y, width: nativeEvent.layout.width, height: nativeEvent.layout.height })}
-                        onTouchStart={paneGestures.onTouchStart}
+                        // A new object every layout would re-render this whole
+                        // screen on each one, and layout fires repeatedly while
+                        // the keyboard is arriving — the transition he called
+                        // janky. Only a box that actually moved is reported.
+                        onLayout={({ nativeEvent }) => {
+                            const next = { top: nativeEvent.layout.y, width: nativeEvent.layout.width, height: nativeEvent.layout.height };
+                            setTerminalBox((current) => (current !== undefined
+                                && Math.abs(current.top - next.top) < 0.5
+                                && Math.abs(current.width - next.width) < 0.5
+                                && Math.abs(current.height - next.height) < 0.5 ? current : next));
+                        }}
+                        onTouchStart={(event) => {
+                            const touch = event.nativeEvent.touches[0];
+                            if (touch !== undefined) terminalTouch.current = { x: touch.locationX, y: touch.locationY };
+                            paneGestures.onTouchStart(event);
+                        }}
                         onTouchMove={paneGestures.onTouchMove}
                         onTouchEnd={paneGestures.onTouchEnd}
                         style={{ flex: 1 }}
                     >
-                        <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} />
+                        <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} onLinkPress={showLinkActions} />
+                        {linkMenu !== null && terminalBox !== undefined && (
+                            <TerminalLinkMenu
+                                url={linkMenu.url}
+                                at={linkMenu.at}
+                                region={{ width: terminalBox.width, height: terminalBox.height }}
+                                actions={linkActions}
+                                onClose={() => setLinkMenu(null)}
+                            />
+                        )}
                         {gestureHint !== null && (
                             <View
                                 pointerEvents="none"
@@ -1276,21 +1402,31 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         )}
                     </View>
 
-                    {/* Session/pane chip rail, inside the terminal plane: one
-                        scrollable row of identity chips for the open panes
-                        (or, across tabs, the other tabs); the active chip
-                        carries close, a trailing + adds a pane. No band, no
-                        underline. */}
-                    {(tabPanes.length > 1 || workspaceTabs.length > 1) && !(dictationActive && keyboardVisible) && (
+                    {/* Everything below the terminal is one surface in the
+                        plane's own chrome ink: pane rail, key marks and
+                        composer read as the same piece of chrome rather than as
+                        three stacked bands, and the whole of it recedes
+                        together while the ring is open. */}
+                    <View style={{ backgroundColor: theme.colors.terminalChrome.chrome }}>
+
+                    {/* Session/pane chip rail: one scrollable row of identity
+                        chips for the open panes (or, across tabs, the other
+                        tabs); the active chip carries close, a trailing + adds
+                        a pane. It answers "which pane am I in", so it stays
+                        while the keyboard is up and while dictation runs — that
+                        is exactly when the question gets asked — and it stays
+                        at one pane too, where it is the only way to add a
+                        second. No band, no underline. */}
+                    {treeLoaded && located !== undefined && (
                         <ScrollView
                             ref={tabStripRef}
                             horizontal
                             showsHorizontalScrollIndicator={false}
                             keyboardShouldPersistTaps="always"
-                            style={{ maxHeight: 30, backgroundColor: 'transparent', opacity: toolsOpen ? 0.25 : 1 }}
+                            style={{ maxHeight: 30, backgroundColor: 'transparent' }}
                             contentContainerStyle={{ alignItems: 'center', gap: 8, paddingHorizontal: 8, paddingVertical: 0 }}
                         >
-                            {tabPanes.length > 1 ? tabPanes.map((pane) => {
+                            {workspaceTabs.length <= 1 || tabPanes.length > 1 ? tabPanes.map((pane) => {
                                 const active = pane.sessionId === props.id;
                                 const pl = agentLabels(pane);
                                 const tone = agentStatusColor(pane.agentStatus, theme);
@@ -1301,7 +1437,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                             flexDirection: 'row',
                                             alignItems: 'center',
                                             maxHeight: 26,
-                                            borderRadius: 8,
+                                            borderRadius: 999,
                                             overflow: 'hidden',
                                             // Names on the plane, not tabs in a strip: the
                                             // current pane is the brighter one, and nothing
@@ -1357,7 +1493,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                             flexDirection: 'row',
                                             alignItems: 'center',
                                             maxHeight: 26,
-                                            borderRadius: 8,
+                                            borderRadius: 999,
                                             overflow: 'hidden',
                                             // Names on the plane, not tabs in a strip: the
                                             // current pane is the brighter one, and nothing
@@ -1399,18 +1535,16 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 accessibilityRole="button"
                                 accessibilityLabel="Add pane"
                                 hitSlop={6}
-                                style={({ pressed }) => ({ width: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+                                style={({ pressed }) => ({ width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
                                 <Ionicons name="add" size={15} color={theme.colors.textSecondary} />
                             </Pressable>}
                         </ScrollView>
                     )}
 
-                    {canControl && <View style={{ backgroundColor: CANVAS_BLACK, opacity: toolsOpen ? 0.25 : 1 }}>
+                    {canControl && <View>
                         {/* The key strip stands down while dictation owns the footer
                             with the keyboard up; the composer capsule stays. */}
-                        {!(dictationActive && keyboardVisible) && <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction}>
-                            <DeclarativeTerminalKeySlot channel={channel} />
-                        </TerminalKeyRow>}
+                        {!(dictationActive && keyboardVisible) && <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction}>{keySlot}</TerminalKeyRow>}
 
                     <ComposerAttachments
                         images={[...attachedImages, ...selectedImages.filter((image) => !attachedImages.some((attached) => attached.id === image.id))]}
@@ -1430,14 +1564,18 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         {!dictationActive && attachmentAction}
                         <View style={{
                             flex: 1,
-                            minHeight: keyboardVisible ? 44 : 48,
-                            borderRadius: keyboardVisible ? 22 : 24,
-                            backgroundColor: withAlpha(theme.colors.text, 0.05),
+                            minHeight: RAIL_MEASURE,
+                            // A pill, always: the radius is half the collapsed
+                            // height, so the field keeps the rail's one round
+                            // shape at every size instead of drifting toward a
+                            // rounded box as it grows.
+                            borderRadius: RAIL_MEASURE / 2,
+                            backgroundColor: withAlpha(theme.colors.text, 0.07),
                             flexDirection: 'row',
                             alignItems: 'center',
                             paddingLeft: 0,
                             paddingRight: 4,
-                            paddingVertical: keyboardVisible ? 3 : 5,
+                            paddingVertical: FIELD_PAD,
                         }}>
                             {/* Listening is a state, not an alarm: the level and
                                 the stop carry the one red between them, and the
@@ -1448,61 +1586,51 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15, marginLeft: 10 }}>Dictating…</Text>
                                 <Pressable onPress={dictation.toggle} accessibilityRole="button" accessibilityLabel="Stop dictation"
                                     accessibilityHint="Stops listening and transcribes"
-                                    style={({ pressed }) => ({ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: withAlpha(theme.colors.status.error, pressed ? 0.28 : 0.18), transform: [{ scale: pressed ? 0.94 : 1 }] })}>
+                                    style={({ pressed }) => ({ ...inField, backgroundColor: withAlpha(theme.colors.status.error, pressed ? 0.28 : 0.18), transform: [{ scale: pressed ? 0.94 : 1 }] })}>
                                     <Ionicons name="stop" size={13} color={theme.colors.status.error} />
                                 </Pressable>
                             </Animated.View> : transcribing ? <Animated.View entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                                 <TranscribingDots color={theme.colors.textSecondary} />
                                 <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 15, marginLeft: 10 }}>Transcribing…</Text>
                                 <Pressable onPress={dictation.cancel} accessibilityRole="button" accessibilityLabel="Cancel dictation"
-                                    style={({ pressed }) => ({ width: 34, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 17, opacity: pressed ? 0.6 : 1 })}>
+                                    style={({ pressed }) => ({ ...inField, opacity: pressed ? 0.6 : 1 })}>
                                     <Ionicons name="close" size={19} color={theme.colors.textSecondary} />
                                 </Pressable>
                             </Animated.View> : <>
                                 {composerInput}
                                 {clearAction}
-                                {/* The trigger the arc opens around lives in the
-                                    field beside the microphone, so the ring blooms
-                                    from something that belongs to the composer
-                                    rather than from a puck parked on the terminal. */}
-                                {railShowsRing && <>
-                                    <View ref={ringSlotRef} onLayout={measureRingAnchor} collapsable={false} pointerEvents="none" style={{ width: RING_CENTER_SIZE, height: 38 }} />
-                                    {dictateAction}
-                                </>}
+                                {dictateAction}
                             </>}
                         </View>
                         {!dictationActive && trailingAction}
                     </View>
                     </View>}
+                    </View>
 
-                    {/* The one way into the terminal's quick actions: the ring
-                        docked at the composer's thumb control, blooming over the
-                        terminal. The region ends at the terminal's bottom edge,
-                        so the fan can never reach the composer. View-only keeps
-                        a resting anchor in the corner; the ring is transient and
-                        never touches the keyboard. */}
-                    {/* With control authority the ring belongs to the rail, so it
-                        waits for its own measurement rather than flashing once in
-                        the terminal's corner on the frame between the two layout
-                        commits. View-only has no rail to dock in and keeps the
-                        corner anchor. */}
-                    {hasTools && terminalBox !== undefined && (!canControl || (railShowsRing && ringCenter !== undefined)) && (() => {
-                        const docked = canControl && ringCenter !== undefined;
-                        // The overlay reaches down over the rail so the docked
-                        // centre control sits exactly on its slot; the fan itself
-                        // solves only in the area above it, bounded by `fanHeight`.
-                        const regionHeight = docked
-                            ? Math.max(terminalBox.height, ringCenter.y + RING_CENTER_SIZE - terminalBox.top)
-                            : terminalBox.height;
-                        const anchor = docked
-                            ? { x: ringCenter.x, y: ringCenter.y - terminalBox.top }
-                            : { x: Math.max(44, terminalBox.width - 44), y: Math.max(120, terminalBox.height - 84) };
-                        return <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: terminalBox.top, height: regionHeight }}>
-                            <FloatingTerminalControls open={toolsOpen} onOpenChange={setToolsOpen}
-                                width={terminalBox.width} height={regionHeight} fanHeight={terminalBox.height}
-                                slots={ringSlots} anchor={anchor} />
-                        </View>;
-                    })()}
+                    {/* The one way into the terminal's quick actions: a control
+                        floating on the terminal itself, resting where it was
+                        last left, with the ring struck from wherever that is.
+                        The overlay is exactly the terminal's own box, so the
+                        arc can never reach the composer below it and the
+                        control can never be dragged off the surface it belongs
+                        to. */}
+                    {hasTools && terminalBox !== undefined && (
+                        <View
+                            pointerEvents="box-none"
+                            onLayout={({ nativeEvent }) => setRingOverlay((current) => (Math.abs(current - nativeEvent.layout.height) < 0.5 ? current : nativeEvent.layout.height))}
+                            style={{ position: 'absolute', left: 0, right: 0, top: terminalBox.top, bottom: 0 }}
+                        >
+                            <FloatingTerminalControls
+                                ref={ringRef}
+                                width={terminalBox.width}
+                                height={Math.max(ringOverlay, terminalBox.height)}
+                                terminalHeight={terminalBox.height}
+                                slots={ringSlots}
+                                clusterKeys={clusterKeys}
+                                dim={ringDim}
+                            />
+                        </View>
+                    )}
 
                     <TerminalControlGrid
                         visible={controlGrid.open}
@@ -1518,7 +1646,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         recentLinks={recentTerminalLinks(props.id)}
                         onRecentLink={(url, action) => {
                             setControlGrid((current) => ({ ...current, open: false }));
-                            if (action === 'open') void openExternalUrl(url);
+                            if (action === 'open') openTerminalLink(url, openExternalUrl);
                             else void Clipboard.setStringAsync(url).then(() => showGestureHintRef.current('Link copied'));
                         }}
                         viewCommands={viewControls.commands}
@@ -1566,34 +1694,21 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Find in output</Text>
                                     </Pressable>
-                                    {/* The ring carries this too, but the ring leaves the
-                                        rail while a prompt is being typed — which is
-                                        exactly when a command is most likely wanted. The
-                                        menu is its permanent route. */}
-                                    {canControl && <Pressable onPress={() => { setActionsOpen(false); openAgentCommands(); }} accessibilityRole="button" accessibilityLabel="Agent commands"
-                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="terminal-outline" size={18} color={theme.colors.textSecondary} />
-                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Agent commands</Text>
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                                    </Pressable>}
-                                    {/* The rail's microphone yields to a typed draft, and
-                                        dictation appends rather than replaces, so the one
-                                        flow that would otherwise be out of reach — speak
-                                        the rest of a prompt you started typing — lives
-                                        here. */}
-                                    {canControl && <Pressable onPress={() => { setActionsOpen(false); dictation.toggle(); }} disabled={dictationActive} accessibilityRole="button" accessibilityLabel="Dictate into the prompt"
-                                        accessibilityHint="Adds what you say to the prompt. It never sends by itself."
-                                        accessibilityState={{ disabled: dictationActive }}
-                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: dictationActive ? 0.4 : 1 })}>
-                                        <Ionicons name="mic-outline" size={18} color={theme.colors.textSecondary} />
-                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Dictate into the prompt</Text>
-                                    </Pressable>}
-                                    <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/takeover`); }} accessibilityRole="button" accessibilityLabel="Browser"
+                                    {/* Agent commands, Paste, Continue, the keyboard and
+                                        Browser are the floating control's, and dictation is
+                                        the composer's microphone: each of those has one home
+                                        now rather than a second copy here. This menu is what
+                                        is left — the pane's own destinations, its layout, its
+                                        settings and its plugins. The ring can be absent on a
+                                        view-only pane with no view commands, and Browser is
+                                        the one action that would then have nowhere to live,
+                                        so it keeps a route for exactly that case. */}
+                                    {!hasTools && <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/takeover`); }} accessibilityRole="button" accessibilityLabel="Browser"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="globe-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Browser</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                                    </Pressable>
+                                    </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/history`); }} accessibilityRole="button" accessibilityLabel="Conversation history"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="document-text-outline" size={18} color={theme.colors.textSecondary} />
@@ -1641,20 +1756,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         </View>
                                         {focusPending && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
                                     </Pressable>}
-                                    {recentTerminalLinks(props.id).length > 0 && <>
-                                        <Pressable onPress={() => showRecentLinks('open')} accessibilityRole="button" accessibilityLabel="Open recent terminal link"
-                                            style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                            <Ionicons name="open-outline" size={18} color={theme.colors.textSecondary} />
-                                            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Open link</Text>
-                                            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                                        </Pressable>
-                                        <Pressable onPress={() => showRecentLinks('copy')} accessibilityRole="button" accessibilityLabel="Copy recent terminal link"
-                                            style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                            <Ionicons name="copy-outline" size={18} color={theme.colors.textSecondary} />
-                                            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Copy link</Text>
-                                            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                                        </Pressable>
-                                    </>}
+                                    {/* One entry, not one per action: choosing a
+                                        link then offers the same Open / Copy /
+                                        Insert a long press on that link does. */}
+                                    {recentTerminalLinks(props.id).length > 0 && <Pressable onPress={showRecentLinks} accessibilityRole="button" accessibilityLabel="Recent links"
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="link-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Recent links</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>}
                                     {/* Realtime voice is product code, so its row is always
                                         offered; the slot row below stays for third-party
                                         contributions to the same place. */}
@@ -1666,32 +1776,19 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{composerSlotLabel ?? 'Session tools'}</Text>
                                         <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
                                     </View>}
+                                    {/* Keys, snippets, recent links, type size and the
+                                        keyboard are five categories of ONE editor, and five
+                                        rows here opening the same screen at different tabs
+                                        was the menu repeating itself. One row now; the
+                                        editor's own category rail does the rest. */}
                                     <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>View</Text>
-                                    {canControl && <Pressable onPress={editKeys} accessibilityRole="button" accessibilityLabel="Edit terminal keys"
+                                    <Pressable onPress={() => openControls(canControl ? 'keys' : 'appearance')} accessibilityRole="button" accessibilityLabel="Terminal controls"
+                                        accessibilityHint="Keys, snippets, recent links, type size and the keyboard"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="options-outline" size={18} color={theme.colors.textSecondary} />
-                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Edit terminal keys</Text>
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Terminal controls</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                                    </Pressable>}
-                                    {canControl && <Pressable onPress={() => { setActionsOpen(false); setControlGrid({ open: true, category: 'snippets' }); }} accessibilityRole="button" accessibilityLabel="Edit replies and commands"
-                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="chatbubbles-outline" size={18} color={theme.colors.textSecondary} />
-                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Edit replies and commands</Text>
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                                    </Pressable>}
-                                    {viewControls.commands.map((command) => (
-                                        <Pressable key={command.label} onPress={() => { setActionsOpen(false); command.run(); }} disabled={command.disabled}
-                                            accessibilityRole="button" accessibilityLabel={command.label} accessibilityState={{ disabled: !!command.disabled }}
-                                            style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: command.disabled ? 0.4 : 1 })}>
-                                            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{command.label}</Text>
-                                        </Pressable>
-                                    ))}
-                                    {canControl && <Pressable onPress={() => setTerminalKeyboardDisabled(!terminalKeyboardDisabled)} accessibilityRole="button"
-                                        accessibilityLabel={terminalKeyboardDisabled ? 'Enable keyboard on tap' : 'Disable keyboard on tap'}
-                                        accessibilityState={{ selected: terminalKeyboardDisabled }}
-                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{terminalKeyboardDisabled ? 'Enable keyboard on tap' : 'Disable keyboard on tap'}</Text>
-                                    </Pressable>}
+                                    </Pressable>
                                     {canControl && pluginButtons.length > 0 && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Pane controls</Text>}
                                     {canControl && pluginButtons.map((button) => {
                                         const key = `${button.pluginId}:${button.id}`;

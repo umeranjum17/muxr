@@ -14,7 +14,7 @@ import { startRealtimeCapability } from '../application/startRealtimeCapability'
  * plugin used: a bare pulse line that fills only while a session is live, so
  * the dictation mic beside it stays the only audio glyph in the composer.
  */
-export function RealtimeTalkButton({ sessionId = '', accessibilityLabel }: { sessionId?: string; accessibilityLabel: string }) {
+export function RealtimeTalkButton({ sessionId = '', accessibilityLabel, size = 44 }: { sessionId?: string; accessibilityLabel: string; size?: number }) {
     const { theme } = useUnistyles();
     const realtime = useRealtimeSessionState();
     const connecting = realtime.state === 'connecting';
@@ -27,12 +27,12 @@ export function RealtimeTalkButton({ sessionId = '', accessibilityLabel }: { ses
         accessibilityLabel={accessibilityLabel}
         accessibilityState={{ busy: connecting, selected: active }}
         style={({ pressed }) => ({
-            width: 44, height: 44, borderRadius: 22,
+            width: size, height: size, borderRadius: size / 2,
             alignItems: 'center', justifyContent: 'center',
             backgroundColor: active ? withAlpha(theme.colors.accent, 0.16) : 'transparent',
             opacity: pressed ? 0.7 : 1,
         })}
     >
-        <RealtimeGlyph size={20} state={realtime.state} color={tint} />
+        <RealtimeGlyph size={Math.round(size * 0.45)} state={realtime.state} color={tint} />
     </Pressable>;
 }

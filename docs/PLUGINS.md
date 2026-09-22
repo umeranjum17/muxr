@@ -159,7 +159,7 @@ Every slot below is shipped. **JSON** means you edit `muxr-ui.json` and the chan
 | `app.overlay` | an app-wide overlay | primitive |
 | `session.overlay` | a session-scoped sheet | primitive |
 | `home.composer.leading` / `home.composer.trailing` | buttons beside the home prompt | primitive |
-| `session.composer.trailing` | the composer rail's trailing control while the prompt is empty and nothing is attached, and the header's three-dot pane menu | primitive |
+| `session.composer.trailing` | a composer control; the header's three-dot pane menu renders it as a row. The rail's own leading and trailing controls are product code, not a slot | primitive |
 
 Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships named widgets and validates each widget's allowed slots, required context, and bounded `params`. Unknown primitive names are ignored for forward compatibility; known primitives reject wrong slots, missing or unknown parameters, and invalid values.
 
@@ -176,7 +176,7 @@ Declaring `realtime-session-overlay` records that a capability needs the product
 
 Primitive parameters live under `params`. An `item-list` with `refreshIntervalMs` refreshes only while its screen and the app are active, stops its timer when unfocused/unmounted, and always force-refreshes when the user opens it. Returning zero items hides the control.
 
-Session actions appear under the header's three-dot pane menu. A session `screen-button`, or an `item-list`/`icon-button` native contribution in a supported session action slot, may set `"quickAction": true` on the contribution (not inside `params`). The flag stays accepted; the floating terminal command panel it once targeted was removed, so quick and non-quick actions alike render as pane-menu rows — every declared action remains reachable there.
+Session actions appear under the header's three-dot pane menu. A session `screen-button`, or an `item-list`/`icon-button` native contribution in a supported session action slot, may set `"quickAction": true` on the contribution (not inside `params`). The flag stays accepted; its panel target is gone, and the floating terminal control that replaced it is product code that reads no plugin contributions, so quick and non-quick actions alike render as pane-menu rows — every declared action remains reachable there.
 
 ```json
 { "slot": "session.pills", "id": "files", "type": "native", "primitive": "item-list",

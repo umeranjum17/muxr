@@ -30,6 +30,10 @@ export interface TerminalViewProps {
      *  no terminal IME, so the pane keeps its own keyboard fallback and the
      *  ring carries only the screen's own slots. */
     onViewControls?: (controls: { commands: TerminalCommand[]; dismissKeyboard: () => void }) => void;
+    /** A long press landed on a printed link; the screen decides what to offer
+     *  for it, at the point it was pressed. Absent, the press falls back to
+     *  copying. */
+    onLinkPress?: (url: string, at?: { x: number; y: number }) => void;
 }
 
 function decodeBase64(value: string): Uint8Array {
@@ -60,7 +64,7 @@ function plainUrlCellRanges(buffer: IBuffer, cols: number, row: number): { start
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
     const hostRef = React.useRef<View | null>(null);
-    const { sessionId, onStatus, onChannel } = props;
+    const { sessionId, onStatus, onChannel, onLinkPress } = props;
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
     // Quiet, immediate confirmation for the long-press link copy.
     const [linkCopied, setLinkCopied] = React.useState(false);
@@ -90,13 +94,22 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             // a strongly worded warning when no handler is set. Route through
             // the app boundary, which drops non-web schemes instead.
             linkHandler: {
-                activate: (_event, text) => openTerminalLink(text, openExternalUrl),
+                activate: (event, text) => reachLink(text, event),
             },
         });
+        // One rule on both terminals: reaching for a link asks what to do with
+        // it rather than opening it. Only the gesture that can carry that
+        // differs, and only because the native grid's renderer handles its own
+        // long press; nothing opens here without being chosen either.
+        const reachLink = (url: string, event?: MouseEvent): void => {
+            if (onLinkPress === undefined) { openTerminalLink(url, openExternalUrl); return; }
+            const box = element.getBoundingClientRect();
+            onLinkPress(url, event === undefined ? undefined : { x: event.clientX - box.left, y: event.clientY - box.top });
+        };
         const fit = new FitAddon();
         term.loadAddon(fit);
         // Plain-text URLs ride the addon, but through the same boundary.
-        term.loadAddon(new WebLinksAddon((_event, uri) => openTerminalLink(uri, openExternalUrl)));
+        term.loadAddon(new WebLinksAddon((event, uri) => reachLink(uri, event)));
         term.open(element);
         fit.fit();
         setTerminalColumns(sessionId, term.cols);
@@ -298,6 +311,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         // user gesture has not completed yet.
         let longPressLink: string | null = null;
         let longPressAt: { x: number; y: number } | null = null;
+        // Where the resolved press landed, kept past clearLongPress so the menu
+        // can open on the link rather than at a screen edge.
+        let longPressPoint: { x: number; y: number } | null = null;
         const clearLongPress = (): void => {
             clearTimeout(longPressTimer);
             longPressTimer = undefined;
@@ -363,6 +379,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     longPressTimer = undefined;
                     if (longPressAt === null || Math.abs(gesturePx) >= 8) return;
                     longPressLink = plainTextLinkAt(longPressAt.x, longPressAt.y);
+                    const box = element.getBoundingClientRect();
+                    longPressPoint = { x: longPressAt.x - box.left, y: longPressAt.y - box.top };
                 }, LONG_PRESS_MS);
             } else {
                 clearLongPress();
@@ -408,8 +426,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             // the touchup would synthesize a click on the link we just copied.
             if (link !== null) {
                 if (event.cancelable) event.preventDefault();
-                void navigator.clipboard?.writeText(link).then(showLinkCopied).catch(() => {});
+                // A link has more than one thing you might want to do with it,
+                // so the press asks, where it was pressed. Without a host to
+                // ask, it still copies.
+                if (onLinkPress !== undefined) onLinkPress(link, longPressPoint ?? undefined);
+                else void navigator.clipboard?.writeText(link).then(showLinkCopied).catch(() => {});
             }
+            longPressPoint = null;
             if (!momentumRunning && Math.abs(velocity) >= 0.5) {
                 momentumRunning = true;
                 requestAnimationFrame(momentum);
@@ -444,7 +467,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             controller.abort();
             term.dispose();
         };
-    }, [sessionId, onStatus, onChannel, showLinkCopied]);
+    }, [sessionId, onStatus, onChannel, showLinkCopied, onLinkPress]);
 
     return (
         // position: relative anchors the copy chip to the terminal, not the

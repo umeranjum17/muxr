@@ -113,7 +113,7 @@ Home chrome that picks Machine, project path, Worktree, and Agent Kind for the n
 _Avoid_: composer, launcher, FAB sheet
 
 **Terminal Link**:
-A URL an Agent printed. Loopback HTML can open as Preview; web links open outside the app, other schemes never do. Long-press copies the exact link.
+A URL an Agent printed. Loopback HTML can open as Preview; web links open outside the app, other schemes never do. A long press acts on the exact link: the browser pane offers Open, Copy and Insert for it, the native renderer copies it.
 _Avoid_: chip URL, detected hyperlink
 
 **Collaboration**:

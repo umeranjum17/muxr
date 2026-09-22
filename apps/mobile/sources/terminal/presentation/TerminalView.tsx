@@ -45,6 +45,20 @@ export interface TerminalViewProps {
     onChannel?: (channel: TerminalChannel | undefined) => void;
     /** The pane hosts the control, so the ring can cover the accessory row. */
     onViewControls?: (controls: TerminalViewControls) => void;
+    /**
+     * The user reached for a printed link and the screen decides what to offer
+     * for it, instead of the link being opened outright.
+     *
+     * Which gesture raises this is not the same on both terminals, because the
+     * gesture is not ours to choose on both. The browser terminal is ours end
+     * to end, so there it is the long press, and a tap still opens. The native
+     * grid is drawn by the terminal renderer package, whose own long press
+     * copies the link before anything above it is consulted and which exposes
+     * no hook to change or suppress that; the only link gesture that package
+     * hands up is the tap, so on native the tap raises this. That is also the
+     * safer default: nothing opens without being chosen.
+     */
+    onLinkPress?: (url: string, at?: { x: number; y: number }) => void;
 }
 
 export type TerminalViewControls = {
@@ -339,7 +353,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // Ghostty counts rows the way the finger moved, herdr counts
                 // them the way the text does, hence the negation.
                 onScroll={({ nativeEvent }) => scrollGate.queue(-nativeEvent.rows)}
-                onOpenLink={({ nativeEvent }) => openTerminalLink(nativeEvent.url, openExternalUrl)}
+                onOpenLink={({ nativeEvent }) => {
+                    if (props.onLinkPress !== undefined) { props.onLinkPress(nativeEvent.url); return; }
+                    openTerminalLink(nativeEvent.url, openExternalUrl);
+                }}
             />
             </View>
         </View>
