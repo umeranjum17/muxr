@@ -116,14 +116,14 @@ async function liveDesktop() {
         close(): void {},
     };
     FakePeer.last?.ondatachannel?.({ channel });
-    const [video] = created;
+    const [video, keyboard] = created;
     attachSurface(session.current.nativeId!, new FakeElement() as unknown as HTMLElement);
     // The engine's hello carries the geometry every touch is mapped through.
     TestRenderer.act(() => {
         channel.onmessage?.({ data: JSON.stringify({ kind: 'hello', protocol: 2, geometry: GEOMETRY }) });
     });
     sent = [];
-    return { session, video };
+    return { session, video, keyboard };
 }
 
 function dispatch(target: EventTarget, type: string, fields: Record<string, unknown>): void {
@@ -180,5 +180,67 @@ describe('touch on the desktop', () => {
         dispatch(video, 'pointerdown', { pointerId: 2, pointerType: 'mouse', button: 2, clientX: 50, clientY: 60 });
         dispatch(video, 'pointerup', { pointerId: 2, pointerType: 'mouse', button: 2, clientX: 50, clientY: 60 });
         expect(sent).toEqual(click(50, 60, 3));
+    });
+});
+
+describe('the keys a phone keyboard lacks', () => {
+    it('chords the next typed key with a sticky Ctrl, then lets it go', async () => {
+        const { session, keyboard } = await liveDesktop();
+
+        TestRenderer.act(() => session.current.tapModifier('Control'));
+        expect(session.current.modifiers).toEqual({ Control: 'once', Shift: 'off' });
+
+        // The phone's keyboard capitalises on its own; Ctrl+V is still Ctrl+V.
+        dispatch(keyboard, 'beforeinput', { inputType: 'insertText', data: 'V' });
+        expect(sent).toEqual([
+            { kind: 'key', character: 'v', modifiers: ['Control'], down: true },
+            { kind: 'key', character: 'v', modifiers: ['Control'], down: false },
+        ]);
+        expect(session.current.modifiers).toEqual({ Control: 'off', Shift: 'off' });
+
+        // Spent: the next character is plain text again.
+        sent = [];
+        dispatch(keyboard, 'beforeinput', { inputType: 'insertText', data: 'x' });
+        expect(sent).toEqual([{ kind: 'text', text: 'x' }]);
+
+        // A keyboard that composes words hands the chord over as it is typed,
+        // and the word it later finishes does not type the key a second time.
+        sent = [];
+        TestRenderer.act(() => session.current.tapModifier('Control'));
+        dispatch(keyboard, 'compositionstart', {});
+        dispatch(keyboard, 'compositionupdate', { data: 'c' });
+        const copy = [
+            { kind: 'key', character: 'c', modifiers: ['Control'], down: true },
+            { kind: 'key', character: 'c', modifiers: ['Control'], down: false },
+        ];
+        expect(sent).toEqual(copy);
+        dispatch(keyboard, 'compositionend', { data: 'c' });
+        expect(sent).toEqual(copy);
+    });
+
+    it('keeps a locked Shift across keys, and releases a held key with the modifiers it went down with', async () => {
+        const { session } = await liveDesktop();
+
+        TestRenderer.act(() => session.current.tapModifier('Shift'));
+        TestRenderer.act(() => session.current.tapModifier('Shift'));
+        expect(session.current.modifiers.Shift).toBe('lock');
+
+        TestRenderer.act(() => session.current.pressKey('ArrowRight')());
+        TestRenderer.act(() => session.current.pressKey('ArrowRight')());
+        let release = () => undefined as void;
+        TestRenderer.act(() => {
+            release = session.current.pressKey('ArrowLeft');
+        });
+        // Unlocking Shift while the arrow is held must not strand Shift down.
+        TestRenderer.act(() => session.current.tapModifier('Shift'));
+        TestRenderer.act(() => release());
+
+        const shifted = (name: string, down: boolean) => ({ kind: 'key', name, modifiers: ['Shift'], down });
+        expect(sent).toEqual([
+            shifted('ArrowRight', true), shifted('ArrowRight', false),
+            shifted('ArrowRight', true), shifted('ArrowRight', false),
+            shifted('ArrowLeft', true), shifted('ArrowLeft', false),
+        ]);
+        expect(session.current.modifiers.Shift).toBe('off');
     });
 });

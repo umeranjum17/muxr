@@ -71,6 +71,10 @@ import { desktopAvailable } from '@desklink/react-native/availability';
   the finger rests, so every desktop app's context menu is one gesture away; a
   drag that leaves the surface is cancelled rather than released at a
   coordinate the user never pointed at.
+- **The keys a phone lacks.** `modifiers`, `tapModifier` and `pressKey` give
+  sticky Ctrl and Shift: tap arms one for the next key, tap again locks it.
+  While one is armed, the next key or character the phone's keyboard types is
+  sent as that key's chord, so Ctrl then v is Ctrl+V. The app draws the keys.
 - **Readiness is a rendered frame.** `status: 'live'` is set by the first frame
   actually presented, not by a track arriving or ICE connecting.
 - **Released state.** Unmount, background, session close and a lost control

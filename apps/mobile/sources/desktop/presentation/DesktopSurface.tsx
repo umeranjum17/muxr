@@ -14,6 +14,7 @@ import { sync } from '@/catalog';
 import { createDesktopSignaling } from '../application/desktopSignaling';
 import { desktopCopy } from '../model/desktopCopy';
 import { describeDesktopOverlay } from '../model/desktopOverlay';
+import { DESKTOP_KEY_ROW_HEIGHT, DesktopKeyRow } from './DesktopKeyRow';
 
 type DesktopPermission = 'view' | 'control' | 'clipboard';
 
@@ -26,8 +27,9 @@ export interface DesktopSurfaceProps {
  *
  * One controller, one surface: the picture fills the screen, and the only chrome
  * is what the user cannot do with the desktop's own keyboard — the native
- * keyboard toggle, the two explicit clipboard directions, and returning to the
- * conversation. Everything else is the desktop.
+ * keyboard toggle, the keys a phone keyboard lacks while it is open, the two
+ * explicit clipboard directions, and returning to the conversation. Everything
+ * else is the desktop.
  */
 export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
     const { theme } = useUnistyles();
@@ -127,7 +129,8 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
     const live = snapshot.status === 'live';
     const clipboardUnavailable = live && !clipboardAvailable;
     const shownNotice = live ? notice ?? (clipboardUnavailable ? desktopCopy.clipboardUnavailable : null) : null;
-    const buttonBottom = keyboard.isVisible ? 12 : Math.max(insets.bottom, 8) + 12;
+    const keyRowShown = live && keyboardOpen;
+    const buttonBottom = (keyboard.isVisible ? 12 : Math.max(insets.bottom, 8) + 12) + (keyRowShown ? DESKTOP_KEY_ROW_HEIGHT : 0);
 
     return (
         <View style={styles.screen}>
@@ -153,6 +156,12 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
                     </View>
                 )}
             </View>
+
+            {keyRowShown && (
+                <View style={{ paddingBottom: keyboard.isVisible ? 0 : insets.bottom }}>
+                    <DesktopKeyRow session={session} />
+                </View>
+            )}
 
             {shownNotice !== null && (
                 <Text

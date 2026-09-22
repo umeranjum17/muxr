@@ -20,6 +20,7 @@ export type NativeEventName =
     | 'track'
     | 'presented'
     | 'control'
+    | 'keyboard'
     | 'failure'
     | 'closed';
 
@@ -37,6 +38,11 @@ export interface NativeDesklinkModule {
     sendControl(id: string, message: string): boolean;
     showKeyboard(id: string): boolean;
     hideKeyboard(id: string): boolean;
+    /**
+     * While captured, what the phone's keyboard types is not sent: it arrives as
+     * a `keyboard` event, `{ text }` or `{ key }`, for the session to chord.
+     */
+    captureKeyboard(id: string, captured: boolean): boolean;
     setSurfaceSize(id: string, width: number, height: number): boolean;
     closeSession(id: string): boolean;
     isAvailable(): boolean;

@@ -64,6 +64,11 @@ class DesklinkModule : Module() {
       true
     }
 
+    Function("captureKeyboard") { id: String, captured: Boolean ->
+      postToView(id) { it.captureKeyboard(captured) }
+      true
+    }
+
     Function("setSurfaceSize") { id: String, width: Int, height: Int ->
       postToView(id) { it.setSurfaceSize(width, height) }
       true

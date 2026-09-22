@@ -14,6 +14,15 @@ import type {
     SurfaceGeometry,
 } from './protocol';
 import { PROTOCOL_VERSION, parseControlReply } from './protocol';
+import {
+    NO_MODIFIERS,
+    afterKey,
+    armedModifiers,
+    tapModifier as nextModifiers,
+    typeWithModifiers,
+    type StickyModifier,
+    type StickyModifiers,
+} from './stickyModifiers';
 
 /** How long a clipboard round trip may take before it is reported as lost. */
 const CLIPBOARD_TIMEOUT_MS = 4000;
@@ -103,6 +112,16 @@ export interface DesktopSession {
     /** Release anything the desktop is holding, without ending the session. */
     releaseHeld: () => void;
     send: (message: ControlMessage) => void;
+    /** Ctrl and Shift as sticky keys: off, armed for the next key, or locked. */
+    modifiers: StickyModifiers;
+    /** Tap a sticky modifier: off, then armed for the next key, then locked, then off. */
+    tapModifier: (name: StickyModifier) => void;
+    /**
+     * Press a named key with the armed modifiers; the returned function releases
+     * it. A tap is `pressKey(name)()`. The release carries the same modifiers,
+     * because the engine lets go of exactly the modifiers the message names.
+     */
+    pressKey: (name: string) => () => void;
 }
 
 const IDLE: SessionSnapshot = {
@@ -124,6 +143,9 @@ const IDLE: SessionSnapshot = {
 export function useDesktopSession(options: DesktopSessionOptions): DesktopSession {
     const [snapshot, setSnapshot] = useState<SessionSnapshot>(IDLE);
     const [nativeId, setNativeId] = useState<string | null>(null);
+    const [modifiers, setModifiers] = useState<StickyModifiers>(NO_MODIFIERS);
+    /** Read by input as it arrives, which can be faster than a render. */
+    const modifiersRef = useRef<StickyModifiers>(NO_MODIFIERS);
 
     const opened = useRef<SessionOpenResult | null>(null);
     const signaling = useRef<Signaling | null>(null);
@@ -169,6 +191,39 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         send({ kind: 'release_all' });
     }, [send]);
 
+    const applyModifiers = useCallback((next: StickyModifiers) => {
+        const current = modifiersRef.current;
+        if (next.Control === current.Control && next.Shift === current.Shift) return;
+        modifiersRef.current = next;
+        setModifiers(next);
+        // The phone's keyboard is the session's own only while a modifier waits
+        // for its key; otherwise typing goes straight to the desktop.
+        const id = nativeRef.current;
+        if (id != null) nativeDesklink?.captureKeyboard(id, armedModifiers(next).length > 0);
+    }, []);
+
+    const tapModifier = useCallback((name: StickyModifier) => {
+        applyModifiers(nextModifiers(modifiersRef.current, name));
+    }, [applyModifiers]);
+
+    const pressKey = useCallback((name: string) => {
+        const held = armedModifiers(modifiersRef.current);
+        send({ kind: 'key', name, modifiers: held, down: true });
+        applyModifiers(afterKey(modifiersRef.current));
+        let pressed = true;
+        return () => {
+            if (!pressed) return;
+            pressed = false;
+            send({ kind: 'key', name, modifiers: held, down: false });
+        };
+    }, [send, applyModifiers]);
+
+    const typeText = useCallback((text: string) => {
+        const { messages, next } = typeWithModifiers(text, modifiersRef.current);
+        for (const message of messages) send(message);
+        applyModifiers(next);
+    }, [send, applyModifiers]);
+
     const showKeyboard = useCallback(() => {
         const id = nativeRef.current;
         if (id != null) nativeDesklink?.showKeyboard(id);
@@ -189,6 +244,9 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         opened.current = null;
         signaling.current = null;
         setNativeId(null);
+        // An armed modifier belongs to the session it was armed in.
+        modifiersRef.current = NO_MODIFIERS;
+        setModifiers(NO_MODIFIERS);
         if (id != null) nativeDesklink?.closeSession(id);
     }, []);
 
@@ -394,6 +452,11 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
                         }
                         return;
                     }
+                    case 'keyboard':
+                        // Typing the platform held back for an armed modifier.
+                        if (typeof event.payload.key === 'string') pressKey(event.payload.key)();
+                        else if (typeof event.payload.text === 'string') typeText(event.payload.text);
+                        return;
                     case 'failure':
                         refuse(UNREACHABLE_DESKTOP, 'transport');
                         return;
@@ -409,7 +472,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
             dropped = true;
             subscription?.remove();
         };
-    }, [refuse, teardown, update]);
+    }, [refuse, teardown, update, pressKey, typeText]);
 
     const copyRemoteToLocal = useCallback(async () => {
         const id = nativeRef.current;
@@ -498,6 +561,9 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         pasteLocalToRemote,
         releaseHeld,
         send,
+        modifiers,
+        tapModifier,
+        pressKey,
     }), [
         snapshot,
         nativeId,
@@ -509,6 +575,9 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         pasteLocalToRemote,
         releaseHeld,
         send,
+        modifiers,
+        tapModifier,
+        pressKey,
     ]);
 }
 

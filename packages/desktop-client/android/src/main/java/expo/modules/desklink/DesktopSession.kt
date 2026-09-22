@@ -292,6 +292,9 @@ class DesktopSession(
     send(JSONObject(message))
   }
 
+  /** Typing held back for an armed sticky modifier; the app sends it as a chord. */
+  fun emitKeyboard(input: Map<String, Any?>) = emit("keyboard", input)
+
   fun markPresented() {
     if (!presented) {
       presented = true

@@ -25,6 +25,8 @@ const SCROLL_SLOP = 18;
 /** A touch held this long without passing the drag slop is a right click. */
 const LONG_PRESS_MS = 400;
 
+const MODIFIER_NAMES = new Set(['Control', 'Shift', 'Alt', 'Meta']);
+
 interface WebSession {
     id: string;
     peer: RTCPeerConnection;
@@ -46,6 +48,11 @@ interface WebSession {
     longPress: ReturnType<typeof setTimeout> | null;
     /** True once the active touch became a right click, so its end is not a tap. */
     longPressed: boolean;
+    /** While a sticky modifier waits for its key, typing is the session's to chord. */
+    captured: boolean;
+    /** The word the keyboard is composing, and how much of it has already gone. */
+    composition: string;
+    compositionSent: string;
     /** Chorded keys that are down on the desktop, by the character sent for them. */
     chordsDown: Set<string>;
     /** Candidates that arrived before the offer; applied once it is set. */
@@ -121,6 +128,15 @@ function createSessionElements(): { video: HTMLVideoElement; keyboard: HTMLTextA
 function control(session: WebSession, message: Record<string, unknown>): void {
     if (session.channel?.readyState !== 'open') return;
     session.channel.send(JSON.stringify(message));
+}
+
+/**
+ * What a composition has typed beyond what already went while the keyboard was
+ * captured. A composition the keyboard rewrote (an autocorrection) cannot take
+ * back what the desktop already has, so nothing more of it is sent.
+ */
+function unsentComposition(session: WebSession, data: string): string {
+    return data.startsWith(session.compositionSent) ? data.slice(session.compositionSent.length) : '';
 }
 
 /** CSS pixels → encoded-surface coordinates, or null when outside the picture. */
@@ -273,28 +289,54 @@ function attachGestures(session: WebSession): () => void {
         control(session, { kind: 'wheel', dx: 0, dy: Math.sign(event.deltaY), seq: seq(session) });
     };
 
+    // What the phone types goes to the desktop, or, while a sticky modifier
+    // waits for its key, to the session, which sends it as that key's chord.
+    const typeText = (text: string): void => {
+        if (session.captured) emit(session.id, 'keyboard', { text });
+        else control(session, { kind: 'text', text, seq: seq(session) });
+    };
+    const tapKey = (name: string): void => {
+        if (session.captured) {
+            emit(session.id, 'keyboard', { key: name });
+            return;
+        }
+        control(session, { kind: 'key', name, down: true, seq: seq(session) });
+        control(session, { kind: 'key', name, down: false, seq: seq(session) });
+    };
+
     let composing = false;
     const compositionStart = (): void => {
         composing = true;
+        session.composition = '';
+        session.compositionSent = '';
+    };
+    const compositionUpdate = (event: CompositionEvent): void => {
+        session.composition = event.data;
+        if (!session.captured) return;
+        // A chord is one key, not the end of a word: it goes as it is typed.
+        const typed = unsentComposition(session, event.data);
+        session.compositionSent = event.data;
+        if (typed !== '') typeText(typed);
     };
     const compositionEnd = (event: CompositionEvent): void => {
         composing = false;
-        if (event.data !== '') control(session, { kind: 'text', text: event.data, seq: seq(session) });
+        const typed = unsentComposition(session, event.data);
+        session.composition = '';
+        session.compositionSent = '';
+        if (typed !== '') typeText(typed);
         keyboard.value = '';
     };
     const beforeInput = (event: InputEvent): void => {
         if (composing || event.isComposing) return;
         if (event.inputType === 'insertText' && event.data != null) {
             event.preventDefault();
-            control(session, { kind: 'text', text: event.data, seq: seq(session) });
+            typeText(event.data);
         } else if (event.inputType === 'deleteContentBackward') {
             event.preventDefault();
-            control(session, { kind: 'key', name: 'Backspace', down: true, seq: seq(session) });
-            control(session, { kind: 'key', name: 'Backspace', down: false, seq: seq(session) });
+            tapKey('Backspace');
         } else if (event.inputType === 'insertLineBreak') {
             event.preventDefault();
-            control(session, { kind: 'key', name: 'Enter', down: true, seq: seq(session) });
-            control(session, { kind: 'key', name: 'Enter', down: false, seq: seq(session) });
+            tapKey('Enter');
         }
     };
     const keyEvent = (event: KeyboardEvent, down: boolean): void => {
@@ -302,6 +344,13 @@ function attachGestures(session: WebSession): () => void {
         const name = NAMED_KEYS[event.key];
         if (name !== undefined) {
             event.preventDefault();
+            // A plain key pressed while a sticky modifier waits is the
+            // session's to chord. Only the press is held back: a release still
+            // goes, so a key that was down before the capture cannot stick.
+            if (session.captured && down && heldModifiers(event).length === 0 && !MODIFIER_NAMES.has(name)) {
+                tapKey(name);
+                return;
+            }
             // A modifier the user is holding belongs to this key too, or a
             // chorded arrow/tab after Ctrl+C would arrive as a plain key once
             // the chord's own key-up released the shared modifier.
@@ -343,6 +392,7 @@ function attachGestures(session: WebSession): () => void {
     video.addEventListener('wheel', wheel, { passive: false });
     video.addEventListener('contextmenu', contextMenu);
     keyboard.addEventListener('compositionstart', compositionStart);
+    keyboard.addEventListener('compositionupdate', compositionUpdate);
     keyboard.addEventListener('compositionend', compositionEnd);
     keyboard.addEventListener('beforeinput', beforeInput);
     keyboard.addEventListener('keydown', keyDown);
@@ -357,6 +407,7 @@ function attachGestures(session: WebSession): () => void {
         video.removeEventListener('wheel', wheel);
         video.removeEventListener('contextmenu', contextMenu);
         keyboard.removeEventListener('compositionstart', compositionStart);
+        keyboard.removeEventListener('compositionupdate', compositionUpdate);
         keyboard.removeEventListener('compositionend', compositionEnd);
         keyboard.removeEventListener('beforeinput', beforeInput);
         keyboard.removeEventListener('keydown', keyDown);
@@ -411,6 +462,9 @@ export const nativeDesklink: NativeDesklinkModule = {
             multiPointer: false,
             longPress: null,
             longPressed: false,
+            captured: false,
+            composition: '',
+            compositionSent: '',
             chordsDown: new Set<string>(),
             remoteDescriptionSet: false,
             pendingCandidates: [],
@@ -531,6 +585,20 @@ export const nativeDesklink: NativeDesklinkModule = {
 
     hideKeyboard(id: string): boolean {
         sessions.get(id)?.keyboard.blur();
+        return true;
+    },
+
+    captureKeyboard(id: string, captured: boolean): boolean {
+        const session = sessions.get(id);
+        if (session === undefined) return false;
+        if (captured && !session.captured) {
+            // A word still being composed was typed before the modifier was
+            // armed: it goes first, as text, and only what follows is chorded.
+            const pending = unsentComposition(session, session.composition);
+            if (pending !== '') control(session, { kind: 'text', text: pending, seq: seq(session) });
+            session.compositionSent = session.composition;
+        }
+        session.captured = captured;
         return true;
     },
 

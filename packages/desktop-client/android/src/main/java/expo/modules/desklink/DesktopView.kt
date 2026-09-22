@@ -8,6 +8,7 @@ import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputConnectionWrapper
@@ -76,6 +77,9 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
   }
 
+  /** While the app holds a sticky modifier, what the keyboard types is the app's to chord. */
+  private var keyboardCaptured = false
+
   /** Chorded keys that are down on the desktop, by Android key code. */
   private val chordKeysDown = mutableSetOf<Int>()
 
@@ -117,6 +121,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     detachSink()
     removeCallbacks(longPress)
     chordKeysDown.clear()
+    keyboardCaptured = false
     renderer?.let { it.release(); removeView(it) }
     renderer = null
     session = next
@@ -151,14 +156,18 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   fun showKeyboard() {
     keyboard.requestFocus()
-    val service = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-    service.showSoftInput(keyboard, InputMethodManager.SHOW_IMPLICIT)
+    inputMethods().showSoftInput(keyboard, InputMethodManager.SHOW_IMPLICIT)
   }
 
   fun hideKeyboard() {
-    val service = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-    service.hideSoftInputFromWindow(keyboard.windowToken, 0)
+    inputMethods().hideSoftInputFromWindow(keyboard.windowToken, 0)
   }
+
+  fun captureKeyboard(captured: Boolean) {
+    keyboardCaptured = captured
+  }
+
+  private fun inputMethods() = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
 
   private fun attachSink() {
     val active = session ?: return
@@ -342,10 +351,45 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
       if (forwardChord(event)) return true
       val character = event.unicodeChar
       if (character >= 32) {
-        session?.sendText(String(Character.toChars(character)))
+        val text = String(Character.toChars(character))
+        if (keyboardCaptured) session?.emitKeyboard(mapOf("text" to text)) else session?.sendText(text)
         return true
       }
       return super.onKeyDown(keyCode, event)
+    }
+
+    /** One tap of a named key: to the desktop, or to the app while it holds a modifier. */
+    private fun tapKey(name: String) {
+      if (keyboardCaptured) {
+        session?.emitKeyboard(mapOf("key" to name))
+        return
+      }
+      session?.sendKey(name, emptyList(), true)
+      session?.sendKey(name, emptyList(), false)
+    }
+
+    /**
+     * The keyboard typed while the app holds a sticky modifier.
+     *
+     * The word it was still composing was typed before the modifier and has not
+     * gone yet, so it goes first, as text; only what the keyboard added to it is
+     * the chord's. The keyboard then forgets the word and starts afresh, or it
+     * would send the whole word again when it finishes it, chord key included.
+     */
+    private fun captureTyped(text: String) {
+      val buffer = editableText
+      val start = BaseInputConnection.getComposingSpanStart(buffer)
+      val end = BaseInputConnection.getComposingSpanEnd(buffer)
+      val pending = if (start in 0 until end) buffer.substring(start, end) else ""
+      // A keyboard that rewrote its word (an autocorrection) is finishing it,
+      // not adding a key.
+      val extends = text.startsWith(pending)
+      val plain = if (extends) pending else text
+      val added = if (extends) text.substring(pending.length) else ""
+      if (plain.isNotEmpty()) session?.sendText(plain)
+      if (added.isNotEmpty()) session?.emitKeyboard(mapOf("text" to added))
+      buffer.clear()
+      post { inputMethods().restartInput(this) }
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
@@ -358,15 +402,28 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
       val base = super.onCreateInputConnection(outAttrs) ?: return null
       return object : InputConnectionWrapper(base, true) {
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+          if (keyboardCaptured && !text.isNullOrEmpty()) {
+            captureTyped(text.toString())
+            return true
+          }
           if (!text.isNullOrEmpty()) session?.sendText(text.toString())
           return super.commitText(text, newCursorPosition)
+        }
+
+        override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
+          // A chord is one key, not the start of a word: it goes as it is typed.
+          if (keyboardCaptured && !text.isNullOrEmpty()) {
+            captureTyped(text.toString())
+            return true
+          }
+          return super.setComposingText(text, newCursorPosition)
         }
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
           // Backspace and forward-delete are real keys, not edits to a local
           // buffer: the desktop owns the text.
-          repeat(min(64, beforeLength)) { session?.sendKey("Backspace", emptyList(), true); session?.sendKey("Backspace", emptyList(), false) }
-          repeat(min(64, afterLength)) { session?.sendKey("Delete", emptyList(), true); session?.sendKey("Delete", emptyList(), false) }
+          repeat(min(64, beforeLength)) { tapKey("Backspace") }
+          repeat(min(64, afterLength)) { tapKey("Delete") }
           return super.deleteSurroundingText(beforeLength, afterLength)
         }
 
@@ -380,8 +437,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
           if (actionCode == EditorInfo.IME_ACTION_DONE || actionCode == EditorInfo.IME_ACTION_GO ||
             actionCode == EditorInfo.IME_ACTION_SEND || actionCode == EditorInfo.IME_ACTION_NEXT
           ) {
-            session?.sendKey("Enter", emptyList(), true)
-            session?.sendKey("Enter", emptyList(), false)
+            tapKey("Enter")
             return true
           }
           return super.performEditorAction(actionCode)
@@ -466,6 +522,15 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         KeyEvent.KEYCODE_PAGE_UP -> "PageUp"
         KeyEvent.KEYCODE_PAGE_DOWN -> "PageDown"
         else -> return false
+      }
+      // A plain key pressed while a sticky modifier waits is the app's to
+      // chord. Only the press is held back: a release still goes, so a key
+      // that was down before the capture cannot stick.
+      if (keyboardCaptured && event.action == KeyEvent.ACTION_DOWN && event.hasNoModifiers() &&
+        !KeyEvent.isModifierKey(event.keyCode)
+      ) {
+        tapKey(name)
+        return true
       }
       session?.sendKey(name, heldModifiers(event), event.action == KeyEvent.ACTION_DOWN)
       return true
