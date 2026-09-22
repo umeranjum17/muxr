@@ -42,14 +42,16 @@ fn main() -> Result<()> {
             0,
             WindowClass::INPUT_OUTPUT,
             x11rb::COPY_FROM_PARENT,
-            &CreateWindowAux::new().background_pixel(screen.white_pixel).event_mask(
-                EventMask::EXPOSURE
-                    | EventMask::BUTTON_PRESS
-                    | EventMask::BUTTON_RELEASE
-                    | EventMask::POINTER_MOTION
-                    | EventMask::KEY_PRESS
-                    | EventMask::KEY_RELEASE,
-            ),
+            &CreateWindowAux::new()
+                .background_pixel(screen.white_pixel)
+                .event_mask(
+                    EventMask::EXPOSURE
+                        | EventMask::BUTTON_PRESS
+                        | EventMask::BUTTON_RELEASE
+                        | EventMask::POINTER_MOTION
+                        | EventMask::KEY_PRESS
+                        | EventMask::KEY_RELEASE,
+                ),
         )
         .context("cannot create the test window")?;
     connection.map_window(window)?;
@@ -66,21 +68,43 @@ fn main() -> Result<()> {
 
     // Put the pointer inside the window so key events have an obvious target on
     // a server with no window manager.
-    connection.warp_pointer(x11rb::NONE, window, 8, 8, 0, 0, (WIDTH / 2) as i16, (HEIGHT / 2) as i16)?;
+    connection.warp_pointer(
+        x11rb::NONE,
+        window,
+        8,
+        8,
+        0,
+        0,
+        (WIDTH / 2) as i16,
+        (HEIGHT / 2) as i16,
+    )?;
     connection.flush()?;
 
     let mut out = std::io::stdout();
-    emit(&mut out, "ready", &[( "width", WIDTH.to_string()), ("height", HEIGHT.to_string())]);
+    emit(
+        &mut out,
+        "ready",
+        &[("width", WIDTH.to_string()), ("height", HEIGHT.to_string())],
+    );
 
     loop {
-        let event = connection.wait_for_event().context("the X connection dropped")?;
+        let event = connection
+            .wait_for_event()
+            .context("the X connection dropped")?;
         match event {
             Event::Expose(_) => {
                 paint(&connection, window, graphics, marker)?;
                 connection.flush()?;
             }
             Event::MotionNotify(motion) => {
-                emit(&mut out, "pointer", &[("x", motion.event_x.to_string()), ("y", motion.event_y.to_string())]);
+                emit(
+                    &mut out,
+                    "pointer",
+                    &[
+                        ("x", motion.event_x.to_string()),
+                        ("y", motion.event_y.to_string()),
+                    ],
+                );
             }
             Event::ButtonPress(press) => {
                 emit(
@@ -159,14 +183,25 @@ fn paint(
         (0x00d0d040, HEIGHT * 3 / 4, HEIGHT),
     ];
     for (colour, y, height) in bands {
-        connection.change_gc(graphics, &x11rb::protocol::xproto::ChangeGCAux::new().foreground(colour))?;
+        connection.change_gc(
+            graphics,
+            &x11rb::protocol::xproto::ChangeGCAux::new().foreground(colour),
+        )?;
         connection.poly_fill_rectangle(
             window,
             graphics,
-            &[Rectangle { x: 0, y: y as i16, width: WIDTH, height: (height - y) as u16 }],
+            &[Rectangle {
+                x: 0,
+                y: y as i16,
+                width: WIDTH,
+                height: (height - y) as u16,
+            }],
         )?;
     }
-    connection.change_gc(graphics, &x11rb::protocol::xproto::ChangeGCAux::new().foreground(0x00ffffff))?;
+    connection.change_gc(
+        graphics,
+        &x11rb::protocol::xproto::ChangeGCAux::new().foreground(0x00ffffff),
+    )?;
     let mut ticks = Vec::new();
     for step in 0..(WIDTH / 100) {
         let x = step * 100;
@@ -188,17 +223,33 @@ fn paint(
     }
     connection.poly_fill_rectangle(window, graphics, &ticks)?;
     if let Some((x, y)) = marker {
-        connection.change_gc(graphics, &x11rb::protocol::xproto::ChangeGCAux::new().foreground(0x00000000))?;
-        connection.poly_fill_rectangle(
-            window,
+        connection.change_gc(
             graphics,
-            &[Rectangle { x: x.saturating_sub(6), y: y.saturating_sub(6), width: 12, height: 12 }],
+            &x11rb::protocol::xproto::ChangeGCAux::new().foreground(0x00000000),
         )?;
-        connection.change_gc(graphics, &x11rb::protocol::xproto::ChangeGCAux::new().foreground(0x00ffffff))?;
         connection.poly_fill_rectangle(
             window,
             graphics,
-            &[Rectangle { x: x.saturating_sub(2), y: y.saturating_sub(2), width: 4, height: 4 }],
+            &[Rectangle {
+                x: x.saturating_sub(6),
+                y: y.saturating_sub(6),
+                width: 12,
+                height: 12,
+            }],
+        )?;
+        connection.change_gc(
+            graphics,
+            &x11rb::protocol::xproto::ChangeGCAux::new().foreground(0x00ffffff),
+        )?;
+        connection.poly_fill_rectangle(
+            window,
+            graphics,
+            &[Rectangle {
+                x: x.saturating_sub(2),
+                y: y.saturating_sub(2),
+                width: 4,
+                height: 4,
+            }],
         )?;
     }
     Ok(())

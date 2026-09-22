@@ -11,10 +11,10 @@ particular application.
 
 ## What it does
 
-- **Capture** through the XDG Desktop Portal (`ScreenCast`) and PipeWire, so the
-  compositor is the one that grants the desktop and the user is the one who
-  consents. It asks for shared-memory buffers rather than DMA-BUFs, which keeps
-  the pixel path on the CPU and out of the driver.
+- **Capture** through the XDG Desktop Portal (`ScreenCast`) and PipeWire, with
+  compositor consent, or from an explicitly selected X display's root window.
+  The portal path asks for shared-memory buffers rather than DMA-BUFs, keeping
+  its pixel path on the CPU and out of the driver.
 - **Encode** VP9 with libvpx in real time, single pass, no lookahead: one frame
   in, one packet out. Software by default, because a hardware encoder would put a
   vendor driver dependency on every machine class. Tuned for a desktop: the
@@ -24,9 +24,8 @@ particular application.
 - **Transport** with WebRTC — ICE, DTLS, SRTP, RTP — and one data channel for the
   session's pointer/keyboard/clipboard.
 - **Input** through [inputtino](https://github.com/games-on-whales/inputtino)
-  (MIT) over `uinput`/`libevdev`: the engine creates its own virtual pointer and
-  keyboard for the session and destroys them when it ends, releasing anything
-  that was still held.
+  (MIT) over `uinput`/`libevdev` for portal capture, or XTest for an X display.
+  Both release held input when the session ends.
 - **Clipboard** explicitly, in both directions, only when asked. It is never
   polled and never used as a hidden way to type. On Wayland, writes require
   `wl-copy` from `wl-clipboard`; its selection server keeps the copied text
@@ -98,25 +97,10 @@ makes, not something an installation does for them:
 ./bin/desklink-host.mjs setup-input
 ```
 
-That prints the exact, narrowly scoped rule — and changes nothing. Without it the
-engine still captures the desktop and reports the session as **view-only**, which
-is a truthful degraded capability rather than a control surface that does
-nothing.
-
-## Talking to it
-
-`docs/PROTOCOL.md` is the authority. In short:
-
-```ts
-import { EngineClient, resolveEngine } from '@desklink/host';
-
-const engine = resolveEngine();
-const client = await EngineClient.start(engine.command, engine.args);
-const session = await client.openSession({ permissions: ['view', 'control', 'clipboard'] });
-// carry `session.geometry` and the offer from `client.drainEvents()` to the
-// client over your own authenticated channel, then:
-await client.acceptAnswer(session.sessionId, session.generation, answerSdp);
-```
+That prints the exact, narrowly scoped rule — and changes nothing. Without
+`uinput` access a portal session can still be opened with `view` permission;
+asking for `control` is refused rather than presenting inert controls. An X
+session instead uses XTest and does not need `/dev/uinput`.
 
 ## Licence and provenance
 
@@ -131,8 +115,7 @@ Moonlight, Apollo and RustDesk were read as architecture references only.
 
 The engine needs one thing from a consumer: somewhere for the SDP and ICE
 candidates to go, and somewhere for the answer and the client's candidates to
-come back. That is the whole seam, and it is deliberately the smallest possible
-one, because every application already has a way to talk to itself.
+come back. See `docs/PROTOCOL.md` for the authoritative wire contract.
 
 ```ts
 import { EngineClient, resolveEngine } from '@desklink/host';

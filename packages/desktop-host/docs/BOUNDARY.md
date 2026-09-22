@@ -139,6 +139,6 @@ concept, and muxr's contribution is one file that adapts its own channel to the
   silent, or whether the compositor asks again. The engine returns the token the
   portal gives it (`session.restoreToken`) and accepts one on `session.open`; the
   behaviour is the compositor's to decide and is not claimed until observed.
-- Whether a phone-sized encoded surface is the right default width for every
-  source, or whether the consumer should pick per device. The engine takes a
-  `maxWidth`/`maxHeight` box and never upscales; the default is 1280x800.
+- Whether the consumer should set a smaller `maxWidth`/`maxHeight` box per
+  device rather than use the engine's default (see `docs/PROTOCOL.md`). The
+  engine never upscales.

@@ -47,7 +47,11 @@ pub async fn open(restore_token: Option<&str>) -> Result<PortalSession> {
         .await
         .context("compositor has no ScreenCast portal")?;
 
-    if proxy.available_source_types().await.is_ok_and(|types| !types.contains(SourceType::Monitor)) {
+    if proxy
+        .available_source_types()
+        .await
+        .is_ok_and(|types| !types.contains(SourceType::Monitor))
+    {
         anyhow::bail!("ScreenCast portal advertises no monitor source");
     }
 
@@ -87,9 +91,7 @@ pub async fn open(restore_token: Option<&str>) -> Result<PortalSession> {
         .first()
         .context("portal returned no capture stream")?;
 
-    let (width, height) = stream
-        .size()
-        .context("portal stream has no logical size")?;
+    let (width, height) = stream.size().context("portal stream has no logical size")?;
     let position = stream.position();
 
     let fd = proxy

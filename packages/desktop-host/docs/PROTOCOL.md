@@ -93,7 +93,7 @@ arrives, every other request is refused the same way; `capabilities` and
   "input": {
     "mechanism": "inputtino/uinput",
     "pointer": true, "wheel": true, "keyboard": true,
-    "text": ["latin1", "layout-reachable"],
+    "text": ["layout-reachable"],
     "layout": "us",
     "unavailable_reason": null,
     "grant": "granted"
@@ -112,12 +112,12 @@ none. It is not yet the compositor's live layout, so a mismatch with the
 desktop is visible here rather than silent. `capture.backends` lists what this
 build has, not what this machine can necessarily use.
 
-Every field describes what this process can *actually* do right now, not what the
-platform might do. `input.unavailable_reason` and `input.grant` (the string
-`"granted"`, or `"missing-device-access"`) are the honest degraded modes: without
-kernel input access the engine still captures and reports `input` as unavailable,
-and the consumer shows a view-only surface. It never substitutes another product
-and never asks for privileges on its own.
+`input.unavailable_reason` and `input.grant` describe the portal/uinput path:
+without kernel input access a portal session may request `view`, but an open
+requesting `control` is refused. X display capture uses XTest instead and does
+not require that grant. The muxr host and WebSocket bridge report clipboard
+unavailable for an X display, regardless of the engine's Wayland clipboard
+probe. The engine never asks for privileges on its own.
 
 `capabilities` is safe to call before any consent has been given and must not
 trigger a capture request.
@@ -143,7 +143,7 @@ Result:
 {"sessionId":"<opaque>","generation":1,
  "source":{"kind":"monitor","width":2560,"height":1440,"origin":{"x":0,"y":0}},
  "geometry":{"source":{"width":2560,"height":1440},
-             "encoded":{"width":1280,"height":720},
+             "encoded":{"width":2560,"height":1440},
              "origin":{"x":0,"y":0}}}
 ```
 

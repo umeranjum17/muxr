@@ -60,7 +60,10 @@ fn build_inputtino(out: &Path) -> Result<(), Box<dyn std::error::Error>> {
         .status()
         .is_ok_and(|s| s.success());
     if !configured {
-        return Err("cmake could not configure the vendored inputtino project; install cmake and libevdev".into());
+        return Err(
+            "cmake could not configure the vendored inputtino project; install cmake and libevdev"
+                .into(),
+        );
     }
     let compiled = std::process::Command::new("cmake")
         .args([

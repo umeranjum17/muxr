@@ -168,9 +168,8 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
     }, [clipboardOpen, onExit]);
 
     const live = snapshot.status === 'live';
-    // The screen-sharing approval happens on the computer, and only the first
-    // time; once a desktop has been live here, the start stops pointing at it.
-    // The first live desktop also says, once, how to move around it.
+    // Once a desktop has been live here, stop showing the one-time gesture hint.
+    // Portal consent may still be requested on later sessions.
     React.useEffect(() => {
         if (!live || openedBefore) return;
         setOpenedBefore(true);
