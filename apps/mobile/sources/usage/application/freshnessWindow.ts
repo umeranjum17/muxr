@@ -34,6 +34,11 @@ export function machineKey(provider: string): string {
  *  level, so a remount and a return from the foreground do not forget it. */
 const askedAt = new Map<string, number>();
 
+/** When we last asked the host to collect past its cache, per machine and tab:
+ *  the floor under every forced read, kept here rather than in a mounted hook
+ *  so a remount or a surface switch cannot walk around it. */
+const lastForcedAt = new Map<string, number>();
+
 /** The measured local activity a usage.report read carries, and the host's own
  *  words for having none. */
 export interface UsageActivity {
@@ -184,6 +189,17 @@ export function knownProviders(): UsageReport['providers'] {
         for (const tab of display.figures.providers ?? []) if (!tabs.has(tab.id)) tabs.set(tab.id, tab);
     }
     return [...tabs.values()];
+}
+
+/** Note a forced read on this machine's tab at `nowMs`. */
+export function noteForcedRead(provider: string, nowMs: number): void {
+    lastForcedAt.set(machineKey(provider), nowMs);
+}
+
+/** When the last forced read on this machine's tab started, if there has been
+ *  one: `forcedReadWait` measures the budget from here. */
+export function lastForcedRead(provider: string): number {
+    return lastForcedAt.get(machineKey(provider)) ?? 0;
 }
 
 /** When the Usage screen last asked for this machine's tab list, if it has.

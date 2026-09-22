@@ -2,7 +2,7 @@ import * as React from 'react';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type UsageNow, type UsageVitals } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { forcedReadWait } from './forcedRead';
-import { FRESH_MS, collectionDue, noteAsked, releaseAsked, rememberShown, shownUsage, subscribeUsage, usageWrites, withNow, type UsageDisplay, type UsageFigures } from './freshnessWindow';
+import { FRESH_MS, collectionDue, lastForcedRead, noteAsked, noteForcedRead, releaseAsked, rememberShown, shownUsage, subscribeUsage, usageWrites, withNow, type UsageDisplay, type UsageFigures } from './freshnessWindow';
 import { useForegroundRefresh } from './useForegroundRefresh';
 
 /** The tab the card's read answers for: `usage.now` collects the default one,
@@ -61,7 +61,6 @@ export function useUsageNow(): UsageNowRead {
     const version = React.useRef(0);
     const loading = React.useRef(false);
     const collecting = React.useRef(0);
-    const lastForced = React.useRef(0);
     const rejected = React.useRef(false);
     const pendingForce = React.useRef(false);
     const bursting = React.useRef(false);
@@ -96,7 +95,7 @@ export function useUsageNow(): UsageNowRead {
         // The budget belongs to a forced read that actually starts: a cycle that
         // can only join the read already in flight must not spend it, and the
         // window opens only where we really ask.
-        if (force) { lastForced.current = claimedAtMs; noteAsked(READ_TAB, claimedAtMs); claim.current = claimedAtMs; }
+        if (force) { noteForcedRead(READ_TAB, claimedAtMs); noteAsked(READ_TAB, claimedAtMs); claim.current = claimedAtMs; }
         // A follow-up asks the cache-respecting question on purpose: forcing it
         // again would start a second collection behind the one the read that
         // opened the burst already left running.
@@ -198,7 +197,7 @@ export function useUsageNow(): UsageNowRead {
             return;
         }
         const now = Date.now();
-        const waitSeconds = forcedReadWait(lastForced.current, rejected.current, now);
+        const waitSeconds = forcedReadWait(lastForcedRead(READ_TAB), rejected.current, now);
         if (waitSeconds !== undefined) { setThrottledSeconds(waitSeconds); return; }
         setThrottledSeconds(undefined);
         collecting.current = 0;

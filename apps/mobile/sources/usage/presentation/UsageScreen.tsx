@@ -17,7 +17,7 @@ import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
-import { FRESH_MS, collectionDue, knownProviders, noteAsked, noteTabListAsked, releaseAsked, rememberShown, shownUsage, subscribeUsage, tabListAskOwed, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
+import { FRESH_MS, collectionDue, knownProviders, lastForcedRead, noteAsked, noteForcedRead, noteTabListAsked, releaseAsked, rememberShown, shownUsage, subscribeUsage, tabListAskOwed, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
 
 /** The same primitives the declarative system renders, fed typed host data. */
 const LIMITS_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits', title: 'Right now' };
@@ -63,7 +63,6 @@ export function UsageScreen() {
     const [throttledSeconds, setThrottledSeconds] = React.useState<number>();
     const version = React.useRef(0);
     const inFlight = React.useRef(false);
-    const lastForced = React.useRef(0);
     const rejected = React.useRef(false);
     const pendingRetry = React.useRef<string | undefined>(undefined);
     // The claim of the read in flight, for as long as its answer is
@@ -88,7 +87,7 @@ export function UsageScreen() {
         const request = ++version.current;
         inFlight.current = true;
         setBusy(true);
-        lastForced.current = claimedAtMs;
+        noteForcedRead(target, claimedAtMs);
         // This read supersedes whatever was in flight: that answer will be
         // dropped, so its claim goes with it now rather than a window later.
         const superseded = claim.current;
@@ -197,7 +196,7 @@ export function UsageScreen() {
     // a refusal is named at the control that was pressed, never silent.
     const askNow = (): boolean => {
         if (inFlight.current) return false;
-        const waitSeconds = forcedReadWait(lastForced.current, rejected.current, Date.now());
+        const waitSeconds = forcedReadWait(lastForcedRead(provider), rejected.current, Date.now());
         if (waitSeconds !== undefined) { setThrottledSeconds(waitSeconds); return false; }
         setThrottledSeconds(undefined);
         return true;

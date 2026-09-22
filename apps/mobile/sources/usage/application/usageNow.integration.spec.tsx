@@ -1067,6 +1067,46 @@ describe('the usage screen read path', () => {
         expect(screenText(screen)).toContain('OpenCode');
     });
 
+    it('keeps one budget across surfaces, so a press on the other is refused', async () => {
+        request.mockImplementation((method: string, params?: { provider?: string }) => (method === 'usage.now'
+            ? Promise.resolve(collected())
+            : Promise.resolve(report(params?.provider ?? 'claude', 60))));
+        // The card's read arms the budget...
+        const card = renderCard();
+        await tick();
+
+        // ...and the screen, mounting seconds later on the same tab, cannot spend
+        // it again: the press is refused, and named at the control.
+        await tick(2_000);
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withReport(undefined, report('claude', 60)) });
+        request.mockClear();
+        const screen = renderScreen();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(0);
+        TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
+        await tick();
+        expect(request).toHaveBeenCalledTimes(0);
+        expect(screenText(screen)).toContain('plugins.rightNow.refreshIn');
+        TestRenderer.act(() => { card.unmount(); });
+    });
+
+    it('does not start a second forced read from a remount inside the budget', async () => {
+        request.mockResolvedValue(report('claude', 60));
+        let screen = renderScreen();
+        await tick();
+        TestRenderer.act(() => { screen.unmount(); });
+
+        await tick(3_000);
+        request.mockClear();
+        screen = renderScreen();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(0);
+        TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
+        await tick();
+        expect(request).toHaveBeenCalledTimes(0);
+        expect(screenText(screen)).toContain('plugins.rightNow.refreshIn');
+    });
+
     it('collects exactly once per window for a tab the host has nothing stored for', async () => {
         // The host cannot store this tab, so every request for it is a whole
         // collection: the request count is the collection count.
