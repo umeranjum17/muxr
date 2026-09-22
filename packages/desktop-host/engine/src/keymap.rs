@@ -184,7 +184,10 @@ impl Layout {
         let alt_gr = self.alt_gr_mask;
         for raw in 9u32..=255u32 {
             let code = xkb::Keycode::new(raw);
-            let levels = self.keymap.num_levels_for_key(code, 0);
+            // Only levels 0..=3 map to modifiers this engine can press; a symbol
+            // that first appears deeper stays unreachable instead of being typed
+            // as the key's base symbol.
+            let levels = self.keymap.num_levels_for_key(code, 0).min(4);
             for level in 0..levels {
                 let mut modifiers = xkb::ModMask::from(0u32);
                 if level & 1 == 1 {
@@ -286,5 +289,20 @@ mod tests {
         let layout = Layout::from_environment().unwrap();
         let (_, unreachable) = layout.plan_text("\u{1F600}");
         assert_eq!(unreachable, "\u{1F600}");
+    }
+
+    #[test]
+    fn a_symbol_only_reachable_beyond_four_levels_is_refused() {
+        let names = LayoutNames::from_lookup(|key| match key {
+            "XKB_DEFAULT_LAYOUT" => Some(String::from("de")),
+            "XKB_DEFAULT_VARIANT" => Some(String::from("neo")),
+            _ => None,
+        });
+        let layout = Layout::from_names(&names).expect("the Neo keymap should compile");
+        assert!(
+            layout.keystroke_for_char('\u{a3}').is_none(),
+            "the pound sign sits on a level this engine cannot press"
+        );
+        assert!(layout.keystroke_for_char('6').is_some());
     }
 }

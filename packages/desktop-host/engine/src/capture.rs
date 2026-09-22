@@ -85,17 +85,34 @@ impl Capture {
 
 impl Drop for Capture {
     fn drop(&mut self) {
-        let ptr = self.quit.swap(0, Ordering::SeqCst);
+        shutdown(&self.quit, self.thread.take());
+    }
+}
+
+/// Tell a still-running capture loop to quit, then join its thread.
+///
+/// A start that gives up has to do the same thing `Drop` does, or the loop keeps
+/// the compositor's stream and its own thread alive for the life of the process.
+fn shutdown(quit: &Arc<AtomicUsize>, thread: Option<JoinHandle<()>>) {
+    // The loop publishes its main loop pointer as soon as it has one; give it a
+    // moment so the join below cannot block on a loop that was never told to quit.
+    let mut ptr = 0;
+    for _ in 0..100 {
+        ptr = quit.swap(0, Ordering::SeqCst);
         if ptr != 0 {
-            // SAFETY: `ptr` is the `pw_main_loop` created by, and still owned by,
-            // the capture thread. `pw_main_loop_quit` is explicitly thread-safe
-            // (it signals the loop's eventfd) and the thread is joined below
-            // before the loop is destroyed, so the pointer cannot dangle here.
-            unsafe { pw::sys::pw_main_loop_quit(ptr as *mut pw::sys::pw_main_loop) };
+            break;
         }
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    if ptr != 0 {
+        // SAFETY: `ptr` is the `pw_main_loop` created by, and still owned by,
+        // the capture thread. `pw_main_loop_quit` is explicitly thread-safe
+        // (it signals the loop's eventfd) and the thread is joined below
+        // before the loop is destroyed, so the pointer cannot dangle here.
+        unsafe { pw::sys::pw_main_loop_quit(ptr as *mut pw::sys::pw_main_loop) };
+    }
+    if let Some(t) = thread {
+        let _ = t.join();
     }
 }
 
@@ -227,6 +244,9 @@ pub fn start(
         Ok(Ok(())) => {}
         Ok(Err(e)) => anyhow::bail!("capture failed: {e}"),
         Err(mpsc::RecvTimeoutError::Timeout) => {
+            // Only this arm can have a live loop; the other two mean `run_loop`
+            // already returned, and its main loop is gone with it.
+            shutdown(&quit, Some(thread));
             anyhow::bail!("capture did not start within 10s")
         }
         Err(mpsc::RecvTimeoutError::Disconnected) => anyhow::bail!("capture thread died"),
