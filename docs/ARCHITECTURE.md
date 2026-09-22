@@ -206,6 +206,11 @@ purpose, because nothing on the other side can be told to change:
   `attachmentId` param and the old `attachments` listing field. A host answers
   them for an app built before the rename; an app reaches for them after a
   `host-contract-mismatch` and remembers the answer.
+- `attachments.update` is published beside `artifacts.update` from the same
+  publish site, carrying the same `total` and `truncated` under the old
+  `attachments` field, so a pre-rename app's open timeline still updates live.
+  It stays out of `SESSION_EVENT_TYPES`: a canonical client never waits for it.
+  Delete it with the request aliases above.
 - `~/.muxr/attachments/pane/`, the `attachment` hosted routing channel, the
   `/v1/attachment-download` route with its `attachmentId` query key, and the
   plugin vocabulary (`muxr.attachments`, plugin action `type: "attachment"`)

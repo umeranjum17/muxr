@@ -545,7 +545,7 @@ export const es: TranslationStructure = {
     },
 
     sessionArtifacts: {
-        title: ({ count }: { count: number }) => count === 1 ? '1 adjunto' : `${count} adjuntos`,
+        title: ({ count }: { count: number }) => count === 1 ? '1 artefacto' : `${count} artefactos`,
     },
 
     turnChanges: {

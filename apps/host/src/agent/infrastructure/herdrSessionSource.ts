@@ -1066,6 +1066,9 @@ export async function createHerdrSessionSource(
         const session = currentSessionByPane(paneId);
         if (session === undefined) return;
         publish(session.sessionId, { type: 'artifacts.update', artifacts: entries, total, truncated });
+        // Pre-rename apps register for the legacy event name and field only, so
+        // the live timeline keeps updating on a phone that has not been rebuilt.
+        publish(session.sessionId, { type: 'attachments.update', attachments: entries, total, truncated });
     });
     artifacts.start();
 

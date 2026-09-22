@@ -5,7 +5,7 @@
  * The artifact unification renamed the four protocol methods and their params.
  * A host older than this build answers only the legacy names and shapes, so the
  * first `host-contract-mismatch` pins the legacy wire for the rest of the
- * process; reconnecting after a host update probes the canonical names again.
+ * process; the latch is never reset, not even by a reconnect.
  *
  * Delete this module's legacy half, the contract's deprecated request entries
  * and the host's matching aliases once no pre-rename build can still be paired.

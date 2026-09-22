@@ -561,7 +561,7 @@ export const pl: TranslationStructure = {
     },
 
     sessionArtifacts: {
-        title: ({ count }: { count: number }) => plural({ count, one: '1 załącznik', few: `${count} załączniki`, many: `${count} załączników` }),
+        title: ({ count }: { count: number }) => plural({ count, one: '1 artefakt', few: `${count} artefakty`, many: `${count} artefaktów` }),
     },
 
     turnChanges: {

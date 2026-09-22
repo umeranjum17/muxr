@@ -3,6 +3,7 @@ import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import type { SessionEventBody } from '@muxr/contract';
 import { createHerdrSessionSource } from './herdrSessionSource.js';
 
 /**
@@ -12,6 +13,10 @@ import { createHerdrSessionSource } from './herdrSessionSource.js';
  * opened pane is returned as a shell route, and a failed launch cleans its
  * anchor unless the action already opened a pane. This is the host-owned
  * replacement for the old panes plugin's tools/launch RPCs.
+ *
+ * The second flow covers the same source's Shared Artifacts publish: a share
+ * reaches a pre-rename app through the legacy event name beside the canonical
+ * one.
  */
 type StatePane = { pane_id: string; tab_id: string; workspace_id: string; cwd: string };
 
@@ -151,6 +156,54 @@ writeFileSync(state, JSON.stringify(panes));
 
             // Unknown application: refresh-and-retry guidance.
             await expect(source.applicationsLaunch({ applicationId: 'action:gone:open' })).rejects.toThrow(/no longer installed/);
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 30_000);
+});
+
+describe('Shared Artifacts: a share reaches pre-rename clients live', () => {
+    it('publishes the legacy event beside the canonical one from one share', async () => {
+        const PIXEL_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-artifact-publish-'));
+        mkdirSync(join(dir, 'work'));
+        mkdirSync(join(dir, 'attachments', 'shell-0'), { recursive: true });
+        const herdr = fakeHerdr(dir, []);
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        const published: SessionEventBody[] = [];
+        source.subscribe((sessionId, event) => {
+            if (sessionId === 'shell:shell-0') published.push(event);
+        });
+        try {
+            writeFileSync(join(dir, 'attachments', 'shell-0', 'shared.png'), Buffer.from(PIXEL_B64, 'base64'));
+            const deadline = Date.now() + 20_000;
+            while (Date.now() < deadline
+                && !(published.some((event) => event.type === 'artifacts.update')
+                    && published.some((event) => event.type === 'attachments.update'))) {
+                await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+
+            const canonical = published.find((event) => event.type === 'artifacts.update');
+            const legacy = published.find((event) => event.type === 'attachments.update');
+            if (canonical === undefined || canonical.type !== 'artifacts.update') {
+                throw new Error(`the host published no artifacts.update (saw ${published.map((event) => event.type).join(', ')})`);
+            }
+            if (legacy === undefined || legacy.type !== 'attachments.update') {
+                throw new Error(`the host published no attachments.update (saw ${published.map((event) => event.type).join(', ')})`);
+            }
+            expect(canonical.artifacts.map((artifact) => artifact.name)).toEqual(['shared.png']);
+            expect(canonical.total).toBe(1);
+            // The pre-rename shape carries the same history under the old field.
+            expect(legacy.attachments).toEqual(canonical.artifacts);
+            expect(legacy.total).toBe(canonical.total);
+            expect(legacy.truncated).toBe(canonical.truncated);
         } finally {
             await source.dispose();
             herdr.close();

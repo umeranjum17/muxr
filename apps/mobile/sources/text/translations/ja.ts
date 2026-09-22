@@ -547,7 +547,7 @@ export const ja: TranslationStructure = {
     },
 
     sessionArtifacts: {
-        title: ({ count }: { count: number }) => count === 1 ? '1件の添付ファイル' : `${count}件の添付ファイル`,
+        title: ({ count }: { count: number }) => count === 1 ? '1件の共有アーティファクト' : `${count}件の共有アーティファクト`,
     },
 
     turnChanges: {

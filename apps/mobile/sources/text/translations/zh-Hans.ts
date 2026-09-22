@@ -547,7 +547,7 @@ export const zhHans: TranslationStructure = {
     },
 
     sessionArtifacts: {
-        title: ({ count }: { count: number }) => `${count} 个附件`,
+        title: ({ count }: { count: number }) => `${count} 个共享产物`,
     },
 
     turnChanges: {

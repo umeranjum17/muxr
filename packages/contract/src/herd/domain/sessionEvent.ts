@@ -45,9 +45,10 @@ export type SessionEventBody =
       }
     /**
      * Pre-unification name of `artifacts.update`, with the pre-unification
-     * `attachments` field. A host built before the rename emits only this; the
-     * handler folds it into the same shape. Deliberately absent from
-     * SESSION_EVENT_TYPES: the host never emits it, so nothing waits for it.
+     * `attachments` field. The host publishes it beside the canonical event so
+     * a pre-rename app's open timeline still updates live; the handler folds it
+     * into the same shape. Deliberately absent from SESSION_EVENT_TYPES: it is
+     * an alias a canonical client never has to wait for.
      * @deprecated Read `artifacts.update`.
      */
     | {
