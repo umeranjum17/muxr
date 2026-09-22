@@ -200,6 +200,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
       if (pointers < 2) {
         if (dragging) {
           point(event.x, event.y)?.let { (x, y) -> active.sendPointer("up", x, y, active.nextSequence()) }
+            ?: active.sendCancel()
           dragging = false
         }
         lastY = event.y
