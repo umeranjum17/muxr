@@ -32,7 +32,7 @@ export interface TerminalViewProps {
      *  ring carries only the screen's own slots. */
     onViewControls?: (controls: { commands: TerminalCommand[]; dismissKeyboard: () => void }) => void;
     /** A printed link was reached for; the screen decides what to offer for it.
-     *  Absent, the press falls back to copying. */
+     *  Without a screen callback, taps open and holds copy. */
     onLinkPress?: (url: string, at?: { x: number; y: number }) => void;
 }
 
@@ -288,7 +288,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         /** The exact plain URL under a cell, joined across wrapped rows.
          *  The row is viewport-relative and shifted into buffer space here: getLine
          *  and isWrapped speak absolute rows, and without the shift a scrolled-up
-         *  pane would copy from the wrong line. */
+         *  pane would resolve the wrong line. */
         const findPlainTextLink = (viewportRow: number, col: number): string | null => {
             const buffer = term.buffer.active;
             const row = buffer.viewportY + viewportRow;

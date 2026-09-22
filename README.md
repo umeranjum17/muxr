@@ -41,7 +41,7 @@ muxr is the control surface built natively for the phone: the full agent lifecyc
 
 ### A real terminal, built for thumbs
 
-Open the same live terminal the agent owns on your computer — native Ghostty rendering, scrollback, sticky modifier keys, a key row you can reorder and extend with keys of your own, attachments, dictation, and a prompt box designed for a phone.
+Open the same live terminal the agent owns on your computer — native Ghostty rendering, scrollback, sticky modifier keys, a key row you can reorder and extend with keys of your own, and a floating control you can move, tap for actions, or sweep into an arrow cluster. The compact header keeps the pane menu within reach; the bottom composer keeps attachments and dictation beside the prompt, with realtime talk on an empty prompt and lifecycle-colored Send when there is something to send. Tap a printed link to choose Open, Copy, or Insert into the prompt (when available); Recent links are in the pane menu.
 
 </td>
 <td width="55%">

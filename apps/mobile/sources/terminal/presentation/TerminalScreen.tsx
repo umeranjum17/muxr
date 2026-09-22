@@ -1748,8 +1748,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         {focusPending && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
                                     </Pressable>}
                                     {/* One entry, not one per action: choosing a
-                                        link then offers the same Open / Copy /
-                                        Insert a long press on that link does. */}
+                                        link offers its actions in the pane menu
+                                        when the terminal cannot fit the card. */}
                                     {recentTerminalLinks(props.id).length > 0 && <Pressable onPress={showRecentLinks} accessibilityRole="button" accessibilityLabel="Recent links"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="link-outline" size={18} color={theme.colors.textSecondary} />
