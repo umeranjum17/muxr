@@ -30,11 +30,7 @@ export interface TerminalViewProps {
      *  no terminal IME, so the pane keeps its own keyboard fallback and the
      *  ring carries only the screen's own slots. */
     onViewControls?: (controls: { commands: TerminalCommand[]; dismissKeyboard: () => void }) => void;
-    /** A printed link was reached for; the screen decides what to offer for it,
-     *  at the point it was pressed. A tap carries this on both terminals. The
-     *  browser's long press carries it too, but only for a plain HTTP(S) text
-     *  link: xterm does not expose an OSC 8 URI per cell, so a hyperlink whose
-     *  visible label is not itself a URL is resolved by the tap instead.
+    /** A printed link was reached for; the screen decides what to offer for it.
      *  Absent, the press falls back to copying. */
     onLinkPress?: (url: string, at?: { x: number; y: number }) => void;
 }
@@ -84,6 +80,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         if (element === null) return;
         element.style.position = 'relative';
 
+        let hoveredOscLink: string | null = null;
         const term = new Terminal({
             // registerDecoration (plain-URL underlines) is a proposed API.
             allowProposedApi: true,
@@ -98,6 +95,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             // the app boundary, which drops non-web schemes instead.
             linkHandler: {
                 activate: (event, text) => reachLink(text, event),
+                hover: (_event, text) => { hoveredOscLink = text; },
+                leave: () => { hoveredOscLink = null; },
             },
         });
         // One rule on both terminals: reaching for a link asks what to do with
@@ -282,8 +281,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 ._core?._renderService?.dimensions?.css?.cell;
             return css?.height !== undefined && css.height > 0 ? css.height : 18;
         };
-        /** The exact plain URL under a cell, joined across wrapped rows (the OSC 8
-         *  URI is not exposed per cell, so long-press covers plain URLs only).
+        /** The exact plain URL under a cell, joined across wrapped rows.
          *  The row is viewport-relative and shifted into buffer space here: getLine
          *  and isWrapped speak absolute rows, and without the shift a scrolled-up
          *  pane would copy from the wrong line. */
@@ -377,11 +375,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             if (event.touches.length === 1) {
                 const touch = event.touches[0]!;
                 longPressAt = { x: touch.clientX, y: touch.clientY };
+                const screen = element.querySelector('.xterm-screen');
+                screen?.dispatchEvent(new MouseEvent('mouseleave'));
+                screen?.dispatchEvent(new MouseEvent('mousemove', { clientX: touch.clientX, clientY: touch.clientY }));
                 clearTimeout(longPressTimer);
                 longPressTimer = setTimeout(() => {
                     longPressTimer = undefined;
                     if (longPressAt === null || Math.abs(gesturePx) >= 8) return;
-                    longPressLink = plainTextLinkAt(longPressAt.x, longPressAt.y);
+                    longPressLink = hoveredOscLink ?? plainTextLinkAt(longPressAt.x, longPressAt.y);
                     const box = element.getBoundingClientRect();
                     longPressPoint = { x: longPressAt.x - box.left, y: longPressAt.y - box.top };
                 }, LONG_PRESS_MS);

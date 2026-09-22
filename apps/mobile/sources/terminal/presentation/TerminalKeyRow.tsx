@@ -5,7 +5,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { hapticsSelection } from '@/components/haptics';
 import { useLocalSetting, useLocalSettingMutable } from '@/catalog/store';
-import { modifiedSend, resolveKeyRow, type RowEntry, type TerminalKey, type TerminalKeyAction } from '../domain/keyRow';
+import { BUILTIN_KEY_CATALOG, modifiedSend, resolveKeyRow, type RowEntry, type TerminalKey, type TerminalKeyAction } from '../domain/keyRow';
 
 /**
  * Keys that read better as a mark than as a word. An arrow rendered as the
@@ -149,7 +149,8 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, chil
                 // key with no bytes, which is not the same as a chord the
                 // terminal cannot express.
                 const unavailable = key.action === undefined && modifiedSend(key, active(ctrl), active(shift)) === null;
-                const icon = key.action === undefined ? KEY_ICONS[key.send] : ACTION_ICONS[key.action];
+                const icon = key.action !== undefined ? ACTION_ICONS[key.action]
+                    : Object.values(BUILTIN_KEY_CATALOG).includes(key) ? KEY_ICONS[key.send] : undefined;
                 return (
                     <Pressable
                         key={`${key.label}:${key.send}:${index}`}

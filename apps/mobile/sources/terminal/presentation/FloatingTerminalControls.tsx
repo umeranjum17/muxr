@@ -52,6 +52,20 @@ export type RingHandle = { close: () => void };
  * and the arc is struck from wherever that is.
  */
 const CENTER = 44;
+export const floatingControlFits = (terminalHeight: number | undefined): boolean => terminalHeight !== undefined && terminalHeight >= CENTER;
+
+export function TerminalMenuQuickActions({ slots, terminalHeight, hasTools, onClose }: { slots: readonly RingSlot[]; terminalHeight: number | undefined; hasTools: boolean; onClose: () => void }) {
+    const { theme } = useUnistyles();
+    if (hasTools && floatingControlFits(terminalHeight)) return null;
+    return slots.filter((slot) => ['continue', 'commands', 'paste', 'browser'].includes(slot.id)).map((slot) => (
+        <Pressable key={slot.id} onPress={() => { onClose(); slot.run(); }} accessibilityRole="button" accessibilityLabel={slot.label}
+            style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+            <Ionicons name={slot.icon} size={18} color={theme.colors.textSecondary} />
+            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{slot.label}</Text>
+            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+        </Pressable>
+    ));
+}
 const CENTER_ICON = 18;
 /** Keep the resting control this far from the terminal's own edges. */
 const EDGE = 16;
@@ -183,8 +197,8 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
     }, [up]);
 
     // Everything the stable responder closures read, one ref behind.
-    const live = React.useRef({ center, offsets, travelX, travelY });
-    live.current = { center, offsets, travelX, travelY };
+    const live = React.useRef({ center, offsets, travelX, travelY, terminalHeight });
+    live.current = { center, offsets, travelX, travelY, terminalHeight };
     const slotsRef = React.useRef(slots);
     slotsRef.current = slots;
     const gesture = React.useRef({
@@ -274,7 +288,9 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
             if (g.phase === 'drag') {
                 const { center: from, travelX: rx, travelY: ry } = live.current;
                 dragX.value = clamp(g.grabX + state.dx - g.grantDx, EDGE + CENTER / 2 - from.x, EDGE + rx + CENTER / 2 - from.x);
-                dragY.value = clamp(g.grabY + state.dy - g.grantDy, EDGE + CENTER / 2 - from.y, EDGE + ry + CENTER / 2 - from.y);
+                const top = Math.min(EDGE + CENTER / 2, live.current.terminalHeight - CENTER / 2);
+                const bottom = Math.min(EDGE + ry + CENTER / 2, live.current.terminalHeight - CENTER / 2);
+                dragY.value = clamp(g.grabY + state.dy - g.grantDy, top - from.y, bottom - from.y);
                 return;
             }
             const index = slotUnderFinger({
@@ -330,7 +346,7 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
     // Below its own size the control cannot sit inside the terminal at all, and
     // this view does not clip: it would hang over the key row and take touches
     // meant for those keys. Refuse rather than misplace.
-    if (terminalHeight < CENTER) return null;
+    if (!floatingControlFits(terminalHeight)) return null;
 
     return (
         <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>

@@ -10,6 +10,8 @@ import TestRenderer from 'react-test-renderer';
  * than trusting the reading of them.
  */
 
+const sharedValues = vi.hoisted(() => [] as { value: number }[]);
+
 const theme = {
     colors: {
         text: '#ffffff',
@@ -39,7 +41,11 @@ vi.mock('react-native-reanimated', () => ({
     interpolateColor: () => '#000000',
     useAnimatedStyle: (style: () => unknown) => style(),
     useReducedMotion: () => false,
-    useSharedValue: (initial: unknown) => ({ value: initial }),
+    useSharedValue: (initial: number) => {
+        const shared = { value: initial };
+        sharedValues.push(shared);
+        return shared;
+    },
     withTiming: (value: unknown) => value,
 }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
@@ -48,7 +54,7 @@ vi.mock('@/catalog/store', () => ({ useLocalSettingMutable: () => [null, () => u
 vi.mock('@/components/haptics', () => ({ hapticsLight: () => undefined, hapticsSelection: () => undefined }));
 
 // eslint-disable-next-line
-import { FloatingTerminalControls, type ClusterKey, type RingSlot } from './FloatingTerminalControls';
+import { FloatingTerminalControls, TerminalMenuQuickActions, floatingControlFits, type ClusterKey, type RingSlot } from './FloatingTerminalControls';
 
 const arrows: RingSlot = { id: 'arrows', label: 'Arrows', icon: 'code', opens: 'cluster', run: vi.fn() };
 const other: RingSlot = { id: 'other', label: 'Other', icon: 'code', run: vi.fn() };
@@ -91,7 +97,7 @@ const resize = (renderer: any, terminalHeight: number) => TestRenderer.act(() =>
 
 const control = (renderer: any) => renderer.root.findAll((node: any) =>
     node.props.accessibilityLabel === 'Terminal quick actions' || node.props.accessibilityLabel === 'Close terminal quick actions')[0];
-const slot = (renderer: any, label: string) => renderer.root.findAll((node: any) => node.props.accessibilityLabel === label)[0];
+const slot = (renderer: any, label: string) => renderer.root.findAll((node: any) => node.props?.accessibilityLabel === label)[0];
 const pan = (renderer: any) => renderer.root.findAll((node: any) => typeof node.props.onPanResponderGrant === 'function')[0];
 /** The control's own box, which is what has to stay inside the terminal. */
 const puckBox = (renderer: any): { top: number; height: number } => {
@@ -186,5 +192,44 @@ describe('floating terminal control', () => {
             responder.props.onPanResponderGrant({ nativeEvent: { locationX: 22, locationY: 22 } }, { dx: 12, dy: 0 });
         });
         expect(ringUp(dragged)).toBe(false);
+    });
+
+    it('keeps a drag inside a 45dp terminal and routes compact actions through the pane menu', () => {
+        const dragged = mount(45);
+        const box = puckBox(dragged);
+        const dragY = sharedValues[sharedValues.length - 1]!;
+        TestRenderer.act(() => { control(dragged).props.onLongPress(); });
+        const responder = pan(dragged);
+        TestRenderer.act(() => {
+            responder.props.onMoveShouldSetPanResponderCapture({}, { dx: 0, dy: 12 });
+            control(dragged).props.onPressOut();
+            responder.props.onPanResponderGrant({ nativeEvent: { locationX: 22, locationY: 22 } }, { dx: 0, dy: 12 });
+            responder.props.onPanResponderMove({}, { dx: 0, dy: 200 });
+        });
+        expect(box.top + dragY.value + box.height).toBeLessThanOrEqual(45);
+
+        const run = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
+        const actions: RingSlot[] = ['Continue', 'Commands', 'Paste', 'Browser'].map((label, index) => ({
+            id: label.toLowerCase(), label, icon: 'code', run: run[index]!,
+        }));
+        let renderer: any;
+        TestRenderer.act(() => {
+            renderer = TestRenderer.create(<>
+                <FloatingTerminalControls width={270} height={594} terminalHeight={43} slots={actions} dim={{ value: 0 } as never} />
+                <TerminalMenuQuickActions slots={actions} terminalHeight={43} hasTools onClose={() => undefined} />
+            </>);
+        });
+        for (const action of actions) tap(renderer, slot(renderer, action.label));
+        for (const invoked of run) expect(invoked).toHaveBeenCalledOnce();
+        expect(floatingControlFits(45)).toBe(true);
+        TestRenderer.act(() => {
+            renderer.update(<TerminalMenuQuickActions slots={actions} terminalHeight={45} hasTools onClose={() => undefined} />);
+        });
+        expect(renderer.root.findAll((node: any) => node.props?.accessibilityLabel === 'Browser')).toHaveLength(0);
+        TestRenderer.act(() => {
+            renderer.update(<TerminalMenuQuickActions slots={[actions[3]!]} terminalHeight={45} hasTools={false} onClose={() => undefined} />);
+        });
+        tap(renderer, slot(renderer, 'Browser'));
+        expect(run[3]).toHaveBeenCalledTimes(2);
     });
 });
