@@ -81,7 +81,7 @@ A file the user sends with a prompt from the phone. Never called an artifact.
 _Avoid_: artifact, shared file
 
 **Artifact retention**:
-The daily bound on how much history a pane keeps: the newest 50 files, nothing younger than a week, nothing post-install older than a month, and 512 MiB of removable files per pane. Read and operated with `muxr artifacts`.
+The daily bound on how much history a pane keeps: the newest 50 files, nothing younger than a week, nothing post-install older than a month, and 512 MiB of removable files per pane. Scope and age are read from the inode change time — when the file entered that pane — so a file an agent moves in with an old modification time is never mistaken for old history; the order the phone shows stays on the modification time. Read and operated with `muxr artifacts`.
 _Avoid_: cleanup job, cache eviction, garbage collection
 
 **Frozen names**:

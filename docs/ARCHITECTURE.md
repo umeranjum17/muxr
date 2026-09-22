@@ -221,11 +221,15 @@ The extracted attachments plugin remains wire-compatible during migration. The
 changes surface separately runs host-owned git requests in the session cwd.
 
 Retention bounds that history. The host sweeps once a day and removes only
-files shared *after* retention was installed on that machine, so the pile that
-already existed is left alone and unbounded disk growth stops without an
-automatic purge. Within that scope: the newest 50 files of a pane are exempt
-from the count bound, nothing younger than a week is touched at all, and nothing
-post-install survives a month or pushes a pane past 512 MiB of removable files.
+files that entered a pane *after* retention was installed on that machine, so
+the pile that already existed is left alone and unbounded disk growth stops
+without an automatic purge. Scope and age are judged by the inode change time —
+when a file entered the pane — so a recording an agent moves in keeps its place
+however old its modification time is; the newest-first order the phone shows
+stays on the modification time. Within that scope: the newest 50 files of a pane
+are exempt from the count bound, nothing younger than a week is touched at all,
+and nothing post-install survives a month or pushes a pane past 512 MiB of
+removable files.
 The sweep stats names and never reads a byte — hashing this root costs 17 GiB of
 I/O — and writes what it removed, under which policy, to
 `$MUXR_HOME/artifact-retention.json`. The captain's tree was measured at

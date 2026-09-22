@@ -7,10 +7,16 @@
  * conservative, because deletion is irreversible and nothing in muxr can bring
  * a file back.
  *
- * - Only files shared *after* retention was installed here (`epochMs`) are ever
- *   candidates. The pile that already existed is left exactly as it is; an
- *   operator can sweep it deliberately with `muxr artifacts prune`, which is
- *   the only path that ignores the epoch.
+ * - Only files that entered a pane *after* retention was installed here
+ *   (`epochMs`) are ever candidates. The pile that already existed is left
+ *   exactly as it is; an operator can sweep it deliberately with
+ *   `muxr artifacts prune`, which is the only path that ignores the epoch.
+ * - Scope and age read the inode change time, not the modification time: an
+ *   agent that *moves* a file into a pane keeps its old mtime, and reading that
+ *   as "shared weeks ago" would delete it before anyone saw it. The kernel
+ *   stamps the change time on rename and link and userspace cannot set it back,
+ *   so it is never earlier than the moment the file arrived. Order, rank and
+ *   the report keep the modification time, which is what the phone shows.
  * - Three bounds, all applied: the newest `keepNewest` files of a pane are
  *   exempt from the count bound (the timeline only ever lists that many, so
  *   nothing it can reach is dropped for being old), no file younger than
@@ -29,7 +35,8 @@
  * Files never disappear in silence.
  */
 
-import { readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 
 export const ARTIFACT_RETENTION_REPORT_FILE = 'artifact-retention.json';
@@ -66,6 +73,12 @@ export interface ArtifactFile {
     size: number;
     /** mtime ms, the same clock the watcher orders by. */
     at: number;
+    /**
+     * Inode change time ms: when the file entered this pane. A move or a link
+     * updates it and userspace cannot set it back, so scope and age are judged
+     * by it while display and rank stay on `at`.
+     */
+    changedAt: number;
 }
 
 export interface ArtifactSweepPlan {
@@ -77,12 +90,14 @@ export interface ArtifactSweepPlan {
 /**
  * Which of a pane's files the policy gives up.
  *
- * A file goes when it was shared after the retention epoch, it is older than
- * `minAgeMs`, and it breaks one of the three bounds: it is older than
- * `maxAgeMs`, it ranks past the newest `keepNewest`, or its removal is what
- * brings the pane back under `keepBytes`. The newest `keepNewest` files are
- * therefore exempt from the count bound only: an idle pane full of month-old
- * APKs still empties, because the age bound is the one that bounds it.
+ * A file goes when it entered the pane after the retention epoch, it has been
+ * there longer than `minAgeMs`, and it breaks one of the three bounds: it is
+ * older than `maxAgeMs`, it ranks past the newest `keepNewest`, or its removal
+ * is what brings the pane back under `keepBytes`. The newest `keepNewest` files
+ * are therefore exempt from the count bound only: an idle pane full of
+ * month-old APKs still empties, because the age bound is the one that bounds
+ * it. Scope and both age bounds read the change time; the rank that decides the
+ * count bound reads the modification time the timeline orders by.
  *
  * Pure: the whole rule set is here, so the daily sweep and an operator prune
  * cannot drift apart.
@@ -96,14 +111,14 @@ export function planArtifactSweep(
     // Pre-epoch files are the accumulation the policy leaves alone; they are not
     // candidates and they do not count against a bound, so a legacy pile can
     // never push a newly shared file out.
-    const inScope = files.filter((file) => file.at > epochMs);
+    const inScope = files.filter((file) => file.changedAt > epochMs);
     const newestFirst = [...inScope].sort((left, right) => right.at - left.at || (left.name < right.name ? -1 : 1));
     const candidates = newestFirst
         .map((file, rank) => ({ file, rank }))
-        .filter(({ file }) => now - file.at >= policy.minAgeMs);
+        .filter(({ file }) => now - file.changedAt >= policy.minAgeMs);
 
     const remove = new Set(candidates
-        .filter(({ file, rank }) => rank >= policy.keepNewest || now - file.at >= policy.maxAgeMs)
+        .filter(({ file, rank }) => rank >= policy.keepNewest || now - file.changedAt >= policy.maxAgeMs)
         .map(({ file }) => file));
     let remaining = inScope.reduce((total, file) => total + file.size, 0)
         - [...remove].reduce((total, file) => total + file.size, 0);
@@ -144,7 +159,7 @@ export interface ArtifactRetentionRun {
 
 export interface ArtifactRetentionReport {
     version: 1;
-    /** When retention was first installed here. Files older than this are never swept. */
+    /** When retention was first installed here. Files that entered a pane before this are never swept. */
     epochMs: number;
     policy: ArtifactRetentionPolicy;
     lastSweep: ArtifactRetentionRun | null;
@@ -152,12 +167,26 @@ export interface ArtifactRetentionReport {
     lastPrune: ArtifactRetentionRun | null;
 }
 
-export async function readArtifactRetentionReport(path: string): Promise<ArtifactRetentionReport | undefined> {
+export type ArtifactRetentionReportState =
+    | { state: 'ok'; report: ArtifactRetentionReport }
+    | { state: 'missing' }
+    /** Present but not a readable report: sweeps pause instead of resetting the epoch. */
+    | { state: 'unreadable' };
+
+export async function readArtifactRetentionReport(path: string): Promise<ArtifactRetentionReportState> {
+    let text: string;
     try {
-        const parsed = JSON.parse(await readFile(path, 'utf8')) as ArtifactRetentionReport;
-        return parsed?.version === 1 && typeof parsed.epochMs === 'number' ? parsed : undefined;
+        text = await readFile(path, 'utf8');
+    } catch (error) {
+        return (error as NodeJS.ErrnoException).code === 'ENOENT' ? { state: 'missing' } : { state: 'unreadable' };
+    }
+    try {
+        const parsed = JSON.parse(text) as ArtifactRetentionReport;
+        return parsed?.version === 1 && typeof parsed.epochMs === 'number'
+            ? { state: 'ok', report: parsed }
+            : { state: 'unreadable' };
     } catch {
-        return undefined;
+        return { state: 'unreadable' };
     }
 }
 
@@ -181,7 +210,14 @@ export async function runArtifactRetention(options: {
 }): Promise<{ run: ArtifactRetentionRun; report: ArtifactRetentionReport }> {
     const policy = options.policy ?? ARTIFACT_RETENTION;
     const now = options.now ?? Date.now();
-    const existing = await readArtifactRetentionReport(options.reportPath);
+    const stored = await readArtifactRetentionReport(options.reportPath);
+    if (stored.state === 'unreadable') {
+        // Fail safe: an unreadable report is not an absent one. Sweeping now
+        // would stamp a fresh epoch and put the whole existing history back in
+        // scope, so nothing is deleted and the file is left for its owner.
+        throw new Error(`retention report at ${options.reportPath} is unreadable; sweeps are paused until it is fixed`);
+    }
+    const existing = stored.state === 'ok' ? stored.report : undefined;
     const prune = options.epochMs === 0;
     const epochMs = prune ? 0 : options.epochMs ?? existing?.epochMs ?? now;
     const root = resolve(options.rootDir);
@@ -224,13 +260,28 @@ export async function runArtifactRetention(options: {
     };
     if (options.dryRun !== true) {
         try {
-            await writeFile(options.reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+            await writeArtifactRetentionReport(options.reportPath, report);
         } catch {
             // An unwritable report must not cost the sweep its removals; the log
             // line still carries the summary.
         }
     }
     return { run, report };
+}
+
+/**
+ * Replace the report in one step, so a crash or a full filesystem leaves the
+ * previous report and its epoch exactly as they were.
+ */
+async function writeArtifactRetentionReport(path: string, report: ArtifactRetentionReport): Promise<void> {
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    try {
+        await writeFile(temporary, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+        await rename(temporary, path);
+    } catch (error) {
+        await rm(temporary, { force: true }).catch(() => undefined);
+        throw error;
+    }
 }
 
 /**
@@ -293,7 +344,14 @@ async function sweepPane(
         if (!entry.isFile() || entry.name.startsWith('.')) continue;
         try {
             const info = await stat(join(dir, entry.name));
-            if (info.isFile()) files.push({ name: entry.name, size: info.size, at: Math.floor(info.mtimeMs) });
+            if (info.isFile()) {
+                files.push({
+                    name: entry.name,
+                    size: info.size,
+                    at: Math.floor(info.mtimeMs),
+                    changedAt: Math.floor(info.ctimeMs),
+                });
+            }
         } catch {
             // A file that vanished between readdir and stat is not a sweep failure.
         }

@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ARTIFACT_RETENTION, ARTIFACT_RETENTION_REPORT_FILE, runArtifactRetention } from './artifactRetention.js';
+import { ARTIFACT_RETENTION, ARTIFACT_RETENTION_REPORT_FILE, planArtifactSweep, runArtifactRetention, type ArtifactFile } from './artifactRetention.js';
 import { MAX_ARTIFACTS } from './artifactWatcher.js';
 
 const DAY = 86_400_000;
@@ -19,7 +19,11 @@ function home(): { root: string; reportPath: string } {
     return { root: join(dir, 'attachments', 'pane'), reportPath: join(dir, ARTIFACT_RETENTION_REPORT_FILE) };
 }
 
-/** One 16-byte file shared at `at`, with the mtime the sweep orders by. */
+/**
+ * One 16-byte file carrying `at` as its modification time. The change time is
+ * whatever the kernel stamps now, which is how the sweep reads scope and age: a
+ * file written here just entered the pane, however old its mtime is.
+ */
 function share(root: string, paneId: string, name: string, at: number): void {
     const dir = join(root, paneId);
     mkdirSync(dir, { recursive: true });
@@ -28,98 +32,98 @@ function share(root: string, paneId: string, name: string, at: number): void {
     utimesSync(path, new Date(at), new Date(at));
 }
 
+describe('artifact retention policy', () => {
+    it('reads scope and age from the change time, and order from the modification time', () => {
+        const epoch = Date.now() - 90 * DAY;
+        const now = Date.now();
+        const files: ArtifactFile[] = [
+            // The accumulation the policy leaves alone: it entered the pane
+            // before retention existed here and never counts against a bound.
+            { name: 'legacy.rec', size: 16, at: epoch - 20 * DAY, changedAt: epoch - 20 * DAY },
+            // Moved in today: an old modification time, a fresh change time.
+            { name: 'moved.mp4', size: 16, at: now - 45 * DAY, changedAt: now - MINUTE },
+            // Shared after retention landed, and genuinely old on both clocks.
+            { name: 'old.png', size: 16, at: epoch + DAY, changedAt: epoch + DAY },
+            // Shared after retention landed, and still fresh on both clocks.
+            { name: 'new.png', size: 16, at: now - MINUTE, changedAt: now - MINUTE },
+        ];
+
+        const plan = planArtifactSweep(files, { epochMs: epoch, now });
+        expect(plan.remove.map((file) => file.name)).toEqual(['old.png']);
+        expect(plan.kept).toBe(3);
+
+        // The count bound is only safe while it is at least what the watcher
+        // publishes: below that the sweep would delete rows the phone can see.
+        expect(ARTIFACT_RETENTION.keepNewest).toBeGreaterThanOrEqual(MAX_ARTIFACTS);
+    });
+});
+
 describe('artifact retention sweep', () => {
-    it('bounds a pane without touching what it already had, what is still fresh, or a live write', async () => {
+    it('keeps a file that moved in with an old modification time', async () => {
         const { root, reportPath } = home();
-        const epoch = Date.now();
-        // Minutes apart and strictly after the epoch: a coarse filesystem clock
-        // would tie several mtimes together, and a file shared at the exact
-        // instant retention was installed is pre-existing history, not a candidate.
-        const shared = (index: number) => epoch + (index + 1) * MINUTE;
+        // Retention has been installed for months, and today a 45-day-old
+        // recording is moved into the pane.
+        const installed = Date.now() - 90 * DAY;
+        share(root, 'w1:p1', 'moved-recording.mp4', Date.now() - 45 * DAY);
+        share(root, 'w1:p1', 'shared-today.png', Date.now() - MINUTE);
 
-        // The accumulation the policy is not allowed to touch: shared before
-        // retention existed here.
-        share(root, 'w1:p1', 'legacy-report.pdf', epoch - 20 * DAY);
-        // 55 files shared right after retention landed.
-        for (let index = 0; index < 55; index += 1) share(root, 'w1:p1', `shot-${String(index).padStart(2, '0')}.png`, shared(index));
-        // A live session dropping a file, and `muxr share` mid-copy.
-        share(root, 'w1:p2', 'live-recording.mp4', epoch + 12 * DAY - MINUTE);
-        share(root, 'w1:p2', '.share-6f2a.tmp', epoch + 12 * DAY - MINUTE);
+        const { run } = await runArtifactRetention({ rootDir: root, reportPath, epochMs: installed, now: Date.now() });
 
-        // The first sweep has no report to read, so it only installs the epoch.
-        await runArtifactRetention({ rootDir: root, reportPath, now: epoch });
-        expect(readdirSync(join(root, 'w1:p1'))).toHaveLength(56);
-
-        const { run, report } = await runArtifactRetention({ rootDir: root, reportPath, now: epoch + 12 * DAY });
-        const gone = run.removed.map((record) => `${record.paneId}/${record.name}`).sort();
-
-        // Beyond the newest 50 and older than a week: exactly the five oldest.
-        expect(gone).toEqual(['w1:p1/shot-00.png', 'w1:p1/shot-01.png', 'w1:p1/shot-02.png', 'w1:p1/shot-03.png', 'w1:p1/shot-04.png']);
-        expect(run.removedBytes).toBe(5 * 16);
-        // The newest 50 the timeline can show, the pre-existing history, the
-        // file a live session just dropped and its in-flight temp all survive.
-        expect(readdirSync(join(root, 'w1:p1')).sort()).toEqual([
-            'legacy-report.pdf',
-            ...Array.from({ length: 50 }, (_, index) => `shot-${String(index + 5).padStart(2, '0')}.png`),
-        ]);
-        expect(readdirSync(join(root, 'w1:p2')).sort()).toEqual(['.share-6f2a.tmp', 'live-recording.mp4']);
-        // `kept` counts real artifacts only; the in-flight temp is not one.
-        expect(run.kept).toBe(56 + 1 - run.removedCount);
-
-        // The removals are recorded rather than silent, and the report names the policy.
-        expect(report.epochMs).toBe(epoch);
-        expect(report.lastSweep?.removed).toEqual(run.removed);
-        const onDisk = JSON.parse(readFileSync(reportPath, 'utf8'));
-        expect(onDisk.policy).toEqual(ARTIFACT_RETENTION);
-        expect(onDisk.lastSweep.removedCount).toBe(5);
+        expect(run.removedCount).toBe(0);
+        expect(readdirSync(join(root, 'w1:p1')).sort()).toEqual(['moved-recording.mp4', 'shared-today.png']);
     });
 
     it('takes the count bound first, then empties an abandoned pane by age alone', async () => {
         const { root, reportPath } = home();
-        const epoch = Date.now();
-        for (let index = 0; index < 55; index += 1) share(root, 'w1:p1', `shot-${index}.png`, epoch + (index + 1) * MINUTE);
-        await runArtifactRetention({ rootDir: root, reportPath, now: epoch });
+        // Minutes apart and strictly after the install, so a coarse filesystem
+        // clock cannot put a file outside the epoch.
+        const installed = Date.now() - MINUTE;
+        for (let index = 0; index < 55; index += 1) share(root, 'w1:p1', `shot-${index}.png`, installed + (index + 1) * MINUTE);
+        await runArtifactRetention({ rootDir: root, reportPath, now: installed });
 
         // A week on: the count bound takes the five past the newest 50.
-        const counted = await runArtifactRetention({ rootDir: root, reportPath, now: epoch + 8 * DAY });
+        const counted = await runArtifactRetention({ rootDir: root, reportPath, now: installed + 8 * DAY });
         expect(counted.run.removedCount).toBe(5);
         expect(readdirSync(join(root, 'w1:p1'))).toHaveLength(50);
 
         // A month on: no post-epoch file survives the age bound, so an abandoned
         // pane empties instead of holding 50 files for ever.
-        const aged = await runArtifactRetention({ rootDir: root, reportPath, now: epoch + 40 * DAY });
+        const aged = await runArtifactRetention({ rootDir: root, reportPath, now: installed + 40 * DAY });
         expect(aged.run.removedCount).toBe(50);
         expect(readdirSync(join(root, 'w1:p1'))).toEqual([]);
     });
 
-    it('leaves the pre-install pile alone when a prune runs before the first sweep', async () => {
+    it('records the prune time, never 0, as the epoch when a prune precedes the first sweep', async () => {
         const { root, reportPath } = home();
-        const epoch = Date.now();
-        share(root, 'w1:p1', 'legacy-recording.mp4', epoch - 20 * DAY);
-        share(root, 'w1:p1', 'fresh.png', epoch - MINUTE);
+        // The prune runs a minute after the file entered the pane, so the pile
+        // it looks at is out of scope for every sweep that follows it.
+        const prunedAt = Date.now() + MINUTE;
+        share(root, 'w1:p1', 'legacy-recording.mp4', prunedAt - 20 * DAY);
 
-        // `muxr artifacts prune --yes` with no report yet: the whole-disk scope
-        // is this run's alone and must not become the stored epoch.
-        const prune = await runArtifactRetention({ rootDir: root, reportPath, epochMs: 0, now: epoch });
+        const prune = await runArtifactRetention({ rootDir: root, reportPath, epochMs: 0, now: prunedAt });
+        expect(prune.run.epochMs).toBe(0);
+        expect(prune.report.epochMs).toBe(prunedAt);
         expect(prune.report.lastPrune).not.toBeNull();
         expect(prune.report.lastSweep).toBeNull();
-        expect(prune.report.epochMs).toBe(epoch);
 
-        share(root, 'w1:p1', 'later.png', epoch + MINUTE);
-        const sweep = await runArtifactRetention({ rootDir: root, reportPath, now: epoch + 31 * DAY });
-
-        // The month-old file shared after retention landed goes; the pile that
-        // was already here and the files shared before the prune stay, even
-        // though both are far past maxAgeMs.
-        expect(sweep.run.removed.map((record) => record.name)).toEqual(['later.png']);
-        expect(readdirSync(join(root, 'w1:p1')).sort()).toEqual(['fresh.png', 'legacy-recording.mp4']);
-        expect(sweep.report.lastSweep?.removedCount).toBe(1);
-        expect(sweep.report.lastPrune).not.toBeNull();
+        // The scheduled sweep plans against the prune time, not the whole disk.
+        const sweep = await runArtifactRetention({ rootDir: root, reportPath, now: prunedAt + 40 * DAY });
+        expect(sweep.run.epochMs).toBe(prunedAt);
+        expect(sweep.run.removedCount).toBe(0);
+        expect(readdirSync(join(root, 'w1:p1'))).toEqual(['legacy-recording.mp4']);
     });
 
-    it('never shows a pane fewer files than the timeline lists', () => {
-        // The count bound is only safe while it is at least what the watcher
-        // publishes: below that the sweep would delete rows the phone can see.
-        expect(ARTIFACT_RETENTION.keepNewest).toBeGreaterThanOrEqual(MAX_ARTIFACTS);
+    it('deletes nothing and leaves the report alone when it is unreadable', async () => {
+        const { root, reportPath } = home();
+        share(root, 'w1:p1', 'old.png', Date.now() - 45 * DAY);
+        await runArtifactRetention({ rootDir: root, reportPath, epochMs: Date.now() - 90 * DAY, now: Date.now() });
+
+        // A crash or a full filesystem mid-write leaves the report truncated.
+        const truncated = '{"version":1,"epochMs":';
+        writeFileSync(reportPath, truncated);
+        await expect(runArtifactRetention({ rootDir: root, reportPath })).rejects.toThrow(/unreadable/);
+
+        expect(readdirSync(join(root, 'w1:p1'))).toEqual(['old.png']);
+        expect(readFileSync(reportPath, 'utf8')).toBe(truncated);
     });
 });

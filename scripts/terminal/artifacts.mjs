@@ -66,7 +66,7 @@ function policyLines(policy) {
 function runLines(label, run) {
     if (run === null || run === undefined) return [`${label}: none yet`];
     const when = new Date(run.at).toISOString();
-    const scope = run.epochMs === 0 ? 'every file on disk' : `files shared after ${new Date(run.epochMs).toISOString()}`;
+    const scope = run.epochMs === 0 ? 'every file on disk' : `files that entered a pane after ${new Date(run.epochMs).toISOString()}`;
     const lines = [
         `${label}:`,
         `  at          ${when}`,
@@ -86,14 +86,20 @@ function runLines(label, run) {
 
 async function status() {
     const { readArtifactRetentionReport, ARTIFACT_RETENTION } = await import(pathToFileURL(retentionModulePath()).href);
-    const report = await readArtifactRetentionReport(join(muxrHome(), 'artifact-retention.json'));
+    const reportPath = join(muxrHome(), 'artifact-retention.json');
+    const read = await readArtifactRetentionReport(reportPath);
+    const report = read.state === 'ok' ? read.report : undefined;
     const policy = report?.policy ?? ARTIFACT_RETENTION;
     process.stdout.write(`Shared Artifacts retention\n${policyLines(policy).join('\n')}\n\n`);
+    if (read.state === 'unreadable') {
+        process.stdout.write(`The report at ${reportPath} is unreadable, so sweeps are paused until it is fixed: nothing has been deleted and the stored epoch is unchanged. Repair or delete it to let sweeps resume.\n`);
+        return 1;
+    }
     if (report === undefined) {
         process.stdout.write('No sweep has run on this machine yet. The host starts one a few minutes after it boots.\n');
         return 0;
     }
-    process.stdout.write(`Files shared before ${new Date(report.epochMs).toISOString()} are out of scope and are never swept.\n\n`);
+    process.stdout.write(`Files that entered a pane before ${new Date(report.epochMs).toISOString()} are out of scope and are never swept.\n\n`);
     process.stdout.write(`${runLines('Last sweep', report.lastSweep).join('\n')}\n`);
     if (report.lastPrune !== null && report.lastPrune !== undefined) {
         process.stdout.write(`\n${runLines('Last prune', report.lastPrune).join('\n')}\n`);
