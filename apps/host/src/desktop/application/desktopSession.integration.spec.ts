@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -138,6 +138,87 @@ describe('desktop sessions, host side', () => {
         // host's opaque handle.
         expect(sent[3]?.params).toMatchObject({ session_id: 'engine-session-1', description: { type: 'answer', sdp: 'v=0 answer' } });
         expect(sent[4]?.params).toMatchObject({ session_id: 'engine-session-1', candidate: 'candidate:2', sdp_mid: '0', sdp_m_line_index: 0 });
+    }, 20_000);
+
+    it('keeps a private rotating portal grant across host restarts without sending it to the phone', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-grant-'));
+        const scriptPath = join(directory, 'engine.cjs');
+        const log = join(directory, 'received.jsonl');
+        const grantDirectory = join(directory, 'desktop');
+        const grantPath = join(grantDirectory, 'portal-restore-token');
+        writeFileSync(log, '');
+        writeFileSync(scriptPath, STUB.replace("    case 'session.open':", `
+    case 'session.open':
+      if (request.params.source?.kind !== 'x11') {
+        if (require('node:fs').existsSync(process.argv[3])) {
+          return out({ id: request.id, error: { code: 'replayed-token', message: 'grant was not consumed before opening' } });
+        }
+        // Model a portal which cannot restore the source and whose normal
+        // consent picker is then cancelled. No automatic retry is appropriate.
+        if (request.params.restore_token === 'test-grant-2') {
+          return out({ id: request.id, error: { code: 'source', message: 'screen capture was not granted' } });
+        }
+        out({ event: 'session.restoreToken', params: {
+          sessionId: session.id,
+          token: request.params.restore_token === 'test-grant-1' ? 'test-grant-2' : 'test-grant-1',
+        } });
+      }
+`));
+        const diagnostics: string[] = [];
+        const hosts: DesktopSessions[] = [];
+        const restart = (environment: NodeJS.ProcessEnv = {}) => {
+            const desktop = new DesktopSessions({
+                enginePath: process.execPath,
+                engineArguments: [scriptPath, log, grantPath],
+                stateRoot: directory,
+                onDiagnostic: (line) => diagnostics.push(line),
+            }, environment);
+            hosts.push(desktop);
+            return desktop;
+        };
+        try {
+            const first = restart();
+            const opened = await first.open({ permissions: ['view', 'control'] });
+            // Persist before the first poll, not when the phone happens to ask.
+            expect(readFileSync(grantPath, 'utf8')).toBe('test-grant-1');
+            expect(statSync(grantDirectory).mode & 0o777).toBe(0o700);
+            expect(statSync(grantPath).mode & 0o777).toBe(0o600);
+            await new Promise((resolve) => setTimeout(resolve, 60));
+            const polled = await first.poll(opened.desktopId, 0);
+            expect(polled.events.map((event) => event.kind)).toEqual(['offer', 'candidate']);
+            expect(JSON.stringify({ opened, polled })).not.toContain('test-grant');
+            await first.closeAll();
+
+            const restored = restart();
+            await restored.open({ permissions: ['view'] });
+            await restored.closeAll(); // No poll: the replacement must already be durable.
+            expect(readFileSync(grantPath, 'utf8')).toBe('test-grant-2');
+            expect(statSync(grantPath).mode & 0o777).toBe(0o600);
+            expect(readdirSync(grantDirectory)).toEqual(['portal-restore-token']);
+
+            const x11 = restart({ MUXR_DESKTOP_SOURCE: 'x11' });
+            await x11.open({ permissions: ['view'] });
+            await x11.closeAll();
+            expect(readFileSync(grantPath, 'utf8')).toBe('test-grant-2');
+
+            const revoked = restart();
+            await expect(revoked.open({ permissions: ['view'] })).rejects.toMatchObject({ code: 'source' });
+            expect(existsSync(grantPath)).toBe(false);
+            // A deliberate later attempt asks for ordinary consent, without
+            // replaying the revoked/used token or hiding the previous refusal.
+            await revoked.open({ permissions: ['view'] });
+            await revoked.closeAll();
+            const requests = readFileSync(log, 'utf8').trim().split('\n')
+                .map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> })
+                .filter((request) => request.method === 'session.open');
+            expect(requests.map((request) => request.params.restore_token)).toEqual([
+                undefined, 'test-grant-1', undefined, 'test-grant-2', undefined,
+            ]);
+            expect(diagnostics.join('\n')).not.toContain('test-grant');
+        } finally {
+            for (const host of hosts) await host.closeAll();
+            rmSync(directory, { recursive: true, force: true });
+        }
     }, 20_000);
 
     it('refuses control up front when the machine has no input backend', async () => {

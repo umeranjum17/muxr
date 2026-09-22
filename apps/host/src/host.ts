@@ -49,6 +49,8 @@ export interface HostOptions {
     diagnostics?: HostDiagnosticsJournal;
     /** Overrides the desktop engine path; a test can point at its own build. */
     desktopEnginePath?: string;
+    /** Existing host state root for local desktop portal grants. */
+    stateRoot?: string;
 }
 
 export interface Host {
@@ -82,7 +84,10 @@ export function startHost(options: HostOptions): Host {
     }
     // Started lazily: a host that never opens a desktop never spawns the engine.
     const desktop = new DesktopSessions(
-        options.desktopEnginePath === undefined ? {} : { enginePath: options.desktopEnginePath },
+        {
+            ...(options.desktopEnginePath === undefined ? {} : { enginePath: options.desktopEnginePath }),
+            ...(options.stateRoot === undefined ? {} : { stateRoot: options.stateRoot }),
+        },
     );
     const dispatcher = createRequestDispatcher({
         source,

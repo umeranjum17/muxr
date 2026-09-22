@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 
 import { Bridge, BRIDGE_PATH } from './bridge.js';
+import type { EngineEvent } from './protocol.js';
 
 /**
  * The third-party seam: a consumer with no signaling channel of its own.
@@ -21,6 +22,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const request = JSON.parse(line);
   if (request.method === 'hello') return out({ id: request.id, result: { protocol: 2 } });
   if (request.method === 'session.open') {
+    out({ event: 'session.restoreToken', params: { sessionId: 'engine-1', token: 'test-private-grant' } });
     setTimeout(() => out({ event: 'session.description', params: { generation: 1, description: { type: 'offer', sdp: 'v=0 offer' } } }), 5);
     return out({ id: request.id, result: {
       sessionId: 'engine-1', generation: 1,
@@ -42,19 +44,21 @@ afterEach(async () => {
     for (const bridge of bridges.splice(0)) await bridge.close();
 });
 
-async function startBridge(token: string, serveExample = true): Promise<{ bridge: Bridge; port: number }> {
+async function startBridge(token: string, serveExample = true): Promise<{ bridge: Bridge; port: number; localEvents: EngineEvent[] }> {
     const directory = mkdtempSync(join(tmpdir(), 'desklink-bridge-'));
     const script = join(directory, 'engine.cjs');
     writeFileSync(script, STUB);
+    const localEvents: EngineEvent[] = [];
     const bridge = await Bridge.start({
         listen: '127.0.0.1:0',
         token,
         engineCommand: process.execPath,
         engineArgs: [script],
+        engineOptions: { onEvent: (event) => localEvents.push(event) },
         serveExample,
     });
     bridges.push(bridge);
-    return { bridge, port: bridge.port };
+    return { bridge, port: bridge.port, localEvents };
 }
 
 function connect(port: number, query: string): Promise<WebSocket> {
@@ -84,10 +88,12 @@ function requestOn(socket: WebSocket, id: number, method: string): Promise<Recor
 
 describe('the bridge', () => {
     it('refuses a socket without the token and serves the protocol with it', async () => {
-        const { port } = await startBridge('s3cret');
+        const { port, localEvents } = await startBridge('s3cret');
         await expect(connect(port, 'token=wrong')).rejects.toThrow(/refused|401/);
 
         const socket = await connect(port, 'token=s3cret');
+        const received: string[] = [];
+        socket.on('message', (raw) => received.push(String(raw)));
         const opened = await requestOn(socket, 1, 'session.open');
         expect(opened).toMatchObject({ sessionId: 'engine-1', generation: 1 });
         expect((opened.geometry as { encoded: unknown }).encoded).toEqual({ width: 100, height: 100 });
@@ -104,6 +110,11 @@ describe('the bridge', () => {
             });
         });
         expect(event).toMatchObject({ description: { type: 'offer', sdp: 'v=0 offer' } });
+        // Persistence belongs to the host consumer, never to the remote controller.
+        expect(received.join('\n')).not.toContain('test-private-grant');
+        expect(localEvents).toContainEqual({
+            event: 'session.restoreToken', params: { sessionId: 'engine-1', token: 'test-private-grant' },
+        });
     }, 20_000);
 
     it('serves the reference page only to a caller that already has the token', async () => {

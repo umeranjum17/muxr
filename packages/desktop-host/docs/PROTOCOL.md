@@ -221,8 +221,18 @@ and the one the control channel's `hello` repeats. A session keeps the one
 {"event":"session.restoreToken","params":{"sessionId":"…","token":"…"}}
 ```
 
-The portal handed back a restore token for a later `session.open`. A consumer
-that does not persist one can ignore this notification.
+The portal handed back a restore token for a later `session.open`. The engine
+requests persistence until explicitly revoked (`persist_mode = 2`); the portal
+still decides whether to grant it. Tokens are single-use: consume a saved token
+before sending it, and atomically persist each replacement in private host-local
+storage, even if it arrives before the open response. Never log tokens or forward
+them to a remote controller. A consumer that does not persist one can ignore this
+notification and request consent again next time. The WebSocket bridge delivers
+this event only to its host-local `engineOptions.onEvent`, not to sockets.
+
+A revoked grant or unavailable source falls back to the portal's normal consent
+picker; restoration is silent only where the backend supports it. Cancellation
+is an error, not a reason to retry or bypass consent.
 
 ```jsonc
 {"event":"session.revoked","params":{"sessionId":"…","reason":"…"}}

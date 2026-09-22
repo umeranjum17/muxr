@@ -85,6 +85,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         }
 
         override fun onFrameResolutionChanged(width: Int, height: Int, rotation: Int) {
+          Log.i(TAG, "frame resolution: ${width}x${height}, rotation=$rotation")
           // The engine reports its own geometry over the control channel; this is
           // only used until that arrives.
           if (surfaceWidth == 0 || surfaceHeight == 0) {
@@ -105,6 +106,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     detachSink()
     chordKeysDown.clear()
     session = next
+    Log.i(TAG, "view session assigned=${next != null}")
     attachSink()
   }
 
@@ -144,6 +146,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         sinkAttached?.removeSink(renderer)
         track.addSink(renderer)
         sinkAttached = track
+        Log.i(TAG, "video sink attached; view=${width}x${height}")
       }
     }
   }

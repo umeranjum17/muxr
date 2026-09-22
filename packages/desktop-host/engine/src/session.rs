@@ -1103,10 +1103,8 @@ fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: std_mpsc::Receiver<I420>, runnin
                     m.encoded_bytes += packet.data.len() as u64;
                 }
                 let peer = inner.peer.clone();
-                if handle
-                    .block_on(peer.send_frame(packet.data, duration))
-                    .is_err()
-                {
+                if let Err(error) = handle.block_on(peer.send_frame(packet.data, duration)) {
+                    eprintln!("the video track refused an encoded frame: {error:#}");
                     break;
                 }
             }

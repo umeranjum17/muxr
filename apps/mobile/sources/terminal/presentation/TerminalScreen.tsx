@@ -169,6 +169,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [appActive, setAppActive] = React.useState(Platform.OS === 'web' || AppState.currentState === 'active');
     const keepScreenAwake = useLocalSettingMutable('keepScreenAwakeWhileWatching')[0];
     const canControl = authority === 'control' && !authorityLoading;
+    const desktopVisible = props.desktop === true && canControl && isFocused;
     const insets = useSafeAreaInsets();
     // Keyboard height already covers the home indicator, so keeping the bottom
     // inset while it is up double-pads the composer.
@@ -1240,8 +1241,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         </Pressable>}
                     </Animated.View>
 
+                    {/* Occlusion does not hide native accessibility descendants.
+                        Exclude only the covered roots, not the real header/back. */}
                     {hasStatusRow && (
                         <Pressable
+                            aria-hidden={desktopVisible}
                             onLayout={(event) => setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height)}
                             accessibilityRole="button"
                             accessibilityLabel="Review changes"
@@ -1270,6 +1274,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     )}
 
                     <View
+                        aria-hidden={desktopVisible}
                         ref={paneGestures.ref}
                         // A new object every layout would re-render this whole
                         // screen on each one, and layout fires repeatedly while
@@ -1446,6 +1451,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         second. No band, no underline. */}
                     {treeLoaded && located !== undefined && (
                         <ScrollView
+                            aria-hidden={desktopVisible}
+                            accessibilityElementsHidden={desktopVisible}
+                            importantForAccessibility={desktopVisible ? 'no-hide-descendants' : 'auto'}
                             ref={tabStripRef}
                             horizontal
                             showsHorizontalScrollIndicator={false}
@@ -1568,7 +1576,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         </ScrollView>
                     )}
 
-                    {canControl && <View>
+                    {canControl && <View aria-hidden={desktopVisible}>
                         {/* The key strip stands down while dictation owns the footer
                             with the keyboard up; the composer capsule stays. */}
                         {!(dictationActive && keyboardVisible) && <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction}>{keySlot}</TerminalKeyRow>}
@@ -1640,6 +1648,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         the control itself stays on the terminal surface. */}
                     {hasTools && linkMenu === null && terminalBox !== undefined && floatingControlFits(terminalBox.height) && (
                         <View
+                            aria-hidden={desktopVisible}
                             pointerEvents="box-none"
                             onLayout={({ nativeEvent }) => setRingOverlay((current) => (Math.abs(current - nativeEvent.layout.height) < 0.5 ? current : nativeEvent.layout.height))}
                             style={{ position: 'absolute', left: 0, right: 0, top: terminalBox.top, bottom: 0 }}
@@ -1679,7 +1688,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     />
                     {/* Keep the conversation mounted: its actual header, draft and
                         terminal viewport survive Computer and the return unchanged. */}
-                    {props.desktop && canControl && isFocused && <View style={{ position: 'absolute', top: desktopTop, left: 0, right: 0, bottom: keyboardVisible ? keyboardHeight : 0, backgroundColor: '#000', zIndex: 10 }}>
+                    {desktopVisible && <View style={{ position: 'absolute', top: desktopTop, left: 0, right: 0, bottom: keyboardVisible ? keyboardHeight : 0, backgroundColor: '#000', zIndex: 10 }}>
                         <React.Suspense fallback={<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator size="small" color={theme.colors.textSecondary} /></View>}>
                             <DesktopSurface onExit={closeDesktop} />
                         </React.Suspense>

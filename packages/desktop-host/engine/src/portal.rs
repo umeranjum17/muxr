@@ -67,7 +67,9 @@ pub async fn open(restore_token: Option<&str>) -> Result<PortalSession> {
             BitFlags::from(SourceType::Monitor) | BitFlags::from(SourceType::Window),
             false,
             restore_token,
-            PersistMode::Application,
+            // Request a durable grant, not one tied to this engine process.
+            // The portal still owns consent and may decline persistence.
+            PersistMode::ExplicitlyRevoked,
         )
         .await
         .context("ScreenCast.SelectSources failed")?

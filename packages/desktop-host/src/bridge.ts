@@ -100,9 +100,11 @@ export class Bridge {
 
         const engine = await EngineClient.start(options.engineCommand, options.engineArgs, {
             ...(options.engineOptions ?? {}),
-            // Every notification goes to every attached client: they are watching
-            // one session, and a client that attaches late still needs the offer.
+            // Grant credentials stay with the host; session notifications go
+            // to the attached controllers watching this session.
             onEvent: (event) => {
+                options.engineOptions?.onEvent?.(event);
+                if (event.event === 'session.restoreToken') return;
                 const line = JSON.stringify(event);
                 for (const socket of sockets.clients) {
                     if (socket.readyState === socket.OPEN) socket.send(line);

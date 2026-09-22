@@ -686,6 +686,7 @@ async function main(): Promise<void> {
     });
 
     startHost({
+        stateRoot,
         ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
         ...(token === undefined ? {} : { token }),
         relayUrl,

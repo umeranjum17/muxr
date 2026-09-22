@@ -3,6 +3,7 @@ import type { SourceRequest } from '@desklink/host';
 import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfaceGeometry } from '@muxr/contract';
 
 import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSession.js';
+import { PortalGrant } from './portalGrant.js';
 
 /**
  * Which desktop this host offers.
@@ -29,6 +30,8 @@ export interface DesktopEngineOptions {
     /** Overrides the arguments passed to it; production always uses `serve`. */
     engineArguments?: string[];
     onDiagnostic?: (line: string) => void;
+    /** Existing host state root. Without one, portal grants are not retained. */
+    stateRoot?: string;
 }
 
 interface LiveSession extends DesktopSessionRecord {
@@ -71,10 +74,12 @@ export class DesktopSessions {
     private startFailure: string | null = null;
 
     private readonly environment: NodeJS.ProcessEnv;
+    private readonly portalGrant: PortalGrant | undefined;
 
     constructor(options: DesktopEngineOptions = {}, environment: NodeJS.ProcessEnv = process.env) {
         this.options = options;
         this.environment = environment;
+        this.portalGrant = options.stateRoot === undefined ? undefined : new PortalGrant(options.stateRoot);
     }
 
     async capabilities(): Promise<DesktopCapabilities> {
@@ -137,8 +142,19 @@ export class DesktopSessions {
             throw new EngineRefused('desktop-unavailable', this.missingEngineReason());
         }
         const source = configuredSource(this.environment);
+        let restoreToken: string | undefined;
+        if (source?.kind !== 'x11') {
+            try {
+                restoreToken = this.portalGrant?.take();
+            } catch {
+                // Never send a token we could not safely consume. Normal portal
+                // consent remains available even when local storage is broken.
+                this.options.onDiagnostic?.('Desktop grant could not be read; requesting portal consent.');
+            }
+        }
         const opened = await client.openSession({
             permissions: request.permissions,
+            ...(restoreToken === undefined ? {} : { restoreToken }),
             ...(source === undefined ? {} : { source }),
             ...(request.maxWidth === undefined ? {} : { maxWidth: request.maxWidth }),
             ...(request.maxHeight === undefined ? {} : { maxHeight: request.maxHeight }),
@@ -295,7 +311,18 @@ export class DesktopSessions {
                     resolved.command,
                     this.options.engineArguments ?? resolved.args,
                     {
-                    ...(this.options.onDiagnostic === undefined ? {} : { onDiagnostic: this.options.onDiagnostic }),
+                        ...(this.options.onDiagnostic === undefined ? {} : { onDiagnostic: this.options.onDiagnostic }),
+                        onEvent: (event) => {
+                            if (event.event !== 'session.restoreToken') return;
+                            if (typeof event.params.token !== 'string' || event.params.token === '') return;
+                            // Save immediately, including before session.open answers:
+                            // polling/closing the phone must not lose a rotated token.
+                            try {
+                                this.portalGrant?.replace(event.params.token);
+                            } catch {
+                                this.options.onDiagnostic?.('Desktop grant could not be saved; next open will require portal consent.');
+                            }
+                        },
                         onExit: () => {
                             // The engine died: tell every attached client the
                             // session is gone, and keep the record so the next

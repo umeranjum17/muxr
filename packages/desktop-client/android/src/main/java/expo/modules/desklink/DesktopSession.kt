@@ -339,6 +339,22 @@ class DesktopSession(
     override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
       if (target != epoch) return
       emit("ice", mapOf("state" to state?.toString()))
+      if (state == PeerConnection.IceConnectionState.CONNECTED &&
+        context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+      ) {
+        // Bounded debug-build evidence: reception/decoding is not presentation.
+        // Never include SDP, addresses, credentials or control payloads.
+        for (delay in listOf(2000L, 10000L)) ui.postDelayed({
+          if (closed || target != epoch) return@postDelayed
+          peer?.getStats { report ->
+            val fields = setOf("kind", "packetsReceived", "bytesReceived", "framesReceived",
+              "framesDecoded", "keyFramesDecoded", "framesDropped", "framesPerSecond")
+            val video = report.statsMap.values.filter { it.type == "inbound-rtp" }
+              .map { JSONObject(it.members.filterKeys { key -> key in fields }) }
+            Log.i(TAG, "video receive stats: ${org.json.JSONArray(video)}")
+          }
+        }, delay)
+      }
       if (state == PeerConnection.IceConnectionState.FAILED) {
         fail("transport", "the connection to the desktop was lost")
       }
@@ -389,6 +405,7 @@ class DesktopSession(
       val track = transceiver?.receiver?.track() as? VideoTrack ?: return
       if (target != epoch) return
       videoTrack = track
+      Log.i(TAG, "remote video track; view sink registered=${frameSink != null}")
       // A sink can only be attached once; the view attaches it on first layout.
       frameSink?.invoke(track)
       emit("track", emptyMap())
