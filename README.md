@@ -45,7 +45,7 @@ Open the same live terminal the agent owns on your computer — native Ghostty r
 
 </td>
 <td width="55%">
-  <a href="https://trymuxr.com/#demo"><picture><source srcset="docs/assets/readme/terminal.webp" type="image/webp"><img src="docs/assets/readme/terminal.jpg" alt="muxr's native mobile terminal with modifier keys and prompt composer" width="100%" /></picture></a>
+  <a href="https://trymuxr.com/#demo"><picture><source srcset="docs/assets/readme/terminal.webp" type="image/webp"><img src="docs/assets/readme/terminal.jpg" alt="muxr's redesigned terminal with compact header, floating quick actions, key row, and prompt composer" width="100%" /></picture></a>
 </td>
 </tr>
 <tr>
