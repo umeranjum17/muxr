@@ -20,7 +20,7 @@ import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
 import { storage, useHerdrTree, useLocalSettingMutable, useSession, useSessionGitStatus, useSessions, useSocketStatus } from '@/catalog/store';
 import { sessionStop } from '@/catalog/ops';
-import { registerAttachmentUpdateHandler, sync } from '@/catalog/sync';
+import { registerArtifactUpdateHandler, sync } from '@/catalog/sync';
 import { resolveMessageModeMeta } from '@/catalog';
 import { recordAgentGate, recordTrackedRpc } from '@/catalog/diagnostics';
 import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/sessionStatusBar';
@@ -157,10 +157,10 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         changesList(props.id)
             .then((badge) => { if (!cancelled) setChangesCount(badge.count); })
             .catch(() => { if (!cancelled) setChangesCount(null); });
-        sync.request('attachment.list', { sessionId: props.id })
+        sync.artifactList(props.id)
             .then((result) => { if (!cancelled) setArtifactsCount(result.total); })
             .catch(() => { if (!cancelled) setArtifactsCount(null); });
-        const unsubscribe = registerAttachmentUpdateHandler((sessionId, event) => {
+        const unsubscribe = registerArtifactUpdateHandler((sessionId, event) => {
             if (!cancelled && sessionId === props.id) setArtifactsCount(event.total);
         });
         return () => { cancelled = true; unsubscribe(); };
@@ -897,7 +897,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             const showUnconfirmedStatus = status === 'unconfirmed' && gestureHint === null;
             // 31669's leading control: its own circle, outside the field, so the
             // field is the only container on the rail.
-            const attachmentAction = <Pressable onPress={attachPhotos} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }}
+            const artifactAction = <Pressable onPress={attachPhotos} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }}
                 style={({ pressed }) => ({ width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 19, backgroundColor: withAlpha(theme.colors.text, 0.06), opacity: attaching ? 0.4 : pressed ? 0.6 : 1 })}>
                 <Ionicons name={attaching ? 'hourglass-outline' : 'add'} size={20} color={theme.colors.textSecondary} />
             </Pressable>;
@@ -1023,7 +1023,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                 ? <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', fontVariant: ['tabular-nums'] }}>{Math.max(paneIndex, 0) + 1}/{Math.max(paneTotal, 1)}</Text>
                                 : <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
                         </Pressable>
-                        {!authorityLoading && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel={`Pane actions${artifactsCount !== null && artifactsCount > 0 ? `, ${t('sessionAttachments.title', { count: artifactsCount })}` : ''}`}
+                        {!authorityLoading && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel={`Pane actions${artifactsCount !== null && artifactsCount > 0 ? `, ${t('sessionArtifacts.title', { count: artifactsCount })}` : ''}`}
                             accessibilityState={{ expanded: actionsOpen }} hitSlop={12} style={({ pressed }) => ({ minWidth: 30, minHeight: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
                             <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
                             {artifactsCount !== null && artifactsCount > 0 && <View style={{ position: 'absolute', top: 1, right: 0, minWidth: 16, height: 16, paddingHorizontal: 4, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accent }}>
@@ -1349,7 +1349,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         the realtime agent while the field is empty and becomes
                         send the moment there is something to send. */}
                     <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, paddingHorizontal: 10, paddingTop: 4, paddingBottom: (keyboardVisible ? 8 : insets.bottom + 8) }}>
-                        {!dictationActive && attachmentAction}
+                        {!dictationActive && artifactAction}
                         <View style={{
                             flex: 1,
                             minHeight: keyboardVisible ? 44 : 48,
@@ -1521,7 +1521,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Conversation history</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
-                                    <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/artifacts`); }} accessibilityRole="button" accessibilityLabel={`Shared Artifacts${artifactsCount === null ? '' : `, ${t('sessionAttachments.title', { count: artifactsCount })}`}`}
+                                    <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/artifacts`); }} accessibilityRole="button" accessibilityLabel={`Shared Artifacts${artifactsCount === null ? '' : `, ${t('sessionArtifacts.title', { count: artifactsCount })}`}`}
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="albums-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Shared Artifacts</Text>

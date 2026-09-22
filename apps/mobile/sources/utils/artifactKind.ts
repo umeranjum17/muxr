@@ -1,6 +1,6 @@
-export type AttachmentKind = 'image' | 'video' | 'document' | 'apk' | 'file';
+export type ArtifactKind = 'image' | 'video' | 'document' | 'apk' | 'file';
 
-export function attachmentKind(name: string, mimeType: string): AttachmentKind {
+export function artifactKind(name: string, mimeType: string): ArtifactKind {
     const lower = name.toLowerCase();
     if (mimeType.startsWith('image/')) return 'image';
     if (mimeType.startsWith('video/')) return 'video';

@@ -321,3 +321,73 @@ describe('unknown request type guard', () => {
         expect(error).toContain('bogus.request');
     });
 });
+
+// The artifact unification renamed attachment.* to artifact.*. A host has to
+// keep answering an app built before the rename, with the shapes it expects.
+describe('artifact wire across app versions', () => {
+    const artifacts = [{ id: 'a'.repeat(64), name: 'report.md', mimeType: 'text/plain', size: 5, at: 1 }];
+    const chunk = { id: 'a'.repeat(64), name: 'report.md', mimeType: 'text/plain', size: 5, offset: 0, data: 'aGVsbG8=' };
+    const asked: string[] = [];
+
+    async function dispatchArtifact(request: Record<string, unknown>, viewOnly = false) {
+        const source = {
+            async artifactList() { asked.push('artifactList'); return { artifacts, total: 1, truncated: false }; },
+            async artifactFetch() { asked.push('artifactFetch'); return { name: 'report.md', mimeType: 'text/plain', data: 'aGVsbG8=' }; },
+            async artifactPrepare() { asked.push('artifactPrepare'); return { token: 'one-time', name: 'report.md', mimeType: 'text/plain', size: 5 }; },
+            async artifactRead() { asked.push('artifactRead'); return chunk; },
+        } as unknown as SessionSource;
+        const { dispatch } = createRequestDispatcher({
+            source,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+            relayUrl: 'wss://relay.test',
+            canMutateDevice: () => !viewOnly,
+        });
+        return dispatch(request as never, viewOnly ? 'viewer-1' : undefined);
+    }
+
+    it('serves both spellings of every method, with the pre-rename shapes', async () => {
+        const artifactId = 'a'.repeat(64);
+
+        const modernList = await dispatchArtifact({ type: 'artifact.list', requestId: 'r1', params: { sessionId: 's1' } });
+        expect(modernList).toMatchObject({ ok: true, data: { artifacts, total: 1, truncated: false } });
+
+        const legacyList = await dispatchArtifact({ type: 'attachment.list', requestId: 'r2', params: { sessionId: 's1' } });
+        expect(legacyList).toMatchObject({ ok: true, data: { attachments: artifacts, total: 1, truncated: false } });
+        // A pre-rename listing carries no `artifacts` key.
+        expect(Object.keys((legacyList as { data: object }).data)).toEqual(['attachments', 'total', 'truncated']);
+
+        const pairs: [string, Record<string, unknown>][] = [
+            ['attachment.fetch', { sessionId: 's1', attachmentId: artifactId }],
+            ['attachment.prepare', { sessionId: 's1', attachmentId: artifactId }],
+            ['attachment.read', { sessionId: 's1', attachmentId: artifactId, offset: 0, length: 512 }],
+        ];
+        const canonical: Record<string, unknown>[] = [
+            { sessionId: 's1', artifactId },
+            { sessionId: 's1', artifactId },
+            { sessionId: 's1', artifactId, offset: 0, length: 512 },
+        ];
+        for (let index = 0; index < pairs.length; index += 1) {
+            const [legacyType, legacyParams] = pairs[index]!;
+            const modern = await dispatchArtifact({ type: legacyType.replace('attachment.', 'artifact.'), requestId: 'modern', params: canonical[index] });
+            const legacy = await dispatchArtifact({ type: legacyType, requestId: 'legacy', params: legacyParams });
+            expect(modern).toMatchObject({ ok: true });
+            expect(legacy).toEqual({ ...(modern as object), requestId: 'legacy' });
+        }
+
+        // One implementation behind both names, so an alias can never drift.
+        expect(asked).toEqual([
+            'artifactList',
+            'artifactList',
+            'artifactFetch', 'artifactFetch',
+            'artifactPrepare', 'artifactPrepare',
+            'artifactRead', 'artifactRead',
+        ]);
+    });
+
+    it('keeps the pre-rename read-only methods readable by a view-only grant', async () => {
+        const listing = await dispatchArtifact({ type: 'attachment.list', requestId: 'r5', params: { sessionId: 's1' } }, true);
+        expect(listing).toMatchObject({ ok: true });
+    });
+});

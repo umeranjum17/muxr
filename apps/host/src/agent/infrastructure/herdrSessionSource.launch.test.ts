@@ -137,7 +137,7 @@ describe('phone launch before herdr detects the agent', () => {
         const source = await createHerdrSessionSource({
             socketPath: herdr.socketPath,
             dataDir: join(dir, 'data'),
-            attachmentsDir: join(dir, 'attachments'),
+            artifactsDir: join(dir, 'attachments'),
             hostHttpPort: 0,
         });
         const removedSessions: string[] = [];
@@ -201,7 +201,7 @@ describe('realtime prompt boundary', () => {
         const source = await createHerdrSessionSource({
             socketPath: herdr.socketPath,
             dataDir: join(dir, 'data'),
-            attachmentsDir: join(dir, 'attachments'),
+            artifactsDir: join(dir, 'attachments'),
             hostHttpPort: 0,
         });
         try {
@@ -238,7 +238,7 @@ describe('session list on a snapshot failure', () => {
         const source = await createHerdrSessionSource({
             socketPath: herdr.socketPath,
             dataDir: join(dir, 'data'),
-            attachmentsDir: join(dir, 'attachments'),
+            artifactsDir: join(dir, 'attachments'),
             hostHttpPort: 0,
         });
         try {

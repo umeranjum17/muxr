@@ -1,0 +1,123 @@
+/**
+ * Download an artifact — native implementation.
+ *
+ * Local/cleartext streams large files through the system browser when the
+ * handoff has a relay credential. Tokenless loopback and hosted/E2EE write
+ * bounded chunks to a device file, so no giant blob or JSON frame is retained.
+ *
+ * Metro picks downloadArtifact.web.ts on web.
+ */
+import { isAvailableAsync, shareAsync } from 'expo-sharing';
+import { artifactDownloadUrl } from '@/utils/artifactDownloadUrl';
+import type { StoredSessionArtifact } from '@/catalog/application/persistence';
+import { getCachedConnectionSettings } from '@/connection';
+import { sync } from '@/catalog/sync';
+import { decodeBase64 } from '@/encryption/base64';
+import { File, Paths } from 'expo-file-system';
+import { Modal } from '@/modal';
+import { openExternalUrl } from '@/utils/openExternalUrl';
+import { artifactKind } from '@/utils/artifactKind';
+
+export type DownloadHandoff = 'browser' | 'device';
+
+/** Prefer OS streaming above this cap when the browser handoff can authenticate. */
+const MAX_IN_APP_BYTES = 2 * 1024 * 1024;
+
+function tooHeavyForApp(artifact: StoredSessionArtifact): boolean {
+    return artifact.size > MAX_IN_APP_BYTES || artifactKind(artifact.name, artifact.mimeType) === 'apk';
+}
+
+function safeName(name: string): string {
+    const cleaned = name.replace(/[^A-Za-z0-9._-]/g, '_');
+    return cleaned.length > 0 ? cleaned : 'artifact';
+}
+
+/**
+ * The bare display name when free, otherwise numbered suffixes (report-2.md).
+ * create() refuses to overwrite, so a concurrent same-name download can never
+ * replace bytes a pending share target may not have read yet.
+ */
+function reserveCacheFile(name: string): File {
+    const dot = name.lastIndexOf('.');
+    const stem = dot > 0 ? name.slice(0, dot) : name;
+    const ext = dot > 0 ? name.slice(dot) : '';
+    for (let suffix = 1; ; suffix += 1) {
+        const candidate = suffix === 1 ? name : `${stem}-${suffix}${ext}`;
+        const file = new File(Paths.cache, candidate);
+        try {
+            file.create();
+            return file;
+        } catch (error) {
+            if (suffix === 100) throw error;
+        }
+    }
+}
+
+async function writeArtifactFile(sessionId: string, artifact: StoredSessionArtifact): Promise<string> {
+    const file = reserveCacheFile(safeName(artifact.name));
+    const handle = file.open();
+    try {
+        let offset = 0;
+        let artifactId = artifact.id;
+        while (offset < artifact.size) {
+            const chunk = await sync.artifactRead(sessionId, artifactId, offset, 512 * 1024, 60_000);
+            if (chunk === null || chunk.offset !== offset || chunk.size !== artifact.size) {
+                throw new Error('artifact changed or disappeared during download');
+            }
+            artifactId = chunk.id;
+            const bytes = decodeBase64(chunk.data, 'base64');
+            if (bytes.length === 0) throw new Error('artifact download returned an empty chunk');
+            handle.writeBytes(bytes);
+            offset += bytes.length;
+        }
+    } finally {
+        handle.close();
+    }
+    return file.uri;
+}
+
+function handoffToOs(uri: string, artifact: StoredSessionArtifact): void {
+    // Share waits until the sheet is dismissed and can hang when nothing
+    // handles APKs. Do not block the download spinner on it.
+    const mime = artifact.mimeType === 'application/vnd.android.package-archive'
+        ? 'application/octet-stream'
+        : artifact.mimeType;
+    void (async () => {
+        if (!(await isAvailableAsync())) {
+            Modal.alert('Saved', `"${artifact.name}" is on the phone, but sharing isn't available. Open it from Files.`);
+            return;
+        }
+        try {
+            await shareAsync(uri, { mimeType: mime, dialogTitle: artifact.name, UTI: artifact.mimeType });
+        } catch {
+            try {
+                await shareAsync(uri, { mimeType: '*/*', dialogTitle: artifact.name });
+            } catch {
+                Modal.alert('Saved', `"${artifact.name}" is on the phone but nothing opened it. Try Files.`);
+            }
+        }
+    })();
+}
+
+async function openInBrowser(sessionId: string, artifact: StoredSessionArtifact): Promise<DownloadHandoff> {
+    const ready = await sync.artifactPrepare(sessionId, artifact.id);
+    if (ready === null) {
+        throw new Error(`"${artifact.name}" is no longer on the host — it was replaced since this list arrived.`);
+    }
+    await openExternalUrl(artifactDownloadUrl(sessionId, artifact));
+    return 'browser';
+}
+
+export async function downloadArtifact(sessionId: string, artifact: StoredSessionArtifact): Promise<DownloadHandoff> {
+    const connection = getCachedConnectionSettings();
+    if (connection.mode === 'local' && connection.token.trim() !== '' && tooHeavyForApp(artifact)) {
+        return openInBrowser(sessionId, artifact);
+    }
+    if (artifact.localUri === undefined) {
+        const uri = await writeArtifactFile(sessionId, artifact);
+        handoffToOs(uri, artifact);
+        return 'device';
+    }
+    handoffToOs(artifact.localUri, artifact);
+    return 'device';
+}

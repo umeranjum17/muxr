@@ -47,6 +47,6 @@ dist-npm/
 /.bundle/
 /vendor/bundle/
 
-# Offline attachment renderer generated from pinned dependencies by yarn build
-apps/mobile/sources/components/attachment/preview.bundle.bin
+# Offline artifact renderer generated from pinned dependencies by yarn build
+apps/mobile/sources/components/artifact/preview.bundle.bin
 .realtime-parity/

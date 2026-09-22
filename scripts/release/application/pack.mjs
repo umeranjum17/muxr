@@ -178,6 +178,14 @@ cpSync(join(root, 'apps', 'host', 'dist', 'voice'), join(out, 'voice'), {
     filter: (path) => !path.endsWith('.spec.mjs'),
 });
 cpSync(join(root, 'resources'), join(out, 'resources'), { recursive: true });
+// The retention rules live in one compiled host module so `muxr artifacts` and
+// the host's daily sweep cannot drift apart. It imports only node builtins,
+// which is why it copies verbatim instead of being bundled.
+mkdirSync(join(out, 'artifacts'), { recursive: true });
+copyFileSync(
+    join(root, 'apps', 'host', 'dist', 'agent', 'infrastructure', 'artifactRetention.js'),
+    join(out, 'artifacts', 'retention.mjs'),
+);
 cpSync(join(root, 'skills', 'muxr'), join(out, 'skills', 'muxr'), { recursive: true });
 const webDist = join(root, 'apps', 'mobile', 'dist');
 if (!existsSync(join(webDist, 'index.html'))) {
@@ -249,6 +257,7 @@ const pkg = {
         'THIRD_PARTY_LICENSES.json',
         'voice/',
         'resources/',
+        'artifacts/',
         'skills/',
         'web/',
     ],

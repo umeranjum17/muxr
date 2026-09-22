@@ -623,7 +623,7 @@ async function main(): Promise<void> {
             routes,
             relayUrl,
             machineId,
-            attachmentsDir: join(stateRoot, 'attachments', 'pane'),
+            artifactsDir: join(stateRoot, 'attachments', 'pane'),
             hostHttpPort: hostConfig.hostHttpPort,
             ...(token === undefined ? {} : { token }),
             ...(hostedE2ee === undefined ? {} : { hostedE2ee }),

@@ -546,8 +546,8 @@ export const ja: TranslationStructure = {
         thoughtFor: ({ duration }: { duration: string }) => `Thought for ${duration}`,
     },
 
-    sessionAttachments: {
-        title: ({ count }: { count: number }) => count === 1 ? '1件の添付ファイル' : `${count}件の添付ファイル`,
+    sessionArtifacts: {
+        title: ({ count }: { count: number }) => count === 1 ? '1件の共有アーティファクト' : `${count}件の共有アーティファクト`,
     },
 
     turnChanges: {

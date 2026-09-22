@@ -545,8 +545,8 @@ export const zhHant: TranslationStructure = {
         thoughtFor: ({ duration }: { duration: string }) => `Thought for ${duration}`,
     },
 
-    sessionAttachments: {
-        title: ({ count }: { count: number }) => `${count} 個附件`,
+    sessionArtifacts: {
+        title: ({ count }: { count: number }) => `${count} 個共享產物`,
     },
 
     turnChanges: {

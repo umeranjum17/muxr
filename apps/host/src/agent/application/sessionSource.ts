@@ -13,7 +13,7 @@ import type {
     LayoutSnapshot,
     PromptAttachment,
     SessionEventBody,
-    SessionAttachmentMetadata,
+    SessionArtifactMetadata,
     CloseResult,
     CloseScope,
     SessionInfo,
@@ -195,13 +195,13 @@ export interface SessionSource {
     readFile(options: SessionReadFileOptions): Promise<{ content: string }>;
     saveAttachments(options: SessionSaveAttachmentsOptions): Promise<{ savedPaths: string[] }>;
     /** Metadata-only newest-first artifact history for one session's pane. */
-    attachmentList(options: { sessionId: string }): Promise<{ attachments: SessionAttachmentMetadata[]; total: number; truncated: boolean }>;
-    /** Re-fetch one pane attachment blob for a client that missed the first emit. */
-    attachmentFetch(options: { sessionId: string; attachmentId: string }): Promise<{ name: string; mimeType: string; data: string } | null>;
-    /** Mint a one-time local-only download ticket for the attachment's original bytes. */
-    attachmentPrepare(options: { sessionId: string; attachmentId: string }): Promise<{ token: string; name: string; mimeType: string; size: number } | null>;
+    artifactList(options: { sessionId: string }): Promise<{ artifacts: SessionArtifactMetadata[]; total: number; truncated: boolean }>;
+    /** Re-fetch one pane artifact blob for a client that missed the first emit. */
+    artifactFetch(options: { sessionId: string; artifactId: string }): Promise<{ name: string; mimeType: string; data: string } | null>;
+    /** Mint a one-time local-only download ticket for the artifact's original bytes. */
+    artifactPrepare(options: { sessionId: string; artifactId: string }): Promise<{ token: string; name: string; mimeType: string; size: number } | null>;
     /** Read one bounded chunk; hosted transport encrypts the request and response envelope. */
-    attachmentRead(options: { sessionId: string; attachmentId: string; offset: number; length: number }): Promise<{ id: string; name: string; mimeType: string; size: number; offset: number; data: string } | null>;
+    artifactRead(options: { sessionId: string; artifactId: string; offset: number; length: number }): Promise<{ id: string; name: string; mimeType: string; size: number; offset: number; data: string } | null>;
     subscribe(listener: (sessionId: string, event: SessionEventBody) => void): () => void;
     /** Machine-scoped frames share the encrypted session stream and are additive. */
     subscribeMachine?(listener: (frame: PluginsInvalidatedFrame) => void): () => void;

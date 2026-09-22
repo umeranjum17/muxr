@@ -25,7 +25,6 @@ import type { Message } from '../infrastructure/typesMessage';
 import type { Machine, GitStatus } from '../infrastructure/storageTypes';
 import type { GitStatusFiles } from './gitStatusFiles';
 import type { ProjectFilesList } from './projectFiles';
-import type { DecryptedArtifact } from '../infrastructure/artifactTypes';
 import type { UserProfile, RelationshipUpdatedEvent } from '../infrastructure/friendTypes';
 import type { FeedItem } from '../infrastructure/feedTypes';
 import type { AttentionEntry, AttentionReason, HerdrTreeWorkspace, LifecycleCatalog, LifecycleEvent } from '@muxr/contract';
@@ -172,7 +171,6 @@ interface StorageState extends WatchSnapshot {
     pathProjectFiles: Record<string, ProjectFilesList | null>;
     sessionFileCache: Record<string, Record<string, { content: string | null; diff: string | null; isBinary: boolean; cachedAt: number; deleted?: boolean }>>;
     machines: Record<string, Machine>;
-    artifacts: Record<string, DecryptedArtifact>;
     friends: Record<string, UserProfile>;
     users: Record<string, UserProfile | null>;
     feedItems: FeedItem[];
@@ -220,10 +218,6 @@ interface StorageState extends WatchSnapshot {
     applyNativeUpdateStatus: (status: { available: boolean; updateUrl?: string } | null) => void;
     getActiveSessions: () => Session[];
     updateSessionAgentModes: (sessionId: string, patch: SessionAgentModesPatch) => void;
-    applyArtifacts: (artifacts: DecryptedArtifact[]) => void;
-    addArtifact: (artifact: DecryptedArtifact) => void;
-    updateArtifact: (artifact: DecryptedArtifact) => void;
-    deleteArtifact: (artifactId: string) => void;
     deleteSession: (sessionId: string) => void;
     applyFriends: (friends: UserProfile[]) => void;
     applyRelationshipUpdate: (event: RelationshipUpdatedEvent) => void;
@@ -275,7 +269,6 @@ export const storage = create<StorageState>()((set, get) => ({
     pathGitStatusFiles: {},
     pathProjectFiles: {},
     sessionFileCache: {},
-    artifacts: {},
     friends: {},
     users: {},
     feedItems: [],
@@ -419,22 +412,6 @@ export const storage = create<StorageState>()((set, get) => ({
     applyNativeUpdateStatus: (nativeUpdateStatus) => set({ nativeUpdateStatus }),
     getActiveSessions: () => Object.values(get().sessions).filter((session) => session.active),
     updateSessionAgentModes: (_sessionId, _patch) => {},
-    applyArtifacts: (artifacts) => set((state) => {
-        const next = { ...state.artifacts };
-        for (const artifact of artifacts) next[artifact.id] = artifact;
-        return { artifacts: next };
-    }),
-    addArtifact: (artifact) => set((state) => ({
-        artifacts: { ...state.artifacts, [artifact.id]: artifact },
-    })),
-    updateArtifact: (artifact) => set((state) => ({
-        artifacts: { ...state.artifacts, [artifact.id]: artifact },
-    })),
-    deleteArtifact: (artifactId) => set((state) => {
-        const artifacts = { ...state.artifacts };
-        delete artifacts[artifactId];
-        return { artifacts };
-    }),
     deleteSession: (sessionId) => set((state) => {
         const sessions = { ...state.sessions };
         const sessionFileCache = { ...state.sessionFileCache };
@@ -718,28 +695,6 @@ export function useUser(_userId: string | undefined): UserProfile | null {
 
 export function useFriend(_userId: string | undefined): UserProfile | undefined {
     return storage(useShallow((state) => (_userId ? state.friends[_userId] : undefined)));
-}
-
-export function useArtifacts(): DecryptedArtifact[] {
-    return storage(useShallow((state) =>
-        Object.values(state.artifacts).filter((artifact) => !artifact.draft)));
-}
-
-export function useAllArtifacts(): DecryptedArtifact[] {
-    return storage(useShallow((state) => Object.values(state.artifacts)));
-}
-
-export function useDraftArtifacts(): DecryptedArtifact[] {
-    return storage(useShallow((state) =>
-        Object.values(state.artifacts).filter((artifact) => artifact.draft === true)));
-}
-
-export function useArtifact(_artifactId: string): DecryptedArtifact | null {
-    return storage(useShallow((state) => state.artifacts[_artifactId] ?? null));
-}
-
-export function useArtifactsCount() {
-    return 0;
 }
 
 export function useIsSessionUnread(_sessionId: string) {

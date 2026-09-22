@@ -39,7 +39,7 @@ import type {
     VoiceStatus,
 } from '../../voice/index.js';
 import type { LandWorktreeResult } from '../../worktree/index.js';
-import type { AttentionCatalog, CloseResult, CloseScope, HerdrTreeWorkspace, LifecycleCatalog, SessionAttachmentMetadata, SessionInfo, SessionShellOutcome, SessionStatus } from '../../herd/index.js';
+import type { AttentionCatalog, CloseResult, CloseScope, HerdrTreeWorkspace, LifecycleCatalog, SessionArtifactMetadata, SessionInfo, SessionShellOutcome, SessionStatus } from '../../herd/index.js';
 import type {
     PeerAuthorityMetadata,
     PeerCapability,
@@ -424,34 +424,63 @@ export interface RequestMap extends PeerRequestMap {
     };
     /** Read a file from the session's machine; content is utf8 text. Same trust boundary as session.shell. */
     'session.readFile': { params: { sessionId: string; path: string }; result: { content: string } };
-    // --- attachments --------------------------------------------------------
+    // --- prompt attachments (files the user sends with a prompt) ------------
     'session.saveAttachments': {
         params: { sessionId: string; attachments: PromptAttachment[]; folder?: string };
         result: { savedPaths: string[] };
     };
+    // --- shared artifacts (files an agent shares from its pane) -------------
     /** Metadata-only newest-first artifact history for one session's pane. */
-    'attachment.list': {
+    'artifact.list': {
         params: { sessionId: string };
-        result: { attachments: SessionAttachmentMetadata[]; total: number; truncated: boolean };
+        result: { artifacts: SessionArtifactMetadata[]; total: number; truncated: boolean };
     };
     /**
      * Fetch a small preview blob for a metadata-only timeline entry. null when
      * the id is unknown or the file has no inlineable data (video, oversized).
      */
+    'artifact.fetch': {
+        params: { sessionId: string; artifactId: string };
+        result: { name: string; mimeType: string; data: string } | null;
+    };
+    /**
+     * Mint a one-time ticket for the artifact's original bytes on the
+     * host's loopback HTTP server. Big files stream host -> relay -> phone;
+     * they never become a giant base64 JSON frame.
+     */
+    'artifact.prepare': {
+        params: { sessionId: string; artifactId: string };
+        result: { token: string; name: string; mimeType: string; size: number } | null;
+    };
+    /** Hosted E2EE download path. Chunks ride inside the strict encrypted RPC envelope. */
+    'artifact.read': {
+        params: { sessionId: string; artifactId: string; offset: number; length: number };
+        result: { id: string; name: string; mimeType: string; size: number; offset: number; data: string } | null;
+    };
+    /**
+     * The artifact unification renamed `attachment.*` to `artifact.*` and
+     * `attachmentId` to `artifactId`. These are the pre-unification names and
+     * shapes: a host still serves them so an app built before the rename keeps
+     * working, and an app reaches for them when it reaches a host built before
+     * it. Delete the entries, the host handlers and the app fallback once no
+     * pre-rename build can still be paired.
+     */
+    /** @deprecated Use `artifact.list`. */
+    'attachment.list': {
+        params: { sessionId: string };
+        result: { attachments: SessionArtifactMetadata[]; total: number; truncated: boolean };
+    };
+    /** @deprecated Use `artifact.fetch`. */
     'attachment.fetch': {
         params: { sessionId: string; attachmentId: string };
         result: { name: string; mimeType: string; data: string } | null;
     };
-    /**
-     * Mint a one-time ticket for the attachment's original bytes on the
-     * host's loopback HTTP server. Big files stream host -> relay -> phone;
-     * they never become a giant base64 JSON frame.
-     */
+    /** @deprecated Use `artifact.prepare`. */
     'attachment.prepare': {
         params: { sessionId: string; attachmentId: string };
         result: { token: string; name: string; mimeType: string; size: number } | null;
     };
-    /** Hosted E2EE download path. Chunks ride inside the strict encrypted RPC envelope. */
+    /** @deprecated Use `artifact.read`. */
     'attachment.read': {
         params: { sessionId: string; attachmentId: string; offset: number; length: number };
         result: { id: string; name: string; mimeType: string; size: number; offset: number; data: string } | null;

@@ -77,7 +77,9 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'session.list', 'session.open', 'session.status',
     'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest',
     'applications.list',
-    'attachment.list', 'attachment.fetch', 'attachment.read', 'unread.catalog',
+    'artifact.list', 'artifact.fetch', 'artifact.read', 'unread.catalog',
+    // The pre-rename spellings are the same read-only calls.
+    'attachment.list', 'attachment.fetch', 'attachment.read',
     'attention.catalog', 'lifecycle.catalog', 'machines.list', 'terminal.attach',
     'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
     'usage.report', 'usage.now',
@@ -256,13 +258,31 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             await readAgentSession(source, { view: 'file', sessionId: params.sessionId, path: params.path }),
         ) as { content: string },
         'session.saveAttachments': (params) => source.saveAttachments(params),
-        'attachment.list': (params) => source.attachmentList(params),
-        'attachment.fetch': (params) => source.attachmentFetch(params),
-        'attachment.prepare': (params) => {
-            if (options.relayUrl === undefined) throw new Error('attachment.prepare is local-only; hosted clients use encrypted attachment.read chunks');
-            return source.attachmentPrepare(params);
+        'artifact.list': (params) => source.artifactList(params),
+        'artifact.fetch': (params) => source.artifactFetch(params),
+        'artifact.prepare': (params) => {
+            if (options.relayUrl === undefined) throw new Error('artifact.prepare is local-only; hosted clients use encrypted artifact.read chunks');
+            return source.artifactPrepare(params);
         },
-        'attachment.read': (params) => source.attachmentRead(params),
+        'artifact.read': (params) => source.artifactRead(params),
+        // Deprecated wire compatibility: an app built before the artifact rename
+        // asks for attachment.* with an attachmentId and reads an `attachments`
+        // listing. Answer it from the same code with the old shapes.
+        'attachment.list': async (params) => {
+            const listing = await source.artifactList(params);
+            return { attachments: listing.artifacts, total: listing.total, truncated: listing.truncated };
+        },
+        'attachment.fetch': (params) => source.artifactFetch({ sessionId: params.sessionId, artifactId: params.attachmentId }),
+        'attachment.prepare': (params) => {
+            if (options.relayUrl === undefined) throw new Error('artifact.prepare is local-only; hosted clients use encrypted artifact.read chunks');
+            return source.artifactPrepare({ sessionId: params.sessionId, artifactId: params.attachmentId });
+        },
+        'attachment.read': (params) => source.artifactRead({
+            sessionId: params.sessionId,
+            artifactId: params.attachmentId,
+            offset: params.offset,
+            length: params.length,
+        }),
         'unread.catalog': async () => domain.unread.catalog(),
         'unread.acknowledge': async (params) => domain.unread.acknowledge(params.sessionId, params.throughSeq),
         'attention.catalog': async () => domain.attention.catalog(),

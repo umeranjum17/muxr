@@ -561,8 +561,8 @@ export const ru: TranslationStructure = {
         thoughtFor: ({ duration }: { duration: string }) => `Думало ${duration}`,
     },
 
-    sessionAttachments: {
-        title: ({ count }: { count: number }) => plural({ count, one: '1 вложение', few: `${count} вложения`, many: `${count} вложений` }),
+    sessionArtifacts: {
+        title: ({ count }: { count: number }) => plural({ count, one: '1 артефакт', few: `${count} артефакта`, many: `${count} артефактов` }),
     },
 
     turnChanges: {

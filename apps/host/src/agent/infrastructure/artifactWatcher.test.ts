@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import type { SessionAttachmentMetadata } from '@muxr/contract';
-import { AttachmentWatcher, MAX_INLINE_BYTES, scanPane, scanPaneWithAttribution } from './attachmentWatcher.js';
+import type { SessionArtifactMetadata } from '@muxr/contract';
+import { ArtifactWatcher, MAX_INLINE_BYTES, scanPane, scanPaneWithAttribution } from './artifactWatcher.js';
 
 const PIXEL_B64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -78,7 +78,7 @@ describe('scanPane', () => {
         await expect(scanPaneWithAttribution(root, 'p1')).resolves.toMatchObject({ total: 55, truncated: true });
 
         writeFileSync(join(root, 'p1', 'oversize.mp4'), Buffer.alloc(6 * 1024 * 1024, 1));
-        const watcher = new AttachmentWatcher(root, () => {});
+        const watcher = new ArtifactWatcher(root, () => {});
         const oversize = (await scanPane(root, 'p1')).find((entry) => entry.name === 'oversize.mp4')!;
         expect(oversize.data).toBeUndefined();
         await expect(watcher.fetch('p1', oversize.id)).resolves.toBeNull();
@@ -95,12 +95,12 @@ describe('scanPane', () => {
     });
 });
 
-describe('AttachmentWatcher', () => {
+describe('ArtifactWatcher', () => {
     function collect(root: string, rescanMs: number) {
-        const emits: { paneId: string; attachments: SessionAttachmentMetadata[]; total: number | undefined; truncated: boolean | undefined }[] = [];
-        const watcher = new AttachmentWatcher(
+        const emits: { paneId: string; artifacts: SessionArtifactMetadata[]; total: number | undefined; truncated: boolean | undefined }[] = [];
+        const watcher = new ArtifactWatcher(
             root,
-            (paneId, attachments, total, truncated) => emits.push({ paneId, attachments, total, truncated }),
+            (paneId, artifacts, total, truncated) => emits.push({ paneId, artifacts, total, truncated }),
             rescanMs,
         );
         const waitFor = (count: number, timeoutMs = 3000) =>
@@ -122,7 +122,7 @@ describe('AttachmentWatcher', () => {
         const root = paneRoot();
         mkdirSync(join(root, 'p1'), { recursive: true });
         writeFileSync(join(root, 'p1', 'build.apk'), 'first chunk and the rest');
-        const watcher = new AttachmentWatcher(root, () => {});
+        const watcher = new ArtifactWatcher(root, () => {});
         try {
             const first = await watcher.read('p1', 'build.apk', 0, 5);
             expect(first).toMatchObject({
@@ -156,7 +156,7 @@ describe('AttachmentWatcher', () => {
             // A client just connected, so the same list has to go out again.
             await watcher.resendAll();
             expect(emits.length).toBe(before + 1);
-            expect(emits[emits.length - 1]!.attachments[0]!.name).toBe('a.png');
+            expect(emits[emits.length - 1]!.artifacts[0]!.name).toBe('a.png');
         } finally {
             watcher.dispose();
         }
@@ -172,8 +172,8 @@ describe('AttachmentWatcher', () => {
             await waitFor(1);
             const first = emits[0]!;
             expect(first.paneId).toBe('p1');
-            expect(first.attachments[0]).toEqual({
-                id: first.attachments[0]!.id,
+            expect(first.artifacts[0]).toEqual({
+                id: first.artifacts[0]!.id,
                 name: 'a.png',
                 mimeType: 'image/png',
                 size: PIXEL.length,
@@ -184,10 +184,10 @@ describe('AttachmentWatcher', () => {
             writeFileSync(join(root, 'p1', 'b.png'), Buffer.from('second-pixel'));
             await waitFor(2);
             const second = emits[1]!;
-            expect(second.attachments.map((entry) => entry.name)).toEqual(['b.png', 'a.png']);
-            for (const entry of second.attachments) expect(Object.hasOwn(entry, 'data')).toBe(false);
-            expect(second.attachments[1]!.id).toBe(first.attachments[0]!.id);
-            await expect(watcher.fetch('p1', first.attachments[0]!.id)).resolves.toMatchObject({
+            expect(second.artifacts.map((entry) => entry.name)).toEqual(['b.png', 'a.png']);
+            for (const entry of second.artifacts) expect(Object.hasOwn(entry, 'data')).toBe(false);
+            expect(second.artifacts[1]!.id).toBe(first.artifacts[0]!.id);
+            await expect(watcher.fetch('p1', first.artifacts[0]!.id)).resolves.toMatchObject({
                 name: 'a.png',
                 data: PIXEL_B64,
             });
@@ -206,13 +206,13 @@ describe('AttachmentWatcher', () => {
         watcher.start();
         try {
             await waitFor(1);
-            const attachments = emits[0]!.attachments;
+            const artifacts = emits[0]!.artifacts;
             expect(emits[0]).toMatchObject({ total: 6, truncated: false });
-            expect(attachments).toHaveLength(6);
-            expect(attachments.every((entry) => !Object.hasOwn(entry, 'data'))).toBe(true);
-            expect(attachments.every((entry) => /^[0-9a-f]{64}$/.test(entry.id))).toBe(true);
+            expect(artifacts).toHaveLength(6);
+            expect(artifacts.every((entry) => !Object.hasOwn(entry, 'data'))).toBe(true);
+            expect(artifacts.every((entry) => /^[0-9a-f]{64}$/.test(entry.id))).toBe(true);
             // The heal path still serves full bytes for these ids.
-            const first = attachments.find((entry) => entry.name === '0.mp4')!;
+            const first = artifacts.find((entry) => entry.name === '0.mp4')!;
             await expect(watcher.fetch('p1', first.id)).resolves.toMatchObject({ name: '0.mp4', data: expect.any(String) });
         } finally {
             watcher.dispose();
@@ -281,7 +281,7 @@ describe('AttachmentWatcher', () => {
             // rescan interval can discover this pane.
             await waitFor(1);
             expect(emits[0]!.paneId).toBe('p2');
-            expect(emits[0]!.attachments[0]!.name).toBe('shot.png');
+            expect(emits[0]!.artifacts[0]!.name).toBe('shot.png');
         } finally {
             watcher.dispose();
         }
@@ -318,12 +318,12 @@ describe('AttachmentWatcher', () => {
             await expect(runShare()).resolves.toEqual({ code: 0, stdout: 'Shared pixel-1.png\n', stderr: '' });
             await waitFor(3);
 
-            expect(emits.at(-1)?.attachments.map((entry) => entry.name).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
+            expect(emits.at(-1)?.artifacts.map((entry) => entry.name).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
             expect(readdirSync(join(root, paneId)).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
 
             watcher.dropPane(paneId);
             await watcher.resendAll([paneId]);
-            expect(emits.at(-1)?.attachments.map((entry) => entry.name).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
+            expect(emits.at(-1)?.artifacts.map((entry) => entry.name).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
             expect(readdirSync(join(root, paneId)).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
         } finally {
             watcher.dispose();

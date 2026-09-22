@@ -49,14 +49,22 @@ vi.mock('expo-sharing', () => ({
 
 const { pending, request } = vi.hoisted(() => {
     const pending = new Map<string, Promise<unknown>>();
-    const request = async (_method: string, params: { attachmentId: string; offset: number }) => {
-        if (pending.has(params.attachmentId)) await pending.get(params.attachmentId);
-        const payload = params.attachmentId === 'a1' ? 'hello' : 'world';
-        return { id: params.attachmentId, offset: params.offset, size: payload.length, data: Buffer.from(payload).toString('base64') };
+    const request = async (_method: string, params: { sessionId: string; artifactId: string; offset: number; length?: number }, _timeoutMs?: number) => {
+        if (pending.has(params.artifactId)) await pending.get(params.artifactId);
+        const payload = params.artifactId === 'a1' ? 'hello' : 'world';
+        return { id: params.artifactId, offset: params.offset, size: payload.length, data: Buffer.from(payload).toString('base64') };
     };
     return { pending, request };
 });
-vi.mock('@/catalog/sync', () => ({ sync: { request } }));
+// The app calls the typed artifact wire; these specs stand in for the
+// transport under it, so the stub answers the canonical names directly.
+vi.mock('@/catalog/sync', () => ({
+    sync: {
+        request,
+        artifactRead: (sessionId: string, artifactId: string, offset: number, length: number, timeoutMs?: number) =>
+            request('artifact.read', { sessionId, artifactId, offset, length }, timeoutMs),
+    },
+}));
 
 vi.mock('@/connection', () => ({
     getCachedConnectionSettings: () => ({ mode: 'hosted' as const, machineId: 'm1' }),
@@ -64,13 +72,13 @@ vi.mock('@/connection', () => ({
 vi.mock('@/modal', () => ({ Modal: { alert: () => {} } }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: async () => {} }));
 
-import { downloadAttachment } from './downloadAttachment';
+import { downloadArtifact } from './downloadArtifact';
 
 function cachedBytes(name: string): string {
     return Buffer.concat((cacheFiles.get(name) ?? []).map((part) => Buffer.from(part))).toString();
 }
 
-describe('downloadAttachment cache names', () => {
+describe('downloadArtifact cache names', () => {
     beforeEach(() => {
         cacheFiles.clear();
         deletedNames.length = 0;
@@ -85,9 +93,9 @@ describe('downloadAttachment cache names', () => {
         let releaseFirst: () => void = () => {};
         pending.set('a1', new Promise<void>((resolve) => { releaseFirst = resolve; }));
 
-        const firstDownload = downloadAttachment('session-a', { ...first });
+        const firstDownload = downloadArtifact('session-a', { ...first });
         await vi.waitFor(() => expect(cacheFiles.has('report.md')).toBe(true));
-        await downloadAttachment('session-b', { ...second });
+        await downloadArtifact('session-b', { ...second });
         releaseFirst();
         const firstHandoff = await firstDownload;
 

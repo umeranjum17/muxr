@@ -1,7 +1,7 @@
 import type { Router } from 'expo-router';
 import { randomUUID } from 'expo-crypto';
 import { Modal } from '@/modal';
-import { downloadAttachment } from '@/utils/downloadAttachment';
+import { downloadArtifact } from '@/utils/downloadArtifact';
 import { navigateToSession } from '@/herd';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { t } from '@/text';
@@ -36,7 +36,7 @@ export async function dispatchPluginAction(
         return;
     }
     if (result.kind === 'attachment') {
-        await downloadAttachment(result.sessionId, {
+        await downloadArtifact(result.sessionId, {
             id: result.id,
             name: result.name,
             mimeType: result.mimeType,

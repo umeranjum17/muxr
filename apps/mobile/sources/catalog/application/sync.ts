@@ -20,10 +20,10 @@ import {
 } from '@muxr/contract';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import type { AttachmentPreview } from '../infrastructure/attachmentTypes';
+import { createArtifactWire, type ArtifactChunk, type ArtifactListing, type ArtifactTicket } from '../infrastructure/artifactWire';
 import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../infrastructure/connectionDiagnostics';
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
-import type { DecryptedArtifact } from '../infrastructure/artifactTypes';
 import { MuxrClient } from '@/pairing/client';
 import * as Notifications from 'expo-notifications';
 import { AppState, Platform } from 'react-native';
@@ -189,8 +189,8 @@ const MAX_ATTACHMENT_BYTES = 1_000_000;
 let accountCredentialRejectedHandler: (() => void) | undefined;
 let pendingAccountCredentialRejection = false;
 const pluginInvalidationHandlers = new Set<(frame: PluginsInvalidatedFrame) => void>();
-type AttachmentsUpdate = Extract<SessionEvent, { type: 'attachments.update' }>;
-const attachmentUpdateHandlers = new Set<(sessionId: string, event: AttachmentsUpdate) => void>();
+type ArtifactsUpdate = Extract<SessionEvent, { type: 'artifacts.update' }>;
+const artifactUpdateHandlers = new Set<(sessionId: string, event: ArtifactsUpdate) => void>();
 
 function reconcilePluginCaches(frame: PluginsInvalidatedFrame): void {
     for (const handler of pluginInvalidationHandlers) {
@@ -203,9 +203,9 @@ export function registerPluginInvalidationHandler(handler: (frame: PluginsInvali
     return () => pluginInvalidationHandlers.delete(handler);
 }
 
-export function registerAttachmentUpdateHandler(handler: (sessionId: string, event: AttachmentsUpdate) => void): () => void {
-    attachmentUpdateHandlers.add(handler);
-    return () => attachmentUpdateHandlers.delete(handler);
+export function registerArtifactUpdateHandler(handler: (sessionId: string, event: ArtifactsUpdate) => void): () => void {
+    artifactUpdateHandlers.add(handler);
+    return () => artifactUpdateHandlers.delete(handler);
 }
 
 export function setAccountCredentialRejectedHandler(handler: (() => void) | undefined): void {
@@ -235,6 +235,7 @@ class MuxrSync {
     private readonly pendingSessionInfo = new Map<string, SessionInfo>();
     private sessionFlushTimer: ReturnType<typeof setTimeout> | undefined;
     private client: MuxrClient | undefined;
+    private readonly artifactWire = createArtifactWire((type, params, timeoutMs) => this.request(type, params, timeoutMs));
     private lifecycleWork: Promise<void> = Promise.resolve();
     private reconnectWork: Promise<void> | undefined;
     private resumeWork: Promise<void> | undefined;
@@ -360,9 +361,16 @@ class MuxrSync {
             this.pendingShell.delete(sessionId);
         }
 
-        if (event.type === 'attachments.update') {
-            for (const handler of attachmentUpdateHandlers) {
-                try { handler(sessionId, event); } catch { /* one screen must not block session sync */ }
+        // A host built before the artifact rename pushes the pre-rename name and
+        // field; fold it into the canonical event so one handler serves both.
+        const artifactsUpdate: ArtifactsUpdate | undefined = event.type === 'artifacts.update'
+            ? event
+            : event.type === 'attachments.update'
+                ? { ...event, type: 'artifacts.update', artifacts: event.attachments }
+                : undefined;
+        if (artifactsUpdate !== undefined) {
+            for (const handler of artifactUpdateHandlers) {
+                try { handler(sessionId, artifactsUpdate); } catch { /* one screen must not block session sync */ }
             }
         }
 
@@ -734,26 +742,25 @@ class MuxrSync {
         await this.refreshCatalog();
     };
 
-    fetchArtifactsList = async (): Promise<void> => {};
+    /**
+     * Shared Artifacts. `createArtifactWire` owns the pre-rename fallback so
+     * every caller reads the artifact vocabulary.
+     */
+    artifactList(sessionId: string): Promise<ArtifactListing> {
+        return this.artifactWire.list(sessionId);
+    }
 
-    fetchArtifactWithBody = async (_artifactId: string): Promise<DecryptedArtifact | null> => null;
+    artifactFetch(sessionId: string, artifactId: string): Promise<{ name: string; mimeType: string; data: string } | null> {
+        return this.artifactWire.fetch(sessionId, artifactId);
+    }
 
-    createArtifact = async (
-        _title: string | null,
-        _body: string | null,
-        _sessions?: string[],
-        _draft?: boolean,
-    ): Promise<string> => {
-        throw new Error('muxr mobile: artifacts not wired');
-    };
+    artifactPrepare(sessionId: string, artifactId: string): Promise<ArtifactTicket | null> {
+        return this.artifactWire.prepare(sessionId, artifactId);
+    }
 
-    updateArtifact = async (
-        _artifactId: string,
-        _title: string | null,
-        _body: string | null,
-        _sessions?: string[],
-        _draft?: boolean,
-    ): Promise<void> => {};
+    artifactRead(sessionId: string, artifactId: string, offset: number, length: number, timeoutMs?: number): Promise<ArtifactChunk | null> {
+        return this.artifactWire.read(sessionId, artifactId, offset, length, timeoutMs);
+    }
 
     getCredentials(): AuthCredentials | undefined {
         return this.credentials;

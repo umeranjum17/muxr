@@ -33,8 +33,9 @@ import type {
 import { ATTENTION_REASONS, capUtf8Bytes, realtimePluginPublicContext, relayControlUrl, sanitizeDisplayText } from '@muxr/contract';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
-import { AttachmentWatcher } from './attachmentWatcher.js';
-import { AttachmentDownloadServer } from './attachmentDownloads.js';
+import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
+import { ArtifactWatcher } from './artifactWatcher.js';
+import { ArtifactDownloadServer } from './artifactDownloads.js';
 import type { AgentWatchStores } from '../application/watchStores.js';
 import type {
     SessionListOptions,
@@ -313,7 +314,7 @@ export interface CreateHerdrSessionSourceOptions {
     /** Relay HTTP base for best-effort push notify (ws://... -> http://...). */
     relayUrl?: string;
     machineId?: string;
-    attachmentsDir?: string;
+    artifactsDir?: string;
     hostHttpPort?: number;
     /** Machine token (MUXR_RELAY_TOKEN); authorizes /v1/push/notify. */
     token?: string;
@@ -1056,21 +1057,38 @@ export async function createHerdrSessionSource(
     }
 
     /** Agent-dropped artifacts in the pane's durable Shared Artifacts history. */
-    const attachmentsDir = options.attachmentsDir ?? join(homedir(), '.muxr', 'attachments', 'pane');
-    const attachments = new AttachmentWatcher(attachmentsDir, (paneId, entries, total = entries.length, truncated = false) => {
+    const artifactsDir = options.artifactsDir ?? join(homedir(), '.muxr', 'attachments', 'pane');
+    const artifacts = new ArtifactWatcher(artifactsDir, (paneId, entries, total = entries.length, truncated = false) => {
         // Keep the extracted attachments plugin compatible while the product
         // timeline replaces it. The session event itself is metadata-only.
         const frame: PluginsInvalidatedFrame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: [] };
         for (const listener of machineListeners) listener(frame);
         const session = currentSessionByPane(paneId);
         if (session === undefined) return;
+        publish(session.sessionId, { type: 'artifacts.update', artifacts: entries, total, truncated });
+        // Pre-rename apps register for the legacy event name and field only, so
+        // the live timeline keeps updating on a phone that has not been rebuilt.
         publish(session.sessionId, { type: 'attachments.update', attachments: entries, total, truncated });
     });
-    attachments.start();
+    artifacts.start();
 
     /** One-time tickets + byte streaming for downloads too big for the ws link. */
-    const attachmentDownloads = new AttachmentDownloadServer(attachmentsDir, options.hostHttpPort ?? 8793, attachments);
-    attachmentDownloads.start();
+    const artifactDownloadServer = new ArtifactDownloadServer(artifactsDir, options.hostHttpPort ?? 8793, artifacts);
+    artifactDownloadServer.start();
+
+    /**
+     * Bounds the growth of that same directory. The report lands beside the
+     * muxr home, where `muxr artifacts` prints it, so files never disappear in
+     * silence.
+     */
+    const stopArtifactRetention = startArtifactRetention({
+        rootDir: artifactsDir,
+        reportPath: join(dirname(options.dataDir), ARTIFACT_RETENTION_REPORT_FILE),
+        onSweep: (run) => process.stderr.write(
+            `shared artifacts retention: removed ${run.removedCount} file${run.removedCount === 1 ? '' : 's'} `
+            + `(${(run.removedBytes / (1024 * 1024)).toFixed(1)} MiB) across ${run.panes} pane${run.panes === 1 ? '' : 's'}; kept ${run.kept}\n`,
+        ),
+    });
 
     function lifecycleOf(session: CurrentSession): AgentLifecycle {
         const raw = session.agent?.agent_status ?? session.pane.agent_status;
@@ -1352,7 +1370,7 @@ export async function createHerdrSessionSource(
             close();
             statusWatches.delete(paneId);
             lifecycleEpochByPane.delete(paneId);
-            if (!panesById.has(paneId)) attachments.dropPane(paneId);
+            if (!panesById.has(paneId)) artifacts.dropPane(paneId);
         }
         await routes.flush();
 
@@ -1750,7 +1768,7 @@ export async function createHerdrSessionSource(
             statusWatches.get(resolvedPaneId)?.();
             statusWatches.delete(resolvedPaneId);
             lifecycleEpochByPane.delete(resolvedPaneId);
-            attachments.dropPane(resolvedPaneId);
+            artifacts.dropPane(resolvedPaneId);
         }
         if (sessionId.startsWith(SHELL_ROUTE_PREFIX)) knownShells.delete(sessionId);
         else {
@@ -3303,35 +3321,35 @@ export async function createHerdrSessionSource(
             return { savedPaths };
         },
 
-        async attachmentList({ sessionId }: { sessionId: string }) {
+        async artifactList({ sessionId }: { sessionId: string }) {
             const record = currentSession(sessionId);
             if (record === undefined) throw new Error('Shared Artifacts are unavailable for this session.');
-            const scan = await attachments.scanPane(record.paneId);
+            const scan = await artifacts.scanPane(record.paneId);
             return {
-                attachments: scan.attachments.map(({ data: _data, ...entry }) => entry),
+                artifacts: scan.artifacts.map(({ data: _data, ...entry }) => entry),
                 total: scan.total,
                 truncated: scan.truncated,
             };
         },
 
-        async attachmentFetch({ sessionId, attachmentId }: { sessionId: string; attachmentId: string }) {
+        async artifactFetch({ sessionId, artifactId }: { sessionId: string; artifactId: string }) {
             const record = currentSession(sessionId);
             if (record === undefined) return null;
-            const found = await attachments.fetch(record.paneId, attachmentId);
+            const found = await artifacts.fetch(record.paneId, artifactId);
             if (found?.data === undefined) return null;
             return { name: found.name, mimeType: found.mimeType, data: found.data };
         },
 
-        async attachmentPrepare({ sessionId, attachmentId }: { sessionId: string; attachmentId: string }) {
+        async artifactPrepare({ sessionId, artifactId }: { sessionId: string; artifactId: string }) {
             const record = currentSession(sessionId);
             if (record === undefined) return null;
-            return attachmentDownloads.prepare(record.paneId, attachmentId);
+            return artifactDownloadServer.prepare(record.paneId, artifactId);
         },
 
-        async attachmentRead({ sessionId, attachmentId, offset, length }: { sessionId: string; attachmentId: string; offset: number; length: number }) {
+        async artifactRead({ sessionId, artifactId, offset, length }: { sessionId: string; artifactId: string; offset: number; length: number }) {
             const record = currentSession(sessionId);
             if (record === undefined) return null;
-            return attachments.read(record.paneId, attachmentId, offset, length);
+            return artifacts.read(record.paneId, artifactId, offset, length);
         },
 
 
@@ -3343,7 +3361,7 @@ export async function createHerdrSessionSource(
             // force a full mobile catalog reconciliation.
             const pluginFrame: PluginsInvalidatedFrame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: [] };
             for (const listener of machineListeners) listener(pluginFrame);
-            void attachments.resendAll(currentSessions().map((session) => session.paneId));
+            void artifacts.resendAll(currentSessions().map((session) => session.paneId));
         },
 
         subscribe(listener: (sessionId: string, event: SessionEventBody) => void): () => void {
@@ -3361,8 +3379,9 @@ export async function createHerdrSessionSource(
             if (pluginPollTimer !== undefined) clearInterval(pluginPollTimer);
             pluginStreams?.closeAll();
             await codingCoordinator?.close();
-            attachments.dispose();
-            attachmentDownloads.dispose();
+            stopArtifactRetention();
+            artifacts.dispose();
+            artifactDownloadServer.dispose();
             for (const close of statusWatches.values()) close();
             statusWatches.clear();
             for (const abort of voiceStreamAborts.values()) abort.abort();

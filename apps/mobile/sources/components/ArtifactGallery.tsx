@@ -2,28 +2,28 @@ import * as React from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, Text, View, useWindowDimensions, type StyleProp, type ViewStyle, type ViewToken } from 'react-native';
 import { Image } from 'expo-image';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { ZoomableAttachmentImage } from './ZoomableAttachmentImage';
+import { ZoomableImage } from './ZoomableImage';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import { downloadAttachment } from '@/utils/downloadAttachment';
+import { downloadArtifact } from '@/utils/downloadArtifact';
 import { Modal as AppModal } from '@/modal';
-import { attachmentPreview, type AttachmentAction, type AttachmentPreviewSource } from '@/utils/attachmentPreview';
+import { artifactPreview, type ArtifactAction, type ArtifactPreviewSource } from '@/utils/artifactPreview';
 
 export interface GalleryImage {
     id: string;
     title: string;
     subtitle?: string;
-    action: AttachmentAction;
+    action: ArtifactAction;
 }
 
 const MAX_THUMBNAIL_BYTES = 8 * 1024 * 1024;
 
-export function AttachmentThumbnail({ sessionId, image, onPress, enabled = true, onSettled, showCaption = true, style }: { sessionId: string; image: GalleryImage; onPress: () => void; enabled?: boolean; onSettled?: (id: string) => void; showCaption?: boolean; style?: StyleProp<ViewStyle> }) {
+export function ArtifactThumbnail({ sessionId, image, onPress, enabled = true, onSettled, showCaption = true, style }: { sessionId: string; image: GalleryImage; onPress: () => void; enabled?: boolean; onSettled?: (id: string) => void; showCaption?: boolean; style?: StyleProp<ViewStyle> }) {
     // A grid preview is convenience, not permission to pull a 200 MB original.
-    const preview = useAttachmentPreview(sessionId, image.action, enabled && image.action.size <= MAX_THUMBNAIL_BYTES);
+    const preview = useArtifactPreview(sessionId, image.action, enabled && image.action.size <= MAX_THUMBNAIL_BYTES);
     const [failed, setFailed] = React.useState(false);
     const [loaded, setLoaded] = React.useState(false);
     const reported = React.useRef(false);
@@ -62,7 +62,7 @@ export function AttachmentThumbnail({ sessionId, image, onPress, enabled = true,
     );
 }
 
-export function AttachmentGallery({ sessionId, images, initialIndex, onClose }: {
+export function ArtifactGallery({ sessionId, images, initialIndex, onClose }: {
     sessionId: string;
     images: GalleryImage[];
     initialIndex: number;
@@ -98,7 +98,7 @@ export function AttachmentGallery({ sessionId, images, initialIndex, onClose }: 
                     </View>
                     <Pressable disabled={downloading} onPress={() => {
                         setDownloading(true);
-                        void downloadAttachment(sessionId, { ...active.action, mimeType: active.action.mimeType ?? 'application/octet-stream', at: 0 })
+                        void downloadArtifact(sessionId, { ...active.action, mimeType: active.action.mimeType ?? 'application/octet-stream', at: 0 })
                             .catch((error: unknown) => AppModal.alert('Download failed', error instanceof Error ? error.message : String(error)))
                             .finally(() => setDownloading(false));
                     }} accessibilityRole="button" accessibilityLabel={`Download ${active.title}`} style={({ pressed }) => [styles.galleryControl, pressed && styles.pressed]}>
@@ -140,7 +140,7 @@ export function AttachmentGallery({ sessionId, images, initialIndex, onClose }: 
 function GalleryPage({ sessionId, image, width, height, active, onZoomedChange }: { sessionId: string; image: GalleryImage; width: number; height: number; active: boolean; onZoomedChange: (value: boolean) => void }) {
     // FlatList keeps neighbour pages mounted for smooth swiping; only the page
     // actually on screen is allowed to ask the host for bytes.
-    const preview = useAttachmentPreview(sessionId, image.action, active);
+    const preview = useArtifactPreview(sessionId, image.action, active);
     const [failed, setFailed] = React.useState(false);
     const recyclingKey = /^[0-9a-f]{64}$/.test(image.action.id) ? image.action.id : image.id;
     React.useEffect(() => setFailed(false), [image.id]);
@@ -151,18 +151,18 @@ function GalleryPage({ sessionId, image, width, height, active, onZoomedChange }
               ? <ActivityIndicator color="rgba(255,255,255,0.6)" />
             : preview === null || failed
               ? <Ionicons name="image-outline" size={34} color="rgba(255,255,255,0.32)" />
-              : <ZoomableAttachmentImage key={image.id} uri={preview.uri} recyclingKey={recyclingKey} width={width - 24} height={Math.max(1, height - 24)} onError={() => setFailed(true)} onZoomedChange={onZoomedChange} />}
+              : <ZoomableImage key={image.id} uri={preview.uri} recyclingKey={recyclingKey} width={width - 24} height={Math.max(1, height - 24)} onError={() => setFailed(true)} onZoomedChange={onZoomedChange} />}
     </View>;
 }
 
-function useAttachmentPreview(sessionId: string, action: AttachmentAction, enabled = true): AttachmentPreviewSource | null | undefined {
-    const [source, setSource] = React.useState<AttachmentPreviewSource | null>();
+function useArtifactPreview(sessionId: string, action: ArtifactAction, enabled = true): ArtifactPreviewSource | null | undefined {
+    const [source, setSource] = React.useState<ArtifactPreviewSource | null>();
     React.useEffect(() => {
         let alive = true;
-        let loaded: AttachmentPreviewSource | undefined;
+        let loaded: ArtifactPreviewSource | undefined;
         setSource(undefined);
         if (!enabled) return () => { alive = false; };
-        void attachmentPreview(sessionId, action).then((next) => {
+        void artifactPreview(sessionId, action).then((next) => {
             loaded = next;
             if (alive) setSource(next); else next.dispose?.();
         }).catch(() => { if (alive) setSource(null); });

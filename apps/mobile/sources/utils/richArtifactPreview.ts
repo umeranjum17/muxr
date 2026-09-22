@@ -1,7 +1,7 @@
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
-import type { AttachmentAction } from './attachmentPreview';
+import type { ArtifactAction } from './artifactPreview';
 
 export type RichPreviewKind = 'markdown' | 'pdf' | 'csv' | 'xlsx' | 'html' | 'svg' | 'text';
 export function richPreviewKind(name: string): RichPreviewKind | null {
@@ -13,15 +13,15 @@ export function richPreviewKind(name: string): RichPreviewKind | null {
     return null;
 }
 
-/** One bounded read, through the same authenticated transport as attachments. */
-export async function readRichAttachment(sessionId: string, attachment: AttachmentAction, signal: AbortSignal): Promise<{ kind: RichPreviewKind; base64: string }> {
-    const kind = richPreviewKind(attachment.name);
+/** One bounded read, through the same authenticated transport as artifacts. */
+export async function readRichArtifact(sessionId: string, artifact: ArtifactAction, signal: AbortSignal): Promise<{ kind: RichPreviewKind; base64: string }> {
+    const kind = richPreviewKind(artifact.name);
     const limit = kind === 'pdf' || kind === 'xlsx' ? 8 * 1024 * 1024 : 256 * 1024;
-    if (kind === null || !Number.isSafeInteger(attachment.size) || attachment.size < 0 || attachment.size > limit) throw new Error('This file exceeds the preview limit. Download it to view the original.');
+    if (kind === null || !Number.isSafeInteger(artifact.size) || artifact.size < 0 || artifact.size > limit) throw new Error('This file exceeds the preview limit. Download it to view the original.');
     const machine = getCachedConnectionSettings().machineId;
     const deadline = Date.now() + 25000;
-    const bytes = new Uint8Array(attachment.size);
-    let offset = 0, attachmentId = attachment.id;
+    const bytes = new Uint8Array(artifact.size);
+    let offset = 0, artifactId = artifact.id;
     const assertCurrent = () => {
         if (signal.aborted || machine !== getCachedConnectionSettings().machineId) throw new Error('Preview closed or connection changed.');
         if (Date.now() >= deadline) throw new Error('Preview download timed out.');
@@ -30,12 +30,12 @@ export async function readRichAttachment(sessionId: string, attachment: Attachme
     while (offset < bytes.length) {
         assertCurrent();
         const length = Math.min(256 * 1024, bytes.length - offset);
-        const chunk = await sync.request('attachment.read', { sessionId, attachmentId, offset, length }, Math.max(1, deadline - Date.now()));
+        const chunk = await sync.artifactRead(sessionId, artifactId, offset, length, Math.max(1, deadline - Date.now()));
         assertCurrent();
-        if (!chunk || chunk.offset !== offset || chunk.size !== bytes.length) throw new Error('Attachment changed during preview.');
+        if (!chunk || chunk.offset !== offset || chunk.size !== bytes.length) throw new Error('Artifact changed during preview.');
         const data = decodeBase64(chunk.data, 'base64');
-        if (!data.length || data.length > length) throw new Error('Invalid attachment chunk.');
-        bytes.set(data, offset); offset += data.length; attachmentId = chunk.id;
+        if (!data.length || data.length > length) throw new Error('Invalid artifact chunk.');
+        bytes.set(data, offset); offset += data.length; artifactId = chunk.id;
     }
     return { kind, base64: encodeBase64(bytes) };
 }

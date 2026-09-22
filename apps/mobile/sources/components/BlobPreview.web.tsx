@@ -1,5 +1,5 @@
 /**
- * Full-screen preview for non-image, non-text attachments — web implementation.
+ * Full-screen preview for non-image, non-text artifacts — web implementation.
  *
  * Videos play in a plain HTML5 <video> (the browser's own player, gestures and
  * all). PDFs render through pdf.js, lazily imported so the main bundle never
@@ -10,7 +10,7 @@ import * as React from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
-import { blobObjectUrl, readBlobBytes } from '@/utils/attachmentBlobs';
+import { blobObjectUrl, readBlobBytes } from '@/utils/artifactBlobs';
 import { Typography } from '@/constants/Typography';
 
 export interface BlobPreviewProps {

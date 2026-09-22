@@ -6,7 +6,7 @@
  * events start getting dropped and transcripts start feeling thin.
  */
 
-import type { ClientFrame, ClientRequest, SessionEvent, SessionEventBody } from '@muxr/contract';
+import { routingChannelForRequest, type ClientFrame, type ClientRequest, type SessionEvent, type SessionEventBody } from '@muxr/contract';
 import { connectToRelay, deviceTableCanMutate, type RelayLink, type RelayStateCode, type HostedMachineKeys } from './machine/index.js';
 import { createRequestDispatcher } from './requests/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
@@ -24,10 +24,6 @@ function peerRecipientFor(senderId: string | undefined, hostedE2ee: HostedMachin
     if (senderId === undefined) return undefined;
     if (hostedE2ee?.deviceKinds?.[senderId] !== 'peer') return undefined;
     return senderId;
-}
-
-function responseChannel(frameType: string): 'attachment' | 'session' {
-    return frameType === 'attachment.read' ? 'attachment' : 'session';
 }
 
 function diagnosticClientKind(senderId: string | undefined, hostedE2ee: HostedMachineKeys | undefined): DiagnosticClientKind {
@@ -141,7 +137,7 @@ export function startHost(options: HostOptions): Host {
         if (frame.type.startsWith('peer.') && options.peerRuntime !== undefined) {
             options.diagnostics?.relationships(options.peerRuntime.store.list().peers);
         }
-        link?.send(response, sessionIdFrom(frame), responseChannel(frame.type), peerRecipient);
+        link?.send(response, sessionIdFrom(frame), routingChannelForRequest(frame.type), peerRecipient);
     }
 
     link = connectToRelay({
@@ -161,7 +157,7 @@ export function startHost(options: HostOptions): Host {
                     hostVersion,
                 });
                 // The watcher's first scan races this link: hashing a 250MB
-                // attachment outlives the connect, so the emit lands while
+                // artifact outlives the connect, so the emit lands while
                 // link is still undefined and is dropped. The signature guard
                 // then suppresses every later emit, leaving clients pinned to
                 // ids from a previous host run until a file happens to change.
@@ -179,7 +175,7 @@ export function startHost(options: HostOptions): Host {
                     link?.send(
                         { type: 'result', requestId: frame.requestId, ok: false, error: message, ...(code === undefined ? {} : { code }) },
                         sessionId,
-                        responseChannel(frame.type),
+                        routingChannelForRequest(frame.type),
                         peerRecipientFor(authenticatedSenderId, options.hostedE2ee),
                     );
                     return;

@@ -8,19 +8,26 @@ const previewMocks = vi.hoisted(() => ({
 vi.mock('@/connection', () => ({
     getCachedConnectionSettings: () => previewMocks.settings,
 }));
+// The app calls the typed artifact wire; these specs stand in for the transport
+// under it, so the stub answers the canonical names directly.
 vi.mock('@/catalog/sync', () => ({
-    sync: { request: previewMocks.request },
+    sync: {
+        request: previewMocks.request,
+        artifactRead: (sessionId: string, artifactId: string, offset: number, length: number, timeoutMs?: number) =>
+            previewMocks.request('artifact.read', { sessionId, artifactId, offset, length }, timeoutMs),
+    },
 }));
-import { buildSharedArtifactTimeline, estimateBase64Bytes, planAttachmentHeal, sharedArtifactDisplayName } from '@/catalog/infrastructure/attachmentSupport';
+import { buildSharedArtifactTimeline, planArtifactHeal, sharedArtifactDisplayName } from '@/catalog/infrastructure/artifactSupport';
+import { createArtifactWire } from '@/catalog/infrastructure/artifactWire';
 import { boundText } from '@/utils/boundedText';
-import { estimateStoredBlobBytes, blobUri, readBlobText, pruneBlobs, saveBlob } from './attachmentBlobs.web';
+import { estimateStoredBlobBytes, blobUri, readBlobText, pruneBlobs, saveBlob } from './artifactBlobs.web';
 import { boundSessionFileCache } from '@/catalog/application/sessionFileCache';
-import { attachmentPreview } from './attachmentPreview.web';
-import { readRichAttachment } from './richAttachmentPreview';
+import { artifactPreview } from './artifactPreview.web';
+import { readRichArtifact } from './richArtifactPreview';
 import { richPreviewHtml } from './richPreviewHtml';
-import { svgTextLabels } from '@/components/attachment/mermaidLabels';
+import { svgTextLabels } from '@/components/artifact/mermaidLabels';
 
-describe('attachment/file guardrail helpers', () => {
+describe('artifact/file guardrail helpers', () => {
     it('builds newest-first Shared Artifacts history without exposing a path', () => {
         const now = new Date(2026, 8, 19, 12).getTime();
         const yesterday = new Date(2026, 8, 18, 15).getTime();
@@ -36,14 +43,12 @@ describe('attachment/file guardrail helpers', () => {
     });
 
     it('bounds heal payload accounting and source lines/chars before rendering', () => {
-        expect(estimateBase64Bytes('aGVsbG8=')).toBe(5);
-        expect(estimateBase64Bytes('not base64')).toBeNull();
         expect(estimateStoredBlobBytes('aGVsbG8=')).toBe(13);
-        const plan = planAttachmentHeal(Array.from({ length: 10 }, (_, i) => ({ id: String(i), size: 512 * 1024 })));
+        const plan = planArtifactHeal(Array.from({ length: 10 }, (_, i) => ({ id: String(i), size: 512 * 1024 })));
         expect(plan.candidates).toHaveLength(8);
         expect(plan.deferredIds).toContain('8');
         expect(plan.unavailableIds).toEqual([]);
-        const nextOpening = planAttachmentHeal(Array.from({ length: 10 }, (_, i) => ({ id: String(i), size: 512 * 1024 })).filter((entry) => plan.deferredIds.includes(entry.id)));
+        const nextOpening = planArtifactHeal(Array.from({ length: 10 }, (_, i) => ({ id: String(i), size: 512 * 1024 })).filter((entry) => plan.deferredIds.includes(entry.id)));
         expect(nextOpening.candidates.map((entry) => entry.id)).toEqual(['8', '9']);
         const result = boundText(`${'x'.repeat(300_000)}\nsecond\nthird`);
         expect(result.text.length).toBe(256 * 1024);
@@ -88,7 +93,7 @@ describe('attachment/file guardrail helpers', () => {
         vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
         const download = Promise.withResolvers<{ id: string; offset: number; size: number; data: string }>();
         previewMocks.request.mockReturnValue(download.promise);
-        const attachment = {
+        const artifact = {
             type: 'attachment' as const,
             id: 'a'.repeat(64),
             name: 'preview.png',
@@ -96,17 +101,17 @@ describe('attachment/file guardrail helpers', () => {
             size: 5,
         };
         try {
-            const first = attachmentPreview('session-1', attachment);
-            const second = attachmentPreview('session-1', attachment);
+            const first = artifactPreview('session-1', artifact);
+            const second = artifactPreview('session-1', artifact);
             expect(previewMocks.request).toHaveBeenCalledTimes(1);
-            download.resolve({ id: attachment.id, offset: 0, size: 5, data: 'aGVsbG8=' });
+            download.resolve({ id: artifact.id, offset: 0, size: 5, data: 'aGVsbG8=' });
             const sources = await Promise.all([first, second]);
             expect(sources.map((source) => source.uri)).toEqual(['blob:preview-1', 'blob:preview-2']);
             sources.forEach((source) => source.dispose?.());
             expect(revokeObjectURL.mock.calls).toEqual([['blob:preview-1'], ['blob:preview-2']]);
 
-            previewMocks.request.mockResolvedValue({ id: attachment.id, offset: 0, size: 5, data: 'aGVsbG8=' });
-            const later = await attachmentPreview('session-1', attachment);
+            previewMocks.request.mockResolvedValue({ id: artifact.id, offset: 0, size: 5, data: 'aGVsbG8=' });
+            const later = await artifactPreview('session-1', artifact);
             expect(previewMocks.request).toHaveBeenCalledTimes(2);
             later.dispose?.();
         } finally {
@@ -115,24 +120,24 @@ describe('attachment/file guardrail helpers', () => {
     });
     it('opens a bounded document through the real read transport and rejects changed or retargeted data', async () => {
         previewMocks.request.mockReset();
-        const attachment = { type: 'attachment' as const, id: 'preview', name: 'notes.md', size: 5 };
+        const artifact = { type: 'attachment' as const, id: 'preview', name: 'notes.md', size: 5 };
         previewMocks.request.mockResolvedValue({ id: 'preview', offset: 0, size: 5, data: 'aGVsbG8=' });
-        const result = await readRichAttachment('session-1', attachment, new AbortController().signal);
+        const result = await readRichArtifact('session-1', artifact, new AbortController().signal);
         expect(result).toEqual({ kind: 'markdown', base64: 'aGVsbG8=' });
-        const html = richPreviewHtml('window.renderMuxrAttachment = () => {};', result, { dark: false, surface: '#fff', surfaceHigh: '#f8f8f8', surfaceHighest: '#f0f0f0', text: '#000', textSecondary: '#8e8e93', divider: '#eaeaea' });
+        const html = richPreviewHtml('window.renderMuxrArtifact = () => {};', result, { dark: false, surface: '#fff', surfaceHigh: '#f8f8f8', surfaceHighest: '#f0f0f0', text: '#000', textSecondary: '#8e8e93', divider: '#eaeaea' });
         expect(html).toContain("connect-src 'none'");
         expect(html).toContain('"base64":"aGVsbG8="');
         previewMocks.request.mockClear();
-        await expect(readRichAttachment('session-1', { ...attachment, size: 300000 }, new AbortController().signal)).rejects.toThrow('preview limit');
+        await expect(readRichArtifact('session-1', { ...artifact, size: 300000 }, new AbortController().signal)).rejects.toThrow('preview limit');
         expect(previewMocks.request).not.toHaveBeenCalled();
         previewMocks.request.mockResolvedValue({ id: 'preview', offset: 0, size: 6, data: 'aGVsbG8=' });
-        await expect(readRichAttachment('session-1', attachment, new AbortController().signal)).rejects.toThrow('changed');
+        await expect(readRichArtifact('session-1', artifact, new AbortController().signal)).rejects.toThrow('changed');
         previewMocks.request.mockImplementation(async () => {
             previewMocks.settings.machineId = 'machine-2';
             return { id: 'preview', offset: 0, size: 5, data: 'aGVsbG8=' };
         });
         try {
-            await expect(readRichAttachment('session-1', attachment, new AbortController().signal)).rejects.toThrow('connection changed');
+            await expect(readRichArtifact('session-1', artifact, new AbortController().signal)).rejects.toThrow('connection changed');
         } finally { previewMocks.settings.machineId = 'machine-1'; }
     });
 
@@ -172,4 +177,66 @@ describe('attachment/file guardrail helpers', () => {
         expect(label('<div><p>1 &lt; 2</p><p>3 &gt; 2</p></div>')).toContain('<tspan x="20" dy="-0.55em">1 &lt; 2</tspan><tspan x="20" dy="1.1em">3 &gt; 2</tspan>');
     });
 
+});
+
+// The artifact unification renamed the four protocol methods. A host built
+// before the rename answers the legacy names only, so the app has to reach all
+// four of them there and still read one shape back.
+describe('Shared Artifacts wire across host versions', () => {
+    const chunk = { id: 'a'.repeat(64), name: 'report.md', mimeType: 'text/plain', size: 5, offset: 0, data: 'aGVsbG8=' };
+    const ticket = { token: 'one-time', name: 'report.md', mimeType: 'text/plain', size: 5 };
+
+    function fakeHost({ legacy }: { legacy: boolean }) {
+        const calls: string[] = [];
+        const table: Record<string, unknown> = legacy
+            ? {
+                'attachment.list': { attachments: [chunk], total: 1, truncated: false },
+                'attachment.fetch': { name: 'report.md', mimeType: 'text/plain', data: 'aGVsbG8=' },
+                'attachment.prepare': ticket,
+                'attachment.read': chunk,
+            }
+            : {
+                'artifact.list': { artifacts: [chunk], total: 1, truncated: false },
+                'artifact.fetch': { name: 'report.md', mimeType: 'text/plain', data: 'aGVsbG8=' },
+                'artifact.prepare': ticket,
+                'artifact.read': chunk,
+            };
+        return {
+            calls,
+            request: async (type: string) => {
+                calls.push(type);
+                if (!(type in table)) throw Object.assign(new Error(`host has no handler for '${type}'`), { code: 'host-contract-mismatch' });
+                return table[type];
+            },
+        };
+    }
+
+    it('drives the named methods, and falls back to the pre-rename ones once', async () => {
+        const host = fakeHost({ legacy: true });
+        const wire = createArtifactWire(host.request as never);
+
+        expect(await wire.list('s1')).toEqual({ artifacts: [chunk], total: 1, truncated: false });
+        expect(await wire.fetch('s1', chunk.id)).toMatchObject({ name: 'report.md' });
+        expect(await wire.prepare('s1', chunk.id)).toEqual(ticket);
+        expect(await wire.read('s1', chunk.id, 0, 512)).toEqual(chunk);
+
+        // One probe, then the legacy names for the rest of the process.
+        expect(host.calls).toEqual([
+            'artifact.list', 'attachment.list',
+            'attachment.fetch', 'attachment.prepare', 'attachment.read',
+        ]);
+    });
+
+    it('stays on the canonical names when the host knows them, and never swallows a real failure', async () => {
+        const modern = fakeHost({ legacy: false });
+        const wire = createArtifactWire(modern.request as never);
+        await wire.list('s1');
+        await wire.list('s1');
+        expect(modern.calls).toEqual(['artifact.list', 'artifact.list']);
+
+        const broken = createArtifactWire(async () => {
+            throw Object.assign(new Error('this device grant is view-only'), { code: 'forbidden' });
+        });
+        await expect(broken.list('s1')).rejects.toThrow('view-only');
+    });
 });

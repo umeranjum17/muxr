@@ -3,35 +3,35 @@ import { ActivityIndicator, FlatList, Pressable, Text, View, type ViewToken } fr
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import type { RequestResult, SessionAttachment } from '@muxr/contract';
+import type { RequestResult, SessionArtifact } from '@muxr/contract';
 
-import { sync, registerAttachmentUpdateHandler } from '@/catalog/sync';
+import { sync, registerArtifactUpdateHandler } from '@/catalog/sync';
 import { useHerdrTree } from '@/catalog/store';
-import { buildSharedArtifactTimeline, planAttachmentHeal, sharedArtifactDisplayName, type SharedArtifactTimelineRow } from '@/catalog/infrastructure/attachmentSupport';
+import { buildSharedArtifactTimeline, planArtifactHeal, sharedArtifactDisplayName, type SharedArtifactTimelineRow } from '@/catalog/infrastructure/artifactSupport';
 import { AgentGlyph } from '@/components/AgentGlyph';
-import { AttachmentGallery, AttachmentThumbnail, type GalleryImage } from '@/components/AttachmentGallery';
-import { RichAttachmentPreview } from '@/components/attachment/RichAttachmentPreview';
+import { ArtifactGallery, ArtifactThumbnail, type GalleryImage } from '@/components/ArtifactGallery';
+import { RichArtifactPreview } from '@/components/artifact/RichArtifactPreview';
 import { agentLabels, agentNameLine, herdrPaneForSession, isShellLabels } from '@/herd';
 import { decodeBase64 } from '@/encryption/base64';
 import { Modal } from '@/modal';
-import { attachmentKind } from '@/utils/attachmentKind';
-import type { AttachmentAction } from '@/utils/attachmentPreview';
-import { downloadAttachment } from '@/utils/downloadAttachment';
-import { richPreviewKind } from '@/utils/richAttachmentPreview';
+import { artifactKind } from '@/utils/artifactKind';
+import type { ArtifactAction } from '@/utils/artifactPreview';
+import { downloadArtifact } from '@/utils/downloadArtifact';
+import { richPreviewKind } from '@/utils/richArtifactPreview';
 
-type ArtifactList = RequestResult<'attachment.list'>;
-type TimelineRow = SharedArtifactTimelineRow<SessionAttachment>;
+type ArtifactList = RequestResult<'artifact.list'>;
+type TimelineRow = SharedArtifactTimelineRow<SessionArtifact>;
 
 const TIME_FORMAT = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
-const EMPTY_ATTACHMENTS: SessionAttachment[] = [];
+const EMPTY_ARTIFACTS: SessionArtifact[] = [];
 
-function attachmentAction(attachment: SessionAttachment): AttachmentAction {
+function artifactAction(artifact: SessionArtifact): ArtifactAction {
     return {
         type: 'attachment',
-        id: attachment.id,
-        name: attachment.name,
-        mimeType: attachment.mimeType,
-        size: attachment.size,
+        id: artifact.id,
+        name: artifact.name,
+        mimeType: artifact.mimeType,
+        size: artifact.size,
     };
 }
 
@@ -42,14 +42,14 @@ function sizeLabel(bytes: number): string {
     return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
-function kindLabel(attachment: SessionAttachment): string {
-    const kind = attachmentKind(attachment.name, attachment.mimeType);
+function kindLabel(artifact: SessionArtifact): string {
+    const kind = artifactKind(artifact.name, artifact.mimeType);
     if (kind === 'apk') return 'Android app';
     return kind[0]!.toUpperCase() + kind.slice(1);
 }
 
-function iconFor(attachment: SessionAttachment): React.ComponentProps<typeof Ionicons>['name'] {
-    const kind = attachmentKind(attachment.name, attachment.mimeType);
+function iconFor(artifact: SessionArtifact): React.ComponentProps<typeof Ionicons>['name'] {
+    const kind = artifactKind(artifact.name, artifact.mimeType);
     if (kind === 'video') return 'videocam-outline';
     if (kind === 'document') return 'document-text-outline';
     if (kind === 'apk') return 'logo-android';
@@ -67,7 +67,7 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState<string>();
     const [galleryIndex, setGalleryIndex] = React.useState<number>();
-    const [documentPreview, setDocumentPreview] = React.useState<AttachmentAction>();
+    const [documentPreview, setDocumentPreview] = React.useState<ArtifactAction>();
     const [downloadingId, setDownloadingId] = React.useState<string>();
     const [visibleImageKeys, setVisibleImageKeys] = React.useState<string[]>([]);
     const [snippets, setSnippets] = React.useState<Record<string, string>>({});
@@ -79,7 +79,7 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
         const generation = ++requestGeneration.current;
         const expectedLiveRevision = liveRevision.current;
         setLoading(true);
-        void sync.request('attachment.list', { sessionId })
+        void sync.artifactList(sessionId)
             .then((next) => {
                 if (generation !== requestGeneration.current || expectedLiveRevision !== liveRevision.current) return;
                 setListing(next);
@@ -94,10 +94,10 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
             });
     }, [sessionId]);
 
-    React.useEffect(() => registerAttachmentUpdateHandler((updatedSessionId, event) => {
+    React.useEffect(() => registerArtifactUpdateHandler((updatedSessionId, event) => {
         if (updatedSessionId !== sessionId) return;
         liveRevision.current += 1;
-        setListing({ attachments: event.attachments, total: event.total, truncated: event.truncated });
+        setListing({ artifacts: event.artifacts, total: event.total, truncated: event.truncated });
         setError(undefined);
     }), [sessionId]);
 
@@ -106,45 +106,45 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
         return () => { requestGeneration.current += 1; };
     }, [load]));
 
-    const attachments = listing?.attachments ?? EMPTY_ATTACHMENTS;
+    const artifacts = listing?.artifacts ?? EMPTY_ARTIFACTS;
     React.useEffect(() => {
         attemptedSnippets.current.clear();
         setSnippets({});
     }, [sessionId]);
     React.useEffect(() => {
         let cancelled = false;
-        const unique = new Map<string, SessionAttachment>();
-        for (const attachment of attachments) {
-            if (attachment.mimeType.startsWith('text/') && !attemptedSnippets.current.has(attachment.id)) unique.set(attachment.id, attachment);
+        const unique = new Map<string, SessionArtifact>();
+        for (const artifact of artifacts) {
+            if (artifact.mimeType.startsWith('text/') && !attemptedSnippets.current.has(artifact.id)) unique.set(artifact.id, artifact);
         }
-        const plan = planAttachmentHeal([...unique.values()]);
-        for (const attachment of plan.candidates) attemptedSnippets.current.add(attachment.id);
-        void Promise.all(plan.candidates.map(async (attachment) => {
+        const plan = planArtifactHeal([...unique.values()]);
+        for (const artifact of plan.candidates) attemptedSnippets.current.add(artifact.id);
+        void Promise.all(plan.candidates.map(async (artifact) => {
             try {
-                const healed = await sync.request('attachment.fetch', { sessionId, attachmentId: attachment.id });
+                const healed = await sync.artifactFetch(sessionId, artifact.id);
                 if (healed === null) return;
                 const text = new TextDecoder().decode(decodeBase64(healed.data));
                 const firstLine = text.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim().replace(/\s+/g, ' ').slice(0, 160);
                 if (firstLine !== undefined && firstLine.length > 0 && !cancelled) {
-                    setSnippets((current) => ({ ...current, [attachment.id]: firstLine }));
+                    setSnippets((current) => ({ ...current, [artifact.id]: firstLine }));
                 }
             } catch {
-                attemptedSnippets.current.delete(attachment.id);
+                attemptedSnippets.current.delete(artifact.id);
             }
         }));
         return () => { cancelled = true; };
-    }, [attachments, sessionId]);
-    const rows = React.useMemo(() => buildSharedArtifactTimeline(attachments), [attachments]);
-    const galleryImages = React.useMemo<GalleryImage[]>(() => attachments.flatMap((attachment) => (
-        attachment.mimeType.startsWith('image/') && richPreviewKind(attachment.name) !== 'svg'
+    }, [artifacts, sessionId]);
+    const rows = React.useMemo(() => buildSharedArtifactTimeline(artifacts), [artifacts]);
+    const galleryImages = React.useMemo<GalleryImage[]>(() => artifacts.flatMap((artifact) => (
+        artifact.mimeType.startsWith('image/') && richPreviewKind(artifact.name) !== 'svg'
             ? [{
-                id: `${attachment.id}:${attachment.name}:${attachment.at}`,
-                title: sharedArtifactDisplayName(attachment.name),
-                subtitle: `${sizeLabel(attachment.size)} · ${TIME_FORMAT.format(new Date(attachment.at))}`,
-                action: attachmentAction(attachment),
+                id: `${artifact.id}:${artifact.name}:${artifact.at}`,
+                title: sharedArtifactDisplayName(artifact.name),
+                subtitle: `${sizeLabel(artifact.size)} · ${TIME_FORMAT.format(new Date(artifact.at))}`,
+                action: artifactAction(artifact),
             }]
             : []
-    )), [attachments]);
+    )), [artifacts]);
     const galleryIndexByKey = React.useMemo(() => new Map(galleryImages.map((image, index) => [image.id, index])), [galleryImages]);
     const visibleImageSet = React.useMemo(() => new Set(visibleImageKeys), [visibleImageKeys]);
     const viewabilityConfig = React.useRef({ itemVisiblePercentThreshold: 10 }).current;
@@ -155,39 +155,39 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
         setVisibleImageKeys((current) => current.length === next.length && current.every((key, index) => key === next[index]) ? current : next);
     }).current;
 
-    const download = React.useCallback((attachment: SessionAttachment) => {
+    const download = React.useCallback((artifact: SessionArtifact) => {
         if (downloadingId !== undefined) return;
-        setDownloadingId(attachment.id);
-        void downloadAttachment(sessionId, attachment)
+        setDownloadingId(artifact.id);
+        void downloadArtifact(sessionId, artifact)
             .catch((cause: unknown) => Modal.alert('Download failed', cause instanceof Error ? cause.message : String(cause)))
             .finally(() => setDownloadingId(undefined));
     }, [downloadingId, sessionId]);
 
-    const open = React.useCallback((attachment: SessionAttachment) => {
-        const key = `${attachment.id}:${attachment.name}:${attachment.at}`;
+    const open = React.useCallback((artifact: SessionArtifact) => {
+        const key = `${artifact.id}:${artifact.name}:${artifact.at}`;
         const imageIndex = galleryIndexByKey.get(key);
         if (imageIndex !== undefined) {
             setGalleryIndex(imageIndex);
             return;
         }
-        if (richPreviewKind(attachment.name) !== null) {
-            setDocumentPreview(attachmentAction(attachment));
+        if (richPreviewKind(artifact.name) !== null) {
+            setDocumentPreview(artifactAction(artifact));
             return;
         }
-        download(attachment);
+        download(artifact);
     }, [download, galleryIndexByKey]);
 
     const contextTitle = agentNameLine(labels) || 'Session';
     const contextSubtitle = listing === undefined ? 'Shared history' : listing.total === 1 ? '1 shared artifact' : `${listing.total} shared artifacts`;
 
     const renderArtifact = (row: Extract<TimelineRow, { type: 'artifact' }>) => {
-        const attachment = row.artifact;
-        const imageIndex = galleryIndexByKey.get(`${attachment.id}:${attachment.name}:${attachment.at}`);
-        const subtitle = `${TIME_FORMAT.format(new Date(attachment.at))} · ${sizeLabel(attachment.size)} · ${kindLabel(attachment)}`;
+        const artifact = row.artifact;
+        const imageIndex = galleryIndexByKey.get(`${artifact.id}:${artifact.name}:${artifact.at}`);
+        const subtitle = `${TIME_FORMAT.format(new Date(artifact.at))} · ${sizeLabel(artifact.size)} · ${kindLabel(artifact)}`;
         return <View style={styles.card}>
             {imageIndex === undefined
-                ? <View style={styles.iconTile}><Ionicons name={iconFor(attachment)} size={24} color={theme.colors.textSecondary} /></View>
-                : <AttachmentThumbnail
+                ? <View style={styles.iconTile}><Ionicons name={iconFor(artifact)} size={24} color={theme.colors.textSecondary} /></View>
+                : <ArtifactThumbnail
                     sessionId={sessionId}
                     image={galleryImages[imageIndex]!}
                     enabled={visibleImageSet.has(row.key)}
@@ -196,25 +196,25 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
                     onPress={() => setGalleryIndex(imageIndex)}
                 />}
             <Pressable
-                onPress={() => open(attachment)}
+                onPress={() => open(artifact)}
                 accessibilityRole="button"
-                accessibilityLabel={`Open ${sharedArtifactDisplayName(attachment.name)}, ${subtitle}`}
+                accessibilityLabel={`Open ${sharedArtifactDisplayName(artifact.name)}, ${subtitle}`}
                 style={({ pressed }) => [styles.details, pressed && styles.pressed]}
             >
-                <Text numberOfLines={snippets[attachment.id] === undefined ? 2 : 1} style={styles.title}>{sharedArtifactDisplayName(attachment.name)}</Text>
-                {snippets[attachment.id] !== undefined && <Text numberOfLines={1} style={styles.snippet}>{snippets[attachment.id]}</Text>}
-                <Text numberOfLines={snippets[attachment.id] === undefined ? 2 : 1} style={styles.meta}>{subtitle}</Text>
+                <Text numberOfLines={snippets[artifact.id] === undefined ? 2 : 1} style={styles.title}>{sharedArtifactDisplayName(artifact.name)}</Text>
+                {snippets[artifact.id] !== undefined && <Text numberOfLines={1} style={styles.snippet}>{snippets[artifact.id]}</Text>}
+                <Text numberOfLines={snippets[artifact.id] === undefined ? 2 : 1} style={styles.meta}>{subtitle}</Text>
             </Pressable>
             <Pressable
-                onPress={() => download(attachment)}
+                onPress={() => download(artifact)}
                 disabled={downloadingId !== undefined}
                 accessibilityRole="button"
-                accessibilityLabel={`Download ${sharedArtifactDisplayName(attachment.name)}`}
-                accessibilityState={{ busy: downloadingId === attachment.id, disabled: downloadingId !== undefined }}
+                accessibilityLabel={`Download ${sharedArtifactDisplayName(artifact.name)}`}
+                accessibilityState={{ busy: downloadingId === artifact.id, disabled: downloadingId !== undefined }}
                 hitSlop={4}
-                style={({ pressed }) => [styles.download, pressed && styles.pressed, downloadingId !== undefined && downloadingId !== attachment.id && styles.disabled]}
+                style={({ pressed }) => [styles.download, pressed && styles.pressed, downloadingId !== undefined && downloadingId !== artifact.id && styles.disabled]}
             >
-                {downloadingId === attachment.id
+                {downloadingId === artifact.id
                     ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                     : <Ionicons name="download-outline" size={19} color={theme.colors.textSecondary} />}
             </Pressable>
@@ -245,7 +245,7 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
             <Text style={styles.stateTitle}>Shared Artifacts unavailable</Text>
             <Text style={styles.stateBody}>{error}</Text>
             <Pressable onPress={load} accessibilityRole="button" accessibilityLabel="Retry loading Shared Artifacts" style={({ pressed }) => [styles.retry, pressed && styles.pressed]}><Text style={styles.retryText}>Try again</Text></Pressable>
-        </View> : attachments.length === 0 ? <View style={styles.state}>
+        </View> : artifacts.length === 0 ? <View style={styles.state}>
             <View style={styles.emptyIcon}><Ionicons name="albums-outline" size={28} color={theme.colors.textSecondary} /></View>
             <Text style={styles.stateTitle}>No shared artifacts yet</Text>
             <Text style={styles.stateBody}>Agents can add images, documents, recordings, and other files with <Text style={styles.command}>muxr share</Text>.</Text>
@@ -267,11 +267,11 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
                 <Ionicons name="warning-outline" size={16} color={theme.colors.textSecondary} />
                 <Text style={styles.staleText}>Showing the last update. Tap to retry.</Text>
             </Pressable>}
-            ListFooterComponent={listing?.truncated ? <Text style={styles.footer}>Showing newest {attachments.length} of {listing.total}</Text> : <View style={styles.footerSpace} />}
+            ListFooterComponent={listing?.truncated ? <Text style={styles.footer}>Showing newest {artifacts.length} of {listing.total}</Text> : <View style={styles.footerSpace} />}
         />}
 
-        {galleryIndex !== undefined && <AttachmentGallery sessionId={sessionId} images={galleryImages} initialIndex={galleryIndex} onClose={() => setGalleryIndex(undefined)} />}
-        {documentPreview !== undefined && <RichAttachmentPreview key={`${sessionId}:${documentPreview.id}`} sessionId={sessionId} attachment={documentPreview} onClose={() => setDocumentPreview(undefined)} />}
+        {galleryIndex !== undefined && <ArtifactGallery sessionId={sessionId} images={galleryImages} initialIndex={galleryIndex} onClose={() => setGalleryIndex(undefined)} />}
+        {documentPreview !== undefined && <RichArtifactPreview key={`${sessionId}:${documentPreview.id}`} sessionId={sessionId} artifact={documentPreview} onClose={() => setDocumentPreview(undefined)} />}
     </View>;
 }
 

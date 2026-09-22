@@ -190,22 +190,52 @@ Beyond the session basics, the host exposes herdr's topology to the app:
 ## Shared Artifacts and changes
 
 Shared Artifacts is product-owned per-session history over the pane's watched
-dump directory. `attachment.list` returns a bounded metadata-only snapshot and
-`attachments.update` publishes that same newest-first view when the watcher
-changes; bytes still travel only through `attachment.fetch`, bounded encrypted
-`attachment.read` chunks, or one-time local download tickets. The phone groups
+dump directory. `artifact.list` returns a bounded metadata-only snapshot and
+`artifacts.update` publishes that same newest-first view when the watcher
+changes; bytes still travel only through `artifact.fetch`, bounded encrypted
+`artifact.read` chunks, or one-time local download tickets. The phone groups
 entries chronologically and reuses the image gallery, rich document previews,
 and download paths. Neither filesystem paths nor pane/session ids are rendered.
+
+"Artifact" is the whole vocabulary here, host and phone alike: types, files,
+filesystem modules and protocol methods. Two things keep an older spelling on
+purpose, because nothing on the other side can be told to change:
+
+- `attachment.list`, `attachment.fetch`, `attachment.prepare` and
+  `attachment.read` remain wired to the same host handlers, with the old
+  `attachmentId` param and the old `attachments` listing field. A host answers
+  them for an app built before the rename; an app reaches for them after a
+  `host-contract-mismatch` and remembers the answer.
+- `attachments.update` is published beside `artifacts.update` from the same
+  publish site, carrying the same `total` and `truncated` under the old
+  `attachments` field, so a pre-rename app's open timeline still updates live.
+  It stays out of `SESSION_EVENT_TYPES`: a canonical client never waits for it.
+  Delete it with the request aliases above.
+- `~/.muxr/attachments/pane/`, the `attachment` hosted routing channel, the
+  `/v1/attachment-download` route with its `attachmentId` query key, and the
+  plugin vocabulary (`muxr.attachments`, plugin action `type: "attachment"`)
+  are contracts with installed tooling, the cleartext envelope, and approved
+  plugin manifests. See [CONTEXT.md](../CONTEXT.md).
 
 The extracted attachments plugin remains wire-compatible during migration. The
 changes surface separately runs host-owned git requests in the session cwd.
 
-Retention is intentionally unchanged: closing a pane clears watcher memory but
-does not delete its files, and the newest-50 listing cap is not a disk cap. The
-captain's attachment tree was already measured at **39 GB / 21,410 files / 249
-pane directories**, so unbounded disk growth is a known operational risk. Any
-retention sweep or cleanup of existing data requires an explicit product
-decision; this timeline performs neither.
+Retention bounds that history. The host sweeps once a day and removes only
+files that entered a pane *after* retention was installed on that machine, so
+the pile that already existed is left alone and unbounded disk growth stops
+without an automatic purge. Scope and age are judged by the inode change time —
+when a file entered the pane — so a recording an agent moves in keeps its place
+however old its modification time is; the newest-first order the phone shows
+stays on the modification time. Within that scope: the newest 50 files of a pane
+are exempt from the count bound, nothing younger than a week is touched at all,
+and nothing post-install survives a month or pushes a pane past 512 MiB of
+removable files.
+The sweep stats names and never reads a byte — hashing this root costs 17 GiB of
+I/O — and writes what it removed, under which policy, to
+`$MUXR_HOME/artifact-retention.json`. The captain's tree was measured at
+**39 GB / 21,491 files / 258 pane directories** and stays as it is until he runs
+`muxr artifacts prune`, which applies the same policy to the existing history
+after showing him the plan.
 
 ## Push notifications
 

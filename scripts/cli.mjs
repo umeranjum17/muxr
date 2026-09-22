@@ -51,6 +51,7 @@ import { runMuxrConfig } from './setup/presentation/configInit.mjs';
 import { updateCli } from './release/index.mjs';
 import { nameAgent } from './naming/client.mjs';
 import { share } from './terminal/share.mjs';
+import { artifacts } from './terminal/artifacts.mjs';
 
 const HELP = `muxr — every coding agent on your phone
 
@@ -84,6 +85,7 @@ Agent instructions
   muxr skill <topic>              load one reference only when needed
   muxr name [--workspace ...]     name the current Herdr workspace/pane and report attribution
   muxr share <path>               save a file to this pane's Shared Artifacts timeline
+  muxr artifacts [status|prune]   show what Shared Artifacts retention removed, or clear old history
 
 Build plugins
   muxr plugin docs|create|check|dev|call|list|install|update|remove
@@ -102,6 +104,7 @@ const COMMAND_HELP = {
     'plugin docs': `muxr plugin docs\n\nPrint absolute paths to the installed authoring guide and agent skill.\n`,
     name: `muxr name [--workspace LABEL] [--pane TITLE] [--provider PROVIDER] [--model MODEL]\n\nName the current Herdr workspace and pane through muxr's authenticated local naming facade.\nThe pane identity comes from HERDR_PANE_ID; names and metadata are passed verbatim within bounds.\n`,
     share: `muxr share <path> [--pane <pane-id>]\n\nSave a file to the given pane's durable Shared Artifacts timeline.\nUses HERDR_PANE_ID when --pane is omitted. Name collisions get a numeric suffix.\n`,
+    artifacts: `muxr artifacts [status]\nmuxr artifacts prune [--dry-run] [--yes]\n\nThe host sweeps Shared Artifacts daily and never touches files that predate retention.\nstatus prints the policy and the last sweep's removals. prune applies the same policy\nto the history that was already there: it deletes files, so it shows the plan first\nand --yes skips the question.\n`,
     'plugin create': `muxr plugin create <name>\n\nCreate a minimal three-file settings-screen plugin with a collision-resistant local id.\n`,
     'plugin check': `muxr plugin check <path>\n\nValidate Herdr identity, muxr manifest, slots, primitives, actions, RPCs, and streams without linking.\n`,
     'plugin dev': `muxr plugin dev <path> [--web]\n\nValidate and link a local plugin enabled. --web also starts the source-checkout web client.\n`,
@@ -490,6 +493,7 @@ async function dispatch(command, args = []) {
         try { share(args); return process.exitCode ?? 0; }
         catch (error) { process.stderr.write(`muxr share: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
     }
+    if (command === 'artifacts') return await artifacts(args);
     if (command === 'name') {
         try { return await nameAgent(args); }
         catch (error) { process.stderr.write(`muxr name: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
