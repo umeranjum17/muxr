@@ -54,6 +54,14 @@ extern "C" {
     fn inputtino_keyboard_press(keyboard: *mut Keyboard, key_code: c_short);
     fn inputtino_keyboard_release(keyboard: *mut Keyboard, key_code: c_short);
     fn inputtino_keyboard_destroy(keyboard: *mut Keyboard);
+    fn dl_inputtino_keycode(evdev_code: c_short) -> c_short;
+}
+
+/// Convert the engine's physical key identity at the native injector boundary.
+pub fn native_keycode(code: i16) -> Result<i16> {
+    let native = unsafe { dl_inputtino_keycode(code) };
+    anyhow::ensure!(native >= 0, "the input backend cannot emit physical key {code}");
+    Ok(native)
 }
 
 /// Pointer buttons, mirroring inputtino's own enum order.
@@ -235,9 +243,10 @@ impl InputDevices {
     }
 
     pub fn scroll(&mut self, dx: i64, dy: i64) {
-        // libinput's high-resolution wheel unit is 120 per detent; a phone's
-        // scroll gesture maps to a small number of detents, not to pixels.
-        let vertical = (dy * 120).clamp(-1200, 1200) as c_int;
+        // Protocol deltas are down/right, as in DOM wheel events and X11.
+        // evdev's vertical wheel has the opposite sign (positive is up).
+        // Its high-resolution unit is 120 per detent, not one screen pixel.
+        let vertical = (-dy * 120).clamp(-1200, 1200) as c_int;
         let horizontal = (dx * 120).clamp(-1200, 1200) as c_int;
         if vertical != 0 {
             unsafe { inputtino_mouse_scroll_vertical(self.mouse, vertical) };
@@ -247,12 +256,14 @@ impl InputDevices {
         }
     }
 
-    pub fn key(&mut self, code: i16, down: bool) {
+    pub fn key(&mut self, code: i16, down: bool) -> Result<()> {
+        let native_code = native_keycode(code)?;
         if down {
-            unsafe { inputtino_keyboard_press(self.keyboard, code) };
+            unsafe { inputtino_keyboard_press(self.keyboard, native_code) };
         } else {
-            unsafe { inputtino_keyboard_release(self.keyboard, code) };
+            unsafe { inputtino_keyboard_release(self.keyboard, native_code) };
         }
+        Ok(())
     }
 
 

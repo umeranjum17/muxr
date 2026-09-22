@@ -14,12 +14,13 @@ config.watchFolders = [...(config.watchFolders ?? []), workspaceRoot];
 config.resolver.assetExts.push('wasm', 'bin');
 // Native builds create/delete transient directories while Metro is watching.
 // They are not JS inputs; exclude them so Fast Refresh survives a debug rebuild.
-// Also keep the isolated host's changing runtime state outside the watch graph.
+// Also exclude caches/temp/native outputs. Keep JS dist/build packages and
+// assets: those are real bundle inputs, unlike compiler scratch directories.
 config.resolver.blockList = [
   /[/\\]src-tauri[/\\]target[/\\].*/,
-  /[/\\](?:\.cxx|\.gradle)[/\\].*/,
-  /[/\\](?:android|ReactAndroid)[/\\](?:.*[/\\])?build(?:[/\\].*)?$/,
-  /[/\\]\.cache[/\\]muxr-dev[/\\].*/,
+  /[/\\]packages[/\\]desktop-host[/\\]engine[/\\]target(?:[/\\].*)?$/,
+  /[/\\](?:\.cache|\.tmp|\.temp|\.cxx|\.gradle|__pycache__|DerivedData)(?:[/\\].*)?$/,
+  /[/\\](?:android|ios|ReactAndroid)[/\\](?:.*[/\\])?(?:build|Pods)(?:[/\\].*)?$/,
 ];
 
 // Force every preact / preact/hooks import (ESM or CJS, from any package) to

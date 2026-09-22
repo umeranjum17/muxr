@@ -275,7 +275,7 @@ are JSON, one per message:
 | kind | fields | notes |
 |---|---|---|
 | `pointer` | `phase`: `move`\|`down`\|`up`\|`cancel`, `x`, `y`, `button` (default 1) | `x`/`y` are integers in the **encoded surface's** own pixels, i.e. `geometry.encoded` |
-| `wheel` | `dx`, `dy` (integer detents) | |
+| `wheel` | `dx`, `dy` (integer detents) | Positive `dx` scrolls right; positive `dy` scrolls down. Native adapters normalize platform wheel signs. |
 | `key` | `name` (a named key or modifier) or `character` (one character), `down`, `modifiers` | the engine maps `character` through the layout it compiled (`input.layout` in `capabilities`), and refuses a character that layout cannot produce |
 | `text` | `text` (≤ 4096 bytes) | applied as real key events, not as a clipboard paste |
 | `release_all` | — | explicit safety net; the engine also does this on close and on channel loss |

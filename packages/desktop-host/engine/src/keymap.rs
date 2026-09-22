@@ -266,13 +266,22 @@ mod tests {
 
     #[test]
     fn a_character_is_planned_as_a_real_key_event_on_the_compiled_layout() {
-        let layout = Layout::from_environment().expect("a keymap should compile");
-        let (plan, unreachable) = layout.plan_text("aA");
+        let layout = Layout::from_names(&LayoutNames::from_lookup(|_| None))
+            .expect("a keymap should compile");
+        let (plan, unreachable) = layout.plan_text("aA.\n");
         assert!(unreachable.is_empty(), "ASCII should be reachable: {unreachable:?}");
-        assert_eq!(plan.len(), 2);
+        assert_eq!(plan.len(), 4);
         assert!(!plan[0][0].shift, "lower-case a needs no shift");
         assert!(plan[1][0].shift, "upper-case A needs shift on any normal layout");
         assert_eq!(plan[0][0].code, plan[1][0].code, "both letters share a key");
+        // The plan is evdev, but the real injector expects Moonlight/VK codes.
+        // Passing Linux N (49) straight through instead presses VK_1.
+        let native: Vec<_> = plan.iter().flatten()
+            .map(|stroke| crate::input::native_keycode(stroke.code).unwrap())
+            .collect();
+        assert_eq!(native, [0x41, 0x41, 0xBE, 0x0D]);
+        assert_eq!(crate::input::native_keycode(plan[1][0].modifiers()[0]).unwrap(), 0x10);
+        assert_eq!(crate::input::native_keycode(modifier_key("Control").unwrap()).unwrap(), 0x11);
     }
 
     #[test]

@@ -218,13 +218,18 @@ impl InputTarget {
         }
     }
 
-    fn key(&mut self, code: i16, down: bool) -> Result<()> {
-        self.held.key(code, down);
-        match &mut self.applier {
-            Applier::Uinput(devices) => {
-                devices.key(code, down);
-                Ok(())
+    fn check_keys(&self, codes: impl IntoIterator<Item = i16>) -> Result<()> {
+        if matches!(&self.applier, Applier::Uinput(_)) {
+            for code in codes {
+                crate::input::native_keycode(code)?;
             }
+        }
+        Ok(())
+    }
+
+    fn key(&mut self, code: i16, down: bool) -> Result<()> {
+        match &mut self.applier {
+            Applier::Uinput(devices) => devices.key(code, down),
             Applier::X11(desktop) => lock(desktop).key(code, down),
             #[cfg(test)]
             Applier::Recording(log) => {
@@ -233,7 +238,9 @@ impl InputTarget {
                 }
                 Ok(())
             }
-        }
+        }?;
+        self.held.key(code, down);
+        Ok(())
     }
 
     /// Release exactly what this session pressed, once, buttons before keys.
@@ -253,7 +260,7 @@ impl InputTarget {
         }
         for code in keys {
             match &mut self.applier {
-                Applier::Uinput(devices) => devices.key(code, false),
+                Applier::Uinput(devices) => devices.key(code, false)?,
                 Applier::X11(desktop) => lock(desktop).key(code, false)?,
                 #[cfg(test)]
                 Applier::Recording(log) => {
@@ -905,6 +912,7 @@ impl Inner {
         requested.extend(stroke.modifiers());
 
         self.with_input(|target| {
+            target.check_keys(requested.iter().copied().chain(std::iter::once(stroke.code)))?;
             if down {
                 for modifier in &requested {
                     target.key(*modifier, true)?;
@@ -938,6 +946,11 @@ impl Inner {
         }
         let _ = seq;
         self.with_input(|target| {
+            // Refuse an unsupported physical key before typing any prefix or
+            // holding a modifier. X11 already consumes evdev identities.
+            target.check_keys(plan.iter().flatten().flat_map(|stroke| {
+                std::iter::once(stroke.code).chain(stroke.modifiers())
+            }))?;
             for keystroke in plan {
                 for stroke in keystroke {
                     let modifiers = stroke.modifiers();

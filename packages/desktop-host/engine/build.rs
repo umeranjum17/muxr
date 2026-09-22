@@ -17,6 +17,8 @@ use std::path::{Path, PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=native/vpx_shim.c");
+    println!("cargo:rerun-if-changed=native/inputtino_shim.cpp");
+    println!("cargo:rerun-if-changed=vendor/inputtino/src/uinput/include/inputtino/keyboard.hpp");
     println!("cargo:rerun-if-changed=vendor/inputtino/include/inputtino/input.h");
     println!("cargo:rerun-if-changed=vendor/inputtino/CMakeLists.txt");
 
@@ -26,6 +28,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .compile("dlvpx");
     println!("cargo:rustc-link-lib=vpx");
 
+    cc::Build::new()
+        .cpp(true)
+        .std("c++17")
+        .include("vendor/inputtino/src/uinput/include")
+        .file("native/inputtino_shim.cpp")
+        .compile("dlinputkey");
     build_inputtino(&PathBuf::from(std::env::var("OUT_DIR")?))?;
     Ok(())
 }
