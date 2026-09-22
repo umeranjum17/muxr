@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { useLocalSettingMutable } from '@/catalog/store';
 import { hapticsLight, hapticsSelection } from '@/components/haptics';
-import { RING_CAPTION_WIDTH, ringFan, slotUnderFinger } from '../domain/ringGeometry';
+import { CLUSTER_SPOT, RING_CAPTION_WIDTH, clusterLayout, ringFan, slotUnderFinger } from '../domain/ringGeometry';
 
 /** Same contract as the old panel strip; the terminal view reports these. */
 export type TerminalCommand = {
@@ -159,6 +159,10 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
     slotsRef.current = slots;
     const gesture = React.useRef({
         phase: 'idle' as 'idle' | 'sweep' | 'drag',
+        /** A hold asked to pick the control up. The drag itself begins when
+         *  the responder is granted, so a hold that never moves leaves nothing
+         *  half-started behind. */
+        armed: false,
         grantDx: 0,
         grantDy: 0,
         /** The finger's offset from the control's centre when the sweep began. */
@@ -198,17 +202,29 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
     }, [dragX, dragY, lifted, setRest]);
 
     const pan = React.useRef(PanResponder.create({
+        // A new touch starts clean: an arm from a hold that never moved must not
+        // turn the next press-and-slide into a drag, and a live gesture keeps
+        // its own phase.
+        onStartShouldSetPanResponderCapture: () => {
+            if (gesture.current.phase === 'idle') gesture.current.armed = false;
+            return false;
+        },
         // The ring blooms on the first 8dp of travel rather than on
         // finger-down, which keeps tap discrimination on the platform's own
         // press path (Pressable) and avoids a second timing heuristic.
-        onMoveShouldSetPanResponderCapture: (_event, state) => Math.hypot(state.dx, state.dy) >= MOVE_THRESHOLD || gesture.current.phase === 'drag',
+        onMoveShouldSetPanResponderCapture: (_event, state) => Math.hypot(state.dx, state.dy) >= MOVE_THRESHOLD,
         onPanResponderGrant: (event, state) => {
             const g = gesture.current;
             g.grantDx = state.dx;
             g.grantDy = state.dy;
-            if (g.phase === 'drag') {
+            if (g.armed) {
+                // The hold is the pickup: the drag owns the gesture from here,
+                // and only its own release or terminate ends it.
+                g.armed = false;
+                g.phase = 'drag';
                 g.grabX = dragX.value;
                 g.grabY = dragY.value;
+                lifted.value = withTiming(1, { duration: 140 });
                 return;
             }
             // The responder IS the control, so the touch already answers where
@@ -302,7 +318,7 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
                 />
             ))}
             {cluster && clusterKeys !== undefined && clusterKeys.length > 0 && (
-                <ArrowCluster keys={clusterKeys} anchor={center} region={{ width, height: terminalHeight }} reduceMotion={reduceMotion === true} />
+                <ArrowCluster keys={clusterKeys} anchor={center} region={{ width, height }} terminalHeight={terminalHeight} reduceMotion={reduceMotion === true} />
             )}
             <Animated.View
                 {...pan.panHandlers}
@@ -321,14 +337,12 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
                     // became a drag below.
                     onPress={() => { hapticsLight(); if (cluster) { setCluster(false); return; } setOpen((current) => !current); }}
                     onLongPress={() => {
-                        gesture.current.phase = 'drag';
-                        lifted.value = withTiming(1, { duration: 140 });
+                        gesture.current.armed = true;
                         setOpen(false);
                         setCluster(false);
                         endSweep();
                         hapticsLight();
                     }}
-                    onPressOut={releaseDrag}
                     delayLongPress={PICKUP_MS}
                     pressRetentionOffset={{ top: 40, bottom: 40, left: 40, right: 40 }}
                     hitSlop={8}
@@ -359,46 +373,33 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
  * The keys send the row's own bytes: nothing here interprets a key, it only
  * draws one at a size a thumb can find without looking.
  */
-const CLUSTER_KEY = 52;
-const CLUSTER_GAP = 8;
-const CLUSTER_SPAN = CLUSTER_KEY * 3 + CLUSTER_GAP * 2;
-const CLUSTER_SPOT: Record<ClusterKey['at'], { row: number; column: number }> = {
-    up: { row: 0, column: 1 },
-    left: { row: 1, column: 0 },
-    centre: { row: 1, column: 1 },
-    right: { row: 1, column: 2 },
-    down: { row: 2, column: 1 },
-};
-
-function ArrowCluster({ keys, anchor, region, reduceMotion }: {
+function ArrowCluster({ keys, anchor, region, terminalHeight, reduceMotion }: {
     keys: readonly ClusterKey[];
     anchor: { x: number; y: number };
     region: { width: number; height: number };
+    /** How much of the region is terminal: the cross stays there while it can. */
+    terminalHeight: number;
     reduceMotion: boolean;
 }) {
     const { theme } = useUnistyles();
-    // Above the control that opened it, not over it: the control stays the way
-    // out, so the cross may never cover it. Horizontally it follows the
-    // control, and both axes are pushed back inside the terminal so a control
-    // resting in a corner still gets a whole cross.
-    const left = clamp(anchor.x - CLUSTER_SPAN / 2, 8, Math.max(8, region.width - CLUSTER_SPAN - 8));
-    const above = anchor.y - CENTER / 2 - 12 - CLUSTER_SPAN;
-    const below = anchor.y + CENTER / 2 + 12;
-    const top = clamp(above >= 8 ? above : below, 8, Math.max(8, region.height - CLUSTER_SPAN - 8));
+    // Wholly clear of the control that opened it: the control stays the way
+    // out, so the cross may never cover it, and a terminal too short to hold
+    // the cross lends it the rails below before it would do that.
+    const layout = clusterLayout(anchor, region, terminalHeight, CENTER);
     return (
         <Animated.View
             entering={reduceMotion ? undefined : FadeIn.duration(140)}
             exiting={reduceMotion ? undefined : FadeOut.duration(110)}
-            style={{ position: 'absolute', left, top, width: CLUSTER_SPAN, height: CLUSTER_SPAN }}
+            style={{ position: 'absolute', left: layout.left, top: layout.top, width: layout.span, height: layout.span }}
         >
             {keys.map((key) => (
-                <ClusterKeyView key={key.id} entry={key} theme={theme} />
+                <ClusterKeyView key={key.id} entry={key} theme={theme} size={layout.key} gap={layout.gap} />
             ))}
         </Animated.View>
     );
 }
 
-function ClusterKeyView({ entry, theme }: { entry: ClusterKey; theme: ReturnType<typeof useUnistyles>['theme'] }) {
+function ClusterKeyView({ entry, theme, size, gap }: { entry: ClusterKey; theme: ReturnType<typeof useUnistyles>['theme']; size: number; gap: number }) {
     const spot = CLUSTER_SPOT[entry.at];
     // Hold to repeat, the same 80ms the key row uses, so a long press walks
     // history at the same speed from either surface.
@@ -417,11 +418,11 @@ function ClusterKeyView({ entry, theme }: { entry: ClusterKey; theme: ReturnType
             onPressOut={stop}
             style={({ pressed }) => ({
                 position: 'absolute',
-                left: spot.column * (CLUSTER_KEY + CLUSTER_GAP),
-                top: spot.row * (CLUSTER_KEY + CLUSTER_GAP),
-                width: CLUSTER_KEY,
-                height: CLUSTER_KEY,
-                borderRadius: 16,
+                left: spot.column * (size + gap),
+                top: spot.row * (size + gap),
+                width: size,
+                height: size,
+                borderRadius: Math.round(size * 0.3),
                 alignItems: 'center',
                 justifyContent: 'center',
                 backgroundColor: pressed ? theme.colors.terminalChrome.clusterPressed : theme.colors.terminalChrome.cluster,
@@ -430,7 +431,7 @@ function ClusterKeyView({ entry, theme }: { entry: ClusterKey; theme: ReturnType
             {/* Full white, not the text grey: the glyph is the whole point of
                 the key and it has to survive whatever the terminal draws
                 behind it. */}
-            <Ionicons name={entry.icon} size={entry.at === 'centre' ? 28 : 26} color="#ffffff" />
+            <Ionicons name={entry.icon} size={Math.round(size * 0.5) + (entry.at === 'centre' ? 2 : 0)} color="#ffffff" />
         </Pressable>
     );
 }

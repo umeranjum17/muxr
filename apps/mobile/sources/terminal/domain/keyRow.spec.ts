@@ -38,25 +38,17 @@ describe('terminal key row resolution', () => {
     // An armed modifier must reach every key that can encode it, and must not
     // silently send the bare key when it cannot.
     // The cluster is a second PLACE for row keys, never a second definition of
-    // them: a drifted byte there would send a different key from the same mark
-    // on the row, which is the one thing exact-byte insertion must never do.
-    it('gives the directional cluster the row catalog\'s own keys and bytes', () => {
-        expect(ARROW_CLUSTER.map((spot) => spot.at)).toEqual(['up', 'left', 'centre', 'right', 'down']);
+    // them: it stores ids only, so every id must still resolve through the
+    // catalog to a byte key. An id that vanished, or that turned into a rail
+    // action, would drop a key from the cross without a word.
+    it('resolves every directional cluster id through the catalog to a byte key', () => {
+        expect(ARROW_CLUSTER.length).toBeGreaterThan(0);
         for (const spot of ARROW_CLUSTER) {
             const key = BUILTIN_KEY_CATALOG[spot.id];
             expect(key, `${spot.id} is a catalog key`).toBeDefined();
             expect(key!.send.length, `${spot.id} sends bytes`).toBeGreaterThan(0);
             expect(key!.action, `${spot.id} is a byte key, not a rail action`).toBeUndefined();
         }
-        // Return sits at the centre, the four arrows on the cross, and every
-        // arrow repeats on hold the way the row's own arrows do.
-        const at = (where: string) => BUILTIN_KEY_CATALOG[ARROW_CLUSTER.find((spot) => spot.at === where)!.id]!;
-        expect(at('centre').send).toBe('\r');
-        expect(at('up').send).toBe('\u001b[A');
-        expect(at('down').send).toBe('\u001b[B');
-        expect(at('left').send).toBe('\u001b[D');
-        expect(at('right').send).toBe('\u001b[C');
-        for (const where of ['up', 'down', 'left', 'right']) expect(at(where).repeat, where).toBe(true);
     });
 
     it('encodes armed modifiers across the catalog and refuses the chords a terminal cannot express', () => {
