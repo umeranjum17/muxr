@@ -19,6 +19,7 @@ import {
     decodePayload,
     encodePayload,
     RELAY_CLOSE_REPLACED,
+    routingChannelForRequest,
     type ClientFrame,
     type Envelope,
     type HostFrame,
@@ -236,7 +237,7 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
             }
             try {
                 const frame = parseClientFrame(decodePayload(plaintext));
-                if (hosted !== undefined && envelope.header.channel !== (frame.type === 'artifact.read' ? 'attachment' : 'session')) {
+                if (hosted !== undefined && envelope.header.channel !== routingChannelForRequest(frame.type)) {
                     options.onClientReject?.(senderId ?? 'unknown', clientKind, 'decrypt-rejected');
                     return;
                 }

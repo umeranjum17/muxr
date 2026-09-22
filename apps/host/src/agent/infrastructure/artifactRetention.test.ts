@@ -92,6 +92,31 @@ describe('artifact retention sweep', () => {
         expect(readdirSync(join(root, 'w1:p1'))).toEqual([]);
     });
 
+    it('leaves the pre-install pile alone when a prune runs before the first sweep', async () => {
+        const { root, reportPath } = home();
+        const epoch = Date.now();
+        share(root, 'w1:p1', 'legacy-recording.mp4', epoch - 20 * DAY);
+        share(root, 'w1:p1', 'fresh.png', epoch - MINUTE);
+
+        // `muxr artifacts prune --yes` with no report yet: the whole-disk scope
+        // is this run's alone and must not become the stored epoch.
+        const prune = await runArtifactRetention({ rootDir: root, reportPath, epochMs: 0, now: epoch });
+        expect(prune.report.lastPrune).not.toBeNull();
+        expect(prune.report.lastSweep).toBeNull();
+        expect(prune.report.epochMs).toBe(epoch);
+
+        share(root, 'w1:p1', 'later.png', epoch + MINUTE);
+        const sweep = await runArtifactRetention({ rootDir: root, reportPath, now: epoch + 31 * DAY });
+
+        // The month-old file shared after retention landed goes; the pile that
+        // was already here and the files shared before the prune stay, even
+        // though both are far past maxAgeMs.
+        expect(sweep.run.removed.map((record) => record.name)).toEqual(['later.png']);
+        expect(readdirSync(join(root, 'w1:p1')).sort()).toEqual(['fresh.png', 'legacy-recording.mp4']);
+        expect(sweep.report.lastSweep?.removedCount).toBe(1);
+        expect(sweep.report.lastPrune).not.toBeNull();
+    });
+
     it('never shows a pane fewer files than the timeline lists', () => {
         // The count bound is only safe while it is at least what the watcher
         // publishes: below that the sweep would delete rows the phone can see.

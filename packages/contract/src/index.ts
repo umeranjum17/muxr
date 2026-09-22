@@ -109,6 +109,7 @@ export {
     envelopeIsHosted,
     isPluginsInvalidatedFrame,
     isRoutingChannel,
+    routingChannelForRequest,
     nextRequestId,
     admitClientFrame,
     parseClientFrame,

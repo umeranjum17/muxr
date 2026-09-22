@@ -52,7 +52,7 @@ async function materializePreview(
             let offset = 0;
             let artifactId = artifact.id;
             while (offset < artifact.size) {
-                const chunk = await sync.artifactRead(sessionId, artifactId, offset, CHUNK_BYTES);
+                const chunk = await sync.artifactRead(sessionId, artifactId, offset, CHUNK_BYTES, 60_000);
                 if (chunk === null || chunk.offset !== offset || chunk.size !== artifact.size) throw new Error('Image changed during download');
                 artifactId = chunk.id;
                 const bytes = decodeBase64(chunk.data, 'base64');

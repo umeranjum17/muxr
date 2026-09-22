@@ -166,7 +166,9 @@ export async function readArtifactRetentionReport(path: string): Promise<Artifac
  *
  * `epochMs` defaults to the epoch recorded in the report, and is written there
  * the first time this runs. Passing `0` sweeps everything on disk and is an
- * operator prune, never the scheduled path.
+ * operator prune, never the scheduled path; a prune that lands before the first
+ * sweep still records the time it ran as the epoch, so the sweeps after it do
+ * not inherit the prune's whole-disk scope.
  */
 export async function runArtifactRetention(options: {
     rootDir: string;
@@ -180,7 +182,8 @@ export async function runArtifactRetention(options: {
     const policy = options.policy ?? ARTIFACT_RETENTION;
     const now = options.now ?? Date.now();
     const existing = await readArtifactRetentionReport(options.reportPath);
-    const epochMs = options.epochMs ?? existing?.epochMs ?? now;
+    const prune = options.epochMs === 0;
+    const epochMs = prune ? 0 : options.epochMs ?? existing?.epochMs ?? now;
     const root = resolve(options.rootDir);
 
     const paneIds = await listPanes(root);
@@ -195,10 +198,13 @@ export async function runArtifactRetention(options: {
         kept += result.kept;
         removedCount += result.removed.length;
         removedBytes += result.removed.reduce((total, record) => total + record.size, 0);
-        for (const record of result.removed) {
-            if (removed.length < policy.reportLimit) removed.push(record);
-        }
+        removed.push(...result.removed);
     }
+    // Newest first across every pane, then capped: the report is what an
+    // operator reads to see what the sweep took.
+    const reported = removed
+        .sort((left, right) => right.at - left.at || (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
+        .slice(0, policy.reportLimit);
 
     const run: ArtifactRetentionRun = {
         at: now,
@@ -206,15 +212,15 @@ export async function runArtifactRetention(options: {
         panes: paneIds.length,
         removedCount,
         removedBytes,
-        removed,
+        removed: reported,
         kept,
     };
     const report: ArtifactRetentionReport = {
         version: 1,
-        epochMs: existing?.epochMs ?? epochMs,
+        epochMs: existing?.epochMs ?? (prune ? now : epochMs),
         policy,
-        lastSweep: epochMs === 0 ? existing?.lastSweep ?? null : run,
-        lastPrune: epochMs === 0 ? run : existing?.lastPrune ?? null,
+        lastSweep: prune ? existing?.lastSweep ?? null : run,
+        lastPrune: prune ? run : existing?.lastPrune ?? null,
     };
     if (options.dryRun !== true) {
         try {

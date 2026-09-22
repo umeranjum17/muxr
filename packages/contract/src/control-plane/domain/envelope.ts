@@ -32,6 +32,18 @@ export function isRoutingChannel(value: unknown): value is RoutingChannel {
     return typeof value === 'string' && (ROUTING_CHANNELS as readonly string[]).includes(value);
 }
 
+/**
+ * Which hosted routing channel a request - and its response - rides.
+ *
+ * Both spellings of the artifact read map to the frozen 'attachment' label: a
+ * pre-rename app seals `attachment.read` on it, and a post-rename app may fall
+ * back to that same request against a pre-rename host, so keying on one
+ * spelling alone rejects the other side's frames.
+ */
+export function routingChannelForRequest(frameType: string): 'attachment' | 'session' {
+    return frameType === 'artifact.read' || frameType === 'attachment.read' ? 'attachment' : 'session';
+}
+
 /** Cleartext routing header. The only part the relay is allowed to read. */
 export interface EnvelopeHeader {
     /** Which machine the frame is going to / coming from. */

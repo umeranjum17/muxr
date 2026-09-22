@@ -203,10 +203,10 @@ async function run() {
     writeFileSync(join(attachDir, artifactName), Buffer.from(SHOT_B64, 'base64'));
     await waitFor(() => events.some((entry) => entry.sessionId === shell.id
         && entry.event?.type === 'artifacts.update'
-        && entry.event.attachments.some((attachment) => attachment.name === artifactName)), 'the Shared Artifacts update');
+        && entry.event.artifacts.some((artifact) => artifact.name === artifactName)), 'the Shared Artifacts update');
     const artifacts = await request(socket, 'artifact.list', { sessionId: shell.id });
-    const listed = artifacts.attachments.find((attachment) => attachment.name === artifactName);
-    if (listed === undefined || 'data' in listed) fail('attachment.list did not return metadata-only Shared Artifacts');
+    const listed = artifacts.artifacts.find((artifact) => artifact.name === artifactName);
+    if (listed === undefined || 'data' in listed) fail('artifact.list did not return metadata-only Shared Artifacts');
     if (!existsSync(join(attachDir, artifactName))) fail('Shared Artifact disappeared from durable storage');
     if (legacyImages.length > 0) fail('Shared Artifact leaked onto the removed terminal.image channel');
     console.log('ok: pane drop reached durable metadata-only Shared Artifacts history');

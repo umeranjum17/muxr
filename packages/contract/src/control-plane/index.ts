@@ -31,6 +31,7 @@ export {
     envelopeIsHosted,
     isPluginsInvalidatedFrame,
     isRoutingChannel,
+    routingChannelForRequest,
     nextRequestId,
     RELAY_CLOSE_REPLACED,
     ROUTING_CHANNELS,
