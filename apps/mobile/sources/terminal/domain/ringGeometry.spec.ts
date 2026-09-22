@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLUSTER_PAD, CLUSTER_SPOT, CLUSTER_STEPS, RING_CAPTION_PAD, RING_DEAD_ZONE, RING_SLOT_SIZE, clusterLayout, ringFan, ringOffsets, slotUnderFinger } from './ringGeometry';
+import { CLUSTER_KEY_FLOOR, CLUSTER_PAD, CLUSTER_STEPS, RING_CAPTION_PAD, RING_DEAD_ZONE, RING_SLOT_SIZE, clusterLayout, ringFan, ringOffsets, slotUnderFinger } from './ringGeometry';
 
 type Point = { x: number; y: number };
 
@@ -22,8 +22,6 @@ describe('command ring geometry', () => {
         { width: 360, terminal: 161, overlay: 281 },
     ];
     const discFor = (width: number): number => (width < 340 ? 38 : 48);
-    /** The floating control the cross sits clear of. */
-    const CONTROL = 44;
 
     it('carries every action from wherever the control rests, in every pane', () => {
         for (const pane of panes) {
@@ -89,13 +87,11 @@ describe('command ring geometry', () => {
         expect(Math.max(...high.map((point: Point) => point.y))).toBeGreaterThan(0);
     });
 
-    it('places the directional cluster clear of the control, inside the terminal', () => {
-        // The terminal's own box, keyboard down and keyboard up. The cross has
-        // to reach the thumb on a 161dp and a 140dp terminal without ever
-        // covering the control that opened it — that control is the only way
-        // out of the cross — and without spilling onto the rails below, which
-        // carry the key row and the composer: the cross lays no scrim, so it
-        // owns no part of the surface outside the terminal.
+    it('places the directional cluster inside the terminal, at the 38dp floor', () => {
+        // Every terminal the keyboard can leave behind. The cluster is centred
+        // on where the control rested; the control itself stands down while the
+        // cluster is up, so the keys only have to stay on the terminal — never
+        // on the key row or the composer below it.
         const boxes = [
             { width: 270, terminal: 440 },
             { width: 360, terminal: 620 },
@@ -110,12 +106,14 @@ describe('command ring geometry', () => {
             for (let x = 38; x <= box.width - 38; x += 26) {
                 for (let y = 38; y <= box.terminal - 38; y += 17) {
                     const where = `cluster for a control at (${x}, ${y}) on a ${box.width}x${box.terminal} terminal`;
-                    const layout = clusterLayout({ x, y }, { width: box.width, height: box.terminal }, CONTROL);
-                    for (const spot of Object.values(CLUSTER_SPOT)) {
-                        const left = layout.left + spot.column * (layout.key + layout.gap);
-                        const top = layout.top + spot.row * (layout.key + layout.gap);
-                        expect(left < x + 22 && x - 22 < left + layout.key && top < y + 22 && y - 22 < top + layout.key,
-                            `${where}: the cross never covers the control`).toBe(false);
+                    const layout = clusterLayout({ x, y }, { width: box.width, height: box.terminal });
+                    expect(layout, `${where}: a 38dp cluster still fits`).not.toBeNull();
+                    if (layout === null) continue;
+                    // 38dp is a hard floor at every terminal height.
+                    expect(layout.key, `${where}: never below the key floor`).toBeGreaterThanOrEqual(CLUSTER_KEY_FLOOR);
+                    for (const seat of Object.values(layout.seats)) {
+                        const left = layout.left + seat.left;
+                        const top = layout.top + seat.top;
                         // Every key is on the terminal, and nowhere else.
                         expect(left, `${where}: every key stays on the terminal`).toBeGreaterThanOrEqual(CLUSTER_PAD);
                         expect(left + layout.key, `${where}: every key stays on the terminal`).toBeLessThanOrEqual(box.width - CLUSTER_PAD);
@@ -125,9 +123,18 @@ describe('command ring geometry', () => {
                 }
             }
         }
-        // A roomy pane keeps the largest keys. The step-down is for the short
-        // terminals the keyboard leaves behind.
-        expect(clusterLayout({ x: 306, y: 560 }, { width: 360, height: 620 }, CONTROL).key).toBe(CLUSTER_STEPS[0]!.key);
+        // The cross is the roomy shape; the band is the short terminal's, one
+        // key tall and never smaller than the floor.
+        const roomy = clusterLayout({ x: 306, y: 560 }, { width: 360, height: 620 });
+        expect(roomy?.arrangement).toBe('cross');
+        expect(roomy?.key).toBe(CLUSTER_STEPS[0]!.key);
+        const short = clusterLayout({ x: 135, y: 60 }, { width: 270, height: 86 });
+        expect(short?.arrangement).toBe('row');
+        expect(short?.key).toBe(CLUSTER_KEY_FLOOR);
+        // A terminal shorter than one 38dp key plus the pad at both ends gets
+        // no cluster: it is declined rather than drawn unusable.
+        expect(clusterLayout({ x: 135, y: 25 }, { width: 270, height: 49 })).toBeNull();
+        expect(clusterLayout({ x: 135, y: 25 }, { width: 270, height: 50 })).not.toBeNull();
     });
 
     it('fires the slot under a lifted finger and nothing inside the dead zone', () => {

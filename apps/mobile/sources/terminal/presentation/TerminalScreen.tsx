@@ -874,7 +874,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             short: 'Arrows',
             icon: 'move-outline',
             opens: 'cluster',
-            run: () => {},
+            // The cluster declines a terminal too short for a 38dp key; the
+            // arrows stay on the key row, and the slot says so.
+            run: () => { showGestureHintRef.current('Arrows stay on the key row'); },
         });
         if (canControl) slots.push({
             id: 'commands',

@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { useLocalSettingMutable } from '@/catalog/store';
 import { hapticsLight, hapticsSelection } from '@/components/haptics';
-import { CLUSTER_SPOT, RING_CAPTION_WIDTH, clusterLayout, ringFan, slotUnderFinger } from '../domain/ringGeometry';
+import { RING_CAPTION_WIDTH, clusterLayout, ringFan, slotUnderFinger, type ClusterLayout } from '../domain/ringGeometry';
 
 /** Same contract as the old panel strip; the terminal view reports these. */
 export type TerminalCommand = {
@@ -77,7 +77,9 @@ const clamp = (value: number, min: number, max: number): number => Math.max(min,
  * and lift fires it in one motion; hold picks the control up and where it
  * comes to rest is remembered. Tap outside, lift on nothing, or hardware back
  * collapses it. The ring never dismisses the keyboard, and it is the only
- * quick-actions overlay at a time.
+ * quick-actions overlay at a time: the Arrows slot stands the control down and
+ * hands the surface to the cluster, which dismisses through its own layer or
+ * hardware back.
  *
  * Everything that moves per frame — the bloom, the highlight, the scrim, the
  * drag — is a shared value read on the UI thread. The component re-renders
@@ -129,6 +131,19 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
         [center, width, height, terminalHeight, count, disc],
     );
     const offsets = fan.offsets;
+    // The cluster's own placement, solved once per render. Null when the
+    // terminal cannot hold a 38dp key, which is the cue to decline the cluster
+    // rather than draw an unusable key.
+    const clusterSpot = React.useMemo(
+        () => (clusterKeys !== undefined && clusterKeys.length > 0
+            ? clusterLayout(center, { width, height: terminalHeight })
+            : null),
+        [clusterKeys, center, width, terminalHeight],
+    );
+    // The cluster owns the surface while it is up, so the control stands down
+    // and the two can never stack. A resize too small for the cluster keeps
+    // the control on screen rather than stranding an empty overlay.
+    const clusterUp = cluster && clusterSpot !== null;
 
     // The ring exists while it is open or while a sweep is in flight; one
     // shared progress drives both directions, so closing collapses the arc
@@ -186,10 +201,12 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
         hapticsSelection();
         endSweep();
         const slot = slotsRef.current[index];
-        if (slot?.opens === 'cluster') { setOverlay('cluster'); return; }
+        // A terminal too short to hold a 38dp key declines the cluster: the
+        // slot's own run reports where the arrows still are instead.
+        if (slot?.opens === 'cluster' && clusterSpot !== null) { setOverlay('cluster'); return; }
         setOverlay('none');
         slot?.run();
-    }, [endSweep]);
+    }, [endSweep, clusterSpot]);
     const releaseDrag = React.useCallback(() => {
         if (gesture.current.phase !== 'drag') return;
         gesture.current.phase = 'idle';
@@ -321,9 +338,22 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
                     onPress={() => fire(index)}
                 />
             ))}
-            {cluster && !visible && clusterKeys !== undefined && clusterKeys.length > 0 && (
-                <ArrowCluster keys={clusterKeys} anchor={center} terminal={{ width, height: terminalHeight }} reduceMotion={reduceMotion === true} />
+            {/* The cluster's own way out now that the control stands down: a
+                transparent layer over the terminal, so a press anywhere off a
+                key closes it while the terminal stays readable behind — no
+                scrim. Hardware back closes it too. */}
+            {clusterUp && (
+                <Pressable
+                    style={{ position: 'absolute', left: 0, top: 0, width, height: terminalHeight }}
+                    accessible={false}
+                    accessibilityLabel="Close arrow keys"
+                    onPress={() => setOverlay('none')}
+                />
             )}
+            {clusterSpot !== null && cluster && clusterKeys !== undefined && (
+                <ArrowCluster keys={clusterKeys} layout={clusterSpot} reduceMotion={reduceMotion === true} />
+            )}
+            {!clusterUp && (
             <Animated.View
                 {...pan.panHandlers}
                 collapsable={false}
@@ -364,6 +394,7 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
                     </Animated.View>
                 </Pressable>
             </Animated.View>
+            )}
         </View>
     );
 });
@@ -380,34 +411,27 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
  * The keys send the row's own bytes: nothing here interprets a key, it only
  * draws one at a size a thumb can find without looking.
  */
-function ArrowCluster({ keys, anchor, terminal, reduceMotion }: {
+function ArrowCluster({ keys, layout, reduceMotion }: {
     keys: readonly ClusterKey[];
-    anchor: { x: number; y: number };
-    /** The terminal's own box: the cross stays inside it. */
-    terminal: { width: number; height: number };
+    /** The cluster's solved placement: a cross, or the short terminal's band. */
+    layout: ClusterLayout;
     reduceMotion: boolean;
 }) {
     const { theme } = useUnistyles();
-    // Wholly clear of the control that opened it: the control stays the way
-    // out, so the cross may never cover it. And wholly inside the terminal:
-    // the cross lays no scrim, so it may not spill onto the key row or the
-    // composer below the terminal the way the scrimmed ring may.
-    const layout = clusterLayout(anchor, terminal, CENTER);
     return (
         <Animated.View
             entering={reduceMotion ? undefined : FadeIn.duration(140)}
             exiting={reduceMotion ? undefined : FadeOut.duration(110)}
-            style={{ position: 'absolute', left: layout.left, top: layout.top, width: layout.span, height: layout.span }}
+            style={{ position: 'absolute', left: layout.left, top: layout.top, width: layout.width, height: layout.height }}
         >
             {keys.map((key) => (
-                <ClusterKeyView key={key.id} entry={key} theme={theme} size={layout.key} gap={layout.gap} />
+                <ClusterKeyView key={key.id} entry={key} theme={theme} size={layout.key} seat={layout.seats[key.at]} />
             ))}
         </Animated.View>
     );
 }
 
-function ClusterKeyView({ entry, theme, size, gap }: { entry: ClusterKey; theme: ReturnType<typeof useUnistyles>['theme']; size: number; gap: number }) {
-    const spot = CLUSTER_SPOT[entry.at];
+function ClusterKeyView({ entry, theme, size, seat }: { entry: ClusterKey; theme: ReturnType<typeof useUnistyles>['theme']; size: number; seat: { left: number; top: number } }) {
     // Hold to repeat, the same 80ms the key row uses, so a long press walks
     // history at the same speed from either surface.
     const timer = React.useRef<ReturnType<typeof setInterval> | null>(null);
@@ -425,8 +449,8 @@ function ClusterKeyView({ entry, theme, size, gap }: { entry: ClusterKey; theme:
             onPressOut={stop}
             style={({ pressed }) => ({
                 position: 'absolute',
-                left: spot.column * (size + gap),
-                top: spot.row * (size + gap),
+                left: seat.left,
+                top: seat.top,
                 width: size,
                 height: size,
                 borderRadius: Math.round(size * 0.3),

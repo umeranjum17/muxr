@@ -90,15 +90,13 @@ const grant = (renderer: any, dx: number, dy: number) => TestRenderer.act(() => 
     pan(renderer).props.onMoveShouldSetPanResponderCapture(event, state);
     pan(renderer).props.onPanResponderGrant(event, state);
 });
-const lift = (renderer: any, dx: number, dy: number) => TestRenderer.act(() => {
-    pan(renderer).props.onPanResponderRelease({ nativeEvent: { locationX: 22, locationY: 22 } }, { dx, dy });
-});
 
 describe('floating terminal control', () => {
-    it('puts one overlay up at a time, and a slide off the cluster switches to the ring', () => {
+    it('puts one overlay up at a time, and the cluster dismisses through its own layer', () => {
         const renderer = mount();
         expect(clusterShown(renderer)).toBe(false);
         expect(ringUp(renderer)).toBe(false);
+        expect(control(renderer)).toBeDefined();
 
         tap(renderer, control(renderer));
         expect(ringUp(renderer)).toBe(true);
@@ -107,18 +105,15 @@ describe('floating terminal control', () => {
         tap(renderer, slot(renderer, 'Arrows'));
         expect(clusterShown(renderer)).toBe(true);
         expect(ringUp(renderer)).toBe(false);
+        // The control stands down while the cluster owns the surface, so it can
+        // never be pressed through the open cluster.
+        expect(control(renderer)).toBeUndefined();
 
-        // Press the control and slide: the cluster stands down, the ring's own
-        // sweep takes the gesture, and the cross never renders under it.
-        grant(renderer, 12, 0);
+        // The cluster's own layer dismisses it and brings the control back.
+        const dismiss = renderer.root.findAll((node: any) => node.props.accessibilityLabel === 'Close arrow keys')[0];
+        tap(renderer, dismiss);
         expect(clusterShown(renderer)).toBe(false);
-        expect(ringUp(renderer)).toBe(true);
-
-        // Lifting off the arc cancels the sweep, and the cluster it replaced
-        // does not come back underneath it.
-        lift(renderer, 12, 0);
-        expect(clusterShown(renderer)).toBe(false);
-        expect(ringUp(renderer)).toBe(false);
+        expect(control(renderer)).toBeDefined();
     });
 
     it('does not let a hold that never moved drag the next slide', () => {
