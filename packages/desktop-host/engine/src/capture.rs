@@ -5,7 +5,7 @@
 //! Everything PipeWire lives on this module's own thread because its objects are
 //! not `Send`; frames and state changes leave through channels.
 
-use crate::convert::{fit, to_i420, I420};
+use crate::convert::{to_i420, I420};
 use crate::portal::{PortalSession, SelectedSource};
 use anyhow::{Context, Result};
 use pipewire as pw;
@@ -340,9 +340,11 @@ fn run_loop(
             };
             let stride = if stride == 0 { w * 4 } else { stride };
             let used = if size == 0 { bytes.len() } else { size.min(bytes.len()) };
-            let (dw, dh) = fit(w, h, state.box_w, state.box_h);
+            // Exactly the encoder's size: fitting again here would round a
+            // second time and hand the encoder a frame it refuses whenever the
+            // stream's size differs from the one the portal reported.
             let seq = state.frames.load(Ordering::Relaxed);
-            match to_i420(&bytes[..used], w, h, stride, format, dw, dh) {
+            match to_i420(&bytes[..used], w, h, stride, format, state.box_w, state.box_h) {
                 Some(i420) => {
                     if state.geometry.lock().map(|g| g.is_none()).unwrap_or(false) {
                         if let Ok(mut g) = state.geometry.lock() {

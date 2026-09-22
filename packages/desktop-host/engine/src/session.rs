@@ -17,7 +17,7 @@ use crate::protocol::{ControlMessage, ControlReply, Permission, PointerPhase, So
 use crate::x11::X11Desktop;
 use anyhow::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc as std_mpsc, Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc as tokio_mpsc;
 
@@ -49,6 +49,14 @@ pub struct Metrics {
     pub dropped_frames: u64,
     pub encoded_frames: u64,
     pub encoded_bytes: u64,
+    /// Key frames sent: the first, and one per receiver request.
+    pub key_frames: u64,
+    /// Refinement passes: a still desktop re-coded once, sharp.
+    pub refined_frames: u64,
+    /// Time spent in the encoder, in microseconds, over every encoded frame.
+    pub encode_micros: u64,
+    /// The current rate target, after any loss back-off.
+    pub target_kbps: u32,
     pub input_applied: u64,
     pub input_rejected: u64,
 }
@@ -121,6 +129,10 @@ fn select_x11(
             .spawn(move || {
                 let interval = frame_interval(max_fps);
                 let mut sequence = 0u64;
+                // An X server has no damage signal here, so an unchanged screen
+                // is recognised by its pixels: handing it on would keep the
+                // encoder busy and a still desktop would never be refined.
+                let mut last_hash = None;
                 while !stop.load(Ordering::SeqCst) {
                     let started = Instant::now();
                     let frame = {
@@ -129,8 +141,15 @@ fn select_x11(
                     };
                     match frame {
                         Ok(frame) => {
-                            sink(frame, sequence);
-                            sequence += 1;
+                            use std::hash::{Hash, Hasher};
+                            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                            frame.data.hash(&mut hasher);
+                            let hash = hasher.finish();
+                            if last_hash != Some(hash) {
+                                last_hash = Some(hash);
+                                sink(frame, sequence);
+                                sequence += 1;
+                            }
                         }
                         Err(error) => {
                             if let Ok(mut m) = captured.lock() {
@@ -166,6 +185,9 @@ fn select_x11(
 struct InputTarget {
     applier: Applier,
     held: HeldState,
+    /// Fractions of a detent an X server, which only knows whole wheel clicks,
+    /// has not been sent yet.
+    wheel_rest: (f64, f64),
 }
 
 enum Applier {
@@ -206,13 +228,18 @@ impl InputTarget {
         }
     }
 
-    fn scroll(&mut self, dx: i64, dy: i64) -> Result<()> {
+    fn scroll(&mut self, dx: f64, dy: f64) -> Result<()> {
         match &mut self.applier {
             Applier::Uinput(devices) => {
                 devices.scroll(dx, dy);
                 Ok(())
             }
-            Applier::X11(desktop) => lock(desktop).scroll(dx, dy),
+            Applier::X11(desktop) => {
+                let (rest_x, rest_y) = (self.wheel_rest.0 + dx, self.wheel_rest.1 + dy);
+                let (whole_x, whole_y) = (rest_x.trunc(), rest_y.trunc());
+                self.wheel_rest = (rest_x - whole_x, rest_y - whole_y);
+                lock(desktop).scroll(whole_x as i64, whole_y as i64)
+            }
             #[cfg(test)]
             Applier::Recording(_) => Ok(()),
         }
@@ -454,15 +481,15 @@ impl Session {
         }
 
         let metrics = Arc::new(Mutex::new(Metrics::default()));
-        let (frame_tx, frame_rx) = std_mpsc::sync_channel::<I420>(2);
+        let (frame_tx, frame_rx) = latest_frame();
         let captured = metrics.clone();
         let sink = Box::new(move |frame: I420, _seq: u64| {
             if let Ok(mut m) = captured.lock() {
                 m.captured_frames += 1;
             }
-            // A full queue means the far end is behind. Dropping the frame is the
-            // correct backpressure: a desktop stream is live, not a file.
-            if frame_tx.try_send(frame).is_err() {
+            // An encoder that is behind gets the newest frame, not a queue: a
+            // desktop stream is live, and the last state is the one that counts.
+            if frame_tx.put(frame) {
                 if let Ok(mut m) = captured.lock() {
                     m.dropped_frames += 1;
                 }
@@ -506,20 +533,54 @@ impl Session {
         let source_h = source.height.max(1) as usize;
         let (width, height) = fit(source_w, source_h, request.max_width, request.max_height);
 
+        let bitrate_kbps = if request.bitrate_kbps == 0 {
+            auto_bitrate(width, height)
+        } else {
+            request.bitrate_kbps
+        };
         let encoder = Encoder::new(
             width,
             height,
-            request.bitrate_kbps,
+            bitrate_kbps,
             request.max_fps,
             available_parallelism().min(8) as u32,
         )
         .map_err(|error| SessionError::new("encode", format!("{error:#}")))?;
+
+        // Everything that can still refuse the session comes before the peer:
+        // a peer created and then abandoned keeps its socket and tasks alive.
+        let input = if !wants_control {
+            None
+        } else {
+            Some(match &x11 {
+                Some(desktop) => InputTarget {
+                    applier: Applier::X11(desktop.clone()),
+                    held: HeldState::default(),
+                    wheel_rest: (0.0, 0.0),
+                },
+                None => InputTarget {
+                    applier: Applier::Uinput(
+                        InputDevices::create(source_w as i32, source_h as i32).map_err(|error| {
+                            SessionError::new("input-unavailable", format!("{error:#}"))
+                        })?,
+                    ),
+                    held: HeldState::default(),
+                    wheel_rest: (0.0, 0.0),
+                },
+            })
+        };
+
+        let layout = Layout::from_environment()
+            .map_err(|error| SessionError::new("input", format!("no keyboard layout: {error:#}")))?;
 
         let (peer_events_tx, peer_events_rx) = tokio_mpsc::unbounded_channel::<PeerEvent>();
         let (peer, offer) = VideoPeer::offer(
             TransportOptions {
                 ice_servers: request.ice_servers.clone(),
                 relay_only: request.relay_only,
+                // Well above the rate target, so pacing only spreads a large
+                // frame over a few tens of milliseconds and never queues.
+                pace_bps: (bitrate_kbps as f64 * 3_000.0).max(20_000_000.0),
             },
             peer_events_tx,
         )
@@ -533,25 +594,6 @@ impl Session {
             "origin": { "x": source.origin_x, "y": source.origin_y },
         });
 
-        let input = if !wants_control {
-            None
-        } else {
-            Some(match &x11 {
-                Some(desktop) => InputTarget {
-                    applier: Applier::X11(desktop.clone()),
-                    held: HeldState::default(),
-                },
-                None => InputTarget {
-                    applier: Applier::Uinput(
-                        InputDevices::create(source_w as i32, source_h as i32).map_err(|error| {
-                            SessionError::new("input-unavailable", format!("{error:#}"))
-                        })?,
-                    ),
-                    held: HeldState::default(),
-                },
-            })
-        };
-
         let pipeline = Arc::new(AtomicBool::new(true));
         let inner = Arc::new(Inner {
             id,
@@ -564,10 +606,7 @@ impl Session {
             encoder: Mutex::new(encoder),
             input: Mutex::new(input),
             capture: Mutex::new(Some(capture)),
-            layout: Mutex::new(
-                Layout::from_environment()
-                    .map_err(|error| SessionError::new("input", format!("no keyboard layout: {error:#}")))?,
-            ),
+            layout: Mutex::new(layout),
             last_seq: Mutex::new(0),
             control_open: AtomicBool::new(false),
             closed: AtomicBool::new(false),
@@ -585,7 +624,7 @@ impl Session {
             first_frame: false,
         });
 
-        spawn_pipeline(&inner, frame_rx, pipeline, request.max_fps);
+        spawn_pipeline(&inner, frame_rx, pipeline, request.max_fps, bitrate_kbps);
         spawn_peer_events(&inner, peer_events_rx);
         spawn_lease(&inner, request.ttl.unwrap_or(Duration::from_secs(3600)));
 
@@ -858,8 +897,8 @@ impl Inner {
         })
     }
 
-    fn wheel(&self, dx: i64, dy: i64, _seq: u64) -> std::result::Result<(), (&'static str, String)> {
-        if dx.abs() > 100 || dy.abs() > 100 {
+    fn wheel(&self, dx: f64, dy: f64, _seq: u64) -> std::result::Result<(), (&'static str, String)> {
+        if !dx.is_finite() || !dy.is_finite() || dx.abs() > 100.0 || dy.abs() > 100.0 {
             return Err(("coordinates", String::from("scroll delta is out of range")));
         }
         self.with_input(|target| target.scroll(dx, dy))
@@ -1023,86 +1062,229 @@ fn frame_interval(max_fps: u32) -> Duration {
     Duration::from_secs_f64(1.0 / max_fps.max(1) as f64)
 }
 
-/// Caps the pipeline at the requested frame rate. One gate for both capture
-/// backends: a frame that arrives before its turn is dropped here, not encoded
-/// or sent.
-struct Pacer {
-    interval: Duration,
-    last: Option<Instant>,
+/// The newest captured frame, handed from the capture thread to the encoder. A
+/// newer frame replaces one the encoder has not taken, so however far behind
+/// it falls, what it codes next is the desktop as it is now.
+struct FrameSlot {
+    frame: Mutex<(Option<I420>, bool)>,
+    ready: Condvar,
 }
 
-impl Pacer {
-    fn new(max_fps: u32) -> Self {
-        Self {
-            interval: frame_interval(max_fps),
-            last: None,
+struct FrameSender(Arc<FrameSlot>);
+struct FrameReceiver(Arc<FrameSlot>);
+
+fn latest_frame() -> (FrameSender, FrameReceiver) {
+    let slot = Arc::new(FrameSlot { frame: Mutex::new((None, false)), ready: Condvar::new() });
+    (FrameSender(slot.clone()), FrameReceiver(slot))
+}
+
+impl FrameSender {
+    /// Hand over a frame; true when it replaced one the encoder never took.
+    fn put(&self, frame: I420) -> bool {
+        let mut held = self.0.frame.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let replaced = held.0.replace(frame).is_some();
+        self.0.ready.notify_one();
+        replaced
+    }
+}
+
+impl Drop for FrameSender {
+    /// The capture stopped: the encoder ends once it has taken what is left.
+    fn drop(&mut self) {
+        let mut held = self.0.frame.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        held.1 = true;
+        self.0.ready.notify_one();
+    }
+}
+
+enum Taken {
+    Frame(I420),
+    Timeout,
+    Ended,
+}
+
+impl FrameReceiver {
+    fn take(&self, wait: Duration) -> Taken {
+        let held = self.0.frame.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let (mut held, _) = self
+            .0
+            .ready
+            .wait_timeout_while(held, wait, |(frame, ended)| frame.is_none() && !*ended)
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match held.0.take() {
+            Some(frame) => Taken::Frame(frame),
+            None if held.1 => Taken::Ended,
+            None => Taken::Timeout,
         }
+    }
+}
+
+/// How long the desktop has to stay still before its last frame is refined.
+/// Long enough that a pause between keystrokes does not pay for a refinement
+/// the next key makes stale; short enough that reading does not wait for it.
+const REFINE_AFTER: Duration = Duration::from_millis(150);
+
+/// The longest the stream goes without a frame while the desktop is still. A
+/// WebRTC receiver that has had no decodable frame for a few seconds asks for
+/// a key frame (a 4K one is hundreds of kilobytes), then asks again after the
+/// next quiet spell. An unchanged frame costs a few hundred bytes and keeps it
+/// satisfied.
+const KEEPALIVE_AFTER: Duration = Duration::from_millis(1000);
+
+/// The rate target for a surface when the consumer did not choose one: enough
+/// for a scroll across a full 4K desktop to stay legible. A still desktop costs
+/// almost nothing whatever this says.
+fn auto_bitrate(width: usize, height: usize) -> u32 {
+    (1500 + (width * height * 18 / 10_000) as u32).min(25_000)
+}
+
+/// Loss-based rate target: back off quickly when the far end reports loss,
+/// creep back when it reports none, never above what the session asked for.
+struct RateControl {
+    ceiling: u32,
+    target: u32,
+    last_change: Option<Instant>,
+}
+
+impl RateControl {
+    fn new(ceiling: u32) -> Self {
+        Self { ceiling, target: ceiling, last_change: None }
     }
 
-    /// The interval a frame arriving at `now` covers, or `None` when it is early
-    /// enough to drop.
-    fn due(&mut self, now: Instant) -> Option<Duration> {
-        if let Some(last) = self.last {
-            let elapsed = now.saturating_duration_since(last);
-            if elapsed < self.interval {
-                return None;
-            }
-            self.last = Some(now);
-            return Some(elapsed);
+    /// The new target when these reports move it, at most once a second.
+    fn update(&mut self, reports: &[u8], now: Instant) -> Option<u32> {
+        let worst = *reports.iter().max()?;
+        if self.last_change.is_some_and(|at| now.duration_since(at) < Duration::from_secs(1)) {
+            return None;
         }
-        self.last = Some(now);
-        Some(self.interval)
+        let loss = worst as f64 / 256.0;
+        let floor = (self.ceiling / 8).max(500);
+        let next = if loss > 0.10 {
+            ((self.target as f64 * 0.7) as u32).max(floor)
+        } else if loss < 0.02 {
+            ((self.target as f64 * 1.08) as u32 + 64).min(self.ceiling)
+        } else {
+            self.target
+        };
+        if next == self.target {
+            return None;
+        }
+        self.target = next;
+        self.last_change = Some(now);
+        Some(next)
     }
+}
+
+enum Pass {
+    Motion { keyframe: bool },
+    Refine,
+    /// The same picture again, so a still stream never looks stalled.
+    Keepalive,
 }
 
 /// Encode and send frames off the async runtime: libvpx blocks for the duration
 /// of a frame and the send is asynchronous, so a plain thread driving the
 /// runtime handle keeps both honest.
-fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: std_mpsc::Receiver<I420>, running: Arc<AtomicBool>, max_fps: u32) {
+///
+/// PipeWire delivers a frame only when the desktop changes. Every frame that
+/// arrives is either coded or superseded by a newer one within one frame
+/// interval, so the phone never shows a state older than the desktop's; the
+/// rate cap delays a frame rather than dropping the last one of a burst. When
+/// the desktop goes still the last frame is coded once more, sharp.
+fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: FrameReceiver, running: Arc<AtomicBool>, max_fps: u32, bitrate_kbps: u32) {
     let inner = inner.clone();
     let handle = tokio::runtime::Handle::current();
     std::thread::Builder::new()
         .name("desklink-encode".into())
         .spawn(move || {
-            let mut pacer = Pacer::new(max_fps);
-            let mut latest_frame = None;
-            let mut force_keyframe = true;
-            let mut last_keyframe = Instant::now();
+            let interval = frame_interval(max_fps);
+            let mut rate = RateControl::new(bitrate_kbps);
+            if let Ok(mut m) = inner.metrics.lock() {
+                m.target_kbps = bitrate_kbps;
+            }
+            let mut latest: Option<I420> = None;
+            // `pending`: the latest frame has not been coded. `refined`: it has
+            // had its refinement pass, or there is nothing to refine.
+            let mut pending = false;
+            let mut refined = true;
+            let mut keyframe = true;
+            let mut still_since = Instant::now();
+            let mut last_sent: Option<Instant> = None;
             loop {
-                // PipeWire may produce only on damage. Keep the last real frame
-                // so a new receiver/PLI can get a keyframe without a repaint.
-                let fresh = match frame_rx.recv_timeout(Duration::from_millis(100)) {
-                    Ok(frame) => { latest_frame = Some(frame); true }
-                    Err(std_mpsc::RecvTimeoutError::Timeout) => false,
-                    Err(std_mpsc::RecvTimeoutError::Disconnected) => break,
+                let now = Instant::now();
+                let slot = last_sent.map_or(Duration::ZERO, |at| interval.saturating_sub(now.duration_since(at)));
+                let connected = inner.peer.is_connected();
+                let wait = if !connected {
+                    // Nothing sent before the transport connects arrives; the
+                    // first frame after it is a key frame.
+                    Duration::from_millis(50)
+                } else if pending {
+                    slot
+                } else if !refined {
+                    REFINE_AFTER.saturating_sub(now.duration_since(still_since)).max(slot)
+                } else {
+                    last_sent.map_or(Duration::from_millis(100), |at| KEEPALIVE_AFTER.saturating_sub(now.duration_since(at)))
+                        .clamp(Duration::from_millis(10), Duration::from_millis(100))
                 };
+                match frame_rx.take(wait) {
+                    Taken::Frame(frame) => {
+                        if pending {
+                            if let Ok(mut m) = inner.metrics.lock() {
+                                m.dropped_frames += 1;
+                            }
+                        }
+                        latest = Some(frame);
+                        pending = true;
+                        refined = false;
+                        still_since = Instant::now();
+                    }
+                    Taken::Timeout => {}
+                    Taken::Ended => break,
+                }
                 if !running.load(Ordering::Relaxed) {
                     break;
                 }
-                // ponytail: 2s reference refresh bounds idle loss recovery;
-                // replace it with forwarded PLI/FIR if that delay matters.
-                force_keyframe |= inner.peer.take_keyframe_request()
-                    || last_keyframe.elapsed() >= Duration::from_secs(2);
-                if !fresh && !force_keyframe {
-                    continue;
+                if inner.peer.take_keyframe_request() || !connected {
+                    keyframe = true;
                 }
-                let Some(frame) = latest_frame.as_ref() else { continue };
-                let Some(duration) = pacer.due(Instant::now()) else {
-                    // Retain a pending keyframe request across pacing drops.
-                    if fresh {
+                let reports = inner.peer.take_loss_reports();
+                if let Some(kbps) = rate.update(&reports, Instant::now()) {
+                    let applied = inner.encoder.lock().map(|mut encoder| encoder.set_bitrate(kbps));
+                    if matches!(applied, Ok(Ok(()))) {
                         if let Ok(mut m) = inner.metrics.lock() {
-                            m.dropped_frames += 1;
+                            m.target_kbps = kbps;
                         }
                     }
+                }
+                let Some(frame) = latest.as_ref() else { continue };
+                if !connected {
+                    continue;
+                }
+                let now = Instant::now();
+                if last_sent.is_some_and(|at| now.duration_since(at) < interval) {
+                    continue;
+                }
+                let pass = if pending || keyframe {
+                    Pass::Motion { keyframe }
+                } else if !refined && now.duration_since(still_since) >= REFINE_AFTER {
+                    Pass::Refine
+                } else if refined && last_sent.is_some_and(|at| now.duration_since(at) >= KEEPALIVE_AFTER) {
+                    Pass::Keepalive
+                } else {
                     continue;
                 };
 
+                let started = Instant::now();
                 let packet = {
                     let mut encoder = match inner.encoder.lock() {
                         Ok(encoder) => encoder,
                         Err(_) => break,
                     };
-                    encoder.encode(frame, force_keyframe)
+                    match pass {
+                        Pass::Motion { keyframe } => encoder.encode(frame, keyframe),
+                        Pass::Refine => encoder.refine(frame),
+                        Pass::Keepalive => encoder.encode(frame, false),
+                    }
                 };
                 let packet = match packet {
                     Ok(packet) => packet,
@@ -1123,17 +1305,36 @@ fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: std_mpsc::Receiver<I420>, runnin
                         break;
                     }
                 };
-                if force_keyframe {
-                    last_keyframe = Instant::now();
-                }
-                force_keyframe = false;
                 if let Ok(mut m) = inner.metrics.lock() {
                     m.encoded_frames += 1;
                     m.encoded_bytes += packet.data.len() as u64;
+                    m.encode_micros += started.elapsed().as_micros() as u64;
+                    match pass {
+                        Pass::Motion { keyframe: true } => m.key_frames += 1,
+                        Pass::Refine => m.refined_frames += 1,
+                        Pass::Motion { keyframe: false } | Pass::Keepalive => {}
+                    }
                 }
+                match pass {
+                    Pass::Motion { .. } => {
+                        pending = false;
+                        keyframe = false;
+                        refined = false;
+                        still_since = now;
+                    }
+                    Pass::Refine => refined = true,
+                    Pass::Keepalive => {}
+                }
+                last_sent = Some(now);
                 let peer = inner.peer.clone();
-                if let Err(error) = handle.block_on(peer.send_frame(packet.data, duration)) {
+                if let Err(error) = handle.block_on(peer.send_frame(&packet.data, packet.keyframe, now)) {
+                    // The transport is gone. End the session rather than leave
+                    // the desktop captured behind a picture that stopped.
                     eprintln!("the video track refused an encoded frame: {error:#}");
+                    let reason = String::from("the connection to the phone was lost");
+                    inner.notify(SessionEvent::Revoked { reason: reason.clone() });
+                    let target = inner.clone();
+                    handle.spawn(async move { target.close(&reason).await; });
                     break;
                 }
             }
@@ -1306,11 +1507,14 @@ mod tests {
             TransportOptions {
                 ice_servers: Vec::new(),
                 relay_only: false,
+                pace_bps: 20_000_000.0,
             },
             peer_events,
         )
         .await
         .expect("a peer connection builds without a network");
+        // The pipeline codes nothing before the transport connects.
+        peer.assume_connected();
         let recorded = Arc::new(Mutex::new(Vec::new()));
         let inner = Arc::new(Inner {
             id: String::from("test-session"),
@@ -1336,6 +1540,7 @@ mod tests {
             input: Mutex::new(Some(InputTarget {
                 applier: Applier::Recording(recorded.clone()),
                 held: HeldState::default(),
+                wheel_rest: (0.0, 0.0),
             })),
             capture: Mutex::new(None),
             layout: Mutex::new(Layout::from_environment().expect("a keymap")),
@@ -1401,18 +1606,16 @@ mod tests {
     async fn a_frame_the_encoder_refuses_ends_the_session_with_a_reason() {
         let (events, mut received) = tokio_mpsc::unbounded_channel();
         let (inner, _recorded) = test_inner(events).await;
-        let (frame_tx, frame_rx) = std_mpsc::sync_channel::<I420>(2);
-        spawn_pipeline(&inner, frame_rx, Arc::new(AtomicBool::new(true)), 30);
+        let (frame_tx, frame_rx) = latest_frame();
+        spawn_pipeline(&inner, frame_rx, Arc::new(AtomicBool::new(true)), 30, 1000);
 
         // The encoder is 64x64; a 32x32 frame is the dimension mismatch that
         // used to be counted and dropped behind a permanently black picture.
-        frame_tx
-            .send(I420 {
-                width: 32,
-                height: 32,
-                data: vec![128u8; 32 * 32 + 2 * 16 * 16],
-            })
-            .expect("the pipeline is reading");
+        frame_tx.put(I420 {
+            width: 32,
+            height: 32,
+            data: vec![128u8; 32 * 32 + 2 * 16 * 16],
+        });
         tokio::time::sleep(Duration::from_millis(150)).await;
 
         let mut reason = None;
@@ -1470,42 +1673,41 @@ mod tests {
         assert!(inner.input.lock().unwrap().is_none());
     }
 
-    #[test]
-    fn the_pacer_drops_frames_that_arrive_faster_than_the_requested_rate() {
-        let mut pacer = Pacer::new(20);
-        let start = Instant::now();
-
-        assert_eq!(pacer.due(start), Some(frame_interval(20)), "the first frame is due");
-        assert!(pacer.due(start + Duration::from_millis(10)).is_none());
-        assert!(pacer.due(start + Duration::from_millis(45)).is_none());
-        assert_eq!(
-            pacer.due(start + Duration::from_millis(55)),
-            Some(Duration::from_millis(55)),
-            "the frame that is due covers the real interval",
-        );
-        assert!(pacer.due(start + Duration::from_millis(60)).is_none());
-    }
-
     #[tokio::test]
-    async fn the_pipeline_emits_at_the_requested_rate_not_every_captured_frame() {
+    async fn the_pipeline_caps_the_rate_codes_the_last_frame_and_refines_a_still_desktop_once() {
         let (events, _events_rx) = tokio_mpsc::unbounded_channel();
         let (inner, _recorded) = test_inner(events).await;
-        let (frame_tx, frame_rx) = std_mpsc::sync_channel::<I420>(64);
-        spawn_pipeline(&inner, frame_rx, Arc::new(AtomicBool::new(true)), 20);
+        let (frame_tx, frame_rx) = latest_frame();
+        spawn_pipeline(&inner, frame_rx, Arc::new(AtomicBool::new(true)), 20, 1000);
 
         // 40 frames over 200 ms is 200 fps; the requested 20 fps caps what leaves.
         for _ in 0..40 {
-            let _ = frame_tx.try_send(I420 {
+            frame_tx.put(I420 {
                 width: 64,
                 height: 64,
                 data: vec![128u8; 64 * 64 + 2 * 32 * 32],
             });
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        tokio::time::sleep(Duration::from_millis(80)).await;
+        let motion = inner.metrics.lock().unwrap().encoded_frames;
+        assert!(motion <= 7, "the requested rate is a cap, got {motion} of 40");
+        assert!(motion >= 2, "the pipeline must still emit frames, got {motion}");
 
-        let encoded = inner.metrics.lock().unwrap().encoded_frames;
-        assert!(encoded <= 12, "the requested rate is a cap, got {encoded} of 40");
-        assert!(encoded >= 2, "the pipeline must still emit frames, got {encoded}");
+        // Still for longer than a refinement takes: the last frame of the burst
+        // is coded (a refinement only follows a coded frame), then refined once.
+        tokio::time::sleep(Duration::from_millis(450)).await;
+        let metrics = inner.metrics.lock().unwrap().clone();
+        assert_eq!(metrics.refined_frames, 1, "a still desktop is refined exactly once");
+        assert_eq!(metrics.key_frames, 1, "only the first frame is a key frame");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(inner.metrics.lock().unwrap().encoded_frames, metrics.encoded_frames, "nothing is sent while still");
+
+        // A still stream is kept alive, so a receiver never waits long enough
+        // to ask for a key frame; the keepalive is neither a key frame nor
+        // another refinement.
+        tokio::time::sleep(Duration::from_millis(900)).await;
+        let later = inner.metrics.lock().unwrap().clone();
+        assert!(later.encoded_frames > metrics.encoded_frames, "a still stream still sends");
+        assert_eq!((later.key_frames, later.refined_frames), (1, 1));
     }
 }

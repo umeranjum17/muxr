@@ -242,12 +242,13 @@ impl InputDevices {
         }
     }
 
-    pub fn scroll(&mut self, dx: i64, dy: i64) {
+    pub fn scroll(&mut self, dx: f64, dy: f64) {
         // Protocol deltas are down/right, as in DOM wheel events and X11.
         // evdev's vertical wheel has the opposite sign (positive is up).
-        // Its high-resolution unit is 120 per detent, not one screen pixel.
-        let vertical = (-dy * 120).clamp(-1200, 1200) as c_int;
-        let horizontal = (dx * 120).clamp(-1200, 1200) as c_int;
+        // Its high-resolution unit is 120 per detent, not one screen pixel, so a
+        // fraction of a detent is a smooth scroll where the client supports it.
+        let vertical = (-dy * 120.0).round().clamp(-1200.0, 1200.0) as c_int;
+        let horizontal = (dx * 120.0).round().clamp(-1200.0, 1200.0) as c_int;
         if vertical != 0 {
             unsafe { inputtino_mouse_scroll_vertical(self.mouse, vertical) };
         }

@@ -4,8 +4,13 @@
 //! Real-time, single pass, zero lookahead: one frame in, one packet out, so the
 //! far end never waits on a frame the encoder is still holding. Hardware
 //! encoders are deliberately not used — VP9 hardware encode is vendor-specific
-//! and would put a driver dependency on the machine class, while software VP9
-//! at a phone-sized resolution is cheap and identical everywhere.
+//! and would put a driver dependency on the machine class.
+//!
+//! Tuned for a desktop rather than a camera: screen-content mode, key frames
+//! only on request, and a refinement pass. While the desktop moves, frames are
+//! coded against the rate target; once it stops, the last frame is coded once
+//! more under a low quantizer ceiling, so what the user reads is sharp without
+//! paying for sharpness on every frame of a scroll.
 
 use crate::convert::I420;
 use anyhow::Result;
@@ -30,14 +35,27 @@ extern "C" {
         i420: *const u8,
         force_keyframe: c_int,
     ) -> c_int;
+    fn dl_vpx_reconfigure(encoder: *mut NativeEncoder, bitrate_kbps: c_int, max_quantizer: c_int) -> c_int;
+    fn dl_vpx_motion_max_q() -> c_int;
     fn dl_vpx_packet_data(encoder: *const NativeEncoder) -> *const u8;
     fn dl_vpx_packet_size(encoder: *const NativeEncoder) -> usize;
+    fn dl_vpx_packet_is_key(encoder: *const NativeEncoder) -> c_int;
     fn dl_vpx_destroy(encoder: *mut NativeEncoder);
 }
+
+/// The quantizer ceiling of a refinement pass (VP9's 0–63 scale). Low enough
+/// that small text is crisp; the pass happens once per still, not per frame.
+const REFINE_MAX_Q: c_int = 10;
+
+/// libvpx's speed/quality trade for real time. 8 codes a 4K desktop frame well
+/// inside a 30 fps budget on a desktop CPU.
+const CPU_USED: c_int = 8;
 
 /// One encoded VP9 frame as libvpx produced it.
 pub struct EncodedFrame {
     pub data: Vec<u8>,
+    /// A key frame: decodable on its own. The transport has to say so.
+    pub keyframe: bool,
 }
 
 pub struct Encoder {
@@ -67,7 +85,7 @@ impl Encoder {
                 bitrate_kbps as c_int,
                 fps.max(1) as c_int,
                 threads.max(1) as c_int,
-                8,
+                CPU_USED,
             )
         };
         if native.is_null() {
@@ -79,6 +97,33 @@ impl Encoder {
             height,
             bitrate_kbps,
         })
+    }
+
+    /// Change the rate target for the frames that follow.
+    pub fn set_bitrate(&mut self, bitrate_kbps: u32) -> Result<()> {
+        let status = unsafe {
+            dl_vpx_reconfigure(self.native, bitrate_kbps.max(1) as c_int, dl_vpx_motion_max_q())
+        };
+        if status != 0 {
+            anyhow::bail!("libvpx refused a {bitrate_kbps} kbps target");
+        }
+        self.bitrate_kbps = bitrate_kbps.max(1);
+        Ok(())
+    }
+
+    /// Code `frame` again, unchanged, under the refinement ceiling. The result is
+    /// an inter frame that carries only the detail the last one lacked.
+    pub fn refine(&mut self, frame: &I420) -> Result<EncodedFrame> {
+        let bitrate = self.bitrate_kbps.max(1) as c_int;
+        if unsafe { dl_vpx_reconfigure(self.native, bitrate, REFINE_MAX_Q) } != 0 {
+            anyhow::bail!("libvpx refused the refinement ceiling");
+        }
+        let packet = self.encode(frame, false);
+        let restored = unsafe { dl_vpx_reconfigure(self.native, bitrate, dl_vpx_motion_max_q()) };
+        if restored != 0 {
+            anyhow::bail!("libvpx refused to restore the motion ceiling");
+        }
+        packet
     }
 
     pub fn encode(&mut self, frame: &I420, force_keyframe: bool) -> Result<EncodedFrame> {
@@ -106,7 +151,8 @@ impl Encoder {
             anyhow::bail!("libvpx reported a zero-length packet");
         }
         let bytes = unsafe { std::slice::from_raw_parts(data, size) }.to_vec();
-        Ok(EncodedFrame { data: bytes })
+        let keyframe = unsafe { dl_vpx_packet_is_key(self.native) } != 0;
+        Ok(EncodedFrame { data: bytes, keyframe })
     }
 }
 
@@ -146,3 +192,4 @@ mod tests {
         assert!(encoder.encode(&blank(32, 32), false).is_err());
     }
 }
+

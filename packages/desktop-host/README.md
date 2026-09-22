@@ -17,7 +17,10 @@ particular application.
   the pixel path on the CPU and out of the driver.
 - **Encode** VP9 with libvpx in real time, single pass, no lookahead: one frame
   in, one packet out. Software by default, because a hardware encoder would put a
-  vendor driver dependency on every machine class.
+  vendor driver dependency on every machine class. Tuned for a desktop: the
+  desktop's own pixels up to 4K (a phone zooms in, and text has to survive it),
+  screen-content mode, key frames only on request, and a refinement pass that
+  re-codes a still desktop once at a fine quantizer so it reads sharp.
 - **Transport** with WebRTC — ICE, DTLS, SRTP, RTP — and one data channel for the
   session's pointer/keyboard/clipboard.
 - **Input** through [inputtino](https://github.com/games-on-whales/inputtino)

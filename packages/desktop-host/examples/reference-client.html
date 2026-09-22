@@ -261,7 +261,7 @@ async function start() {
   try {
     const session = await request('session.open', {
       permissions: ['view', 'control', 'clipboard'],
-      max_width: 1280, max_height: 800, max_fps: 30,
+      max_fps: 30,
     });
     surface = session.geometry.encoded;
     // Reference-client diagnostics: enough to see the session from the console

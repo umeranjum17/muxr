@@ -112,14 +112,17 @@ pub struct OpenParams {
     pub ttl_seconds: Option<u64>,
 }
 
+/// The encode box when the consumer names none: a desktop's own pixels up to
+/// 4K, because a phone zooms into the picture and text has to survive that.
 fn default_max_width() -> usize {
-    1280
+    3840
 }
 fn default_max_height() -> usize {
-    800
+    2160
 }
+/// Zero asks the engine to size the rate to the encoded surface.
 fn default_bitrate() -> u32 {
-    4000
+    0
 }
 fn default_fps() -> u32 {
     30
@@ -185,11 +188,12 @@ pub enum ControlMessage {
         #[serde(default)]
         seq: u64,
     },
+    /// Detents; fractions scroll smoothly where the desktop supports it.
     Wheel {
         #[serde(default)]
-        dx: i64,
+        dx: f64,
         #[serde(default)]
-        dy: i64,
+        dy: f64,
         #[serde(default)]
         seq: u64,
     },
@@ -305,10 +309,11 @@ mod tests {
     }
 
     #[test]
-    fn open_defaults_are_a_phone_sized_surface() {
+    fn open_defaults_keep_the_desktops_own_pixels_up_to_4k() {
         let params: OpenParams = serde_json::from_str(r#"{"permissions":["view","control"]}"#).unwrap();
-        assert_eq!(params.max_width, 1280);
-        assert_eq!(params.max_height, 800);
+        assert_eq!(params.max_width, 3840);
+        assert_eq!(params.max_height, 2160);
+        assert_eq!(params.bitrate_kbps, 0, "the engine sizes the rate to the surface");
         assert_eq!(params.max_fps, 30);
         assert!(!params.relay_only);
     }

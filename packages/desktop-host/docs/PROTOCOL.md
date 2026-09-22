@@ -143,8 +143,8 @@ opaque and local to this process's lifetime — it is not a portable identity.
 {"id":4,"method":"session.open","params":{
   "source": {"kind":"portal"},          // or {"kind":"x11","display":":99"}
   "permissions": ["view","control","clipboard"],
-  "max_width": 1280, "max_height": 800, // encode box; never upscales
-  "bitrate_kbps": 4000,
+  "max_width": 3840, "max_height": 2160, // encode box (default); never upscales
+  "bitrate_kbps": 0,                    // 0 (default): sized to the encoded surface
   "max_fps": 30,
   "ice_servers": [{"urls":["stun:..."],"username":null,"credential":null}],
   "relay_only": false,                  // true keeps ICE to relay candidates
@@ -248,8 +248,16 @@ Metrics are a request, not a notification:
 
 ```jsonc
 {"id":7,"result":{"captured_frames":812,"dropped_frames":3,"encoded_frames":809,
-  "encoded_bytes":12345678,"input_applied":44,"input_rejected":0}}
+  "encoded_bytes":12345678,"key_frames":1,"refined_frames":37,
+  "encode_micros":7390000,"target_kbps":16430,"input_applied":44,"input_rejected":0}}
 ```
+
+`dropped_frames` counts frames superseded by a newer one before they were coded;
+the newest frame is always coded. `refined_frames` counts refinement passes: a
+desktop that stops changing is coded once more at a fine quantizer, so it reads
+sharp. Key frames are sent only for the first frame and when the receiver asks
+(RTCP PLI or FIR). `target_kbps` is the current rate target after any back-off
+for loss the receiver reported.
 
 ## Input and clipboard: the session's control channel
 
@@ -275,7 +283,7 @@ are JSON, one per message:
 | kind | fields | notes |
 |---|---|---|
 | `pointer` | `phase`: `move`\|`down`\|`up`\|`cancel`, `x`, `y`, `button` (default 1) | `x`/`y` are integers in the **encoded surface's** own pixels, i.e. `geometry.encoded` |
-| `wheel` | `dx`, `dy` (integer detents) | Positive `dx` scrolls right; positive `dy` scrolls down. Native adapters normalize platform wheel signs. |
+| `wheel` | `dx`, `dy` (detents; fractions allowed) | Positive `dx` scrolls right; positive `dy` scrolls down. A fraction is a smooth partial scroll on a desktop with high-resolution wheel support (120 units per detent); an X display receives whole detents as they accumulate. Native adapters normalize platform wheel signs. |
 | `key` | `name` (a named key or modifier) or `character` (one character), `down`, `modifiers` | the engine maps `character` through the layout it compiled (`input.layout` in `capabilities`), and refuses a character that layout cannot produce |
 | `text` | `text` (≤ 4096 bytes) | applied as real key events, not as a clipboard paste |
 | `release_all` | — | explicit safety net; the engine also does this on close and on channel loss |
