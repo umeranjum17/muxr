@@ -56,6 +56,9 @@ export function normalizeWindow({ provider, windowKind, label, used, remaining, 
     const clock = resetClock(resetEpochSec, nowMs);
     const elapsed = windowElapsed(percentUsed, finiteMinutes, resetEpochSec, nowMs, clock);
     const verdict = elapsed === undefined ? null : limitsVerdict(percentUsed, elapsed, limited);
+    let tone: PaceVerdict['tone'] = 'secondary';
+    if (verdict === 'limited' || verdict === 'low') tone = 'danger';
+    else if (verdict === 'ahead' || verdict === 'watch') tone = 'warning';
     return {
         provider,
         windowKind,
@@ -68,7 +71,7 @@ export function normalizeWindow({ provider, windowKind, label, used, remaining, 
         ...(Number.isFinite(resetEpochSec) ? { resetEpochSec: resetEpochSec! } : {}),
         resetClock: clock,
         ...(limited ? { limited: true } : {}),
-        pace: { verdict: verdict === 'go' ? 'on pace' : verdict, tone: verdict === 'limited' || verdict === 'low' ? 'danger' : verdict === 'ahead' || verdict === 'watch' ? 'warning' : 'secondary' },
+        pace: { verdict: verdict === 'go' ? 'on pace' : verdict, tone },
     };
 }
 
@@ -143,10 +146,12 @@ export function goWindows(usage: unknown, { provider = 'opencode', nowMs }: { pr
  *  A limit without a `limitName` is the plan's own, so its windows are named by
  *  kind alone; a separately named limit prefixes its name. */
 export function codexWindows(limits: unknown[], { provider = 'codex', nowMs }: { provider?: string; nowMs: number }): UsageWindowVM[] {
-    const kindForMinutes = (minutes: number | undefined): string =>
-        minutes === WINDOW_MINUTES.five_hour ? 'session'
-            : minutes === WINDOW_MINUTES.seven_day ? 'weekly'
-                : minutes === WINDOW_MINUTES.monthly ? 'monthly' : 'custom';
+    const kindForMinutes = (minutes: number | undefined): string => {
+        if (minutes === WINDOW_MINUTES.five_hour) return 'session';
+        if (minutes === WINDOW_MINUTES.seven_day) return 'weekly';
+        if (minutes === WINDOW_MINUTES.monthly) return 'monthly';
+        return 'custom';
+    };
     return limits.flatMap((limit) => ['primary', 'secondary'].flatMap((key): UsageWindowVM[] => {
         const window = (limit as Record<string, { usedPercent?: unknown; windowDurationMins?: unknown; resetsAt?: unknown } | undefined> | undefined)?.[key];
         if (!Number.isFinite(window?.usedPercent)) return [];
