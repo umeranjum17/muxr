@@ -146,6 +146,11 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
     const cluster = overlay === 'cluster' && clusterSpot !== null;
     /** Either overlay is up, which is what the control's own state reflects. */
     const up = open || cluster;
+    // A placement that disappears takes its mode with it, or the state left
+    // behind re-arms the cluster by itself when the terminal grows back.
+    React.useEffect(() => {
+        if (overlay === 'cluster' && clusterSpot === null) setOverlay('none');
+    }, [overlay, clusterSpot]);
 
     // The ring exists while it is open or while a sweep is in flight; one
     // shared progress drives both directions, so closing collapses the arc

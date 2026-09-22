@@ -146,6 +146,13 @@ describe('floating terminal control', () => {
         expect(control(renderer).props.accessibilityLabel).toBe('Terminal quick actions');
         expect(control(renderer).props.accessibilityState).toEqual({ expanded: false });
 
+        // Growing back must not re-arm the mode that was declined while it
+        // could not be drawn: no press happens between the two sizes.
+        resize(renderer, 620);
+        expect(clusterShown(renderer)).toBe(false);
+        expect(control(renderer)).toBeDefined();
+        expect(control(renderer).props.accessibilityLabel).toBe('Terminal quick actions');
+
         // And the tap opens the ring rather than only clearing stale state.
         tap(renderer, control(renderer));
         expect(ringUp(renderer)).toBe(true);
