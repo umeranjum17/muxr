@@ -5,7 +5,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { hapticsSelection } from '@/components/haptics';
 import { useLocalSetting, useLocalSettingMutable } from '@/catalog/store';
-import { modifiedSend, resolveKeyRow, type TerminalKey, type TerminalKeyAction } from '../domain/keyRow';
+import { modifiedSend, resolveKeyRow, type RowEntry, type TerminalKey, type TerminalKeyAction } from '../domain/keyRow';
 
 const ARROWS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
     '\u001b[D': 'arrow-back', '\u001b[A': 'arrow-up', '\u001b[B': 'arrow-down', '\u001b[C': 'arrow-forward',
@@ -20,9 +20,16 @@ type Modifier = 'off' | 'once' | 'lock';
 
 const cycle = (state: Modifier): Modifier => (state === 'off' ? 'once' : state === 'once' ? 'lock' : 'off');
 
-export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channel?: { sendText: (text: string) => void }; children?: React.ReactNode; onEdit: () => void; onAction?: (action: TerminalKeyAction) => void }) {
+export function TerminalKeyRow({ channel, children, entries, onEdit, onAction }: {
+    channel?: { sendText: (text: string) => void };
+    children?: React.ReactNode;
+    /** Draw this row instead of the stored one: the key editor previews its working copy through this same component. */
+    entries?: readonly RowEntry[];
+    onEdit?: () => void;
+    onAction?: (action: TerminalKeyAction) => void;
+}) {
     const { theme } = useUnistyles();
-    const rowEntries = useLocalSetting('terminalKeyRow');
+    const storedEntries = useLocalSetting('terminalKeyRow');
     // "Use Icons for Modifier Keys": the control grid's display toggle swaps
     // the modifier captions for glyphs.
     const [modifierIcons] = useLocalSettingMutable('terminalModifierIcons');
@@ -76,10 +83,10 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
         applyMods(ctrlRef.current === 'once' ? 'off' : ctrlRef.current, shiftRef.current === 'once' ? 'off' : shiftRef.current);
     };
     const active = (state: Modifier) => state !== 'off';
-    const keys = resolveKeyRow(rowEntries);
+    const keys = resolveKeyRow(entries ?? storedEntries);
     const openEditor = React.useCallback(() => {
         stopRepeat();
-        onEdit();
+        onEdit?.();
     }, [stopRepeat, onEdit]);
     return (
         <>

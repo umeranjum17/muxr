@@ -3,13 +3,14 @@ import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, Tex
 import { Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector, GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { hapticsSelection } from '@/components/haptics';
 import { Switch } from '@/components/Switch';
 import { ui } from '@/components/ui';
 import { useLocalSettingMutable } from '@/catalog/store';
 import { BUILTIN_KEY_CATALOG, CATALOG_GROUPS, DEFAULT_ROW_IDS, TERMINAL_KEY_ROW_LIMIT, bytesToEscape, escapeToBytes, modifiedSend, resolveKeyRow, type RowEntry } from '../domain/keyRow';
+import { TerminalKeyRow } from './TerminalKeyRow';
 import { useReorderableList } from './useReorderableList';
 import { randomUUID } from 'expo-crypto';
 import { DEFAULT_QUICK_ACTIONS, quickActionErrors, QUICK_ACTION_LABEL_LIMIT, QUICK_ACTION_LIMIT, QUICK_ACTION_TEXT_LIMIT, type QuickAction, type QuickActionKind } from '../domain/quickActions';
@@ -233,26 +234,24 @@ function KeysCategory({ entries, seed, onChange, closeForm, modifierIcons, onCha
             sections under it: on a short pane a fixed 300dp block would push
             DISPLAY and the reorder card clean off the screen. */}
         <View style={[styles.previewStage, { height: Math.min(300, Math.round(windowHeight * 0.34)), backgroundColor: '#0c0c0b', borderColor: theme.colors.divider }]}>
-            {/* Restrained copy holds the stage's center; the actual toolbar
-                anchors near the stage bottom, as in the reference. */}
+            {/* Restrained copy holds the stage's center; the row anchors at
+                the stage bottom, where the terminal draws it. */}
             <View style={styles.previewCopyWrap}>
                 <Text style={styles.previewCopy}>Live preview of your toolbar.</Text>
             </View>
-            {/* The actual toolbar staged inside the stage, at natural size. */}
-            <View style={[styles.previewRail, {
-                backgroundColor: theme.colors.glass.backgroundStrong,
-                borderColor: theme.colors.glass.border,
-            }]}>
-            {/* The caps need a step of their own against the rail they sit in,
-                or the toolbar renders as one undifferentiated pill. */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 6, alignItems: 'center', paddingRight: 4 }}>
-                {['ctrl', 'shift'].map((label) => <View key={label} style={[styles.previewKey, { backgroundColor: theme.colors.surfaceHighest }]}>
-                    <Text style={[styles.rowLabel, { color: theme.colors.textSecondary }]}>{modifierIcons ? (label === 'ctrl' ? '\u2303' : '\u21e7') : label}</Text>
-                </View>)}
-                {resolveKeyRow(working).map((key, index) => <View key={index} style={[styles.previewKey, { backgroundColor: theme.colors.surfaceHighest }]}>
-                    <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{key.label}</Text>
-                </View>)}
-            </ScrollView>
+            {/* The terminal's own key row, fed the working copy, so every add,
+                removal and drag lands here exactly as the terminal will draw
+                it. Taps arm ctrl and shift and dim what they cannot encode;
+                no channel is attached, so nothing is sent. A screen reader
+                hears the arrangement once instead of a run of dead buttons.
+                The terminal only ever draws the row dark; the scope is its
+                own because this list remounts it outside the terminal's
+                render (back from the key form), where a light phone's theme
+                would otherwise dim it. */}
+            <View accessible role="img" aria-label={`Key row preview: ${['Control', 'Shift', ...resolveKeyRow(working).map((key) => key.accessibilityLabel)].join(', ')}`} style={styles.previewRow}>
+                <View aria-hidden>
+                    <ScopedTheme name="dark"><TerminalKeyRow entries={working} /></ScopedTheme>
+                </View>
             </View>
         </View>
 
@@ -621,14 +620,10 @@ const styles = StyleSheet.create({
     handle: { paddingHorizontal: 10, paddingVertical: 14 },
     rowLabel: { fontSize: 16, ...Typography.mono() },
     rowSend: { fontSize: 12, marginTop: 3, ...Typography.mono() },
-    previewStage: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, backgroundColor: '#0c0c0b', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 12, paddingBottom: 16 },
+    previewStage: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, backgroundColor: '#0c0c0b', alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 16 },
     previewCopyWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     previewCopy: { color: '#8e8e93', fontSize: 15 },
-    // A fixed height, not a minimum: on native the scroll view inside grows to
-    // fill whatever the column will give it, and the rail swallowed the whole
-    // stage — copy and all — instead of standing in it as one pill.
-    previewRail: { height: 48, borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, justifyContent: 'center', maxWidth: '100%' },
-    previewKey: { minWidth: 44, height: 32, paddingHorizontal: 10, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+    previewRow: { alignSelf: 'stretch' },
     close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     closeText: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     addRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12, paddingVertical: 12, borderRadius: ui.radius.control, borderWidth: StyleSheet.hairlineWidth },
