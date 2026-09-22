@@ -168,6 +168,29 @@ async function driveNow(environment) {
     }
 }
 
+/** Several asks issued against one host environment at the same moment, the
+ *  way a card's follow-up and a screen's revalidation can land together. */
+async function driveConcurrently(environment, inputs) {
+    const previous = new Map(ENV_KEYS.map((key) => [key, process.env[key]]));
+    const previousFetch = fetchStub;
+    const { __fetch, ...env } = environment;
+    for (const [key, value] of Object.entries(env)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+    }
+    fetchStub = __fetch;
+    const frozenEnv = { ...process.env };
+    try {
+        return await Promise.all(inputs.map((input) => collectUsage(input, frozenEnv)));
+    } finally {
+        fetchStub = previousFetch;
+        for (const [key, value] of previous) {
+            if (value === undefined) delete process.env[key];
+            else process.env[key] = value;
+        }
+    }
+}
+
 const baseEnv = () => ({
     HOME: scratch,
     PATH: `${scratch}:${process.env.PATH}`,
@@ -280,6 +303,9 @@ try {
     // One cache entry per tab, so reopening a tab does not rescan.
     const cached = await run({ provider: 'claude' });
     assert.equal(cached.todayTokens, '1.3M');
+    // The reading names its own age, by the host's clock, so the phone can hold
+    // it to one freshness window instead of collecting on the cache's 60 s flag.
+    assert.equal(typeof cached.ageSeconds, 'number', 'a served report must name its age');
     assert.equal(readFileSync(ccusageMarker, 'utf8'), 'xxxx', 'per-tab cache did not prevent a duplicate ccusage scan');
     assert.equal(readFileSync(codexMarker, 'utf8'), 'xxxx', 'per-tab cache did not prevent a duplicate Codex app-server');
 
@@ -289,6 +315,31 @@ try {
     const brokenPi = await run({ provider: 'pi' }, { PI_AGENT_DIR: join(scratch, 'broken-pi'), MUXR_HOME: join(scratch, 'no-cache-pi') });
     assert.equal(brokenPi.todayTokens, '—');
     assert.match(brokenPi.activityNotice ?? '', /could not be measured/);
+
+    // A cold cache asked for by two readers at once costs one collection, not
+    // one each: the card's follow-ups and a screen's revalidation can land on
+    // the same tab together, and each collection is a ccusage scan plus every
+    // provider ask. The waiters share the one answer.
+    const joinMarker = join(scratch, 'join-ccusage-ran');
+    const joinCcusage = join(scratch, 'ccusage-join');
+    writeFileSync(joinCcusage, `#!/bin/sh\nprintf x >> "${joinMarker}"\nsleep 1\nprintf '%s' '${JSON.stringify(report)}'\n`, { mode: 0o755 });
+    const [firstAsk, secondAsk] = await driveConcurrently(
+        { ...baseEnv(), MUXR_HOME: join(scratch, 'join-state'), MUXR_CCUSAGE_BIN: joinCcusage },
+        [{ provider: 'claude' }, { provider: 'claude' }],
+    );
+    assert.equal(readFileSync(joinMarker, 'utf8'), 'x', 'concurrent cold asks ran more than one collection');
+    assert.equal(firstAsk, secondAsk, 'concurrent asks did not share one answer');
+    assert.equal(firstAsk.todayTokens, '1.3M');
+
+    // A collection that fails answers every waiter too: the same honest
+    // degraded payload, never silence.
+    const [firstFail, secondFail] = await driveConcurrently(
+        { ...baseEnv(), PI_AGENT_DIR: join(scratch, 'broken-pi'), MUXR_HOME: join(scratch, 'join-fail-state') },
+        [{ provider: 'pi' }, { provider: 'pi' }],
+    );
+    assert.equal(firstFail, secondFail, 'a failed collection stranded a waiter');
+    assert.equal(firstFail.todayTokens, '—');
+    assert.match(firstFail.activityNotice ?? '', /could not be measured/);
 
     const recent = await run({});
     assert.equal(recent.provider, 'omp');
@@ -740,6 +791,9 @@ try {
         'the card must lead with the window the verdict describes',
     );
     assert.ok(Number.isFinite(nowPayload.vitals.memoryTotal) && nowPayload.vitals.memoryTotal > 0);
+    // The card names the reading it served, so a replayed cache entry can be
+    // told from a collection that just landed without phone-side clock inference.
+    assert.equal(typeof nowPayload.capturedAt, 'string', 'a served reading must name its capture');
     assert.ok(Number.isFinite(nowPayload.vitals.load1) && Number.isFinite(nowPayload.vitals.uptimeSeconds));
     // The disk pair is the one figure a host may not be able to read: a denied
     // statfs drops it and leaves the rest of the line standing. Absent is the
@@ -762,6 +816,7 @@ try {
     const coldNow = await driveNow({ ...baseEnv(), HOME: coldHome, MUXR_HOME: coldHome, MUXR_CCUSAGE_BIN: slowCold });
     const coldMs = Date.now() - coldStarted;
     assert.equal(coldNow.collecting, true, 'a usage read that cannot answer in time must report collecting');
+    assert.equal(coldNow.capturedAt, undefined, 'a collecting answer has no capture to name');
     assert.deepEqual(coldNow.limits, { verdict: 'unknown', windows: [] });
     assert.ok(Number.isFinite(coldNow.vitals.memoryTotal) && coldNow.vitals.memoryTotal > 0);
     assert.ok(coldMs < 8_000, `the bounded wait answered late (${coldMs}ms)`);

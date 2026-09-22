@@ -88,6 +88,10 @@ export interface UsageReport {
     weekCost: string;
     weekSeries: UsageSeriesPoint[];
     capturedAt: string;
+    /** How old that capture is, by the host's clock: what the screen says about
+     *  the figures it is showing. Whether they are worth collecting again is a
+     *  separate question the phone answers from its own record of asking. */
+    ageSeconds?: number;
     /** The reported window, oldest first, always ending on today. */
     windowPeriods: string[];
     /** The selected tab's windows as plain view models, parallel to `limits`. */
@@ -97,8 +101,9 @@ export interface UsageReport {
     limits: UsageLimitsPayload;
     /** Every provider with real quota windows; absent when none are connected. */
     connected?: UsageConnectedProvider[];
-    /** Last-known payload replayed past its fresh window; the screen
-     *  revalidates once by asking for fresh data by name. */
+    /** Last-known payload replayed past the host's own fresh window. A display
+     *  word about ageing figures; the phone decides whether they are worth a
+     *  collection from its own window, not from this flag. */
     stale?: true;
 }
 
@@ -125,5 +130,9 @@ export interface UsageNow {
     collecting?: true;
     /** How old the limit figures are, by the host's clock. */
     ageSeconds?: number;
+    /** The instant this reading was captured, by the host's clock: the host
+     *  names the reading so a reader can tell a replayed cache entry from a
+     *  new collection instead of inferring it from the age. */
+    capturedAt?: string;
     vitals?: UsageVitals;
 }

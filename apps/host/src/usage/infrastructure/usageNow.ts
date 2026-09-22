@@ -14,11 +14,14 @@ import { vitalsFigures } from './vitals.js';
  *  still stand; the collection keeps running and warms the cache behind it. */
 const NOW_WAIT_MS = 5_000;
 
-export async function usageNow(env: NodeJS.ProcessEnv = process.env): Promise<UsageNow> {
+export async function usageNow(env: NodeJS.ProcessEnv = process.env, { refresh = false }: { refresh?: boolean } = {}): Promise<UsageNow> {
     let output: UsageReport | undefined;
     try {
         output = await Promise.race([
-            collectUsage({}, env).catch(() => undefined),
+            // A forced read re-collects past a still-valid cache: the cache
+            // serves any same-day payload, so a reader looking at figures it
+            // can see are old has no other way to make them current.
+            collectUsage({ ...(refresh ? { refresh: true } : {}) }, env).catch(() => undefined),
             new Promise<undefined>((resolve) => { const timer = setTimeout(() => resolve(undefined), NOW_WAIT_MS); timer.unref(); }),
         ]);
     } catch { output = undefined; }
@@ -34,7 +37,8 @@ export async function usageNow(env: NodeJS.ProcessEnv = process.env): Promise<Us
     // unavailable -- is the actionable word. Only the generic no-integration line
     // is withheld, because the card owns a localized one.
     const reason = output?.limits?.message;
-    const capturedAt = Date.parse(output?.capturedAt ?? '');
+    const captured = output?.capturedAt;
+    const capturedAt = Date.parse(captured ?? '');
     const ageSeconds = Number.isFinite(capturedAt) ? Math.max(0, Math.round((Date.now() - capturedAt) / 1000)) : undefined;
     return {
         limits: {
@@ -52,6 +56,10 @@ export async function usageNow(env: NodeJS.ProcessEnv = process.env): Promise<Us
         // timestamps come from this host's clock. Each reader owns its own
         // threshold for when age is worth mentioning.
         ...(ageSeconds === undefined ? {} : { ageSeconds }),
+        // The same instant by name, so a reader can tell the replayed cache entry
+        // from a collection that has just landed without inferring it from the
+        // age it was given.
+        ...(captured === undefined ? {} : { capturedAt: captured }),
         vitals: vitalsFigures(),
     };
 }

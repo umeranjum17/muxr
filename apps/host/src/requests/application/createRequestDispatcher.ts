@@ -301,7 +301,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             ...(params.provider === undefined ? {} : { provider: params.provider }),
             ...(params.refresh === undefined ? {} : { refresh: params.refresh }),
         }),
-        'usage.now': () => usageNow(),
+        'usage.now': (params) => usageNow(process.env, { ...(params.refresh === undefined ? {} : { refresh: params.refresh }) }),
         'voice.status': () => voiceStatus(),
         'voice.provider.list': () => voiceProviderList(),
         'voice.provider.set': (params) => voiceProviderSet(params.providerId),
