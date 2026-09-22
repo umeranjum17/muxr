@@ -322,7 +322,7 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
                 />
             ))}
             {cluster && !visible && clusterKeys !== undefined && clusterKeys.length > 0 && (
-                <ArrowCluster keys={clusterKeys} anchor={center} region={{ width, height }} terminalHeight={terminalHeight} reduceMotion={reduceMotion === true} />
+                <ArrowCluster keys={clusterKeys} anchor={center} terminal={{ width, height: terminalHeight }} reduceMotion={reduceMotion === true} />
             )}
             <Animated.View
                 {...pan.panHandlers}
@@ -380,19 +380,19 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
  * The keys send the row's own bytes: nothing here interprets a key, it only
  * draws one at a size a thumb can find without looking.
  */
-function ArrowCluster({ keys, anchor, region, terminalHeight, reduceMotion }: {
+function ArrowCluster({ keys, anchor, terminal, reduceMotion }: {
     keys: readonly ClusterKey[];
     anchor: { x: number; y: number };
-    region: { width: number; height: number };
-    /** How much of the region is terminal: the cross stays there while it can. */
-    terminalHeight: number;
+    /** The terminal's own box: the cross stays inside it. */
+    terminal: { width: number; height: number };
     reduceMotion: boolean;
 }) {
     const { theme } = useUnistyles();
     // Wholly clear of the control that opened it: the control stays the way
-    // out, so the cross may never cover it, and a terminal too short to hold
-    // the cross lends it the rails below before it would do that.
-    const layout = clusterLayout(anchor, region, terminalHeight, CENTER);
+    // out, so the cross may never cover it. And wholly inside the terminal:
+    // the cross lays no scrim, so it may not spill onto the key row or the
+    // composer below the terminal the way the scrimmed ring may.
+    const layout = clusterLayout(anchor, terminal, CENTER);
     return (
         <Animated.View
             entering={reduceMotion ? undefined : FadeIn.duration(140)}

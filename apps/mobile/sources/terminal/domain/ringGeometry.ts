@@ -222,16 +222,16 @@ export function slotUnderFinger(finger: { x: number; y: number }, slots: readonl
 }
 
 /**
- * The directional cluster's placement: a cross of thumb-sized keys floating
- * over the terminal, wholly clear of the control that opened it. That control
- * is the way out of the cluster, so no key may sit under it, and the cross
- * stays on the terminal wherever the terminal can hold it.
+ * The directional cluster's placement: a cross of thumb-sized keys floating on
+ * the terminal, wholly clear of the control that opened it and wholly inside
+ * the terminal itself. That control is the way out of the cluster, so no key
+ * may sit under it; the composer and key row below the terminal are never
+ * covered, however short the keyboard leaves the terminal.
  *
  * The cross takes the side of the control with room for it, above first, and
- * the keys step down together (52/8, then 44/6, then 38/6) before the cross
- * gives up on a side. Only a terminal that holds it on no side at any size
- * lends it the rails outside — the same concession the ring makes — rather
- * than ever covering the control.
+ * the keys step down together (52/8, then 44/6, then 38/6) until the cross
+ * sits inside the terminal. A terminal shorter than even the smallest of those
+ * shrinks the keys further rather than letting the cross spill onto the rails.
  */
 
 /** Air the cross keeps between itself and the control that opened it. */
@@ -256,7 +256,7 @@ export const CLUSTER_SPOT: Record<'up' | 'left' | 'centre' | 'right' | 'down', {
 type ClusterSide = 'above' | 'below' | 'left' | 'right';
 const CLUSTER_SIDES: readonly ClusterSide[] = ['above', 'below', 'left', 'right'];
 
-/** Where the cross sits, in the region's own coordinates. */
+/** Where the cross sits, in the terminal's own coordinates. */
 export type ClusterLayout = {
     key: number;
     gap: number;
@@ -264,10 +264,6 @@ export type ClusterLayout = {
     top: number;
     /** The cross's own box: three keys and the two gaps between them. */
     span: number;
-    /** True when every key is inside the terminal as well as clear of the
-     *  control. False only where the terminal could not hold the cross at all
-     *  and it borrowed the rails below instead. */
-    fits: boolean;
 };
 
 const clusterSpan = (step: { key: number; gap: number }): number => step.key * 3 + step.gap * 2;
@@ -283,15 +279,15 @@ const clamp = (value: number, min: number, max: number): number => Math.max(min,
 function clusterSeat(
     side: ClusterSide,
     anchor: { x: number; y: number },
-    region: { width: number; height: number },
+    terminal: { width: number; height: number },
     controlSize: number,
     span: number,
     clampAlong: boolean,
 ): { left: number; top: number } {
     const half = controlSize / 2;
     const far = {
-        x: Math.max(CLUSTER_PAD, region.width - span - CLUSTER_PAD),
-        y: Math.max(CLUSTER_PAD, region.height - span - CLUSTER_PAD),
+        x: Math.max(CLUSTER_PAD, terminal.width - span - CLUSTER_PAD),
+        y: Math.max(CLUSTER_PAD, terminal.height - span - CLUSTER_PAD),
     };
     const across = {
         x: clamp(anchor.x - span / 2, CLUSTER_PAD, far.x),
@@ -309,49 +305,49 @@ function clusterSeat(
 }
 
 /**
- * Where the cross goes. `preferHeight` is how much of the region is terminal,
- * so the cross stays on the terminal itself wherever the terminal can hold it
- * clear of the control; only a terminal too short for that lends the cross the
- * rails below, and the cross is then clamped to the region it is drawn in.
+ * Where the cross goes, entirely within `terminal`. The ring's region is not a
+ * placement surface here: the cross has no scrim, so it may not reach the key
+ * row or composer below the terminal.
  */
 export function clusterLayout(
     anchor: { x: number; y: number },
-    region: { width: number; height: number },
-    preferHeight: number,
+    terminal: { width: number; height: number },
     controlSize: number,
 ): ClusterLayout {
     const half = controlSize / 2;
-    const inside = (spot: { left: number; top: number }, span: number, height: number): boolean =>
-        spot.left >= CLUSTER_PAD && spot.left + span <= region.width - CLUSTER_PAD
-        && spot.top >= CLUSTER_PAD && spot.top + span <= height - CLUSTER_PAD;
+    const inside = (spot: { left: number; top: number }, span: number): boolean =>
+        spot.left >= CLUSTER_PAD && spot.left + span <= terminal.width - CLUSTER_PAD
+        && spot.top >= CLUSTER_PAD && spot.top + span <= terminal.height - CLUSTER_PAD;
     const covers = (spot: { left: number; top: number }, span: number): boolean =>
         spot.left < anchor.x + half && anchor.x - half < spot.left + span
         && spot.top < anchor.y + half && anchor.y - half < spot.top + span;
 
-    const terminal = { width: region.width, height: preferHeight };
     for (const step of CLUSTER_STEPS) {
         const span = clusterSpan(step);
         for (const side of CLUSTER_SIDES) {
             const spot = clusterSeat(side, anchor, terminal, controlSize, span, false);
-            if (inside(spot, span, preferHeight)) return { ...step, span, ...spot, fits: true };
+            if (inside(spot, span)) return { ...step, span, ...spot };
         }
     }
-    // No size and no side holds even the smallest cross. Clamp it onto the
-    // surface on whichever side of the control still leaves it uncovered.
-    const step = CLUSTER_STEPS[CLUSTER_STEPS.length - 1]!;
+    // Shorter than the smallest listed cross: the keys step down together until
+    // the cross is short enough to sit inside the terminal at all, then it is
+    // clamped onto whichever side of the control still leaves it uncovered.
+    const smallest = CLUSTER_STEPS[CLUSTER_STEPS.length - 1]!;
+    const room = terminal.height - CLUSTER_PAD * 2 - smallest.gap * 2;
+    const step = { key: Math.max(0, Math.min(smallest.key, Math.floor(room / 3))), gap: smallest.gap };
     const span = clusterSpan(step);
-    const seats = CLUSTER_SIDES.map((side) => clusterSeat(side, anchor, region, controlSize, span, true));
+    const seats = CLUSTER_SIDES.map((side) => clusterSeat(side, anchor, terminal, controlSize, span, true));
     const clear = seats.find((spot) => !covers(spot, span));
-    if (clear !== undefined) return { ...step, span, ...clear, fits: false };
-    // Every side overlaps the control on a surface this small: keep the keys
-    // over the roomiest one.
-    const room: Record<ClusterSide, number> = {
+    if (clear !== undefined) return { ...step, span, ...clear };
+    // Every side overlaps the control on a terminal this small: keep the keys
+    // over the roomiest one, still inside the terminal.
+    const roomy: Record<ClusterSide, number> = {
         above: anchor.y - half,
-        below: region.height - anchor.y - half,
+        below: terminal.height - anchor.y - half,
         left: anchor.x - half,
-        right: region.width - anchor.x - half,
+        right: terminal.width - anchor.x - half,
     };
     let roomiest = 0;
-    CLUSTER_SIDES.forEach((side, index) => { if (room[side] > room[CLUSTER_SIDES[roomiest]!]!) roomiest = index; });
-    return { ...step, span, ...seats[roomiest]!, fits: false };
+    CLUSTER_SIDES.forEach((side, index) => { if (roomy[side] > roomy[CLUSTER_SIDES[roomiest]!]!) roomiest = index; });
+    return { ...step, span, ...seats[roomiest]! };
 }
