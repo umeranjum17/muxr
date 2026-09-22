@@ -197,7 +197,6 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.text,
         fontSize: 16,
         ...Typography.default(),
-        ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } as any : {}),
     },
 }));
 

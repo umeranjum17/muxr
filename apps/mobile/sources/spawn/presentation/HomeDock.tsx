@@ -176,7 +176,6 @@ const styles = StyleSheet.create((theme) => ({
         fontSize: 18,
         textAlignVertical: 'top',
         ...Typography.default(),
-        ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } as any : {}),
     },
     focusedInputReveal: {
         flex: 1,
@@ -820,7 +819,7 @@ export const HomeDock = React.memo(({
                         style={styles.input}
                     />
                 )}
-                <DictateButton context={composerDraft} />
+                {Platform.OS !== 'web' && <DictateButton context={composerDraft} />}
                 <PluginSlot slot="home.composer.trailing" context={composerDraft} />
                 <BubblePressable
                     onPress={onSend}
@@ -918,7 +917,7 @@ export const HomeDock = React.memo(({
                                 </Text>
                             </View>
                         </View>
-                        <DictateButton context={composerDraft} />
+                        {Platform.OS !== 'web' && <DictateButton context={composerDraft} />}
                         <PluginSlot slot="home.composer.trailing" context={composerDraft} />
                         <BubblePressable
                             onPress={submitFromFocusMode}
