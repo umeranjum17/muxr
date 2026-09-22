@@ -2,7 +2,7 @@ import { LIFECYCLE_NOTIFICATION_LEVELS } from '@muxr/contract';
 import * as z from 'zod';
 import { DEFAULT_FONT_INDEX, FONT_STEPS } from '../../terminal/domain/fontSteps';
 import { TERMINAL_KEY_ROW_LIMIT } from '../../terminal/domain/keyRow';
-import { QUICK_REPLY_LABEL_LIMIT, QUICK_REPLY_LIMIT, QUICK_REPLY_TEXT_LIMIT } from '../../terminal/domain/quickReplies';
+import { DEFAULT_QUICK_ACTIONS, QUICK_ACTION_LABEL_LIMIT, QUICK_ACTION_LIMIT, QUICK_ACTION_TEXT_LIMIT, type QuickAction } from '../../terminal/domain/quickActions';
 
 //
 // Schema
@@ -30,13 +30,15 @@ export const LocalSettingsSchema = z.object({
         send: z.string().min(1).max(512),
         repeat: z.boolean().optional(),
     })])).max(TERMINAL_KEY_ROW_LIMIT).nullable().catch(null).describe('Customised terminal key row (null follows the built-in row)'),
-    // Personal quick replies: this device's own insert-only prompts. An empty
-    // list is the default; older settings without the field stay valid.
-    terminalQuickReplies: z.array(z.object({
+    // Quick actions: this device's own replies and commands. Null follows the
+    // built-in seeds, and an empty list is a deliberate empty list. A malformed
+    // list falls back to the seeds rather than stranding the device with none.
+    terminalQuickActions: z.array(z.object({
         id: z.string().min(1),
-        label: z.string().min(1).max(QUICK_REPLY_LABEL_LIMIT),
-        text: z.string().min(1).max(QUICK_REPLY_TEXT_LIMIT),
-    })).max(QUICK_REPLY_LIMIT).default([]).catch([]).describe('Personal insert-only quick replies (this device only)'),
+        kind: z.enum(['reply', 'command']),
+        label: z.string().min(1).max(QUICK_ACTION_LABEL_LIMIT),
+        text: z.string().min(1).max(QUICK_ACTION_TEXT_LIMIT),
+    })).max(QUICK_ACTION_LIMIT).nullable().catch(null).describe('Personal terminal quick actions (null follows the built-in seeds)'),
     // Retired with terminalCommandKeyDock: the ring's centre now docks in the
     // composer rail, so there is no drag-rest position to store.
     terminalModifierIcons: z.boolean().describe('Draw ctrl and shift as modifier glyphs in the terminal key row'),
@@ -80,7 +82,7 @@ export const localSettingsDefaults: LocalSettings = {
     lastTerminal: null,
     terminalFontIndex: DEFAULT_FONT_INDEX,
     terminalKeyRow: null,
-    terminalQuickReplies: [],
+    terminalQuickActions: null,
     terminalModifierIcons: false,
     vadStandbyEnabled: false,
     dictationLanguage: null,
@@ -102,10 +104,34 @@ export function localSettingsParse(settings: unknown): LocalSettings {
     }
     // The old flag had the opposite meaning. Ignore it rather than turning an
     // old `false` into a new disable, which would preserve the broken default.
-    const { terminalAutoShowKeyboard: _legacy, ...current } = parsed.data as typeof parsed.data & {
+    const { terminalAutoShowKeyboard: _legacy, terminalQuickReplies: legacyReplies, ...current } = parsed.data as typeof parsed.data & {
         terminalAutoShowKeyboard?: unknown;
+        terminalQuickReplies?: unknown;
     };
-    return { ...localSettingsDefaults, ...current };
+    const merged = { ...localSettingsDefaults, ...current };
+    if (current.terminalQuickActions === undefined) merged.terminalQuickActions = migratedQuickActions(legacyReplies);
+    return merged;
+}
+
+/**
+ * A device that only ever had the old insert-only snippet list keeps every
+ * entry of its own, and the seeds fill only the room left over rather than
+ * pushing the person's last entries off the end. Nothing of their own to carry
+ * over means the seeds alone, which is the same null every fresh device starts
+ * from. Pure, so re-reading settings before the next write lands on the same
+ * answer every time.
+ */
+function migratedQuickActions(legacy: unknown): QuickAction[] | null {
+    if (!Array.isArray(legacy) || legacy.length === 0) return null;
+    const carried = legacy.flatMap((entry): QuickAction[] => {
+        if (entry === null || typeof entry !== 'object') return [];
+        const { id, label, text } = entry as { id?: unknown; label?: unknown; text?: unknown };
+        if (typeof id !== 'string' || typeof label !== 'string' || typeof text !== 'string') return [];
+        if (id === '' || label === '' || text === '') return [];
+        return [{ id, kind: 'reply', label, text }];
+    });
+    if (carried.length === 0) return null;
+    return [...carried, ...DEFAULT_QUICK_ACTIONS].slice(0, QUICK_ACTION_LIMIT);
 }
 
 //

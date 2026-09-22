@@ -82,3 +82,14 @@ const COMMANDS: Record<string, readonly AgentCommand[]> = {
 export function agentCommands(kind: string | undefined): readonly AgentCommand[] {
     return kind === undefined ? [] : COMMANDS[kind.toLowerCase()] ?? [];
 }
+
+/**
+ * The catalogue entry `text` is, when the agent marks that command destructive.
+ * Whether a command asks before sending is a property of the command, not of
+ * where the person wrote it down, so both the catalogue rows and the person's
+ * own actions answer it here.
+ */
+export function destructiveCommand(kind: string | undefined, text: string): AgentCommand | undefined {
+    const command = text.trim();
+    return agentCommands(kind).find((entry) => entry.dangerous === true && entry.command === command);
+}

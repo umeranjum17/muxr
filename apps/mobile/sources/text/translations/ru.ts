@@ -483,6 +483,8 @@ export const ru: TranslationStructure = {
         thisAgent: 'этого агента',
         sent: ({ command }: { command: string }) => `Отправлено ${command}`,
         commonReplies: 'Быстрые ответы',
+        yourCommands: 'Ваши команды',
+        editQuickActions: 'Изменить ответы и команды…',
     },
 
     agentInput: {

@@ -396,6 +396,8 @@ export const en = {
         thisAgent: 'this agent',
         sent: ({ command }: { command: string }) => `Sent ${command}`,
         commonReplies: 'Common replies',
+        yourCommands: 'Your commands',
+        editQuickActions: 'Edit replies and commands…',
     },
 
 

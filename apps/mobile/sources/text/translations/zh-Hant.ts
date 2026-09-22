@@ -383,6 +383,8 @@ export const zhHant: TranslationStructure = {
         thisAgent: '該代理',
         sent: ({ command }: { command: string }) => `已送出 ${command}`,
         commonReplies: '常用回覆',
+        yourCommands: '你的命令',
+        editQuickActions: '編輯回覆和命令…',
     },
 
 

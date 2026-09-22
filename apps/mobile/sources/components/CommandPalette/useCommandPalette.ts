@@ -68,7 +68,9 @@ export function useCommandPalette(commands: Command[], onClose: () => void, quie
         const matches = filteredCategories.flatMap((category) => category.commands);
         if (matches.length > 0) return { categories: [{ id: 'results', title: '', commands: matches }], quiet: undefined };
         const custom = commands.filter((command) => command.category === CUSTOM_CATEGORY);
-        return { categories: custom.map((command) => ({ id: CUSTOM_CATEGORY, title: '', commands: [command] })), quiet: t('commandPalette.noMatch') };
+        // One section per custom row, so the id must be unique per row: the
+        // results list keys sections by it.
+        return { categories: custom.map((command) => ({ id: `${CUSTOM_CATEGORY}:${command.id}`, title: '', commands: [command] })), quiet: t('commandPalette.noMatch') };
     }, [searchQuery, filteredCategories, commands, quietLine]);
 
     // Reset selection when search changes
