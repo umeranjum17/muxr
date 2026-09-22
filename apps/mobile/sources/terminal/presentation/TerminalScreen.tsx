@@ -759,9 +759,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         return [
             ...(safe === null ? [] : [{ id: 'open', label: 'Open', icon: 'open-outline' as const, run: () => { void openExternalUrl(safe); } }]),
             { id: 'copy', label: 'Copy', icon: 'copy-outline' as const, run: () => { void Clipboard.setStringAsync(url).then(() => showGestureHintRef.current('Link copied')); } },
-            { id: 'insert', label: 'Insert into the prompt', icon: 'return-down-forward-outline' as const, note: INSERT_ONLY_LABEL, run: () => insertDraftRef.current(url) },
+            // Watching a pane has no prompt on screen, so inserting into one
+            // would land the link in a draft nobody can see.
+            ...(canControl ? [{ id: 'insert', label: 'Insert into the prompt', icon: 'return-down-forward-outline' as const, note: INSERT_ONLY_LABEL, run: () => insertDraftRef.current(url) }] : []),
         ];
-    }, [linkMenu]);
+    }, [canControl, linkMenu]);
 
     /** The links this pane printed recently, each offering the same choices. */
     const showRecentLinks = React.useCallback(() => {

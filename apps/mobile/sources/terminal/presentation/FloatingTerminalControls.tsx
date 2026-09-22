@@ -120,10 +120,16 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
     // what survives app restarts and terminal resizes.
     const travelX = Math.max(0, width - CENTER - EDGE * 2);
     const travelY = Math.max(0, terminalHeight - CENTER - EDGE * 2);
-    const center = React.useMemo(() => ({
-        x: EDGE + clamp01(rest?.fx ?? 1) * travelX + CENTER / 2,
-        y: EDGE + clamp01(rest?.fy ?? 1) * travelY + CENTER / 2 - (rest === null || rest === undefined ? Math.min(REST_BOTTOM_PAD, travelY) : 0),
-    }), [rest, travelX, travelY]);
+    const center = React.useMemo(() => {
+        const y = EDGE + clamp01(rest?.fy ?? 1) * travelY + CENTER / 2 - (rest === null || rest === undefined ? Math.min(REST_BOTTOM_PAD, travelY) : 0);
+        return {
+            x: EDGE + clamp01(rest?.fx ?? 1) * travelX + CENTER / 2,
+            // On a terminal shorter than the control plus its edge padding the
+            // padding is what gives way, not the containment: the control sits
+            // tight to the edge rather than hanging past it into the key row.
+            y: Math.min(Math.max(y, CENTER / 2), Math.max(terminalHeight - CENTER / 2, CENTER / 2)),
+        };
+    }, [rest, travelX, travelY, terminalHeight]);
     const disc = slotSize(width);
     const fan = React.useMemo(
         () => ringFan(center, { width, height }, terminalHeight, count, disc),
@@ -313,6 +319,10 @@ export const FloatingTerminalControls = React.forwardRef<RingHandle, {
     }));
 
     if (count === 0) return null;
+    // Below its own size the control cannot sit inside the terminal at all, and
+    // this view does not clip: it would hang over the key row and take touches
+    // meant for those keys. Refuse rather than misplace.
+    if (terminalHeight < CENTER) return null;
 
     return (
         <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>

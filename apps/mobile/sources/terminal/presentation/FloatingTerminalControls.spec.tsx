@@ -93,6 +93,12 @@ const control = (renderer: any) => renderer.root.findAll((node: any) =>
     node.props.accessibilityLabel === 'Terminal quick actions' || node.props.accessibilityLabel === 'Close terminal quick actions')[0];
 const slot = (renderer: any, label: string) => renderer.root.findAll((node: any) => node.props.accessibilityLabel === label)[0];
 const pan = (renderer: any) => renderer.root.findAll((node: any) => typeof node.props.onPanResponderGrant === 'function')[0];
+/** The control's own box, which is what has to stay inside the terminal. */
+const puckBox = (renderer: any): { top: number; height: number } => {
+    const node = renderer.root.findAll((node: any) => Array.isArray(node.props.style)
+        && node.props.style[0]?.position === 'absolute' && node.props.style[0]?.height === 44)[0];
+    return { top: node.props.style[0].top, height: node.props.style[0].height };
+};
 const clusterShown = (renderer: any) => renderer.root.findAll((node: any) => node.props.accessibilityLabel === 'Up arrow').length > 0;
 // The slots draw at rest and register touches only with the ring up; the
 // cluster's own keys are the other overlay.
@@ -143,6 +149,12 @@ describe('floating terminal control', () => {
         resize(renderer, 45);
         expect(clusterShown(renderer)).toBe(false);
         expect(control(renderer)).toBeDefined();
+        // And it stays inside the terminal it belongs to. This view does not
+        // clip, so a control hanging past the bottom edge sits over the key row
+        // and takes touches meant for those keys.
+        const box = puckBox(renderer);
+        expect(box.top).toBeGreaterThanOrEqual(0);
+        expect(box.top + box.height).toBeLessThanOrEqual(45);
         expect(control(renderer).props.accessibilityLabel).toBe('Terminal quick actions');
         expect(control(renderer).props.accessibilityState).toEqual({ expanded: false });
 
