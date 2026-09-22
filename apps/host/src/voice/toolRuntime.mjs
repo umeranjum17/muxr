@@ -56,10 +56,8 @@ export function createVoiceTools(emit, { invoke = runCodingTool, timeoutMs = 200
             || typeof id !== 'string' || id.length > 160 || Buffer.byteLength(JSON.stringify(args)) > 16000) {
             return reject('That work request is invalid. No action was performed; explain the limitation to the user.');
         }
-        // Models fill optional parameters with "" or null to mean "not given",
-        // as in list_agents {query: ""} for every agent. Drop them once here so
-        // such a call is not refused as malformed.
-        args = Object.fromEntries(Object.entries(args).filter(([, value]) => value !== null && (typeof value !== 'string' || value.trim() !== '')));
+        if (name === 'list_agents') args = Object.fromEntries(Object.entries(args).filter(([key, value]) =>
+            !(['kind', 'query'].includes(key) && (value === null || typeof value === 'string' && !value.trim()))));
         if (name === 'read_work_context' && (Object.keys(args).some((key) => !['agent', 'lines'].includes(key))
             || args.agent !== undefined && (typeof args.agent !== 'string' || !args.agent.trim() || args.agent.length > 160)
             || args.lines !== undefined && (!Number.isInteger(args.lines) || args.lines < 1 || args.lines > 400))) {

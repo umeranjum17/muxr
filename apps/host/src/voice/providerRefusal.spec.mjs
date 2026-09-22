@@ -458,6 +458,10 @@ describe('providerRefusal', () => {
             // The Codex planner's own shape for "which agents are there": every
             // optional filter filled with a blank. It must list and count them.
             expect(await call('list_agents', { kind: '', query: '', offset: 0, limit: 10 })).toContain('Showing 1–4 of 4 agents');
+            expect(await call('list_agents', { kind: null, query: null, offset: 0, limit: 10 })).toContain('Showing 1–4 of 4 agents');
+            expect(await call('read_work_context', { agent: '  ' }))
+                .toBe('The work-context target or context depth is invalid. No action was performed.');
+            expect(calls.reads).toEqual([]);
             const providerSafeName = await call('list_agents', { kind: 'gemini', limit: 3 });
             expect(providerSafeName).toContain('Unsafe&lt;script&gt;');
             expect(providerSafeName).not.toContain('<script>');
