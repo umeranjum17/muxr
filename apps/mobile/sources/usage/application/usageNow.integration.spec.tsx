@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import type { UsageNow, UsageReport } from '@muxr/contract';
-import { FRESH_MS, noteAsked, rememberShown } from './freshnessWindow';
+import { FRESH_MS, noteAsked, rememberShown, withNow, withReport } from './freshnessWindow';
 
 /**
  * The Home card's whole read path, end to end against a scripted host.
@@ -136,12 +136,10 @@ const report = (provider: string, ageSeconds: number): UsageReport => ({
 
 /** The figures a card read is showing, or undefined when it is showing its wait
  *  or its failure instead. */
-const figuresOf = (read: ReturnType<typeof useUsageNow>) => (read.display.status === 'figures' && read.display.figures.kind === 'now' ? read.display.figures.value : undefined);
+const figuresOf = (read: ReturnType<typeof useUsageNow>) => (read.display.status === 'figures' ? read.display.figures : undefined);
 
 /** The machine facts a card read is showing, whichever state it is in. */
-const vitalsOf = (read: ReturnType<typeof useUsageNow>) => (read.display.status === 'figures' && read.display.figures.kind === 'now'
-    ? read.display.figures.value.vitals
-    : read.display.status === 'figures' ? undefined : read.display.vitals);
+const vitalsOf = (read: ReturnType<typeof useUsageNow>) => (read.display.status === 'figures' ? read.display.figures.vitals : read.display.vitals);
 
 function mount() {
     const seen: ReturnType<typeof useUsageNow>[] = [];
@@ -235,7 +233,7 @@ describe('the Home card read path', () => {
         // answer that finally carries the plan windows.
         await tick(6_000);
         expect(request).toHaveBeenCalledTimes(2);
-        expect(figuresOf(card.latest())?.collecting).toBeUndefined();
+        expect(card.latest().display.status).toBe('figures');
         expect(figuresOf(card.latest())?.limits.windows).toHaveLength(1);
         expect(card.latest().refreshing).toBe(false);
 
@@ -418,12 +416,12 @@ describe('the Home card read path', () => {
         TestRenderer.act(() => { card.latest().refresh(); });
         await tick();
         expect(request).toHaveBeenLastCalledWith('usage.now', { refresh: true }, expect.any(Number));
-        expect(figuresOf(card.latest())).toBe(figures);
+        expect(figuresOf(card.latest())).toEqual(figures);
         expect(card.latest().refreshing).toBe(true);
 
         // And a failed one keeps them too, while saying so.
         await tick(6_000);
-        expect(figuresOf(card.latest())).toBe(figures);
+        expect(figuresOf(card.latest())).toEqual(figures);
         expect(card.latest().failed).toBe(true);
         expect(card.latest().refreshing).toBe(false);
     });
@@ -732,7 +730,7 @@ describe('the usage screen read path', () => {
 
         // The card's own read answers with usage.now figures: the screen paints
         // the limits it carries and dashes the activity it never had.
-        rememberShown('', { status: 'figures', at: claimed, figures: { kind: 'now', value: collected(undefined, 20) } });
+        rememberShown('', { status: 'figures', at: claimed, figures: withNow(undefined, collected(undefined, 20)) });
         screen = renderScreen();
         await tick();
         expect(screenText(screen)).toContain('—');
@@ -746,6 +744,68 @@ describe('the usage screen read path', () => {
         expect(screenText(screen)).toContain('plugins.retry');
         expect(request).toHaveBeenCalledTimes(0);
         expect(screen.root.findAll((node: any) => node.props?.accessibilityLabel === 'host unreachable. plugins.retry').length).toBeGreaterThan(0);
+    });
+
+    it('shows what the other surface learns without a remount', async () => {
+        // The card asks for the default tab, and the host answers that it is
+        // still collecting.
+        let answer: Promise<UsageNow> = Promise.resolve(COLLECTING);
+        request.mockImplementation((method: string) => (method === 'usage.now' ? answer : new Promise<UsageReport>(() => undefined)));
+        const card = renderCard();
+        await tick();
+        expect(screenText(card)).toContain('plugins.rightNow.collecting');
+
+        // The screen opens on that same tab -- the same wait, and no ask of its
+        // own -- and the card's follow-up lands with figures while it is open.
+        const screen = renderScreen();
+        await tick();
+        expect(screenText(screen)).toContain('plugins.rightNow.collecting');
+        answer = Promise.resolve(collected(undefined, 20, '2026-09-22T18:00:00.000Z'));
+        await tick(6_000);
+        expect(screenText(screen)).toContain('—');
+        TestRenderer.act(() => { card.unmount(); });
+    });
+
+    it('honours a retry press while another tab has a read in flight', async () => {
+        // opencode was asked a moment ago and its reading failed; claude's read
+        // is the one in flight.
+        noteAsked('opencode', Date.now());
+        rememberShown('opencode', { status: 'unavailable', reason: 'host unreachable' });
+        let release: (value: UsageReport) => void = () => undefined;
+        request.mockImplementation((_method: string, params?: { provider?: string }) => (params?.provider === 'claude'
+            ? new Promise<UsageReport>((resolve) => { release = resolve; })
+            : Promise.resolve(report('claude', 60))));
+        const screen = renderScreen();
+        await tick();
+        press(screen, 'Claude');
+        await tick();
+        press(screen, 'OpenCode');
+        await tick();
+        const before = request.mock.calls.length;
+
+        // The retry is pressed while that read is still running...
+        press(screen, 'host unreachable. plugins.retry');
+        expect(request.mock.calls.length).toBe(before);
+
+        // ...and it is not swallowed: it runs, past the cache, once the read in
+        // flight has settled.
+        await TestRenderer.act(async () => { release(report('claude', 60)); });
+        await tick();
+        expect(request.mock.calls.length).toBeGreaterThan(before);
+        expect(request.mock.calls.at(-1)?.[1]).toEqual({ provider: 'opencode', refresh: true });
+    });
+
+    it('says what it holds when the figures name no connected plan', async () => {
+        // A machine with local agents but no plan whose limits could be read:
+        // the host sends no connected list, and its own reason on the limits.
+        noteAsked('', Date.now());
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, { limits: { verdict: 'unknown', windows: [], message: "Plan limits aren't connected" }, ageSeconds: 20 }) });
+        request.mockClear();
+        const screen = renderScreen();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(0);
+        expect(screen.root.findAllByType('ScreenLimits').length).toBeGreaterThan(0);
+        expect(screenText(screen)).toContain('—');
     });
 
     it('collects exactly once per window for a tab the host has nothing stored for', async () => {

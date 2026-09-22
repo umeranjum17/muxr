@@ -17,7 +17,7 @@ import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
-import { FRESH_MS, collectionDue, noteAsked, rememberShown, shownUsage, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
+import { FRESH_MS, collectionDue, knownProviders, noteAsked, rememberShown, shownUsage, subscribeUsage, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
 
 /** The same primitives the declarative system renders, fed typed host data. */
 const LIMITS_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits', title: 'Right now' };
@@ -29,6 +29,11 @@ const WEEK_CHART_NODE: PluginScreenChartNode = { type: 'chart', variant: 'column
 const NOTHING_SHOWN_YET: UsageDisplay = { status: 'waiting', askedAt: 0 };
 
 const DASH = '—';
+
+/** The machine facts a display carries, when it carries them. */
+function measured(source: { vitals?: UsageFigures['vitals'] }): { vitals?: UsageFigures['vitals'] } {
+    return source.vitals === undefined ? {} : { vitals: source.vitals };
+}
 
 /**
  * The Usage screen: one tab per provider with real integration, its plan
@@ -45,32 +50,23 @@ export function UsageScreen() {
     const routeParams = useLocalSearchParams<{ provider?: string }>();
     const requestedProvider = typeof routeParams.provider === 'string' ? routeParams.provider.slice(0, 32) : '';
     const [provider, setProvider] = React.useState(requestedProvider);
-    const [display, setDisplay] = React.useState<UsageDisplay>(() => shownUsage(requestedProvider) ?? NOTHING_SHOWN_YET);
+    React.useSyncExternalStore(subscribeUsage, usageWrites);
+    const display = shownUsage(provider) ?? NOTHING_SHOWN_YET;
     const [refreshing, setRefreshing] = React.useState(false);
-    // Any read in flight, including the quiet ones. It drives the hairline and
-    // the refresh control, never the figures: what is on screen stays there
-    // until a newer answer lands.
+    // Any read in flight. It drives the hairline and the refresh control, never
+    // the figures: what is on screen stays there until a newer answer lands.
     const [busy, setBusy] = React.useState(false);
     const [throttledSeconds, setThrottledSeconds] = React.useState<number>();
     const version = React.useRef(0);
     const inFlight = React.useRef(false);
     const lastForced = React.useRef(0);
     const rejected = React.useRef(false);
-    const currentTab = React.useRef(provider);
-    currentTab.current = provider;
-    const displayRef = React.useRef(display);
-    displayRef.current = display;
+    const pendingRetry = React.useRef<string | undefined>(undefined);
     const error = display.status === 'unavailable' ? display.reason : undefined;
     rejected.current = display.status === 'unavailable';
 
     const report = display.status === 'figures' ? reportFrom(display.figures, provider) : undefined;
-    const tabs = report?.providers ?? [];
-
-    /** The state a tab settles into, kept for the next mount of either surface. */
-    const settle = React.useCallback((target: string, next: UsageDisplay): void => {
-        rememberShown(target, next);
-        if (target === currentTab.current) setDisplay(next);
-    }, []);
+    const tabs = report?.providers ?? knownProviders();
 
     /**
      * Ask the host to collect this tab past its cache, and paint the answer.
@@ -80,7 +76,7 @@ export function UsageScreen() {
      * at `claimedAtMs`, the instant the decision was taken, so the next window
      * is measured from where it decided rather than from a round trip.
      */
-    const load = React.useCallback((target: string, quiet: boolean, claimedAtMs = Date.now()): Promise<void> => {
+    const load = React.useCallback((target: string, claimedAtMs = Date.now()): Promise<void> => {
         const request = ++version.current;
         inFlight.current = true;
         setBusy(true);
@@ -88,42 +84,50 @@ export function UsageScreen() {
         noteAsked(target, claimedAtMs);
         // A tab already showing figures keeps them: this is a read running
         // behind an answer, not a reason to take that answer away.
-        if (target === currentTab.current && displayRef.current.status !== 'figures') {
-            const waiting: UsageDisplay = { status: 'waiting', askedAt: claimedAtMs };
-            rememberShown(target, waiting);
-            setDisplay(waiting);
-        }
+        const before = shownUsage(target);
+        if (before === undefined || before.status === 'waiting') rememberShown(target, { status: 'waiting', askedAt: claimedAtMs, ...measured(before ?? {}) });
         return sync.request('usage.report', { ...(target === '' ? {} : { provider: target }), refresh: true }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((value) => {
                 if (request !== version.current) return;
-                settle(target, { status: 'figures', at: Date.now(), figures: { kind: 'report', value } });
+                const previous = shownUsage(target);
+                rememberShown(target, { status: 'figures', at: Date.now(), figures: withReport(previous?.status === 'figures' ? previous.figures : undefined, value) });
             })
             .catch((cause: unknown) => {
                 if (request !== version.current) return;
-                settle(target, { status: 'unavailable', reason: cause instanceof Error ? cause.message : String(cause) });
+                const previous = shownUsage(target);
+                if (previous === undefined || previous.status !== 'figures') {
+                    rememberShown(target, { status: 'unavailable', reason: cause instanceof Error ? cause.message : String(cause), ...measured(previous ?? {}) });
+                }
             })
             .finally(() => {
                 if (request !== version.current) return;
                 inFlight.current = false;
                 setBusy(false);
                 setRefreshing(false);
+                // A retry the person pressed runs the moment the read in flight
+                // settles, rather than being swallowed by another tab's read.
+                const pressed = pendingRetry.current;
+                if (pressed === undefined) return;
+                pendingRetry.current = undefined;
+                setThrottledSeconds(undefined);
+                void load(pressed);
             });
-    }, [settle]);
+    }, []);
 
     /** One ask for a tab, or none: our own window decides, and the request it
      *  sends is the collection itself. Inside the window the screen paints what
      *  the shared memory holds and asks nothing; a tab nobody has asked is an
      *  open window with no record. `replace` lets a tab change through while
      *  another tab's read is still in flight. */
-    const loadIfDue = React.useCallback((target: string, quiet: boolean, replace = false): void => {
+    const loadIfDue = React.useCallback((target: string, replace = false): void => {
         if (inFlight.current && !replace) return;
         const now = Date.now();
         if (!collectionDue(target, now)) return;
-        void load(target, quiet, now);
+        void load(target, now);
     }, [load]);
 
     React.useEffect(() => {
-        loadIfDue(provider, false, true);
+        loadIfDue(provider, true);
     }, [provider, loadIfDue]);
 
     // A read still running when the screen goes cannot paint into it.
@@ -132,14 +136,13 @@ export function UsageScreen() {
     // Refreshing while focused and in the foreground only, and never on top of
     // a read that is already running -- opening the screen must not queue a
     // second ask behind the first.
-    useForegroundRefresh(() => { loadIfDue(provider, true); }, FRESH_MS);
+    useForegroundRefresh(() => { loadIfDue(provider); }, FRESH_MS);
 
     // A pressed tab paints its own state at once; another tab's figures are not
     // this one's, and a tab showing a wait says so.
     const selectTab = (id: string) => {
         hapticsSelection();
         setProvider(id);
-        setDisplay(shownUsage(id) ?? NOTHING_SHOWN_YET);
     };
     // The header control and the pull gesture are the same instruction: ask
     // past the cache, now. The budget refuses when a collection has just run;
@@ -158,14 +161,15 @@ export function UsageScreen() {
         if (inFlight.current) { setRefreshing(true); return; }
         if (!askNow()) return;
         setRefreshing(true);
-        void load(provider, false);
+        void load(provider);
     };
-    // A refused press gives the same feedback as one that ran, so the tap never
-    // reads as dead.
+    // A pressed retry is an instruction: it runs, or it waits for the read in
+    // flight and then runs, and a refusal is named at the control.
     const refreshNow = () => {
         hapticsSelection();
+        if (inFlight.current) { pendingRetry.current = provider; return; }
         if (!askNow()) return;
-        void load(provider, false);
+        void load(provider);
     };
 
     React.useEffect(() => {
@@ -174,7 +178,11 @@ export function UsageScreen() {
         return () => clearTimeout(timer);
     }, [throttledSeconds]);
 
-    const empty = report !== undefined && report.providers.length === 0;
+    // Only a report the host itself wrote as empty carries its words for that;
+    // figures synthesized from a usage.now payload have no provider list at all
+    // and must paint the limits they do hold rather than nothing.
+    const empty = report !== undefined && report.providers.length === 0
+        && (report.noProviders !== undefined || report.noProvidersTitle !== undefined);
     return (
         <>
             <Header
@@ -200,6 +208,10 @@ export function UsageScreen() {
                     figure being replaced by a spinner. The rail keeps its
                     height when idle, so nothing below it moves. */}
                 <LoadingHairline active={busy} />
+                {/* The tab strip is the host's own tab list, so it stays while a
+                    tab is only waiting or unavailable: a reader is never left
+                    with no way back to the figures another tab holds. */}
+                {tabs.length > 0 && <ProviderTabs tabs={tabs} active={report?.provider ?? provider} onSelect={selectTab} />}
                 {display.status === 'unavailable' && <Pressable onPress={refreshNow} accessibilityRole="button" accessibilityLabel={`${error ?? t('plugins.rightNow.unavailable')}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
                     <Notice tone="danger" text={error ?? t('plugins.rightNow.unavailable')} style={{ marginBottom: 0 }} />
                     <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4, marginLeft: 14 }}>{t('plugins.retry')}</Text>
@@ -213,7 +225,6 @@ export function UsageScreen() {
                         {report?.noProviders !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 14, marginTop: 4, textAlign: 'center' }}>{report.noProviders}</Text>}
                     </View>
                     : <>
-                        <ProviderTabs tabs={tabs} active={report?.provider ?? provider} onSelect={selectTab} />
                         {report !== undefined && <View style={{ opacity: busy ? 0.55 : 1 }}>
                             <ScreenLimits node={LIMITS_NODE} data={report} />
                             <SectionLabel style={{ marginBottom: 10 }}>Today</SectionLabel>
@@ -245,31 +256,33 @@ export function UsageScreen() {
     );
 }
 
-/** The figures the store holds as this screen can paint them: the report as it
- *  is, or the parts of a usage.now payload a screen has a place for -- its
- *  limits, the plans it names, and the tabs they make. The activity a
- *  usage.now never carried is a dash, which is what the host sends when a
- *  figure is not measured. */
+/** The figures the store holds as this screen can paint them: one projection,
+ *  so the limits and plans a usage.now read painted are here beside the
+ *  activity a usage.report read painted. Activity nobody has measured is a
+ *  dash, which is what the host sends when a figure is not measured. */
 function reportFrom(figures: UsageFigures, provider: string): UsageReport {
-    if (figures.kind === 'report') return figures.value;
-    const now = figures.value;
-    const providers = (now.connected ?? []).map((plan) => ({ id: plan.id, label: plan.label, glyph: plan.glyph ?? plan.id }));
+    const plans = figures.connected ?? [];
+    const providers = figures.providers ?? plans.map((plan) => ({ id: plan.id, label: plan.label, glyph: plan.glyph ?? plan.id }));
+    const activity = figures.activity;
     return {
         providers,
         provider,
-        providerName: (now.connected ?? []).find((plan) => plan.id === provider)?.label ?? provider,
+        providerName: plans.find((plan) => plan.id === provider)?.label ?? provider,
         windowPeriods: [],
         windows: [],
-        limits: now.limits,
-        ...(now.connected === undefined ? {} : { connected: now.connected }),
-        ...(now.ageSeconds === undefined ? {} : { ageSeconds: now.ageSeconds }),
-        capturedAt: now.capturedAt ?? new Date().toISOString(),
-        todayTokens: DASH,
-        todayCost: DASH,
-        modelSeries: [],
-        weekTokens: DASH,
-        weekCost: DASH,
-        weekSeries: [],
+        limits: figures.limits,
+        ...(figures.connected === undefined ? {} : { connected: figures.connected }),
+        ...(figures.ageSeconds === undefined ? {} : { ageSeconds: figures.ageSeconds }),
+        capturedAt: figures.capturedAt ?? new Date().toISOString(),
+        todayTokens: activity?.todayTokens ?? DASH,
+        todayCost: activity?.todayCost ?? DASH,
+        modelSeries: activity?.modelSeries ?? [],
+        weekTokens: activity?.weekTokens ?? DASH,
+        weekCost: activity?.weekCost ?? DASH,
+        weekSeries: activity?.weekSeries ?? [],
+        ...(activity?.activityNotice === undefined ? {} : { activityNotice: activity.activityNotice }),
+        ...(activity?.noProvidersTitle === undefined ? {} : { noProvidersTitle: activity.noProvidersTitle }),
+        ...(activity?.noProviders === undefined ? {} : { noProviders: activity.noProviders }),
     };
 }
 

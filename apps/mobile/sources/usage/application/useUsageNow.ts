@@ -2,7 +2,7 @@ import * as React from 'react';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type UsageNow, type UsageVitals } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { forcedReadWait } from './forcedRead';
-import { FRESH_MS, collectionDue, noteAsked, rememberShown, shownUsage, type UsageDisplay } from './freshnessWindow';
+import { FRESH_MS, collectionDue, noteAsked, rememberShown, shownUsage, subscribeUsage, usageWrites, withNow, type UsageDisplay, type UsageFigures } from './freshnessWindow';
 import { useForegroundRefresh } from './useForegroundRefresh';
 
 /** The tab the card's read answers for: `usage.now` collects the default one,
@@ -25,8 +25,8 @@ const NOTHING_SHOWN_YET: UsageDisplay = { status: 'waiting', askedAt: 0 };
 
 /** The machine facts a display carries, when it carries them: measured vitals
  *  are figures a reader can keep while the plan half is still being collected. */
-function measured(display: { vitals?: UsageVitals } | UsageNow): { vitals?: UsageVitals } {
-    return display.vitals === undefined ? {} : { vitals: display.vitals };
+function measured(source: { vitals?: UsageVitals }): { vitals?: UsageVitals } {
+    return source.vitals === undefined ? {} : { vitals: source.vitals };
 }
 
 export interface UsageNowRead {
@@ -49,11 +49,14 @@ export interface UsageNowRead {
  * One usage.now read's lifecycle: a request token so a slow answer can never
  * overwrite a newer one, one read at a time, and the figures retained through a
  * transient failure. What there is to show lives in the shared per-machine
- * memory beside the ask record, so a remount inside the window paints it, and a
- * blank is not one of the states it can be in.
+ * store beside the ask record, which this hook both writes and subscribes to,
+ * so a blank is not one of the states it can be in.
  */
 export function useUsageNow(): UsageNowRead {
-    const [state, setState] = React.useState<{ display: UsageDisplay; failed: boolean; refreshing: boolean }>(() => ({ display: shownUsage(READ_TAB) ?? NOTHING_SHOWN_YET, failed: false, refreshing: false }));
+    React.useSyncExternalStore(subscribeUsage, usageWrites);
+    const display = shownUsage(READ_TAB) ?? NOTHING_SHOWN_YET;
+    const [failed, setFailed] = React.useState(false);
+    const [refreshing, setRefreshing] = React.useState(false);
     const [throttledSeconds, setThrottledSeconds] = React.useState<number>();
     const version = React.useRef(0);
     const loading = React.useRef(false);
@@ -64,32 +67,28 @@ export function useUsageNow(): UsageNowRead {
     const bursting = React.useRef(false);
     const followUp = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const latest = React.useRef<(force: boolean) => void>(() => {});
-    const figures = state.display.status === 'figures' ? state.display.figures.value : undefined;
-    const figuresAt = state.display.status === 'figures' ? state.display.at : 0;
-    const shown = React.useRef<typeof figures>(undefined);
+    const displayRef = React.useRef(display);
+    displayRef.current = display;
+    const figures = display.status === 'figures' ? display.figures : undefined;
+    const shown = React.useRef<UsageFigures | undefined>(undefined);
     const shownAt = React.useRef(0);
-    if (shown.current !== figures) { shown.current = figures; shownAt.current = figuresAt; }
-    // What is on screen is what a remount should find, so the memory beside the
-    // ask record never lags the display, and both surfaces read one state.
-    React.useEffect(() => { rememberShown(READ_TAB, state.display); }, [state.display]);
+    if (shown.current !== figures) { shown.current = figures; shownAt.current = display.status === 'figures' ? display.at : 0; }
     // The card is reading unavailable: a tap on it must end in a read that
     // bypasses the cache, whatever else is in flight.
     const unavailable = React.useRef(false);
-    unavailable.current = state.failed || state.display.status === 'unavailable';
+    unavailable.current = failed || display.status === 'unavailable';
 
     /**
      * `force` asks the host to collect past its cache; such a read claims our
      * own window and the shared budget at `claimedAtMs`, the instant the
      * decision to collect was taken, so the next cycle measures a whole window
-     * from where it decided rather than from a round trip. Every other read is
-     * cache-respecting: the figures the host already holds are what a reader
-     * sees, and a collection runs behind them rather than in place of them.
+     * from where it decided rather than from a round trip.
      */
     const load = React.useCallback((force: boolean, claimedAtMs = Date.now()): Promise<void> => {
         // One read at a time. A tap during a background read is the same read,
         // so it joins it rather than stacking a second ask -- and still turns
         // the control on, because the tap did do something.
-        if (loading.current) { setState((current) => ({ ...current, refreshing: true })); return Promise.resolve(); }
+        if (loading.current) { setRefreshing(true); return Promise.resolve(); }
         if (followUp.current !== undefined) { clearTimeout(followUp.current); followUp.current = undefined; }
         // The budget belongs to a forced read that actually starts: a cycle that
         // can only join the read already in flight must not spend it, and the
@@ -106,11 +105,9 @@ export function useUsageNow(): UsageNowRead {
         // What is on screen stays there while a read runs behind it: figures a
         // reader can see, or the failure whose retry this is. Only a wait is
         // replaced by the wait it already is.
-        setState((current) => ({
-            display: current.display.status === 'waiting' ? { status: 'waiting', askedAt: claimedAtMs, ...measured(current.display) } : current.display,
-            failed: current.failed,
-            refreshing: true,
-        }));
+        const before = displayRef.current;
+        if (before.status === 'waiting') rememberShown(READ_TAB, { status: 'waiting', askedAt: claimedAtMs, ...measured(before) });
+        setRefreshing(true);
         return sync.request('usage.now', force ? { refresh: true } : {}, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((result) => {
                 if (request !== version.current) return;
@@ -125,7 +122,9 @@ export function useUsageNow(): UsageNowRead {
                 if (result.collecting !== true && (replaced === undefined || isNewer(result, replaced, replacedAt, Date.now()))) {
                     collecting.current = 0;
                     bursting.current = false;
-                    setState({ display: { status: 'figures', at: Date.now(), figures: { kind: 'now', value: result } }, failed: false, refreshing: false });
+                    setFailed(false);
+                    setRefreshing(false);
+                    rememberShown(READ_TAB, { status: 'figures', at: Date.now(), figures: withNow(shown.current, result) });
                     return;
                 }
                 collecting.current += 1;
@@ -135,15 +134,13 @@ export function useUsageNow(): UsageNowRead {
                 // showing what was last known is the whole point of refreshing
                 // behind it. With nothing collected yet it says what it is -- a
                 // host still collecting, or one that never finished.
-                setState((current) => ({
-                    display: current.display.status === 'figures'
-                        ? current.display
-                        : exhausted
-                            ? { status: 'unavailable', reason: '', ...measured(result) }
-                            : { status: 'waiting', askedAt: claimedAtMs, ...measured(result) },
-                    failed: exhausted,
-                    refreshing: !exhausted,
-                }));
+                setFailed(exhausted);
+                setRefreshing(!exhausted);
+                if (displayRef.current.status !== 'figures') {
+                    rememberShown(READ_TAB, exhausted
+                        ? { status: 'unavailable', reason: '', ...measured(result) }
+                        : { status: 'waiting', askedAt: claimedAtMs, ...measured(result) });
+                }
                 if (exhausted) return;
                 followUp.current = setTimeout(() => { followUp.current = undefined; latest.current(false); }, COLLECTING_RETRY_MS);
             })
@@ -153,13 +150,11 @@ export function useUsageNow(): UsageNowRead {
                 if (request === version.current) {
                     bursting.current = false;
                     rejected.current = true;
-                    setState((current) => ({
-                        display: current.display.status === 'figures'
-                            ? current.display
-                            : { status: 'unavailable', reason: cause instanceof Error ? cause.message : String(cause), ...measured(current.display) },
-                        failed: true,
-                        refreshing: false,
-                    }));
+                    setFailed(true);
+                    setRefreshing(false);
+                    if (displayRef.current.status !== 'figures') {
+                        rememberShown(READ_TAB, { status: 'unavailable', reason: cause instanceof Error ? cause.message : String(cause), ...measured(displayRef.current) });
+                    }
                 }
             })
             .finally(() => {
@@ -189,7 +184,7 @@ export function useUsageNow(): UsageNowRead {
             // that skips the cache, so it is remembered and run when the read
             // in flight settles rather than being answered by it.
             if (unavailable.current) pendingForce.current = true;
-            setState((current) => ({ ...current, refreshing: true }));
+            setRefreshing(true);
             return;
         }
         const now = Date.now();
@@ -215,7 +210,7 @@ export function useUsageNow(): UsageNowRead {
         // Our own window decides whether this cycle asks at all, and the single
         // request it sends is the collection itself -- no cheap read first, so a
         // host with nothing stored collects once rather than twice. Inside the
-        // window the card paints what the shared memory holds and asks nothing,
+        // window the card paints what the shared store holds and asks nothing,
         // and a first view with nothing held is just an open window with no
         // record. The request claims the window at this instant, the decision.
         const now = Date.now();
@@ -229,7 +224,7 @@ export function useUsageNow(): UsageNowRead {
         if (followUp.current !== undefined) { clearTimeout(followUp.current); followUp.current = undefined; }
     }, []);
 
-    return { display: state.display, failed: state.failed, refreshing: state.refreshing, throttledSeconds, refresh };
+    return { display, failed, refreshing, throttledSeconds, refresh };
 }
 
 /** Whether an answer is newer than the figures it would replace. The host names

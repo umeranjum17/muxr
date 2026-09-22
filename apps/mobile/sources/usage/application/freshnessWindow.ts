@@ -1,4 +1,4 @@
-import type { UsageNow, UsageReport, UsageVitals } from '@muxr/contract';
+import type { UsageConnectedProvider, UsageLimitsPayload, UsageNow, UsageReport, UsageSeriesPoint, UsageVitals } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
 
 /** How long a collected reading stays good enough to show as it is, on both
@@ -34,26 +34,86 @@ export function machineKey(provider: string): string {
  *  level, so a remount and a return from the foreground do not forget it. */
 const askedAt = new Map<string, number>();
 
-/** The figures a surface can paint, tagged by the read that produced them: the
- *  card's usage.now carries the vitals the screen has no place for and the
- *  screen's usage.report carries the activity the card has no place for, so a
- *  reader paints the part it knows and says nothing about the rest. */
-export type UsageFigures =
-    | { kind: 'now'; value: UsageNow }
-    | { kind: 'report'; value: UsageReport };
+/** The measured local activity a usage.report read carries, and the host's own
+ *  words for having none. */
+export interface UsageActivity {
+    todayTokens: string;
+    todayCost: string;
+    modelSeries: UsageSeriesPoint[];
+    weekTokens: string;
+    weekCost: string;
+    weekSeries: UsageSeriesPoint[];
+    activityNotice?: string;
+    noProvidersTitle?: string;
+    noProviders?: string;
+}
+
+/** One machine's tab, as figures: the limits and plans both surfaces show, the
+ *  machine facts the card measures, and the local activity the screen shows.
+ *  ONE projection rather than a payload per surface, so the last writer cannot
+ *  narrow what the other had: a read fills in the part it knows and leaves the
+ *  rest of what is held standing. */
+export interface UsageFigures {
+    limits: UsageLimitsPayload;
+    /** Every provider with a real integration, which is the host's own tab list
+     *  -- a plan with no quota windows is still a tab. */
+    providers?: UsageReport['providers'];
+    connected?: UsageConnectedProvider[];
+    vitals?: UsageVitals;
+    activity?: UsageActivity;
+    ageSeconds?: number;
+    capturedAt?: string;
+}
 
 /** What the phone can show for a machine and tab, and all it can show: figures
- *  it holds, a read it has asked for and is waiting on, or a failure with the
- *  host's own reason. Three states and no fourth, so neither surface is ever
- *  left with an absence to interpret -- a blank card is the complaint this
- *  exists to answer, and each of the routes that produced one did it by
- *  treating an absent payload as nothing to render. */
+ *  it holds, a read it has asked for and is waiting on, or a failure with an
+ *  honest reason. Three states and no fourth, so neither surface is ever left
+ *  with an absence to interpret -- a blank card is the complaint this exists to
+ *  answer, and each of the routes that produced one did it by treating an absent
+ *  payload as nothing to render. */
 export type UsageDisplay =
     | { status: 'figures'; at: number; figures: UsageFigures }
     | { status: 'waiting'; askedAt: number; vitals?: UsageVitals }
     | { status: 'unavailable'; reason: string; vitals?: UsageVitals };
 
+/** The figures a usage.now read adds to what this tab holds. */
+export function withNow(previous: UsageFigures | undefined, value: UsageNow): UsageFigures {
+    return {
+        ...(previous?.activity === undefined ? {} : { activity: previous.activity }),
+        limits: value.limits,
+        ...(value.connected === undefined ? {} : { connected: value.connected }),
+        ...(value.vitals === undefined ? {} : { vitals: value.vitals }),
+        ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds }),
+        ...(value.capturedAt === undefined ? {} : { capturedAt: value.capturedAt }),
+    };
+}
+
+/** The figures a usage.report read adds to what this tab holds. */
+export function withReport(previous: UsageFigures | undefined, value: UsageReport): UsageFigures {
+    return {
+        ...(previous?.vitals === undefined ? {} : { vitals: previous.vitals }),
+        limits: value.limits,
+        providers: value.providers,
+        ...(value.connected === undefined ? {} : { connected: value.connected }),
+        activity: {
+            todayTokens: value.todayTokens,
+            todayCost: value.todayCost,
+            modelSeries: value.modelSeries,
+            weekTokens: value.weekTokens,
+            weekCost: value.weekCost,
+            weekSeries: value.weekSeries,
+            ...(value.activityNotice === undefined ? {} : { activityNotice: value.activityNotice }),
+            ...(value.noProvidersTitle === undefined ? {} : { noProvidersTitle: value.noProvidersTitle }),
+            ...(value.noProviders === undefined ? {} : { noProviders: value.noProviders }),
+        },
+        ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds }),
+        ...(value.capturedAt === undefined ? {} : { capturedAt: value.capturedAt }),
+    };
+}
+
 const displays = new Map<string, UsageDisplay>();
+const listeners = new Set<() => void>();
+let writes = 0;
 
 /** Whether this machine's tab may be asked for a collection at `nowMs`: our own
  *  window has passed since we last asked, or we have never asked. Decided from
@@ -70,6 +130,31 @@ export function noteAsked(provider: string, nowMs: number): void {
     askedAt.set(machineKey(provider), nowMs);
 }
 
+/** Read every write: one store, and a surface paints what the other stored the
+ *  moment it lands rather than what happened to be there when it mounted. */
+export function subscribeUsage(listener: () => void): () => void {
+    listeners.add(listener);
+    return () => { listeners.delete(listener); };
+}
+
+/** How many writes have landed: a surface subscribes to this, so any change to
+ *  any tab re-renders it, and it reads the store itself. */
+export function usageWrites(): number {
+    return writes;
+}
+
+/** Every tab this machine has figures for, as the host wrote them: a tab strip
+ *  survives a tab that is only waiting or unavailable. */
+export function knownProviders(): UsageReport['providers'] {
+    const machine = getCachedConnectionSettings().machineId;
+    const tabs = new Map<string, UsageReport['providers'][number]>();
+    for (const [key, display] of displays) {
+        if (!key.startsWith(`${machine}\u0000`) || display.status !== 'figures') continue;
+        for (const tab of display.figures.providers ?? []) if (!tabs.has(tab.id)) tabs.set(tab.id, tab);
+    }
+    return [...tabs.values()];
+}
+
 /** What this machine's tab shows, if anything has been asked for it yet. */
 export function shownUsage(provider: string): UsageDisplay | undefined {
     return displays.get(machineKey(provider));
@@ -80,4 +165,6 @@ export function shownUsage(provider: string): UsageDisplay | undefined {
  *  ask record's lifetime, and the one thing both surfaces paint. */
 export function rememberShown(provider: string, display: UsageDisplay): void {
     displays.set(machineKey(provider), display);
+    writes += 1;
+    for (const listener of [...listeners]) listener();
 }

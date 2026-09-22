@@ -3,7 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
-import type { UsageConnectedProvider, UsageLimitsWindow, UsageNow } from '@muxr/contract';
+import type { UsageConnectedProvider, UsageLimitsWindow } from '@muxr/contract';
 import type { UsageFigures } from '../application/freshnessWindow';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { cardStyle, Meter, SectionLabel, withAlpha } from '@/components/ui';
@@ -65,7 +65,7 @@ export function RightNowCard() {
         </View>;
     }
 
-    const payload = nowFigures(display.figures);
+    const payload = display.figures;
     const verdict = payload.limits.verdict;
     // Real quota windows for more than the selected tab turn the first row
     // into one restrained provider strip; Memory/Disk/Load/Uptime stay the
@@ -130,7 +130,7 @@ function CardBody({ limit, line, quiet }: { limit?: UsageLimitsWindow; line: Rea
  * control stays quiet chrome rather than a toolbar.
  */
 function FreshnessRow({ payload, failed, refreshing, throttledSeconds, onRefresh }: {
-    payload?: UsageNow; failed: boolean; refreshing: boolean; throttledSeconds?: number; onRefresh: () => void;
+    payload?: UsageFigures; failed: boolean; refreshing: boolean; throttledSeconds?: number; onRefresh: () => void;
 }) {
     const { theme } = useUnistyles();
     const agedFor = disclosedAge(payload);
@@ -216,21 +216,6 @@ function ProviderRow({ provider }: { provider: UsageConnectedProvider }) {
     );
 }
 
-/** The figures the store holds as the card can paint them: the usage.now
- *  payload as it is, or the parts of a usage.report a card has a place for --
- *  its limits and connected plans. With no usage.now payload there are no
- *  vitals, and the quiet line is simply absent. */
-function nowFigures(figures: UsageFigures): UsageNow {
-    if (figures.kind === 'now') return figures.value;
-    const { limits, connected, ageSeconds, capturedAt } = figures.value;
-    return {
-        limits,
-        ...(connected === undefined ? {} : { connected }),
-        ...(ageSeconds === undefined ? {} : { ageSeconds }),
-        ...(capturedAt === undefined ? {} : { capturedAt }),
-    };
-}
-
 /** The window that runs out first: the one worth leading with. */
 function leadWindow(windows: UsageLimitsWindow[]): UsageLimitsWindow | undefined {
     return windows.reduce<UsageLimitsWindow | undefined>(
@@ -250,7 +235,7 @@ function windowTag(window: UsageLimitsWindow): string {
 
 /** The strip answers only when the payload itself leads with a real window:
  *  a plan tab's own failure keeps its honest row. */
-function hasConnectedStrip(payload: UsageNow): boolean {
+function hasConnectedStrip(payload: UsageFigures): boolean {
     return (payload.connected?.length ?? 0) > 0 && payload.limits.windows.length > 0;
 }
 
@@ -294,13 +279,13 @@ function FactsLine({ parts, style }: { parts: string[]; style?: object }) {
  *  limit figures are is not a machine fact, and sharing this line with them
  *  is what wrapped a lone fragment onto a second row; the freshness row owns
  *  it now, where the control that acts on it lives. */
-function quietLine(payload: UsageNow, percent = (value: number) => `${value}%`): string[] {
+function quietLine(payload: UsageFigures, percent = (value: number) => `${value}%`): string[] {
     return payload.vitals === undefined ? [] : vitalsFigures(payload.vitals, percent);
 }
 
 /** The figures the host could read, in order; a filesystem it could not stat
  *  drops its own figure and leaves the rest of the line standing. */
-function vitalsFigures(vitals: UsageNow['vitals'], percent = (value: number) => `${value}%`): string[] {
+function vitalsFigures(vitals: UsageFigures['vitals'], percent = (value: number) => `${value}%`): string[] {
     const facts = vitals === undefined ? undefined : vitalsFacts(vitals);
     if (facts === undefined) return [];
     const { memoryPercent, diskPercent, load, uptime } = facts;
@@ -313,7 +298,7 @@ function vitalsFigures(vitals: UsageNow['vitals'], percent = (value: number) => 
 }
 
 /** The age of the limit figures, once it is old enough to be worth saying. */
-function disclosedAge(payload: UsageNow | undefined): string | undefined {
+function disclosedAge(payload: UsageFigures | undefined): string | undefined {
     return payload === undefined || payload.ageSeconds === undefined || payload.ageSeconds < AGE_WORTH_MENTIONING_SECONDS
         ? undefined
         : compactAge(payload.ageSeconds * 1_000);
@@ -321,13 +306,13 @@ function disclosedAge(payload: UsageNow | undefined): string | undefined {
 
 /** With no window to show: the host's own reason when it has one -- an expired
  *  token is not a plan that was never connected -- otherwise the phone's word. */
-function emptyLine(payload: UsageNow): string {
+function emptyLine(payload: UsageFigures): string {
     return payload.limits.message ?? t('plugins.rightNow.notConnected');
 }
 
 /** One sentence for the reader; the dots are decorative. How fresh the figures
  *  are, and what to do about it, is the freshness row's own button to announce. */
-function cardAccessibilityLabel(payload: UsageNow): string {
+function cardAccessibilityLabel(payload: UsageFigures): string {
     const parts: string[] = [t('plugins.rightNow.title')];
     if (hasConnectedStrip(payload)) {
         parts.push(payload.connected!.map(providerSummary).join(', '));
