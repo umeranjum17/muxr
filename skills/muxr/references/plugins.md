@@ -11,8 +11,7 @@ printed PLUGINS.md.
 
 ## When to use
 
-When asked to create, modify, install, debug, or replace a muxr plugin or
-realtime voice provider.
+When asked to create, modify, install, debug, or replace a muxr plugin.
 
 ## Command loop
 
