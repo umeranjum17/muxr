@@ -517,7 +517,7 @@ export const MainView = React.memo(() => {
         : safeArea.top
             + MOBILE_GLASS_HEADER_HEIGHT
             + 12;
-    // A view-only browser cannot start agents, so it gets no composer.
+    // A view-only grant cannot start agents, so it gets no composer.
     const dockVisible = authority === 'control' && !authorityLoading && !searchActive && !phoneHomeRecovering;
     const bottomContentInset = dockVisible ? MOBILE_HOME_DOCK_CONTENT_INSET : 16;
 
@@ -626,7 +626,7 @@ export const MainView = React.memo(() => {
         );
     }
 
-    // The home is one screen on every surface: header, herd, composer dock.
+    // Compact home uses the same header, herd, and (when permitted) composer dock on web and native.
     const phoneHeader = (
         <View style={[styles.phoneHeader, Platform.OS !== 'web' && styles.phoneHeaderOverlay]}>
             <Header
