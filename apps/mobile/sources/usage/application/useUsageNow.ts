@@ -2,8 +2,12 @@ import * as React from 'react';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type UsageNow } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { forcedReadWait } from './forcedRead';
-import { FRESH_MS, pastFreshnessWindow } from './freshnessWindow';
+import { FRESH_MS, collectionDue, noteAsked } from './freshnessWindow';
 import { useForegroundRefresh } from './useForegroundRefresh';
+
+/** The tab the card's read answers for: `usage.now` collects the default one,
+ *  which is the same cache entry the Usage screen's default tab reads. */
+const READ_TAB = '';
 
 /** `collecting` is the host saying its usage cache was cold, not that there is
  *  nothing to have: it answers with the vitals it already measured while the
@@ -66,8 +70,9 @@ export function useUsageNow(): UsageNowRead {
         if (followUp.current !== undefined) { clearTimeout(followUp.current); followUp.current = undefined; }
         revalidateAfter.current = false;
         // The budget belongs to a forced read that actually starts: a cycle that
-        // can only join the read already in flight must not spend it.
-        if (force) lastForced.current = Date.now();
+        // can only join the read already in flight must not spend it, and the
+        // window opens only where we really ask.
+        if (force) { lastForced.current = Date.now(); noteAsked(READ_TAB, lastForced.current); }
         // A follow-up asks the cache-respecting question on purpose: forcing it
         // again would start a second collection behind the one the read that
         // opened the burst already left running.
@@ -95,10 +100,10 @@ export function useUsageNow(): UsageNowRead {
                     bursting.current = false;
                     setState({ value: result, failed: false, refreshing: false });
                     // Stale while revalidate, and not only the stale half: figures
-                    // already past their window paint at once, and one forced read
-                    // makes them current behind them. It never chains -- the
+                    // past our window paint at once, and one forced read makes
+                    // them current behind them. It never chains -- the
                     // revalidation's own answer cannot ask for another.
-                    if (!wasRevalidation && pastFreshnessWindow(result.ageSeconds)) revalidateAfter.current = true;
+                    if (!wasRevalidation) revalidateAfter.current = collectionDue(READ_TAB, result.ageSeconds, Date.now());
                     return;
                 }
                 collecting.current += 1;
@@ -144,6 +149,7 @@ export function useUsageNow(): UsageNowRead {
                 }
                 if (!revalidateAfter.current) return;
                 revalidateAfter.current = false;
+                if (forcedReadWait(lastForced.current, rejected.current, Date.now()) !== undefined) return;
                 revalidating.current = true;
                 collecting.current = 0;
                 bursting.current = false;
@@ -185,11 +191,11 @@ export function useUsageNow(): UsageNowRead {
         // restart the burst's budget: bounded means bounded even across a focus.
         // Once the burst has settled this is a new cycle, and it starts whole.
         if (!bursting.current) collecting.current = 0;
-        // Only figures already known to be past their window are worth a whole
+        // Only figures already known to be past our window are worth a whole
         // collection; anything newer is served from the host's cache. The same
         // throttle guards this cycle, which falls back to the cheap ask rather
         // than skipping the moment.
-        const force = pastFreshnessWindow(shown.current?.ageSeconds) && forcedReadWait(lastForced.current, rejected.current, Date.now()) === undefined;
+        const force = collectionDue(READ_TAB, shown.current?.ageSeconds, Date.now()) && forcedReadWait(lastForced.current, rejected.current, Date.now()) === undefined;
         void load(force);
     }, [load]), FRESH_MS);
 

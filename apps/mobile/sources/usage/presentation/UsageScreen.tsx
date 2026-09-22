@@ -17,7 +17,7 @@ import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
-import { FRESH_MS, pastFreshnessWindow } from '../application/freshnessWindow';
+import { FRESH_MS, collectionDue, noteAsked } from '../application/freshnessWindow';
 
 /** Screen payloads survive a close: reopening renders at once, then refreshes. */
 const reportCache = new Map<string, UsageReport>();
@@ -60,14 +60,14 @@ export function UsageScreen() {
     const tabs = report?.providers ?? [];
 
     // One rule for every forced read on this screen, whether a person asked or
-    // a stale payload did: honour it unless the last forced read is too recent,
-    // and claim the budget only where the read actually starts. A read that was
-    // rejected consumed no provider quota, so it is exempt.
-    const claimForced = React.useCallback((): number | undefined => {
-        const now = Date.now();
-        const waitSeconds = forcedReadWait(lastForced.current, rejected.current, now);
+    // an ageing reading did: honour it unless the last forced read is too
+    // recent, and claim the budget only where the read actually starts. A read
+    // that was rejected consumed no provider quota, so it is exempt.
+    const claimForced = React.useCallback((tab: string, nowMs: number): number | undefined => {
+        const waitSeconds = forcedReadWait(lastForced.current, rejected.current, nowMs);
         if (waitSeconds !== undefined) return waitSeconds;
-        lastForced.current = now;
+        lastForced.current = nowMs;
+        noteAsked(tab, nowMs);
         return undefined;
     }, []);
 
@@ -86,13 +86,13 @@ export function UsageScreen() {
                 reportCache.set(target, value);
                 while (reportCache.size > MAX_CACHED_REPORTS) reportCache.delete(reportCache.keys().next().value!);
                 setFetched({ key: target, value });
-                // Last-known numbers paint at once; a reading past the phone's
-                // own window revalidates, asking for fresh data by name, and
-                // swaps in place. Whether it is worth a whole collection is the
-                // phone's decision, shared with the Home card -- the host's
-                // stale flag says the figures are ageing, not that every
-                // provider should be asked again.
-                if (pastFreshnessWindow(value.ageSeconds) && claimForced() === undefined) {
+                // Last-known numbers paint at once; a reading past our own
+                // window revalidates, asking for fresh data by name, and swaps
+                // in place. Whether it is worth a whole collection is our
+                // decision, shared with the Home card: the host's word on its
+                // own age can hold an ask back, never authorize one.
+                const now = Date.now();
+                if (collectionDue(target, value.ageSeconds, now) && claimForced(target, now) === undefined) {
                     void load(target, true);
                 }
             })
@@ -133,7 +133,7 @@ export function UsageScreen() {
     // a refusal is named at the control that was pressed, never silent.
     const askNow = (): boolean => {
         if (inFlight.current) return false;
-        const waitSeconds = claimForced();
+        const waitSeconds = claimForced(provider, Date.now());
         if (waitSeconds !== undefined) { setThrottledSeconds(waitSeconds); return false; }
         setThrottledSeconds(undefined);
         return true;

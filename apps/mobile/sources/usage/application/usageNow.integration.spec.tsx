@@ -187,8 +187,13 @@ async function tick(ms = 0) {
     await TestRenderer.act(async () => { await vi.advanceTimersByTimeAsync(ms); });
 }
 
+let testEpoch = Date.now();
 beforeEach(() => {
     vi.useFakeTimers();
+    // The per-tab window outlives a screen and a test, so each one starts a day
+    // on: a previous test's ask cannot close this one's window.
+    testEpoch += 24 * 60 * 60_000;
+    vi.setSystemTime(testEpoch);
     request.mockReset();
     hapticsSelection.mockClear();
     appState.currentState = 'active';
@@ -418,30 +423,6 @@ describe('the Home card read path', () => {
         expect(card.latest().refreshing).toBe(false);
     });
 
-    it('throttles a tap once a collecting burst has run out, and names the countdown', async () => {
-        // The host's collection outlives its bounded wait but stays under way.
-        request.mockResolvedValueOnce(collected(FRESH_MS / 1_000 + 60)).mockResolvedValue(COLLECTING);
-        const card = renderCard();
-        await tick();
-        for (let follow = 0; follow < 4; follow += 1) await tick(6_000);
-
-        // A cycle lands while the burst still has one attempt left and forces
-        // the read through, so the burst runs out with the budget just spent.
-        TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
-        await tick();
-        expect(screenText(card)).toContain('plugins.rightNow.refreshFailed');
-
-        // That is not a rejected read: it asked every provider, so the tap is
-        // told to wait instead of starting a fresh collection -- and says so,
-        // with the countdown, rather than appearing to do nothing.
-        const read = request.mock.calls.length;
-        pressRefresh(card);
-        await tick();
-        expect(request.mock.calls.length).toBe(read);
-        expect(screenText(card)).toContain('plugins.rightNow.refreshThrottled');
-        expect(screenText(card)).not.toContain('plugins.rightNow.refreshFailed');
-    });
-
     it('does not restart a collecting burst from a cycle event, but a later cycle starts whole', async () => {
         request.mockResolvedValue(COLLECTING);
         const card = mount();
@@ -461,7 +442,7 @@ describe('the Home card read path', () => {
         expect(request).toHaveBeenCalledTimes(12);
     });
 
-    it('does not spend the forced budget on a cycle that could only join a read', async () => {
+    it('does not add a collection from a cycle landing on a read in flight', async () => {
         let release: (value: UsageNow) => void = () => undefined;
         request.mockResolvedValueOnce(collected(FRESH_MS / 1_000 + 60))
             .mockImplementationOnce(() => new Promise<UsageNow>((resolve) => { release = resolve; }))
@@ -469,16 +450,15 @@ describe('the Home card read path', () => {
         const card = mount();
         await tick();
 
-        // The stale first payload starts its one revalidation and keeps it in
+        // The old readings start their one revalidation and keep it in
         // flight...
         await tick(11_000);
-        // ...when a cycle lands, more than ten seconds after the read that
-        // really ran. It can only join, so it must not claim the budget.
+        // ...when a cycle lands. It cannot ask behind it, so no second read is
+        // issued and no budget claimed.
         TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
         await TestRenderer.act(async () => { release(collected()); });
 
-        // A tap now is more than ten seconds after that read, so it is honoured
-        // rather than told to wait for a read that never ran.
+        // The tap after it is still honoured.
         await tick(1_000);
         TestRenderer.act(() => { card.latest().refresh(); });
         await tick();
@@ -602,17 +582,27 @@ describe('the usage screen read path', () => {
         expect(forcedReads()).toHaveLength(1);
     });
 
-    it('leaves the forced-read budget as the floor under a due revalidation', async () => {
-        request.mockResolvedValue(report('claude', 1_200));
-        renderScreen();
+    it('asks at most once per window when the host cannot store a reading', async () => {
+        // The host declines to cache a reading whose limits or activity are
+        // unavailable, so the same old one is served forever: its age can no
+        // longer open the window, only our own record of asking can.
+        request.mockImplementation((_method: string, params?: { provider?: string }) =>
+            Promise.resolve(report(params?.provider ?? 'claude', 1_200)));
+
+        let screen = renderScreen();
         await tick();
         expect(forcedReads()).toHaveLength(1);
 
-        // A foreground return lands inside the ten seconds the mount
-        // revalidation claimed: what it reads as due still cannot start
-        // another collection yet.
+        // Reopen...
+        await tick(90_000);
+        TestRenderer.act(() => { screen.unmount(); });
+        screen = renderScreen();
+        await tick();
+        // ...and a return from the background, still inside the window.
+        await tick(90_000);
         TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
         await tick();
+
         expect(forcedReads()).toHaveLength(1);
     });
 });

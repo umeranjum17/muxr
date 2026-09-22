@@ -7,10 +7,25 @@
  *  become current. Doubles as the refresh cadence on both surfaces. */
 export const FRESH_MS = 15 * 60_000;
 
-/** Whether a reading is old enough to be worth a whole collection. One rule,
- *  on the phone's window, for every surface: the host's own staleness flag
- *  says the figures are ageing, but it must not decide this, or each surface
- *  ends up collecting on a different clock. */
-export function pastFreshnessWindow(ageSeconds: number | undefined): boolean {
-    return ageSeconds !== undefined && ageSeconds * 1_000 >= FRESH_MS;
+/** When we last asked the host for a whole collection, per tab: our own record
+ *  of our own act of asking, on our own clock. The age of the reading that
+ *  came back cannot stand in for this -- a host that cannot persist a reading
+ *  (its limits or local activity unavailable) keeps serving the same old one,
+ *  so its age never advances and the window would never close. Module level,
+ *  so a remount and a return from the foreground do not forget it. */
+const askedAt = new Map<string, number>();
+
+/** Whether this tab may be asked for a collection again: our own window has
+ *  passed since we last asked, and the reading we hold is old enough to be
+ *  worth one. The window is the bound -- the reading's age can only hold an ask
+ *  back, never cause one. */
+export function collectionDue(provider: string, readingAgeSeconds: number | undefined, nowMs: number): boolean {
+    const last = askedAt.get(provider);
+    const windowPassed = last === undefined || nowMs - last >= FRESH_MS;
+    return windowPassed && readingAgeSeconds !== undefined && readingAgeSeconds * 1_000 >= FRESH_MS;
+}
+
+/** Note that we asked for this tab, opening a new window. */
+export function noteAsked(provider: string, nowMs: number): void {
+    askedAt.set(provider, nowMs);
 }
