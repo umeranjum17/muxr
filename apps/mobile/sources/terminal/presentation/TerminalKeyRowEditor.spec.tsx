@@ -19,15 +19,25 @@ const theme = {
         accent: '#0af',
         divider: '#333',
         warningCritical: '#f55',
+        status: { error: '#f55' },
         button: { primary: { tint: '#000' } },
     },
 };
+// The terminal's own theme, which the whole control grid is meant to wear.
+const terminalTheme = { colors: { ...theme.colors, text: '#ececec', textSecondary: '#9a9a9f' } };
+
+// react-native-unistyles 3 in brief: ScopedTheme sets its theme only while its
+// own children render, and useUnistyles keeps whatever was in force when the
+// component mounted. A component mounted by a later, local re-render gets the
+// phone's theme instead, which is how a light phone leaked into the grid.
+const scope = vi.hoisted(() => ({ current: undefined as string | undefined }));
 
 vi.mock('react-native', () => ({
     KeyboardAvoidingView: 'KeyboardAvoidingView',
     Modal: 'Modal',
     Platform: { OS: 'android', select: (options: { android?: unknown; default?: unknown }) => options.android ?? options.default },
     Pressable: 'Pressable',
+    ScrollView: 'ScrollView',
     StyleSheet: { create: (styles: Record<string, unknown>) => styles, hairlineWidth: 1 },
     Text: 'Text',
     TextInput: 'TextInput',
@@ -51,7 +61,19 @@ vi.mock('react-native-gesture-handler', () => {
     };
 });
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
-vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme }) }));
+vi.mock('react-native-unistyles', () => {
+    const Apply = ({ name }: { name: string | undefined }) => { scope.current = name; return null; };
+    return {
+        ScopedTheme: ({ name, children }: { name: string; children: React.ReactNode }) => {
+            const previous = scope.current;
+            return <><Apply name={name} />{children}<Apply name={previous} /></>;
+        },
+        useUnistyles: () => {
+            const [name] = React.useState(() => scope.current);
+            return { theme: name === 'dark' ? terminalTheme : theme };
+        },
+    };
+});
 vi.mock('@/constants/Typography', () => ({ Typography: { mono: () => ({}) } }));
 vi.mock('@/components/haptics', () => ({ hapticsLight: () => undefined, hapticsSelection: () => undefined }));
 vi.mock('@/components/Switch', () => ({ Switch: 'Switch' }));
@@ -63,7 +85,9 @@ vi.mock('@/catalog/store', () => ({
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid' }));
 
 // eslint-disable-next-line
-import { KeyForm } from './TerminalKeyRowEditor';
+import { KeyForm, TerminalControlGrid } from './TerminalKeyRowEditor';
+import { ScopedTheme } from 'react-native-unistyles';
+import { DEFAULT_ROW_IDS } from '../domain/keyRow';
 
 function mount(onSave: (entry: unknown) => void) {
     let renderer: any;
@@ -141,5 +165,35 @@ describe('terminal key form with an action key', () => {
         expect(present(renderer, 'Key name')).toBe(1);
         expect(renderer.root.findByProps({ accessibilityLabel: 'Save key' }).props.disabled).toBe(true);
         expect(drawn(renderer)).toContain('Keep the name to 12 characters.');
+    });
+});
+
+describe('terminal controls on a light phone', () => {
+    it('keeps the key form, and the list it returns to, in the terminal theme', () => {
+        let renderer: any;
+        TestRenderer.act(() => {
+            renderer = TestRenderer.create(
+                <ScopedTheme name="dark">
+                    <TerminalControlGrid visible category="keys" onCategoryChange={() => undefined} onClose={() => undefined}
+                        entries={null} seed={[...DEFAULT_ROW_IDS]} onChange={() => undefined}
+                        actions={null} actionSeed={[]} onActionsChange={() => undefined}
+                        recentLinks={[]} onRecentLink={() => undefined} viewCommands={[]}
+                        keyboardDisabled={false} onKeyboardDisabledChange={() => undefined} />
+                </ScopedTheme>,
+            );
+        });
+
+        // Opening a form re-renders the key list alone, after the terminal's
+        // own render has finished.
+        press(renderer, 'Edit esc');
+        const nameField = renderer.root.findByProps({ accessibilityLabel: 'Key name' });
+        expect(nameField.props.style[1].color).toBe(terminalTheme.colors.text);
+
+        // Cancelling mounts the list again, preview row included.
+        const cancel = renderer.root.findAllByType('Text').find((node: any) => node.props.children === 'Cancel');
+        TestRenderer.act(() => { cancel.parent.props.onPress(); });
+        const preview = renderer.root.find((node: any) => String(node.props['aria-label'] ?? '').startsWith('Key row preview'));
+        const ctrl = preview.findAllByType('Text').find((node: any) => node.props.children === 'ctrl');
+        expect(ctrl.props.style.color).toBe(terminalTheme.colors.textSecondary);
     });
 });

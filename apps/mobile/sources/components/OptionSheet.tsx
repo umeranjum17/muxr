@@ -28,6 +28,8 @@ export interface ModelMode {
     providerName?: string;
     providerKind?: string;
     agentKind?: string;
+    /** The choice itself in miniature (a theme tile, text at a size), drawn at the row's trailing edge. */
+    preview?: React.ReactNode;
 }
 import { ALL_PROVIDERS, filterModels, groupByProvider } from '@/utils/optionSheet';
 
@@ -142,6 +144,10 @@ export function OptionSheet({
                         <Text style={styles.rowSubtitle} numberOfLines={2}>{model.description}</Text>
                     )}
                 </View>
+                {model.preview !== undefined && (
+                    // A sample to look at, not a second label to hear.
+                    <View aria-hidden>{model.preview}</View>
+                )}
                 {context && <Text style={styles.contextChip}>{context}</Text>}
                 {model.agentKind && isSelected && <Ionicons name="checkmark-circle" size={20} color={theme.colors.textLink} />}
             </Pressable>
