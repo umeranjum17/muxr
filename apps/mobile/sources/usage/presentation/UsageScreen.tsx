@@ -17,7 +17,7 @@ import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
-import { FRESH_MS, collectionDue, knownProviders, noteAsked, rememberShown, shownUsage, subscribeUsage, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
+import { FRESH_MS, collectionDue, knownProviders, noteAsked, releaseAsked, rememberShown, shownUsage, subscribeUsage, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
 
 /** The same primitives the declarative system renders, fed typed host data. */
 const LIMITS_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits', title: 'Right now' };
@@ -53,6 +53,10 @@ export function UsageScreen() {
     React.useSyncExternalStore(subscribeUsage, usageWrites);
     const display = shownUsage(provider) ?? NOTHING_SHOWN_YET;
     const [refreshing, setRefreshing] = React.useState(false);
+    // The last read did not produce figures: the card's own rule, so a refresh
+    // that failed behind figures a reader can see is named rather than passed
+    // off as a refresh that worked.
+    const [failed, setFailed] = React.useState(false);
     // Any read in flight. It drives the hairline and the refresh control, never
     // the figures: what is on screen stays there until a newer answer lands.
     const [busy, setBusy] = React.useState(false);
@@ -62,7 +66,10 @@ export function UsageScreen() {
     const lastForced = React.useRef(0);
     const rejected = React.useRef(false);
     const pendingRetry = React.useRef<string | undefined>(undefined);
-    const error = display.status === 'unavailable' ? display.reason : undefined;
+    // The claim of the read in flight, for as long as its answer is
+    // outstanding: a read abandoned before that has no answer coming.
+    const claim = React.useRef<{ target: string; at: number } | undefined>(undefined);
+    const error = display.status === 'unavailable' ? (display.reason === '' ? t('plugins.rightNow.unavailable') : display.reason) : undefined;
     rejected.current = display.status === 'unavailable';
 
     const report = display.status === 'figures' ? reportFrom(display.figures, provider) : undefined;
@@ -82,25 +89,32 @@ export function UsageScreen() {
         setBusy(true);
         lastForced.current = claimedAtMs;
         noteAsked(target, claimedAtMs);
+        claim.current = { target, at: claimedAtMs };
+        const abandon = () => { const held = claim.current; if (held !== undefined && held.target === target && held.at === claimedAtMs) { claim.current = undefined; releaseAsked(target, claimedAtMs); } };
         // A tab already showing figures keeps them: this is a read running
         // behind an answer, not a reason to take that answer away.
         const before = shownUsage(target);
         if (before === undefined || before.status === 'waiting') rememberShown(target, { status: 'waiting', askedAt: claimedAtMs, ...measured(before ?? {}) });
         return sync.request('usage.report', { ...(target === '' ? {} : { provider: target }), refresh: true }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((value) => {
-                if (request !== version.current) return;
+                if (request !== version.current) { abandon(); return; }
+                claim.current = undefined;
+                setFailed(false);
                 const previous = shownUsage(target);
                 rememberShown(target, { status: 'figures', at: Date.now(), figures: withReport(previous?.status === 'figures' ? previous.figures : undefined, value) });
             })
             .catch((cause: unknown) => {
-                if (request !== version.current) return;
+                if (request !== version.current) { abandon(); return; }
+                claim.current = undefined;
+                setFailed(true);
                 const previous = shownUsage(target);
                 if (previous === undefined || previous.status !== 'figures') {
                     rememberShown(target, { status: 'unavailable', reason: cause instanceof Error ? cause.message : String(cause), ...measured(previous ?? {}) });
                 }
             })
             .finally(() => {
-                if (request !== version.current) return;
+                if (request !== version.current) { abandon(); return; }
+                claim.current = undefined;
                 inFlight.current = false;
                 setBusy(false);
                 setRefreshing(false);
@@ -130,8 +144,14 @@ export function UsageScreen() {
         loadIfDue(provider, true);
     }, [provider, loadIfDue]);
 
-    // A read still running when the screen goes cannot paint into it.
-    React.useEffect(() => () => { version.current += 1; }, []);
+    // A read still running when the screen goes cannot paint into it, and its
+    // claim goes with it: no answer is coming for it.
+    React.useEffect(() => () => {
+        version.current += 1;
+        const held = claim.current;
+        claim.current = undefined;
+        if (held !== undefined) releaseAsked(held.target, held.at);
+    }, []);
 
     // Refreshing while focused and in the foreground only, and never on top of
     // a read that is already running -- opening the screen must not queue a
@@ -188,7 +208,7 @@ export function UsageScreen() {
             <Header
                 title={<Text style={{ fontSize: 16, color: theme.colors.header.tint, ...Typography.default('semiBold') }}>{t('usage.title')}</Text>}
                 headerLeft={() => <HeaderBackButton onPress={() => router.back()} label={t('plugins.goBack')} />}
-                headerRight={() => <RefreshControlButton busy={busy} throttledSeconds={throttledSeconds} onPress={refreshNow} />}
+                headerRight={() => <RefreshControlButton busy={busy} throttledSeconds={throttledSeconds} failed={failed} onPress={refreshNow} />}
                 headerLeftGlass={false}
                 headerRightGlass={false}
                 headerShadowVisible={false}
@@ -290,20 +310,23 @@ function reportFrom(figures: UsageFigures, provider: string): UsageReport {
  *  is running rather than swapping in a spinner, so the control keeps its
  *  place and the figures keep theirs. A refused tap is named here, beside the
  *  control that was pressed, so it cannot scroll away from it. */
-function RefreshControlButton({ busy, throttledSeconds, onPress }: { busy: boolean; throttledSeconds?: number; onPress: () => void }) {
+function RefreshControlButton({ busy, throttledSeconds, failed, onPress }: { busy: boolean; throttledSeconds?: number; failed: boolean; onPress: () => void }) {
     const { theme } = useUnistyles();
     const throttled = throttledSeconds !== undefined;
-    const tint = withAlpha(theme.colors.header.tint, busy ? 0.4 : 1);
+    const word = throttled ? t('plugins.rightNow.refreshIn', { seconds: throttledSeconds }) : failed ? t('plugins.rightNow.refreshFailed') : undefined;
+    const label = throttled
+        ? `${t('plugins.rightNow.refreshThrottled', { seconds: throttledSeconds })}. ${t('plugins.rightNow.refreshNow')}`
+        : failed ? `${t('plugins.rightNow.refreshFailed')}. ${t('plugins.rightNow.refreshNow')}` : t('plugins.rightNow.refreshNow');
+    const alert = failed && !throttled;
+    const tint = alert ? theme.colors.textDestructive : withAlpha(theme.colors.header.tint, busy ? 0.4 : 1);
     return (
         <Pressable onPress={onPress} disabled={busy} hitSlop={10} accessibilityRole="button"
             accessibilityState={{ busy }}
-            accessibilityLabel={throttled
-                ? `${t('plugins.rightNow.refreshThrottled', { seconds: throttledSeconds })}. ${t('plugins.rightNow.refreshNow')}`
-                : t('plugins.rightNow.refreshNow')}
+            accessibilityLabel={label}
             style={{ flexDirection: 'row', alignItems: 'center', gap: 5, padding: 6 }}>
             <Ionicons name="refresh" size={20} color={tint} />
-            {throttled && <Text numberOfLines={1} style={{ fontSize: 11.5, lineHeight: 15, ...Typography.mono('regular'), color: withAlpha(theme.colors.header.tint, 0.7) }}>
-                {t('plugins.rightNow.refreshIn', { seconds: throttledSeconds })}
+            {word !== undefined && <Text numberOfLines={1} style={{ fontSize: 11.5, lineHeight: 15, ...Typography.mono('regular'), color: tint }}>
+                {word}
             </Text>}
         </Pressable>
     );

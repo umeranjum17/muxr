@@ -744,6 +744,14 @@ describe('the usage screen read path', () => {
         expect(screenText(screen)).toContain('plugins.retry');
         expect(request).toHaveBeenCalledTimes(0);
         expect(screen.root.findAll((node: any) => node.props?.accessibilityLabel === 'host unreachable. plugins.retry').length).toBeGreaterThan(0);
+        TestRenderer.act(() => { screen.unmount(); });
+
+        // A failure the store carries no words for still says what it is.
+        rememberShown('', { status: 'unavailable', reason: '' });
+        screen = renderScreen();
+        await tick();
+        expect(screen.root.findAll((node: any) => node.props?.text === 'plugins.rightNow.unavailable').length).toBeGreaterThan(0);
+        expect(screen.root.findAll((node: any) => node.props?.accessibilityLabel === 'plugins.rightNow.unavailable. plugins.retry').length).toBeGreaterThan(0);
     });
 
     it('shows what the other surface learns without a remount', async () => {
@@ -806,6 +814,67 @@ describe('the usage screen read path', () => {
         expect(request).toHaveBeenCalledTimes(0);
         expect(screen.root.findAllByType('ScreenLimits').length).toBeGreaterThan(0);
         expect(screenText(screen)).toContain('—');
+    });
+
+    it('leaves the window askable again when a read is abandoned', async () => {
+        // The screen's read is abandoned before it answers: the reader backs out
+        // while the collection runs.
+        request.mockImplementation(() => new Promise<UsageReport>(() => undefined));
+        let screen = renderScreen();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(1);
+        TestRenderer.act(() => { screen.unmount(); });
+
+        // Coming back asks again: no answer was coming for the abandoned read,
+        // so the tab is back to not having been asked.
+        screen = renderScreen();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(2);
+
+        // The card's own read follows the same rule.
+        request.mockClear();
+        connection.machineId = 'machine-abandoned-card';
+        let card = renderCard();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(1);
+        TestRenderer.act(() => { card.unmount(); });
+        card = renderCard();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(2);
+        TestRenderer.act(() => { card.unmount(); });
+    });
+
+    it('keeps the window claimed when the host answered with a failure', async () => {
+        request.mockRejectedValue(new Error('host unreachable'));
+        let screen = renderScreen();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(screenText(screen)).toContain('plugins.retry');
+        TestRenderer.act(() => { screen.unmount(); });
+
+        // The host did the work and answered, so a second view inside the window
+        // does not ask it again.
+        screen = renderScreen();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(screenText(screen)).toContain('plugins.retry');
+    });
+
+    it('names a failed refresh at the control rather than passing it off as success', async () => {
+        request.mockResolvedValueOnce(report('claude', 60)).mockRejectedValue(new Error('host unreachable'));
+        const screen = renderScreen();
+        await tick();
+        expect(screenText(screen)).toContain('OpenCode');
+
+        await tick(11_000);
+        TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
+        await tick();
+
+        // The figures stay, and the press is named as a failure rather than
+        // looking exactly like a refresh that worked.
+        expect(screenText(screen)).toContain('OpenCode');
+        expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
+        expect(refreshControls(screen)[0].props.accessibilityLabel).toContain('plugins.rightNow.refreshFailed');
     });
 
     it('collects exactly once per window for a tab the host has nothing stored for', async () => {

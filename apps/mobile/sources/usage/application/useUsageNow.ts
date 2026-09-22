@@ -2,7 +2,7 @@ import * as React from 'react';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type UsageNow, type UsageVitals } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { forcedReadWait } from './forcedRead';
-import { FRESH_MS, collectionDue, noteAsked, rememberShown, shownUsage, subscribeUsage, usageWrites, withNow, type UsageDisplay, type UsageFigures } from './freshnessWindow';
+import { FRESH_MS, collectionDue, noteAsked, releaseAsked, rememberShown, shownUsage, subscribeUsage, usageWrites, withNow, type UsageDisplay, type UsageFigures } from './freshnessWindow';
 import { useForegroundRefresh } from './useForegroundRefresh';
 
 /** The tab the card's read answers for: `usage.now` collects the default one,
@@ -77,6 +77,9 @@ export function useUsageNow(): UsageNowRead {
     // bypasses the cache, whatever else is in flight.
     const unavailable = React.useRef(false);
     unavailable.current = failed || display.status === 'unavailable';
+    // The claim of the forced read in flight, for as long as its answer is
+    // outstanding: a read abandoned before that has no answer coming.
+    const claim = React.useRef<number | undefined>(undefined);
 
     /**
      * `force` asks the host to collect past its cache; such a read claims our
@@ -93,13 +96,16 @@ export function useUsageNow(): UsageNowRead {
         // The budget belongs to a forced read that actually starts: a cycle that
         // can only join the read already in flight must not spend it, and the
         // window opens only where we really ask.
-        if (force) { lastForced.current = claimedAtMs; noteAsked(READ_TAB, claimedAtMs); }
+        if (force) { lastForced.current = claimedAtMs; noteAsked(READ_TAB, claimedAtMs); claim.current = claimedAtMs; }
         // A follow-up asks the cache-respecting question on purpose: forcing it
         // again would start a second collection behind the one the read that
         // opened the burst already left running.
         const following = !force && collecting.current > 0;
         const replaced = following ? shown.current : undefined;
         const replacedAt = following ? shownAt.current : 0;
+        // No answer is coming for this read once it is superseded: let its claim
+        // go, so the tab is back to not having been asked.
+        const abandon = () => { if (force && claim.current === claimedAtMs) { claim.current = undefined; releaseAsked(READ_TAB, claimedAtMs); } };
         loading.current = true;
         const request = ++version.current;
         // What is on screen stays there while a read runs behind it: figures a
@@ -110,7 +116,8 @@ export function useUsageNow(): UsageNowRead {
         setRefreshing(true);
         return sync.request('usage.now', force ? { refresh: true } : {}, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((result) => {
-                if (request !== version.current) return;
+                if (request !== version.current) { abandon(); return; }
+                claim.current = undefined;
                 // The host answered, so the last read was not rejected: whether
                 // it produced figures is a different question (`failed`).
                 rejected.current = false;
@@ -147,7 +154,9 @@ export function useUsageNow(): UsageNowRead {
             // A refresh that failed leaves the figures it could not replace
             // exactly where they were, with their age, and says so.
             .catch((cause: unknown) => {
-                if (request === version.current) {
+                if (request !== version.current) { abandon(); return; }
+                claim.current = undefined;
+                {
                     bursting.current = false;
                     rejected.current = true;
                     setFailed(true);
@@ -158,7 +167,8 @@ export function useUsageNow(): UsageNowRead {
                 }
             })
             .finally(() => {
-                if (request !== version.current) return;
+                if (request !== version.current) { abandon(); return; }
+                claim.current = undefined;
                 loading.current = false;
                 // A tap on a card reading unavailable asked for a read past the
                 // cache; it runs the moment the read in flight settles rather
@@ -221,6 +231,7 @@ export function useUsageNow(): UsageNowRead {
     React.useEffect(() => () => {
         version.current += 1;
         loading.current = false;
+        if (claim.current !== undefined) { releaseAsked(READ_TAB, claim.current); claim.current = undefined; }
         if (followUp.current !== undefined) { clearTimeout(followUp.current); followUp.current = undefined; }
     }, []);
 

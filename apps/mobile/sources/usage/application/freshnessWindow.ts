@@ -130,6 +130,17 @@ export function noteAsked(provider: string, nowMs: number): void {
     askedAt.set(machineKey(provider), nowMs);
 }
 
+/** Let go of a claim this read made, if it is still the one standing. A read
+ *  that was abandoned or superseded has no answer coming, so holding its claim
+ *  would lock the tab out for the rest of the window with nothing on the way;
+ *  this only restores eligibility, and never asks anything itself. A read the
+ *  host answered -- including one it answered with a failure -- keeps its
+ *  claim, and a newer ask's claim is left alone. */
+export function releaseAsked(provider: string, nowMs: number): void {
+    const key = machineKey(provider);
+    if (askedAt.get(key) === nowMs) askedAt.delete(key);
+}
+
 /** Read every write: one store, and a surface paints what the other stored the
  *  moment it lands rather than what happened to be there when it mounted. */
 export function subscribeUsage(listener: () => void): () => void {
