@@ -64,6 +64,7 @@ export const en = {
         muxrOnlyFooter: 'Herdr registers these; everything they do runs through muxr.',
         herdrOnly: 'Herdr only',
         herdrOnlyFooter: 'Backend packages with no muxr UI. Manage them with the herdr CLI.',
+        unavailableFooter: 'These could not be loaded. Fix the reason under each one, then reconnect.',
         waitingHost: 'Waiting for the host.',
         linkHost: 'Link a plugin through Herdr, then reconnect.',
         enabled: 'enabled',

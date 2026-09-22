@@ -638,6 +638,17 @@ describe('the Home card read path', () => {
 });
 
 describe('the usage screen read path', () => {
+    it('marks the tab the host answered for when the default view opens', async () => {
+        // The default view asks for no tab; the host picks one, and it need not
+        // be the first pill. That pill is the one the figures belong to.
+        request.mockResolvedValue(report('opencode', 0));
+        const screen = renderScreen();
+        await tick();
+        const selected = screen.root.findAll((node: any) => node.props?.accessibilityRole === 'tab' && node.props?.onPress !== undefined)
+            .map((node: any) => [node.props.accessibilityLabel, node.props.accessibilityState?.selected]);
+        expect(selected).toEqual([['Claude', false], ['OpenCode', true]]);
+    });
+
     it('names a refused tap at the control that was pressed', async () => {
         request.mockResolvedValue(report('claude', 1_200));
         const screen = renderScreen();

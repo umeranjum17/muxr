@@ -65,6 +65,7 @@ export const pt: TranslationStructure = {
         muxrOnlyFooter: 'O Herdr apenas os regista; tudo o que fazem passa pelo muxr.',
         herdrOnly: 'Apenas Herdr',
         herdrOnlyFooter: 'Pacotes de backend sem interface muxr. Faça a gestão com a CLI herdr.',
+        unavailableFooter: 'Não foi possível carregá-los. O motivo está abaixo de cada um; corrija-o e volte a ligar.',
         waitingHost: 'Aguardando o host.',
         linkHost: 'Vincule um plugin pelo Herdr e reconecte.',
         enabled: 'ativados',

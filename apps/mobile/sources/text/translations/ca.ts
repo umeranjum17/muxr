@@ -65,6 +65,7 @@ export const ca: TranslationStructure = {
         muxrOnlyFooter: 'Herdr només els registra; tot el que fan passa per muxr.',
         herdrOnly: 'Només Herdr',
         herdrOnlyFooter: 'Paquets de rerefons sense UI de muxr. Gestiona’ls amb la CLI de herdr.',
+        unavailableFooter: 'No s’han pogut carregar. El motiu és sota cadascun; corregeix-lo i torna a connectar.',
         waitingHost: 'Esperant l’amfitrió.',
         linkHost: 'Enllaça un connector amb Herdr i torna a connectar.',
         enabled: 'activats',

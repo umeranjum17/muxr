@@ -76,6 +76,7 @@ export const ru: TranslationStructure = {
         muxrOnlyFooter: 'Herdr только регистрирует их; всё остальное работает через muxr.',
         herdrOnly: 'Только Herdr',
         herdrOnlyFooter: 'Серверные пакеты без интерфейса muxr. Управляйте ими через CLI herdr.',
+        unavailableFooter: 'Не удалось загрузить. Причина указана под каждым; устраните её и подключитесь снова.',
         waitingHost: 'Ожидание хоста.',
         linkHost: 'Подключите плагин через Herdr и переподключитесь.',
         enabled: 'включено',

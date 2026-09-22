@@ -67,6 +67,7 @@ export const zhHans: TranslationStructure = {
         muxrOnlyFooter: 'Herdr 仅注册它们，其余全部通过 muxr 运行。',
         herdrOnly: '仅 Herdr',
         herdrOnlyFooter: '没有 muxr 界面的后端包。请使用 herdr 命令行管理。',
+        unavailableFooter: '无法加载。原因显示在每一项下方；解决后重新连接。',
         waitingHost: '正在等待主机。',
         linkHost: '通过 Herdr 链接插件后重新连接。',
         enabled: '已启用',

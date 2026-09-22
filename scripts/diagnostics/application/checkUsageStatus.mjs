@@ -262,7 +262,7 @@ try {
     // The limits card payload: used shares, spelled-out resets, elapsed anchors.
     assert.equal(output.limits.plan, 'Claude plan');
     assert.equal(output.limits.verdict, 'go');
-    assert.deepEqual(output.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['5-hour limit', '5h', 21], ['7-day limit', '7d', 42]]);
+    assert.deepEqual(output.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['Session', '5h', 21], ['Weekly', '7d', 42]]);
     assert.ok(output.limits.windows.every((limit) => typeof limit.resetsIn === 'string' && limit.resetsIn !== ''));
     assert.ok(Math.abs(output.limits.windows[0].elapsed - 0.4) < 0.01);
     // The same windows as the plain view model every surface reads.
@@ -284,7 +284,7 @@ try {
     // answers with a real window instead of a false "not connected".
     assert.equal(kimi.limits.plan, 'OpenAI Codex');
     assert.equal(kimi.limits.verdict, 'low');
-    assert.deepEqual(kimi.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['OpenAI Codex · 168h', '7d', 90], ['OpenAI Codex · 5h', '5h', 25]]);
+    assert.deepEqual(kimi.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['Session', '5h', 25], ['Weekly', '7d', 90]]);
     assert.equal(kimi.limits.message, undefined);
 
     // A deep link to an installed-but-idle provider no longer mints a tab;
@@ -403,7 +403,7 @@ try {
     const zaiRun = await run({ provider: 'zai' }, { PI_AGENT_DIR: zaiAgent, MUXR_HOME: join(scratch, 'zai-state'), __fetch: zaiStubOk });
     assert.equal(zaiRun.provider, 'zai');
     assert.deepEqual(zaiRun.limits.plan, 'Z.ai plan');
-    assert.deepEqual(zaiRun.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['5-hour limit', '5h', 4], ['Weekly limit', '7d', 1]]);
+    assert.deepEqual(zaiRun.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['Session', '5h', 4], ['Weekly', '7d', 1]]);
     // Tokens are the local Z.ai-model slice: one model, one turn, measured
     // once. Cost stays a dash: plan tokens are priced by the plan, and a
     // recorded dollar figure must never stand in for one.
@@ -633,7 +633,7 @@ try {
         // instead of a false "not connected".
         assert.equal(pi.limits.plan, 'OpenAI Codex');
         assert.equal(pi.limits.verdict, 'low');
-        assert.deepEqual(pi.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['OpenAI Codex · 168h', '7d', 90], ['OpenAI Codex · 5h', '5h', 25]]);
+        assert.deepEqual(pi.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['Session', '5h', 25], ['Weekly', '7d', 90]]);
         assert.equal(pi.limits.message, undefined);
 
         const omp = await flowRun('omp');
@@ -661,8 +661,8 @@ try {
         // Codex windows ride the same view model: kind from the published
         // length, remaining derived, pace projected against the reset clock.
         assert.deepEqual(codex.windows.map((vm) => [vm.provider, vm.windowKind, vm.percentUsed, vm.percentRemaining, vm.pace.verdict]), [
-            ['codex', 'weekly', 90, 10, 'burning'],
             ['codex', 'session', 25, 75, 'ahead'],
+            ['codex', 'weekly', 90, 10, 'burning'],
         ]);
         assert.equal(codex.todayTokens, '1.3K');
         assert.equal(codex.weekSeries.at(-1)?.value, 1300);

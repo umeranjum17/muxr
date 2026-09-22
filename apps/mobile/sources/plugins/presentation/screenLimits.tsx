@@ -15,6 +15,11 @@ import { t } from '@/text';
 const ROW_WATCH = 75;
 const ROW_LOW = 90;
 
+/** The card's inner width below which a row's label, share and reset clock no
+ *  longer fit one line ("Session · 5h", "90% used", "resets in 16d 23h").
+ *  Narrower, the clock gets its own line so the label is never cut to a letter. */
+const ONE_LINE_ROW = 290;
+
 const rowTone = (used: number): PluginScreenTone => {
     if (used >= ROW_LOW) return 'danger';
     if (used >= ROW_WATCH) return 'warning';
@@ -66,6 +71,7 @@ function limitsSummary(payload: PluginLimitsPayload): string {
  */
 export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; data: unknown }) {
     const { theme } = useUnistyles();
+    const [innerWidth, setInnerWidth] = React.useState(0);
     const payload = asLimitsPayload(resolvePath(data, node.path));
     const title = node.title === undefined ? undefined : bindText(resolvePluginText(node.title), data);
     // Nothing to answer with: the section label plus the host's quiet line,
@@ -78,7 +84,7 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
         // leave a lone "Right now" heading behind when there is no limit copy.
         if (line === '') return null;
         return (
-            <View style={{ marginBottom: 12 }}>
+            <View style={{ marginBottom: 14 }}>
                 {title !== undefined && <SectionLabel>{title}</SectionLabel>}
                 {line !== '' && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 6 }}>{line}</Text>}
             </View>
@@ -88,55 +94,66 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
     const verdictWord = payload.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.verdict]);
     const tone = verdictTone(payload.verdict);
     const headlineTone: PluginScreenTone = payload.verdict === 'go' ? 'secondary' : tone;
+    const stacked = innerWidth > 0 && innerWidth < ONE_LINE_ROW;
     return (
-        <View
-            accessible
-            accessibilityLabel={limitsSummary(payload)}
-            style={[cardStyle(theme), { padding: 16, paddingTop: 14, marginBottom: 12 }]}
-        >
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                {title !== undefined && <SectionLabel>{title}</SectionLabel>}
-                {payload.plan !== undefined && (
-                    <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('regular') }}>{payload.plan}</Text>
-                )}
-            </View>
-            {verdictWord !== undefined && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: toneColor(theme, tone) }} />
-                    <Text style={{ color: theme.colors.text, fontSize: 17, lineHeight: 22, fontWeight: '600', flex: 1, ...Typography.default('semiBold') }}>{verdictWord}</Text>
+        <View style={{ marginBottom: 14 }}>
+            {/* The section's own label row, like every other section: the card
+                below starts with the answer, not with its caption. */}
+            {(title !== undefined || payload.plan !== undefined) && (
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+                    {title !== undefined ? <SectionLabel>{title}</SectionLabel> : <View />}
+                    {payload.plan !== undefined && (
+                        <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 11.5, lineHeight: 16, ...Typography.mono('regular') }}>{payload.plan}</Text>
+                    )}
                 </View>
             )}
-            {tightest !== undefined && (
-                <>
-                    <Text style={{ color: headlineTone === 'secondary' ? theme.colors.text : toneColor(theme, headlineTone), fontSize: 30, lineHeight: 36, letterSpacing: -0.5, ...Typography.mono('semiBold') }}>
-                        {t('plugins.limits.percentLeft', { percent: 100 - Math.round(tightest.used) })}
-                    </Text>
-                    <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 2 }}>
-                        {[tightest.label, tightest.resetsIn === undefined ? undefined : t('plugins.rightNow.resetsIn', { time: tightest.resetsIn })].filter((part) => part !== undefined).join(' · ')}
-                    </Text>
-                </>
-            )}
-            {payload.windows.length > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider, marginTop: 12, marginBottom: 12 }} />}
-            {payload.windows.map((window, index) => {
-                const tone = rowTone(window.used);
-                return (
-                    <View key={`${window.label}-${index}`} style={index === payload.windows.length - 1 ? undefined : { marginBottom: 12 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 5 }}>
-                            <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, flex: 1, marginRight: 12 }}>
-                                {window.window === undefined ? window.label : `${window.label} · ${window.window}`}
-                            </Text>
-                            <Text style={{ color: toneColor(theme, tone), fontSize: 12.5, ...Typography.mono('semiBold') }}>{t('plugins.limits.percentUsed', { percent: Math.round(window.used) })}</Text>
-                            {window.resetsIn !== undefined && (
-                                <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, marginLeft: 8, ...Typography.mono('regular') }}>{t('plugins.rightNow.resetsIn', { time: window.resetsIn })}</Text>
-                            )}
-                        </View>
-                        {/* Every window draws against the same 100 ceiling; the
-                            tick is where the window stands, so a fill far past
-                            it reads as burning fast without a word. */}
-                        <Meter ratio={window.used / 100} emphasis={0.9} marker={window.elapsed} />
+            <View
+                accessible
+                accessibilityRole="summary"
+                accessibilityLabel={limitsSummary(payload)}
+                style={[cardStyle(theme), { padding: 16, paddingTop: 14 }]}
+                onLayout={(event) => setInnerWidth(event.nativeEvent.layout.width - 32)}
+            >
+                {verdictWord !== undefined && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: toneColor(theme, tone) }} />
+                        <Text style={{ color: theme.colors.text, fontSize: 17, lineHeight: 22, fontWeight: '600', flex: 1, ...Typography.default('semiBold') }}>{verdictWord}</Text>
                     </View>
-                );
-            })}
+                )}
+                {tightest !== undefined && (
+                    <>
+                        <Text style={{ color: headlineTone === 'secondary' ? theme.colors.text : toneColor(theme, headlineTone), fontSize: 30, lineHeight: 36, letterSpacing: -0.5, ...Typography.mono('semiBold') }}>
+                            {t('plugins.limits.percentLeft', { percent: 100 - Math.round(tightest.used) })}
+                        </Text>
+                        <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 2 }}>
+                            {[tightest.label, tightest.resetsIn === undefined ? undefined : t('plugins.rightNow.resetsIn', { time: tightest.resetsIn })].filter((part) => part !== undefined).join(' · ')}
+                        </Text>
+                    </>
+                )}
+                {payload.windows.length > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider, marginTop: 12, marginBottom: 12 }} />}
+                {payload.windows.map((window, index) => {
+                    const tone = rowTone(window.used);
+                    const reset = window.resetsIn === undefined ? undefined : t('plugins.rightNow.resetsIn', { time: window.resetsIn });
+                    const resetStyle = { color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('regular') };
+                    return (
+                        <View key={`${window.label}-${index}`} style={index === payload.windows.length - 1 ? undefined : { marginBottom: 12 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: stacked && reset !== undefined ? 2 : 5 }}>
+                                <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, flex: 1, marginRight: 12 }}>
+                                    {window.label}
+                                    {window.window !== undefined && <Text style={{ color: theme.colors.textSecondary }}>{` · ${window.window}`}</Text>}
+                                </Text>
+                                <Text style={{ color: toneColor(theme, tone), fontSize: 12.5, ...Typography.mono('semiBold') }}>{t('plugins.limits.percentUsed', { percent: Math.round(window.used) })}</Text>
+                                {!stacked && reset !== undefined && <Text numberOfLines={1} style={[resetStyle, { marginLeft: 8 }]}>{reset}</Text>}
+                            </View>
+                            {stacked && reset !== undefined && <Text numberOfLines={1} style={[resetStyle, { marginBottom: 5 }]}>{reset}</Text>}
+                            {/* Every window draws against the same 100 ceiling; the
+                                tick is where the window stands, so a fill far past
+                                it reads as burning fast without a word. */}
+                            <Meter ratio={window.used / 100} emphasis={0.9} marker={window.elapsed} />
+                        </View>
+                    );
+                })}
+            </View>
         </View>
     );
 }

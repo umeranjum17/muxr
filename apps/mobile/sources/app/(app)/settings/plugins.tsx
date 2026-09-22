@@ -68,7 +68,10 @@ export default function PluginsScreen() {
 
     const withUi = plugins.filter((plugin) => plugin.manifestHash !== undefined);
     // Registered with Herdr but contributing no muxr UI: nothing to approve here.
-    const herdrOnly = plugins.filter((plugin) => plugin.manifestHash === undefined);
+    // One that meant to and could not load is not a backend package, so it is
+    // listed apart with its reason rather than under a footer that says so.
+    const herdrOnly = plugins.filter((plugin) => plugin.manifestHash === undefined && plugin.warnings.length === 0);
+    const unloadable = plugins.filter((plugin) => plugin.manifestHash === undefined && plugin.warnings.length > 0);
     const enabledCount = withUi.filter((plugin) => plugin.approved).length;
     const runsCode = withUi.filter((plugin) => plugin.hasBackend).length;
 
@@ -106,40 +109,43 @@ export default function PluginsScreen() {
                         const description = blocked === undefined
                             ? plugin.description ?? describe(manifest)
                             : `${t('plugins.unavailableLabel')} · ${blocked}`;
-                        const facts = [
-                            `${sourceLabel(plugin.source)} · ${plugin.hasBackend ? t('plugins.runsCode') : t('plugins.uiOnly')}`,
-                            requestedContexts(manifest),
-                            changeBlocked,
-                        ].filter(Boolean).join(' · ');
+                        // Why a switch is disabled is the group footer's to say
+                        // once, not every row's.
+                        const facts = [pluginFacts(plugin), requestedContexts(manifest)].filter(Boolean).join(' · ');
                         const unavailable = blocked !== undefined;
                         return <Item
                             key={plugin.pluginId}
                             title={plugin.name}
                             subtitle={description}
                             subtitleStyle={unavailable ? { color: theme.colors.box.error.text } : undefined}
+                            subtitleLines={unavailable ? 2 : 1}
                             meta={facts}
-                            leftElement={<IconTile
-                                name={unavailable ? 'warning-outline' : pluginIcon(manifest)}
-                                color={unavailable ? theme.colors.box.warning.text : undefined}
-                                backgroundColor={unavailable ? theme.colors.box.warning.background : undefined}
-                                style={{ width: 32, height: 32 }}
-                            />}
+                            leftElement={<PluginTile icon={pluginIcon(manifest)} unavailable={unavailable} />}
                             showChevron={false}
                             rightElement={<Switch value={plugin.approved} disabled={changeBlocked !== undefined} accessibilityLabel={plugin.name} onValueChange={changeBlocked === undefined ? (next) => void setApproved([plugin], next) : undefined} />}
                         />;
                     })}
                 </ItemGroup>
             ))}
-            {herdrOnly.length > 0 && (
-                <ItemGroup title={t('plugins.herdrOnly')} footer={t('plugins.herdrOnlyFooter')}>
-                    {herdrOnly.map((plugin) => (
-                        <Item key={plugin.pluginId} title={plugin.name}
-                            subtitle={[plugin.warnings[0] ?? plugin.description, sourceLabel(plugin.source), plugin.hasBackend ? t('plugins.runsCode') : t('plugins.uiOnly')].filter(Boolean).join(' · ')}
-                            subtitleLines={2}
-                            detail={plugin.warnings.length > 0 ? t('plugins.unavailableLabel') : undefined} showChevron={false} />
-                    ))}
+            {/* The same row as every other plugin: a mark, one line of what it
+                is, one line of facts. Nothing to switch in either group. */}
+            {([
+                ['herdr', t('plugins.herdrOnly'), t('plugins.herdrOnlyFooter'), herdrOnly],
+                ['unloadable', t('plugins.unavailableLabel'), t('plugins.unavailableFooter'), unloadable],
+            ] as const).filter(([, , , group]) => group.length > 0).map(([key, title, footer, group]) => (
+                <ItemGroup key={key} title={title} footer={footer}>
+                    {group.map((plugin) => {
+                        const warning = plugin.warnings[0];
+                        return <Item key={plugin.pluginId} title={plugin.name}
+                            subtitle={warning ?? plugin.description}
+                            subtitleStyle={warning === undefined ? undefined : { color: theme.colors.box.error.text }}
+                            subtitleLines={warning === undefined ? 1 : 2}
+                            meta={pluginFacts(plugin)}
+                            leftElement={<PluginTile icon="extension-puzzle-outline" unavailable={warning !== undefined} />}
+                            showChevron={false} />;
+                    })}
                 </ItemGroup>
-            )}
+            ))}
             {plugins.flatMap((plugin) => plugin.approved
                 ? (manifests[plugin.pluginId]?.contributions.filter((item) => item.slot === 'settings.sections') ?? []).map((section) => (
                     <ItemGroup key={`${plugin.pluginId}:${section.id}`} title={`${resolvePluginText(section.title)} · Plugin`}>
@@ -149,6 +155,22 @@ export default function PluginsScreen() {
                 : [])}
         </ItemList>
     );
+}
+
+/** Row identity: the plugin's own mark, or a warning mark when it cannot run. */
+function PluginTile({ icon, unavailable }: { icon: string; unavailable: boolean }) {
+    const { theme } = useUnistyles();
+    return <IconTile
+        name={unavailable ? 'warning-outline' : icon}
+        color={unavailable ? theme.colors.box.warning.text : undefined}
+        backgroundColor={unavailable ? theme.colors.box.warning.background : undefined}
+        style={{ width: 32, height: 32 }}
+    />;
+}
+
+/** Where the plugin comes from and what it runs, in one quiet line. */
+function pluginFacts(plugin: PluginSummary): string {
+    return `${sourceLabel(plugin.source)} · ${plugin.hasBackend ? t('plugins.runsCode') : t('plugins.uiOnly')}`;
 }
 
 /** Pick the first declared mark in the Settings grammar; unknown manifests get a stable tile. */

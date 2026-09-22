@@ -68,6 +68,7 @@ export const ja: TranslationStructure = {
         muxrOnlyFooter: 'Herdr は登録するだけで、動作はすべて muxr を通ります。',
         herdrOnly: 'Herdr のみ',
         herdrOnlyFooter: 'muxr UI を持たないバックエンドです。herdr CLI で管理します。',
+        unavailableFooter: '読み込めませんでした。理由は各項目の下にあります。解決してから再接続してください。',
         waitingHost: 'ホストを待機しています。',
         linkHost: 'Herdr でプラグインをリンクして再接続してください。',
         enabled: '有効',

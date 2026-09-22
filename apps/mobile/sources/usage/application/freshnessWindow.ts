@@ -42,6 +42,9 @@ const lastForcedAt = new Map<string, number>();
 /** The measured local activity a usage.report read carries, and the host's own
  *  words for having none. */
 export interface UsageActivity {
+    /** The tab the host answered for: the default view resolves to a real
+     *  provider, and that is the pill the screen marks as selected. */
+    provider?: string;
     todayTokens: string;
     todayCost: string;
     modelSeries: UsageSeriesPoint[];
@@ -120,6 +123,7 @@ export function withReport(previous: UsageFigures | undefined, value: UsageRepor
         ...(value.limits.windows.length === 0 ? { cardWindow: undefined } : {}),
         providers: value.providers,
         activity: {
+            ...(value.provider === '' ? {} : { provider: value.provider }),
             todayTokens: value.todayTokens,
             todayCost: value.todayCost,
             modelSeries: value.modelSeries,
