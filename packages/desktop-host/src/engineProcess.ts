@@ -39,6 +39,7 @@ export class EngineClient {
     private readonly queue: EngineEvent[] = [];
     private nextId = 1;
     private closed = false;
+    private stopping = false;
     private readonly timeoutMs: number;
 
     private constructor(child: ChildProcessWithoutNullStreams, options: EngineClientOptions) {
@@ -56,7 +57,7 @@ export class EngineClient {
                 clearTimeout(pending.timer);
                 pending.reject(new Error('the desktop engine exited'));
             }
-            options.onExit?.({ code, signal });
+            if (!this.stopping) options.onExit?.({ code, signal });
         });
         child.on('error', (error) => {
             this.closed = true;
@@ -73,7 +74,14 @@ export class EngineClient {
     ): Promise<EngineClient> {
         const child = spawn(command, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
         const client = new EngineClient(child, options);
-        await client.request('hello', { protocol: PROTOCOL_VERSION, client: 'consumer' });
+        try {
+            await client.request('hello', { protocol: PROTOCOL_VERSION, client: 'consumer' });
+        } catch (error) {
+            // A refused or timed-out handshake must not leave a child running
+            // with its exit still wired to the caller's state.
+            await client.stop().catch(() => undefined);
+            throw error;
+        }
         return client;
     }
 
@@ -203,6 +211,7 @@ export class EngineClient {
 
     async stop(): Promise<void> {
         if (this.closed) return;
+        this.stopping = true;
         // The documented graceful stop: the engine exits without answering, so
         // this is sent and the EOF/timeout below still brings a stuck engine
         // down.

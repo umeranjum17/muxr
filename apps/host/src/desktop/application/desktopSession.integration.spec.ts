@@ -296,4 +296,25 @@ describe('desktop sessions, host side', () => {
 
         await desktop.closeAll();
     }, 20_000);
+
+    it('tears down an engine that refuses the handshake instead of leaving it running', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));
+        const scriptPath = join(directory, 'engine.cjs');
+        const log = join(directory, 'received.jsonl');
+        writeFileSync(
+            scriptPath,
+            STUB.replace(
+                "    case 'hello':",
+                "    case 'hello':\n      return out({ id: request.id, error: { code: 'unsupported-protocol', message: 'this engine speaks an older protocol' } });",
+            ),
+        );
+        writeFileSync(log, '');
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
+
+        expect(await desktop.capabilities()).toMatchObject({ available: false });
+
+        const sent = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { method: string });
+        expect(sent.map((request) => request.method)).toContain('shutdown');
+        await desktop.closeAll();
+    }, 20_000);
 });
