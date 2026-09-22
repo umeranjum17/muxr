@@ -8,7 +8,7 @@ export type CapabilityInput = { sessionId: string; status: string; from: string;
 
 type CapabilityRegistration = {
     run: (input: CapabilityInput) => void | Promise<void>;
-    /** Safety/UI surface that the same plugin must declare and mount first. */
+    /** Product surface the plugin must declare; the capability also waits for it to mount. */
     requiredPrimitive?: PluginPrimitive;
 };
 

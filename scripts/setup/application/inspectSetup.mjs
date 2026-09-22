@@ -357,7 +357,7 @@ export async function applyHostedSetup(args = []) {
         if (!dryRun && process.env.MUXR_SKIP_HOSTED_AUTH !== '1' && (await runAccount('pair')) !== 0) {
             throw new Error('secure device pairing failed');
         }
-        print('  Live Voice is optional; configure it from the muxr Voice plugin pane.');
+        print('  Live Voice is optional; configure it from Voice & dictation in the app.');
         print('Ready — open muxr.');
         return 0;
     } catch (cause) {

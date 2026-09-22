@@ -1,7 +1,7 @@
 # muxr plugins: author, install, debug, override
 
 Create, modify, validate, install, and safely override muxr plugins using the
-public package contract. Bundled and third-party plugins use the same contract,
+public package contract. Every plugin uses the same contract,
 including bounded app-rendered code and diff views with syntax highlighting —
 never plugin HTML.
 

@@ -74,7 +74,7 @@ Enrollment is one-use and five minutes. The VPS retains owner authority; the age
 
 ## Build a plugin
 
-Bundled and third-party plugins use the same public contract, including bounded app-rendered code and diff views with syntax highlighting—never plugin HTML. The full authoring guide ships as `PLUGINS.md`.
+Plugins use the same public contract, including bounded app-rendered code and diff views with syntax highlighting—never plugin HTML. The full authoring guide ships as `PLUGINS.md`.
 
 ```bash
 muxr plugin docs

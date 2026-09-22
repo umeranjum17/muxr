@@ -254,9 +254,10 @@ Maps:
    together — the self-checks assert full coverage and fail otherwise. Requests
    likewise: one `RequestMap` entry + one dispatcher handler, or both sides stop
    compiling. Plugin primitive changes ripple through `PRIMITIVE_SPECS`,
-   `primitiveRegistry.tsx`, `MUXR_UI_VERSION`, `docs/PLUGINS.md`, and the bundled
-   plugin index/check. A new package operation gets one `application/` module and
-   a `USE_CASES.md` row so the map stays navigable.
+   `primitiveRegistry.tsx`, `MUXR_UI_VERSION`, `docs/PLUGINS.md`, and the
+   bundled-add-on policy check (`checkBundledPlugins.mjs`). A new package
+   operation gets one `application/` module and a `USE_CASES.md` row so the map
+   stays navigable.
 5. **No LLM tokens in data paths.** Host features are plumbing: git, fs.watch,
    websockets. Never a model call, never anything injected into a watched agent's
    prompt.

@@ -8,10 +8,10 @@ All four adapters ship inside `@trymuxr/cli` as `voice/` beside the host bundle:
 
 | Adapter | Provider | Transport | Default | Credential |
 |---|---|---|---|---|
-| `xai` | xAI Grok | host-relayed PCM | selected | `~/.muxr/xai.key` |
+| `xai` | xAI Grok | host-relayed PCM | | `~/.muxr/xai.key` |
 | `gemini` | Gemini Live | host-relayed PCM | | `~/.muxr/gemini.key` |
 | `openai` | OpenAI Realtime | host-relayed PCM | | `~/.muxr/openai.key` |
-| `codex` | Codex Voice (experimental) | mobile WebRTC | | owner-only local Codex ChatGPT OAuth |
+| `codex` | Codex Voice (experimental) | mobile WebRTC | selected | owner-only local Codex ChatGPT OAuth |
 
 Exactly one adapter runs at a time. The selection is muxr's own state (`$MUXR_HOME/voice/provider`, owner-only), read by the `voice.provider.list` and `voice.provider.set` host methods. In the app, open **Settings → Voice & dictation** to switch. Grok, Gemini Live, and OpenAI Realtime collect their API key on the provider screen. Codex Voice uses the existing local `codex login`.
 

@@ -1,6 +1,6 @@
 # Plugin
 
-Owns Plugin Id, the bundled catalog, create/check/dev, and the npm/git registry used by `muxr plugin`.
+Owns Plugin Id, create/check/dev/install/call, and the npm/git registry used by `muxr plugin`.
 
 ## Tree
 

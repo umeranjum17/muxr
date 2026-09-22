@@ -69,7 +69,7 @@ Muxr is presentation-only for Agent Name and Task Title. Those values come from 
 - `apps/host/src/voice/stream.mjs` — self-contained xAI, OpenAI Realtime, and Gemini Live adapters behind the product-owned `voice.stream`; `product.mjs` owns the key lifecycle and report wording
 - `apps/host/src/voice/coordinatorPolicy.mjs` and the realtime adapters — explicit prompt target schema, clarification, and exact queued receipt wording; Codex delegation fails closed when it cannot supply a semantic target
 - `apps/host/src/agent/infrastructure/realtimeCoordinator.ts`, `herdrSessionSource.ts`, and `diagnostics/infrastructure/journal.ts` — strict prompt parsing, receipt-to-pane validation, and privacy-safe diagnostics
-- `scripts/setup/infrastructure/herdr.mjs` — xAI defaults on, Gemini/OpenAI default off, and setup preserves every existing enabled/disabled choice across npm upgrades
+- `scripts/setup/infrastructure/herdr.mjs` — retracts retired bundled add-ons by id and preserves every existing enabled/disabled choice across npm upgrades
 - `apps/host/src/herdr/pluginPublicContext.ts` — sanitized bounded public context snapshots
 - `apps/host/src/herdr/herdrSessionSource.ts` — session context on `plugin.call`; stop pushing attachment/change events
 - `apps/mobile/sources/sync/sync.ts` — no herd-tree RPC on status ticks
