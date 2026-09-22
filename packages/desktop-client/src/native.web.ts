@@ -149,6 +149,14 @@ function attachGestures(session: WebSession): () => void {
             if (at !== null) control(session, { kind: 'pointer', phase: 'move', x: at.x, y: at.y, seq: seq(session) });
             return;
         }
+        // A second finger makes this a scroll: release anything the drag already
+        // pressed and stop driving the pointer.
+        if (session.dragging) {
+            const at = surfacePoint(session, event.clientX, event.clientY);
+            if (at !== null) control(session, { kind: 'pointer', phase: 'up', x: at.x, y: at.y, button: 1, seq: seq(session) });
+            else control(session, { kind: 'pointer', phase: 'cancel', x: 0, y: 0, seq: seq(session) });
+            session.dragging = false;
+        }
         session.pointers += 1;
         session.multiPointer = true;
         session.lastScrollY = event.clientY;
@@ -163,6 +171,7 @@ function attachGestures(session: WebSession): () => void {
             return;
         }
         if (session.pointers === 0) return;
+        if (session.multiPointer) return;
         const travelled = Math.hypot(event.clientX - session.downX, event.clientY - session.downY);
         if (!session.dragging && travelled > DRAG_SLOP) {
             const start = surfacePoint(session, session.downX, session.downY);

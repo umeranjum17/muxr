@@ -130,8 +130,13 @@ video.addEventListener('pointerdown', (event) => {
   pointers += 1;
   try { video.setPointerCapture(event.pointerId); } catch { /* no real pointer */ }
   if (pointers > 1) {
-    // A second finger makes this a scroll gesture; lifting either finger must
-    // not click the desktop.
+    // A second finger makes this a scroll gesture; release anything the drag
+    // already pressed, and never turn the lift into a click.
+    if (gesture?.dragging) {
+      const at = point(event);
+      if (at !== null) sendPointer('up', at.x, at.y, 1);
+      else sendPointer('cancel', gesture.at.x, gesture.at.y);
+    }
     gesture = null;
     return;
   }
