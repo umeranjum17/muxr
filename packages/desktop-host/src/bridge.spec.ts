@@ -75,11 +75,12 @@ function requestOn(socket: WebSocket, id: number, method: string): Promise<Recor
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`${method} timed out`)), 5000);
         const onMessage = (raw: WebSocket.RawData): void => {
-            const message = JSON.parse(String(raw)) as { id?: number; result?: Record<string, unknown> };
+            const message = JSON.parse(String(raw)) as { id?: number; result?: Record<string, unknown>; error?: { code: string; message: string } };
             if (message.id !== id) return;
             clearTimeout(timer);
             socket.off('message', onMessage);
-            resolve(message.result ?? {});
+            if (message.error) reject(Object.assign(new Error(message.error.message), { code: message.error.code }));
+            else resolve(message.result ?? {});
         };
         socket.on('message', onMessage);
         socket.send(JSON.stringify({ id, method, params: {} }));
@@ -130,6 +131,48 @@ describe('the bridge', () => {
         expect(await get('/?token=s3cret')).toBe(200);
     }, 20_000);
 
+    it('kills a timed-out open before late consent can create an unowned session', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-open-timeout-'));
+        const script = join(directory, 'engine.cjs');
+        writeFileSync(script, `
+const readline = require('node:readline');
+const out = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
+let opening = false;
+readline.createInterface({ input: process.stdin }).on('line', (line) => {
+  const request = JSON.parse(line);
+  if (request.method === 'hello') return out({ id: request.id, result: { protocol: 2 } });
+  if (request.method === 'session.open') {
+    opening = true;
+    setTimeout(() => out({ id: request.id, result: { sessionId: 'late-consent' } }), 2000);
+  }
+  // Like a serial portal wait, an in-flight open cannot handle shutdown yet.
+  if (request.method === 'shutdown' && !opening) process.exit(0);
+});
+`);
+        let onExit!: () => void;
+        const exited = new Promise<void>((resolve) => { onExit = resolve; });
+        const bridge = await Bridge.start({
+            listen: '127.0.0.1:0', token: 't', engineCommand: process.execPath,
+            engineArgs: [script], serveExample: false,
+            engineOptions: { requestTimeoutMs: 500, onExit },
+        });
+        bridges.push(bridge);
+        const socket = await connect(bridge.port, 'token=t');
+        // The refusal is typed, so a client can ask for approval on the computer.
+        await expect(requestOn(socket, 1, 'session.open')).rejects.toMatchObject({
+            code: 'consent-timeout',
+            message: expect.stringMatching(/did not answer session.open/),
+        });
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            await Promise.race([exited, new Promise<void>((_, reject) => {
+                timer = setTimeout(() => reject(new Error('timed-out engine still running')), 1000);
+            })]);
+        } finally {
+            clearTimeout(timer);
+        }
+    });
+
     it('forwards a request for a desktop the bridge is configured to offer', async () => {
         // A bridge is bound to one machine and one desktop, so it fills in the
         // source a client is not in a position to know.
@@ -178,6 +221,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   fs.appendFileSync(${JSON.stringify(log)}, request.method + ' ' + JSON.stringify(request.params ?? {}) + '\\n');
   if (request.method === 'hello') return out({ id: request.id, result: { protocol: 2 } });
   if (request.method === 'session.open') return out({ id: request.id, result: { sessionId: 'engine-1', generation: 7 } });
+  if (request.method === 'session.metrics') return out({ id: request.id, result: {} });
   if (request.method === 'session.close') return out({ id: request.id, result: { closed: true } });
   if (request.method === 'shutdown') { out({ id: request.id, result: {} }); process.exit(0); }
   return out({ id: request.id, error: { code: 'operation', message: 'unknown' } });

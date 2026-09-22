@@ -18,7 +18,10 @@ interface Pending {
 }
 
 export interface EngineClientOptions {
-    /** Request timeout. Long enough for a portal consent prompt, and no longer. */
+    /**
+     * Request timeout. Long enough for a portal consent prompt, and no longer:
+     * an engine that does not answer in time is killed, not waited on.
+     */
     requestTimeoutMs?: number;
     onEvent?: (event: EngineEvent) => void;
     /** Called when the engine process goes away, with whatever it said first. */
@@ -130,10 +133,7 @@ export class EngineClient {
         }
         const id = this.nextId++;
         return new Promise<T>((resolve, reject) => {
-            const timer = setTimeout(() => {
-                this.pending.delete(id);
-                reject(new Error(`the desktop engine did not answer ${method} in ${this.timeoutMs}ms`));
-            }, this.timeoutMs);
+            const timer = setTimeout(() => this.abandon(timedOut(method, params, this.timeoutMs)), this.timeoutMs);
             this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer });
             this.child.stdin.write(`${JSON.stringify({ id, method, params: params ?? {} })}\n`, (error) => {
                 if (error !== null && error !== undefined) {
@@ -209,9 +209,28 @@ export class EngineClient {
         return this.queue.splice(0, this.queue.length);
     }
 
+    /**
+     * The engine answers one request at a time, so one it did not answer is
+     * still running inside it — typically a `session.open` waiting on a consent
+     * prompt nobody at the desktop is answering. Everything sent after it would
+     * queue behind it, and a late answer would open a session nobody owns, so
+     * the engine is killed and every waiting request fails with the reason.
+     */
+    private abandon(reason: Error): void {
+        this.closed = true;
+        for (const [id, pending] of this.pending) {
+            this.pending.delete(id);
+            clearTimeout(pending.timer);
+            pending.reject(reason);
+        }
+        this.child.kill('SIGKILL');
+    }
+
     async stop(): Promise<void> {
-        if (this.closed) return;
+        // Set even for an engine already abandoned: a caller that stops a client
+        // is done with it, so its exit is no longer news.
         this.stopping = true;
+        if (this.closed) return;
         // The documented graceful stop: the engine exits without answering, so
         // this is sent and the EOF/timeout below still brings a stuck engine
         // down.
@@ -230,4 +249,18 @@ export class EngineClient {
             });
         });
     }
+}
+
+/**
+ * A portal `session.open` that runs out of time is waiting on the desktop's
+ * consent prompt, so it is refused as `consent-timeout`: a client can tell the
+ * user to approve screen sharing on the computer rather than show a raw timeout.
+ */
+function timedOut(method: string, params: Record<string, unknown> | undefined, timeoutMs: number): Error {
+    const message = `the desktop engine did not answer ${method} in ${timeoutMs}ms`;
+    const source = params?.source as { kind?: unknown } | undefined;
+    if (method === 'session.open' && (source === undefined || source.kind === 'portal')) {
+        return new EngineRefused('consent-timeout', `${message}; screen sharing was not approved on the computer`);
+    }
+    return new Error(message);
 }
