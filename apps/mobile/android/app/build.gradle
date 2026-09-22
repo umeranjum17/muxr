@@ -70,10 +70,10 @@ react {
  * provenance names -- which is how a committed Mermaid label fix never reached the
  * packaged app. Rebuild it with every Android build instead.
  */
-def buildAttachmentPreview = tasks.register("buildAttachmentPreview", Exec) {
-    commandLine "node", "${projectRoot}/scripts/buildAttachmentPreview.mjs"
+def buildArtifactPreview = tasks.register("buildArtifactPreview", Exec) {
+    commandLine "node", "${projectRoot}/scripts/buildArtifactPreview.mjs"
 }
-tasks.named("preBuild").configure { dependsOn(buildAttachmentPreview) }
+tasks.named("preBuild").configure { dependsOn(buildArtifactPreview) }
 
 /**
  * Set this to true in release builds to optimize the app using [R8](https://developer.android.com/topic/performance/app-optimization/enable-app-optimization).
