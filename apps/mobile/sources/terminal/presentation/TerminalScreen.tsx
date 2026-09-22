@@ -235,7 +235,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [focusPending, setFocusPending] = React.useState(false);
     const [focusFailure, setFocusFailure] = React.useState<string | null>(null);
     const [headerBottom, setHeaderBottom] = React.useState(0);
-    const [desktopTop, setDesktopTop] = React.useState(0);
     const openDesktop = React.useCallback(() => {
         Keyboard.dismiss();
         setActionsOpen(false);
@@ -1186,10 +1185,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         only the chrome ink, which is just enough to see where
                         the terminal starts without the header becoming a band. */}
                     <Animated.View
-                        onLayout={({ nativeEvent: { layout } }) => {
-                            setDesktopTop(layout.y + layout.height);
-                            if (!hasStatusRow) setHeaderBottom(layout.y + layout.height);
-                        }}
+                        aria-hidden={desktopVisible}
+                        onLayout={(event) => { if (!hasStatusRow) setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height); }}
                         style={[{
                             flexDirection: 'row',
                             alignItems: 'center',
@@ -1242,7 +1239,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     </Animated.View>
 
                     {/* Occlusion does not hide native accessibility descendants.
-                        Exclude only the covered roots, not the real header/back. */}
+                        The desktop covers everything here, header included, and
+                        brings its own bar and back; hide the covered roots. */}
                     {hasStatusRow && (
                         <Pressable
                             aria-hidden={desktopVisible}
@@ -1687,8 +1685,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         onKeyboardDisabledChange={setTerminalKeyboardDisabled}
                     />
                     {/* Keep the conversation mounted: its actual header, draft and
-                        terminal viewport survive Computer and the return unchanged. */}
-                    {desktopVisible && <View style={{ position: 'absolute', top: desktopTop, left: 0, right: 0, bottom: keyboardVisible ? keyboardHeight : 0, backgroundColor: '#000', zIndex: 10 }}>
+                        terminal viewport survive Computer and the return unchanged.
+                        The desktop covers the header too: it brings its own bar,
+                        which names the computer rather than the pane. */}
+                    {desktopVisible && <View style={{ position: 'absolute', top: insets.top, left: 0, right: 0, bottom: keyboardVisible ? keyboardHeight : 0, backgroundColor: '#000', zIndex: 10 }}>
                         <React.Suspense fallback={<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator size="small" color={theme.colors.textSecondary} /></View>}>
                             <DesktopSurface onExit={closeDesktop} />
                         </React.Suspense>
@@ -1715,7 +1715,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 maxWidth: 320,
                                 marginRight: 8,
                                 marginLeft: 16,
-                                marginTop: (props.desktop ? desktopTop : headerBottom) + 8,
+                                marginTop: headerBottom + 8,
                                 marginBottom: (keyboardVisible ? keyboardHeight : insets.bottom) + 8,
                                 borderRadius: 14,
                                 overflow: 'hidden',
