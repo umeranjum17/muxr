@@ -1622,7 +1622,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         arc can never reach the composer below it and the
                         control can never be dragged off the surface it belongs
                         to. */}
-                    {hasTools && terminalBox !== undefined && floatingControlFits(terminalBox.height) && (
+                    {hasTools && linkMenu === null && terminalBox !== undefined && floatingControlFits(terminalBox.height) && (
                         <View
                             pointerEvents="box-none"
                             onLayout={({ nativeEvent }) => setRingOverlay((current) => (Math.abs(current - nativeEvent.layout.height) < 0.5 ? current : nativeEvent.layout.height))}
@@ -1822,16 +1822,16 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     {visibleMenu !== null && (
                         <Pressable
                             onPress={() => { setMenu(null); setLinkMenu(null); }}
-                            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40, backgroundColor: theme.colors.scrim, justifyContent: 'flex-end' }}
+                            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: Platform.OS === 'web' || !keyboardVisible ? 0 : keyboardHeight, zIndex: 40, backgroundColor: theme.colors.scrim, justifyContent: 'flex-end' }}
                         >
-                            <View style={{ backgroundColor: theme.colors.surface, paddingBottom: insets.bottom + 8, borderTopLeftRadius: 14, borderTopRightRadius: 14 }}>
+                            <View style={{ backgroundColor: theme.colors.surface, paddingBottom: (keyboardVisible ? 0 : insets.bottom) + 8, borderTopLeftRadius: 14, borderTopRightRadius: 14, maxHeight: '100%' }}>
                                 <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 }}>
                                     <Text style={{ color: theme.colors.text, fontWeight: '600', fontSize: 16 }}>{visibleMenu.title}</Text>
                                     {visibleMenu.note !== undefined && (
                                         <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 2 }}>{visibleMenu.note}</Text>
                                     )}
                                 </View>
-                                <ScrollView style={{ maxHeight: 380 }}>
+                                <ScrollView style={{ maxHeight: 380, flexShrink: 1 }} keyboardShouldPersistTaps="always">
                                     {visibleMenu.items.map((item) => (
                                         <Pressable
                                             key={item.label}
