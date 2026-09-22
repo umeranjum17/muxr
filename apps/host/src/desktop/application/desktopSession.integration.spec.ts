@@ -197,6 +197,8 @@ describe('desktop sessions, host side', () => {
             expect(readdirSync(grantDirectory)).toEqual(['portal-restore-token']);
 
             const x11 = restart({ MUXR_DESKTOP_SOURCE: 'x11' });
+            expect((await x11.capabilities()).clipboard).toBe(false);
+            await expect(x11.open({ permissions: ['view', 'clipboard'] })).rejects.toMatchObject({ code: 'clipboard-unsupported' });
             await x11.open({ permissions: ['view'] });
             await x11.closeAll();
             expect(readFileSync(grantPath, 'utf8')).toBe('test-grant-2');
@@ -341,6 +343,34 @@ describe('desktop sessions, host side', () => {
         await desktop.closeAll();
     }, 20_000);
 
+    it('closes a portal session approved after its phone disconnects', async () => {
+        const stub = stubEngine();
+        writeFileSync(stub.path, STUB.replace('      } }), 1);', '      } }), 100);'));
+        const desktop = sessionsFor(stub);
+        let connected = true;
+        const opening = desktop.open({ permissions: ['view'] }, {
+            connectionId: 'connection-1', isConnected: () => connected,
+        });
+        const deadline = Date.now() + 5000;
+        while (!stub.sent().some((line) => JSON.parse(line).method === 'session.open') && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        connected = false;
+        await desktop.closeConnection('connection-1');
+        await expect(opening).rejects.toMatchObject({ code: 'session' });
+        expect(stub.sent().map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> }))
+            .toContainEqual(expect.objectContaining({ method: 'session.close', params: { session_id: 'engine-session-1' } }));
+        connected = true;
+        const opened = await desktop.open({ permissions: ['view'] }, {
+            connectionId: 'connection-2', isConnected: () => connected,
+        });
+        connected = false;
+        await desktop.closeConnection('connection-2');
+        await expect(desktop.poll(opened.desktopId, 0)).rejects.toMatchObject({ code: 'session' });
+        expect(stub.sent().filter((line) => JSON.parse(line).method === 'session.close')).toHaveLength(2);
+        await desktop.closeAll();
+    }, 20_000);
+
     it('does not attribute a queued revocation for an abandoned session to a new one', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));
         const scriptPath = join(directory, 'engine.cjs');
@@ -352,7 +382,7 @@ describe('desktop sessions, host side', () => {
                 "const session = { id: '', generation: 1 }; let opened = 0;",
             ).replace(
                 "    case 'session.open':",
-                "    case 'session.open':\n      opened += 1; session.id = 'engine-session-' + opened;\n      if (opened === 1) setTimeout(() => out({ event: 'session.revoked', params: { sessionId: 'engine-session-1', reason: 'the session lease expired' } }), 30);",
+                "    case 'session.open':\n      opened += 1; session.id = 'engine-session-' + opened;\n      if (opened === 1) setTimeout(() => out({ event: 'session.revoked', params: { sessionId: 'engine-session-1', reason: 'the session lease expired' } }), 30);\n      if (opened === 2) {\n        out({ event: 'session.description', params: { sessionId: session.id, generation: 1, description: { type: 'offer', sdp: 'v=0 offer' } } });\n        out({ event: 'session.candidate', params: { sessionId: session.id, generation: 1, candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 } });\n        return setTimeout(() => out({ id: request.id, result: { sessionId: session.id, generation: 1, source: { kind: 'monitor', width: 2560, height: 1440, origin: { x: 0, y: 0 } }, geometry: { source: { width: 2560, height: 1440 }, encoded: { width: 1280, height: 720 }, origin: { x: 0, y: 0 } } } }), 80);\n      }", 
             ),
         );
         writeFileSync(log, '');
@@ -360,10 +390,13 @@ describe('desktop sessions, host side', () => {
 
         // The phone opens once and is abandoned before it polls, so the engine's
         // lease revokes that session into the shared notification queue.
-        await desktop.open({ permissions: ['view'] });
+        const first = await desktop.open({ permissions: ['view'] });
         await new Promise((resolve) => setTimeout(resolve, 80));
 
-        const second = await desktop.open({ permissions: ['view'] });
+        const opening = desktop.open({ permissions: ['view'] });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        await desktop.poll(first.desktopId, 0);
+        const second = await opening;
         await new Promise((resolve) => setTimeout(resolve, 40));
 
         const polled = await desktop.poll(second.desktopId, 0);

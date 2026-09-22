@@ -36,6 +36,7 @@ export interface DesktopEngineOptions {
 
 interface LiveSession extends DesktopSessionRecord {
     client: EngineClient;
+    owner?: string;
     /** Retained notifications, oldest first, bounded to [`MAX_BACKLOG`]. */
     events: DesktopEvent[];
     /** How many notifications this session has ever appended to the backlog. */
@@ -79,6 +80,7 @@ export class DesktopSessions {
     private capabilitiesCache: DesktopCapabilities | null = null;
     private sessions = new Map<string, LiveSession>();
     private starting: Promise<EngineClient | null> | null = null;
+    private opening = 0;
     /** The reason the last start attempt failed, when the engine resolved but did not come up. */
     private startFailure: string | null = null;
 
@@ -117,7 +119,7 @@ export class DesktopSessions {
                 ...(x11 || reported.input.unavailable_reason === null
                     ? {}
                     : { inputUnavailableReason: reported.input.unavailable_reason.reason }),
-                clipboard: reported.clipboard.read && reported.clipboard.write,
+                clipboard: !x11 && reported.clipboard.read && reported.clipboard.write,
                 codec: reported.encode.codecs[0] ?? 'unknown',
             };
         } catch (error) {
@@ -137,7 +139,8 @@ export class DesktopSessions {
         maxHeight?: number;
         bitrateKbps?: number;
         maxFps?: number;
-    }): Promise<{ desktopId: string; generation: number; geometry: DesktopSurfaceGeometry; source: LiveSession['source'] }> {
+    }, owner?: { connectionId: string; isConnected: () => boolean }): Promise<{ desktopId: string; generation: number; geometry: DesktopSurfaceGeometry; source: LiveSession['source'] }> {
+        if (owner !== undefined && !owner.isConnected()) throw new EngineRefused('session', 'the requesting phone disconnected');
         const capabilities = await this.capabilities();
         if (!capabilities.available) {
             throw new EngineRefused('desktop-unavailable', capabilities.unavailableReason ?? 'the desktop engine is unavailable');
@@ -145,6 +148,9 @@ export class DesktopSessions {
         if (request.permissions.includes('control') && !capabilities.input) {
             // Refuse rather than hand back a surface whose controls do nothing.
             throw new EngineRefused('input-unavailable', capabilities.inputUnavailableReason ?? UNAVAILABLE_INPUT);
+        }
+        if (request.permissions.includes('clipboard') && !capabilities.clipboard) {
+            throw new EngineRefused('clipboard-unsupported', 'clipboard is unavailable for this desktop source');
         }
         const client = await this.ensureClient();
         if (client === null) {
@@ -161,6 +167,7 @@ export class DesktopSessions {
                 this.options.onDiagnostic?.('Desktop grant could not be read; requesting portal consent.');
             }
         }
+        this.opening += 1;
         const opened = await client.openSession({
             permissions: request.permissions,
             ...(restoreToken === undefined ? {} : { restoreToken }),
@@ -170,16 +177,28 @@ export class DesktopSessions {
             ...(request.bitrateKbps === undefined ? {} : { bitrateKbps: request.bitrateKbps }),
             ...(request.maxFps === undefined ? {} : { maxFps: request.maxFps }),
             ttlSeconds: DESKTOP_SESSION_LEASE_SECONDS,
+        }).catch(async (error: unknown) => {
+            this.opening -= 1;
+            await this.stopIfIdle();
+            throw error;
         });
-        const desktopId = nextDesktopId();
         // The engine serves one session at a time and closes the previous one as
         // `replaced`. The replaced client is told once, and from here on the
         // engine's notifications belong to the new session alone.
         for (const existing of this.sessions.values()) {
             existing.revoked = true;
+            existing.client.drainEvents(existing.engineSessionId);
             existing.appended += 1;
             existing.events.push({ kind: 'revoked', reason: 'another device opened this computer' });
         }
+        if (owner !== undefined && !owner.isConnected()) {
+            client.drainEvents(opened.sessionId);
+            await client.closeSession(opened.sessionId).catch(() => undefined);
+            this.opening -= 1;
+            await this.stopIfIdle();
+            throw new EngineRefused('session', 'the requesting phone disconnected');
+        }
+        const desktopId = nextDesktopId();
         this.sessions.set(desktopId, {
             desktopId,
             engineSessionId: opened.sessionId,
@@ -189,6 +208,7 @@ export class DesktopSessions {
             source: opened.source,
             openedAt: Date.now(),
             client,
+            ...(owner === undefined ? {} : { owner: owner.connectionId }),
             events: [],
             appended: 0,
             revoked: false,
@@ -196,11 +216,12 @@ export class DesktopSessions {
         // The offer is already queued on the engine client; the first poll
         // delivers it, which keeps one delivery path instead of two.
         this.drain(desktopId);
+        this.opening -= 1;
         return { desktopId, generation: opened.generation, geometry: opened.geometry, source: opened.source };
     }
 
-    async answer(desktopId: string, sdp: string): Promise<{ accepted: boolean }> {
-        const session = this.require(desktopId);
+    async answer(desktopId: string, sdp: string, connectionId?: string): Promise<{ accepted: boolean }> {
+        const session = this.require(desktopId, connectionId);
         return session.client.acceptAnswer(session.engineSessionId, session.generation, sdp);
     }
 
@@ -209,13 +230,14 @@ export class DesktopSessions {
         candidate: string,
         sdpMid: string | null,
         sdpMLineIndex: number | null,
+        connectionId?: string,
     ): Promise<{ accepted: boolean }> {
-        const session = this.require(desktopId);
+        const session = this.require(desktopId, connectionId);
         return session.client.addCandidate(session.engineSessionId, session.generation, candidate, sdpMid, sdpMLineIndex);
     }
 
-    async poll(desktopId: string, cursor: number): Promise<{ cursor: number; events: DesktopEvent[] }> {
-        const session = this.require(desktopId);
+    async poll(desktopId: string, cursor: number, connectionId?: string): Promise<{ cursor: number; events: DesktopEvent[] }> {
+        const session = this.require(desktopId, connectionId);
         this.drain(desktopId);
         // The oldest notification still retained. A client that has seen
         // everything gets exactly what arrived since; a client whose cursor
@@ -230,27 +252,33 @@ export class DesktopSessions {
             // The replaced client has now been told; nothing further is owed to
             // it, and its record must not outlive the notification.
             this.sessions.delete(desktopId);
+            await this.stopIfIdle();
         }
         return answer;
     }
 
-    async close(desktopId: string): Promise<{ closed: boolean }> {
+    async close(desktopId: string, connectionId?: string): Promise<{ closed: boolean }> {
         const session = this.sessions.get(desktopId);
         if (session === undefined) return { closed: true };
+        if (connectionId !== undefined && session.owner !== connectionId) {
+            throw new EngineRefused('session', 'that desktop session belongs to another connection');
+        }
         this.sessions.delete(desktopId);
+        session.client.drainEvents(session.engineSessionId);
         try {
             await session.client.closeSession(session.engineSessionId);
         } catch {
             // The session is already gone on the engine side; the client stays
             // usable for the next session, which is what matters.
         }
-        if (this.sessions.size === 0) {
-            const client = this.client;
-            this.client = null;
-            this.capabilitiesCache = null;
-            await client?.stop().catch(() => undefined);
-        }
+        await this.stopIfIdle();
         return { closed: true };
+    }
+
+    async closeConnection(connectionId: string): Promise<void> {
+        for (const session of [...this.sessions.values()]) {
+            if (session.owner === connectionId) await this.close(session.desktopId);
+        }
     }
 
     /** Close every session this host owns; called when the host shuts down. */
@@ -264,14 +292,25 @@ export class DesktopSessions {
         await client?.stop().catch(() => undefined);
     }
 
+    private async stopIfIdle(): Promise<void> {
+        if (this.sessions.size !== 0 || this.opening !== 0) return;
+        const client = this.client;
+        this.client = null;
+        this.capabilitiesCache = null;
+        await client?.stop().catch(() => undefined);
+    }
+
     private missingEngineReason(): string {
         return explainMissingEngine(this.options.enginePath) ?? 'The desktop engine is unavailable.';
     }
 
-    private require(desktopId: string): LiveSession {
+    private require(desktopId: string, connectionId?: string): LiveSession {
         const session = this.sessions.get(desktopId);
         if (session === undefined) {
             throw new EngineRefused('session', 'that desktop session is not open');
+        }
+        if (connectionId !== undefined && session.owner !== connectionId) {
+            throw new EngineRefused('session', 'that desktop session belongs to another connection');
         }
         return session;
     }
@@ -282,11 +321,7 @@ export class DesktopSessions {
         // The engine's queue belongs to the session it is currently serving; a
         // replaced session must never drain another session's notifications.
         if (session === undefined || session.revoked) return;
-        for (const event of session.client.drainEvents()) {
-            // The queue is shared by every session the engine has served, and an
-            // abandoned session's notifications outlive it. Only what carries
-            // this record's engine session id is this record's to deliver.
-            if (event.params.sessionId !== session.engineSessionId) continue;
+        for (const event of session.client.drainEvents(session.engineSessionId)) {
             const translated = toDesktopEvent(event);
             if (translated === null) continue;
             if (translated.kind === 'revoked') {

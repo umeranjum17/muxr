@@ -62,6 +62,7 @@ export function startHost(options: HostOptions): Host {
     const hostVersion = options.hostVersion ?? '0.0.0';
     const seqBySession = new Map<string, number>();
     let link: RelayLink | undefined;
+    const activeDesktopConnections = new Set<string>();
 
     let hostedDispatcherOptions = {};
     if (options.hostedE2ee !== undefined) {
@@ -103,6 +104,7 @@ export function startHost(options: HostOptions): Host {
         ...(options.token === undefined ? {} : { token: options.token }),
         ...(options.peerRuntime === undefined ? {} : { peerRuntime: options.peerRuntime }),
         desktop,
+        isDesktopConnectionActive: (id: string) => activeDesktopConnections.has(id),
         ...hostedDispatcherOptions,
     });
 
@@ -112,7 +114,7 @@ export function startHost(options: HostOptions): Host {
         return seq;
     }
 
-    async function handleClientFrame(frame: ClientFrame, authenticatedSenderId?: string): Promise<void> {
+    async function handleClientFrame(frame: ClientFrame, authenticatedSenderId?: string, connectionId?: string): Promise<void> {
         const clientKind = diagnosticClientKind(authenticatedSenderId, options.hostedE2ee);
         options.diagnostics?.client(authenticatedSenderId ?? 'local', clientKind, frame.type === 'client.hello');
         const startedAt = Date.now();
@@ -123,6 +125,10 @@ export function startHost(options: HostOptions): Host {
             error.code = 'e2ee-required';
             options.diagnostics?.request(frame.type, clientKind, 'rejected', Date.now() - startedAt, error.code);
             throw error;
+        }
+        if (frame.type.startsWith('desktop.') && frame.type !== 'desktop.capabilities'
+            && (connectionId === undefined || !activeDesktopConnections.has(connectionId))) {
+            throw new Error('the requesting phone is no longer connected');
         }
         if (frame.type === 'client.hello') {
             const peerMayList = peerRecipient === undefined
@@ -139,7 +145,7 @@ export function startHost(options: HostOptions): Host {
 
         let response;
         try {
-            response = await dispatcher.dispatch(frame as ClientRequest, authenticatedSenderId);
+            response = await dispatcher.dispatch(frame as ClientRequest, authenticatedSenderId, connectionId);
         } catch (error) {
             const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
             options.diagnostics?.request(frame.type, clientKind, 'unavailable', Date.now() - startedAt, code);
@@ -163,6 +169,10 @@ export function startHost(options: HostOptions): Host {
         onStateChange: (state, code) => {
             options.diagnostics?.relay(state, code);
             options.onStateChange?.(state, code);
+            if (state === 'closed' || state === 'replaced') {
+                activeDesktopConnections.clear();
+                void desktop.closeAll();
+            }
             if (state === 'open') {
                 link?.send({
                     type: 'machine.hello',
@@ -179,8 +189,20 @@ export function startHost(options: HostOptions): Host {
                 source.resendCumulativeState?.();
             }
         },
-        onClientFrame: (frame, authenticatedSenderId) => {
-            void handleClientFrame(frame, authenticatedSenderId).catch((error: unknown) => {
+        onClientConnections: (ids) => {
+            for (const id of activeDesktopConnections) {
+                if (!ids.includes(id)) void desktop.closeConnection(id);
+            }
+            activeDesktopConnections.clear();
+            for (const id of ids) activeDesktopConnections.add(id);
+        },
+        onClientConnected: (id) => activeDesktopConnections.add(id),
+        onClientDisconnected: (id) => {
+            activeDesktopConnections.delete(id);
+            void desktop.closeConnection(id);
+        },
+        onClientFrame: (frame, authenticatedSenderId, connectionId) => {
+            void handleClientFrame(frame, authenticatedSenderId, connectionId).catch((error: unknown) => {
                 const message = error instanceof Error ? error.message : String(error);
                 const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
                 const sessionId = sessionIdFrom(frame);

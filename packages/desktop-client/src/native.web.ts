@@ -605,21 +605,19 @@ function attachGestures(session: WebSession): () => void {
         // chord here — it composes a character with the layout (macOS Option,
         // Windows AltGr), and that has to stay on the text path.
         const modifiers = heldModifiers(event);
-        const chord = (event.ctrlKey || event.metaKey) && /^[a-zA-Z0-9]$/.test(event.key);
-        if (chord) {
+        const physical = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(event.code);
+        const character = (physical?.[1] ?? physical?.[2])?.toLowerCase();
+        if (character === undefined) return;
+        if ((event.ctrlKey || event.metaKey) && (down || session.chordsDown.has(event.code))) {
             event.preventDefault();
-            control(session, { kind: 'key', character: event.key, modifiers, down, seq: seq(session) });
-            if (down) session.chordsDown.add(event.key.toLowerCase());
-            else session.chordsDown.delete(event.key.toLowerCase());
+            control(session, { kind: 'key', character, modifiers, down, seq: seq(session) });
+            if (down) session.chordsDown.add(event.code);
+            else session.chordsDown.delete(event.code);
             return;
         }
-        // The modifier can be released before the chord key. The desktop is
-        // still holding the chord key, so its up must go even without the
-        // modifier that made it a chord. The identity is the unshifted key,
-        // because the release event reports whatever modifiers are left.
-        if (!down && session.chordsDown.delete(event.key.toLowerCase())) {
+        if (!down && session.chordsDown.delete(event.code)) {
             event.preventDefault();
-            control(session, { kind: 'key', character: event.key, modifiers: [], down: false, seq: seq(session) });
+            control(session, { kind: 'key', character, modifiers: [], down: false, seq: seq(session) });
         }
     };
     const keyDown = (event: KeyboardEvent): void => keyEvent(event, true);

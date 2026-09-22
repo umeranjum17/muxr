@@ -722,15 +722,15 @@ impl Session {
 
     /// Read the desktop clipboard for the consumer. Explicit, never polled.
     pub async fn read_clipboard(&self) -> std::result::Result<(String, bool), String> {
-        if !self.inner.permissions.contains(&Permission::Clipboard) {
-            return Err(String::from("this session has no clipboard permission"));
+        if let Some((_, reason)) = self.inner.clipboard_refusal() {
+            return Err(reason.to_owned());
         }
         clipboard_task(move || clipboard::read_or_explain()).await
     }
 
     pub async fn write_clipboard(&self, text: String) -> std::result::Result<(), String> {
-        if !self.inner.permissions.contains(&Permission::Clipboard) {
-            return Err(String::from("this session has no clipboard permission"));
+        if let Some((_, reason)) = self.inner.clipboard_refusal() {
+            return Err(reason.to_owned());
         }
         clipboard_task(move || {
             clipboard::write(&text)
@@ -808,6 +808,17 @@ impl Inner {
 
     fn has(&self, permission: Permission) -> bool {
         self.permissions.contains(&permission)
+    }
+
+    fn clipboard_refusal(&self) -> Option<(&'static str, &'static str)> {
+        if self.source.source_type.as_deref() == Some("x11-root")
+            || std::env::var("XDG_SESSION_TYPE").as_deref() != Ok("wayland") {
+            return Some(("clipboard-unsupported", "clipboard is unavailable for this desktop source"));
+        }
+        if !self.has(Permission::Clipboard) {
+            return Some(("permission", "this session has no clipboard permission"));
+        }
+        None
     }
 
     fn reject(&self, seq: u64, code: &'static str, message: &str) {
@@ -1044,8 +1055,8 @@ impl Inner {
     }
 
     fn clipboard_read(self: &Arc<Self>, request: String) {
-        if !self.has(Permission::Clipboard) {
-            self.reject(0, "permission", "this session has no clipboard permission");
+        if let Some((code, reason)) = self.clipboard_refusal() {
+            self.reject(0, code, reason);
             return;
         }
         let inner = Arc::clone(self);
@@ -1064,8 +1075,8 @@ impl Inner {
     }
 
     fn clipboard_write(self: &Arc<Self>, request: String, text: String) {
-        if !self.has(Permission::Clipboard) {
-            self.reject(0, "permission", "this session has no clipboard permission");
+        if let Some((code, reason)) = self.clipboard_refusal() {
+            self.reject(0, code, reason);
             return;
         }
         let inner = Arc::clone(self);
@@ -1731,6 +1742,21 @@ mod tests {
         assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_CTRL, true)).count(), 3);
         assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_CTRL, false)).count(), 3);
         assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_SHIFT, false)).count(), 2);
+    }
+
+    #[tokio::test]
+    async fn x11_capture_refuses_both_clipboard_directions() {
+        let (events, _received) = tokio_mpsc::unbounded_channel();
+        let (mut inner, _recorded) = test_inner(events).await;
+        let owned = Arc::get_mut(&mut inner).unwrap();
+        owned.source.source_type = Some(String::from("x11-root"));
+        owned.permissions.push(Permission::Clipboard);
+        let session = Session { inner: inner.clone() };
+        assert!(session.read_clipboard().await.unwrap_err().contains("unavailable"));
+        assert!(session.write_clipboard(String::from("secret")).await.unwrap_err().contains("unavailable"));
+        inner.clipboard_read(String::from("read"));
+        inner.clipboard_write(String::from("write"), String::from("secret"));
+        assert_eq!(inner.metrics.lock().unwrap().input_rejected, 2);
     }
 
     #[tokio::test]

@@ -204,8 +204,14 @@ export class EngineClient {
     }
 
     /** Drain notifications received so far, in order. */
-    drainEvents(): EngineEvent[] {
-        return this.queue.splice(0, this.queue.length);
+    drainEvents(sessionId?: string): EngineEvent[] {
+        if (sessionId === undefined) return this.queue.splice(0);
+        const selected: EngineEvent[] = [];
+        for (const event of this.queue.splice(0)) {
+            if (event.params.sessionId === sessionId) selected.push(event);
+            else this.queue.push(event);
+        }
+        return selected;
     }
 
     /**

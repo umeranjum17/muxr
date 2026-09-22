@@ -238,10 +238,10 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
                 )}
 
                 {live && <>
-                    {clipboardOpen && <>
+                    {clipboardAvailable && clipboardOpen && <>
                         <Pressable style={StyleSheet.absoluteFill} onPress={() => setClipboardOpen(false)} accessibilityLabel="Close clipboard options" />
                         <View style={[styles.clipboardCard, { bottom: dockBottom + 58 }]}>
-                            <Pressable onPress={() => { setClipboardOpen(false); void copyFromDesktop(); }} disabled={clipboardBusy || !clipboardAvailable} accessibilityRole="button" accessibilityLabel="Copy to Phone" style={({ pressed }) => [styles.clipboardRow, pressed && styles.rowPressed]}>
+                            <Pressable onPress={() => { setClipboardOpen(false); void copyFromDesktop(); }} disabled={clipboardBusy} accessibilityRole="button" accessibilityLabel="Copy to Phone" style={({ pressed }) => [styles.clipboardRow, pressed && styles.rowPressed]}>
                                 <Ionicons name="phone-portrait-outline" size={20} color={ON_GLASS_MUTED} />
                                 <View style={styles.clipboardText}>
                                     <Text style={styles.clipboardLabel}>Copy to Phone</Text>
@@ -249,7 +249,7 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
                                 </View>
                             </Pressable>
                             <View style={styles.clipboardDivider} />
-                            <Pressable onPress={() => { setClipboardOpen(false); void pasteToDesktop(); }} disabled={clipboardBusy || !clipboardAvailable} accessibilityRole="button" accessibilityLabel="Paste from Phone" style={({ pressed }) => [styles.clipboardRow, pressed && styles.rowPressed]}>
+                            <Pressable onPress={() => { setClipboardOpen(false); void pasteToDesktop(); }} disabled={clipboardBusy} accessibilityRole="button" accessibilityLabel="Paste from Phone" style={({ pressed }) => [styles.clipboardRow, pressed && styles.rowPressed]}>
                                 <Ionicons name="desktop-outline" size={20} color={ON_GLASS_MUTED} />
                                 <View style={styles.clipboardText}>
                                     <Text style={styles.clipboardLabel}>Paste from Phone</Text>
@@ -269,12 +269,14 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
                         <Pressable onPress={toggleKeyboard} accessibilityRole="button" accessibilityLabel="Keyboard" accessibilityState={{ selected: keyboardOpen }} style={({ pressed }) => [styles.dockButton, keyboardOpen && styles.dockButtonOn, pressed && styles.pressed]}>
                             <Ionicons name={keyboardOpen ? 'keypad' : 'keypad-outline'} size={21} color={ON_GLASS} />
                         </Pressable>
-                        <View style={styles.dockDivider} />
-                        <Pressable onPress={() => setClipboardOpen((open) => !open)} disabled={!clipboardAvailable} accessibilityRole="button" accessibilityLabel="Clipboard" accessibilityState={{ disabled: !clipboardAvailable, expanded: clipboardOpen, busy: clipboardBusy }} style={({ pressed }) => [styles.dockButton, clipboardOpen && styles.dockButtonOn, !clipboardAvailable && styles.disabled, pressed && styles.pressed]}>
-                            {clipboardBusy
-                                ? <ActivityIndicator size="small" color={ON_GLASS} />
-                                : <Ionicons name="clipboard-outline" size={21} color={ON_GLASS} />}
-                        </Pressable>
+                        {clipboardAvailable && <>
+                            <View style={styles.dockDivider} />
+                            <Pressable onPress={() => setClipboardOpen((open) => !open)} accessibilityRole="button" accessibilityLabel="Clipboard" accessibilityState={{ expanded: clipboardOpen, busy: clipboardBusy }} style={({ pressed }) => [styles.dockButton, clipboardOpen && styles.dockButtonOn, pressed && styles.pressed]}>
+                                {clipboardBusy
+                                    ? <ActivityIndicator size="small" color={ON_GLASS} />
+                                    : <Ionicons name="clipboard-outline" size={21} color={ON_GLASS} />}
+                            </Pressable>
+                        </>}
                     </View>
                 </>}
             </View>
@@ -387,5 +389,4 @@ const styles = StyleSheet.create({
     clipboardDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 16, backgroundColor: GLASS_EDGE },
     keyRow: { backgroundColor: '#0b0b0c', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: GLASS_EDGE },
     pressed: { opacity: 0.6 },
-    disabled: { opacity: 0.4 },
 });

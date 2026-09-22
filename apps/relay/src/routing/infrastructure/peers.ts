@@ -12,6 +12,7 @@ export interface ConnectedPeer {
     /** Subscribed machine ids. Singleton for machine peers; many for client peers. */
     machineIds: ReadonlySet<string>;
     connectedAt: number;
+    connectionId?: string;
     /** Undefined means fresh connect — skip replay. Set only when ?lastSeq= is present. */
     lastSeenSeq?: number;
 }

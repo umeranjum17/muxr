@@ -42,7 +42,10 @@ function closeStateCode(code: number): RelayStateCode {
 export interface RelayLinkOptions {
     relayUrl: string;
     machineId: string;
-    onClientFrame: (frame: ClientFrame, authenticatedSenderId?: string) => void;
+    onClientFrame: (frame: ClientFrame, authenticatedSenderId?: string, connectionId?: string) => void;
+    onClientConnections?: (ids: string[]) => void;
+    onClientConnected?: (id: string) => void;
+    onClientDisconnected?: (id: string) => void;
     onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced', code?: RelayStateCode) => void;
     onClientReject?: (clientKey: string, kind: DiagnosticClientKind, outcome: DiagnosticClientRejectOutcome) => void;
     onPeerIngress?: (outcome: DiagnosticPeerIngressOutcome) => void;
@@ -199,6 +202,16 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
             let envelope: Envelope;
             try {
                 const parsed = JSON.parse(String(raw)) as unknown;
+                if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) && 'type' in parsed) {
+                    if (parsed.type === 'relay.clients' && 'connectionIds' in parsed && Array.isArray(parsed.connectionIds)
+                        && parsed.connectionIds.every((id) => typeof id === 'string')) {
+                        options.onClientConnections?.(parsed.connectionIds);
+                    } else if ('connectionId' in parsed && typeof parsed.connectionId === 'string') {
+                        if (parsed.type === 'relay.client.joined') options.onClientConnected?.(parsed.connectionId);
+                        if (parsed.type === 'relay.client.left') options.onClientDisconnected?.(parsed.connectionId);
+                    }
+                    return;
+                }
                 if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)
                     || !('header' in parsed) || typeof parsed.header !== 'object' || parsed.header === null || Array.isArray(parsed.header)) {
                     throw new Error('malformed envelope');
@@ -242,7 +255,7 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
                     return;
                 }
                 if (peerIngress) options.onPeerIngress?.('decoded');
-                options.onClientFrame(frame, hosted === undefined ? undefined : senderId);
+                options.onClientFrame(frame, hosted === undefined ? undefined : senderId, envelope.header.connectionId);
             } catch {
                 if (peerIngress) options.onPeerIngress?.('decrypt-rejected');
                 options.onClientReject?.(senderId ?? 'unknown', clientKind, 'malformed');

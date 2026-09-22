@@ -225,6 +225,16 @@ describe('touch on the desktop', () => {
 });
 
 describe('the keys a phone keyboard lacks', () => {
+    it('sends a shifted digit chord with its physical key and releases it after modifiers lift', async () => {
+        const { keyboard } = await liveDesktop();
+        dispatch(keyboard, 'keydown', { key: '$', code: 'Digit4', ctrlKey: true, shiftKey: true, metaKey: false, altKey: false });
+        dispatch(keyboard, 'keyup', { key: '4', code: 'Digit4', ctrlKey: false, shiftKey: false, metaKey: false, altKey: false });
+        expect(sent).toEqual([
+            { kind: 'key', character: '4', modifiers: ['Control', 'Shift'], down: true },
+            { kind: 'key', character: '4', modifiers: [], down: false },
+        ]);
+    });
+
     it('chords the next typed key with a sticky Ctrl, then lets it go', async () => {
         const { session, keyboard, reply, rejected } = await liveDesktop();
 
