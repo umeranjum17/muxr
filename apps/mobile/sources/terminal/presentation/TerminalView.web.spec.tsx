@@ -3,8 +3,9 @@ import React from 'react';
 import TestRenderer from 'react-test-renderer';
 
 const link = vi.hoisted(() => ({
-    options: null as null | { linkHandler: { activate: (event: MouseEvent, url: string) => void; hover: (event: MouseEvent, url: string, range: { start: { x: number; y: number }; end: { x: number; y: number } }) => void; leave?: () => void } },
+    options: null as null | { linkHandler: { activate: (event: MouseEvent, url: string) => void; hover?: (event: MouseEvent, url: string, range: { start: { x: number; y: number }; end: { x: number; y: number } }) => void; leave?: () => void } },
     plainTap: null as null | ((event: MouseEvent, url: string) => void),
+    onData: null as null | ((base64: string) => void),
 }));
 
 vi.mock('react-native', () => ({ View: 'View', Text: 'Text', StyleSheet: { create: (styles: unknown) => styles } }));
@@ -12,12 +13,22 @@ vi.mock('@xterm/xterm', () => ({
     Terminal: class {
         cols = 80;
         rows = 24;
-        buffer = { active: { viewportY: 0, getLine: () => undefined } };
+        buffer = { active: { viewportY: 0, getLine: (row: number) => row === 1 ? {
+            isWrapped: false,
+            translateToString: () => '  docs',
+            getCell: (col: number) => ({
+                getWidth: () => 1, getChars: () => col === 2 ? 'd' : ' ',
+                hasExtendedAttrs: () => col === 2 ? 1 : 0, extended: { urlId: col === 2 ? 7 : 0 },
+            }),
+        } : undefined } };
+        _core = { _oscLinkService: { getLinkData: (id: number) => id === 7 ? { uri: 'https://example.test/osc8' } : undefined } };
         options: unknown;
         constructor(options: typeof link.options) { this.options = options; link.options = options; }
         loadAddon() {}
         open() {}
         onRender() {}
+        onData() {}
+        write() {}
         dispose() {}
     },
 }));
@@ -26,7 +37,10 @@ vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {
     constructor(tap: typeof link.plainTap) { link.plainTap = tap; }
 } }));
 vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: class { dispose() {} } }));
-vi.mock('../application/OpenTerminal', () => ({ openTerminal: () => new Promise(() => {}) }));
+vi.mock('../application/OpenTerminal', () => ({ openTerminal: () => Promise.resolve({
+    onData: (callback: (base64: string) => void) => { link.onData = callback; },
+    onPredictedData() {}, onState() {}, onClose() {}, resize() {}, sendText() {}, close() {},
+}) }));
 vi.mock('../application/recentOutput', () => ({ setTerminalColumns: () => undefined, recordTerminalOutput: () => undefined }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: () => Promise.resolve() }));
 
@@ -34,8 +48,9 @@ import { TerminalView } from './TerminalView.web';
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-it('opens the action card for OSC 8 labels held on the browser terminal while taps keep their card', () => {
+it('resolves a held OSC 8 cell after repeat holds and unrelated output while taps keep their card', async () => {
     vi.useFakeTimers();
+    const scheduled: Array<() => void> = [];
     const listeners = new Map<string, (event: any) => void>();
     const rect = { left: 10, top: 5, width: 800, height: 432 };
     let lastCell: number | null = null;
@@ -48,7 +63,7 @@ it('opens the action card for OSC 8 labels held on the browser terminal while ta
                 const cell = Math.floor(((event.clientX ?? 0) - rect.left) / 10) + 1;
                 if (cell === lastCell) return;
                 lastCell = cell;
-                if (cell === 3) link.options?.linkHandler.hover(event as MouseEvent, 'https://example.test/osc8', { start: { x: 3, y: 2 }, end: { x: 12, y: 2 } });
+                if (cell === 3) link.options?.linkHandler.hover?.(event as MouseEvent, 'https://example.test/osc8', { start: { x: 3, y: 2 }, end: { x: 12, y: 2 } });
                 else link.options?.linkHandler.leave?.();
             }
         },
@@ -69,16 +84,17 @@ it('opens the action card for OSC 8 labels held on the browser terminal while ta
         }
     });
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
-    vi.stubGlobal('requestAnimationFrame', () => 1);
+    vi.stubGlobal('requestAnimationFrame', (callback: () => void) => { scheduled.push(callback); return scheduled.length; });
     vi.stubGlobal('cancelAnimationFrame', () => undefined);
     vi.stubGlobal('window', { devicePixelRatio: 1, addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ addEventListener() {}, removeEventListener() {} }) });
     vi.stubGlobal('document', { addEventListener() {}, removeEventListener() {} });
     const reached = vi.fn();
     let renderer: ReturnType<typeof TestRenderer.create>;
-    TestRenderer.act(() => {
+    await TestRenderer.act(async () => {
         renderer = TestRenderer.create(<TerminalView sessionId="pane" onLinkPress={reached} />, {
             createNodeMock: ({ type, props }) => type === 'View' && props.style?.position !== 'relative' ? host : null,
         });
+        await Promise.resolve();
     });
 
     TestRenderer.act(() => {
@@ -89,8 +105,14 @@ it('opens the action card for OSC 8 labels held on the browser terminal while ta
         listeners.get('touchstart')!({ touches: [{ clientX: 34, clientY: 23 }] });
         vi.advanceTimersByTime(501);
         listeners.get('touchend')!({ touches: [], cancelable: true, preventDefault() {} });
+        link.onData!('eA==');
+        for (const frame of scheduled.splice(0)) frame();
+        listeners.get('touchstart')!({ touches: [{ clientX: 34, clientY: 23 }] });
+        vi.advanceTimersByTime(501);
+        listeners.get('touchend')!({ touches: [], cancelable: true, preventDefault() {} });
     });
     expect(reached.mock.calls).toEqual([
+        ['https://example.test/osc8', { x: 24, y: 18 }],
         ['https://example.test/osc8', { x: 24, y: 18 }],
         ['https://example.test/osc8', { x: 24, y: 18 }],
     ]);
@@ -99,11 +121,11 @@ it('opens the action card for OSC 8 labels held on the browser terminal while ta
         vi.advanceTimersByTime(501);
         listeners.get('touchend')!({ touches: [], cancelable: true, preventDefault() {} });
     });
-    expect(reached).toHaveBeenCalledTimes(2);
+    expect(reached).toHaveBeenCalledTimes(3);
     link.options?.linkHandler.activate({ clientX: 34, clientY: 23 } as MouseEvent, 'https://example.test/osc8');
     link.plainTap?.({ clientX: 34, clientY: 23 } as MouseEvent, 'https://example.test/plain');
     expect(reached.mock.calls.map(([url]) => url)).toEqual([
-        'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/plain',
+        'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/plain',
     ]);
     TestRenderer.act(() => renderer!.unmount());
 });

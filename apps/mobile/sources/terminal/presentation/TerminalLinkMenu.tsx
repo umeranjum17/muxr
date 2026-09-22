@@ -17,6 +17,9 @@ export type LinkAction = {
 
 const CARD_MAX = 260;
 const GAP = 12;
+const linkCardHeight = (actionCount: number): number => 60 + actionCount * 46;
+export const terminalLinkCardFits = (height: number | undefined, actionCount: number): boolean =>
+    height !== undefined && height >= linkCardHeight(actionCount) + 16;
 
 /**
  * What you can do with one link the terminal printed, offered WHERE THE LINK
@@ -43,8 +46,7 @@ export function TerminalLinkMenu({ url, at, region, actions, onClose }: {
     }, [onClose]);
 
     const width = Math.min(CARD_MAX, Math.max(160, region.width - 24));
-    const contentHeight = 60 + actions.length * 46;
-    const height = Math.min(contentHeight, Math.max(1, region.height - 16));
+    const height = linkCardHeight(actions.length);
     const left = Math.max(8, Math.min(at.x - width / 2, Math.max(8, region.width - width - 8)));
     // Below the finger, or above it when there is no room below, so the card
     // never sits under the thumb that opened it.

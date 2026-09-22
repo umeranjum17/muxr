@@ -5,7 +5,7 @@
 
 import * as React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import type { IBuffer, IBufferRange, IMarker } from '@xterm/xterm';
+import type { IBuffer, IMarker } from '@xterm/xterm';
 import type { TerminalCommand } from './FloatingTerminalControls';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -17,6 +17,7 @@ import {
     joinedTerminalUrlRanges,
     openTerminalLink,
     plainLinkAtCell,
+    safeTerminalLinkUrl,
     type TerminalLinkRow,
 } from '../domain/safeTerminalLink';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
@@ -80,7 +81,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         if (element === null) return;
         element.style.position = 'relative';
 
-        let hoveredOscLink: { url: string; range: IBufferRange } | null = null;
         const term = new Terminal({
             // registerDecoration (plain-URL underlines) is a proposed API.
             allowProposedApi: true,
@@ -95,7 +95,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             // the app boundary, which drops non-web schemes instead.
             linkHandler: {
                 activate: (event, text) => reachLink(text, event),
-                hover: (_event, url, range) => { hoveredOscLink = { url, range }; },
             },
         });
         // One rule on both terminals: reaching for a link asks what to do with
@@ -227,7 +226,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     if (disposed || pending.length === 0) return;
                     const chunks = pending;
                     pending = [];
-                    hoveredOscLink = null;
                     for (const chunk of chunks) term.write(decodeBase64(chunk));
                 };
                 opened.onData((base64) => {
@@ -299,22 +297,19 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             if (!tapped) return null;
             return plainLinkAtCell(tapped, term.cols, col, row, lineRow);
         };
-        const screen = element.querySelector('.xterm-screen');
-        const oscLinkAt = (clientX: number, clientY: number): string | null => {
-            if (hoveredOscLink === null) return null;
-            const rect = screen?.getBoundingClientRect() ?? element.getBoundingClientRect();
-            const x = Math.floor((clientX - rect.left) / (rect.width / term.cols)) + 1;
-            const y = term.buffer.active.viewportY + Math.floor((clientY - rect.top) / cellHeight()) + 1;
-            const { start, end } = hoveredOscLink.range;
-            return y >= start.y && y <= end.y && (y > start.y || x >= start.x) && (y < end.y || x <= end.x)
-                ? hoveredOscLink.url : null;
-        };
-        const plainTextLinkAt = (clientX: number, clientY: number): string | null => {
+        const linkAt = (clientX: number, clientY: number): string | null => {
             const rect = element.getBoundingClientRect();
             const col = Math.floor((clientX - rect.left) / (rect.width / term.cols));
             const row = Math.floor((clientY - rect.top) / cellHeight());
-            if (col < 0 || col >= term.cols || row < 0) return null;
-            return findPlainTextLink(row, col);
+            if (col < 0 || col >= term.cols || row < 0 || row >= term.rows) return null;
+            const cell = term.buffer.active.getLine(term.buffer.active.viewportY + row)?.getCell(col) as {
+                hasExtendedAttrs?: () => number; extended?: { urlId?: number };
+            } | undefined;
+            const id = cell?.hasExtendedAttrs?.() ? cell.extended?.urlId : undefined;
+            const uri = id ? (term as unknown as {
+                _core?: { _oscLinkService?: { getLinkData: (id: number) => { uri?: string } | undefined } };
+            })._core?._oscLinkService?.getLinkData(id)?.uri : undefined;
+            return uri !== undefined && safeTerminalLinkUrl(uri) !== null ? uri : findPlainTextLink(row, col);
         };
         let longPressTimer: ReturnType<typeof setTimeout> | undefined;
         // Resolved at LONG_PRESS_MS while the finger is still down; written at
@@ -385,12 +380,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             if (event.touches.length === 1) {
                 const touch = event.touches[0]!;
                 longPressAt = { x: touch.clientX, y: touch.clientY };
-                screen?.dispatchEvent(new MouseEvent('mousemove', { clientX: touch.clientX, clientY: touch.clientY }));
                 clearTimeout(longPressTimer);
                 longPressTimer = setTimeout(() => {
                     longPressTimer = undefined;
                     if (longPressAt === null || Math.abs(gesturePx) >= 8) return;
-                    longPressLink = oscLinkAt(longPressAt.x, longPressAt.y) ?? plainTextLinkAt(longPressAt.x, longPressAt.y);
+                    longPressLink = linkAt(longPressAt.x, longPressAt.y);
                     const box = element.getBoundingClientRect();
                     longPressPoint = { x: longPressAt.x - box.left, y: longPressAt.y - box.top };
                 }, LONG_PRESS_MS);

@@ -29,6 +29,7 @@ vi.mock('react-native', () => ({
     // The responder callbacks, by the names the component hands them over.
     PanResponder: { create: (config: Record<string, unknown>) => ({ panHandlers: config }) },
     Pressable: 'Pressable',
+    ScrollView: 'ScrollView',
     StyleSheet: { absoluteFill: {}, hairlineWidth: 1, create: (styles: Record<string, unknown>) => styles },
     Text: 'Text',
     View: 'View',
@@ -50,11 +51,13 @@ vi.mock('react-native-reanimated', () => ({
 }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme }) }));
-vi.mock('@/catalog/store', () => ({ useLocalSettingMutable: () => [null, () => undefined] }));
+vi.mock('@/catalog/store', () => ({ useLocalSetting: () => null, useLocalSettingMutable: () => [null, () => undefined] }));
+vi.mock('@/constants/Typography', () => ({ Typography: { mono: () => ({}) } }));
 vi.mock('@/components/haptics', () => ({ hapticsLight: () => undefined, hapticsSelection: () => undefined }));
 
 // eslint-disable-next-line
 import { FloatingTerminalControls, TerminalMenuQuickActions, floatingControlFits, type ClusterKey, type RingSlot } from './FloatingTerminalControls';
+import { TerminalKeyRow } from './TerminalKeyRow';
 
 const arrows: RingSlot = { id: 'arrows', label: 'Arrows', icon: 'code', opens: 'cluster', run: vi.fn() };
 const other: RingSlot = { id: 'other', label: 'Other', icon: 'code', run: vi.fn() };
@@ -212,15 +215,23 @@ describe('floating terminal control', () => {
         const actions: RingSlot[] = ['Continue', 'Review changes', 'Arrow keys', 'Commands', 'Paste', 'Browser'].map((label, index) => ({
             id: ['continue', 'changes', 'arrows', 'commands', 'paste', 'browser'][index]!, label, icon: 'code', run: run[index]!,
         }));
+        const sendText = vi.fn();
         let renderer: any;
         TestRenderer.act(() => {
             renderer = TestRenderer.create(<>
                 <FloatingTerminalControls width={270} height={594} terminalHeight={43} slots={actions} dim={{ value: 0 } as never} />
                 <TerminalMenuQuickActions slots={actions} terminalHeight={43} hasTools onClose={() => undefined} />
+                <TerminalKeyRow channel={{ sendText }} />
             </>);
         });
-        for (const action of actions) tap(renderer, slot(renderer, action.label));
-        for (const invoked of run) expect(invoked).toHaveBeenCalledOnce();
+        expect(slot(renderer, 'Arrow keys')).toBeUndefined();
+        for (const action of actions.filter((entry) => entry.id !== 'arrows')) tap(renderer, slot(renderer, action.label));
+        for (const [label, bytes] of [['Left arrow', '\u001b[D'], ['Up arrow', '\u001b[A'], ['Down arrow', '\u001b[B'], ['Right arrow', '\u001b[C']]) {
+            tap(renderer, slot(renderer, label));
+            expect(sendText).toHaveBeenLastCalledWith(bytes);
+        }
+        expect(run[2]).not.toHaveBeenCalled();
+        for (const invoked of run.filter((_, index) => index !== 2)) expect(invoked).toHaveBeenCalledOnce();
         expect(floatingControlFits(45)).toBe(true);
         TestRenderer.act(() => {
             renderer.update(<TerminalMenuQuickActions slots={actions} terminalHeight={45} hasTools onClose={() => undefined} />);

@@ -68,7 +68,7 @@ import { ActiveAgentWakeLock } from './ActiveAgentWakeLock';
 import { useDictation } from '@/utils/dictation';
 import { getCachedConnectionSettings } from '@/connection';
 import { displayLink } from '../domain/TerminalLink';
-import { TerminalLinkMenu, type LinkAction } from './TerminalLinkMenu';
+import { TerminalLinkMenu, terminalLinkCardFits, type LinkAction } from './TerminalLinkMenu';
 import { openTerminalLink, safeTerminalLinkUrl } from '../domain/safeTerminalLink';
 import { humanError } from '@/utils/errors';
 import { CommandPalette } from '@/components/CommandPalette';
@@ -764,6 +764,11 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             ...(canControl ? [{ id: 'insert', label: 'Insert into the prompt', icon: 'return-down-forward-outline' as const, note: INSERT_ONLY_LABEL, run: () => insertDraftRef.current(url) }] : []),
         ];
     }, [canControl, linkMenu]);
+    const compactLinkMenu = linkMenu !== null && !terminalLinkCardFits(terminalBox?.height, linkActions.length);
+    const visibleMenu: SessionMenu | null = menu ?? (compactLinkMenu && linkMenu !== null ? {
+        title: displayLink(linkMenu.url, 72),
+        items: linkActions.map((action) => ({ label: action.label, hint: action.note, onPress: action.run })),
+    } : null);
 
     /** The links this pane printed recently, each offering the same choices. */
     const showRecentLinks = React.useCallback(() => {
@@ -798,14 +803,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     // The action menu is a plain absolute View, not a modal, so Android's
     // hardware back would leave the screen instead of dismissing it.
     React.useEffect(() => {
-        if ((menu === null && !actionsOpen) || Platform.OS !== 'android') return;
+        if ((menu === null && !actionsOpen && !compactLinkMenu) || Platform.OS !== 'android') return;
         const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
             setMenu(null);
+            setLinkMenu(null);
             setActionsOpen(false);
             return true;
         });
         return () => subscription.remove();
-    }, [actionsOpen, menu]);
+    }, [actionsOpen, menu, compactLinkMenu]);
 
     // The agent is a TUI: it can only reach a file by having the path in its
     // prompt. But splicing that path into the draft the moment you attach
@@ -1267,7 +1273,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         style={{ flex: 1 }}
                     >
                         <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} onLinkPress={showLinkActions} />
-                        {linkMenu !== null && terminalBox !== undefined && (
+                        {linkMenu !== null && terminalBox !== undefined && terminalLinkCardFits(terminalBox.height, linkActions.length) && (
                             <TerminalLinkMenu
                                 url={linkMenu.url}
                                 at={linkMenu.at}
@@ -1813,24 +1819,25 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         </Animated.View>
                     )}
 
-                    {menu !== null && (
+                    {visibleMenu !== null && (
                         <Pressable
-                            onPress={() => setMenu(null)}
+                            onPress={() => { setMenu(null); setLinkMenu(null); }}
                             style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40, backgroundColor: theme.colors.scrim, justifyContent: 'flex-end' }}
                         >
                             <View style={{ backgroundColor: theme.colors.surface, paddingBottom: insets.bottom + 8, borderTopLeftRadius: 14, borderTopRightRadius: 14 }}>
                                 <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 }}>
-                                    <Text style={{ color: theme.colors.text, fontWeight: '600', fontSize: 16 }}>{menu.title}</Text>
-                                    {menu.note !== undefined && (
-                                        <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 2 }}>{menu.note}</Text>
+                                    <Text style={{ color: theme.colors.text, fontWeight: '600', fontSize: 16 }}>{visibleMenu.title}</Text>
+                                    {visibleMenu.note !== undefined && (
+                                        <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 2 }}>{visibleMenu.note}</Text>
                                     )}
                                 </View>
                                 <ScrollView style={{ maxHeight: 380 }}>
-                                    {menu.items.map((item) => (
+                                    {visibleMenu.items.map((item) => (
                                         <Pressable
                                             key={item.label}
                                             onPress={() => {
                                                 setMenu(null);
+                                                setLinkMenu(null);
                                                 item.onPress();
                                             }}
                                             style={({ pressed }) => ({ paddingHorizontal: 16, paddingVertical: 12, opacity: pressed ? 0.6 : 1 })}
@@ -1842,7 +1849,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         </Pressable>
                                     ))}
                                 </ScrollView>
-                                <Pressable onPress={() => setMenu(null)} style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
+                                <Pressable onPress={() => { setMenu(null); setLinkMenu(null); }} style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
                                     <Text style={{ color: theme.colors.textSecondary, fontSize: 15 }}>Cancel</Text>
                                 </Pressable>
                             </View>
