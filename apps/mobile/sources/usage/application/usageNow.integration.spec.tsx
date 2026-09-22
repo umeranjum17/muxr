@@ -95,7 +95,8 @@ vi.mock('@/plugins/ui', () => ({
     VERDICT_KEYS: { limited: 'plugins.limits.limited' },
     verdictTone: () => undefined,
 }));
-vi.mock('@/text', () => ({ t: (key: string) => key }));
+// Keys stand in for words; a share keeps its figure, as every real string does.
+vi.mock('@/text', () => ({ t: (key: string, params?: { percent?: number }) => (params?.percent === undefined ? key : `${params.percent}% ${key}`) }));
 
 const { useUsageNow } = await import('./useUsageNow');
 const { RightNowCard } = await import('../presentation/RightNowCard');
@@ -587,7 +588,8 @@ describe('the Home card read path', () => {
         // when it can run, and issues no cache-bypassing read of its own.
         pressRefresh(card);
         await tick();
-        expect(screenText(card)).toContain('plugins.rightNow.refreshThrottled');
+        expect(refreshControls(card)[0].props.accessibilityLabel).toContain('plugins.rightNow.refreshThrottled');
+        expect(screenText(card)).toContain('plugins.rightNow.refreshIn');
         expect(request.mock.calls.length).toBe(read);
         expect(forcedReads()).toHaveLength(2);
     });

@@ -676,7 +676,9 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
         label: TAB_LABELS[id] ?? AGENTS[id] ?? id,
         glyph: id,
         ...(plan === undefined ? {} : { plan }),
-        windows: limitsPayload(vms, { ...(plan === undefined ? {} : { plan }) }).windows.map(({ label, window, used }) => ({ label, ...(window === undefined ? {} : { window }), used })),
+        // The whole window, reset clock and pace included: the Home card draws
+        // each plan as a meter with the time until it resets.
+        windows: limitsPayload(vms, { ...(plan === undefined ? {} : { plan }) }).windows,
     }));
     const output: UsageReport = {
         providers: providerIds.map((agent) => ({ id: agent, label: TAB_LABELS[agent] ?? AGENTS[agent] ?? agent, glyph: agent })),
