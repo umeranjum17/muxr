@@ -169,6 +169,7 @@ async function migrateLegacyVoiceProvider(installed, dryRun) {
     return migrateLegacyProvider(
         installed.filter((plugin) => isLegacyBundledRegistration(plugin.plugin_id, plugin.plugin_root)),
         join(stateDir(), 'voice'),
+        join(stateDir(), 'plugin-state', 'muxr.voice', 'provider'),
         dryRun,
     );
 }

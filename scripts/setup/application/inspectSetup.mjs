@@ -94,6 +94,7 @@ const FULL_UNINSTALL_ENTRIES = [
     'extensions',
     'plugin-state',
     'plugin-sync.json',
+    'voice',
     'operations',
     'xai.key',
     'gemini.key',

@@ -83,10 +83,11 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
                 transcript.current?.scrollTo({ y: 0, animated: false });
                 return;
             }
-            const target = [...transcriptRows.current.values()]
-                .filter((row) => row.y <= bottom)
-                .sort((left, right) => left.y - right.y)
-                .at(-1)?.y;
+            const rows = [...transcriptRows.current.values()];
+            const newest = rows.reduce((latest, row) => (latest === undefined || row.index > latest.index ? row : latest), undefined);
+            const target = newest !== undefined && newest.y > bottom
+                ? bottom
+                : rows.filter((row) => row.y <= bottom).sort((left, right) => left.y - right.y).at(-1)?.y;
             // No measured boundary means the layout is still settling. Wait
             // for the next row measurement rather than choosing a pixel inside
             // an arbitrary transcript row.

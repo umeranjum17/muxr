@@ -168,7 +168,9 @@ describe('realtime transcript layout', () => {
             expect(viewport).toEqual({ width: 360, height: 640 });
             const clippedTarget = driveTranscriptLayout(renderer, 220, 370, [0, 110, 240]);
             recordLayoutEvidence({ viewport: { ...viewport }, transcriptHeight: 220, contentHeight: 370, rowYs: [0, 110, 240], target: clippedTarget });
-            expect(clippedTarget).toBe(110);
+            // The newest row starts past the bottom edge, so the window anchors
+            // on the bottom rather than a row boundary above it.
+            expect(clippedTarget).toBe(150);
             const secondTarget = driveTranscriptLayout(renderer, 280, 700, [0, 110, 240]);
             recordLayoutEvidence({ viewport: { ...viewport }, transcriptHeight: 280, contentHeight: 700, rowYs: [0, 110, 240], target: secondTarget });
             expect([0, 110, 240]).toContain(secondTarget);
@@ -186,6 +188,22 @@ describe('realtime transcript layout', () => {
             recordLayoutEvidence({ viewport: { ...viewport }, transcriptHeight: 280, contentHeight: 800, rowYs: [0, 110, 240, 350], target: finalTarget });
             expect([0, 110, 240, 350]).toContain(finalTarget);
             expect(finalTarget).toBe(350);
+
+            // A row taller than the transcript pushes the next short row past
+            // the bottom edge. The window must still include that newest row
+            // instead of anchoring on the tall row's boundary above it.
+            conversation.turns = [
+                { id: 5, role: 'agent', text: 'a'.repeat(400) },
+                { id: 6, role: 'user', text: 'and now?' },
+            ];
+            TestRenderer.act(() => {
+                renderer.update(React.createElement(RealtimeConversation, { visible: true, onClose: () => {} }));
+            });
+            const newestTarget = driveTranscriptLayout(renderer, 280, 536, [8, 478]);
+            recordLayoutEvidence({ viewport: { ...viewport }, transcriptHeight: 280, contentHeight: 536, rowYs: [8, 478], target: newestTarget });
+            expect(newestTarget).toBe(256);
+            expect(newestTarget).toBeLessThanOrEqual(478);
+            expect(newestTarget + 280).toBeGreaterThan(478);
 
             for (const label of ['Minimize realtime conversation', 'Mute microphone', 'End realtime conversation']) {
                 const control = renderer.root.findByProps({ accessibilityLabel: label });

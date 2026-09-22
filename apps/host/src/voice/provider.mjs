@@ -54,15 +54,12 @@ export function selectProvider(id) {
     return provider;
 }
 
-/** Preserve the old one-enabled-plugin choice while upgrading to one voice plugin. */
-export function migrateLegacyProvider(installed, targetDir, dryRun = false) {
-    const legacy = installed
-        .filter((plugin) => plugin?.enabled === true)
-        .map((plugin) => LEGACY_PLUGIN_IDS.get(plugin.plugin_id))
-        .filter((id) => id !== undefined);
-    if (legacy.length === 0) return undefined;
-    if (legacy.length > 1) throw new Error('multiple legacy realtime voice providers are enabled');
-
+/**
+ * The retired single-plugin release kept the choice in plugin state, and the
+ * older per-plugin releases only in the enabled registration. muxr's own file
+ * wins: a legacy value is read only when it does not exist yet.
+ */
+export function migrateLegacyProvider(installed, targetDir, legacyStateFile, dryRun = false) {
     const file = join(targetDir, 'provider');
     try {
         const selected = providerById(readFileSync(file, 'utf8').trim());
@@ -72,12 +69,28 @@ export function migrateLegacyProvider(installed, targetDir, dryRun = false) {
         if (cause?.code !== 'ENOENT') throw cause;
     }
 
-    const selected = providerById(legacy[0]);
-    if (selected === undefined) throw new Error('legacy realtime voice provider is unavailable');
+    const enabled = installed
+        .filter((plugin) => plugin?.enabled === true)
+        .map((plugin) => LEGACY_PLUGIN_IDS.get(plugin.plugin_id))
+        .filter((id) => id !== undefined);
+    if (enabled.length > 1) throw new Error('multiple legacy realtime voice providers are enabled');
+
+    const selected = retiredPluginSelection(legacyStateFile)
+        ?? (enabled.length === 1 ? providerById(enabled[0]) : undefined);
+    if (selected === undefined) return undefined;
     if (!dryRun) {
         mkdirSync(targetDir, { recursive: true, mode: 0o700 });
         chmodSync(targetDir, 0o700);
         writeFileSync(file, `${selected.id}\n`, { mode: 0o600, flag: 'wx' });
     }
     return selected;
+}
+
+/** An unreadable or unknown legacy value is treated as no selection at all. */
+function retiredPluginSelection(legacyStateFile) {
+    try {
+        return providerById(readFileSync(legacyStateFile, 'utf8').trim());
+    } catch {
+        return undefined;
+    }
 }

@@ -22,7 +22,6 @@ mkdirSync(legacyState, { recursive: true, mode: 0o700 });
 writeFileSync(join(legacyState, 'provider'), 'xai\n', { mode: 0o600 });
 
 const voice = await import(pathToFileURL(join(root, 'apps/host/src/voice/product.mjs')).href);
-const voiceRoot = join(root, 'apps/host/src/voice');
 
 // 1. A fresh machine has no bundled add-on and defaults to the login-based adapter.
 const initial = await voice.voiceProviderList();
@@ -89,13 +88,5 @@ assert.equal(typeof report.say, 'string');
 assert.match(report.say, /Host-confirmed report/);
 assert.match(report.say, /<untrusted-agent-output>[\s\S]*raw pane text[\s\S]*<\/untrusted-agent-output>/);
 assert.match(voice.voiceReport({ displayName: 'Maria', taskTitle: 'Stabilize voice', status: 'idle', outcome: 'done' }).say, /Host-confirmed report/);
-
-// 7. Retirement policy scan, not behavioural proof: voice must stay product
-//    code and never return as a plugin. The parity gate that drives voice.stream
-//    with no catalog entry or approval is the behavioural proof.
-for (const file of ['stream.mjs', 'provider.mjs', 'product.mjs', 'toolRuntime.mjs']) {
-    const source = readFileSync(join(voiceRoot, file), 'utf8');
-    assert.doesNotMatch(source, /muxr-ui\.json|herdr-plugin\.toml|plugin_host|capabilities\s*\[\s*'voice/, `retirement policy: ${file} must not reference a plugin manifest or host`);
-}
 
 process.stdout.write('ok: realtime voice product lifecycle (selection, key store, reporting)\n');

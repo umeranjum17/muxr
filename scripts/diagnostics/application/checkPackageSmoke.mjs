@@ -836,7 +836,35 @@ try {
         assert.equal(statSync(join(voiceState, 'provider')).mode & 0o777, 0o600, 'voice selection is not owner-only');
         assert.equal(readFileSync(join(voiceState, 'provider'), 'utf8'), `${provider}\n`, `setup reset the selected ${provider} voice provider`);
     }
+    // The retired single voice plugin stored its choice in plugin state, including
+    // xai, which never had a per-provider plugin of its own.
+    const retiredVoiceState = join(home, '.muxr', 'plugin-state', 'muxr.voice');
+    for (const provider of ['xai', 'gemini']) {
+        rmSync(voiceState, { recursive: true, force: true });
+        mkdirSync(retiredVoiceState, { recursive: true, mode: 0o700 });
+        writeFileSync(join(retiredVoiceState, 'provider'), `${provider}\n`, { mode: 0o600 });
+        run(cli, ['setup', ...setupArgs], {
+            cwd: installDir,
+            env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify({ result: { plugins: [
+                { plugin_id: 'muxr.voice', plugin_root: join(legacyPluginRoot, 'voice'), version: '0.1.0', enabled: true },
+            ] } }) },
+        });
+        assert.equal(readFileSync(join(voiceState, 'provider'), 'utf8'), `${provider}\n`, `setup dropped the ${provider} selection the retired voice plugin stored`);
+    }
+    // muxr's own selection is authoritative: a stale plugin-state value never
+    // overwrites it.
+    mkdirSync(voiceState, { recursive: true, mode: 0o700 });
+    writeFileSync(join(voiceState, 'provider'), 'gemini\n', { mode: 0o600 });
+    writeFileSync(join(retiredVoiceState, 'provider'), 'xai\n', { mode: 0o600 });
+    run(cli, ['setup', ...setupArgs], {
+        cwd: installDir,
+        env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify({ result: { plugins: [
+            { plugin_id: 'muxr.voice', plugin_root: join(legacyPluginRoot, 'voice'), version: '0.1.0', enabled: true },
+        ] } }) },
+    });
+    assert.equal(readFileSync(join(voiceState, 'provider'), 'utf8'), 'gemini\n', 'setup overwrote the product voice selection from retired plugin state');
     rmSync(voiceState, { recursive: true, force: true });
+    rmSync(retiredVoiceState, { recursive: true, force: true });
     const existingProviders = {
         result: {
             plugins: [
