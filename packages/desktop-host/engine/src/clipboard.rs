@@ -6,8 +6,8 @@
 //! than one that could not copy at all.
 
 use anyhow::{Context, Result};
-use std::io::Read;
-use wl_clipboard_rs::copy::{MimeType, Options, Source};
+use std::io::{Read, Write};
+use std::process::{Command, Stdio};
 use wl_clipboard_rs::paste::{ClipboardType, MimeType as PasteMime, Seat};
 
 /// The engine's bound on a single clipboard transfer. Larger than any real
@@ -50,12 +50,29 @@ pub fn write(text: &str) -> Result<()> {
     if text.len() > MAX_CLIPBOARD_BYTES {
         anyhow::bail!("refusing to place {} bytes on the clipboard", text.len());
     }
-    Options::new()
-        .copy(
-            Source::Bytes(text.as_bytes().to_vec().into_boxed_slice()),
-            MimeType::Text,
-        )
-        .context("the compositor refused a clipboard write")
+    // wl-copy acknowledges setup before forking its selection server. The
+    // explicit copy survives Back/engine exit, until another app replaces it.
+    let mut child = Command::new("wl-copy")
+        .args(["--type", "text/plain;charset=utf-8"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("wl-clipboard is required to write the desktop clipboard")?;
+    let written = child.stdin.take().expect("piped clipboard input").write_all(text.as_bytes());
+    let status = child.wait().context("the clipboard writer did not exit")?;
+    written.context("the clipboard writer did not accept the text")?;
+    anyhow::ensure!(status.success(), "the compositor refused a clipboard write");
+    Ok(())
+}
+
+pub fn writer_available() -> bool {
+    Command::new("wl-copy")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 /// Distinguishing "nothing there" from "unsupported" matters for the message the

@@ -329,6 +329,11 @@ mod tests {
     /// control surface that does nothing.
     #[test]
     fn this_host_can_create_and_destroy_the_virtual_devices() {
+        // This touches the real desktop when uinput is writable. Ordinary
+        // suites must never create devices on the owner's active session.
+        if std::env::var("DESKLINK_TEST_UINPUT").as_deref() != Ok("1") {
+            return;
+        }
         match InputDevices::create(2560, 1440) {
             Ok(_devices) => {}
             Err(error) => {

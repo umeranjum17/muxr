@@ -25,7 +25,9 @@ particular application.
   keyboard for the session and destroys them when it ends, releasing anything
   that was still held.
 - **Clipboard** explicitly, in both directions, only when asked. It is never
-  polled and never used as a hidden way to type.
+  polled and never used as a hidden way to type. On Wayland, writes require
+  `wl-copy` from `wl-clipboard`; its selection server keeps the copied text
+  available after the desktop session ends, until another app replaces it.
 
 ## What it deliberately does not do
 
@@ -80,6 +82,10 @@ any of these is absent, instead of failing as though the engine's code broke.
 Only a machine with all of them compiles and tests the crate.
 
 ### Kernel input access
+
+Ordinary tests do not create real desktop devices. To opt into the hardware
+probe explicitly, run `DESKLINK_TEST_UINPUT=1 cargo test this_host_can_create_and_destroy_the_virtual_devices`
+inside `engine/` on a desktop you are authorized to control.
 
 Creating virtual input devices needs write access to `/dev/uinput`. That is
 whole-desktop control of the logged-in session, so it is a decision the user

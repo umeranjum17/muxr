@@ -47,10 +47,8 @@ pub async fn open(restore_token: Option<&str>) -> Result<PortalSession> {
         .await
         .context("compositor has no ScreenCast portal")?;
 
-    if proxy.available_source_types().await.is_ok_and(|types| {
-        !types.contains(SourceType::Monitor) && !types.contains(SourceType::Window)
-    }) {
-        anyhow::bail!("ScreenCast portal advertises no monitor or window source");
+    if proxy.available_source_types().await.is_ok_and(|types| !types.contains(SourceType::Monitor)) {
+        anyhow::bail!("ScreenCast portal advertises no monitor source");
     }
 
     let session = proxy
@@ -64,7 +62,7 @@ pub async fn open(restore_token: Option<&str>) -> Result<PortalSession> {
             // The cursor is part of the picture the user drives; hiding it would
             // make precise placement impossible.
             CursorMode::Embedded,
-            BitFlags::from(SourceType::Monitor) | BitFlags::from(SourceType::Window),
+            BitFlags::from(SourceType::Monitor),
             false,
             restore_token,
             // Request a durable grant, not one tied to this engine process.

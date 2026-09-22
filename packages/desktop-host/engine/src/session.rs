@@ -382,9 +382,8 @@ pub fn capabilities() -> serde_json::Value {
     } else {
         "none"
     };
-    // The clipboard backend is wl-clipboard-rs, so it needs a Wayland
-    // compositor: on an X11-only host every transfer would fail after the
-    // surface had already offered it.
+    // Clipboard transfer needs Wayland; writes also need a selection server
+    // that can outlive this engine. Do not offer it when that tool is absent.
     let clipboard = session_kind == "wayland";
     let x11 = crate::x11::X11Desktop::connect(None)
         .map(|desktop| serde_json::json!([desktop.screen_size().0, desktop.screen_size().1]))
@@ -422,12 +421,12 @@ pub fn capabilities() -> serde_json::Value {
             "pointer": input,
             "wheel": input,
             "keyboard": input,
-            "text": ["latin1", "layout-reachable"],
+            "text": ["layout-reachable"],
             "layout": keymap::LayoutNames::from_environment().identity(),
             "unavailable_reason": unavailable,
             "grant": grant_state,
         },
-        "clipboard": { "read": clipboard, "write": clipboard, "mime": ["text/plain;charset=utf-8"],
+        "clipboard": { "read": clipboard, "write": clipboard && clipboard::writer_available(), "mime": ["text/plain;charset=utf-8"],
                        "maxBytes": clipboard::MAX_CLIPBOARD_BYTES },
     })
 }
@@ -1146,6 +1145,9 @@ fn spawn_peer_events(inner: &Arc<Inner>, mut events: tokio_mpsc::UnboundedReceiv
     let inner = inner.clone();
     tokio::spawn(async move {
         while let Some(event) = events.recv().await {
+            if inner.closed.load(Ordering::SeqCst) {
+                break;
+            }
             match event {
                 PeerEvent::Candidate {
                     candidate,
@@ -1160,6 +1162,22 @@ fn spawn_peer_events(inner: &Arc<Inner>, mut events: tokio_mpsc::UnboundedReceiv
                     });
                 }
                 PeerEvent::State(state) => {
+                    use webrtc::peer_connection::RTCPeerConnectionState as State;
+                    // ICE loss need not close SCTP. Never leave a drag or chord
+                    // held while waiting for that independent notification.
+                    if matches!(state, State::Disconnected | State::Failed | State::Closed) {
+                        if let Ok(mut input) = inner.input.lock() {
+                            if let Some(target) = input.as_mut() {
+                                let _ = target.release_all();
+                            }
+                        }
+                    }
+                    if matches!(state, State::Failed | State::Closed) {
+                        let reason = String::from("the connection to the phone was lost");
+                        inner.notify(SessionEvent::Revoked { reason: reason.clone() });
+                        inner.close(&reason).await;
+                        continue;
+                    }
                     inner.notify(SessionEvent::State {
                         capture: if inner.metrics.lock().map(|m| m.encoded_frames).unwrap_or(0) > 0 {
                             "streaming"
@@ -1414,6 +1432,42 @@ mod tests {
             "the reason is a stable token the client can map to copy",
         );
         assert!(inner.revoked_reason().is_some(), "the session is closed, not left black");
+    }
+
+    #[tokio::test]
+    async fn a_lost_transport_releases_input_then_ends_the_session_without_sctp_close() {
+        use webrtc::peer_connection::RTCPeerConnectionState as State;
+        let (events, mut received) = tokio_mpsc::unbounded_channel();
+        let (inner, recorded) = test_inner(events).await;
+        inner.apply(ControlMessage::Key {
+            name: Some(String::from("Control")),
+            character: None,
+            down: true,
+            modifiers: Vec::new(),
+            seq: 1,
+        });
+        assert!(recorded.lock().unwrap().iter().any(|(_, down)| *down));
+
+        let (peer_tx, peer_rx) = tokio_mpsc::unbounded_channel();
+        spawn_peer_events(&inner, peer_rx);
+        peer_tx.send(PeerEvent::State(State::Disconnected)).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), received.recv()).await.unwrap();
+        assert!(recorded.lock().unwrap().iter().any(|(_, down)| !*down),
+            "a disconnected transport must release held input without SCTP OnClose");
+        assert!(inner.revoked_reason().is_none(), "a transient loss may recover");
+
+        peer_tx.send(PeerEvent::State(State::Failed)).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while let Some(notice) = received.recv().await {
+                if matches!(notice.event, SessionEvent::State { capture: "ended", .. }) {
+                    return;
+                }
+            }
+            panic!("failed transport did not end capture");
+        }).await.unwrap();
+        assert!(inner.revoked_reason().is_some());
+        assert!(!inner.pipeline.load(Ordering::SeqCst));
+        assert!(inner.input.lock().unwrap().is_none());
     }
 
     #[test]
