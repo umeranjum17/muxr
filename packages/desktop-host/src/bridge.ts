@@ -40,7 +40,6 @@ export interface BridgeOptions {
      * Which desktop this bridge offers. A bridge is bound to one machine and one
      * desktop, and the client on the other end has no way to know whether that
      * machine has a working screen-cast portal, so the choice belongs here.
-     * A client that asks for something specific still overrides it.
      */
     source?: SourceRequest;
     engineOptions?: EngineClientOptions;
@@ -140,8 +139,12 @@ export class Bridge {
             }
             const method = request.method;
             if (typeof method !== 'string') return;
+            if (method === 'session.open' && request.params != null && Object.prototype.hasOwnProperty.call(request.params, 'source')) {
+                socket.send(JSON.stringify({ id: request.id, error: { code: 'source', message: 'the client cannot choose the desktop source' } }));
+                return;
+            }
             const params = method === 'session.open' && this.defaultSource !== undefined
-                ? { source: this.defaultSource, ...(request.params ?? {}) }
+                ? { ...(request.params ?? {}), source: this.defaultSource }
                 : request.params;
             void this.engine
                 .request(method, params)

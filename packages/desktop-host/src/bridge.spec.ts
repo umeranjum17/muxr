@@ -71,7 +71,7 @@ function connect(port: number, query: string): Promise<WebSocket> {
     });
 }
 
-function requestOn(socket: WebSocket, id: number, method: string): Promise<Record<string, unknown>> {
+function requestOn(socket: WebSocket, id: number, method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`${method} timed out`)), 5000);
         const onMessage = (raw: WebSocket.RawData): void => {
@@ -83,7 +83,7 @@ function requestOn(socket: WebSocket, id: number, method: string): Promise<Recor
             else resolve(message.result ?? {});
         };
         socket.on('message', onMessage);
-        socket.send(JSON.stringify({ id, method, params: {} }));
+        socket.send(JSON.stringify({ id, method, params }));
     });
 }
 
@@ -192,17 +192,16 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         });
         bridges.push(bridge);
         const socket = await connect(bridge.port, 'token=t');
-        const seen = new Promise<Record<string, unknown>>((resolve, reject) => {
-            const timer = setTimeout(() => reject(new Error('no notification')), 5000);
-            socket.on('message', (raw) => {
-                const message = JSON.parse(String(raw)) as { event?: string; params?: { source?: unknown } };
-                if (message.event !== 'seen') return;
-                clearTimeout(timer);
-                resolve({ source: message.params?.source });
-            });
+        const seen: unknown[] = [];
+        socket.on('message', (raw) => {
+            const message = JSON.parse(String(raw)) as { event?: string; params?: { source?: unknown } };
+            if (message.event === 'seen') seen.push(message.params?.source);
         });
-        await requestOn(socket, 1, 'session.open');
-        expect(await seen).toEqual({ source: { kind: 'x11', display: ':99' } });
+        await expect(requestOn(socket, 1, 'session.open', { source: { kind: 'x11', display: ':0' } }))
+            .rejects.toMatchObject({ code: 'source' });
+        expect(seen).toEqual([]);
+        await requestOn(socket, 2, 'session.open');
+        expect(seen).toEqual([{ kind: 'x11', display: ':99' }]);
     }, 20_000);
 
     it('closes the engine session when its last consumer goes away, and only then', async () => {

@@ -36,7 +36,7 @@ const MAX_RECONNECT_ATTEMPTS = 1;
  * rather than left on a spinner.
  */
 const UNREACHABLE_DESKTOP =
-    'The desktop could not be reached. Connecting from outside the desktop\'s own network is not supported in this version.';
+    'The phone must reach the desktop directly, on the same network or its tailnet. Other networks need a relay, which is not available yet.';
 
 /**
  * The engine's and host's own refusal tokens, mapped to this package's failure

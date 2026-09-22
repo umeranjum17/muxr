@@ -155,8 +155,9 @@ engine trusts the consumer's decision and enforces the scope it was given.
 
 ### If you have no channel of your own
 
-`desklink-host bridge` re-serves the same protocol over a WebSocket, and serves a
-reference client at `/` so the first run is one command:
+`desklink-host bridge` is the minimal runnable example for third-party consumers:
+it re-serves the same protocol over a WebSocket and serves a reference client
+at `/` so the first run is one command:
 
 ```sh
 desklink-host bridge --listen 127.0.0.1:19400
@@ -168,7 +169,8 @@ desklink-host bridge --listen 127.0.0.1:19400
 
 Open that URL and you have a desktop in a browser. `examples/reference-client.html`
 is that page's source: one file, no build step, and the shortest complete
-description of the protocol that exists.
+description of the protocol that exists. The bridge operator chooses the capture
+source with its flag or environment; clients cannot choose or override it.
 
 Two things the bridge is honest about: `ws://` is plaintext, so keep it on a
 private network or put it behind TLS; and the token in the URL *is* the

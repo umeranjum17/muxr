@@ -185,6 +185,8 @@ fn select_x11(
 struct InputTarget {
     applier: Applier,
     held: HeldState,
+    explicit_modifiers: Vec<i16>,
+    chord_modifiers: Vec<i16>,
     /// Fractions of a detent an X server, which only knows whole wheel clicks,
     /// has not been sent yet.
     wheel_rest: (f64, f64),
@@ -270,8 +272,30 @@ impl InputTarget {
         Ok(())
     }
 
+    fn modifier(&mut self, code: i16, down: bool, explicit: bool) -> Result<()> {
+        let own = if explicit { &self.explicit_modifiers } else { &self.chord_modifiers };
+        let other = if explicit { &self.chord_modifiers } else { &self.explicit_modifiers };
+        if down {
+            if explicit && own.contains(&code) { return Ok(()); }
+            if !own.contains(&code) && !other.contains(&code) { self.key(code, true)?; }
+        } else {
+            let Some(index) = own.iter().position(|held| *held == code) else { return Ok(()); };
+            if own.iter().filter(|held| **held == code).count() == 1 && !other.contains(&code) {
+                self.key(code, false)?;
+            }
+            let own = if explicit { &mut self.explicit_modifiers } else { &mut self.chord_modifiers };
+            own.remove(index);
+            return Ok(());
+        }
+        let own = if explicit { &mut self.explicit_modifiers } else { &mut self.chord_modifiers };
+        own.push(code);
+        Ok(())
+    }
+
     /// Release exactly what this session pressed, once, buttons before keys.
     fn release_all(&mut self) -> Result<()> {
+        self.explicit_modifiers.clear();
+        self.chord_modifiers.clear();
         let (buttons, keys) = self.held.release_plan();
         for button in buttons {
             match &mut self.applier {
@@ -556,6 +580,8 @@ impl Session {
                 Some(desktop) => InputTarget {
                     applier: Applier::X11(desktop.clone()),
                     held: HeldState::default(),
+                    explicit_modifiers: Vec::new(),
+                    chord_modifiers: Vec::new(),
                     wheel_rest: (0.0, 0.0),
                 },
                 None => InputTarget {
@@ -565,6 +591,8 @@ impl Session {
                         })?,
                     ),
                     held: HeldState::default(),
+                    explicit_modifiers: Vec::new(),
+                    chord_modifiers: Vec::new(),
                     wheel_rest: (0.0, 0.0),
                 },
             })
@@ -916,7 +944,7 @@ impl Inner {
         // would press, and it does not depend on the layout.
         if let Some(name) = &name {
             if let Some(code) = keymap::modifier_key(name) {
-                return self.with_input(|target| target.key(code, down));
+                return self.with_input(|target| target.modifier(code, down, true));
             }
         }
 
@@ -948,18 +976,20 @@ impl Inner {
             .filter_map(|name| keymap::modifier_key(name))
             .collect();
         requested.extend(stroke.modifiers());
+        requested.sort_unstable();
+        requested.dedup();
 
         self.with_input(|target| {
             target.check_keys(requested.iter().copied().chain(std::iter::once(stroke.code)))?;
             if down {
                 for modifier in &requested {
-                    target.key(*modifier, true)?;
+                    target.modifier(*modifier, true, false)?;
                 }
             }
             target.key(stroke.code, down)?;
             if !down {
                 for modifier in requested.iter().rev() {
-                    target.key(*modifier, false)?;
+                    target.modifier(*modifier, false, false)?;
                 }
             }
             Ok(())
@@ -993,12 +1023,12 @@ impl Inner {
                 for stroke in keystroke {
                     let modifiers = stroke.modifiers();
                     for modifier in &modifiers {
-                        target.key(*modifier, true)?;
+                        target.modifier(*modifier, true, false)?;
                     }
                     target.key(stroke.code, true)?;
                     target.key(stroke.code, false)?;
                     for modifier in modifiers.iter().rev() {
-                        target.key(*modifier, false)?;
+                        target.modifier(*modifier, false, false)?;
                     }
                 }
             }
@@ -1540,6 +1570,8 @@ mod tests {
             input: Mutex::new(Some(InputTarget {
                 applier: Applier::Recording(recorded.clone()),
                 held: HeldState::default(),
+                explicit_modifiers: Vec::new(),
+                chord_modifiers: Vec::new(),
                 wheel_rest: (0.0, 0.0),
             })),
             capture: Mutex::new(None),
@@ -1600,6 +1632,65 @@ mod tests {
             rejected + 1,
             "a control message after expiry must be refused",
         );
+    }
+
+    #[tokio::test]
+    async fn a_held_modifier_survives_character_named_and_text_chords() {
+        use crate::input::keycode;
+        let (events, _received) = tokio_mpsc::unbounded_channel();
+        let (inner, recorded) = test_inner(events).await;
+        for (seq, name) in ["Control", "Shift", "Alt", "Meta"].iter().enumerate() {
+            inner.apply(ControlMessage::Key {
+                name: Some((*name).into()), character: None, down: true,
+                modifiers: Vec::new(), seq: seq as u64 + 1,
+            });
+        }
+        inner.apply(ControlMessage::Key {
+            name: None, character: Some(String::from("C")), down: true,
+            modifiers: vec![String::from("Control"), String::from("Shift")], seq: 5,
+        });
+        inner.apply(ControlMessage::Key {
+            name: None, character: Some(String::from("C")), down: false,
+            modifiers: vec![String::from("Control"), String::from("Shift")], seq: 6,
+        });
+        inner.apply(ControlMessage::Key {
+            name: Some(String::from("ArrowLeft")), character: None, down: true,
+            modifiers: vec![String::from("Alt"), String::from("Meta")], seq: 7,
+        });
+        inner.apply(ControlMessage::Key {
+            name: Some(String::from("ArrowLeft")), character: None, down: false,
+            modifiers: vec![String::from("Alt"), String::from("Meta")], seq: 8,
+        });
+        inner.apply(ControlMessage::Text { text: String::from("C"), seq: 9 });
+        let modifiers = [keycode::LEFT_CTRL, keycode::LEFT_SHIFT, keycode::LEFT_ALT, keycode::LEFT_META];
+        let strokes = recorded.lock().unwrap().clone();
+        for code in modifiers {
+            assert_eq!(strokes.iter().filter(|stroke| **stroke == (code, true)).count(), 1);
+            assert!(!strokes.contains(&(code, false)), "the separate key still holds {code}");
+        }
+        for (seq, name) in ["Control", "Shift", "Alt", "Meta"].iter().enumerate() {
+            inner.apply(ControlMessage::Key {
+                name: Some((*name).into()), character: None, down: false,
+                modifiers: Vec::new(), seq: seq as u64 + 10,
+            });
+        }
+        {
+            let strokes = recorded.lock().unwrap();
+            for code in modifiers {
+                assert_eq!(strokes.iter().filter(|stroke| **stroke == (code, false)).count(), 1);
+            }
+        }
+        inner.apply(ControlMessage::Key {
+            name: Some(String::from("ArrowLeft")), character: None, down: true,
+            modifiers: vec![String::from("Control")], seq: 14,
+        });
+        inner.apply(ControlMessage::Key {
+            name: Some(String::from("ArrowLeft")), character: None, down: false,
+            modifiers: vec![String::from("Control")], seq: 15,
+        });
+        let strokes = recorded.lock().unwrap();
+        assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_CTRL, true)).count(), 2);
+        assert_eq!(strokes.iter().filter(|stroke| **stroke == (keycode::LEFT_CTRL, false)).count(), 2);
     }
 
     #[tokio::test]

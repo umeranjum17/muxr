@@ -25,13 +25,15 @@ export interface OpenDesktopOptions {
  */
 export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
     const listeners = new Set<(event: SessionEvent) => void>();
+    const pending: SessionEvent[] = [];
     let desktopId: string | null = null;
     let cursor = 0;
     let timer: ReturnType<typeof setInterval> | null = null;
     let polling = false;
 
     const emit = (event: SessionEvent): void => {
-        for (const listener of listeners) listener(event);
+        if (listeners.size === 0) pending.push(event);
+        else for (const listener of listeners) listener(event);
     };
 
     const toClientEvent = (event: DesktopEvent): SessionEvent | null => {
@@ -62,6 +64,7 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
         const id = desktopId;
         try {
             const result = await sync.request('desktop.poll', { desktopId: id, cursor });
+            if (id !== desktopId) return;
             cursor = result.cursor;
             for (const raw of result.events) {
                 const mapped = toClientEvent(raw);
@@ -101,6 +104,7 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
                         ...(options.maxFps === undefined ? {} : { maxFps: options.maxFps }),
                     });
                     desktopId = opened.desktopId;
+                    pending.length = 0;
                     cursor = 0;
                     stopPolling();
                     timer = setInterval(() => { void poll(); }, POLL_INTERVAL_MS);
@@ -132,6 +136,7 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
                     const id = desktopId;
                     stopPolling();
                     desktopId = null;
+                    pending.length = 0;
                     if (id === null) return { closed: true } as T;
                     return await sync.request('desktop.close', { desktopId: id }) as T;
                 }
@@ -141,6 +146,7 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
         },
         subscribe(handler: (event: SessionEvent) => void): () => void {
             listeners.add(handler);
+            for (const event of pending.splice(0)) handler(event);
             return () => {
                 listeners.delete(handler);
             };
