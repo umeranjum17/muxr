@@ -1,7 +1,9 @@
 import * as React from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Header } from '@/components/navigation/Header';
+import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import { Ionicons } from '@expo/vector-icons';
 import type { UsageReport } from '@muxr/contract';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type PluginScreenChartNode, type PluginScreenLimitsNode } from '@muxr/contract';
@@ -13,10 +15,16 @@ import { Typography } from '@/constants/Typography';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
+import { useForegroundRefresh } from '../application/useForegroundRefresh';
 
 /** Screen payloads survive a close: reopening renders at once, then refreshes. */
 const reportCache = new Map<string, UsageReport>();
 const MAX_CACHED_REPORTS = 16;
+
+/** The same cadence the Home card keeps, for the same reason: quota windows
+ *  move over hours, and the screen should already be current when it is looked
+ *  at rather than made current by being looked at. */
+const REFRESH_MS = 5 * 60_000;
 
 /** The same primitives the declarative system renders, fed typed host data. */
 const LIMITS_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits', title: 'Right now' };
@@ -32,6 +40,7 @@ const WEEK_CHART_NODE: PluginScreenChartNode = { type: 'chart', variant: 'column
 export function UsageScreen() {
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
+    const router = useRouter();
     const routeParams = useLocalSearchParams<{ provider?: string }>();
     const requestedProvider = typeof routeParams.provider === 'string' ? routeParams.provider.slice(0, 32) : '';
     const [provider, setProvider] = React.useState(requestedProvider);
@@ -39,15 +48,25 @@ export function UsageScreen() {
     const [error, setError] = React.useState<string>();
     const [refreshing, setRefreshing] = React.useState(false);
     const [loading, setLoading] = React.useState(!reportCache.has(provider));
+    // Any read in flight, including the quiet ones. It drives the hairline and
+    // the refresh control, never the figures: what is on screen stays there
+    // until a newer answer lands.
+    const [busy, setBusy] = React.useState(false);
     const version = React.useRef(0);
     const staleRef = React.useRef(false);
+    const inFlight = React.useRef(false);
 
     const report = fetched.key === provider ? fetched.value : reportCache.get(provider);
     const tabs = report?.providers ?? [];
 
-    const load = React.useCallback((target: string, refresh = false): Promise<void> => {
+    // `quiet` is the background cadence: it asks the same cache-respecting
+    // question a first paint asks, but without dimming figures that are still
+    // the answer until a newer one lands.
+    const load = React.useCallback((target: string, refresh = false, quiet = false): Promise<void> => {
         const request = ++version.current;
-        if (!refresh) setLoading(true);
+        inFlight.current = true;
+        setBusy(true);
+        if (!refresh && !quiet) setLoading(true);
         setError(undefined);
         return sync.request('usage.report', { ...(target === '' ? {} : { provider: target }), ...(refresh ? { refresh: true } : {}) }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((value) => {
@@ -71,6 +90,8 @@ export function UsageScreen() {
             })
             .finally(() => {
                 if (request !== version.current) return;
+                inFlight.current = false;
+                setBusy(false);
                 setLoading(false);
                 setRefreshing(false);
             });
@@ -81,6 +102,14 @@ export function UsageScreen() {
         return () => { version.current += 1; };
     }, [provider, load]);
 
+    // Refreshing while focused and in the foreground only, and never on top of
+    // a read that is already running -- opening the screen must not queue a
+    // second ask behind the first.
+    useForegroundRefresh(() => {
+        if (inFlight.current) return;
+        void load(provider, false, true);
+    }, REFRESH_MS);
+
     // A pressed tab paints its own last-known payload at once; another tab's
     // payload is not stale data for this one, and an uncached tab skeletons.
     const selectTab = (id: string) => {
@@ -88,16 +117,41 @@ export function UsageScreen() {
         setProvider(id);
     };
     const onRefresh = () => { setRefreshing(true); load(provider, true); };
+    // The header control and the pull gesture are the same instruction: ask
+    // past the cache, now. A tap while a read is already running joins it
+    // rather than stacking a second ask on rate-limited providers.
+    const refreshNow = () => {
+        if (inFlight.current) return;
+        hapticsSelection();
+        void load(provider, true);
+    };
 
     const empty = report !== undefined && report.providers.length === 0;
     return (
-        <ScrollView
-            style={{ flex: 1, backgroundColor: theme.colors.surface }}
-            contentContainerStyle={{ paddingTop: insets.top + 58, paddingBottom: insets.bottom + 40 }}
-            refreshControl={<RefreshControl refreshing={refreshing} tintColor={theme.colors.textSecondary} onRefresh={onRefresh} />}
-        >
+        <>
+            <Header
+                title={<Text style={{ fontSize: 16, color: theme.colors.header.tint, ...Typography.default('semiBold') }}>{t('usage.title')}</Text>}
+                headerLeft={() => <HeaderBackButton onPress={() => router.back()} label={t('plugins.goBack')} />}
+                headerRight={() => <RefreshControlButton busy={busy} onPress={refreshNow} />}
+                headerLeftGlass={false}
+                headerRightGlass={false}
+                headerShadowVisible={false}
+                headerTransparent
+            />
+            {/* The header above is a laid-out sibling of this list, not a
+                floating one, so the safe area and the header's own height are
+                already paid for. Adding them to the content again is what
+                pushed the tabs a whole header down the screen. */}
+            <ScrollView
+                style={{ flex: 1, backgroundColor: theme.colors.surface }}
+                contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
+                refreshControl={<RefreshControl refreshing={refreshing} tintColor={theme.colors.textSecondary} onRefresh={onRefresh} />}
+            >
             <View style={{ width: '100%', maxWidth: 720, alignSelf: 'center', padding: 14, paddingTop: 10 }}>
-                <LoadingHairline active={loading && report === undefined} />
+                {/* Every read shows here, so a refresh is visible without any
+                    figure being replaced by a spinner. The rail keeps its
+                    height when idle, so nothing below it moves. */}
+                <LoadingHairline active={busy} />
                 {error !== undefined && <Pressable onPress={() => load(provider)} accessibilityRole="button" accessibilityLabel={`${error}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
                     <Notice tone="danger" text={error} style={{ marginBottom: 0 }} />
                     <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4, marginLeft: 14 }}>{t('plugins.retry')}</Text>
@@ -137,7 +191,22 @@ export function UsageScreen() {
                             </View>}
                     </>}
             </View>
-        </ScrollView>
+            </ScrollView>
+        </>
+    );
+}
+
+/** The screen's explicit "now, past the cache" control. It dims while a read
+ *  is running rather than swapping in a spinner, so the control keeps its
+ *  place and the figures keep theirs. */
+function RefreshControlButton({ busy, onPress }: { busy: boolean; onPress: () => void }) {
+    const { theme } = useUnistyles();
+    return (
+        <Pressable onPress={onPress} disabled={busy} hitSlop={10} accessibilityRole="button"
+            accessibilityState={{ busy }} accessibilityLabel={t('plugins.rightNow.refreshNow')}
+            style={{ padding: 6 }}>
+            <Ionicons name="refresh" size={20} color={withAlpha(theme.colors.header.tint, busy ? 0.4 : 1)} />
+        </Pressable>
     );
 }
 

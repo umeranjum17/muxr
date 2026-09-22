@@ -603,7 +603,10 @@ export interface RequestMap extends PeerRequestMap {
      *  default tab. `refresh` re-collects past a still-valid cache. */
     'usage.report': { params: { provider?: string; refresh?: boolean }; result: UsageReport };
     /** The Home "Right now" card payload: the binding limit window plus vitals. */
-    'usage.now': { params: Record<string, never>; result: UsageNow };
+    /** `refresh` re-collects past a still-valid cache. The usage cache serves
+     *  any same-day payload, so without it a reader has no way to make figures
+     *  it can already see are old become current. */
+    'usage.now': { params: { refresh?: boolean }; result: UsageNow };
 
     // --- realtime voice -------------------------------------------------------
     // Product-owned. The provider adapters are internal host modules, so these

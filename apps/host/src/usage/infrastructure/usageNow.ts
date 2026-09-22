@@ -14,11 +14,14 @@ import { vitalsFigures } from './vitals.js';
  *  still stand; the collection keeps running and warms the cache behind it. */
 const NOW_WAIT_MS = 5_000;
 
-export async function usageNow(env: NodeJS.ProcessEnv = process.env): Promise<UsageNow> {
+export async function usageNow(env: NodeJS.ProcessEnv = process.env, { refresh = false }: { refresh?: boolean } = {}): Promise<UsageNow> {
     let output: UsageReport | undefined;
     try {
         output = await Promise.race([
-            collectUsage({}, env).catch(() => undefined),
+            // A forced read re-collects past a still-valid cache: the cache
+            // serves any same-day payload, so a reader looking at figures it
+            // can see are old has no other way to make them current.
+            collectUsage({ ...(refresh ? { refresh: true } : {}) }, env).catch(() => undefined),
             new Promise<undefined>((resolve) => { const timer = setTimeout(() => resolve(undefined), NOW_WAIT_MS); timer.unref(); }),
         ]);
     } catch { output = undefined; }

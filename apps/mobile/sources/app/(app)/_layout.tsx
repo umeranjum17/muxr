@@ -116,6 +116,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="usage"
+                options={{
+                    headerShown: false
+                }}
+            />
+            <Stack.Screen
                 name="session/[id]/file"
                 options={{
                     headerShown: true,
