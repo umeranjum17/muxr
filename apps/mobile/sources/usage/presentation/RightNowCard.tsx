@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import type { UsageConnectedProvider, UsageLimitsWindow, UsageNow } from '@muxr/contract';
+import type { UsageFigures } from '../application/freshnessWindow';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { cardStyle, Meter, SectionLabel, withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
@@ -28,42 +29,44 @@ const AGE_WORTH_MENTIONING_SECONDS = 600;
 export function RightNowCard() {
     const { theme } = useUnistyles();
     const router = useRouter();
-    // The last-known card survives a transient failure; only a load with
-    // nothing to show becomes the retry card.
-    const { value: payload, failed, refreshing, throttledSeconds, refresh } = useUsageNow();
+    // The card paints one of three states and has no fourth: figures it holds, a
+    // wait it is in, or a failure with the way back.
+    const { display, failed, refreshing, throttledSeconds, refresh } = useUsageNow();
 
     const open = () => router.push('/usage');
     const label = <SectionLabel style={{ marginTop: 20, marginBottom: 8, marginHorizontal: 16 }}>{t('plugins.rightNow.title')}</SectionLabel>;
-    const skeleton = payload === undefined && !failed;
 
-    if (skeleton) {
-        // First paint: a card-shaped block, no text, per the spine's loading state.
-        return <View>
-            {label}
-            <View style={{ marginHorizontal: 16, height: 64, borderRadius: 12, backgroundColor: withAlpha(theme.colors.surfaceHigh, 0.6) }} />
-        </View>;
-    }
-
-    if (failed && payload === undefined) {
-        const line = <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: toneColor(theme, 'danger') }} />
-            <Text style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, lineHeight: 18 }}>{t('plugins.rightNow.unavailable')}</Text>
-        </View>;
+    if (display.status === 'unavailable') {
         return <View>
             {label}
             <Pressable onPress={refresh} accessibilityRole="button" accessibilityLabel={t('plugins.rightNow.unavailable')}
                 style={[cardStyle(theme), { marginHorizontal: 16, padding: 14 }]}>
-                {line}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: toneColor(theme, 'danger') }} />
+                    <Text style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, lineHeight: 18 }}>{t('plugins.rightNow.unavailable')}</Text>
+                </View>
+                {display.reason !== '' && <Text numberOfLines={2} style={{ color: theme.colors.textSecondary, fontSize: 12, lineHeight: 16, marginTop: 4, marginLeft: 14 }}>{display.reason}</Text>}
+                {vitalsFigures(display.vitals).length > 0 && <FactsLine parts={vitalsFigures(display.vitals)} style={{ marginTop: 8, marginLeft: 14 }} />}
             </Pressable>
         </View>;
     }
 
-    if (payload === undefined) return null;
+    if (display.status === 'waiting') {
+        return <View>
+            {label}
+            <View style={[cardStyle(theme), { marginHorizontal: 16, padding: 14 }]}>
+                <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={`${t('plugins.rightNow.collecting')}. ${t('plugins.rightNow.opensUsage')}`}>
+                    <CardBody line={<View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{t('plugins.rightNow.collecting')}</Text>
+                    </View>} quiet={vitalsFigures(display.vitals)} />
+                </Pressable>
+                <FreshnessRow payload={undefined} failed={failed} refreshing={refreshing} throttledSeconds={throttledSeconds} onRefresh={refresh} />
+            </View>
+        </View>;
+    }
+
+    const payload = nowFigures(display.figures);
     const verdict = payload.limits.verdict;
-    // A collection that never finished is a failure, not a state to sit in: it
-    // says so and its press asks again, rather than opening a screen that has
-    // no more to show than this card does.
-    const stalled = failed && payload.collecting === true;
     // Real quota windows for more than the selected tab turn the first row
     // into one restrained provider strip; Memory/Disk/Load/Uptime stay the
     // quiet row beneath it. A plan tab's own failure message keeps its row.
@@ -91,8 +94,8 @@ export function RightNowCard() {
             </View>
         </View>
         : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text style={{ flexShrink: 1, color: stalled ? theme.colors.textDestructive : theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
-                {collectingLine(payload, stalled)}
+            <Text style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
+                {emptyLine(payload)}
             </Text>
         </View>;
     // The freshness control is a sibling of the card's own press, never inside
@@ -102,7 +105,7 @@ export function RightNowCard() {
     return <View>
         {label}
         <View style={[cardStyle(theme), { marginHorizontal: 16, padding: 14 }]}>
-            <Pressable onPress={stalled ? refresh : open} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(payload, failed)}>
+            <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(payload)}>
                 <CardBody limit={limit} line={line} quiet={quietLine(payload)} />
             </Pressable>
             <FreshnessRow payload={payload} failed={failed} refreshing={refreshing} throttledSeconds={throttledSeconds} onRefresh={refresh} />
@@ -127,7 +130,7 @@ function CardBody({ limit, line, quiet }: { limit?: UsageLimitsWindow; line: Rea
  * control stays quiet chrome rather than a toolbar.
  */
 function FreshnessRow({ payload, failed, refreshing, throttledSeconds, onRefresh }: {
-    payload: UsageNow; failed: boolean; refreshing: boolean; throttledSeconds?: number; onRefresh: () => void;
+    payload?: UsageNow; failed: boolean; refreshing: boolean; throttledSeconds?: number; onRefresh: () => void;
 }) {
     const { theme } = useUnistyles();
     const agedFor = disclosedAge(payload);
@@ -213,6 +216,21 @@ function ProviderRow({ provider }: { provider: UsageConnectedProvider }) {
     );
 }
 
+/** The figures the store holds as the card can paint them: the usage.now
+ *  payload as it is, or the parts of a usage.report a card has a place for --
+ *  its limits and connected plans. With no usage.now payload there are no
+ *  vitals, and the quiet line is simply absent. */
+function nowFigures(figures: UsageFigures): UsageNow {
+    if (figures.kind === 'now') return figures.value;
+    const { limits, connected, ageSeconds, capturedAt } = figures.value;
+    return {
+        limits,
+        ...(connected === undefined ? {} : { connected }),
+        ...(ageSeconds === undefined ? {} : { ageSeconds }),
+        ...(capturedAt === undefined ? {} : { capturedAt }),
+    };
+}
+
 /** The window that runs out first: the one worth leading with. */
 function leadWindow(windows: UsageLimitsWindow[]): UsageLimitsWindow | undefined {
     return windows.reduce<UsageLimitsWindow | undefined>(
@@ -282,8 +300,8 @@ function quietLine(payload: UsageNow, percent = (value: number) => `${value}%`):
 
 /** The figures the host could read, in order; a filesystem it could not stat
  *  drops its own figure and leaves the rest of the line standing. */
-function vitalsFigures(vitals: NonNullable<UsageNow['vitals']>, percent = (value: number) => `${value}%`): string[] {
-    const facts = vitalsFacts(vitals);
+function vitalsFigures(vitals: UsageNow['vitals'], percent = (value: number) => `${value}%`): string[] {
+    const facts = vitals === undefined ? undefined : vitalsFacts(vitals);
     if (facts === undefined) return [];
     const { memoryPercent, diskPercent, load, uptime } = facts;
     return [
@@ -295,19 +313,10 @@ function vitalsFigures(vitals: NonNullable<UsageNow['vitals']>, percent = (value
 }
 
 /** The age of the limit figures, once it is old enough to be worth saying. */
-function disclosedAge(payload: UsageNow): string | undefined {
-    return payload.ageSeconds === undefined || payload.ageSeconds < AGE_WORTH_MENTIONING_SECONDS
+function disclosedAge(payload: UsageNow | undefined): string | undefined {
+    return payload === undefined || payload.ageSeconds === undefined || payload.ageSeconds < AGE_WORTH_MENTIONING_SECONDS
         ? undefined
         : compactAge(payload.ageSeconds * 1_000);
-}
-
-/** The host answers `collecting` while its usage cache is cold and keeps
- *  collecting behind the reply, so the word is honest only while the card is
- *  still asking. Once the follow-ups have run out it is a failure to collect,
- *  and the card stops claiming otherwise. */
-function collectingLine(payload: UsageNow, stalled: boolean): string {
-    if (payload.collecting !== true) return emptyLine(payload);
-    return stalled ? t('plugins.rightNow.unavailable') : t('plugins.rightNow.collecting');
 }
 
 /** With no window to show: the host's own reason when it has one -- an expired
@@ -318,8 +327,7 @@ function emptyLine(payload: UsageNow): string {
 
 /** One sentence for the reader; the dots are decorative. How fresh the figures
  *  are, and what to do about it, is the freshness row's own button to announce. */
-function cardAccessibilityLabel(payload: UsageNow, stale: boolean): string {
-    const stalled = stale && payload.collecting === true;
+function cardAccessibilityLabel(payload: UsageNow): string {
     const parts: string[] = [t('plugins.rightNow.title')];
     if (hasConnectedStrip(payload)) {
         parts.push(payload.connected!.map(providerSummary).join(', '));
@@ -330,12 +338,10 @@ function cardAccessibilityLabel(payload: UsageNow, stale: boolean): string {
             .filter((part) => part !== undefined).join(', ');
         parts.push(limit.resetsIn === undefined ? line : `${line}, ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`);
     } else {
-        parts.push(collectingLine(payload, stalled));
+        parts.push(emptyLine(payload));
     }
     const quiet = quietLine(payload, (percent) => t('plugins.limits.percentUsed', { percent }));
     if (quiet.length > 0) parts.push(quiet.join(', '));
-    // The failed card retries where a working one opens Usage, so it must not
-    // promise the screen it is not going to open.
-    if (!stalled) parts.push(t('plugins.rightNow.opensUsage'));
+    parts.push(t('plugins.rightNow.opensUsage'));
     return parts.join('. ');
 }

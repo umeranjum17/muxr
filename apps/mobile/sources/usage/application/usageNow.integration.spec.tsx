@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import type { UsageNow, UsageReport } from '@muxr/contract';
-import { FRESH_MS, noteAsked } from './freshnessWindow';
+import { FRESH_MS, noteAsked, rememberShown } from './freshnessWindow';
 
 /**
  * The Home card's whole read path, end to end against a scripted host.
@@ -134,6 +134,15 @@ const report = (provider: string, ageSeconds: number): UsageReport => ({
     ...(ageSeconds > 60 ? { stale: true as const } : {}),
 });
 
+/** The figures a card read is showing, or undefined when it is showing its wait
+ *  or its failure instead. */
+const figuresOf = (read: ReturnType<typeof useUsageNow>) => (read.display.status === 'figures' && read.display.figures.kind === 'now' ? read.display.figures.value : undefined);
+
+/** The machine facts a card read is showing, whichever state it is in. */
+const vitalsOf = (read: ReturnType<typeof useUsageNow>) => (read.display.status === 'figures' && read.display.figures.kind === 'now'
+    ? read.display.figures.value.vitals
+    : read.display.status === 'figures' ? undefined : read.display.vitals);
+
 function mount() {
     const seen: ReturnType<typeof useUsageNow>[] = [];
     function Probe() {
@@ -213,11 +222,11 @@ describe('the Home card read path', () => {
         const card = mount();
 
         await tick();
-        // A cold answer is shown -- the vitals in it are measured -- but it is
-        // not the end of the read: the host is still collecting, so the card
-        // asks again.
-        expect(card.latest().value?.collecting).toBe(true);
-        expect(card.latest().value?.vitals).toEqual(VITALS);
+        // A cold answer is a wait, with the vitals it measured -- but it is not
+        // the end of the read: the host is still collecting, so the card asks
+        // again.
+        expect(card.latest().display.status).toBe('waiting');
+        expect(vitalsOf(card.latest())).toEqual(VITALS);
         expect(card.latest().failed).toBe(false);
         expect(card.latest().refreshing).toBe(true);
         expect(request).toHaveBeenCalledTimes(1);
@@ -226,8 +235,8 @@ describe('the Home card read path', () => {
         // answer that finally carries the plan windows.
         await tick(6_000);
         expect(request).toHaveBeenCalledTimes(2);
-        expect(card.latest().value?.collecting).toBeUndefined();
-        expect(card.latest().value?.limits.windows).toHaveLength(1);
+        expect(figuresOf(card.latest())?.collecting).toBeUndefined();
+        expect(figuresOf(card.latest())?.limits.windows).toHaveLength(1);
         expect(card.latest().refreshing).toBe(false);
 
         // Settled: no further follow-up, because there is nothing left to wait for.
@@ -343,6 +352,35 @@ describe('the Home card read path', () => {
         expect(request).toHaveBeenCalledTimes(0);
     });
 
+    it('paints one of its three states on a fresh mount inside the window, and asks nothing', async () => {
+        // The shared memory holds figures, a wait, or a failure -- and no fourth
+        // state. Each one is what a fresh mount inside the window paints, with
+        // no ask of its own.
+        const states: { machine: string; answer: () => Promise<UsageNow>; shows: string }[] = [
+            { machine: 'machine-figures', answer: () => Promise.resolve(collected(undefined, 20, '2026-09-22T18:00:00.000Z')), shows: '80%' },
+            { machine: 'machine-waiting', answer: () => Promise.resolve(COLLECTING), shows: 'plugins.rightNow.collecting' },
+            { machine: 'machine-unavailable', answer: () => Promise.reject(new Error('host unreachable')), shows: 'plugins.rightNow.unavailable' },
+        ];
+        for (const state of states) {
+            connection.machineId = state.machine;
+            request.mockReset();
+            request.mockImplementation(state.answer);
+            let card = renderCard();
+            await tick();
+            expect(screenText(card)).toContain(state.shows);
+            TestRenderer.act(() => { card.unmount(); });
+
+            // A fresh mount inside the window paints that state and asks nothing.
+            await tick(6_000);
+            request.mockClear();
+            card = renderCard();
+            expect(screenText(card)).toContain(state.shows);
+            await tick();
+            expect(request).toHaveBeenCalledTimes(0);
+            TestRenderer.act(() => { card.unmount(); });
+        }
+    });
+
     it('asks immediately on the first view after switching machines', async () => {
         request.mockResolvedValue(collected(undefined, 100, '2026-09-22T15:00:00.000Z'));
         let card = renderCard();
@@ -368,7 +406,7 @@ describe('the Home card read path', () => {
         request.mockResolvedValueOnce(collected()).mockResolvedValueOnce(COLLECTING).mockRejectedValue(new Error('host unreachable'));
         const card = mount();
         await tick();
-        const figures = card.latest().value;
+        const figures = figuresOf(card.latest());
         expect(figures?.limits.windows).toHaveLength(1);
 
         // The first view's own collection is recent enough that a tap has to
@@ -380,12 +418,12 @@ describe('the Home card read path', () => {
         TestRenderer.act(() => { card.latest().refresh(); });
         await tick();
         expect(request).toHaveBeenLastCalledWith('usage.now', { refresh: true }, expect.any(Number));
-        expect(card.latest().value).toBe(figures);
+        expect(figuresOf(card.latest())).toBe(figures);
         expect(card.latest().refreshing).toBe(true);
 
         // And a failed one keeps them too, while saying so.
         await tick(6_000);
-        expect(card.latest().value).toBe(figures);
+        expect(figuresOf(card.latest())).toBe(figures);
         expect(card.latest().failed).toBe(true);
         expect(card.latest().refreshing).toBe(false);
     });
@@ -401,8 +439,9 @@ describe('the Home card read path', () => {
         // it says so rather than collecting forever.
         expect(request).toHaveBeenCalledTimes(6);
         expect(card.latest().failed).toBe(true);
+        expect(card.latest().display.status).toBe('unavailable');
         // The measured figures it did receive stay on screen behind that word.
-        expect(card.latest().value?.vitals).toEqual(VITALS);
+        expect(vitalsOf(card.latest())).toEqual(VITALS);
 
         const settled = request.mock.calls.length;
         await tick(60_000);
@@ -436,7 +475,7 @@ describe('the Home card read path', () => {
         request.mockResolvedValueOnce(collected(3)).mockResolvedValueOnce(COLLECTING).mockResolvedValue(collected(6));
         const card = mount();
         await tick();
-        expect(card.latest().value?.ageSeconds).toBe(3);
+        expect(figuresOf(card.latest())?.ageSeconds).toBe(3);
 
         await tick(11_000);
         TestRenderer.act(() => { card.latest().refresh(); });
@@ -444,7 +483,7 @@ describe('the Home card read path', () => {
         expect(card.latest().refreshing).toBe(true);
 
         await tick(6_000);
-        expect(card.latest().value?.ageSeconds).toBe(6);
+        expect(figuresOf(card.latest())?.ageSeconds).toBe(6);
         expect(card.latest().refreshing).toBe(false);
 
         const settled = request.mock.calls.length;
@@ -460,7 +499,7 @@ describe('the Home card read path', () => {
         request.mockResolvedValueOnce(collected(3)).mockResolvedValueOnce(COLLECTING).mockResolvedValueOnce(collected(20)).mockResolvedValue(collected(1));
         const card = mount();
         await tick();
-        expect(card.latest().value?.ageSeconds).toBe(3);
+        expect(figuresOf(card.latest())?.ageSeconds).toBe(3);
 
         await tick(11_000);
         TestRenderer.act(() => { card.latest().refresh(); });
@@ -468,11 +507,11 @@ describe('the Home card read path', () => {
         expect(card.latest().refreshing).toBe(true);
 
         await tick(6_000);
-        expect(card.latest().value?.ageSeconds).toBe(3);
+        expect(figuresOf(card.latest())?.ageSeconds).toBe(3);
         expect(card.latest().refreshing).toBe(true);
 
         await tick(6_000);
-        expect(card.latest().value?.ageSeconds).toBe(1);
+        expect(figuresOf(card.latest())?.ageSeconds).toBe(1);
         expect(card.latest().refreshing).toBe(false);
     });
 
@@ -487,7 +526,7 @@ describe('the Home card read path', () => {
             .mockResolvedValue(collected(1, 100, '2026-09-22T10:20:00.000Z'));
         const card = mount();
         await tick();
-        expect(card.latest().value?.capturedAt).toBe(capture);
+        expect(figuresOf(card.latest())?.capturedAt).toBe(capture);
 
         await tick(11_000);
         TestRenderer.act(() => { card.latest().refresh(); });
@@ -495,11 +534,11 @@ describe('the Home card read path', () => {
         expect(card.latest().refreshing).toBe(true);
 
         await tick(6_000);
-        expect(card.latest().value?.capturedAt).toBe(capture);
+        expect(figuresOf(card.latest())?.capturedAt).toBe(capture);
         expect(card.latest().refreshing).toBe(true);
 
         await tick(6_000);
-        expect(card.latest().value?.capturedAt).toBe('2026-09-22T10:20:00.000Z');
+        expect(figuresOf(card.latest())?.capturedAt).toBe('2026-09-22T10:20:00.000Z');
         expect(card.latest().refreshing).toBe(false);
     });
 
@@ -678,6 +717,35 @@ describe('the usage screen read path', () => {
         await tick();
 
         expect(forcedReads()).toHaveLength(1);
+    });
+
+    it('paints the state the card left, rather than nothing, when the window is already claimed', async () => {
+        const claimed = Date.now();
+        request.mockClear();
+        noteAsked('', claimed);
+        rememberShown('', { status: 'waiting', askedAt: claimed });
+        let screen = renderScreen();
+        await tick();
+        expect(screenText(screen)).toContain('plugins.rightNow.collecting');
+        expect(request).toHaveBeenCalledTimes(0);
+        TestRenderer.act(() => { screen.unmount(); });
+
+        // The card's own read answers with usage.now figures: the screen paints
+        // the limits it carries and dashes the activity it never had.
+        rememberShown('', { status: 'figures', at: claimed, figures: { kind: 'now', value: collected(undefined, 20) } });
+        screen = renderScreen();
+        await tick();
+        expect(screenText(screen)).toContain('—');
+        expect(request).toHaveBeenCalledTimes(0);
+        TestRenderer.act(() => { screen.unmount(); });
+
+        // A failure says so, with the way back.
+        rememberShown('', { status: 'unavailable', reason: 'host unreachable' });
+        screen = renderScreen();
+        await tick();
+        expect(screenText(screen)).toContain('plugins.retry');
+        expect(request).toHaveBeenCalledTimes(0);
+        expect(screen.root.findAll((node: any) => node.props?.accessibilityLabel === 'host unreachable. plugins.retry').length).toBeGreaterThan(0);
     });
 
     it('collects exactly once per window for a tab the host has nothing stored for', async () => {

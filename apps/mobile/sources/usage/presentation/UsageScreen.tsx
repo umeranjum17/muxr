@@ -17,24 +17,26 @@ import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
-import { FRESH_MS, collectionDue, machineKey, noteAsked } from '../application/freshnessWindow';
-
-/** Screen payloads survive a close: reopening renders at once, then refreshes.
- *  Keyed per machine as well as per tab, because another machine's figures are
- *  not this one's. */
-const reportCache = new Map<string, UsageReport>();
-const MAX_CACHED_REPORTS = 16;
+import { FRESH_MS, collectionDue, noteAsked, rememberShown, shownUsage, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
 
 /** The same primitives the declarative system renders, fed typed host data. */
 const LIMITS_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits', title: 'Right now' };
 const MODEL_CHART_NODE: PluginScreenChartNode = { type: 'chart', variant: 'bar', path: 'modelSeries', emptyText: 'No measured activity today' };
 const WEEK_CHART_NODE: PluginScreenChartNode = { type: 'chart', variant: 'column', path: 'weekSeries', emptyText: 'No measured activity this week' };
 
+/** What a tab shows before anything has been asked for it. A mount asks, so
+ *  this is a wait, not an absence. */
+const NOTHING_SHOWN_YET: UsageDisplay = { status: 'waiting', askedAt: 0 };
+
+const DASH = '—';
+
 /**
  * The Usage screen: one tab per provider with real integration, its plan
  * limits, and its measured local activity. The host collects and normalizes;
  * this screen composes the system limits and chart primitives and owns the
- * wording.
+ * wording. What there is to show comes from the same per-machine memory the
+ * Home card reads, in one of three states -- figures, a wait, or a failure --
+ * so a tab the card has just asked for shows its wait rather than nothing.
  */
 export function UsageScreen() {
     const { theme } = useUnistyles();
@@ -43,10 +45,8 @@ export function UsageScreen() {
     const routeParams = useLocalSearchParams<{ provider?: string }>();
     const requestedProvider = typeof routeParams.provider === 'string' ? routeParams.provider.slice(0, 32) : '';
     const [provider, setProvider] = React.useState(requestedProvider);
-    const [fetched, setFetched] = React.useState<{ key: string; value?: UsageReport }>(() => ({ key: provider, value: reportCache.get(machineKey(provider)) }));
-    const [error, setError] = React.useState<string>();
+    const [display, setDisplay] = React.useState<UsageDisplay>(() => shownUsage(requestedProvider) ?? NOTHING_SHOWN_YET);
     const [refreshing, setRefreshing] = React.useState(false);
-    const [loading, setLoading] = React.useState(!reportCache.has(machineKey(provider)));
     // Any read in flight, including the quiet ones. It drives the hairline and
     // the refresh control, never the figures: what is on screen stays there
     // until a newer answer lands.
@@ -56,59 +56,70 @@ export function UsageScreen() {
     const inFlight = React.useRef(false);
     const lastForced = React.useRef(0);
     const rejected = React.useRef(false);
-    rejected.current = error !== undefined;
+    const currentTab = React.useRef(provider);
+    currentTab.current = provider;
+    const displayRef = React.useRef(display);
+    displayRef.current = display;
+    const error = display.status === 'unavailable' ? display.reason : undefined;
+    rejected.current = display.status === 'unavailable';
 
-    const report = fetched.key === provider ? fetched.value : reportCache.get(machineKey(provider));
+    const report = display.status === 'figures' ? reportFrom(display.figures, provider) : undefined;
     const tabs = report?.providers ?? [];
 
+    /** The state a tab settles into, kept for the next mount of either surface. */
+    const settle = React.useCallback((target: string, next: UsageDisplay): void => {
+        rememberShown(target, next);
+        if (target === currentTab.current) setDisplay(next);
+    }, []);
+
     /**
-     * `refresh` asks the host to collect past its cache, and is the only kind of
-     * ask this screen sends: our own window decides whether it happens at all,
-     * so a window costs one collection rather than a cached read beside it. Such
-     * a read claims our window and the shared budget at `claimedAtMs`, the
-     * instant the decision was taken, so the next window is measured from where
-     * it decided rather than from a round trip.
+     * Ask the host to collect this tab past its cache, and paint the answer.
+     * This is the only kind of ask the screen sends: our own window decides
+     * whether it happens at all, so a window costs one collection rather than a
+     * cached read beside it. The read claims our window and the shared budget
+     * at `claimedAtMs`, the instant the decision was taken, so the next window
+     * is measured from where it decided rather than from a round trip.
      */
-    const load = React.useCallback((target: string, refresh = false, quiet = false, claimedAtMs = Date.now()): Promise<void> => {
+    const load = React.useCallback((target: string, quiet: boolean, claimedAtMs = Date.now()): Promise<void> => {
         const request = ++version.current;
         inFlight.current = true;
         setBusy(true);
-        if (!refresh && !quiet) setLoading(true);
-        setError(undefined);
-        if (refresh) { lastForced.current = claimedAtMs; noteAsked(target, claimedAtMs); }
-        return sync.request('usage.report', { ...(target === '' ? {} : { provider: target }), ...(refresh ? { refresh: true } : {}) }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
+        lastForced.current = claimedAtMs;
+        noteAsked(target, claimedAtMs);
+        // A tab already showing figures keeps them: this is a read running
+        // behind an answer, not a reason to take that answer away.
+        if (target === currentTab.current && displayRef.current.status !== 'figures') {
+            const waiting: UsageDisplay = { status: 'waiting', askedAt: claimedAtMs };
+            rememberShown(target, waiting);
+            setDisplay(waiting);
+        }
+        return sync.request('usage.report', { ...(target === '' ? {} : { provider: target }), refresh: true }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((value) => {
                 if (request !== version.current) return;
-                reportCache.set(machineKey(target), value);
-                while (reportCache.size > MAX_CACHED_REPORTS) reportCache.delete(reportCache.keys().next().value!);
-                setFetched({ key: target, value });
+                settle(target, { status: 'figures', at: Date.now(), figures: { kind: 'report', value } });
             })
             .catch((cause: unknown) => {
                 if (request !== version.current) return;
-                setError(cause instanceof Error ? cause.message : String(cause));
+                settle(target, { status: 'unavailable', reason: cause instanceof Error ? cause.message : String(cause) });
             })
             .finally(() => {
                 if (request !== version.current) return;
                 inFlight.current = false;
                 setBusy(false);
-                setLoading(false);
                 setRefreshing(false);
             });
-    }, []);
+    }, [settle]);
 
     /** One ask for a tab, or none: our own window decides, and the request it
-     *  sends is the collection itself -- no cached read beside it, so a host
-     *  holding nothing for this tab collects once rather than twice. Inside the
-     *  window the screen paints the report it holds in memory and asks nothing;
-     *  a tab nobody has asked is an open window with no record. The host's word
-     *  on how old its figures are is what the screen says about them rather than
-     *  what decides this. `replace` lets a tab change through while another
-     *  tab's read is still in flight; a cadence never stacks a second read. */
+     *  sends is the collection itself. Inside the window the screen paints what
+     *  the shared memory holds and asks nothing; a tab nobody has asked is an
+     *  open window with no record. `replace` lets a tab change through while
+     *  another tab's read is still in flight. */
     const loadIfDue = React.useCallback((target: string, quiet: boolean, replace = false): void => {
         if (inFlight.current && !replace) return;
         const now = Date.now();
         if (!collectionDue(target, now)) return;
-        void load(target, true, quiet, now);
+        void load(target, quiet, now);
     }, [load]);
 
     React.useEffect(() => {
@@ -123,11 +134,12 @@ export function UsageScreen() {
     // second ask behind the first.
     useForegroundRefresh(() => { loadIfDue(provider, true); }, FRESH_MS);
 
-    // A pressed tab paints its own last-known payload at once; another tab's
-    // payload is not stale data for this one, and an uncached tab skeletons.
+    // A pressed tab paints its own state at once; another tab's figures are not
+    // this one's, and a tab showing a wait says so.
     const selectTab = (id: string) => {
         hapticsSelection();
         setProvider(id);
+        setDisplay(shownUsage(id) ?? NOTHING_SHOWN_YET);
     };
     // The header control and the pull gesture are the same instruction: ask
     // past the cache, now. The budget refuses when a collection has just run;
@@ -146,14 +158,14 @@ export function UsageScreen() {
         if (inFlight.current) { setRefreshing(true); return; }
         if (!askNow()) return;
         setRefreshing(true);
-        void load(provider, true);
+        void load(provider, false);
     };
     // A refused press gives the same feedback as one that ran, so the tap never
     // reads as dead.
     const refreshNow = () => {
         hapticsSelection();
         if (!askNow()) return;
-        void load(provider, true);
+        void load(provider, false);
     };
 
     React.useEffect(() => {
@@ -188,48 +200,77 @@ export function UsageScreen() {
                     figure being replaced by a spinner. The rail keeps its
                     height when idle, so nothing below it moves. */}
                 <LoadingHairline active={busy} />
-                {error !== undefined && <Pressable onPress={() => { if (askNow()) load(provider, true); }} accessibilityRole="button" accessibilityLabel={`${error}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
-                    <Notice tone="danger" text={error} style={{ marginBottom: 0 }} />
+                {display.status === 'unavailable' && <Pressable onPress={refreshNow} accessibilityRole="button" accessibilityLabel={`${error ?? t('plugins.rightNow.unavailable')}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
+                    <Notice tone="danger" text={error ?? t('plugins.rightNow.unavailable')} style={{ marginBottom: 0 }} />
                     <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4, marginLeft: 14 }}>{t('plugins.retry')}</Text>
                 </Pressable>}
-                {empty
+                {display.status === 'waiting' && <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 14, textAlign: 'center' }}>{t('plugins.rightNow.collecting')}</Text>
+                </View>}
+                {display.status === 'figures' && (empty
                     ? <View style={{ paddingVertical: 24, alignItems: 'center' }}>
                         {report?.noProvidersTitle !== undefined && <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '600' }}>{report.noProvidersTitle}</Text>}
                         {report?.noProviders !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 14, marginTop: 4, textAlign: 'center' }}>{report.noProviders}</Text>}
                     </View>
                     : <>
                         <ProviderTabs tabs={tabs} active={report?.provider ?? provider} onSelect={selectTab} />
-                        {report === undefined
-                            ? <UsageSkeleton />
-                            : <View style={{ opacity: loading ? 0.55 : 1 }}>
-                                <ScreenLimits node={LIMITS_NODE} data={report} />
-                                <SectionLabel style={{ marginBottom: 10 }}>Today</SectionLabel>
-                                <View style={[cardStyle(theme), { paddingHorizontal: 16, paddingVertical: 12, marginBottom: 14 }]}>
-                                    {report.activityNotice !== undefined && <Notice tone="warning" text={report.activityNotice} />}
-                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 }}>
-                                        <View style={{ flexBasis: '48%', flexGrow: 1 }}><Metric label="Tokens" value={report.todayTokens} /></View>
-                                        <View style={{ flexBasis: '48%', flexGrow: 1 }}><Metric label="Cost" value={report.todayCost} /></View>
-                                    </View>
+                        {report !== undefined && <View style={{ opacity: busy ? 0.55 : 1 }}>
+                            <ScreenLimits node={LIMITS_NODE} data={report} />
+                            <SectionLabel style={{ marginBottom: 10 }}>Today</SectionLabel>
+                            <View style={[cardStyle(theme), { paddingHorizontal: 16, paddingVertical: 12, marginBottom: 14 }]}>
+                                {report.activityNotice !== undefined && <Notice tone="warning" text={report.activityNotice} />}
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 }}>
+                                    <View style={{ flexBasis: '48%', flexGrow: 1 }}><Metric label="Tokens" value={report.todayTokens} /></View>
+                                    <View style={{ flexBasis: '48%', flexGrow: 1 }}><Metric label="Cost" value={report.todayCost} /></View>
                                 </View>
-                                <SectionLabel style={{ marginBottom: 10 }}>Models today</SectionLabel>
-                                <ScreenChart node={MODEL_CHART_NODE} data={report} nested />
-                                <SectionLabel style={{ marginBottom: 10, marginTop: 10 }}>Last 7 days</SectionLabel>
-                                <View style={[cardStyle(theme), { paddingHorizontal: 16, paddingVertical: 12, marginBottom: 4 }]}>
-                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 }}>
-                                        <View style={{ flexBasis: '48%', flexGrow: 1 }}><Metric label="Tokens" value={report.weekTokens} /></View>
-                                        <View style={{ flexBasis: '48%', flexGrow: 1 }}><Metric label="Cost" value={report.weekCost} /></View>
-                                    </View>
+                            </View>
+                            <SectionLabel style={{ marginBottom: 10 }}>Models today</SectionLabel>
+                            <ScreenChart node={MODEL_CHART_NODE} data={report} nested />
+                            <SectionLabel style={{ marginBottom: 10, marginTop: 10 }}>Last 7 days</SectionLabel>
+                            <View style={[cardStyle(theme), { paddingHorizontal: 16, paddingVertical: 12, marginBottom: 4 }]}>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 }}>
+                                    <View style={{ flexBasis: '48%', flexGrow: 1 }}><Metric label="Tokens" value={report.weekTokens} /></View>
+                                    <View style={{ flexBasis: '48%', flexGrow: 1 }}><Metric label="Cost" value={report.weekCost} /></View>
                                 </View>
-                                <ScreenChart node={WEEK_CHART_NODE} data={report} nested />
-                                <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 12 }}>
-                                    Local activity and estimated costs are separate from provider plan limits. Prompts and project details stay out.
-                                </Text>
-                            </View>}
-                    </>}
+                            </View>
+                            <ScreenChart node={WEEK_CHART_NODE} data={report} nested />
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 12 }}>
+                                Local activity and estimated costs are separate from provider plan limits. Prompts and project details stay out.
+                            </Text>
+                        </View>}
+                    </>)}
             </View>
             </ScrollView>
         </>
     );
+}
+
+/** The figures the store holds as this screen can paint them: the report as it
+ *  is, or the parts of a usage.now payload a screen has a place for -- its
+ *  limits, the plans it names, and the tabs they make. The activity a
+ *  usage.now never carried is a dash, which is what the host sends when a
+ *  figure is not measured. */
+function reportFrom(figures: UsageFigures, provider: string): UsageReport {
+    if (figures.kind === 'report') return figures.value;
+    const now = figures.value;
+    const providers = (now.connected ?? []).map((plan) => ({ id: plan.id, label: plan.label, glyph: plan.glyph ?? plan.id }));
+    return {
+        providers,
+        provider,
+        providerName: (now.connected ?? []).find((plan) => plan.id === provider)?.label ?? provider,
+        windowPeriods: [],
+        windows: [],
+        limits: now.limits,
+        ...(now.connected === undefined ? {} : { connected: now.connected }),
+        ...(now.ageSeconds === undefined ? {} : { ageSeconds: now.ageSeconds }),
+        capturedAt: now.capturedAt ?? new Date().toISOString(),
+        todayTokens: DASH,
+        todayCost: DASH,
+        modelSeries: [],
+        weekTokens: DASH,
+        weekCost: DASH,
+        weekSeries: [],
+    };
 }
 
 /** The screen's explicit "now, past the cache" control. It dims while a read
@@ -288,22 +329,11 @@ function ProviderTabs({ tabs, active, onSelect }: { tabs: UsageReport['providers
  *  hole (the host sends a dash). */
 function Metric({ label, value }: { label: string; value: string }) {
     const { theme } = useUnistyles();
-    const blank = value === '' || value === '—';
+    const blank = value === '' || value === DASH;
     return (
         <View style={{ paddingVertical: 10 }}>
             <Text style={{ color: withAlpha(theme.colors.textSecondary, 0.85), fontSize: 12, lineHeight: 16, fontWeight: '600', ...Typography.default('semiBold') }}>{label}</Text>
-            <Text style={{ color: blank ? theme.colors.textSecondary : theme.colors.text, fontSize: 30, letterSpacing: -0.5, marginTop: 2, ...Typography.mono('semiBold') }}>{blank ? '—' : value}</Text>
-        </View>
-    );
-}
-
-function UsageSkeleton() {
-    const { theme } = useUnistyles();
-    return (
-        <View style={{ gap: 12, marginTop: 4 }}>
-            {[220, 120, 140, 140].map((height, index) => (
-                <View key={index} style={{ height, borderRadius: 16, backgroundColor: theme.colors.surfaceHigh }} />
-            ))}
+            <Text style={{ color: blank ? theme.colors.textSecondary : theme.colors.text, fontSize: 30, letterSpacing: -0.5, marginTop: 2, ...Typography.mono('semiBold') }}>{blank ? DASH : value}</Text>
         </View>
     );
 }

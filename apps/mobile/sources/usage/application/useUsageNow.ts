@@ -1,8 +1,8 @@
 import * as React from 'react';
-import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type UsageNow } from '@muxr/contract';
+import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type UsageNow, type UsageVitals } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { forcedReadWait } from './forcedRead';
-import { FRESH_MS, collectionDue, lastKnownReading, noteAsked, rememberReading } from './freshnessWindow';
+import { FRESH_MS, collectionDue, noteAsked, rememberShown, shownUsage, type UsageDisplay } from './freshnessWindow';
 import { useForegroundRefresh } from './useForegroundRefresh';
 
 /** The tab the card's read answers for: `usage.now` collects the default one,
@@ -20,12 +20,23 @@ const COLLECTING_RETRY_MS = 6_000;
  *  to be collecting for as long as the app is open. */
 const COLLECTING_ATTEMPTS = 6;
 
+/** The wait a mount shows before its own ask has answered anything. */
+const NOTHING_SHOWN_YET: UsageDisplay = { status: 'waiting', askedAt: 0 };
+
+/** The machine facts a display carries, when it carries them: measured vitals
+ *  are figures a reader can keep while the plan half is still being collected. */
+function measured(display: { vitals?: UsageVitals } | UsageNow): { vitals?: UsageVitals } {
+    return display.vitals === undefined ? {} : { vitals: display.vitals };
+}
+
 export interface UsageNowRead {
-    value?: UsageNow;
-    /** The last read did not produce figures. Whatever `value` holds is still
-     *  the best known answer and stays on screen with its age. */
+    /** Figures, a wait, or a failure: the card paints one of the three and has
+     *  no fourth to fall back on. */
+    display: UsageDisplay;
+    /** The last read did not produce figures. What `display` holds is still the
+     *  best known answer and stays on screen with its age. */
     failed: boolean;
-    /** A read is in flight behind the figures currently shown. */
+    /** A read is in flight behind the display. */
     refreshing: boolean;
     /** An explicit ask could not run yet: whole seconds until it can. The
      *  surface says so rather than report a refresh it did not perform. */
@@ -36,16 +47,13 @@ export interface UsageNowRead {
 
 /**
  * One usage.now read's lifecycle: a request token so a slow answer can never
- * overwrite a newer one, one read at a time, and the last-known value retained
- * through a transient failure -- only a load with nothing to show becomes the
- * retry card.
- *
- * Stale while revalidate throughout: what was last known paints immediately,
- * a newer answer replaces it when it lands, and neither a cold answer nor a
- * failed one ever takes good figures off the screen.
+ * overwrite a newer one, one read at a time, and the figures retained through a
+ * transient failure. What there is to show lives in the shared per-machine
+ * memory beside the ask record, so a remount inside the window paints it, and a
+ * blank is not one of the states it can be in.
  */
 export function useUsageNow(): UsageNowRead {
-    const [state, setState] = React.useState<{ value?: UsageNow; failed: boolean; refreshing: boolean }>(() => ({ value: lastKnownReading(READ_TAB), failed: false, refreshing: false }));
+    const [state, setState] = React.useState<{ display: UsageDisplay; failed: boolean; refreshing: boolean }>(() => ({ display: shownUsage(READ_TAB) ?? NOTHING_SHOWN_YET, failed: false, refreshing: false }));
     const [throttledSeconds, setThrottledSeconds] = React.useState<number>();
     const version = React.useRef(0);
     const loading = React.useRef(false);
@@ -56,16 +64,18 @@ export function useUsageNow(): UsageNowRead {
     const bursting = React.useRef(false);
     const followUp = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const latest = React.useRef<(force: boolean) => void>(() => {});
-    const shown = React.useRef<UsageNow | undefined>(undefined);
+    const figures = state.display.status === 'figures' ? state.display.figures.value : undefined;
+    const figuresAt = state.display.status === 'figures' ? state.display.at : 0;
+    const shown = React.useRef<typeof figures>(undefined);
     const shownAt = React.useRef(0);
-    if (shown.current !== state.value) { shown.current = state.value; shownAt.current = Date.now(); }
+    if (shown.current !== figures) { shown.current = figures; shownAt.current = figuresAt; }
     // What is on screen is what a remount should find, so the memory beside the
-    // ask record never lags the figures a reader was shown.
-    React.useEffect(() => { if (state.value !== undefined) rememberReading(READ_TAB, state.value); }, [state.value]);
+    // ask record never lags the display, and both surfaces read one state.
+    React.useEffect(() => { rememberShown(READ_TAB, state.display); }, [state.display]);
     // The card is reading unavailable: a tap on it must end in a read that
     // bypasses the cache, whatever else is in flight.
     const unavailable = React.useRef(false);
-    unavailable.current = state.failed;
+    unavailable.current = state.failed || state.display.status === 'unavailable';
 
     /**
      * `force` asks the host to collect past its cache; such a read claims our
@@ -93,7 +103,14 @@ export function useUsageNow(): UsageNowRead {
         const replacedAt = following ? shownAt.current : 0;
         loading.current = true;
         const request = ++version.current;
-        setState((current) => ({ ...current, refreshing: true }));
+        // What is on screen stays there while a read runs behind it: figures a
+        // reader can see, or the failure whose retry this is. Only a wait is
+        // replaced by the wait it already is.
+        setState((current) => ({
+            display: current.display.status === 'waiting' ? { status: 'waiting', askedAt: claimedAtMs, ...measured(current.display) } : current.display,
+            failed: current.failed,
+            refreshing: true,
+        }));
         return sync.request('usage.now', force ? { refresh: true } : {}, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((result) => {
                 if (request !== version.current) return;
@@ -108,7 +125,7 @@ export function useUsageNow(): UsageNowRead {
                 if (result.collecting !== true && (replaced === undefined || isNewer(result, replaced, replacedAt, Date.now()))) {
                     collecting.current = 0;
                     bursting.current = false;
-                    setState({ value: result, failed: false, refreshing: false });
+                    setState({ display: { status: 'figures', at: Date.now(), figures: { kind: 'now', value: result } }, failed: false, refreshing: false });
                     return;
                 }
                 collecting.current += 1;
@@ -116,10 +133,14 @@ export function useUsageNow(): UsageNowRead {
                 bursting.current = !exhausted;
                 // A cold answer never takes collected figures off the screen:
                 // showing what was last known is the whole point of refreshing
-                // behind it. With nothing collected yet it still paints, so the
-                // vitals it does carry are not withheld either.
+                // behind it. With nothing collected yet it says what it is -- a
+                // host still collecting, or one that never finished.
                 setState((current) => ({
-                    value: current.value !== undefined && current.value.collecting !== true ? current.value : result,
+                    display: current.display.status === 'figures'
+                        ? current.display
+                        : exhausted
+                            ? { status: 'unavailable', reason: '', ...measured(result) }
+                            : { status: 'waiting', askedAt: claimedAtMs, ...measured(result) },
                     failed: exhausted,
                     refreshing: !exhausted,
                 }));
@@ -128,11 +149,17 @@ export function useUsageNow(): UsageNowRead {
             })
             // A refresh that failed leaves the figures it could not replace
             // exactly where they were, with their age, and says so.
-            .catch(() => {
+            .catch((cause: unknown) => {
                 if (request === version.current) {
                     bursting.current = false;
                     rejected.current = true;
-                    setState((current) => ({ ...current, failed: true, refreshing: false }));
+                    setState((current) => ({
+                        display: current.display.status === 'figures'
+                            ? current.display
+                            : { status: 'unavailable', reason: cause instanceof Error ? cause.message : String(cause), ...measured(current.display) },
+                        failed: true,
+                        refreshing: false,
+                    }));
                 }
             })
             .finally(() => {
@@ -188,9 +215,9 @@ export function useUsageNow(): UsageNowRead {
         // Our own window decides whether this cycle asks at all, and the single
         // request it sends is the collection itself -- no cheap read first, so a
         // host with nothing stored collects once rather than twice. Inside the
-        // window the card paints what the memory holds and asks nothing, and a
-        // first view with nothing held is just an open window with no record.
-        // The request claims the window at this instant, the moment of decision.
+        // window the card paints what the shared memory holds and asks nothing,
+        // and a first view with nothing held is just an open window with no
+        // record. The request claims the window at this instant, the decision.
         const now = Date.now();
         if (!collectionDue(READ_TAB, now)) return;
         void load(true, now);
@@ -202,7 +229,7 @@ export function useUsageNow(): UsageNowRead {
         if (followUp.current !== undefined) { clearTimeout(followUp.current); followUp.current = undefined; }
     }, []);
 
-    return { value: state.value, failed: state.failed, refreshing: state.refreshing, throttledSeconds, refresh };
+    return { display: state.display, failed: state.failed, refreshing: state.refreshing, throttledSeconds, refresh };
 }
 
 /** Whether an answer is newer than the figures it would replace. The host names
@@ -214,7 +241,7 @@ export function useUsageNow(): UsageNowRead {
  *  between the two responses can make a replay look newer. It is kept so an
  *  older pairing still makes progress, not because it can be trusted. With no
  *  age to compare there is nothing to hold the read open for. */
-function isNewer(next: UsageNow, previous: UsageNow, previousObservedAtMs: number, nowMs: number): boolean {
+function isNewer(next: UsageNow, previous: { capturedAt?: string; ageSeconds?: number }, previousObservedAtMs: number, nowMs: number): boolean {
     if (next.capturedAt !== undefined && previous.capturedAt !== undefined) return next.capturedAt !== previous.capturedAt;
     if (previous.ageSeconds === undefined || next.ageSeconds === undefined) return true;
     return nowMs - next.ageSeconds * 1_000 > previousObservedAtMs - previous.ageSeconds * 1_000 + 1_000;
