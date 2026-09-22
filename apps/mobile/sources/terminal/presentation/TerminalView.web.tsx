@@ -279,6 +279,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 ._core?._renderService?.dimensions?.css?.cell;
             return css?.height !== undefined && css.height > 0 ? css.height : 18;
         };
+        const screen = element.querySelector('.xterm-screen') ?? element;
+        const cellWidth = (): number => {
+            const css = (term as unknown as { _core?: { _renderService?: { dimensions?: { css?: { cell?: { width?: number } } } } } })
+                ._core?._renderService?.dimensions?.css?.cell;
+            return css?.width !== undefined && css.width > 0 ? css.width : screen.getBoundingClientRect().width / term.cols;
+        };
         /** The exact plain URL under a cell, joined across wrapped rows.
          *  The row is viewport-relative and shifted into buffer space here: getLine
          *  and isWrapped speak absolute rows, and without the shift a scrolled-up
@@ -298,8 +304,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             return plainLinkAtCell(tapped, term.cols, col, row, lineRow);
         };
         const linkAt = (clientX: number, clientY: number): string | null => {
-            const rect = element.getBoundingClientRect();
-            const col = Math.floor((clientX - rect.left) / (rect.width / term.cols));
+            const rect = screen.getBoundingClientRect();
+            const col = Math.floor((clientX - rect.left) / cellWidth());
             const row = Math.floor((clientY - rect.top) / cellHeight());
             if (col < 0 || col >= term.cols || row < 0 || row >= term.rows) return null;
             const cell = term.buffer.active.getLine(term.buffer.active.viewportY + row)?.getCell(col) as {

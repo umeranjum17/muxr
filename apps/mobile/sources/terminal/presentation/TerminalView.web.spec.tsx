@@ -6,22 +6,26 @@ const link = vi.hoisted(() => ({
     options: null as null | { linkHandler: { activate: (event: MouseEvent, url: string) => void; hover?: (event: MouseEvent, url: string, range: { start: { x: number; y: number }; end: { x: number; y: number } }) => void; leave?: () => void } },
     plainTap: null as null | ((event: MouseEvent, url: string) => void),
     onData: null as null | ((base64: string) => void),
+    grid: { cols: 80, cellWidth: 10, linkCol: 2 },
 }));
 
 vi.mock('react-native', () => ({ View: 'View', Text: 'Text', StyleSheet: { create: (styles: unknown) => styles } }));
 vi.mock('@xterm/xterm', () => ({
     Terminal: class {
-        cols = 80;
+        get cols() { return link.grid.cols; }
         rows = 24;
         buffer = { active: { viewportY: 0, getLine: (row: number) => row === 1 ? {
             isWrapped: false,
             translateToString: () => '  docs',
             getCell: (col: number) => ({
-                getWidth: () => 1, getChars: () => col === 2 ? 'd' : ' ',
-                hasExtendedAttrs: () => col === 2 ? 1 : 0, extended: { urlId: col === 2 ? 7 : 0 },
+                getWidth: () => 1, getChars: () => col === link.grid.linkCol ? 'd' : ' ',
+                hasExtendedAttrs: () => col === link.grid.linkCol ? 1 : 0, extended: { get urlId() { return col === link.grid.linkCol ? 7 : 0; } },
             }),
         } : undefined } };
-        _core = { _oscLinkService: { getLinkData: (id: number) => id === 7 ? { uri: 'https://example.test/osc8' } : undefined } };
+        _core = {
+            _oscLinkService: { getLinkData: (id: number) => id === 7 ? { uri: 'https://example.test/osc8' } : undefined },
+            _renderService: { dimensions: { css: { cell: { get width() { return link.grid.cellWidth; }, height: 18 } } } },
+        };
         options: unknown;
         constructor(options: typeof link.options) { this.options = options; link.options = options; }
         loadAddon() {}
@@ -53,10 +57,11 @@ it('resolves a held OSC 8 cell after repeat holds and unrelated output while tap
     const scheduled: Array<() => void> = [];
     const listeners = new Map<string, (event: any) => void>();
     const rect = { left: 10, top: 5, width: 800, height: 432 };
+    const screenRect = { ...rect };
     let lastCell: number | null = null;
     const screen = {
         style: {},
-        getBoundingClientRect: () => rect,
+        getBoundingClientRect: () => screenRect,
         dispatchEvent(event: { type: string; clientX?: number }) {
             if (event.type === 'mouseleave') link.options?.linkHandler.leave?.();
             if (event.type === 'mousemove') {
@@ -122,10 +127,30 @@ it('resolves a held OSC 8 cell after repeat holds and unrelated output while tap
         listeners.get('touchend')!({ touches: [], cancelable: true, preventDefault() {} });
     });
     expect(reached).toHaveBeenCalledTimes(3);
+    rect.width = 360;
+    screenRect.left = 14;
+    screenRect.width = 344;
+    link.grid.cols = 43;
+    link.grid.cellWidth = 8;
+    link.grid.linkCol = 37;
+    TestRenderer.act(() => {
+        listeners.get('touchstart')!({ touches: [{ clientX: 314, clientY: 23 }] });
+        vi.advanceTimersByTime(501);
+        listeners.get('touchend')!({ touches: [], cancelable: true, preventDefault() {} });
+        screenRect.top = 25;
+        listeners.get('touchstart')!({ touches: [{ clientX: 314, clientY: 46 }] });
+        vi.advanceTimersByTime(501);
+        listeners.get('touchend')!({ touches: [], cancelable: true, preventDefault() {} });
+    });
+    expect(reached.mock.calls.slice(3)).toEqual([
+        ['https://example.test/osc8', { x: 304, y: 18 }],
+        ['https://example.test/osc8', { x: 304, y: 41 }],
+    ]);
     link.options?.linkHandler.activate({ clientX: 34, clientY: 23 } as MouseEvent, 'https://example.test/osc8');
     link.plainTap?.({ clientX: 34, clientY: 23 } as MouseEvent, 'https://example.test/plain');
     expect(reached.mock.calls.map(([url]) => url)).toEqual([
-        'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/plain',
+        'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/osc8',
+        'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/plain',
     ]);
     TestRenderer.act(() => renderer!.unmount());
 });
