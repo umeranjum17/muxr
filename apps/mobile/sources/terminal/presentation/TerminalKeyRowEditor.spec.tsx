@@ -56,6 +56,11 @@ vi.mock('@/constants/Typography', () => ({ Typography: { mono: () => ({}) } }));
 vi.mock('@/components/haptics', () => ({ hapticsLight: () => undefined, hapticsSelection: () => undefined }));
 vi.mock('@/components/Switch', () => ({ Switch: 'Switch' }));
 vi.mock('@/components/ui', () => ({ ui: { radius: { control: 8 } } }));
+vi.mock('@/catalog/store', () => ({
+    useLocalSetting: () => [null],
+    useLocalSettingMutable: () => [false, () => undefined],
+}));
+vi.mock('expo-crypto', () => ({ randomUUID: () => 'test-uuid' }));
 
 // eslint-disable-next-line
 import { KeyForm } from './TerminalKeyRowEditor';

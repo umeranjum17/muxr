@@ -160,7 +160,7 @@ Every slot below is shipped. **JSON** means you edit `muxr-ui.json` and the chan
 | `app.overlay` | an app-wide overlay | primitive |
 | `session.overlay` | a session-scoped sheet | primitive |
 | `home.composer.leading` / `home.composer.trailing` | buttons beside the home prompt | primitive |
-| `session.composer.trailing` | plugin controls in the header's three-dot pane menu | primitive |
+| `session.composer.trailing` | the composer rail's trailing control while the prompt is empty and nothing is attached, and the header's three-dot pane menu | primitive |
 
 Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships named widgets and validates each widget's allowed slots, required context, and bounded `params`. Unknown primitive names are ignored for forward compatibility; known primitives reject wrong slots, missing or unknown parameters, and invalid values. Bundled plugins use the same table as anyone else.
 

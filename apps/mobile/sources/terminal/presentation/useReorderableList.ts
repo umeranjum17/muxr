@@ -2,9 +2,8 @@ import * as React from 'react';
 import { hapticsLight, hapticsSelection } from '@/components/haptics';
 
 /**
- * The reorderable list behind both editors' row handles. Extracted from the
- * key-row editor, which the quick-reply editor had copied wholesale: one
- * machine, so a change to the drag rule cannot silently diverge the two.
+ * The reorderable list behind the control grid's two lists (keys, snippets):
+ * one machine, so a change to the drag rule cannot silently diverge them.
  *
  * Two properties are deliberate and were each a bug once:
  * - the drag math lives in refs, because pan updates arrive faster than
@@ -53,6 +52,15 @@ export function useReorderableList<T>(visible: boolean, seed: T[], onChange: (ne
         workingRef.current = next;
         setWorking(next);
         onChange(next);
+    };
+
+    // A reset is not a commit: the working copy follows the given rows while
+    // the caller decides what the stored value becomes.
+    const reseed = (next: T[]) => {
+        workingRef.current = next;
+        setWorking([...next]);
+        setDrag(null);
+        dragging.current = false;
     };
 
     const removeAt = (index: number) => {
@@ -112,5 +120,5 @@ export function useReorderableList<T>(visible: boolean, seed: T[], onChange: (ne
         setDrag({ index: dragIndex.current, translate });
     };
 
-    return { working, drag, commit, removeAt, moveBy, swap, onDrag, isDragging: () => dragging.current };
+    return { working, drag, commit, reseed, removeAt, moveBy, swap, onDrag, isDragging: () => dragging.current };
 }

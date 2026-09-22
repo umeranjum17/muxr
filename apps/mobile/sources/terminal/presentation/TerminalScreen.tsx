@@ -10,7 +10,7 @@ import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
-import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMotion, type SharedValue } from 'react-native-reanimated';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
@@ -24,7 +24,6 @@ import { resolveMessageModeMeta } from '@/catalog';
 import { recordAgentGate, recordTrackedRpc } from '@/catalog/diagnostics';
 import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/sessionStatusBar';
 import { PaneOverviewSheet, SessionMetaLine, WorkspaceTreeSheet } from '@/herd/ui';
-import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import type { HerdrTreeTab } from '@muxr/contract';
 import { TerminalView, type TerminalViewControls } from './TerminalView';
 import { usePaneGestures } from '../application/usePaneGestures';
@@ -43,7 +42,7 @@ import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { useDraft } from '@/hooks/useDraft';
 import { ComposerAttachments, type ComposerAttachment } from '@/components/ComposerAttachments';
-import { DictateButton } from '@/components/DictateButton';
+import { withAlpha } from '@/components/ui';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
 import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
@@ -51,10 +50,9 @@ import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
-import { FloatingTerminalControls, type RingSlot } from './FloatingTerminalControls';
+import { FloatingTerminalControls, RING_CENTER_SIZE, type RingSlot } from './FloatingTerminalControls';
 import { TERMINAL_QUICK_REPLIES, TerminalKeyRow } from './TerminalKeyRow';
-import { TerminalKeyRowEditor } from './TerminalKeyRowEditor';
-import { TerminalQuickReplyEditor } from './TerminalQuickReplyEditor';
+import { TerminalControlGrid, type ControlGridCategory } from './TerminalKeyRowEditor';
 import { DEFAULT_ROW_IDS, type RowEntry, type TerminalKeyAction } from '../domain/keyRow';
 import { appendToDraft, clearDraftInsertion, consumeDraftInsertion } from '../application/draftInsertion';
 import { recentTerminalLinks } from '../application/recentOutput';
@@ -64,6 +62,7 @@ import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
 import { useIsFocused } from '@react-navigation/native';
 import { ActiveAgentWakeLock } from './ActiveAgentWakeLock';
+import { useDictation } from '@/utils/dictation';
 import { getCachedConnectionSettings } from '@/connection';
 import { displayLink } from '../domain/TerminalLink';
 import { humanError } from '@/utils/errors';
@@ -79,6 +78,40 @@ import { useTerminalQuickReplies } from '@/plugins/ui';
 /** What a reply row's primary tap really does, for replies that never send. */
 const INSERT_ONLY_LABEL = 'Inserts into the prompt, never sends.';
 
+// Live recording level as five honest bars; the same fixed weights keep every
+// bar following the real input level, taller through the middle. The level is
+// a shared value read on the UI thread, so a recording chunk never re-renders
+// the screen around the bars.
+const BAR_WEIGHTS = [0.45, 0.7, 1, 0.7, 0.45];
+function DictationBars({ level, color }: { level: SharedValue<number>; color: string }) {
+    return <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 10 }}>
+        {BAR_WEIGHTS.map((weight, index) => (
+            <DictationBar key={index} level={level} weight={weight} color={color} first={index === 0} />
+        ))}
+    </View>;
+}
+
+function DictationBar({ level, weight, color, first }: { level: SharedValue<number>; weight: number; color: string; first: boolean }) {
+    const bar = useAnimatedStyle(() => ({ height: 4 + level.value * 11 * weight }));
+    return <Animated.View style={[{ width: 2.5, borderRadius: 1.25, backgroundColor: color, marginLeft: first ? 0 : 3 }, bar]} />;
+}
+
+/** The restrained resolving state: three dots that breathe while text lands. */
+function TranscribingDots({ color }: { color: string }) {
+    const reduceMotion = useReducedMotion();
+    const [phase, setPhase] = React.useState(0);
+    React.useEffect(() => {
+        if (reduceMotion === true) return;
+        const timer = setInterval(() => setPhase((current) => (current + 1) % 3), 380);
+        return () => clearInterval(timer);
+    }, [reduceMotion]);
+    return <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 10 }}>
+        {[0, 1, 2].map((index) => (
+            <View key={index} style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: color, opacity: reduceMotion === true ? 0.6 : phase === index ? 1 : 0.35, marginLeft: index === 0 ? 0 : 3 }} />
+        ))}
+    </View>;
+}
+
 /**
  * The session is one dark surface: the terminal paints dark whatever the app
  * theme, so everything around it -- header, strip, composer, keys, Tools and
@@ -86,6 +119,9 @@ const INSERT_ONLY_LABEL = 'Inserts into the prompt, never sends.';
  * screen's own render root and the theme is read beneath it, so each render
  * of the screen (and everything it mounts) paints from the same palette.
  */
+// The canvas black is the Ghostty background itself: chrome painted in any
+// other value shows up as a band against the terminal.
+const CANVAS_BLACK = '#0c0c0b';
 function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();
     return <>{children(theme)}</>;
@@ -93,7 +129,6 @@ function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnis
 
 export const TerminalScreen = React.memo((props: { id: string }) => {
     const { width: windowWidth } = useWindowDimensions();
-    const foldedSearch = windowWidth < 340;
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const isFocused = useIsFocused();
     const socketStatus = useSocketStatus();
@@ -148,21 +183,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const [menu, setMenu] = React.useState<SessionMenu | null>(null);
     const [actionsOpen, setActionsOpen] = React.useState(false);
     const [findOpen, setFindOpen] = React.useState(false);
-    const [editingKeys, setEditingKeys] = React.useState(false);
-    const [editingReplies, setEditingReplies] = React.useState(false);
+    const [controlGrid, setControlGrid] = React.useState<{ open: boolean; category: ControlGridCategory }>({ open: false, category: 'keys' });
     const [personalReplies, setPersonalReplies] = useLocalSettingMutable('terminalQuickReplies');
     const [rowEntries, setRowEntries] = useLocalSettingMutable('terminalKeyRow');
     const rowSeed = React.useMemo<RowEntry[]>(() => rowEntries ?? [...DEFAULT_ROW_IDS], [rowEntries]);
-    const [dictationActive, setDictationActive] = React.useState(false);
     // Focus in Herdr: one request, the menu stays open while it is pending,
     // a failure stays on the row until the next tap; nothing replays itself.
     const [focusPending, setFocusPending] = React.useState(false);
     const [focusFailure, setFocusFailure] = React.useState<string | null>(null);
     const [headerBottom, setHeaderBottom] = React.useState(0);
-    // The puck may rest from the terminal's top edge down to the composer's
-    // top edge, so on a squeezed screen it parks on the chrome, never on the
-    // output. The ring it opens is transient and never touches the keyboard.
-    const [composerTop, setComposerTop] = React.useState<number>();
     // View commands keep a permanent route in Pane actions.
     const [viewControls, setViewControls] = React.useState<TerminalViewControls>({ commands: [], dismissKeyboard: () => {} });
     const [terminalBox, setTerminalBox] = React.useState<{ top: number; width: number; height: number }>();
@@ -175,6 +204,39 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const draftRef = React.useRef(draft);
     const composerRef = React.useRef<TextInput>(null);
     draftRef.current = draft;
+    // Dictation lives in the composer rail itself: one pill that reads
+    // Dictating… then Transcribing…, then commits into the editable draft.
+    // The terminal owns the transcript, so it never renders a second copy.
+    const dictation = useDictation(() => draftRef.current, setDraft);
+    const dictationActive = dictation.recording || dictation.transcribing;
+    React.useEffect(() => { if (dictation.pending !== null) dictation.accept(); }, [dictation.pending, dictation.accept]);
+    // The ring's docked centre is measured from the composer rail so the ring
+    // blooms over the terminal from exactly where the thumb rests.
+    const ringSlotRef = React.useRef<View>(null);
+    // The overlay that draws the centre is positioned in this screen's own
+    // layout space, so the slot has to be measured in that space too.
+    // measureInWindow answers in window coordinates, and on Android those
+    // leave the status bar out while the screen's layout counts it: the two
+    // differed by exactly insets.top and the control drew a row above the rail
+    // it is docked in. measureLayout against the screen root has no such seam.
+    const screenRef = React.useRef<View>(null);
+    const [ringCenter, setRingCenter] = React.useState<{ x: number; y: number } | undefined>(undefined);
+    const measureRingAnchor = React.useCallback(() => {
+        const slot = ringSlotRef.current;
+        const root = screenRef.current;
+        if (slot === null || root === null) return;
+        slot.measureLayout(root, (x, y, w, h) => {
+            if (w === 0 && h === 0) return;
+            setRingCenter((current) => (current !== undefined && Math.abs(current.x - (x + w / 2)) < 0.5 && Math.abs(current.y - (y + h / 2)) < 0.5 ? current : { x: x + w / 2, y: y + h / 2 }));
+        }, () => undefined);
+    }, []);
+    React.useEffect(() => { measureRingAnchor(); }, [measureRingAnchor, keyboardVisible, keyboardHeight, terminalBox]);
+    // The ring is drawn by an overlay onto the rail's reserved slot, so it may
+    // only exist while that slot does. Dictation and a typed draft both take
+    // the slot back, and a stale measurement would otherwise leave the centre
+    // control floating over the capsule it just made way for.
+    const railShowsRing = canControl && !dictationActive && draft === '';
+    React.useEffect(() => { if (!railShowsRing) setToolsOpen(false); }, [railShowsRing]);
     const insertDraft = React.useCallback((value: string) => {
         const next = appendToDraft(draftRef.current, value);
         draftRef.current = next;
@@ -375,10 +437,18 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const [treeOpen, setTreeOpen] = React.useState(false);
     // A sheet or editor owns the screen; no floating control remains beneath it.
     React.useEffect(() => {
-        if (actionsOpen || overviewOpen || treeOpen || findOpen || editingKeys || editingReplies || menu !== null) setToolsOpen(false);
-    }, [actionsOpen, overviewOpen, treeOpen, findOpen, editingKeys, editingReplies, menu]);
-    const editKeys = React.useCallback(() => { setToolsOpen(false); setActionsOpen(false); setEditingKeys(true); }, []);
+        if (actionsOpen || overviewOpen || treeOpen || findOpen || controlGrid.open || menu !== null) setToolsOpen(false);
+    }, [actionsOpen, overviewOpen, treeOpen, findOpen, controlGrid.open, menu]);
+    const editKeys = React.useCallback(() => { setToolsOpen(false); setActionsOpen(false); setControlGrid({ open: true, category: 'keys' }); }, []);
     const overlayContributions = useSlotContributions('session.overlay');
+    // The composer slot is one icon, and an unlabelled icon dropped into a list
+    // of labelled rows reads as something broken rather than something offered.
+    // The contribution already names itself for assistive tech; the row shows
+    // that same name.
+    const composerContributions = useSlotContributions('session.composer.trailing');
+    const composerSlotLabel = composerContributions.length === 1 && composerContributions[0]?.type === 'native' && composerContributions[0].accessibilityLabel !== undefined
+        ? resolvePluginText(composerContributions[0].accessibilityLabel)
+        : undefined;
     // The workspace tree is product and always opens from the header;
     // third-party overlays mount beside it when they contribute.
     const overlayLabel = overlayContributions[0]?.type === 'native' && overlayContributions[0].title !== undefined
@@ -748,12 +818,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     }, [props.id, siblings, shell]);
 
     const canSend = !dictationActive && !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
-    // The ring needs at least one slot to be worth a puck; view-only keeps
-    // what it can still run, so nothing that was reachable is lost.
+    // The ring needs at least one slot to be worth its control; view-only
+    // keeps what it can still run, so nothing that was reachable is lost.
     const hasTools = viewControls.commands.length > 0 || canControl;
-    // The ring's default four, arc order = list order: Continue farthest, the
-    // keyboard nearest the thumb. Every slot keeps its permanent route (the
-    // status row, the ⋮ menu, the composer); the ring is a shortcut layer.
+    // The ring's slots in arc order = list order, running from the anchor's
+    // own edge inward. Every slot keeps its permanent route (the status row,
+    // the ⋯ menu, the composer); the ring is a shortcut layer.
     const terminalKeyboardCommand = viewControls.commands.find((command) => command.icon === 'keyboard');
     const ringSlots = React.useMemo<RingSlot[]>(() => {
         const slots: RingSlot[] = [];
@@ -773,12 +843,6 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             ...(changesCount === null ? {} : { badge: changesCount }),
             run: () => router.push(`/session/${encodeURIComponent(props.id)}/changes`),
         });
-        slots.push({
-            id: 'browser',
-            label: 'Browser',
-            icon: 'globe-outline',
-            run: () => router.push(`/session/${encodeURIComponent(props.id)}/takeover`),
-        });
         if (canControl && Platform.OS !== 'web') slots.push({
             id: 'keyboard',
             label: keyboardVisible ? 'Hide keyboard' : 'Keyboard',
@@ -789,8 +853,26 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 Keyboard.dismiss();
             },
         });
+        if (canControl) slots.push({
+            id: 'commands',
+            label: 'Commands',
+            icon: 'terminal-outline',
+            run: () => openAgentCommands(),
+        });
+        if (canControl) slots.push({
+            id: 'paste',
+            label: 'Paste',
+            icon: 'clipboard-outline',
+            run: () => void pasteToDraft(),
+        });
+        slots.push({
+            id: 'browser',
+            label: 'Browser',
+            icon: 'globe-outline',
+            run: () => router.push(`/session/${encodeURIComponent(props.id)}/takeover`),
+        });
         return slots;
-    }, [canControl, changesCount, keyboardVisible, props.id, sendCommand, terminalKeyboardCommand, viewControls]);
+    }, [canControl, changesCount, keyboardVisible, openAgentCommands, pasteToDraft, props.id, sendCommand, terminalKeyboardCommand, viewControls]);
 
     // Where this session sits and how it is allowed to act, in one quiet row.
     // Connection stays out of it: subtitle/send color and the reconnect pill
@@ -806,22 +888,23 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     return (
         <ScopedTheme name="dark"><DarkSurface>{(theme) => {
             const headerStatus = agentStatusColor(headerLifecycle, theme);
-            // Working and done carry their lifecycle colour. Idle shares the
-            // disconnected grey, which reads as dead on a ready agent.
-            const sendColor = headerLifecycle === 'idle' ? theme.colors.accent : headerStatus.color;
             const tabPanes = currentTab?.panes ?? [];
             const paneIndex = tabPanes.findIndex((pane) => pane.sessionId === props.id);
             const paneTotal = tabPanes.length;
             const showConnectingStatus = status !== 'live' && gestureHint === null && status === 'connecting';
             const showRetryStatus = status !== 'live' && gestureHint === null && status !== 'connecting' && status !== 'unconfirmed';
             const showUnconfirmedStatus = status === 'unconfirmed' && gestureHint === null;
-            const attachmentAction = <Pressable onPress={attachPhotos} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', opacity: attaching ? 0.4 : 1 }}>
-                <Ionicons name={attaching ? 'hourglass-outline' : 'image-outline'} size={24} color={theme.colors.textSecondary} />
+            // 31669's leading control: its own circle, outside the field, so the
+            // field is the only container on the rail.
+            const attachmentAction = <Pressable onPress={attachPhotos} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }}
+                style={({ pressed }) => ({ width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 19, backgroundColor: withAlpha(theme.colors.text, 0.06), opacity: attaching ? 0.4 : pressed ? 0.6 : 1 })}>
+                <Ionicons name={attaching ? 'hourglass-outline' : 'add'} size={20} color={theme.colors.textSecondary} />
             </Pressable>;
-            const commandAction = <Pressable onPress={openAgentCommands} accessibilityRole="button" accessibilityLabel="Agent commands" hitSlop={8} disabled={!canControl} accessibilityState={{ disabled: !canControl }}
-                style={({ pressed }) => ({ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22, backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent', opacity: canControl ? 1 : 0.4 })}>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 23, fontWeight: '500' }}>/</Text>
-            </Pressable>;
+            // One pill that is the composer: idle input, multiline compose,
+            // Dictating…, Transcribing… — same geometry, same material, only
+            // the contents swap, exactly like the supplied frames.
+            const dictating = dictation.recording;
+            const transcribing = dictation.transcribing;
             const composerInput = <TextInput
                 ref={composerRef}
                 value={draft}
@@ -830,18 +913,49 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                 returnKeyType="send"
                 blurOnSubmit
                 submitBehavior="blurAndSubmit"
-                placeholder="Type a prompt…"
+                multiline
+                // Web renders multiline as a textarea and defaults it to two
+                // rows: the rail stood 12dp taller than its own minimum and the
+                // placeholder sat a line above the controls beside it. Native
+                // sizes to content already, and there `numberOfLines` would cap
+                // the growth instead of seeding it.
+                {...(Platform.OS === 'web' ? { rows: 1 } as object : {})}
+                placeholder={windowWidth < 340 ? 'Prompt…' : 'Type a prompt…'}
                 placeholderTextColor={theme.colors.textSecondary}
                 accessibilityLabel="Prompt"
-                style={{ flex: 1, minWidth: 0, color: theme.colors.text, paddingHorizontal: 8, paddingVertical: 8, fontSize: 16 }}
+                // Web: remove the focus ring; the rail is not a browser widget.
+                style={{ flex: 1, minWidth: 0, color: theme.colors.text, paddingLeft: 12, paddingRight: 2, paddingVertical: 8, fontSize: 15, maxHeight: 120,
+                    ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } as any : {}) }}
             />;
-            const composerPlugins = <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <DictateButton compact onActiveChange={setDictationActive} context={{ getText: () => draftRef.current, setText: setDraft }} />
-            </View>;
-            const sendAction = <Pressable onPress={sendPrompt} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }}
-                style={({ pressed }) => ({ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', opacity: canSend ? 1 : 0.4, backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent', borderRadius: 22 })}>
-                <Ionicons name="arrow-up-circle" size={30} color={sendColor} />
+            const clearAction = draft === '' ? null : <Pressable onPress={() => setDraft('')} accessibilityRole="button" accessibilityLabel="Clear prompt" hitSlop={8}
+                style={({ pressed }) => ({ width: 26, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 13, opacity: pressed ? 0.6 : 1 })}>
+                <Ionicons name="close" size={16} color={theme.colors.textSecondary} />
             </Pressable>;
+            const dictateAction = <Pressable onPress={dictation.toggle} disabled={transcribing} accessibilityRole="button"
+                accessibilityLabel={dictating ? 'Stop dictation' : 'Dictate'}
+                accessibilityHint={dictating ? 'Stops listening and transcribes' : undefined}
+                accessibilityState={{ busy: transcribing, selected: dictating, disabled: transcribing }}
+                style={({ pressed }) => ({ width: 32, height: 38, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+                <Ionicons name="mic-outline" size={19} color={theme.colors.textSecondary} />
+            </Pressable>;
+            // The filled disc and its plane only appear once there is something to
+            // send; unarmed it is a quiet outline, never a second bright control
+            // competing with the send it is not yet.
+            const sendAction = <Pressable onPress={sendPrompt} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }}
+                style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: canSend ? theme.colors.terminal.prompt : withAlpha(theme.colors.text, 0.06), opacity: pressed ? 0.8 : canSend ? 1 : 0.55, transform: [{ scale: pressed && canSend ? 0.94 : 1 }] })}>
+                <Ionicons name="send" size={17} color={canSend ? '#101010' : theme.colors.textSecondary} style={{ marginLeft: 1 }} />
+            </Pressable>;
+            // 31669's trailing control: one circle at the rail's end. With an
+            // empty field it is the realtime agent, beside the microphone the
+            // way every other app puts it; the moment there is something to
+            // send it gives way to send. The plugin owns its own glyph and its
+            // own availability — only the circle around it is ours.
+            const showRealtimeTrailing = draft === '' && attachedPaths.length === 0 && composerContributions.length > 0 && canControl;
+            const trailingAction = showRealtimeTrailing
+                ? <View style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: withAlpha(theme.colors.accent, 0.16), borderWidth: StyleSheet.hairlineWidth, borderColor: withAlpha(theme.colors.accent, 0.35) }}>
+                    <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
+                </View>
+                : sendAction;
             // Only what the channel can vouch for: 'live' means frames flow with
             // nothing known wrong, so it reads as connected, never as health; a known
             // timeout or lost route reads unconfirmed until the host answers again.
@@ -857,63 +971,61 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             // above the IME, and it measures the gap below itself to do it, so a bar
             // that floats over it gets counted as empty space and lands on the output.
                 return (
-                <View style={{ flex: 1, backgroundColor: theme.colors.terminal.background, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
+                <View ref={screenRef} collapsable={false} style={{ flex: 1, backgroundColor: CANVAS_BLACK, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
                     {watchingWorkingAgent && <ActiveAgentWakeLock />}
 
+                    {/* One quiet line inside the terminal plane: a back circle,
+                        the session identity, the pane pager, and an overflow
+                        circle. No band, no border, no shadow — the reference's
+                        header is invisible until you look for it. */}
                     <View
                         onLayout={(event) => { if (!hasStatusRow) setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height); }}
                         style={{
                             flexDirection: 'row',
                             alignItems: 'center',
-                            gap: 6,
-                            paddingHorizontal: 10,
-                            paddingVertical: 4,
-                            // No chrome band: the header shares the terminal's own
-                            // background, so the session line reads as part of the
-                            // output surface, not a bar bolted above it.
+                            gap: 2,
+                            paddingHorizontal: 6,
+                            paddingTop: 0,
                             backgroundColor: 'transparent',
                         }}
                     >
-                        <HeaderBackButton onPress={() => router.back()} style={{ marginLeft: -6 }} />
-                        <Pressable onPress={() => setTreeOpen(true)} accessibilityRole="button" accessibilityLabel={`${contextTitle}. ${agentNameLine(labels)}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. ${overlayLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, minHeight: 44 }}>
-                            <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={18} />
-                            <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 15, fontWeight: '600' }}>{contextTitle}</Text>
+                        <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Back" hitSlop={12}
+                            style={({ pressed }) => ({ minWidth: 30, minHeight: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+                            <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
+                        </Pressable>
+                        <Pressable onPress={() => setTreeOpen(true)} accessibilityRole="button" accessibilityLabel={`${contextTitle}. ${agentNameLine(labels)}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. ${overlayLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
+                            <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />
+                            <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, fontWeight: '500', opacity: 0.88 }}>{contextTitle}</Text>
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
                                 reads differently whether the agent works, needs you, or
                                 is gone; the dot carries the same colour (scout §4.1).
                                 Shell panes and unknown lifecycles stay quiet — a live
                                 shell is not "Offline". */}
                             {headerLifecycleLabel !== undefined && <View accessible={false} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: headerStatus.color }} />
-                                <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '600' }}>{headerLifecycleLabel}</Text>
+                                <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: headerStatus.color }} />
+                                <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>
                             </View>}
-                            {/* No trailing chevron here: the 1/1 pager to the right is the
-                                single pane control — a second chevron read as a duplicate. */}
                         </Pressable>
-                        {/* Position in the tab and the way into the pane overview: its own
-                            44dp target, present even for a one-pane tab so a new pane
-                            stays reachable. Loading shows as such, never as 0/0. */}
+                        {/* Position in the tab and the way into the pane overview:
+                            borderless and tiny; loading shows as such, never as 0/0. */}
                         <Pressable
                             onPress={() => { setActionsOpen(false); setOverviewOpen(true); }}
                             disabled={!treeLoaded || located === undefined}
                             accessibilityRole="button"
                             accessibilityLabel={treeLoaded && located !== undefined ? `Pane ${Math.max(paneIndex, 0) + 1} of ${Math.max(paneTotal, 1)}. Open panes.` : 'Panes loading'}
                             accessibilityState={{ expanded: overviewOpen, disabled: !treeLoaded || located === undefined }}
-                            style={({ pressed }) => ({ minWidth: 44, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 6, borderRadius: 12, backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}
+                            style={({ pressed }) => ({ minWidth: 32, minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 1, paddingHorizontal: 4, borderRadius: 10, opacity: pressed ? 0.6 : 1 })}
                         >
+                            {/* The count is the affordance; a chevron beside it
+                                only made the header look like it carried a menu. */}
                             {treeLoaded && located !== undefined
-                                ? <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600' }}>{Math.max(paneIndex, 0) + 1}/{Math.max(paneTotal, 1)}</Text>
+                                ? <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', fontVariant: ['tabular-nums'] }}>{Math.max(paneIndex, 0) + 1}/{Math.max(paneTotal, 1)}</Text>
                                 : <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
-                            <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />
                         </Pressable>
-                        {!foldedSearch && <Pressable onPress={() => setFindOpen(true)} accessibilityRole="button" accessibilityLabel="Find in output" hitSlop={4}
-                            style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
-                            <Ionicons name="search" size={19} color={theme.colors.textSecondary} />
-                        </Pressable>}
                         {!authorityLoading && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel={`Pane actions${artifactsCount !== null && artifactsCount > 0 ? `, ${t('sessionAttachments.title', { count: artifactsCount })}` : ''}`}
-                            accessibilityState={{ expanded: actionsOpen }} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}>
-                            <Ionicons name="ellipsis-vertical" size={20} color={theme.colors.textSecondary} />
-                            {artifactsCount !== null && artifactsCount > 0 && <View style={{ position: 'absolute', top: 2, right: 0, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accent }}>
+                            accessibilityState={{ expanded: actionsOpen }} hitSlop={12} style={({ pressed }) => ({ minWidth: 30, minHeight: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+                            <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
+                            {artifactsCount !== null && artifactsCount > 0 && <View style={{ position: 'absolute', top: 1, right: 0, minWidth: 16, height: 16, paddingHorizontal: 4, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accent }}>
                                 <Text style={{ color: theme.colors.surface, fontSize: 9, fontWeight: '700' }}>{artifactsCount > 99 ? '99+' : artifactsCount}</Text>
                             </View>}
                         </Pressable>}
@@ -926,7 +1038,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             accessibilityLabel="Review changes"
                             disabled={branch === null}
                             onPress={() => { if (branch !== null) router.push(`/session/${encodeURIComponent(props.id)}/changes`); }}
-                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingBottom: 7, backgroundColor: 'transparent', borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 4, backgroundColor: 'transparent' }}>
                             {branch !== null && <Ionicons name="git-branch-outline" size={12} color={theme.colors.textSecondary} />}
                             <SessionMetaLine
                                 style={{ flex: 1 }}
@@ -1085,96 +1197,254 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         )}
                     </View>
 
-                    {/* The workspace's tabs, but only when there is more than
-                        one: a lone tab's strip was 44dp of chrome saying what
-                        the header already says. */}
-                    {workspaceTabs.length > 1 && (
+                    {/* Session/pane chip rail, inside the terminal plane: one
+                        scrollable row of identity chips for the open panes
+                        (or, across tabs, the other tabs); the active chip
+                        carries close, a trailing + adds a pane. No band, no
+                        underline. */}
+                    {(tabPanes.length > 1 || workspaceTabs.length > 1) && !(dictationActive && keyboardVisible) && (
                         <ScrollView
                             ref={tabStripRef}
                             horizontal
                             showsHorizontalScrollIndicator={false}
                             keyboardShouldPersistTaps="always"
-                            style={{ maxHeight: 44, backgroundColor: theme.colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}
-                            contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 8 }}
+                            style={{ maxHeight: 30, backgroundColor: 'transparent', opacity: toolsOpen ? 0.25 : 1 }}
+                            contentContainerStyle={{ alignItems: 'center', gap: 8, paddingHorizontal: 8, paddingVertical: 0 }}
                         >
-                            {workspaceTabs.map((tab, index) => {
+                            {tabPanes.length > 1 ? tabPanes.map((pane) => {
+                                const active = pane.sessionId === props.id;
+                                const pl = agentLabels(pane);
+                                const tone = agentStatusColor(pane.agentStatus, theme);
+                                return (
+                                    <View
+                                        key={pane.sessionId}
+                                        style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            maxHeight: 26,
+                                            borderRadius: 8,
+                                            overflow: 'hidden',
+                                            // Names on the plane, not tabs in a strip: the
+                                            // current pane is the brighter one, and nothing
+                                            // here draws a box around itself.
+                                            backgroundColor: active ? withAlpha(theme.colors.text, 0.07) : 'transparent',
+                                            borderWidth: 0,
+                                            borderColor: 'transparent',
+                                        }}
+                                    >
+                                        <Pressable
+                                            onPress={active || pane.sessionId === undefined ? undefined : () => { if (pane.sessionId !== undefined) navigateToSession(pane.sessionId); }}
+                                            accessibilityRole="button"
+                                            accessibilityLabel={`${active ? 'Current pane' : 'Open pane'} ${pl.taskTitle}`}
+                                            accessibilityState={{ selected: active }}
+                                            style={({ pressed }) => ({
+                                                minHeight: 24,
+                                                maxWidth: 150,
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                                paddingLeft: 7,
+                                                paddingRight: active && canControl ? 1 : 7,
+                                                opacity: pressed ? 0.65 : 1,
+                                            })}
+                                        >
+                                            <AgentGlyph name={isShellLabels(pl) ? 'shell' : pl.agentKind ?? pl.agentName} size={13} />
+                                            <Text numberOfLines={1} style={{ flexShrink: 1, color: active ? theme.colors.text : tone.color, fontSize: 11, fontWeight: active ? '600' : '400' }}>
+                                                {pl.taskTitle}
+                                            </Text>
+                                        </Pressable>
+                                        {/* Close lives on the active chip, the same
+                                            close the overflow menu carries. */}
+                                        {active && canControl && !stopping && <Pressable
+                                            onPress={stopSession}
+                                            accessibilityRole="button"
+                                            accessibilityLabel={shell ? 'Close pane' : 'Stop agent'}
+                                            hitSlop={6}
+                                            style={({ pressed }) => ({ width: 20, height: 20, alignItems: 'center', justifyContent: 'center', marginRight: 2, borderRadius: 10, opacity: pressed ? 0.6 : 1 })}>
+                                            <Ionicons name="close" size={12} color={theme.colors.textSecondary} />
+                                        </Pressable>}
+                                    </View>
+                                );
+                            }) : workspaceTabs.map((tab, index) => {
                                 const active = tab.tabId === currentTab?.tabId;
                                 const single = tab.panes.length === 1 ? tab.panes[0] : undefined;
                                 const singleLabels = single === undefined ? undefined : agentLabels(single);
                                 const tone = agentStatusColor(tab.agentStatus, theme);
                                 const label = tabLabel(tab, index);
                                 return (
-                                    <Pressable
+                                    <View
                                         key={tab.tabId}
-                                        onLayout={active ? ({ nativeEvent }) => { activeChipX.current = nativeEvent.layout.x; } : undefined}
-                                        onPress={active ? undefined : () => openTab(tab)}
-                                        accessibilityRole="button"
-                                        accessibilityLabel={`${active ? 'Current tab' : 'Open tab'} ${label}, ${tab.panes.length === 1 ? '1 pane' : `${tab.panes.length} panes`}`}
-                                        accessibilityState={{ selected: active }}
-                                        style={({ pressed }) => ({
-                                            minHeight: 44,
-                                            maxWidth: 180,
+                                        style={{
                                             flexDirection: 'row',
                                             alignItems: 'center',
-                                            gap: 6,
-                                            paddingHorizontal: 9,
-                                            borderBottomWidth: 2,
-                                            borderBottomColor: active ? theme.colors.accent : 'transparent',
-                                            backgroundColor: active ? theme.colors.surfaceSelected : 'transparent',
-                                            opacity: pressed ? 0.65 : 1,
-                                        })}
+                                            maxHeight: 26,
+                                            borderRadius: 8,
+                                            overflow: 'hidden',
+                                            // Names on the plane, not tabs in a strip: the
+                                            // current pane is the brighter one, and nothing
+                                            // here draws a box around itself.
+                                            backgroundColor: active ? withAlpha(theme.colors.text, 0.07) : 'transparent',
+                                            borderWidth: 0,
+                                            borderColor: 'transparent',
+                                        }}
                                     >
-                                        {singleLabels !== undefined
-                                            ? <AgentGlyph name={isShellLabels(singleLabels) ? 'shell' : singleLabels.agentKind ?? singleLabels.agentName} size={16} />
-                                            : <Ionicons name="grid-outline" size={14} color={theme.colors.textSecondary} />}
-                                        <Text numberOfLines={1} style={{ flexShrink: 1, color: tone.color, fontSize: 11, fontWeight: active ? '600' : '400' }}>
-                                            {label}
-                                        </Text>
-                                    </Pressable>
+                                        <Pressable
+                                            onLayout={active ? ({ nativeEvent }) => { activeChipX.current = nativeEvent.layout.x; } : undefined}
+                                            onPress={active ? undefined : () => openTab(tab)}
+                                            accessibilityRole="button"
+                                            accessibilityLabel={`${active ? 'Current tab' : 'Open tab'} ${label}, ${tab.panes.length === 1 ? '1 pane' : `${tab.panes.length} panes`}`}
+                                            accessibilityState={{ selected: active }}
+                                            style={({ pressed }) => ({
+                                                minHeight: 24,
+                                                maxWidth: 150,
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                                paddingLeft: 7,
+                                                paddingRight: 7,
+                                                opacity: pressed ? 0.65 : 1,
+                                            })}
+                                        >
+                                            {singleLabels !== undefined
+                                                ? <AgentGlyph name={isShellLabels(singleLabels) ? 'shell' : singleLabels.agentKind ?? singleLabels.agentName} size={13} />
+                                                : <Ionicons name="grid-outline" size={12} color={theme.colors.textSecondary} />}
+                                            <Text numberOfLines={1} style={{ flexShrink: 1, color: active ? theme.colors.text : tone.color, fontSize: 11, fontWeight: active ? '600' : '400' }}>
+                                                {label}
+                                            </Text>
+                                        </Pressable>
+                                    </View>
                                 );
                             })}
+                            {canControl && <Pressable
+                                onPress={() => splitPane('right')}
+                                accessibilityRole="button"
+                                accessibilityLabel="Add pane"
+                                hitSlop={6}
+                                style={({ pressed }) => ({ width: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+                                <Ionicons name="add" size={15} color={theme.colors.textSecondary} />
+                            </Pressable>}
                         </ScrollView>
                     )}
 
-                    {canControl && <View
-                        onLayout={({ nativeEvent }) => setComposerTop((current) => (current !== undefined && Math.abs(current - nativeEvent.layout.y) < 0.5 ? current : nativeEvent.layout.y))}
-                        style={{ backgroundColor: theme.colors.terminal.background }}>
-                    <View style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center' }}>
-                        <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction}>
+                    {canControl && <View style={{ backgroundColor: CANVAS_BLACK, opacity: toolsOpen ? 0.25 : 1 }}>
+                        {/* The key strip stands down while dictation owns the footer
+                            with the keyboard up; the composer capsule stays. */}
+                        {!(dictationActive && keyboardVisible) && <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction}>
                             <DeclarativeTerminalKeySlot channel={channel} />
-                        </TerminalKeyRow>
-                    </View>
+                        </TerminalKeyRow>}
 
                     <ComposerAttachments
                         images={[...attachedImages, ...selectedImages.filter((image) => !attachedImages.some((attached) => attached.id === image.id))]}
                         onRemove={(id) => setAttachedImages((previous) => previous.filter((image) => image.id !== id))}
                     />
 
-                    {/* One aligned rail; only the draft gets a quiet outline. */}
-                    <View style={{ paddingHorizontal: 8, paddingTop: 5, paddingBottom: (keyboardVisible ? 0 : insets.bottom) + 5 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44 }}>
-                            {attachmentAction}{commandAction}
-                            <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', borderRadius: 22, backgroundColor: theme.colors.surfaceHigh }}>
-                                {composerInput}{composerPlugins}{sendAction}
-                            </View>
+                    {/* The one composer pill. Idle it is `+` · ring · prompt · mic ·
+                        send; while the microphone is live the same pill reads
+                        Dictating…, then Transcribing…, and commits into the draft.
+                        One geometry, one material, every state. */}
+                    {/* The rail is three things with air between them, not one
+                        slab carrying five: a leading circle, the field — the
+                        only container here — and one trailing circle that is
+                        the realtime agent while the field is empty and becomes
+                        send the moment there is something to send. */}
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, paddingHorizontal: 10, paddingTop: 4, paddingBottom: (keyboardVisible ? 8 : insets.bottom + 8) }}>
+                        {!dictationActive && attachmentAction}
+                        <View style={{
+                            flex: 1,
+                            minHeight: keyboardVisible ? 44 : 48,
+                            borderRadius: keyboardVisible ? 22 : 24,
+                            backgroundColor: withAlpha(theme.colors.text, 0.05),
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            paddingLeft: 0,
+                            paddingRight: 4,
+                            paddingVertical: keyboardVisible ? 3 : 5,
+                        }}>
+                            {/* Listening is a state, not an alarm: the level and
+                                the stop carry the one red between them, and the
+                                stop is a tinted target rather than a solid disc
+                                the size of the send. */}
+                            {dictating ? <Animated.View entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                                <DictationBars level={dictation.level} color={theme.colors.status.error} />
+                                <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15, marginLeft: 10 }}>Dictating…</Text>
+                                <Pressable onPress={dictation.toggle} accessibilityRole="button" accessibilityLabel="Stop dictation"
+                                    accessibilityHint="Stops listening and transcribes"
+                                    style={({ pressed }) => ({ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: withAlpha(theme.colors.status.error, pressed ? 0.28 : 0.18), transform: [{ scale: pressed ? 0.94 : 1 }] })}>
+                                    <Ionicons name="stop" size={13} color={theme.colors.status.error} />
+                                </Pressable>
+                            </Animated.View> : transcribing ? <Animated.View entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                                <TranscribingDots color={theme.colors.textSecondary} />
+                                <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 15, marginLeft: 10 }}>Transcribing…</Text>
+                                <Pressable onPress={dictation.cancel} accessibilityRole="button" accessibilityLabel="Cancel dictation"
+                                    style={({ pressed }) => ({ width: 34, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 17, opacity: pressed ? 0.6 : 1 })}>
+                                    <Ionicons name="close" size={19} color={theme.colors.textSecondary} />
+                                </Pressable>
+                            </Animated.View> : <>
+                                {composerInput}
+                                {clearAction}
+                                {/* The trigger the arc opens around lives in the
+                                    field beside the microphone, so the ring blooms
+                                    from something that belongs to the composer
+                                    rather than from a puck parked on the terminal. */}
+                                {railShowsRing && <>
+                                    <View ref={ringSlotRef} onLayout={measureRingAnchor} collapsable={false} pointerEvents="none" style={{ width: RING_CENTER_SIZE, height: 38 }} />
+                                    {dictateAction}
+                                </>}
+                            </>}
                         </View>
+                        {!dictationActive && trailingAction}
                     </View>
                     </View>}
 
-                    {/* The one way into the terminal's quick actions: the floating
-                        command puck. It rests from the terminal's top edge down to
-                        the composer's top edge; the ring it opens is transient and
+                    {/* The one way into the terminal's quick actions: the ring
+                        docked at the composer's thumb control, blooming over the
+                        terminal. The region ends at the terminal's bottom edge,
+                        so the fan can never reach the composer. View-only keeps
+                        a resting anchor in the corner; the ring is transient and
                         never touches the keyboard. */}
-                    {hasTools && terminalBox !== undefined && (() => {
-                        const regionHeight = Math.max(terminalBox.height, (composerTop ?? terminalBox.top + terminalBox.height) - terminalBox.top);
+                    {/* With control authority the ring belongs to the rail, so it
+                        waits for its own measurement rather than flashing once in
+                        the terminal's corner on the frame between the two layout
+                        commits. View-only has no rail to dock in and keeps the
+                        corner anchor. */}
+                    {hasTools && terminalBox !== undefined && (!canControl || (railShowsRing && ringCenter !== undefined)) && (() => {
+                        const docked = canControl && ringCenter !== undefined;
+                        // The overlay reaches down over the rail so the docked
+                        // centre control sits exactly on its slot; the fan itself
+                        // solves only in the area above it, bounded by `fanHeight`.
+                        const regionHeight = docked
+                            ? Math.max(terminalBox.height, ringCenter.y + RING_CENTER_SIZE - terminalBox.top)
+                            : terminalBox.height;
+                        const anchor = docked
+                            ? { x: ringCenter.x, y: ringCenter.y - terminalBox.top }
+                            : { x: Math.max(44, terminalBox.width - 44), y: Math.max(120, terminalBox.height - 84) };
                         return <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: terminalBox.top, height: regionHeight }}>
                             <FloatingTerminalControls open={toolsOpen} onOpenChange={setToolsOpen}
-                                width={terminalBox.width} height={regionHeight} slots={ringSlots} />
+                                width={terminalBox.width} height={regionHeight} fanHeight={terminalBox.height}
+                                slots={ringSlots} anchor={anchor} />
                         </View>;
                     })()}
 
-                    <TerminalKeyRowEditor visible={editingKeys} entries={rowEntries} seed={rowSeed} onChange={setRowEntries} onClose={() => setEditingKeys(false)} />
-                    <TerminalQuickReplyEditor visible={editingReplies} replies={personalReplies} onChange={setPersonalReplies} onClose={() => setEditingReplies(false)} />
+                    <TerminalControlGrid
+                        visible={controlGrid.open}
+                        category={controlGrid.category}
+                        onCategoryChange={(category) => setControlGrid((current) => ({ ...current, category }))}
+                        onClose={() => setControlGrid((current) => ({ ...current, open: false }))}
+                        entries={rowEntries}
+                        seed={rowSeed}
+                        onChange={setRowEntries}
+                        replies={personalReplies}
+                        onRepliesChange={setPersonalReplies}
+                        recentLinks={recentTerminalLinks(props.id)}
+                        onRecentLink={(url, action) => {
+                            setControlGrid((current) => ({ ...current, open: false }));
+                            if (action === 'open') void openExternalUrl(url);
+                            else void Clipboard.setStringAsync(url).then(() => showGestureHintRef.current('Link copied'));
+                        }}
+                        viewCommands={viewControls.commands}
+                        keyboardDisabled={terminalKeyboardDisabled === true}
+                        onKeyboardDisabledChange={setTerminalKeyboardDisabled}
+                    />
                     <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} onClose={() => setOverviewOpen(false)} />
                     <WorkspaceTreeSheet visible={treeOpen} sessionId={props.id} onClose={() => setTreeOpen(false)} />
                     <PluginSlot
@@ -1211,10 +1481,32 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             }}>
                                 <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
                                     <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>
-                                    {foldedSearch && <Pressable onPress={() => { setActionsOpen(false); setFindOpen(true); }} accessibilityRole="button" accessibilityLabel="Find in output"
+                                    <Pressable onPress={() => { setActionsOpen(false); setFindOpen(true); }} accessibilityRole="button" accessibilityLabel="Find in output"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Find in output</Text>
+                                    </Pressable>
+                                    {/* The ring carries this too, but the ring leaves the
+                                        rail while a prompt is being typed — which is
+                                        exactly when a command is most likely wanted. The
+                                        menu is its permanent route. */}
+                                    {canControl && <Pressable onPress={() => { setActionsOpen(false); openAgentCommands(); }} accessibilityRole="button" accessibilityLabel="Agent commands"
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="terminal-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Agent commands</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>}
+                                    {/* The rail's microphone yields to a typed draft, and
+                                        dictation appends rather than replaces, so the one
+                                        flow that would otherwise be out of reach — speak
+                                        the rest of a prompt you started typing — lives
+                                        here. */}
+                                    {canControl && <Pressable onPress={() => { setActionsOpen(false); dictation.toggle(); }} disabled={dictationActive} accessibilityRole="button" accessibilityLabel="Dictate into the prompt"
+                                        accessibilityHint="Adds what you say to the prompt. It never sends by itself."
+                                        accessibilityState={{ disabled: dictationActive }}
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: dictationActive ? 0.4 : 1 })}>
+                                        <Ionicons name="mic-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Dictate into the prompt</Text>
                                     </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/takeover`); }} accessibilityRole="button" accessibilityLabel="Browser"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
@@ -1283,7 +1575,8 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                             <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                         </Pressable>
                                     </>}
-                                    {canControl && <View style={{ paddingHorizontal: 14, paddingVertical: 8 }}>
+                                    {canControl && composerContributions.length > 0 && <View style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 14, paddingRight: 8, paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{composerSlotLabel ?? 'Session tools'}</Text>
                                         <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
                                     </View>}
                                     <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>View</Text>
@@ -1293,7 +1586,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Edit terminal keys</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>}
-                                    {canControl && <Pressable onPress={() => { setActionsOpen(false); setEditingReplies(true); }} accessibilityRole="button" accessibilityLabel="Edit quick replies"
+                                    {canControl && <Pressable onPress={() => { setActionsOpen(false); setControlGrid({ open: true, category: 'snippets' }); }} accessibilityRole="button" accessibilityLabel="Edit quick replies"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="chatbubbles-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Edit quick replies</Text>

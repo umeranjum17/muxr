@@ -4,10 +4,10 @@ import TestRenderer from 'react-test-renderer';
 import { REORDER_STEP, useReorderableList } from './useReorderableList';
 
 /**
- * The reorder machine both editors' handles drive, in one place. It is worth a
- * test of its own rule because the rule was copied wrong once: a pan that
- * consumed a swap must subtract the step it consumed, or the row keeps
- * flinging past the finger instead of following it.
+ * The reorder machine the control grid's two lists (keys, snippets) drive. It
+ * is worth a test of its own rule because the rule was copied wrong once: a
+ * pan that consumed a swap must subtract the step it consumed, or the row
+ * keeps flinging past the finger instead of following it.
  */
 
 vi.mock('@/components/haptics', () => ({ hapticsLight: () => undefined, hapticsSelection: () => undefined }));

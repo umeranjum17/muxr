@@ -3,7 +3,7 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useUnistyles } from 'react-native-unistyles';
-import { useReducedMotion } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useReducedMotion, type SharedValue } from 'react-native-reanimated';
 import { BubblePressable } from '@/components/BubblePressable';
 import { useDictation } from '@/utils/dictation';
 import { t } from '@/text';
@@ -17,30 +17,32 @@ const BAR_MIN_HEIGHT = 4;
 // taller in the middle like a voice waveform.
 const BAR_WEIGHTS = [0.45, 0.65, 0.85, 1, 0.85, 0.65, 0.45];
 
-function DictationWaveform({ level, live, barColor, compact = false }: { level: number; live: boolean; barColor: string; compact?: boolean }) {
+function DictationWaveform({ level, live, barColor, compact = false }: { level: SharedValue<number>; live: boolean; barColor: string; compact?: boolean }) {
     const reduceMotion = useReducedMotion();
     const animated = live && !reduceMotion;
     return (
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            {(compact ? BAR_WEIGHTS.slice(2, 5) : BAR_WEIGHTS.slice(0, BAR_COUNT)).map((weight, index) => {
-                const height = animated
-                    ? BAR_MIN_HEIGHT + level * (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT) * weight
-                    : BAR_MIN_HEIGHT + 0.25 * (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT) * weight;
-                return (
-                    <View
-                        key={index}
-                        style={{
-                            width: compact ? 2 : BAR_WIDTH,
-                            height,
-                            borderRadius: BAR_WIDTH / 2,
-                            backgroundColor: barColor,
-                            marginLeft: index === 0 ? 0 : BAR_GAP,
-                        }}
-                    />
-                );
-            })}
+            {(compact ? BAR_WEIGHTS.slice(2, 5) : BAR_WEIGHTS.slice(0, BAR_COUNT)).map((weight, index) => (
+                <WaveBar key={index} level={level} animated={animated} weight={weight} barColor={barColor} width={compact ? 2 : BAR_WIDTH} first={index === 0} />
+            ))}
         </View>
     );
+}
+
+function WaveBar({ level, animated, weight, barColor, width, first }: {
+    level: SharedValue<number>;
+    animated: boolean;
+    weight: number;
+    barColor: string;
+    width: number;
+    first: boolean;
+}) {
+    const bar = useAnimatedStyle(() => ({
+        height: animated
+            ? BAR_MIN_HEIGHT + level.value * (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT) * weight
+            : BAR_MIN_HEIGHT + 0.25 * (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT) * weight,
+    }));
+    return <Animated.View style={[{ width, borderRadius: width / 2, backgroundColor: barColor, marginLeft: first ? 0 : BAR_GAP }, bar]} />;
 }
 
 export function DictateButton({ context, compact = false, onActiveChange }: {

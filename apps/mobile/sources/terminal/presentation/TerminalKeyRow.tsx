@@ -4,8 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { hapticsSelection } from '@/components/haptics';
-import { ui } from '@/components/ui';
-import { useLocalSetting } from '@/catalog/store';
+import { useLocalSetting, useLocalSettingMutable } from '@/catalog/store';
 import { modifiedSend, resolveKeyRow, type TerminalKey, type TerminalKeyAction } from '../domain/keyRow';
 
 const ARROWS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
@@ -30,6 +29,9 @@ const cycle = (state: Modifier): Modifier => (state === 'off' ? 'once' : state =
 export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channel?: { sendText: (text: string) => void }; children?: React.ReactNode; onEdit: () => void; onAction?: (action: TerminalKeyAction) => void }) {
     const { theme } = useUnistyles();
     const rowEntries = useLocalSetting('terminalKeyRow');
+    // "Use Icons for Modifier Keys": the control grid's display toggle swaps
+    // the modifier captions for glyphs.
+    const [modifierIcons] = useLocalSettingMutable('terminalModifierIcons');
     const [ctrl, setCtrl] = React.useState<Modifier>('off');
     const [shift, setShift] = React.useState<Modifier>('off');
     const ctrlRef = React.useRef<Modifier>('off');
@@ -52,19 +54,22 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
         channel?.sendText(text);
         hapticsSelection();
     }, [channel]);
-    const style = (selected = false, locked = false) => ({
-        minWidth: 44,
-        minHeight: 44,
+    // Marks on the terminal's own plane, not keycaps on a strip. A run of
+    // filled caps at a single grey was most of what read as a band of chrome
+    // under the terminal; unboxed, the row disappears until it is wanted and
+    // an armed modifier is the only thing that takes colour.
+    const style = (locked = false) => ({
+        minHeight: 34,
+        minWidth: 34,
         justifyContent: 'center' as const,
         alignItems: 'center' as const,
-        paddingHorizontal: 8,
-        paddingVertical: 9,
-        borderRadius: ui.radius.control,
-        backgroundColor: selected || locked ? theme.colors.accent : theme.colors.surfaceHigh,
-        borderWidth: locked ? 2 : 0,
-        borderColor: locked ? theme.colors.button.primary.tint : 'transparent',
+        paddingHorizontal: 6,
+        borderRadius: 8,
+        backgroundColor: locked ? theme.colors.accentSubtle : 'transparent',
+        borderWidth: 0,
+        borderColor: 'transparent',
     });
-    const labelStyle = (tint: string) => ({ color: tint, fontSize: 13, ...Typography.mono() });
+    const labelStyle = (tint: string) => ({ color: tint, fontSize: 12, ...Typography.mono() });
     const fire = (key: TerminalKey) => {
         if (key.action !== undefined) {
             hapticsSelection();
@@ -88,8 +93,8 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyboardShouldPersistTaps="always"
-                style={{ flex: 1, maxHeight: 48 }}
-                contentContainerStyle={{ alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 2 }}
+                style={{ flexGrow: 0, maxHeight: 36 }}
+                contentContainerStyle={{ alignItems: 'center', gap: 10, paddingLeft: 8, paddingRight: 18, paddingVertical: 0 }}
             >
             <Pressable
                 onPress={() => { hapticsSelection(); applyMods(cycle(ctrlRef.current), shiftRef.current); }}
@@ -100,9 +105,9 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
                 accessibilityLabel={`Control${ctrl === 'lock' ? ', locked' : ''}`}
                 accessibilityHint="Tap for the next key, double tap to lock. Hold to edit terminal keys."
                 accessibilityState={{ selected: active(ctrl) }}
-                style={({ pressed }) => [style(active(ctrl), ctrl === 'lock'), pressed && { opacity: 0.6 }]}
+                style={({ pressed }) => [style(ctrl === 'lock'), pressed && { opacity: 0.6 }]}
             >
-                <Text style={labelStyle(active(ctrl) ? theme.colors.button.primary.tint : theme.colors.text)}>ctrl</Text>
+                <Text style={labelStyle(active(ctrl) ? theme.colors.accent : theme.colors.textSecondary)}>{modifierIcons === true ? '⌃' : 'ctrl'}</Text>
             </Pressable>
             <Pressable
                 onPress={() => { hapticsSelection(); applyMods(ctrlRef.current, cycle(shiftRef.current)); }}
@@ -113,9 +118,9 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
                 accessibilityActions={[{ name: 'edit', label: 'Edit key row' }]}
                 onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'edit') openEditor(); }}
                 accessibilityState={{ selected: active(shift) }}
-                style={({ pressed }) => [style(active(shift), shift === 'lock'), pressed && { opacity: 0.6 }]}
+                style={({ pressed }) => [style(shift === 'lock'), pressed && { opacity: 0.6 }]}
             >
-                <Text style={labelStyle(active(shift) ? theme.colors.button.primary.tint : theme.colors.text)}>shift</Text>
+                <Text style={labelStyle(active(shift) ? theme.colors.accent : theme.colors.textSecondary)}>{modifierIcons === true ? '⇧' : 'shift'}</Text>
             </Pressable>
             {keys.map((key, index) => {
                 // An action key never encodes modifiers, so an armed modifier
@@ -140,8 +145,8 @@ export function TerminalKeyRow({ channel, children, onEdit, onAction }: { channe
                         style={({ pressed }) => [style(), unavailable && { opacity: 0.35 }, pressed && { opacity: 0.6 }]}
                     >
                         {ARROWS[key.send] !== undefined
-                            ? <Ionicons name={ARROWS[key.send]} size={18} color={theme.colors.text} />
-                            : <Text style={labelStyle(theme.colors.text)}>{key.label}</Text>}
+                            ? <Ionicons name={ARROWS[key.send]} size={12} color={theme.colors.textSecondary} />
+                            : <Text style={labelStyle(theme.colors.textSecondary)}>{key.label}</Text>}
                     </Pressable>
                 );
             })}
