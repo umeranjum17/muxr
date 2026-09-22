@@ -54,22 +54,22 @@ export function useUsageNow(): UsageNowRead {
     const rejected = React.useRef(false);
     const pendingForce = React.useRef(false);
     const bursting = React.useRef(false);
+    const collectAfter = React.useRef<number | undefined>(undefined);
     const followUp = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    const latest = React.useRef<(force: boolean | undefined) => void>(() => {});
+    const latest = React.useRef<(force: boolean) => void>(() => {});
     const shown = React.useRef<UsageNow | undefined>(undefined);
     const shownAt = React.useRef(0);
     if (shown.current !== state.value) { shown.current = state.value; shownAt.current = Date.now(); }
 
-    const load = React.useCallback((force: boolean | undefined): Promise<void> => {
-        // A cadence cycle is decided here, at the instant it asks and against
-        // that same instant: the ask below is noted against `now`, so the next
-        // cycle measures a whole window from here rather than the round trip of
-        // whatever read happened to land first. A tap is `true` and a burst's
-        // follow-up is `false` -- the follow-up asks the cache-respecting
-        // question on purpose, because forcing it again would start a second
-        // collection behind the one already running.
-        const now = Date.now();
-        const collect = force ?? (collectionDue(READ_TAB, now) && forcedReadWait(lastForced.current, rejected.current, now) === undefined);
+    /**
+     * `force` asks the host to collect past its cache; such a read claims our
+     * own window and the shared budget at `claimedAtMs`, the instant the
+     * decision to collect was taken, so the next cycle measures a whole window
+     * from where it decided rather than from a round trip. Every other read is
+     * cache-respecting: the figures the host already holds are what a reader
+     * sees, and a collection runs behind them rather than in place of them.
+     */
+    const load = React.useCallback((force: boolean, claimedAtMs = Date.now()): Promise<void> => {
         // One read at a time. A tap during a background read is the same read,
         // so it joins it rather than stacking a second ask -- and still turns
         // the control on, because the tap did do something.
@@ -78,19 +78,24 @@ export function useUsageNow(): UsageNowRead {
         // The budget belongs to a forced read that actually starts: a cycle that
         // can only join the read already in flight must not spend it, and the
         // window opens only where we really ask.
-        if (collect) { lastForced.current = now; noteAsked(READ_TAB, now); }
-        const following = !collect && collecting.current > 0;
+        if (force) { lastForced.current = claimedAtMs; noteAsked(READ_TAB, claimedAtMs); }
+        // A follow-up asks the cache-respecting question on purpose: forcing it
+        // again would start a second collection behind the one the read that
+        // opened the burst already left running.
+        const following = !force && collecting.current > 0;
         const replaced = following ? shown.current : undefined;
         const replacedAt = following ? shownAt.current : 0;
+        let painted = false;
         loading.current = true;
         const request = ++version.current;
         setState((current) => ({ ...current, refreshing: true }));
-        return sync.request('usage.now', collect ? { refresh: true } : {}, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
+        return sync.request('usage.now', force ? { refresh: true } : {}, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((result) => {
                 if (request !== version.current) return;
                 // The host answered, so the last read was not rejected: whether
                 // it produced figures is a different question (`failed`).
                 rejected.current = false;
+                painted = result.collecting !== true;
                 // Only a newer payload, or an explicit failure, ends a read. The
                 // host's cache replays any same-day payload, so a follow-up can
                 // be answered by the very figures this read set out to replace:
@@ -132,12 +137,28 @@ export function useUsageNow(): UsageNowRead {
                 // A tap taken while the last read was rejected asked for a read
                 // past the cache; it runs the moment the read in flight settles
                 // rather than being answered by it.
-                if (!pendingForce.current) return;
-                pendingForce.current = false;
-                setThrottledSeconds(undefined);
+                if (pendingForce.current) {
+                    pendingForce.current = false;
+                    collectAfter.current = undefined;
+                    setThrottledSeconds(undefined);
+                    collecting.current = 0;
+                    bursting.current = false;
+                    void load(true);
+                    return;
+                }
+                // The figures the host already had have painted, so the one
+                // collection our own window authorized runs now.
+                const claimedAt = collectAfter.current;
+                if (claimedAt === undefined) return;
+                collectAfter.current = undefined;
+                // A cold answer means the host was already collecting: the
+                // burst below is following that up, and asking again would only
+                // start a second collection behind it.
+                if (!painted) return;
+                if (forcedReadWait(lastForced.current, rejected.current, Date.now()) !== undefined) return;
                 collecting.current = 0;
                 bursting.current = false;
-                latest.current(true);
+                void load(true, claimedAt);
             });
     }, []);
     latest.current = load;
@@ -156,12 +177,13 @@ export function useUsageNow(): UsageNowRead {
             setState((current) => ({ ...current, refreshing: true }));
             return;
         }
-        const waitSeconds = forcedReadWait(lastForced.current, rejected.current, Date.now());
+        const now = Date.now();
+        const waitSeconds = forcedReadWait(lastForced.current, rejected.current, now);
         if (waitSeconds !== undefined) { setThrottledSeconds(waitSeconds); return; }
         setThrottledSeconds(undefined);
         collecting.current = 0;
         bursting.current = false;
-        void load(true);
+        void load(true, now);
     }, [load]);
 
     React.useEffect(() => {
@@ -175,10 +197,13 @@ export function useUsageNow(): UsageNowRead {
         // restart the burst's budget: bounded means bounded even across a focus.
         // Once the burst has settled this is a new cycle, and it starts whole.
         if (!bursting.current) collecting.current = 0;
-        // The cycle decides for itself, from our own per-tab window, at the
-        // instant it asks. The host's word on its figures' age is what the
-        // screen says about them, never what opens or closes that window.
-        void load(undefined);
+        // What the host already holds paints first, always. Our own per-tab
+        // record -- decided, and recorded, at this instant -- says whether a
+        // collection runs behind those figures; the host's word on their age is
+        // what the card says about them, never what opens or closes the window.
+        const now = Date.now();
+        if (collectionDue(READ_TAB, now) && forcedReadWait(lastForced.current, rejected.current, now) === undefined) collectAfter.current = now;
+        void load(false);
     }, [load]), FRESH_MS);
 
     React.useEffect(() => () => {

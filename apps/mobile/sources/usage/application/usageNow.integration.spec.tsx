@@ -228,10 +228,10 @@ describe('the Home card read path', () => {
         expect(request).toHaveBeenCalledTimes(2);
 
         // It keeps itself current on the slow cadence rather than in a loop:
-        // the window measured from its own ask has opened, so the cycle
-        // collects rather than be served the same figures again.
+        // the window measured from its own ask has opened, so the cycle paints
+        // what the host holds and collects behind it.
         await tick(FRESH_MS);
-        expect(request).toHaveBeenCalledTimes(3);
+        expect(request).toHaveBeenCalledTimes(4);
         expect(request).toHaveBeenLastCalledWith('usage.now', { refresh: true }, expect.any(Number));
     });
 
@@ -266,8 +266,47 @@ describe('the Home card read path', () => {
         expect(forcedReads()).toHaveLength(3);
     });
 
+    it('paints the figures the host already holds before the collection it starts', async () => {
+        // The host holds a same-day entry and its collection outlives the wait
+        // it answers a forced ask with. The first ask must be served that entry
+        // at once -- figures on screen, never the collecting word -- with the
+        // one collection running behind them.
+        const capture = '2026-09-22T09:00:00.000Z';
+        const cached = collected(3_600, 100, capture);
+        const fresh = collected(undefined, 20, '2026-09-22T18:00:00.000Z');
+        let landed = false;
+        request.mockImplementation((_method: string, params?: { refresh?: boolean }) => {
+            if (params?.refresh === true) {
+                setTimeout(() => { landed = true; }, 8_000);
+                return Promise.resolve(COLLECTING);
+            }
+            return Promise.resolve(landed ? fresh : cached);
+        });
+        const card = renderCard();
+        await tick();
+
+        // The host's own figures paint at once -- the card shows them, not the
+        // collecting word -- with the one collection running behind them rather
+        // than in place of them.
+        expect(screenText(card)).toContain('0%');
+        expect(screenText(card)).not.toContain('plugins.rightNow.collecting');
+        expect(forcedReads()).toHaveLength(1);
+
+        // A replay of that very entry does not end the read waiting on the
+        // collection it started...
+        await tick(6_000);
+        expect(screenText(card)).toContain('0%');
+        expect(screenText(card)).toContain('plugins.rightNow.refreshing');
+        expect(forcedReads()).toHaveLength(1);
+
+        // ...which swaps in when it lands.
+        await tick(6_000);
+        expect(screenText(card)).toContain('80%');
+        expect(screenText(card)).not.toContain('plugins.rightNow.refreshing');
+    });
+
     it('never takes figures off the screen to refresh them, and says plainly when it could not', async () => {
-        request.mockResolvedValueOnce(collected()).mockResolvedValueOnce(COLLECTING).mockRejectedValue(new Error('host unreachable'));
+        request.mockResolvedValueOnce(collected()).mockResolvedValueOnce(collected()).mockResolvedValueOnce(COLLECTING).mockRejectedValue(new Error('host unreachable'));
         const card = mount();
         await tick();
         const figures = card.latest().value;
@@ -314,11 +353,11 @@ describe('the Home card read path', () => {
         request.mockResolvedValue(collected());
         mount();
         await tick();
-        expect(request).toHaveBeenCalledTimes(1);
+        expect(request).toHaveBeenCalledTimes(2);
 
         TestRenderer.act(() => { appState.currentState = 'background'; appState.listeners.forEach((listener) => listener('background')); });
         await tick(3 * FRESH_MS);
-        expect(request).toHaveBeenCalledTimes(1);
+        expect(request).toHaveBeenCalledTimes(2);
 
         // Coming back is its own moment: the figures aged for the whole time away.
         await TestRenderer.act(async () => {
@@ -326,21 +365,18 @@ describe('the Home card read path', () => {
             appState.listeners.forEach((listener) => listener('active'));
             await vi.advanceTimersByTimeAsync(0);
         });
-        expect(request).toHaveBeenCalledTimes(2);
+        expect(request).toHaveBeenCalledTimes(4);
     });
 
     it('accepts a genuinely newer payload whose age is larger than the one it replaces', async () => {
-        // The replaced figures were painted at age 3s; the collection the tap
-        // started answers six seconds later, so its capture is newer even
+        // The replaced figures were painted at age 3s; the collection the first
+        // view started answers six seconds later, so its capture is newer even
         // though its age is larger. Comparing raw ages alone would discard it
         // and exhaust the read into a false failure.
         request.mockResolvedValueOnce(collected(3)).mockResolvedValueOnce(COLLECTING).mockResolvedValue(collected(6));
         const card = mount();
         await tick();
-        await tick(11_000);
-
-        TestRenderer.act(() => { card.latest().refresh(); });
-        await tick();
+        expect(card.latest().value?.ageSeconds).toBe(3);
         expect(card.latest().refreshing).toBe(true);
 
         await tick(6_000);
@@ -357,13 +393,10 @@ describe('the Home card read path', () => {
         // the time since those figures were painted, which is not a collection
         // finishing, so the read asks again -- and still accepts the collection
         // once it lands.
-        request.mockResolvedValueOnce(collected(3)).mockResolvedValueOnce(COLLECTING).mockResolvedValueOnce(collected(20)).mockResolvedValue(collected(1));
+        request.mockResolvedValueOnce(collected(3)).mockResolvedValueOnce(COLLECTING).mockResolvedValueOnce(collected(9)).mockResolvedValue(collected(1));
         const card = mount();
         await tick();
-        await tick(11_000);
-
-        TestRenderer.act(() => { card.latest().refresh(); });
-        await tick();
+        expect(card.latest().value?.ageSeconds).toBe(3);
         expect(card.latest().refreshing).toBe(true);
 
         await tick(6_000);
@@ -386,10 +419,7 @@ describe('the Home card read path', () => {
             .mockResolvedValue(collected(1, 100, '2026-09-22T10:20:00.000Z'));
         const card = mount();
         await tick();
-        await tick(11_000);
-
-        TestRenderer.act(() => { card.latest().refresh(); });
-        await tick();
+        expect(card.latest().value?.capturedAt).toBe(capture);
         expect(card.latest().refreshing).toBe(true);
 
         await tick(6_000);
@@ -420,25 +450,25 @@ describe('the Home card read path', () => {
         expect(request).toHaveBeenCalledTimes(12);
     });
 
-    it('does not add a collection from a cycle landing on a read in flight', async () => {
+    it('does not stack a cycle behind a read already in flight', async () => {
         let release: (value: UsageNow) => void = () => undefined;
         request.mockResolvedValueOnce(collected())
             .mockImplementationOnce(() => new Promise<UsageNow>((resolve) => { release = resolve; }))
             .mockResolvedValue(collected());
         const card = mount();
         await tick();
-        await tick(11_000);
-
-        // A tap starts a read and keeps it in flight...
-        TestRenderer.act(() => { card.latest().refresh(); });
+        // The first view painted, and the collection it authorized is in flight.
         expect(request).toHaveBeenCalledTimes(2);
-        // ...when a cycle lands. It cannot ask behind it, so no third read is
-        // issued and no budget claimed.
+
+        // The window opens and a cycle lands on it. Nothing is issued behind it...
+        await tick(FRESH_MS);
         TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
         expect(request).toHaveBeenCalledTimes(2);
-        await TestRenderer.act(async () => { release(collected()); });
 
-        // The tap that was honoured stayed the one collection it asked for.
+        // ...and the collection the cycle authorized runs once, after it settles.
+        await TestRenderer.act(async () => { release(collected()); });
+        await tick();
+        expect(request).toHaveBeenCalledTimes(3);
         expect(forcedReads()).toHaveLength(2);
     });
 
@@ -466,7 +496,7 @@ describe('the Home card read path', () => {
     });
 
     it('lets a tap on the card control re-collect straight after a failure', async () => {
-        request.mockResolvedValueOnce(collected()).mockRejectedValueOnce(new Error('host unreachable')).mockResolvedValue(collected());
+        request.mockResolvedValueOnce(collected()).mockResolvedValueOnce(collected()).mockRejectedValueOnce(new Error('host unreachable')).mockResolvedValue(collected());
         const card = renderCard();
         await tick();
         await tick(11_000);
@@ -542,9 +572,11 @@ describe('the usage screen read path', () => {
             return Promise.resolve(report(tab, Math.max(0, Math.round((Date.now() - cachedAt[tab]) / 1_000))));
         });
 
-        // Opening is worth one collection for claude.
+        // Opening paints what the host already holds...
         let screen = renderScreen();
         await tick();
+        expect(request.mock.calls[0]?.[1]).toEqual({});
+        // ...and runs the one collection our own window authorized behind it.
         expect(forcedReads()).toHaveLength(1);
 
         // Re-entry...
@@ -620,8 +652,8 @@ describe('the usage screen read path', () => {
         const screen = renderScreen();
         await tick();
 
-        // A cycle starts a read and keeps it in flight...
-        TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
+        // The collection the first view asked for is already in flight...
+        TestRenderer.act(() => { appState.listeners.forEach((listener) => listener('active')); });
         expect(request).toHaveBeenCalledTimes(2);
 
         // ...and a pull lands on it. The spinner follows the read that is

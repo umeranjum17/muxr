@@ -59,26 +59,29 @@ export function UsageScreen() {
     const report = fetched.key === provider ? fetched.value : reportCache.get(provider);
     const tabs = report?.providers ?? [];
 
-    // One rule for every forced read on this screen, whether a person asked or
-    // a cadence cycle did: honour it unless the last forced read is too recent,
-    // and claim the budget only where the read actually starts. A read that was
-    // rejected consumed no provider quota, so it is exempt.
-    const claimForced = React.useCallback((tab: string, nowMs: number): number | undefined => {
-        const waitSeconds = forcedReadWait(lastForced.current, rejected.current, nowMs);
-        if (waitSeconds !== undefined) return waitSeconds;
-        lastForced.current = nowMs;
-        noteAsked(tab, nowMs);
-        return undefined;
-    }, []);
+    /** A collection our own window authorized, owed from the instant it was
+     *  decided: the report the host already holds paints first and this runs
+     *  behind it, so nothing is ever withheld to decide whether to refresh it.
+     *  Every forced read on this screen goes through the one budget in
+     *  `forcedReadWait`, whether a person asked or a cadence cycle did. */
+    const collectAfter = React.useRef<number | undefined>(undefined);
 
-    // `quiet` is the background cadence: it repaints without dimming figures
-    // that are still the answer until a newer one lands.
-    const load = React.useCallback((target: string, refresh = false, quiet = false): Promise<void> => {
+    /**
+     * `refresh` asks the host to collect past its cache; such a read claims our
+     * own window and the shared budget at `claimedAtMs`, the instant the
+     * decision to collect was taken, so the next window is measured from where
+     * it decided rather than from a round trip. Every other ask is
+     * cache-respecting, so what the host already holds paints at once. `quiet`
+     * is the background cadence: it repaints without dimming figures that are
+     * still the answer until a newer one lands.
+     */
+    const load = React.useCallback((target: string, refresh = false, quiet = false, claimedAtMs = Date.now()): Promise<void> => {
         const request = ++version.current;
         inFlight.current = true;
         setBusy(true);
         if (!refresh && !quiet) setLoading(true);
         setError(undefined);
+        if (refresh) { lastForced.current = claimedAtMs; noteAsked(target, claimedAtMs); }
         return sync.request('usage.report', { ...(target === '' ? {} : { provider: target }), ...(refresh ? { refresh: true } : {}) }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((value) => {
                 if (request !== version.current) return;
@@ -96,22 +99,29 @@ export function UsageScreen() {
                 setBusy(false);
                 setLoading(false);
                 setRefreshing(false);
+                // The report the host already held has painted, so the one
+                // collection our own window authorized runs behind it.
+                const claimedAt = collectAfter.current;
+                if (claimedAt === undefined) return;
+                collectAfter.current = undefined;
+                if (forcedReadWait(lastForced.current, rejected.current, Date.now()) !== undefined) return;
+                void load(target, true, true, claimedAt);
             });
     }, []);
 
-    /** One ask for a tab. Whether it collects is our own decision, taken at the
-     *  instant we ask and recorded against that same instant: a tab nobody has
-     *  asked collects on its first view, and one asked inside the window is
-     *  served the host's cache. The host's word on how old its figures are is
-     *  what the screen says about them, never what decides this. `replace` lets
-     *  a tab change through while another tab's read is still in flight; a
+    /** One ask for a tab. It always paints what the host already holds; whether
+     *  a collection runs behind that report is our own decision, taken and
+     *  recorded at the instant we ask: a tab nobody has asked collects on its
+     *  first view, and the host's word on how old its figures are is what the
+     *  screen says about them rather than what decides this. `replace` lets a
+     *  tab change through while another tab's read is still in flight; a
      *  cadence never stacks a second read behind one. */
     const loadIfDue = React.useCallback((target: string, quiet: boolean, replace = false): void => {
         if (inFlight.current && !replace) return;
         const now = Date.now();
-        const refresh = collectionDue(target, now) && claimForced(target, now) === undefined;
-        void load(target, refresh, quiet);
-    }, [claimForced, load]);
+        if (collectionDue(target, now) && forcedReadWait(lastForced.current, rejected.current, now) === undefined) collectAfter.current = now;
+        void load(target, false, quiet);
+    }, [load]);
 
     React.useEffect(() => {
         loadIfDue(provider, false, true);
@@ -134,7 +144,7 @@ export function UsageScreen() {
     // a refusal is named at the control that was pressed, never silent.
     const askNow = (): boolean => {
         if (inFlight.current) return false;
-        const waitSeconds = claimForced(provider, Date.now());
+        const waitSeconds = forcedReadWait(lastForced.current, rejected.current, Date.now());
         if (waitSeconds !== undefined) { setThrottledSeconds(waitSeconds); return false; }
         setThrottledSeconds(undefined);
         return true;
