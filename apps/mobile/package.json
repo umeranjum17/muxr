@@ -21,6 +21,7 @@
     "@expo/ui": "~57.0.16",
     "@expo/vector-icons": "^15.0.2",
     "@more-tech/react-native-libsodium": "^1.5.5",
+    "@desklink/react-native": "0.1.0",
     "@muxr/contract": "0.0.0",
     "@muxr/crypto": "0.0.0",
     "@paralleldrive/cuid2": "^2.3.1",

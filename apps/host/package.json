@@ -6,6 +6,7 @@
     "type": "module",
     "main": "./dist/main.js",
     "dependencies": {
+        "@desklink/host": "0.1.0",
         "@muxr/contract": "0.0.0",
         "@muxr/crypto": "0.0.0",
         "ws": "^8.18.0"

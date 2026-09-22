@@ -15,6 +15,10 @@ import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMo
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
+// The flag is its own entry: the package's barrel also carries the session
+// hook, and the ring slot is built on every terminal screen, so importing the
+// barrel here would put the client's session in the application's first paint.
+import { desktopAvailable } from '@desklink/react-native/availability';
 import { changesList } from '@/catalog/ops';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
@@ -52,6 +56,7 @@ import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, De
 import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
 import { FloatingTerminalControls, TerminalMenuQuickActions, floatingControlFits, type ClusterKey, type RingHandle, type RingSlot } from './FloatingTerminalControls';
+import { assembleRing } from './ringSlots';
 import { TerminalKeyRow } from './TerminalKeyRow';
 import { TerminalControlGrid, type ControlGridCategory } from './TerminalKeyRowEditor';
 import { ARROW_CLUSTER, BUILTIN_KEY_CATALOG, DEFAULT_ROW_IDS, type RowEntry, type TerminalKeyAction } from '../domain/keyRow';
@@ -985,13 +990,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             icon: 'clipboard-outline',
             run: () => void pasteToDraft(),
         });
-        slots.push({
-            id: 'browser',
-            label: 'Browser',
-            icon: 'globe-outline',
-            run: () => router.push(`/session/${encodeURIComponent(props.id)}/takeover`),
-        });
-        return slots;
+        return assembleRing(
+            slots,
+            desktopAvailable && canControl,
+            () => router.push(`/session/${encodeURIComponent(props.id)}/desktop`),
+            () => router.push(`/session/${encodeURIComponent(props.id)}/takeover`),
+        );
     }, [canControl, changesCount, openAgentCommands, pasteToDraft, props.id, sendCommand]);
 
     // The cross the ring's Arrows slot summons: the row's own catalog keys, the
@@ -1699,7 +1703,19 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Find in output</Text>
                                     </Pressable>
-                                    <TerminalMenuQuickActions slots={ringSlots} terminalHeight={terminalBox?.height} hasTools={hasTools} onClose={() => setActionsOpen(false)} />
+                                    <TerminalMenuQuickActions slots={ringSlots.filter((slot) => slot.id !== 'browser' && slot.id !== 'computer')} terminalHeight={terminalBox?.height} hasTools={hasTools} onClose={() => setActionsOpen(false)} />
+                                    <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/takeover`); }} accessibilityRole="button" accessibilityLabel="Browser"
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="globe-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Browser</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>
+                                    {desktopAvailable && canControl && <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/desktop`); }} accessibilityRole="button" accessibilityLabel="Computer"
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="desktop-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Computer</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/history`); }} accessibilityRole="button" accessibilityLabel="Conversation history"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="document-text-outline" size={18} color={theme.colors.textSecondary} />

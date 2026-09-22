@@ -1,0 +1,31 @@
+{
+    "name": "@desklink/react-native",
+    "version": "0.1.0",
+    "license": "Apache-2.0",
+    "description": "Render and drive a desktop session from a React Native app",
+    "main": "index.ts",
+    "types": "index.ts",
+    "exports": {
+        ".": "./index.ts",
+        "./availability": {
+            "browser": "./src/availability.web.ts",
+            "default": "./src/availability.ts"
+        }
+    },
+    "files": [
+        "index.ts",
+        "src",
+        "android",
+        "ios",
+        "expo-module.config.json",
+        "NOTICE",
+        "README.md"
+    ],
+    "peerDependencies": {
+        "expo": ">=55",
+        "expo-modules-core": ">=55",
+        "react": ">=19",
+        "react-native": ">=0.83",
+        "react-native-webrtc": ">=124"
+    }
+}

@@ -4846,7 +4846,7 @@ expo-modules-autolinking@55.0.11:
     chalk "^4.1.0"
     commander "^7.2.0"
 
-expo-modules-core@55.0.17, expo-modules-core@~55.0.17:
+expo-modules-core@*, expo-modules-core@55.0.17, expo-modules-core@~55.0.17:
   version "55.0.17"
   resolved "https://registry.yarnpkg.com/expo-modules-core/-/expo-modules-core-55.0.17.tgz#6779b3c9f285aef3b12752121ace0dfd8808db5e"
   integrity sha512-pw3cZiaSlBrqRJUD/pHuMnKGsRTW6XJ255FrjDd3HC4QrqErCnfSQPmz+Sv4Qkelcvd9UGdAewyTqZdFwjLwOw==
@@ -4985,7 +4985,7 @@ expo-web-browser@55.0.10, expo-web-browser@~55.0.0:
   resolved "https://registry.yarnpkg.com/expo-web-browser/-/expo-web-browser-55.0.10.tgz#f036958e6fafa9fb7ab27e84e134021713a83264"
   integrity sha512-2d6qVrg/nt0JvW5uAqOMDG/xITIXFe1Prkq1ri+I3PrC0QmV5cMYNSagU9ykfC8S7YKWxF1qO7Qsih9fxNa9dw==
 
-expo@55.0.8, expo@~55.0.8:
+expo@*, expo@55.0.8, expo@~55.0.8:
   version "55.0.8"
   resolved "https://registry.yarnpkg.com/expo/-/expo-55.0.8.tgz#035ac1db0b1ababa9a31e7d02be388834f62f3f2"
   integrity sha512-sziDGiDmeRmaSpFwMuSxFhr4vfWrQS1UgVXSTovsUDY0ximABzYdnF5L2OwtD8zjtIww8x2oJGmD6mKS+AoVsw==

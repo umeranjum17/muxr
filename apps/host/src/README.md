@@ -13,6 +13,7 @@ src/
   peer/{domain,application,infrastructure}/
   requests/{application,infrastructure}/
   diagnostics/{infrastructure}/
+  desktop/{domain,application,infrastructure}/
 ```
 
 Each module exposes `index.ts`. Other modules import that file, not internals.

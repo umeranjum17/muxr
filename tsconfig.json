@@ -8,6 +8,9 @@
             "path": "packages/contract"
         },
         {
+            "path": "packages/desktop-host"
+        },
+        {
             "path": "apps/relay"
         },
         {

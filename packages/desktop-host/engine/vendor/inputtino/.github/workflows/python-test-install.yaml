@@ -1,0 +1,49 @@
+name: "Python: Installation Test"
+
+on:
+  push:
+    branches: [stable]
+  pull_request:
+    branches: [stable]
+
+defaults:
+  run:
+    shell: bash
+    working-directory: ./bindings/python
+
+jobs:
+  test-install:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        container:
+          - image: ubuntu:22.04
+            install: >-
+              apt-get update &&
+              apt-get install -y build-essential cmake libevdev-dev pkg-config git python3 python3-pip &&
+              python3 -m pip install --upgrade pip
+          - image: ubuntu:24.04
+            install: >-
+              apt-get update &&
+              apt-get install -y build-essential cmake libevdev-dev pkg-config git python3 python3-pip
+          - image: archlinux:latest
+            install: >-
+              pacman -Syu --noconfirm &&
+              pacman -S --noconfirm git cmake base-devel pkgconf libevdev python python-pip &&
+              python -m pip install --upgrade pip --break-system-packages
+          - image: fedora:latest
+            install: >-
+              dnf install -y git cmake gcc gcc-c++ make pkgconf-pkg-config libevdev-devel python3-devel python3-pip &&
+              python -m pip install --upgrade pip --break-system-packages
+    container:
+      image: ${{ matrix.container.image }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: ${{ matrix.container.install }}
+
+      - name: Install package
+        run: python3 -m pip install . --break-system-packages

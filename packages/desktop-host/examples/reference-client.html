@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>desklink reference client</title>
+<!--
+  The smallest thing that shows a desktop in a browser.
+
+  It is served by `desklink-host bridge` and exists for two reasons: to prove the
+  engine is usable by a consumer that has no signaling channel of its own, and to
+  be the worked example that a third-party application can read instead of
+  reverse-engineering the protocol.
+
+  Everything it does is in the documented protocol: one WebSocket carrying the
+  engine's local control protocol, one RTCPeerConnection, one data channel for
+  pointer, keyboard and clipboard. There is no framework and no build step.
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0e1013; color: #e8eaed;
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  body { display: flex; flex-direction: column; }
+  header { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    background: #17191d; border-bottom: 1px solid #2a2d33; }
+  header b { font-size: 14px; font-weight: 600; }
+  #status { color: #9aa0a6; font-size: 13px; flex: 1; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  button { font: inherit; color: inherit; background: #23262c; border: 1px solid #3a3f47;
+    border-radius: 9px; min-height: 38px; padding: 6px 12px; }
+  button:disabled { opacity: .45; }
+  #stage { position: relative; flex: 1; min-height: 0; overflow: hidden;
+    display: flex; align-items: center; justify-content: center; background: #000; }
+  video { display: none; max-width: 100%; max-height: 100%; touch-action: none; }
+  #overlay { position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; padding: 24px; text-align: center; color: #9aa0a6; }
+  #tools { flex: none; display: flex; gap: 6px; justify-content: center; padding: 8px;
+    background: #17191d; border-top: 1px solid #2a2d33; }
+  #remote-keyboard { position: absolute; width: 1px; height: 1px; opacity: .01; border: 0; }
+</style>
+</head>
+<body>
+<header>
+  <b>desklink</b>
+  <span id="status">Starting…</span>
+  <button id="reconnect" disabled>Reconnect</button>
+</header>
+<div id="stage">
+  <video id="video" autoplay muted playsinline></video>
+  <div id="overlay"></div>
+  <textarea id="remote-keyboard" aria-label="Remote keyboard"></textarea>
+</div>
+<nav id="tools">
+  <button id="keyboard">Keyboard</button>
+  <button id="copy">Copy from desktop</button>
+  <button id="paste">Paste to desktop</button>
+</nav>
+
+<script type="module">
+const params = new URLSearchParams(location.search);
+const token = params.get('token') ?? '';
+const socketUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/desktop?token=${encodeURIComponent(token)}`;
+
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const status = document.getElementById('status');
+const reconnect = document.getElementById('reconnect');
+const keyboard = document.getElementById('remote-keyboard');
+
+let socket = null;
+let peer = null;
+let channel = null;
+let surface = { width: 0, height: 0 };
+let nextSeq = 0;
+let pending = new Map();
+let requestId = 0;
+let attempts = 0;
+const clipboardRequests = new Map();
+
+function say(text) { status.textContent = text; }
+function show(text) { overlay.style.display = 'flex'; overlay.textContent = text; }
+function hide() { overlay.style.display = 'none'; video.style.display = 'block'; }
+
+/** One request on the engine's local protocol, over the bridge. */
+function request(method, params) {
+  const id = ++requestId;
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    socket.send(JSON.stringify({ id, method, params: params ?? {} }));
+    setTimeout(() => {
+      if (pending.delete(id)) reject(new Error(`${method} timed out`));
+    }, 30_000);
+  });
+}
+
+/** One message on the session's control channel, sequenced for the engine. */
+function control(message) {
+  if (channel?.readyState !== 'open') return;
+  channel.send(JSON.stringify({ ...message, seq: ++nextSeq }));
+}
+
+function sendPointer(phase, x, y, button) {
+  control({ kind: 'pointer', phase, x, y, ...(button === undefined ? {} : { button }) });
+}
+
+/** Touch → encoded-surface coordinates, or null when the touch is off the picture. */
+function point(event) {
+  const rect = video.getBoundingClientRect();
+  if (surface.width === 0 || surface.height === 0) return null;
+  const scale = Math.min(rect.width / surface.width, rect.height / surface.height);
+  const drawn = { width: surface.width * scale, height: surface.height * scale };
+  const left = rect.left + (rect.width - drawn.width) / 2;
+  const top = rect.top + (rect.height - drawn.height) / 2;
+  const x = Math.floor((event.clientX - left) / scale);
+  const y = Math.floor((event.clientY - top) / scale);
+  if (x < 0 || y < 0 || x >= surface.width || y >= surface.height) return null;
+  return { x, y };
+}
+
+// One pointer, four outcomes: tap, drag, scroll, or a move that is nothing yet.
+// The slop threshold is what separates a tap from a drag on a touch screen.
+const SLOP = 6;
+let gesture = null;
+let pointers = 0;
+
+video.addEventListener('pointerdown', (event) => {
+  // Capture keeps a drag alive when the finger leaves the picture. A synthetic
+  // event has no real pointer behind it, so a refusal here is not fatal.
+  pointers += 1;
+  try { video.setPointerCapture(event.pointerId); } catch { /* no real pointer */ }
+  if (pointers > 1) {
+    // A second finger makes this a scroll gesture; release anything the drag
+    // already pressed, and never turn the lift into a click.
+    if (gesture?.dragging) {
+      sendPointer('up', gesture.current.x, gesture.current.y, 1);
+    }
+    gesture = null;
+    return;
+  }
+  const at = point(event);
+  if (at === null) return;
+  gesture = { startX: event.clientX, startY: event.clientY, at, current: at, dragging: false, pointerId: event.pointerId };
+  sendPointer('move', at.x, at.y);
+});
+video.addEventListener('pointermove', (event) => {
+  if (gesture === null || gesture.pointerId !== event.pointerId) return;
+  const moved = Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY);
+  if (!gesture.dragging && moved > SLOP) {
+    sendPointer('down', gesture.at.x, gesture.at.y, 1);
+    gesture.dragging = true;
+  }
+  const at = point(event);
+  if (gesture.dragging && at !== null) {
+    sendPointer('move', at.x, at.y, 1);
+    gesture.current = at;
+  }
+});
+for (const name of ['pointerup', 'pointercancel']) {
+  video.addEventListener(name, (event) => {
+    pointers = Math.max(0, pointers - 1);
+    if (gesture === null || gesture.pointerId !== event.pointerId) return;
+    const at = point(event);
+    if (gesture.dragging) {
+      if (at !== null) sendPointer('up', at.x, at.y, 1);
+      else sendPointer('cancel', gesture.at.x, gesture.at.y);
+    } else if (name === 'pointerup' && at !== null) {
+      // A tap is a click at the touched point: press and release on the same
+      // coordinates, so the desktop sees the click where the user aimed.
+      sendPointer('down', at.x, at.y, 1);
+      sendPointer('up', at.x, at.y, 1);
+    }
+    gesture = null;
+  });
+}
+video.addEventListener('wheel', (event) => {
+  event.preventDefault();
+  control({ kind: 'wheel', dx: 0, dy: Math.sign(event.deltaY) });
+}, { passive: false });
+
+// The hidden editor owns the platform keyboard; the committed text and the
+// named keys are what the desktop receives.
+let composing = false;
+keyboard.addEventListener('compositionstart', () => { composing = true; });
+keyboard.addEventListener('compositionend', (event) => {
+  composing = false;
+  if (event.data) control({ kind: 'text', text: event.data });
+  keyboard.value = '';
+});
+keyboard.addEventListener('beforeinput', (event) => {
+  if (composing || event.isComposing) return;
+  if (event.inputType === 'insertText' && event.data) {
+    event.preventDefault();
+    control({ kind: 'text', text: event.data });
+  } else if (event.inputType === 'deleteContentBackward') {
+    event.preventDefault();
+    control({ kind: 'key', name: 'Backspace', down: true });
+    control({ kind: 'key', name: 'Backspace', down: false });
+  } else if (event.inputType === 'insertLineBreak') {
+    event.preventDefault();
+    control({ kind: 'key', name: 'Enter', down: true });
+    control({ kind: 'key', name: 'Enter', down: false });
+  }
+});
+const named = {
+  Enter: 'Enter', Backspace: 'Backspace', Tab: 'Tab', Escape: 'Escape',
+  ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown',
+  Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown',
+  Control: 'Control', Shift: 'Shift', Alt: 'Alt', Meta: 'Meta',
+};
+keyboard.addEventListener('keydown', (event) => {
+  const name = named[event.key];
+  if (composing || name === undefined) return;
+  event.preventDefault();
+  control({ kind: 'key', name, down: true });
+});
+keyboard.addEventListener('keyup', (event) => {
+  const name = named[event.key];
+  if (composing || name === undefined) return;
+  event.preventDefault();
+  control({ kind: 'key', name, down: false });
+});
+
+document.getElementById('keyboard').addEventListener('click', () => {
+  keyboard.value = '';
+  keyboard.focus();
+});
+document.getElementById('copy').addEventListener('click', async () => {
+  const id = crypto.randomUUID();
+  const answer = new Promise((resolve) => clipboardRequests.set(id, resolve));
+  control({ kind: 'clipboard_read', request: id });
+  const reply = await Promise.race([answer, new Promise((r) => setTimeout(() => r({ error: 'the desktop did not answer' }), 5000))]);
+  clipboardRequests.delete(id);
+  if (reply.error) { say(`Copy failed: ${reply.error}`); return; }
+  await navigator.clipboard.writeText(reply.text ?? '');
+  say('Copied from the desktop');
+});
+document.getElementById('paste').addEventListener('click', async () => {
+  // Read the local clipboard inside the user gesture: a browser clipboard read
+  // outside one is refused, so it cannot happen after an await.
+  let text = '';
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    say('The browser would not read the clipboard; type the text instead');
+    return;
+  }
+  const id = crypto.randomUUID();
+  control({ kind: 'clipboard_write', request: id, text });
+  say('Sent to the desktop clipboard');
+});
+
+let opening = false;
+async function start() {
+  if (opening) return;
+  opening = true;
+  reconnect.disabled = true;
+  video.srcObject = null;
+  show(attempts === 0 ? 'Connecting…' : 'Reconnecting…');
+  say('Connecting…');
+  try {
+    const session = await request('session.open', {
+      permissions: ['view', 'control', 'clipboard'],
+      max_width: 1280, max_height: 800, max_fps: 30,
+    });
+    surface = session.geometry.encoded;
+    // Reference-client diagnostics: enough to see the session from the console
+    // without a debugger. Not part of the protocol.
+    window.__session = session;
+    window.__request = request;
+    const pc = new RTCPeerConnection({ iceServers: [] });
+    peer = pc;
+    // Exposed for the page's own diagnostics: the only trustworthy answer to
+    // "is it really decoding" is the decoder's frame count, not a track event.
+    window.__peer = pc;
+    // The ENGINE creates the control channel, because it is the offerer. A
+    // client that creates its own channel with the same label gets a second,
+    // unrelated stream: its requests reach the engine, and every reply the
+    // engine sends lands on a channel the client never read. Taking the offered
+    // channel is what makes the session two-way.
+    pc.ondatachannel = (event) => {
+      channel = event.channel;
+      channel.onmessage = (event2) => {
+        const reply = JSON.parse(event2.data);
+        (window.__replies ??= []).push(reply);
+        handleReply(reply);
+      };
+    };
+    const handleReply = (reply) => {
+      if (reply.kind === 'hello') { surface = reply.geometry.encoded; return; }
+      if (reply.kind === 'revoked') { show(`Access ended: ${reply.reason}`); teardown(); return; }
+      if (reply.kind === 'clipboard') { clipboardRequests.get(reply.request)?.({ text: reply.text, error: reply.error }); return; }
+      if (reply.kind === 'rejected') say(`Refused: ${reply.code}`);
+    };
+    pc.ontrack = (event) => {
+      video.srcObject = event.streams[0];
+      hide();
+      attempts = 0;
+      // "Live" means a frame actually rendered. A track arriving, or ICE
+      // connecting, is not the same thing and would be a lie on a broken codec.
+      const firstFrame = () => {
+        say(`Live · ${video.videoWidth}x${video.videoHeight}`);
+      };
+      if (typeof video.requestVideoFrameCallback === 'function') {
+        video.requestVideoFrameCallback(firstFrame);
+      } else {
+        video.addEventListener('loadeddata', firstFrame, { once: true });
+      }
+    };
+    pc.onicecandidate = (event) => {
+      if (event.candidate === null) return;
+      void request('session.candidate', {
+        session_id: session.sessionId,
+        candidate: event.candidate.candidate,
+        sdp_mid: event.candidate.sdpMid,
+        sdp_m_line_index: event.candidate.sdpMLineIndex,
+      }).catch(() => undefined);
+    };
+    pc.onconnectionstatechange = () => {
+      if (pc !== peer) return;
+      say(`Live · ${pc.connectionState}`);
+      if (pc.connectionState === 'failed') { show('The connection was lost.'); teardown(); }
+    };
+    // The engine is the offerer, so this side waits for the offer and answers.
+    const offer = await waitForOffer();
+    await pc.setRemoteDescription({ type: 'offer', sdp: offer });
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await request('session.description', {
+      session_id: session.sessionId,
+      description: { type: 'answer', sdp: answer.sdp },
+    });
+    reconnect.disabled = false;
+    void pc;
+  } catch (error) {
+    show(`Could not open the desktop. ${error instanceof Error ? error.message : error}`);
+    say('Failed');
+    teardown();
+    reconnect.disabled = false;
+  } finally {
+    opening = false;
+  }
+}
+
+/**
+ * The offer arrives as a notification, and it can land before `session.open`
+ * resolves or after: the engine creates it while the open is still in flight, so
+ * both orders happen in practice. Keeping the last offer means neither order
+ * hangs.
+ */
+let offerWaiter = null;
+let offerSdp = null;
+function waitForOffer() {
+  if (offerSdp !== null) {
+    const ready = offerSdp;
+    offerSdp = null;
+    return Promise.resolve(ready);
+  }
+  return new Promise((resolve) => { offerWaiter = resolve; });
+}
+
+function teardown(message) {
+  peer?.close();
+  peer = null;
+  channel = null;
+  video.srcObject = null;
+  // A dead session must leave a visible state behind: clearing the video and
+  // saying nothing leaves a black rectangle that looks like a broken desktop
+  // rather than a lost connection.
+  if (typeof message === 'string') show(message);
+}
+
+function connectSocket() {
+  socket = new WebSocket(socketUrl);
+  socket.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    if (message.id !== undefined) {
+      const waiting = pending.get(message.id);
+      if (waiting === undefined) return;
+      pending.delete(message.id);
+      if (message.error) waiting.reject(new Error(`${message.error.code}: ${message.error.message}`));
+      else waiting.resolve(message.result);
+      return;
+    }
+    if (message.event === 'session.description') {
+      const sdp = message.params.description.sdp;
+      if (offerWaiter !== null) {
+        const resolve = offerWaiter;
+        offerWaiter = null;
+        resolve(sdp);
+      } else {
+        offerSdp = sdp;
+      }
+    }
+  };
+  socket.onclose = () => {
+    say('Disconnected');
+    teardown('Disconnected from the desktop host. Reconnect to continue.');
+  };
+  socket.onerror = () => {
+    say('The desktop host is unreachable');
+    teardown('The desktop host is unreachable. Reconnect to try again.');
+  };
+}
+
+reconnect.addEventListener('click', () => {
+  attempts += 1;
+  teardown();
+  socket?.close();
+  connectSocket();
+  socket.addEventListener('open', () => void start(), { once: true });
+});
+
+connectSocket();
+socket.addEventListener('open', () => { show('Connecting…'); void start(); }, { once: true });
+</script>
+</body>
+</html>

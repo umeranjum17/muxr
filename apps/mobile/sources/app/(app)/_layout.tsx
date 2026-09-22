@@ -130,6 +130,14 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="session/[id]/desktop"
+                options={{
+                    headerShown: true,
+                    headerTitle: 'Computer',
+                    headerBackTitle: t('common.back'),
+                }}
+            />
+            <Stack.Screen
                 name="session/[id]/takeover"
                 options={{
                     headerShown: true,

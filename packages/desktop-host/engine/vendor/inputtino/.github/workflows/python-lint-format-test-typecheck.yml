@@ -1,0 +1,124 @@
+name: "Python: Lint / Format / Test / Type Check"
+
+on:
+  push:
+    branches: [stable]
+  pull_request:
+    branches: [stable]
+
+defaults:
+  run:
+    shell: bash
+    working-directory: ./bindings/python
+
+env:
+  PYTHON_VERSION: "3.10"
+  UV_VERSION: "0.5.10"
+
+jobs:
+  run_linter:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format cpplint cppcheck make build-essential cmake libevdev-dev pkg-config
+
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+
+      - name: Run linter
+        run: make lint
+
+  run_formatter:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format cpplint cppcheck make build-essential cmake libevdev-dev pkg-config
+
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+
+      - name: Run formatter
+        run: make format
+
+  run_tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ["ubuntu-latest"]
+        python-version: ["3.10", "3.11","3.12", "3.13"]
+
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv and set the python version
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libevdev-dev pkg-config
+
+      - name: Cache uv dependencies
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: uv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}
+
+      - name: Install dependencies
+        run: uv sync --reinstall
+
+      - name: Run pytest with coverage
+        run: |
+          uv run pytest -v --log-level INFO --cov -m "not practical"
+
+  run_type-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libevdev-dev pkg-config
+
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+
+      - name: Cache uv dependencies
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: uv-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run pyright
+        run: uv run pyright src
