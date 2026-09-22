@@ -56,6 +56,7 @@ export function useUsageNow(): UsageNowRead {
     const lastForced = React.useRef(0);
     const failed = React.useRef(false);
     const pendingForce = React.useRef(false);
+    const bursting = React.useRef(false);
     const followUp = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const latest = React.useRef<(force: boolean) => void>(() => {});
     const shown = React.useRef<UsageNow | undefined>(undefined);
@@ -69,6 +70,9 @@ export function useUsageNow(): UsageNowRead {
         // the control on, because the tap did do something.
         if (loading.current) { setState((current) => ({ ...current, refreshing: true })); return; }
         if (followUp.current !== undefined) { clearTimeout(followUp.current); followUp.current = undefined; }
+        // The budget belongs to a forced read that actually starts: a cycle that
+        // can only join the read already in flight must not spend it.
+        if (force) lastForced.current = Date.now();
         // A follow-up asks the cache-respecting question on purpose: forcing it
         // again would start a second collection behind the one the read that
         // opened the burst already left running.
@@ -88,11 +92,13 @@ export function useUsageNow(): UsageNowRead {
                 // waiting rather than settling on what it already had.
                 if (result.collecting !== true && (replaced === undefined || isNewer(result, replaced, replacedAt, Date.now()))) {
                     collecting.current = 0;
+                    bursting.current = false;
                     setState({ value: result, failed: false, refreshing: false });
                     return;
                 }
                 collecting.current += 1;
                 const exhausted = collecting.current >= COLLECTING_ATTEMPTS;
+                bursting.current = !exhausted;
                 // A cold answer never takes collected figures off the screen:
                 // showing what was last known is the whole point of refreshing
                 // behind it. With nothing collected yet it still paints, so the
@@ -108,7 +114,10 @@ export function useUsageNow(): UsageNowRead {
             // A refresh that failed leaves the figures it could not replace
             // exactly where they were, with their age, and says so.
             .catch(() => {
-                if (request === version.current) setState((current) => ({ ...current, failed: true, refreshing: false }));
+                if (request === version.current) {
+                    bursting.current = false;
+                    setState((current) => ({ ...current, failed: true, refreshing: false }));
+                }
             })
             .finally(() => {
                 if (request !== version.current) return;
@@ -118,9 +127,9 @@ export function useUsageNow(): UsageNowRead {
                 // rather than being answered by it.
                 if (!pendingForce.current) return;
                 pendingForce.current = false;
-                lastForced.current = Date.now();
                 setThrottledSeconds(undefined);
                 collecting.current = 0;
+                bursting.current = false;
                 latest.current(true);
             });
     }, []);
@@ -139,12 +148,11 @@ export function useUsageNow(): UsageNowRead {
             setState((current) => ({ ...current, refreshing: true }));
             return;
         }
-        const now = Date.now();
-        const waitSeconds = forcedReadWait(lastForced.current, failed.current, now);
+        const waitSeconds = forcedReadWait(lastForced.current, failed.current, Date.now());
         if (waitSeconds !== undefined) { setThrottledSeconds(waitSeconds); return; }
-        lastForced.current = now;
         setThrottledSeconds(undefined);
         collecting.current = 0;
+        bursting.current = false;
         load(true);
     }, [load]);
 
@@ -155,18 +163,16 @@ export function useUsageNow(): UsageNowRead {
     }, [throttledSeconds]);
 
     useForegroundRefresh(React.useCallback(() => {
-        // A new read cycle begins here, and the attempt budget bounds one
-        // contiguous burst rather than the session: without this reset a single
-        // exhausted burst would disarm every later cycle.
-        collecting.current = 0;
+        // A cycle beginning while a collecting burst is still running must not
+        // restart the burst's budget: bounded means bounded even across a focus.
+        // Once the burst has settled this is a new cycle, and it starts whole.
+        if (!bursting.current) collecting.current = 0;
         // Only figures already known to be past their window are worth a whole
         // collection; anything newer is served from the host's cache. The same
         // throttle guards this cycle, which falls back to the cheap ask rather
         // than skipping the moment.
         const age = shown.current?.ageSeconds;
-        const now = Date.now();
-        const force = age !== undefined && age * 1_000 >= FRESH_MS && forcedReadWait(lastForced.current, failed.current, now) === undefined;
-        if (force) lastForced.current = now;
+        const force = age !== undefined && age * 1_000 >= FRESH_MS && forcedReadWait(lastForced.current, failed.current, Date.now()) === undefined;
         load(force);
     }, [load]), FRESH_MS);
 
@@ -183,9 +189,11 @@ export function useUsageNow(): UsageNowRead {
  *  capture instants rather than the ages themselves: the two ages were
  *  measured at different moments, so the replaced one is stale by however long
  *  ago it was painted, and a fresh collection's age is merely its own duration.
- *  A same-day cache replay shares the replaced capture and is not an answer.
- *  With no age to compare there is nothing to hold the read open for. */
+ *  Both instants are reconstructed from whole-second ages, so an answer must
+ *  clear the replaced capture by more than that rounding before it counts: a
+ *  same-day cache replay shares the capture and is not an answer. With no age
+ *  to compare there is nothing to hold the read open for. */
 function isNewer(next: UsageNow, previous: UsageNow, previousObservedAtMs: number, nowMs: number): boolean {
     if (previous.ageSeconds === undefined || next.ageSeconds === undefined) return true;
-    return nowMs - next.ageSeconds * 1_000 > previousObservedAtMs - previous.ageSeconds * 1_000;
+    return nowMs - next.ageSeconds * 1_000 > previousObservedAtMs - previous.ageSeconds * 1_000 + 1_000;
 }

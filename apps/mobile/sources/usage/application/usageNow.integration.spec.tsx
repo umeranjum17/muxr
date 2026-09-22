@@ -269,6 +269,75 @@ describe('the Home card read path', () => {
         expect(request).toHaveBeenCalledTimes(settled);
     });
 
+    it('keeps waiting when a follow-up is answered by the same capture', async () => {
+        // A replay carries the replaced capture, but both instants are rebuilt
+        // from whole-second ages, so its rounding can place it up to a second
+        // later. That is still not the collection finishing, so the read asks
+        // again -- and still accepts the collection once it lands.
+        request.mockResolvedValueOnce(collected(1_200)).mockResolvedValueOnce(COLLECTING).mockResolvedValueOnce(collected(1_205)).mockResolvedValue(collected(1));
+        const card = mount();
+        await tick();
+
+        TestRenderer.act(() => { card.latest().refresh(); });
+        await tick();
+        expect(card.latest().refreshing).toBe(true);
+
+        await tick(6_000);
+        expect(card.latest().value?.ageSeconds).toBe(1_200);
+        expect(card.latest().refreshing).toBe(true);
+
+        await tick(6_000);
+        expect(card.latest().value?.ageSeconds).toBe(1);
+        expect(card.latest().refreshing).toBe(false);
+    });
+
+    it('does not restart a collecting burst from a cycle event, but a later cycle starts whole', async () => {
+        request.mockResolvedValue(COLLECTING);
+        const card = mount();
+        await tick();
+
+        // A foreground return lands mid-burst and must not hand it a fresh
+        // budget: the six attempts stay six.
+        TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
+        await tick();
+        for (let follow = 0; follow < 4; follow += 1) await tick(6_000);
+        expect(request).toHaveBeenCalledTimes(6);
+        expect(card.latest().failed).toBe(true);
+
+        // The burst has settled: the next cadence cycle gets its own budget.
+        await tick(FRESH_MS);
+        for (let follow = 0; follow < 5; follow += 1) await tick(6_000);
+        expect(request).toHaveBeenCalledTimes(12);
+    });
+
+    it('does not spend the forced budget on a cycle that could only join a read', async () => {
+        let release: (value: UsageNow) => void = () => undefined;
+        request.mockResolvedValueOnce(collected(FRESH_MS / 1_000 + 60))
+            .mockResolvedValueOnce(COLLECTING)
+            .mockImplementationOnce(() => new Promise<UsageNow>((resolve) => { release = resolve; }))
+            .mockResolvedValue(collected());
+        const card = mount();
+        await tick();
+
+        // One forced read starts, and its burst leaves a follow-up in flight...
+        TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
+        await tick();
+        await tick(6_000);
+
+        // ...when a cycle lands, more than ten seconds after the read that
+        // really ran. It can only join, so it must not claim the budget.
+        await tick(5_000);
+        TestRenderer.act(() => { appState.listeners.forEach((listener) => listener('active')); });
+        await TestRenderer.act(async () => { release(COLLECTING); });
+
+        // A tap now is more than ten seconds after that read, so it is honoured
+        // rather than told to wait for a read that never ran.
+        await tick(1_000);
+        TestRenderer.act(() => { card.latest().refresh(); });
+        await tick();
+        expect(forcedReads()).toHaveLength(2);
+    });
+
     it('says a throttled tap is throttled when a person presses the card control', async () => {
         request.mockResolvedValue(collected());
         const card = renderCard();

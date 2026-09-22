@@ -168,6 +168,29 @@ async function driveNow(environment) {
     }
 }
 
+/** Several asks issued against one host environment at the same moment, the
+ *  way a card's follow-up and a screen's revalidation can land together. */
+async function driveConcurrently(environment, inputs) {
+    const previous = new Map(ENV_KEYS.map((key) => [key, process.env[key]]));
+    const previousFetch = fetchStub;
+    const { __fetch, ...env } = environment;
+    for (const [key, value] of Object.entries(env)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+    }
+    fetchStub = __fetch;
+    const frozenEnv = { ...process.env };
+    try {
+        return await Promise.all(inputs.map((input) => collectUsage(input, frozenEnv)));
+    } finally {
+        fetchStub = previousFetch;
+        for (const [key, value] of previous) {
+            if (value === undefined) delete process.env[key];
+            else process.env[key] = value;
+        }
+    }
+}
+
 const baseEnv = () => ({
     HOME: scratch,
     PATH: `${scratch}:${process.env.PATH}`,
@@ -289,6 +312,31 @@ try {
     const brokenPi = await run({ provider: 'pi' }, { PI_AGENT_DIR: join(scratch, 'broken-pi'), MUXR_HOME: join(scratch, 'no-cache-pi') });
     assert.equal(brokenPi.todayTokens, '—');
     assert.match(brokenPi.activityNotice ?? '', /could not be measured/);
+
+    // A cold cache asked for by two readers at once costs one collection, not
+    // one each: the card's follow-ups and a screen's revalidation can land on
+    // the same tab together, and each collection is a ccusage scan plus every
+    // provider ask. The waiters share the one answer.
+    const joinMarker = join(scratch, 'join-ccusage-ran');
+    const joinCcusage = join(scratch, 'ccusage-join');
+    writeFileSync(joinCcusage, `#!/bin/sh\nprintf x >> "${joinMarker}"\nsleep 1\nprintf '%s' '${JSON.stringify(report)}'\n`, { mode: 0o755 });
+    const [firstAsk, secondAsk] = await driveConcurrently(
+        { ...baseEnv(), MUXR_HOME: join(scratch, 'join-state'), MUXR_CCUSAGE_BIN: joinCcusage },
+        [{ provider: 'claude' }, { provider: 'claude' }],
+    );
+    assert.equal(readFileSync(joinMarker, 'utf8'), 'x', 'concurrent cold asks ran more than one collection');
+    assert.equal(firstAsk, secondAsk, 'concurrent asks did not share one answer');
+    assert.equal(firstAsk.todayTokens, '1.3M');
+
+    // A collection that fails answers every waiter too: the same honest
+    // degraded payload, never silence.
+    const [firstFail, secondFail] = await driveConcurrently(
+        { ...baseEnv(), PI_AGENT_DIR: join(scratch, 'broken-pi'), MUXR_HOME: join(scratch, 'join-fail-state') },
+        [{ provider: 'pi' }, { provider: 'pi' }],
+    );
+    assert.equal(firstFail, secondFail, 'a failed collection stranded a waiter');
+    assert.equal(firstFail.todayTokens, '—');
+    assert.match(firstFail.activityNotice ?? '', /could not be measured/);
 
     const recent = await run({});
     assert.equal(recent.provider, 'omp');

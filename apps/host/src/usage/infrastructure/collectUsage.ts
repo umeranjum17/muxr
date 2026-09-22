@@ -486,6 +486,10 @@ function selectedLimitsMessage(provider: string, claudeVMs: UsageWindowVM[], goV
     return NOT_CONNECTED_MESSAGE;
 }
 
+/** Collections in flight, keyed exactly as the cache is: identity, local date
+ *  and selected tab. */
+const inFlight = new Map<string, Promise<UsageReport>>();
+
 export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.ProcessEnv = process.env): Promise<UsageReport> {
     const requested = (input.provider ?? '').slice(0, MAX_PROVIDER_INPUT);
     const selected = Object.hasOwn(AGENTS, requested) ? requested : '';
@@ -493,12 +497,30 @@ export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.Pr
     // midnight would label one provider's day with another day's window.
     const NOW = nowDate(env);
     const TODAY = localDate(NOW);
-    const PERIODS = windowPeriods(NOW);
     const identity = cacheIdentity(env);
     const cached = input.refresh === true ? undefined : cachedOutput(env, identity, TODAY, NOW.getTime(), selected);
     if (cached !== undefined) {
         return cached.stale ? { ...cached.output, stale: true } : cached.output;
     }
+    // A cold cache asked for by several readers at once -- the Home card's
+    // follow-ups, the Usage screen's revalidation, another screen or device --
+    // costs one collection, not one per reader. Every waiter gets the same
+    // answer or the same rejection; the entry is cleared however it settles.
+    const key = `${identity}\u0000${TODAY}\u0000${selected}`;
+    const running = inFlight.get(key);
+    if (running !== undefined) return running;
+    let collection: Promise<UsageReport>;
+    collection = collectFresh(selected, NOW, TODAY, identity, env).finally(() => {
+        if (inFlight.get(key) === collection) inFlight.delete(key);
+    });
+    inFlight.set(key, collection);
+    return collection;
+}
+
+/** The collection itself, once the caller knows the cache is cold. The instant,
+ *  the provider tab and the cache identity are fixed for the whole payload. */
+async function collectFresh(selected: string, NOW: Date, TODAY: string, identity: string, env: NodeJS.ProcessEnv): Promise<UsageReport> {
+    const PERIODS = windowPeriods(NOW);
     // Codex limits load every time: the home card lists them whatever tab the
     // details screen last showed.
     const [{ range, failure: ccusageFailure }, codex, local] = await Promise.all([
