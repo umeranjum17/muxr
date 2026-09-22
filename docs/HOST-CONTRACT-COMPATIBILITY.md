@@ -1,6 +1,6 @@
 # Host/client contract compatibility
 
-The mobile client and host share `packages/contract/src/requests.ts`. Release candidates must not ship a request type the immutable host release cannot dispatch.
+The mobile client and host share `packages/contract/src/control-plane/domain/requests.ts`. Release candidates must not ship a request type the immutable host release cannot dispatch.
 
 The compatibility gate is:
 
