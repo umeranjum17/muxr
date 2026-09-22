@@ -19,7 +19,7 @@ const readline = require('node:readline');
 const out = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const request = JSON.parse(line);
-  if (request.method === 'hello') return out({ id: request.id, result: { protocol: 1 } });
+  if (request.method === 'hello') return out({ id: request.id, result: { protocol: 2 } });
   if (request.method === 'session.open') {
     setTimeout(() => out({ event: 'session.description', params: { generation: 1, description: { type: 'offer', sdp: 'v=0 offer' } } }), 5);
     return out({ id: request.id, result: {
@@ -165,7 +165,7 @@ const out = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const request = JSON.parse(line);
   fs.appendFileSync(${JSON.stringify(log)}, request.method + ' ' + JSON.stringify(request.params ?? {}) + '\\n');
-  if (request.method === 'hello') return out({ id: request.id, result: { protocol: 1 } });
+  if (request.method === 'hello') return out({ id: request.id, result: { protocol: 2 } });
   if (request.method === 'session.open') return out({ id: request.id, result: { sessionId: 'engine-1', generation: 7 } });
   if (request.method === 'session.close') return out({ id: request.id, result: { closed: true } });
   if (request.method === 'shutdown') { out({ id: request.id, result: {} }); process.exit(0); }

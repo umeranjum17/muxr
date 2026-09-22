@@ -6,7 +6,7 @@
  * application: a machine id, a chat or an account has no place here.
  */
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export interface EngineError {
     code: string;

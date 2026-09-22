@@ -1,4 +1,4 @@
-# desklink local control protocol (v1)
+# desklink local control protocol (v2)
 
 The host engine is a per-user, on-demand process. A consumer that already owns
 the user's session starts it and talks to it over an inherited private channel —
@@ -55,13 +55,13 @@ Request parameters use the engine's own snake_case names (`session_id`,
 ## Handshake
 
 ```jsonc
-{"id":1,"method":"hello","params":{"protocol":1}}
+{"id":1,"method":"hello","params":{"protocol":2}}
 ```
 
 Result:
 
 ```jsonc
-{"protocol":1,"engine":"desklink-host/0.1.0","platform":"linux", /* the rest of Capabilities */ }
+{"protocol":2,"engine":"desklink-host/0.1.0","platform":"linux", /* the rest of Capabilities */ }
 ```
 
 The consumer must send `hello` first, and a version the engine does not speak is
@@ -77,7 +77,7 @@ arrives, every other request is refused the same way; `capabilities` and
 
 ```jsonc
 {
-  "protocol": 1,
+  "protocol": 2,
   "engine": "desklink-host/0.1.0",
   "platform": "linux",
   "session": {"kind": "wayland"},
@@ -274,7 +274,7 @@ are JSON, one per message:
 The engine answers on the same channel:
 
 ```jsonc
-{"kind":"hello","protocol":1,"geometry":{…}}     // once, when the channel opens
+{"kind":"hello","protocol":2,"geometry":{…}}     // once, when the channel opens
 {"kind":"ack","seq":44}
 {"kind":"rejected","seq":44,"code":"coordinates","message":"(9000,4) is outside the 1280x720 surface"}
 {"kind":"clipboard","request":"…","text":"…"}     // "error" alongside an empty "text" when the read failed

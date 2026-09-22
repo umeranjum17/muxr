@@ -27,7 +27,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   switch (request.method) {
     case 'hello':
       return out({ id: request.id, result: {
-        protocol: 1, engine: 'stub/0', platform: 'linux', session: { kind: 'wayland' },
+        protocol: 2, engine: 'stub/0', platform: 'linux', session: { kind: 'wayland' },
         capture: { mechanism: 'stub', formats: [], cursor: 'embedded', audio: false },
         encode: { codecs: ['vp9'], hardware: false },
         input: { mechanism: 'stub', pointer: true, wheel: true, keyboard: true, text: ['latin1'], unavailable_reason: null, grant: 'granted' },
@@ -35,7 +35,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       } });
     case 'capabilities':
       return out({ id: request.id, result: {
-        protocol: 1, engine: 'stub/0', platform: 'linux', session: { kind: 'wayland' },
+        protocol: 2, engine: 'stub/0', platform: 'linux', session: { kind: 'wayland' },
         capture: { mechanism: 'stub', formats: [], cursor: 'embedded', audio: false },
         encode: { codecs: ['vp9'], hardware: false },
         input: { mechanism: 'stub', pointer: true, wheel: true, keyboard: true, text: ['latin1'], unavailable_reason: null, grant: 'granted' },
@@ -287,6 +287,9 @@ describe('desktop sessions, host side', () => {
 
         const polled = await desktop.poll(second.desktopId, 0);
         expect(polled.events.some((event) => event.kind === 'revoked')).toBe(false);
+        // The new session's own notifications are kept, not filtered away with
+        // the abandoned session's.
+        expect(polled.events.map((event) => event.kind)).toEqual(['offer', 'candidate']);
         // The new record survives the poll that a mis-attributed revocation would
         // have deleted it on.
         await expect(desktop.poll(second.desktopId, polled.cursor)).resolves.toBeDefined();

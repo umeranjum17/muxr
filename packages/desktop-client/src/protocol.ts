@@ -14,7 +14,7 @@
  * only describe the subset a client needs.
  */
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export type Permission = 'view' | 'control' | 'clipboard';
 

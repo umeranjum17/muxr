@@ -55,7 +55,7 @@ import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, De
 import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
 import { FloatingTerminalControls, RING_CENTER_SIZE, type RingSlot } from './FloatingTerminalControls';
-import { desktopRingSlot } from './ringSlots';
+import { assembleRing } from './ringSlots';
 import { TERMINAL_QUICK_REPLIES, TerminalKeyRow } from './TerminalKeyRow';
 import { TerminalControlGrid, type ControlGridCategory } from './TerminalKeyRowEditor';
 import { DEFAULT_ROW_IDS, type RowEntry, type TerminalKeyAction } from '../domain/keyRow';
@@ -874,12 +874,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
         // conversation, so it takes the ring's last slot wherever the package
         // has a surface and this grant may act: Android and the web build, for
         // a control grant. Browser keeps its permanent route in the menu.
-        slots.push(desktopRingSlot(
+        return assembleRing(
+            slots,
             desktopAvailable && canControl,
             () => router.push(`/session/${encodeURIComponent(props.id)}/desktop`),
             () => router.push(`/session/${encodeURIComponent(props.id)}/takeover`),
-        ));
-        return slots;
+        );
     }, [canControl, changesCount, keyboardVisible, openAgentCommands, pasteToDraft, props.id, sendCommand, terminalKeyboardCommand, viewControls]);
 
     // Where this session sits and how it is allowed to act, in one quiet row.
