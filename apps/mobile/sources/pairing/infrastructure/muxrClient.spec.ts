@@ -337,4 +337,27 @@ describe('reconnect schedule after a drop', () => {
         expect(await dropAndMeasureWait(client)).toBe(1500);
         client.close();
     }, 30_000);
+
+    it('bounds give-up by wall-clock, so a relay that waits out every liveness timeout still stops in time', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('WebSocket', FakeWebSocket);
+        const client = new MuxrClient({ mode: 'local', relayUrl: 'ws://relay.test', machineId: 'machine-1' });
+        client.connect();
+        await vi.advanceTimersByTimeAsync(0);
+
+        // The ordinary 'laptop asleep' path: the relay accepts the socket, no
+        // host frame ever arrives, and each attempt is ended by the 20s
+        // liveness timer rather than by its own delay. An attempt count would
+        // let twenty of those run for minutes; only the clock can stop them.
+        const startedAt = Date.now();
+        while (client.state !== 'stale' && Date.now() - startedAt < 300_000) {
+            await vi.advanceTimersToNextTimerAsync();
+        }
+
+        expect(client.state).toBe('stale');
+        // The budget, the attempt in flight when it runs out, and the one the
+        // first dial owned before any reconnect was scheduled.
+        expect(Date.now() - startedAt).toBeLessThan(125_000);
+        client.close();
+    }, 30_000);
 });
