@@ -30,9 +30,12 @@ export interface TerminalViewProps {
      *  no terminal IME, so the pane keeps its own keyboard fallback and the
      *  ring carries only the screen's own slots. */
     onViewControls?: (controls: { commands: TerminalCommand[]; dismissKeyboard: () => void }) => void;
-    /** A long press landed on a plain HTTP(S) text link; the screen decides
-     *  what to offer for it at the point it was pressed. OSC 8 links keep their
-     *  normal tap activation. Absent, the press falls back to copying. */
+    /** A printed link was reached for; the screen decides what to offer for it,
+     *  at the point it was pressed. A tap carries this on both terminals. The
+     *  browser's long press carries it too, but only for a plain HTTP(S) text
+     *  link: xterm does not expose an OSC 8 URI per cell, so a hyperlink whose
+     *  visible label is not itself a URL is resolved by the tap instead.
+     *  Absent, the press falls back to copying. */
     onLinkPress?: (url: string, at?: { x: number; y: number }) => void;
 }
 
@@ -94,13 +97,22 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             // a strongly worded warning when no handler is set. Route through
             // the app boundary, which drops non-web schemes instead.
             linkHandler: {
-                activate: (_event, text) => openTerminalLink(text, openExternalUrl),
+                activate: (event, text) => reachLink(text, event),
             },
         });
+        // One rule on both terminals: reaching for a link asks what to do with
+        // it rather than choosing for you. Only the gesture that can carry the
+        // question differs, and only because the native grid's renderer handles
+        // its own long press; nothing opens here without being chosen either.
+        const reachLink = (url: string, event?: MouseEvent): void => {
+            if (onLinkPress === undefined) { openTerminalLink(url, openExternalUrl); return; }
+            const box = element.getBoundingClientRect();
+            onLinkPress(url, event === undefined ? undefined : { x: event.clientX - box.left, y: event.clientY - box.top });
+        };
         const fit = new FitAddon();
         term.loadAddon(fit);
-        // Plain-text URLs open through the same boundary.
-        term.loadAddon(new WebLinksAddon((_event, uri) => openTerminalLink(uri, openExternalUrl)));
+        // Plain-text URLs ride the addon, but through the same boundary.
+        term.loadAddon(new WebLinksAddon((event, uri) => reachLink(uri, event)));
         term.open(element);
         fit.fit();
         setTerminalColumns(sessionId, term.cols);
